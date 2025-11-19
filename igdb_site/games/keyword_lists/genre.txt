@@ -1,1 +1,1 @@
-action-adventure, brawler, card battler, metroidvania, platformer, puzzle platformer, roguelike, shmup, soulslike, stealth, survival horror
+.2d platformer, 3d platformer, action-adventure, brawler, card battler, graphic adventure, metroidvania, platformer, puzzle platformer, roguelike, shmup, soulslike, stealth, survival horror
