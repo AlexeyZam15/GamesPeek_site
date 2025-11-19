@@ -5,7 +5,7 @@ from games.models import Keyword, KeywordCategory
 
 
 class Command(BaseCommand):
-    help = 'Load keyword categories from text files'
+    help = 'Load keyword categories from text files (only for unclassified keywords)'
 
     def handle(self, *args, **options):
         # Используем правильный путь через settings.BASE_DIR
@@ -43,7 +43,7 @@ class Command(BaseCommand):
             else:
                 self.stdout.write(f"📁 Using existing category: {display_name}")
 
-        # Загружаем ключевые слова из файлов
+        # Загружаем ключевые слова из файлов (ТОЛЬКО неклассифицированные)
         total_classified = 0
         used_keywords = set()
 
@@ -67,6 +67,7 @@ class Command(BaseCommand):
             classified_count = 0
             not_found_count = 0
             duplicate_count = 0
+            already_classified_count = 0
 
             # Показываем прогресс каждые 10 ключевых слов
             for i, keyword_name in enumerate(keywords, 1):
@@ -82,6 +83,15 @@ class Command(BaseCommand):
                 try:
                     keyword = Keyword.objects.filter(name__iexact=keyword_name).first()
                     if keyword:
+                        # ВАЖНО: Проверяем если ключевое слово уже классифицировано
+                        if keyword.category is not None:
+                            if i <= 3:  # Показываем только первые 3 уже классифицированных
+                                self.stdout.write(
+                                    f"   🔒 [{i}] Already classified: '{keyword_name}' → {keyword.category.name}")
+                            already_classified_count += 1
+                            continue
+
+                        # Классифицируем ТОЛЬКО если категория пустая
                         keyword.category = category_obj
                         keyword.save()
                         classified_count += 1
@@ -100,7 +110,9 @@ class Command(BaseCommand):
 
             # Итоги по файлу
             self.stdout.write(f"📊 {file_name.capitalize()} results:")
-            self.stdout.write(f"   ✅ Classified: {classified_count}")
+            self.stdout.write(f"   ✅ Newly classified: {classified_count}")
+            if already_classified_count > 0:
+                self.stdout.write(f"   🔒 Already classified: {already_classified_count}")
             if not_found_count > 0:
                 self.stdout.write(f"   ❌ Not found: {not_found_count}")
             if duplicate_count > 0:
@@ -110,13 +122,13 @@ class Command(BaseCommand):
         self.stdout.write("\n" + "=" * 50)
         self.stdout.write("🎯 FINAL CLASSIFICATION SUMMARY:")
         self.stdout.write(f"   📁 Total files processed: {len(category_objects)}")
-        self.stdout.write(f"   ✅ Total keywords classified: {total_classified}")
+        self.stdout.write(f"   ✅ New keywords classified: {total_classified}")
         self.stdout.write(f"   📊 Remaining unclassified: {Keyword.objects.filter(category__isnull=True).count()}")
-        self.stdout.write(f"   📈 Database coverage: {total_classified / Keyword.objects.count() * 100:.1f}%")
+        self.stdout.write(
+            f"   📈 Database coverage: {(Keyword.objects.count() - Keyword.objects.filter(category__isnull=True).count()) / Keyword.objects.count() * 100:.1f}%")
 
         if total_classified > 0:
-            self.stdout.write(self.style.SUCCESS(
-                f"\n🎉 SUCCESS! Classified {total_classified} keywords across {len(category_objects)} categories!"))
+            self.stdout.write(self.style.SUCCESS(f"\n🎉 SUCCESS! Newly classified {total_classified} keywords!"))
         else:
             self.stdout.write(
-                self.style.ERROR(f"\n❌ FAILED! No keywords were classified. Check file paths and keyword names."))
+                self.style.WARNING(f"\nℹ️ No new keywords were classified. All keywords already have categories."))
