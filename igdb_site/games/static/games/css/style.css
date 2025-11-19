@@ -1,0 +1,175 @@
+/* GamesPeek Custom Styles */
+:root {
+    --primary-color: #ff6b35;
+    --secondary-color: #2c3e50;
+    --accent-color: #3498db;
+    --light-bg: #f8f9fa;
+    --dark-bg: #343a40;
+}
+
+/* General Styles */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--light-bg);
+}
+
+/* Navigation */
+.navbar-brand {
+    font-weight: bold;
+    color: var(--primary-color) !important;
+    font-size: 1.5rem;
+}
+
+.navbar-dark {
+    background-color: var(--secondary-color) !important;
+}
+
+/* Game Cards */
+.game-card {
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    height: 100%;
+    border: none;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.game-card:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+}
+
+.cover-img {
+    height: 300px;
+    object-fit: cover;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.rating-badge {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    font-weight: bold;
+    font-size: 0.9rem;
+}
+
+/* Badges */
+.badge-genre {
+    background-color: var(--secondary-color);
+    color: white;
+}
+
+.badge-platform {
+    background-color: var(--accent-color);
+    color: white;
+}
+
+.badge-gameplay {
+    background-color: #ffc107;
+    color: black;
+}
+
+.badge-setting {
+    background-color: #17a2b8;
+    color: white;
+}
+
+/* Hero Section */
+.hero-section {
+    background: linear-gradient(135deg, var(--secondary-color) 0%, var(--dark-bg) 100%);
+    color: white;
+    padding: 4rem 0;
+    margin-bottom: 3rem;
+    border-radius: 0 0 20px 20px;
+}
+
+/* Search Form */
+.search-form .form-control {
+    border-radius: 25px 0 0 25px;
+    border: 2px solid var(--primary-color);
+    border-right: none;
+}
+
+.search-form .btn {
+    border-radius: 0 25px 25px 0;
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.search-form .btn:hover {
+    background-color: #e55a2b;
+    border-color: #e55a2b;
+}
+
+/* Section Headers */
+.section-header {
+    border-left: 4px solid var(--primary-color);
+    padding-left: 1rem;
+    margin-bottom: 2rem;
+}
+
+/* Game Detail Page */
+.game-cover {
+    border-radius: 10px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.info-card {
+    border: none;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    border-radius: 10px;
+}
+
+/* Similar Games Section */
+.similar-games-section {
+    background-color: white;
+    padding: 2rem;
+    border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    margin-top: 3rem;
+}
+
+/* Footer */
+footer {
+    margin-top: auto;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .cover-img {
+        height: 250px;
+    }
+
+    .hero-section {
+        padding: 2rem 0;
+    }
+
+    .display-4 {
+        font-size: 2rem;
+    }
+}
+
+/* Loading Animation */
+.loading-spinner {
+    display: inline-block;
+    width: 2rem;
+    height: 2rem;
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Filter Section */
+.filter-card {
+    border: none;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    border-radius: 10px;
+}
+
+.filter-card .card-body {
+    padding: 1.5rem;
+}

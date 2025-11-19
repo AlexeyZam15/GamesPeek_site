@@ -1,0 +1,124 @@
+{% extends 'games/base.html' %}
+
+{% block title %}{{ game.name }} - GameDB{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Game Cover and Basic Info -->
+    <div class="col-md-4">
+        {% if game.cover_url %}
+        <img src="{{ game.cover_url }}" class="img-fluid rounded mb-3" alt="{{ game.name }}">
+        {% endif %}
+        
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Game Info</h5>
+                
+                {% if game.rating %}
+                <p><strong>Rating:</strong> 
+                    <span class="badge bg-success">{{ game.rating|floatformat:1 }}%</span>
+                    <small class="text-muted">({{ game.rating_count }} votes)</small>
+                </p>
+                {% endif %}
+                
+                {% if game.first_release_date %}
+                <p><strong>Release Date:</strong> {{ game.first_release_date|date:"F j, Y" }}</p>
+                {% endif %}
+                
+                <p><strong>Genres:</strong>
+                    {% for genre in game.genres.all %}
+                    <span class="badge bg-secondary me-1">{{ genre.name }}</span>
+                    {% endfor %}
+                </p>
+                
+                <p><strong>Platforms:</strong>
+                    {% for platform in game.platforms.all %}
+                    <span class="badge bg-primary me-1">{{ platform.name }}</span>
+                    {% endfor %}
+                </p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Game Details -->
+    <div class="col-md-8">
+        <h1>{{ game.name }}</h1>
+        
+        {% if game.summary %}
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">Summary</h5>
+                <p class="card-text">{{ game.summary }}</p>
+            </div>
+        </div>
+        {% endif %}
+        
+        {% if game.storyline %}
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">Storyline</h5>
+                <p class="card-text">{{ game.storyline }}</p>
+            </div>
+        </div>
+        {% endif %}
+        
+        <!-- Keywords by Category -->
+        <div class="row">
+            {% if gameplay_keywords %}
+            <div class="col-md-6 mb-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-title">🎮 Gameplay</h6>
+                        {% for keyword in gameplay_keywords %}
+                        <span class="badge bg-warning text-dark me-1 mb-1">{{ keyword.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            
+            {% if setting_keywords %}
+            <div class="col-md-6 mb-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-title">🌍 Setting</h6>
+                        {% for keyword in setting_keywords %}
+                        <span class="badge bg-info me-1 mb-1">{{ keyword.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            
+            {% if other_keywords %}
+            <div class="col-12 mb-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-title">📦 Other Keywords</h6>
+                        {% for keyword in other_keywords %}
+                        <span class="badge bg-light text-dark me-1 mb-1">{{ keyword.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Similar Games -->
+{% if similar_games %}
+<div class="row mt-5">
+    <div class="col-12">
+        <h3>Similar Games</h3>
+        <div class="row">
+            {% for game in similar_games %}
+            <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6 mb-3">
+                {% include 'games/_game_card.html' with game=game %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

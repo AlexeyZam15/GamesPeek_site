@@ -1,0 +1,67 @@
+{% extends 'games/base.html' %}
+
+{% block title %}GameDB - Home{% endblock %}
+
+{% block content %}
+<div class="row mb-5">
+    <div class="col-12 text-center">
+        <h1 class="display-4">Welcome to GameDB</h1>
+        <p class="lead">Discover and explore thousands of video games</p>
+        
+        <!-- Search Form -->
+        <form action="{% url 'game_list' %}" method="get" class="row g-3 justify-content-center">
+            <div class="col-md-6">
+                <div class="input-group">
+                    <input type="text" name="search" class="form-control" placeholder="Search games..." 
+                           value="{{ request.GET.search }}">
+                    <button class="btn btn-primary" type="submit">
+                        <i class="bi bi-search"></i> Search
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Popular Games -->
+<div class="row mb-5">
+    <div class="col-12">
+        <h2 class="mb-4">
+            <i class="bi bi-fire"></i> Popular Games
+            <a href="{% url 'game_list' %}?sort=-rating_count" class="btn btn-outline-primary btn-sm ms-2">View All</a>
+        </h2>
+        <div class="row">
+            {% for game in popular_games %}
+            <div class="col-xl-3 col-lg-4 col-md-6 mb-4">
+                {% include 'games/_game_card.html' with game=game %}
+            </div>
+            {% empty %}
+            <div class="col-12">
+                <div class="alert alert-info">No popular games found.</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<!-- Recent Games -->
+<div class="row">
+    <div class="col-12">
+        <h2 class="mb-4">
+            <i class="bi bi-clock"></i> Recent Releases
+            <a href="{% url 'game_list' %}?sort=-first_release_date" class="btn btn-outline-primary btn-sm ms-2">View All</a>
+        </h2>
+        <div class="row">
+            {% for game in recent_games %}
+            <div class="col-xl-3 col-lg-4 col-md-6 mb-4">
+                {% include 'games/_game_card.html' with game=game %}
+            </div>
+            {% empty %}
+            <div class="col-12">
+                <div class="alert alert-info">No recent games found.</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}
