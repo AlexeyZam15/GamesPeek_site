@@ -9,28 +9,28 @@
         {% if game.cover_url %}
         <img src="{{ game.cover_url }}" class="img-fluid rounded mb-3" alt="{{ game.name }}">
         {% endif %}
-        
+
         <div class="card">
             <div class="card-body">
                 <h5 class="card-title">Game Info</h5>
-                
+
                 {% if game.rating %}
-                <p><strong>Rating:</strong> 
+                <p><strong>Rating:</strong>
                     <span class="badge bg-success">{{ game.rating|floatformat:1 }}%</span>
                     <small class="text-muted">({{ game.rating_count }} votes)</small>
                 </p>
                 {% endif %}
-                
+
                 {% if game.first_release_date %}
                 <p><strong>Release Date:</strong> {{ game.first_release_date|date:"F j, Y" }}</p>
                 {% endif %}
-                
+
                 <p><strong>Genres:</strong>
                     {% for genre in game.genres.all %}
                     <span class="badge bg-secondary me-1">{{ genre.name }}</span>
                     {% endfor %}
                 </p>
-                
+
                 <p><strong>Platforms:</strong>
                     {% for platform in game.platforms.all %}
                     <span class="badge bg-primary me-1">{{ platform.name }}</span>
@@ -39,11 +39,11 @@
             </div>
         </div>
     </div>
-    
+
     <!-- Game Details -->
     <div class="col-md-8">
         <h1>{{ game.name }}</h1>
-        
+
         {% if game.summary %}
         <div class="card mb-4">
             <div class="card-body">
@@ -52,7 +52,7 @@
             </div>
         </div>
         {% endif %}
-        
+
         {% if game.storyline %}
         <div class="card mb-4">
             <div class="card-body">
@@ -61,42 +61,173 @@
             </div>
         </div>
         {% endif %}
-        
+
         <!-- Keywords by Category -->
         <div class="row">
-            {% if gameplay_keywords %}
+            <!-- Категории с иконками и цветами -->
+            {% if game.genre_keywords %}
             <div class="col-md-6 mb-3">
                 <div class="card">
                     <div class="card-body">
-                        <h6 class="card-title">🎮 Gameplay</h6>
-                        {% for keyword in gameplay_keywords %}
-                        <span class="badge bg-warning text-dark me-1 mb-1">{{ keyword.name }}</span>
+                        <h6 class="card-title">🎭 Genre</h6>
+                        {% for keyword in game.genre_keywords %}
+                        <span class="badge bg-secondary me-1 mb-1">{{ keyword.name }}</span>
                         {% endfor %}
                     </div>
                 </div>
             </div>
             {% endif %}
-            
-            {% if setting_keywords %}
+
+            {% if game.setting_keywords %}
             <div class="col-md-6 mb-3">
                 <div class="card">
                     <div class="card-body">
                         <h6 class="card-title">🌍 Setting</h6>
-                        {% for keyword in setting_keywords %}
+                        {% for keyword in game.setting_keywords %}
                         <span class="badge bg-info me-1 mb-1">{{ keyword.name }}</span>
                         {% endfor %}
                     </div>
                 </div>
             </div>
             {% endif %}
-            
-            {% if other_keywords %}
-            <div class="col-12 mb-3">
+
+            {% if game.gameplay_keywords %}
+            <div class="col-md-6 mb-3">
                 <div class="card">
                     <div class="card-body">
-                        <h6 class="card-title">📦 Other Keywords</h6>
-                        {% for keyword in other_keywords %}
-                        <span class="badge bg-light text-dark me-1 mb-1">{{ keyword.name }}</span>
+                        <h6 class="card-title">🎮 Gameplay</h6>
+                        {% for keyword in game.gameplay_keywords %}
+                        <span class="badge bg-warning text-dark me-1 mb-1">{{ keyword.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if game.narrative_keywords %}
+            <div class="col-md-6 mb-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-title">📖 Narrative</h6>
+                        {% for keyword in game.narrative_keywords %}
+                        <span class="badge bg-purple me-1 mb-1">{{ keyword.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if game.character_keywords %}
+            <div class="col-md-6 mb-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-title">👥 Characters</h6>
+                        {% for keyword in game.character_keywords %}
+                        <span class="badge bg-pink me-1 mb-1">{{ keyword.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if game.technical_keywords %}
+            <div class="col-md-6 mb-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-title">⚙️ Technical</h6>
+                        {% for keyword in game.technical_keywords %}
+                        <span class="badge bg-dark me-1 mb-1">{{ keyword.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if game.graphics_keywords %}
+            <div class="col-md-6 mb-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-title">🎨 Graphics</h6>
+                        {% for keyword in game.graphics_keywords %}
+                        <span class="badge bg-success me-1 mb-1">{{ keyword.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if game.platform_keywords %}
+            <div class="col-md-6 mb-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-title">💻 Platform</h6>
+                        {% for keyword in game.platform_keywords %}
+                        <span class="badge bg-primary me-1 mb-1">{{ keyword.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if game.multiplayer_keywords %}
+            <div class="col-md-6 mb-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-title">👥 Multiplayer</h6>
+                        {% for keyword in game.multiplayer_keywords %}
+                        <span class="badge bg-orange me-1 mb-1">{{ keyword.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if game.achievement_keywords %}
+            <div class="col-md-6 mb-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-title">🏆 Achievements</h6>
+                        {% for keyword in game.achievement_keywords %}
+                        <span class="badge bg-gold me-1 mb-1">{{ keyword.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if game.audio_keywords %}
+            <div class="col-md-6 mb-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-title">🔊 Audio</h6>
+                        {% for keyword in game.audio_keywords %}
+                        <span class="badge bg-teal me-1 mb-1">{{ keyword.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if game.context_keywords %}
+            <div class="col-md-6 mb-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-title">🌐 Context</h6>
+                        {% for keyword in game.context_keywords %}
+                        <span class="badge bg-indigo me-1 mb-1">{{ keyword.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if game.development_keywords %}
+            <div class="col-md-6 mb-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-title">🔧 Development</h6>
+                        {% for keyword in game.development_keywords %}
+                        <span class="badge bg-brown me-1 mb-1">{{ keyword.name }}</span>
                         {% endfor %}
                     </div>
                 </div>
@@ -106,18 +237,104 @@
     </div>
 </div>
 
-<!-- Similar Games -->
+<!-- Similar Games Section -->
 {% if similar_games %}
 <div class="row mt-5">
     <div class="col-12">
-        <h3>Similar Games</h3>
+        <h3>🎯 Similar Games</h3>
+        <p class="text-muted">Games with similar genres, gameplay, and setting</p>
+
         <div class="row">
-            {% for game in similar_games %}
-            <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6 mb-3">
-                {% include 'games/_game_card.html' with game=game %}
+            {% for similar_data in similar_games %}
+            <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6 mb-4">
+                <div class="card game-card h-100">
+                    {% if similar_data.game.cover_url %}
+                    <img src="{{ similar_data.game.cover_url }}" class="card-img-top cover-img"
+                         alt="{{ similar_data.game.name }}">
+                    {% endif %}
+
+                    <!-- Badge with similarity percentage -->
+                    <span class="rating-badge badge
+                        {% if similar_data.similarity > 70 %}bg-success
+                        {% elif similar_data.similarity > 40 %}bg-warning
+                        {% else %}bg-info{% endif %}">
+                        {{ similar_data.similarity|floatformat:0 }}%
+                    </span>
+
+                    <div class="card-body d-flex flex-column">
+                        <h6 class="card-title">{{ similar_data.game.name }}</h6>
+
+                        <div class="mt-auto">
+                            <div class="mb-2">
+                                {% for genre in similar_data.game.genres.all|slice:":2" %}
+                                <span class="badge badge-genre me-1">{{ genre.name }}</span>
+                                {% endfor %}
+                            </div>
+
+                            <!-- Matching categories -->
+                            <div class="mb-2">
+                                {% for category in similar_data.matching_categories|slice:":3" %}
+                                <small class="badge bg-light text-dark me-1">{{ category }}</small>
+                                {% endfor %}
+                            </div>
+
+                            <div class="d-flex justify-content-between align-items-center">
+                                <small class="text-muted">
+                                    {% if similar_data.game.first_release_date %}
+                                    {{ similar_data.game.first_release_date|date:"Y" }}
+                                    {% endif %}
+                                </small>
+                                <a href="{% url 'game_detail' similar_data.game.pk %}" class="btn btn-primary btn-sm">
+                                    View
+                                </a>
+                                <!-- КНОПКА СРАВНЕНИЯ -->
+                                <a href="{% url 'game_comparison' game.pk similar_data.game.pk %}"
+                                   class="btn btn-outline-info btn-sm ms-1">
+                                    🔍
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
             {% endfor %}
         </div>
+
+        <!-- Similarity breakdown for the first similar game -->
+        {% if similar_games.0 %}
+        <div class="mt-4">
+            <div class="collapse mt-3" id="similarityDetails">
+                <div class="card">
+                    <div class="card-body">
+                        <h6>Why these games are similar:</h6>
+                        <div class="row">
+                            {% for category, data in similar_games.0.matching_categories_breakdown.items %}
+                            <div class="col-md-6 mb-2">
+                                <div class="d-flex justify-content-between">
+                                    <span>{{ category }}:</span>
+                                    <span class="fw-bold">{{ data.similarity_percent|floatformat:0 }}%</span>
+                                </div>
+                                <div class="progress" style="height: 5px;">
+                                    <div class="progress-bar
+                                        {% if data.similarity_percent > 70 %}bg-success
+                                        {% elif data.similarity_percent > 40 %}bg-warning
+                                        {% else %}bg-info{% endif %}"
+                                         style="width: {{ data.similarity_percent }}%">
+                                    </div>
+                                </div>
+                                <small class="text-muted">
+                                    {% for keyword in data.matching_keywords|slice:":3" %}
+                                    {{ keyword }}{% if not forloop.last %}, {% endif %}
+                                    {% endfor %}
+                                </small>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
     </div>
 </div>
 {% endif %}

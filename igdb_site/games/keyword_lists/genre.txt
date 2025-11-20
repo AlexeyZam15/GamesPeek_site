@@ -1,1 +1,1 @@
-.2d platformer, 3d platformer, action-adventure, brawler, card battler, graphic adventure, metroidvania, platformer, puzzle platformer, roguelike, shmup, soulslike, stealth, survival horror, sidescroller, sword & sorcery, sword sorcery
+action-adventure, 2d platformer, 3d platformer, auto runner, brawler, bullet hell, card battler, collectible card game, graphic adventure, manic shooter, metroidvania, puzzle platformer, shmup, soulslike, turn-based

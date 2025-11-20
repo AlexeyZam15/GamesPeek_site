@@ -12,21 +12,21 @@ class Command(BaseCommand):
         lists_dir = os.path.join(settings.BASE_DIR, 'games', 'keyword_lists')
         self.stdout.write(f"📁 Loading from: {lists_dir}")
 
-        # Создаем категории
+        # Создаем категории согласно новой структуре
         categories = {
-            'gameplay': 'Game mechanics, systems, and gameplay features',
-            'setting': 'Game world, locations, time periods, and environments',
-            'characters': 'Character types and characteristics',
             'genre': 'Game genres and subgenres',
-            'multiplayer': 'Multiplayer aspects and features',
-            'graphics': 'Visual style, art direction, and graphics',
-            'audio': 'Sound, music, voice acting, and audio design',
-            'narrative': 'Story, plot, characters, and narrative elements',
-            'theme': 'Themes, atmosphere, mood, and tone',
-            'technical': 'Technical features, platforms, and specifications',
-            'awards': 'Awards, nominations, and achievements',
-            'platform': 'Platforms, stores, and distribution',
-            'other': 'Other keywords that dont fit main categories'
+            'setting': 'Game world, time periods, environments and atmosphere',
+            'gameplay': 'Game mechanics, systems and gameplay features',
+            'narrative': 'Story, plot, narrative elements and structure',
+            'characters': 'Character types, roles and characteristics',
+            'technical': 'Technical features, performance and specifications',
+            'graphics': 'Visual style, art direction and graphics type',
+            'platform': 'Platforms, stores and distribution methods',
+            'multiplayer': 'Multiplayer, online and social features',
+            'achievements': 'Achievements, awards and recognition systems',
+            'audio': 'Sound, music, voice acting and audio design',
+            'context': 'Cultural references, influences and real-world connections',
+            'development': 'Development process, support and post-release updates'
         }
 
         category_objects = {}
@@ -124,8 +124,14 @@ class Command(BaseCommand):
         self.stdout.write(f"   📁 Total files processed: {len(category_objects)}")
         self.stdout.write(f"   ✅ New keywords classified: {total_classified}")
         self.stdout.write(f"   📊 Remaining unclassified: {Keyword.objects.filter(category__isnull=True).count()}")
-        self.stdout.write(
-            f"   📈 Database coverage: {(Keyword.objects.count() - Keyword.objects.filter(category__isnull=True).count()) / Keyword.objects.count() * 100:.1f}%")
+
+        total_keywords = Keyword.objects.count()
+        if total_keywords > 0:
+            classified_count = total_keywords - Keyword.objects.filter(category__isnull=True).count()
+            coverage = classified_count / total_keywords * 100
+            self.stdout.write(f"   📈 Database coverage: {coverage:.1f}%")
+        else:
+            self.stdout.write(f"   📈 Database coverage: 0.0%")
 
         if total_classified > 0:
             self.stdout.write(self.style.SUCCESS(f"\n🎉 SUCCESS! Newly classified {total_classified} keywords!"))

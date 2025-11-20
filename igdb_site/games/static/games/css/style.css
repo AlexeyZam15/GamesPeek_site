@@ -173,3 +173,60 @@ footer {
 .filter-card .card-body {
     padding: 1.5rem;
 }
+
+/* Добавляем в games/static/games/css/style.css */
+
+/* Progress bars for similarity */
+.progress {
+    background-color: #e9ecef;
+    border-radius: 10px;
+}
+
+.progress-bar {
+    border-radius: 10px;
+    transition: width 0.6s ease;
+}
+
+/* Similarity badges */
+.similarity-badge-high { background-color: #28a745; }
+.similarity-badge-medium { background-color: #ffc107; color: black; }
+.similarity-badge-low { background-color: #17a2b8; }
+
+/* Collapse animation */
+.collapse.show {
+    animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.similarity-category {
+    border-left: 4px solid #dee2e6;
+    padding-left: 1rem;
+}
+
+.similarity-category:nth-child(1) {
+    border-left-color: #dc3545; /* Genres - red */
+}
+
+.similarity-category:nth-child(2) {
+    border-left-color: #ffc107; /* Gameplay - yellow */
+}
+
+.similarity-category:nth-child(3) {
+    border-left-color: #0d6efd; /* Setting - blue */
+}
+
+.common-items {
+    border: 1px solid #e9ecef;
+}
+
+.bg-purple { background-color: #6f42c1 !important; }
+.bg-pink { background-color: #e83e8c !important; }
+.bg-orange { background-color: #fd7e14 !important; }
+.bg-gold { background-color: #ffc107 !important; color: #000 !important; }
+.bg-teal { background-color: #20c997 !important; }
+.bg-indigo { background-color: #6610f2 !important; }
+.bg-brown { background-color: #8b4513 !important; }
