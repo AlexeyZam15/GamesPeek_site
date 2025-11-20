@@ -1,0 +1,122 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Search Games - GamesPeek{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1>🔍 Search Games</h1>
+            <p class="text-muted">Find your favorite games by name</p>
+        </div>
+    </div>
+
+    <!-- Простая форма поиска -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <form method="get" class="row g-3">
+                <div class="col-md-8">
+                    <label for="q" class="form-label">Game name:</label>
+                    <input type="text" class="form-control" id="q" name="q" 
+                           value="{{ search_query }}" placeholder="Enter game name..." 
+                           autofocus>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">&nbsp;</label>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">Search</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Результаты -->
+    {% if search_query %}
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5>Found {{ total_results }} games for "{{ search_query }}"</h5>
+                {% if total_results > 0 %}
+                <span class="badge bg-success">{{ total_results }} results</span>
+                {% endif %}
+            </div>
+
+            {% if games %}
+            <div class="row">
+                {% for game in games %}
+                <div class="col-xl-3 col-lg-4 col-md-6 mb-4">
+                    <div class="card h-100 game-card">
+                        {% if game.cover_url %}
+                        <img src="{{ game.cover_url }}" class="card-img-top" alt="{{ game.name }}" 
+                             style="height: 250px; object-fit: cover;">
+                        {% else %}
+                        <div class="card-img-top bg-light d-flex align-items-center justify-content-center" 
+                             style="height: 250px;">
+                            <span class="text-muted">No Cover</span>
+                        </div>
+                        {% endif %}
+                        
+                        <div class="card-body">
+                            <h6 class="card-title">{{ game.name }}</h6>
+                            <p class="card-text small text-muted">
+                                {% for genre in game.genres.all|slice:":2" %}
+                                <span class="badge bg-secondary mb-1">{{ genre.name }}</span>
+                                {% endfor %}
+                            </p>
+                            {% if game.rating %}
+                            <div class="d-flex align-items-center mb-2">
+                                <small class="text-warning">⭐ {{ game.rating|floatformat:1 }}</small>
+                                <small class="text-muted ms-2">({{ game.rating_count }})</small>
+                            </div>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="card-footer">
+                            <div class="d-grid gap-2">
+                                <a href="{% url 'game_detail' game.id %}" class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-info-circle"></i> Details
+                                </a>
+                                <a href="{% url 'game_list' %}?similar_to={{ game.id }}" 
+                                   class="btn btn-sm btn-outline-info">
+                                    <i class="bi bi-search-heart"></i> Find Similar
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="text-center py-5">
+                <h5>No games found for "{{ search_query }}"</h5>
+                <p class="text-muted">Try a different search term</p>
+                <a href="{% url 'game_search' %}" class="btn btn-primary">Search Again</a>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Подсказка при первом заходе -->
+    {% else %}
+    <div class="text-center py-5">
+        <div class="row justify-content-center">
+            <div class="col-md-6">
+                <h5>Start searching for games</h5>
+                <p class="text-muted">Enter a game name in the search box above to find games</p>
+                <div class="mt-4">
+                    <h6>Popular searches:</h6>
+                    <div class="d-flex flex-wrap justify-content-center gap-2 mt-2">
+                        <a href="?q=The Witcher" class="btn btn-outline-secondary btn-sm">The Witcher</a>
+                        <a href="?q=Grand Theft Auto" class="btn btn-outline-secondary btn-sm">GTA</a>
+                        <a href="?q=Call of Duty" class="btn btn-outline-secondary btn-sm">Call of Duty</a>
+                        <a href="?q=Assassin's Creed" class="btn btn-outline-secondary btn-sm">Assassin's Creed</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

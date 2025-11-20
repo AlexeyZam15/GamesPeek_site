@@ -206,3 +206,24 @@ def keyword_category_view(request, category_id):
         'popular_keywords': popular_keywords,
     }
     return render(request, 'games/keyword_category.html', context)
+
+
+# games/views.py
+def game_search(request):
+    """Простой поиск игр по названию"""
+    search_query = request.GET.get('q', '')
+
+    games = Game.objects.all().prefetch_related('genres', 'platforms')
+
+    if search_query:
+        games = games.filter(name__icontains=search_query)
+
+    # Сортировка по популярности
+    games = games.order_by('-rating_count', '-rating')
+
+    context = {
+        'games': games,
+        'search_query': search_query,
+        'total_results': games.count(),
+    }
+    return render(request, 'games/game_search.html', context)

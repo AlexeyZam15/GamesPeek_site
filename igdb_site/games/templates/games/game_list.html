@@ -8,44 +8,39 @@
     <div class="row mb-4">
         <div class="col-12">
             <h1>🎮 Browse Games</h1>
+            {% if similar_game %}
+            <div class="alert alert-info mt-3">
+                <h5 class="mb-0">🎯 Games similar to <strong>"{{ similar_game.name }}"</strong></h5>
+            </div>
+            {% endif %}
         </div>
     </div>
 
-    <!-- Компактная форма поиска и фильтров -->
+    <!-- Форма фильтров -->
     <div class="card mb-4">
         <div class="card-body">
             <form method="get" id="main-search-form">
-                <div class="row g-3">
-                    <!-- Поиск по названию -->
-                    <div class="col-md-6">
-                        <label for="search" class="form-label">Search by name:</label>
-                        <div class="input-group">
-                            <input type="text" class="form-control" id="search" name="search" value="{{ search_query }}"
-                                   placeholder="Enter game name...">
-                            {% if similar_game %}
-                            <span class="input-group-text bg-info text-white">
-                                🔍 Similar to: {{ similar_game.name }}
-                            </span>
-                            {% endif %}
-                        </div>
-                    </div>
+                {% if similar_game %}
+                <input type="hidden" name="similar_to" value="{{ similar_game.id }}">
+                {% endif %}
 
-                    <!-- Выбор игры для поиска похожих -->
+                <div class="row g-3">
+                    <!-- Сортировка -->
                     <div class="col-md-6">
-                        <label class="form-label">Find similar to:</label>
-                        <select name="similar_to" class="form-select" id="similar-to-select">
-                            <option value="">-- Select a game --</option>
-                            {% for game in games|slice:":15" %}
-                            <option value="{{ game.id }}" {% if similar_game and similar_game.id == game.id %}selected{% endif %}>
-                                {{ game.name }}
-                            </option>
-                            {% endfor %}
+                        <label class="form-label">Sort by:</label>
+                        <select name="sort" class="form-select">
+                            <option value="-similarity" {% if current_sort == "-similarity" or similar_game %}selected{% endif %}>Most Similar</option>
+                            <option value="-rating_count" {% if current_sort == "-rating_count" %}selected{% endif %}>Most Popular</option>
+                            <option value="-rating" {% if current_sort == "-rating" %}selected{% endif %}>Highest Rated</option>
+                            <option value="name" {% if current_sort == "name" %}selected{% endif %}>Name A-Z</option>
+                            <option value="-name" {% if current_sort == "-name" %}selected{% endif %}>Name Z-A</option>
+                            <option value="-first_release_date" {% if current_sort == "-first_release_date" %}selected{% endif %}>Newest First</option>
                         </select>
                     </div>
 
-                    <!-- Автоматически выбранные жанры -->
+                    <!-- Жанры -->
                     <div class="col-12">
-                        <label class="form-label">Genres:</label>
+                        <label class="form-label">Filter by Genres:</label>
                         <div class="d-flex flex-wrap gap-2">
                             {% for genre in genres %}
                             <div class="form-check">
@@ -60,9 +55,9 @@
                         </div>
                     </div>
 
-                    <!-- Автоматически выбранные ключевые слова -->
+                    <!-- Ключевые слова -->
                     <div class="col-12">
-                        <label class="form-label">Features:</label>
+                        <label class="form-label">Filter by Features:</label>
                         <div class="d-flex flex-wrap gap-2">
                             {% for keyword in popular_keywords %}
                             <div class="form-check">
@@ -77,28 +72,13 @@
                         </div>
                     </div>
 
-                    <!-- Сортировка -->
-                    <div class="col-md-6">
-                        <label class="form-label">Sort by:</label>
-                        <select name="sort" class="form-select">
-                            <option value="-rating_count" {% if current_sort == "-rating_count" %}selected{% endif %}>Most Popular</option>
-                            <option value="-rating" {% if current_sort == "-rating" %}selected{% endif %}>Highest Rated</option>
-                            <option value="name" {% if current_sort == "name" %}selected{% endif %}>Name A-Z</option>
-                            <option value="-name" {% if current_sort == "-name" %}selected{% endif %}>Name Z-A</option>
-                            <option value="-first_release_date" {% if current_sort == "-first_release_date" %}selected{% endif %}>Newest First</option>
-                            {% if similar_game %}
-                            <option value="-similarity" selected>Most Similar</option>
-                            {% endif %}
-                        </select>
-                    </div>
-
                     <!-- Кнопки -->
                     <div class="col-12">
                         <div class="d-flex gap-2">
                             <button type="submit" class="btn btn-primary">
-                                {% if similar_game %}🔍 Search Similar{% else %}Search{% endif %}
+                                Apply Filters
                             </button>
-                            <a href="{% url 'game_list' %}" class="btn btn-secondary">Reset All</a>
+                            <a href="{% url 'game_list' %}" class="btn btn-secondary">Show All Games</a>
                         </div>
                     </div>
                 </div>
@@ -111,13 +91,9 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 {% if show_similarity %}
-                <h5>Found: {{ games_with_similarity|length }} similar games</h5>
-                <div>
-                    <span class="badge bg-primary me-2">Similarity Search</span>
-                    <span class="badge bg-info">{{ similar_game.name }}</span>
-                </div>
+                <h5>Found {{ games_with_similarity|length }} similar games</h5>
                 {% else %}
-                <h5>Found: {{ games.count }} games</h5>
+                <h5>Found {{ games.count }} games</h5>
                 {% endif %}
             </div>
 
@@ -175,12 +151,9 @@
                                     <a href="{% url 'game_detail' item.game.id %}" class="btn btn-sm btn-outline-primary">
                                         <i class="bi bi-info-circle"></i> Details
                                     </a>
-                                    <!-- Кнопка Find Similar -->
-                                    <button type="button" class="btn btn-sm btn-outline-info find-similar-btn"
-                                            data-game-id="{{ item.game.id }}"
-                                            data-game-name="{{ item.game.name }}">
+                                    <a href="{% url 'game_list' %}?similar_to={{ item.game.id }}" class="btn btn-sm btn-outline-info">
                                         <i class="bi bi-search-heart"></i> Find Similar
-                                    </button>
+                                    </a>
                                 </div>
                             </div>
                         </div>
@@ -224,12 +197,9 @@
                                     <a href="{% url 'game_detail' game.id %}" class="btn btn-sm btn-outline-primary">
                                         <i class="bi bi-info-circle"></i> Details
                                     </a>
-                                    <!-- Кнопка Find Similar -->
-                                    <button type="button" class="btn btn-sm btn-outline-info find-similar-btn"
-                                            data-game-id="{{ game.id }}"
-                                            data-game-name="{{ game.name }}">
+                                    <a href="{% url 'game_list' %}?similar_to={{ game.id }}" class="btn btn-sm btn-outline-info">
                                         <i class="bi bi-search-heart"></i> Find Similar
-                                    </button>
+                                    </a>
                                 </div>
                             </div>
                         </div>
@@ -250,30 +220,21 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // JavaScript для кнопок Find Similar
-    const findSimilarButtons = document.querySelectorAll('.find-similar-btn');
+    // Авто-отправка формы при изменении чекбоксов
+    const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+    const form = document.getElementById('main-search-form');
 
-    findSimilarButtons.forEach(button => {
-        button.addEventListener('click', function() {
-            const gameId = this.getAttribute('data-game-id');
-            const gameName = this.getAttribute('data-game-name');
-
-            // Устанавливаем значение в select
-            const similarToSelect = document.getElementById('similar-to-select');
-            similarToSelect.value = gameId;
-
-            // Автоматически отправляем форму
-            document.getElementById('main-search-form').submit();
+    checkboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            form.submit();
         });
     });
 
-    // Авто-отправка формы при изменении select
-    const similarToSelect = document.getElementById('similar-to-select');
-    if (similarToSelect) {
-        similarToSelect.addEventListener('change', function() {
-            if (this.value) {
-                this.form.submit();
-            }
+    // Авто-отправка формы при изменении сортировки
+    const sortSelect = document.querySelector('select[name="sort"]');
+    if (sortSelect) {
+        sortSelect.addEventListener('change', function() {
+            form.submit();
         });
     }
 });

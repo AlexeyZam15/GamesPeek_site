@@ -21,11 +21,23 @@
             </button>
 
             <div class="collapse navbar-collapse" id="navbarNav">
-                <div class="navbar-nav ms-auto">
+                <!-- Навигационные ссылки -->
+                <div class="navbar-nav me-auto">
                     <a class="nav-link" href="{% url 'game_list' %}">
                         <i class="bi bi-controller"></i> Browse Games
                     </a>
                 </div>
+
+                <!-- Поисковая строка -->
+                <form class="d-flex" method="get" action="{% url 'game_search' %}">
+                    <div class="input-group input-group-sm">
+                        <input type="text" class="form-control" name="q" placeholder="Search games..."
+                               aria-label="Search games" style="width: 200px;">
+                        <button class="btn btn-outline-light" type="submit">
+                            <i class="bi bi-search"></i>
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
     </nav>
