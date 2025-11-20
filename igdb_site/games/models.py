@@ -1,5 +1,6 @@
 from django.db import models
 
+
 class KeywordCategory(models.Model):
     """Категория ключевых слов (геймплей, сеттинг, etc.)"""
     name = models.CharField(max_length=100)
@@ -159,3 +160,22 @@ class Game(models.Model):
     def get_keywords_by_category(self, category_name):
         """Универсальный метод для получения ключевых слов по категории"""
         return self.keywords.filter(category__name=category_name)
+
+
+class GameSimilarityCache(models.Model):
+    """Кэш для предварительно рассчитанной схожести игр"""
+    game1 = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='similarity_as_source')
+    game2 = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='similarity_as_target')
+    similarity_score = models.FloatField()
+    calculated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ['game1', 'game2']
+        indexes = [
+            models.Index(fields=['game1', '-similarity_score']),
+            models.Index(fields=['game2', '-similarity_score']),
+        ]
+        verbose_name_plural = "Game similarity cache"
+
+    def __str__(self):
+        return f"{self.game1} -> {self.game2}: {self.similarity_score}%"
