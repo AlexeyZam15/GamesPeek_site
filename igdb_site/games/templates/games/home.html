@@ -1,18 +1,19 @@
 {% extends 'base.html' %}
+{% load static %}
 
-{% block title %}GameDB - Home{% endblock %}
+{% block title %}GamesPeek - Discover Your Next Favorite Game{% endblock %}
 
 {% block content %}
 <div class="row mb-5">
     <div class="col-12 text-center">
-        <h1 class="display-4">Welcome to GameDB</h1>
-        <p class="lead">Discover and explore thousands of video games</p>
-        
+        <h1 class="display-4">🎮 Welcome to GamesPeek</h1>
+        <p class="lead">Discover and explore thousands of video games with smart similarity search</p>
+
         <!-- Search Form -->
         <form action="{% url 'game_list' %}" method="get" class="row g-3 justify-content-center">
             <div class="col-md-6">
                 <div class="input-group">
-                    <input type="text" name="search" class="form-control" placeholder="Search games..." 
+                    <input type="text" name="search" class="form-control" placeholder="Search games..."
                            value="{{ request.GET.search }}">
                     <button class="btn btn-primary" type="submit">
                         <i class="bi bi-search"></i> Search
@@ -32,9 +33,7 @@
         </h2>
         <div class="row">
             {% for game in popular_games %}
-            <div class="col-xl-3 col-lg-4 col-md-6 mb-4">
-                {% include 'games/_game_card.html' with game=game %}
-            </div>
+                {% include 'games/partials/_game_card.html' with game=game %}
             {% empty %}
             <div class="col-12">
                 <div class="alert alert-info">No popular games found.</div>
@@ -45,7 +44,7 @@
 </div>
 
 <!-- Recent Games -->
-<div class="row">
+<div class="row mb-5">
     <div class="col-12">
         <h2 class="mb-4">
             <i class="bi bi-clock"></i> Recent Releases
@@ -53,9 +52,7 @@
         </h2>
         <div class="row">
             {% for game in recent_games %}
-            <div class="col-xl-3 col-lg-4 col-md-6 mb-4">
-                {% include 'games/_game_card.html' with game=game %}
-            </div>
+                {% include 'games/partials/_game_card.html' with game=game %}
             {% empty %}
             <div class="col-12">
                 <div class="alert alert-info">No recent games found.</div>
@@ -64,4 +61,28 @@
         </div>
     </div>
 </div>
+
+<!-- Popular Keywords -->
+{% if popular_keywords %}
+<div class="row">
+    <div class="col-12">
+        <h2 class="mb-4">
+            <i class="bi bi-tags"></i> Popular Features
+        </h2>
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex flex-wrap gap-2">
+                    {% for keyword in popular_keywords %}
+                    <a href="{% url 'game_list' %}?keyword_category={{ keyword.category.id }}"
+                       class="btn btn-outline-secondary btn-sm">
+                        {{ keyword.name }}
+                        <span class="badge bg-light text-dark ms-1">{{ keyword.usage_count }}</span>
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}

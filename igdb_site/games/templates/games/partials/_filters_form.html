@@ -26,8 +26,18 @@
 
                     <!-- Активные жанры -->
                     <div id="active-genres" class="mb-2">
+                        <!-- Автоматические жанры (не удаляемые) -->
                         {% for genre in genres %}
-                            {% if genre.id in selected_genres or similar_game and genre in similar_game.genres.all %}
+                            {% if genre.id in auto_genres and genre.id not in selected_genres %}
+                            <span class="badge bg-secondary me-1 mb-1" title="Auto-selected from similar game">
+                                {{ genre.name }} ✓
+                            </span>
+                            {% endif %}
+                        {% endfor %}
+
+                        <!-- Пользовательские жанры (удаляемые) -->
+                        {% for genre in genres %}
+                            {% if genre.id in selected_genres %}
                             <span class="badge bg-primary me-1 mb-1 active-genre-tag" data-genre-id="{{ genre.id }}">
                                 {{ genre.name }} ×
                             </span>
@@ -43,9 +53,13 @@
                                 <div class="form-check">
                                     <input class="form-check-input genre-checkbox" type="checkbox" name="genre"
                                            value="{{ genre.id }}" id="genre_{{ genre.id }}"
-                                           {% if genre.id in selected_genres or similar_game and genre in similar_game.genres.all %}checked{% endif %}>
+                                           {% if genre.id in selected_genres or genre.id in auto_genres %}checked{% endif %}
+                                           {% if genre.id in auto_genres and genre.id not in selected_genres %}disabled{% endif %}>
                                     <label class="form-check-label small" for="genre_{{ genre.id }}">
                                         {{ genre.name }}
+                                        {% if genre.id in auto_genres and genre.id not in selected_genres %}
+                                        <small class="text-muted">(auto)</small>
+                                        {% endif %}
                                     </label>
                                 </div>
                             </div>
@@ -61,9 +75,19 @@
 
                     <!-- Активные ключевые слова -->
                     <div id="active-keywords" class="mb-2">
+                        <!-- Автоматические ключевые слова (не удаляемые) -->
                         {% for keyword in popular_keywords %}
-                            {% if keyword.category.id in selected_keyword_categories or similar_game and keyword in similar_game.keywords.all %}
-                            <span class="badge bg-success me-1 mb-1 active-keyword-tag" data-keyword-id="{{ keyword.category.id }}">
+                            {% if keyword.id in auto_keywords and keyword.id not in selected_keywords %}
+                            <span class="badge bg-secondary me-1 mb-1" title="Auto-selected from similar game">
+                                {{ keyword.name }} ✓
+                            </span>
+                            {% endif %}
+                        {% endfor %}
+
+                        <!-- Пользовательские ключевые слова (удаляемые) -->
+                        {% for keyword in popular_keywords %}
+                            {% if keyword.id in selected_keywords %}
+                            <span class="badge bg-success me-1 mb-1 active-keyword-tag" data-keyword-id="{{ keyword.id }}">
                                 {{ keyword.name }} ×
                             </span>
                             {% endif %}
@@ -76,11 +100,16 @@
                             {% for keyword in popular_keywords %}
                             <div class="col-md-4 col-sm-6 keyword-item" data-keyword-name="{{ keyword.name|lower }}">
                                 <div class="form-check">
-                                    <input class="form-check-input keyword-checkbox" type="checkbox" name="keyword_category"
-                                           value="{{ keyword.category.id }}" id="keyword_{{ keyword.id }}"
-                                           {% if keyword.category.id in selected_keyword_categories or similar_game and keyword in similar_game.keywords.all %}checked{% endif %}>
+                                    <!-- ВАЖНОЕ ИСПРАВЛЕНИЕ: name="keyword" вместо name="keyword_category" -->
+                                    <input class="form-check-input keyword-checkbox" type="checkbox" name="keyword"
+                                           value="{{ keyword.id }}" id="keyword_{{ keyword.id }}"
+                                           {% if keyword.id in selected_keywords or keyword.id in auto_keywords %}checked{% endif %}
+                                           {% if keyword.id in auto_keywords and keyword.id not in selected_keywords %}disabled{% endif %}>
                                     <label class="form-check-label small" for="keyword_{{ keyword.id }}">
                                         {{ keyword.name }}
+                                        {% if keyword.id in auto_keywords and keyword.id not in selected_keywords %}
+                                        <small class="text-muted">(auto)</small>
+                                        {% endif %}
                                     </label>
                                 </div>
                             </div>

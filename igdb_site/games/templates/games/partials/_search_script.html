@@ -10,24 +10,16 @@ document.addEventListener('DOMContentLoaded', function() {
     const genreItems = document.querySelectorAll('.genre-item');
     const keywordItems = document.querySelectorAll('.keyword-item');
 
-    // Активные теги
-    const activeGenresContainer = document.getElementById('active-genres');
-    const activeKeywordsContainer = document.getElementById('active-keywords');
-
     // Функция для фильтрации списка в колонках
     function filterList(items, searchTerm) {
         const term = searchTerm.toLowerCase().trim();
-        let visibleCount = 0;
 
         items.forEach(item => {
             const itemName = item.getAttribute('data-genre-name') || item.getAttribute('data-keyword-name');
             const isVisible = itemName.includes(term);
 
             item.style.display = isVisible ? 'block' : 'none';
-            if (isVisible) visibleCount++;
         });
-
-        return visibleCount;
     }
 
     // Поиск по жанрам
@@ -44,30 +36,42 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Удаление активных тегов
+    // Удаление активных тегов (ТОЛЬКО пользовательских)
     function setupActiveTagRemoval() {
-        // Удаление активных жанров
+        // Удаление активных жанров (только пользовательских)
         document.querySelectorAll('.active-genre-tag').forEach(tag => {
             tag.addEventListener('click', function() {
                 const genreId = this.getAttribute('data-genre-id');
-                const checkbox = document.querySelector(`input[value="${genreId}"]`);
+
+                // Находим и снимаем чекбокс
+                const checkbox = document.querySelector(`input.genre-checkbox[value="${genreId}"]`);
                 if (checkbox) {
                     checkbox.checked = false;
                 }
+
+                // Удаляем тег
                 this.remove();
+
+                // Отправляем форму
                 form.submit();
             });
         });
 
-        // Удаление активных ключевых слов
+        // Удаление активных ключевых слов (только пользовательских)
         document.querySelectorAll('.active-keyword-tag').forEach(tag => {
             tag.addEventListener('click', function() {
                 const keywordId = this.getAttribute('data-keyword-id');
-                const checkbox = document.querySelector(`input[value="${keywordId}"]`);
+
+                // Находим и снимаем чекбокс
+                const checkbox = document.querySelector(`input.keyword-checkbox[value="${keywordId}"]`);
                 if (checkbox) {
                     checkbox.checked = false;
                 }
+
+                // Удаляем тег
                 this.remove();
+
+                // Отправляем форму
                 form.submit();
             });
         });
@@ -92,7 +96,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Инициализация
     setupActiveTagRemoval();
 
-    // Скрываем неактивные элементы при загрузке (опционально)
+    // Скрываем неактивные элементы при загрузке
     if (genreSearch && genreSearch.value) {
         filterList(genreItems, genreSearch.value);
     }
