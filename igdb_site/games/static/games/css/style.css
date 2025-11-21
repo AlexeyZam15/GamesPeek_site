@@ -88,6 +88,7 @@ body {
     overflow: hidden;
     transition: var(--transition);
     background: linear-gradient(145deg, #ffffff, #f8f9fa);
+    animation: fadeIn 0.6s ease-out;
 }
 
 .game-card:hover {
@@ -230,14 +231,33 @@ body {
     transform: translateY(-2px);
 }
 
+.form-check-input {
+    cursor: pointer;
+    transform: scale(1.1);
+    margin-right: 8px;
+    margin-top: 0.1em;
+}
+
 .form-check-input:checked {
     background-color: var(--secondary-color);
     border-color: var(--secondary-color);
 }
 
+.form-check-input:focus {
+    box-shadow: 0 0 0 0.2rem rgba(52, 152, 219, 0.25);
+}
+
 .form-check-label {
     cursor: pointer;
+    user-select: none;
     transition: var(--transition);
+    font-size: 0.9rem;
+    color: var(--text-dark);
+}
+
+.form-check-input:checked + .form-check-label {
+    color: var(--secondary-color);
+    font-weight: 600;
 }
 
 .form-check-label:hover {
@@ -317,57 +337,155 @@ footer {
 }
 
 /* ===== FILTERS ===== */
-#main-search-form .form-check {
-    background: rgba(255, 255, 255, 0.7);
-    border-radius: 20px;
-    padding: 0.5rem 1rem;
-    margin: 0.25rem;
+.genre-grid, .keyword-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 8px;
+}
+
+.genre-item, .keyword-item {
+    background: white;
+    border-radius: 8px;
+    padding: 8px 12px;
+    transition: all 0.2s ease;
+    border: 1px solid #e9ecef;
+    margin: 0;
+}
+
+.genre-item:hover, .keyword-item:hover {
+    border-color: var(--secondary-color);
+    background: #f8f9fa;
+}
+
+.genre-list, .keyword-list {
+    background: white;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    transition: max-height 0.3s ease;
+    scroll-behavior: smooth;
+    overflow-y: auto;
+}
+
+.genre-list.collapsed, .keyword-list.collapsed {
+    max-height: 200px !important;
+}
+
+.genre-list.expanded, .keyword-list.expanded {
+    max-height: 400px !important;
+}
+
+/* Search inputs */
+#genre-search, #keyword-search {
+    background: white;
+    border: 2px solid #e9ecef;
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
     transition: var(--transition);
 }
 
-#main-search-form .form-check:hover {
-    background: rgba(52, 152, 219, 0.1);
-    transform: translateY(-2px);
+#genre-search:focus, #keyword-search:focus {
+    border-color: var(--secondary-color);
+    box-shadow: 0 0 0 0.2rem rgba(52, 152, 219, 0.15);
+    background: white;
 }
 
-/* ===== RESPONSIVE DESIGN ===== */
-@media (max-width: 768px) {
-    .container {
-        padding: 0 1rem;
-    }
-
-    .game-card {
-        margin-bottom: 1.5rem;
-    }
-
-    .btn {
-        padding: 0.5rem 1rem;
-        font-size: 0.9rem;
-    }
-
-    .card-body {
-        padding: 1rem;
-    }
-
-    h1 {
-        font-size: 2rem;
-        text-align: center;
-    }
+/* Show all buttons */
+.show-all-genres-btn, .show-all-keywords-btn {
+    background: white;
+    color: #6c757d;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+    transition: var(--transition);
 }
 
-@media (max-width: 576px) {
-    .navbar-brand {
-        font-size: 1.2rem;
-    }
+.show-all-genres-btn:hover, .show-all-keywords-btn:hover {
+    background: #f8f9fa;
+    border-color: var(--secondary-color);
+    color: var(--secondary-color);
+}
 
-    .nav-link {
-        padding: 0.5rem !important;
-        font-size: 0.9rem;
-    }
+/* Active filter tags */
+.active-genre-tag, .active-keyword-tag {
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-weight: 500;
+}
 
-    .game-card .card-title {
-        font-size: 1rem;
-    }
+.active-genre-tag:hover, .active-keyword-tag:hover {
+    opacity: 0.8;
+}
+
+/* Auto-applied sections */
+.auto-applied-section .alert {
+    background: linear-gradient(135deg, #e3f2fd, #bbdefb);
+    border: 1px solid #90caf9;
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.auto-applied-tag {
+    background: linear-gradient(135deg, #2196f3, #1976d2);
+    color: white;
+    border: 1px solid #1976d2;
+    font-size: 0.7rem;
+    padding: 0.25rem 0.5rem;
+    margin: 0.1rem 0.2rem;
+    display: inline-block;
+    font-weight: 500;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.auto-applied-tags {
+    display: inline;
+    line-height: 1.8;
+}
+
+.show-more-auto-applied {
+    background: transparent;
+    border: 1px solid var(--info-color);
+    color: var(--info-color);
+    border-radius: 4px;
+    padding: 0.2rem 0.6rem;
+    font-size: 0.7rem;
+    transition: var(--transition);
+    vertical-align: middle;
+    margin-left: 0.5rem;
+    font-weight: 500;
+}
+
+.show-more-auto-applied:hover {
+    background: var(--info-color);
+    color: white;
+    transform: translateY(-1px);
+}
+
+/* Form check improvements for filters */
+#main-search-form .form-check {
+    margin: 0;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    min-height: auto;
+}
+
+#main-search-form .form-check-input {
+    flex-shrink: 0;
+}
+
+#main-search-form .form-check-label {
+    flex-grow: 1;
+    margin-bottom: 0;
+    line-height: 1.4;
+}
+
+/* Disabled auto-applied items */
+.genre-item input[disabled] + .form-check-label,
+.keyword-item input[disabled] + .form-check-label {
+    color: #6c757d;
+    opacity: 0.7;
 }
 
 /* ===== ANIMATIONS ===== */
@@ -382,12 +500,9 @@ footer {
     }
 }
 
-.game-card {
-    animation: fadeIn 0.6s ease-out;
-}
-
-.card {
-    animation: fadeIn 0.4s ease-out;
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
 }
 
 /* ===== CUSTOM SCROLLBAR ===== */
@@ -428,33 +543,122 @@ footer {
     animation: spin 1s linear infinite;
 }
 
-@keyframes spin {
-    0% { transform: translate(-50%, -50%) rotate(0deg); }
-    100% { transform: translate(-50%, -50%) rotate(360deg); }
+.form-loading {
+    position: relative;
+    pointer-events: none;
+    opacity: 0.7;
 }
 
-.similarity-badge {
+.form-loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 20px;
+    height: 20px;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid var(--secondary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-left: -10px;
+    margin-top: -10px;
+}
+
+/* ===== RESPONSIVE DESIGN ===== */
+@media (max-width: 768px) {
+    .container {
+        padding: 0 1rem;
+    }
+
+    .game-card {
+        margin-bottom: 1.5rem;
+    }
+
+    .btn {
+        padding: 0.5rem 1rem;
+        font-size: 0.9rem;
+    }
+
+    .card-body {
+        padding: 1rem;
+    }
+
+    h1 {
+        font-size: 2rem;
+        text-align: center;
+    }
+
+    .genre-grid, .keyword-grid {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+
+    .genre-item, .keyword-item {
+        padding: 6px 10px;
+    }
+
+    .genre-list, .keyword-list {
+        max-height: 150px !important;
+    }
+
+    .genre-list.expanded, .keyword-list.expanded {
+        max-height: 300px !important;
+    }
+
+    .auto-applied-tags {
+        max-width: calc(100% - 80px);
+    }
+
+    .auto-applied-tag {
+        font-size: 0.65rem;
+        padding: 0.2rem 0.4rem;
+        margin: 0.05rem 0.1rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .navbar-brand {
+        font-size: 1.2rem;
+    }
+
+    .nav-link {
+        padding: 0.5rem !important;
+        font-size: 0.9rem;
+    }
+
+    .game-card .card-title {
+        font-size: 1rem;
+    }
+
+    .show-all-genres-btn, .show-all-keywords-btn {
+        width: 100%;
+        padding: 0.75rem 1rem;
+    }
+
+    .auto-applied-section .alert {
+        padding: 0.5rem;
+    }
+
+    .auto-applied-tags {
+        display: block;
+        max-width: 100%;
+    }
+}
+
+/* Empty state for filtered lists */
+.genre-grid:empty::before,
+.keyword-grid:empty::before {
+    content: 'No items found';
     text-align: center;
+    color: #6c757d;
+    font-style: italic;
+    padding: 2rem;
+    display: block;
+    grid-column: 1 / -1;
 }
 
-.active-genre-tag, .active-keyword-tag {
-    cursor: pointer;
-    transition: opacity 0.2s;
-}
-
-.active-genre-tag:hover, .active-keyword-tag:hover {
-    opacity: 0.8;
-}
-
-.genre-list, .keyword-list {
-    background-color: #f8f9fa;
-}
-
-.genre-item, .keyword-item {
-    transition: background-color 0.2s;
-}
-
-.genre-item:hover, .keyword-item:hover {
-    background-color: #e9ecef;
-    border-radius: 4px;
+/* Hide auto-applied items initially */
+.genre-item[style*="display: none"],
+.keyword-item[style*="display: none"] {
+    display: none !important;
 }

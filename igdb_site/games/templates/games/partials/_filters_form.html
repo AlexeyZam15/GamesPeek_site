@@ -21,21 +21,37 @@
 
                 <!-- Жанры -->
                 <div class="col-12">
+                    <!-- Информация об автоматических жанрах ПЕРЕД полем ввода -->
+                    {% if similar_game and auto_genres %}
+                    <div class="auto-applied-section mb-2">
+                        <div class="alert alert-info py-2 mb-0">
+                            <small>
+                                <i class="fas fa-info-circle"></i>
+                                <strong>Auto-applied from "{{ similar_game.name }}":</strong>
+                                <span class="auto-applied-tags">
+                                    {% for genre in genres %}
+                                        {% if genre.id in auto_genres %}
+                                        <span class="badge bg-secondary me-1 mb-1">{{ genre.name }}</span>
+                                        {% endif %}
+                                    {% endfor %}
+                                </span>
+                            </small>
+                        </div>
+                    </div>
+                    {% endif %}
+
                     <label class="form-label">Filter by Genres:</label>
                     <input type="text" class="form-control mb-2" id="genre-search" placeholder="Search genres..." autocomplete="off">
 
-                    <!-- Активные жанры -->
+                    <!-- Активные жанры - ТОЛЬКО пользовательские -->
                     <div id="active-genres" class="mb-2">
-                        <!-- Автоматические жанры (не удаляемые) -->
-                        {% for genre in genres %}
-                            {% if genre.id in auto_genres and genre.id not in selected_genres %}
-                            <span class="badge bg-secondary me-1 mb-1" title="Auto-selected from similar game">
-                                {{ genre.name }} ✓
-                            </span>
-                            {% endif %}
-                        {% endfor %}
+                        {% if selected_genres %}
+                        <div class="mb-1">
+                            <small class="text-muted">Your selected genres:</small>
+                        </div>
+                        {% endif %}
 
-                        <!-- Пользовательские жанры (удаляемые) -->
+                        <!-- ТОЛЬКО пользовательские жанры (удаляемые) -->
                         {% for genre in genres %}
                             {% if genre.id in selected_genres %}
                             <span class="badge bg-primary me-1 mb-1 active-genre-tag" data-genre-id="{{ genre.id }}">
@@ -45,11 +61,12 @@
                         {% endfor %}
                     </div>
 
-                    <!-- Список жанров в 3 колонки -->
+                    <!-- Список жанров с ограничением по высоте и кнопкой "Show all" -->
                     <div class="genre-list border rounded p-2" style="max-height: 200px; overflow-y: auto;">
-                        <div class="row">
+                        <div class="genre-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
                             {% for genre in genres %}
-                            <div class="col-md-4 col-sm-6 genre-item" data-genre-name="{{ genre.name|lower }}">
+                            <div class="genre-item" data-genre-name="{{ genre.name|lower }}"
+                                 {% if genre.id in auto_genres and genre.id not in selected_genres %}style="display: none;"{% endif %}>
                                 <div class="form-check">
                                     <input class="form-check-input genre-checkbox" type="checkbox" name="genre"
                                            value="{{ genre.id }}" id="genre_{{ genre.id }}"
@@ -66,25 +83,53 @@
                             {% endfor %}
                         </div>
                     </div>
+
+                    <!-- Кнопка "Show all genres" -->
+                    <div class="text-center mt-2">
+                        <button type="button" class="btn btn-outline-secondary btn-sm show-all-genres-btn">
+                            <span class="show-text">Show all genres</span>
+                            <span class="hide-text" style="display: none;">Show less</span>
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Ключевые слова -->
                 <div class="col-12">
+                    <!-- Информация об автоматических ключевых словах ПЕРЕД полем ввода -->
+                    {% if similar_game and auto_keywords %}
+                    <div class="auto-applied-section mb-2">
+                        <div class="alert alert-info py-2 mb-0">
+                            <small>
+                                <i class="fas fa-info-circle"></i>
+                                <strong>Auto-applied from "{{ similar_game.name }}":</strong>
+                                <span class="auto-applied-tags">
+                                    {% for keyword in popular_keywords %}
+                                        {% if keyword.id in auto_keywords %}
+                                        <span class="badge bg-secondary me-1 mb-1 auto-applied-tag">{{ keyword.name }}</span>
+                                        {% endif %}
+                                    {% endfor %}
+                                </span>
+                                <button type="button" class="btn btn-sm btn-outline-info show-more-auto-applied ms-2" style="display: none;">
+                                    <span class="show-more-text">+ more</span>
+                                    <span class="show-less-text" style="display: none;">- less</span>
+                                </button>
+                            </small>
+                        </div>
+                    </div>
+                    {% endif %}
+
                     <label class="form-label">Filter by Features:</label>
                     <input type="text" class="form-control mb-2" id="keyword-search" placeholder="Search features..." autocomplete="off">
 
-                    <!-- Активные ключевые слова -->
+                    <!-- Активные ключевые слова - ТОЛЬКО пользовательские -->
                     <div id="active-keywords" class="mb-2">
-                        <!-- Автоматические ключевые слова (не удаляемые) -->
-                        {% for keyword in popular_keywords %}
-                            {% if keyword.id in auto_keywords and keyword.id not in selected_keywords %}
-                            <span class="badge bg-secondary me-1 mb-1" title="Auto-selected from similar game">
-                                {{ keyword.name }} ✓
-                            </span>
-                            {% endif %}
-                        {% endfor %}
+                        {% if selected_keywords %}
+                        <div class="mb-1">
+                            <small class="text-muted">Your selected features:</small>
+                        </div>
+                        {% endif %}
 
-                        <!-- Пользовательские ключевые слова (удаляемые) -->
+                        <!-- ТОЛЬКО пользовательские ключевые слова (удаляемые) -->
                         {% for keyword in popular_keywords %}
                             {% if keyword.id in selected_keywords %}
                             <span class="badge bg-success me-1 mb-1 active-keyword-tag" data-keyword-id="{{ keyword.id }}">
@@ -94,13 +139,13 @@
                         {% endfor %}
                     </div>
 
-                    <!-- Список ключевых слов в 3 колонки -->
+                    <!-- Список ключевых слов с ограничением по высоте и кнопкой "Show all" -->
                     <div class="keyword-list border rounded p-2" style="max-height: 200px; overflow-y: auto;">
-                        <div class="row">
+                        <div class="keyword-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
                             {% for keyword in popular_keywords %}
-                            <div class="col-md-4 col-sm-6 keyword-item" data-keyword-name="{{ keyword.name|lower }}">
+                            <div class="keyword-item" data-keyword-name="{{ keyword.name|lower }}"
+                                 {% if keyword.id in auto_keywords and keyword.id not in selected_keywords %}style="display: none;"{% endif %}>
                                 <div class="form-check">
-                                    <!-- ВАЖНОЕ ИСПРАВЛЕНИЕ: name="keyword" вместо name="keyword_category" -->
                                     <input class="form-check-input keyword-checkbox" type="checkbox" name="keyword"
                                            value="{{ keyword.id }}" id="keyword_{{ keyword.id }}"
                                            {% if keyword.id in selected_keywords or keyword.id in auto_keywords %}checked{% endif %}
@@ -115,6 +160,14 @@
                             </div>
                             {% endfor %}
                         </div>
+                    </div>
+
+                    <!-- Кнопка "Show all features" -->
+                    <div class="text-center mt-2">
+                        <button type="button" class="btn btn-outline-secondary btn-sm show-all-keywords-btn">
+                            <span class="show-text">Show all features</span>
+                            <span class="hide-text" style="display: none;">Show less</span>
+                        </button>
                     </div>
                 </div>
 

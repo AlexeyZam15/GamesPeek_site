@@ -1,107 +1,214 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const form = document.getElementById('main-search-form');
+    console.log('Search script initialized');
 
     // Элементы поиска
     const genreSearch = document.getElementById('genre-search');
     const keywordSearch = document.getElementById('keyword-search');
 
-    // Списки элементов
-    const genreItems = document.querySelectorAll('.genre-item');
-    const keywordItems = document.querySelectorAll('.keyword-item');
+    // Элементы списков
+    const genreList = document.querySelector('.genre-list');
+    const keywordList = document.querySelector('.keyword-list');
 
-    // Функция для фильтрации списка в колонках
-    function filterList(items, searchTerm) {
-        const term = searchTerm.toLowerCase().trim();
+    // Кнопки "Show all"
+    const showAllGenresBtn = document.querySelector('.show-all-genres-btn');
+    const showAllKeywordsBtn = document.querySelector('.show-all-keywords-btn');
 
-        items.forEach(item => {
-            const itemName = item.getAttribute('data-genre-name') || item.getAttribute('data-keyword-name');
-            const isVisible = itemName.includes(term);
+    // Функция для проверки, является ли элемент auto-applied
+    function isAutoApplied(item) {
+        const checkbox = item.querySelector('input[type="checkbox"]');
+        return checkbox && checkbox.disabled && !checkbox.checked;
+    }
 
-            item.style.display = isVisible ? 'block' : 'none';
+    // Функция для фильтрации с правильным скрытием элементов
+    function filterList(searchInput, itemSelector, nameAttribute) {
+        if (!searchInput) return;
+
+        searchInput.addEventListener('input', function() {
+            const searchTerm = this.value.toLowerCase().trim();
+            const items = document.querySelectorAll(itemSelector);
+
+            items.forEach(item => {
+                const itemName = item.getAttribute(nameAttribute);
+                const isMatch = itemName.includes(searchTerm);
+                const isAutoAppliedItem = isAutoApplied(item);
+
+                if (searchTerm === '') {
+                    // При пустом поиске ВСЕГДА скрываем auto-applied элементы
+                    // и показываем только обычные элементы
+                    if (isAutoAppliedItem) {
+                        item.style.display = 'none';
+                    } else {
+                        item.style.display = 'block';
+                    }
+                } else {
+                    // При активном поиске показываем/скрываем по результатам
+                    // включая auto-applied элементы если они подходят под поиск
+                    item.style.display = isMatch ? 'block' : 'none';
+                }
+            });
+        });
+
+        // Обработчик для очистки поля (крестик в IE/Edge)
+        searchInput.addEventListener('search', function() {
+            if (this.value === '') {
+                this.dispatchEvent(new Event('input'));
+            }
         });
     }
 
-    // Поиск по жанрам
-    if (genreSearch) {
-        genreSearch.addEventListener('input', function() {
-            filterList(genreItems, this.value);
+    // Функция для инициализации скрытия auto-applied элементов
+    function initializeAutoAppliedHiding() {
+        // Скрываем auto-applied жанры
+        const genreItems = document.querySelectorAll('.genre-item');
+        genreItems.forEach(item => {
+            if (isAutoApplied(item)) {
+                item.style.display = 'none';
+            }
+        });
+
+        // Скрываем auto-applied ключевые слова
+        const keywordItems = document.querySelectorAll('.keyword-item');
+        keywordItems.forEach(item => {
+            if (isAutoApplied(item)) {
+                item.style.display = 'none';
+            }
         });
     }
 
-    // Поиск по ключевым словам
-    if (keywordSearch) {
-        keywordSearch.addEventListener('input', function() {
-            filterList(keywordItems, this.value);
+    // Функция для управления auto-applied тегами
+    function setupAutoAppliedTags() {
+        const autoAppliedSections = document.querySelectorAll('.auto-applied-section');
+
+        autoAppliedSections.forEach(section => {
+            const tagsContainer = section.querySelector('.auto-applied-tags');
+            const showMoreBtn = section.querySelector('.show-more-auto-applied');
+            const tags = section.querySelectorAll('.auto-applied-tag');
+
+            if (tags.length > 8) {
+                // Скрываем теги после 8-го
+                tags.forEach((tag, index) => {
+                    if (index >= 8) {
+                        tag.style.display = 'none';
+                    }
+                });
+
+                // Показываем кнопку "more"
+                showMoreBtn.style.display = 'inline-block';
+
+                let isExpanded = false;
+                showMoreBtn.addEventListener('click', function() {
+                    isExpanded = !isExpanded;
+
+                    if (isExpanded) {
+                        // Показываем все теги
+                        tags.forEach(tag => {
+                            tag.style.display = 'inline-block';
+                        });
+                        showMoreBtn.querySelector('.show-more-text').style.display = 'none';
+                        showMoreBtn.querySelector('.show-less-text').style.display = 'inline';
+                    } else {
+                        // Скрываем теги после 8-го
+                        tags.forEach((tag, index) => {
+                            if (index >= 8) {
+                                tag.style.display = 'none';
+                            }
+                        });
+                        showMoreBtn.querySelector('.show-more-text').style.display = 'inline';
+                        showMoreBtn.querySelector('.show-less-text').style.display = 'none';
+                    }
+                });
+            }
         });
     }
 
-    // Удаление активных тегов (ТОЛЬКО пользовательских)
+    // Функция для переключения отображения полного списка
+    function setupShowAllToggle(showAllBtn, listElement, defaultHeight = '200px', expandedHeight = '400px') {
+        if (!showAllBtn || !listElement) return;
+
+        let isExpanded = false;
+
+        showAllBtn.addEventListener('click', function() {
+            isExpanded = !isExpanded;
+
+            if (isExpanded) {
+                // Показываем весь список
+                listElement.style.maxHeight = expandedHeight;
+                showAllBtn.querySelector('.show-text').style.display = 'none';
+                showAllBtn.querySelector('.hide-text').style.display = 'inline';
+            } else {
+                // Скрываем до стандартной высоты
+                listElement.style.maxHeight = defaultHeight;
+                showAllBtn.querySelector('.show-text').style.display = 'inline';
+                showAllBtn.querySelector('.hide-text').style.display = 'none';
+            }
+        });
+    }
+
+    // Удаление активных тегов
     function setupActiveTagRemoval() {
-        // Удаление активных жанров (только пользовательских)
         document.querySelectorAll('.active-genre-tag').forEach(tag => {
             tag.addEventListener('click', function() {
                 const genreId = this.getAttribute('data-genre-id');
-
-                // Находим и снимаем чекбокс
-                const checkbox = document.querySelector(`input.genre-checkbox[value="${genreId}"]`);
+                const checkbox = document.querySelector(`input[value="${genreId}"]`);
                 if (checkbox) {
                     checkbox.checked = false;
                 }
-
-                // Удаляем тег
                 this.remove();
-
-                // Отправляем форму
                 form.submit();
             });
         });
 
-        // Удаление активных ключевых слов (только пользовательских)
         document.querySelectorAll('.active-keyword-tag').forEach(tag => {
             tag.addEventListener('click', function() {
                 const keywordId = this.getAttribute('data-keyword-id');
-
-                // Находим и снимаем чекбокс
-                const checkbox = document.querySelector(`input.keyword-checkbox[value="${keywordId}"]`);
+                const checkbox = document.querySelector(`input[value="${keywordId}"]`);
                 if (checkbox) {
                     checkbox.checked = false;
                 }
-
-                // Удаляем тег
                 this.remove();
-
-                // Отправляем форму
                 form.submit();
             });
         });
     }
 
-    // Авто-отправка формы при изменении чекбоксов
-    const checkboxes = document.querySelectorAll('input[type="checkbox"]');
-    checkboxes.forEach(checkbox => {
-        checkbox.addEventListener('change', function() {
-            form.submit();
+    // Авто-отправка формы
+    function setupAutoSubmit() {
+        document.querySelectorAll('input[type="checkbox"]:not([disabled])').forEach(checkbox => {
+            checkbox.addEventListener('change', function() {
+                form.submit();
+            });
         });
-    });
 
-    // Авто-отправка формы при изменении сортировки
-    const sortSelect = document.querySelector('select[name="sort"]');
-    if (sortSelect) {
-        sortSelect.addEventListener('change', function() {
-            form.submit();
-        });
+        const sortSelect = document.querySelector('select[name="sort"]');
+        if (sortSelect) {
+            sortSelect.addEventListener('change', function() {
+                form.submit();
+            });
+        }
     }
 
-    // Инициализация
-    setupActiveTagRemoval();
+    // Инициализация всех функций
+    function initializeAll() {
+        // Сначала инициализируем скрытие auto-applied элементов
+        initializeAutoAppliedHiding();
 
-    // Скрываем неактивные элементы при загрузке
-    if (genreSearch && genreSearch.value) {
-        filterList(genreItems, genreSearch.value);
+        // Затем настраиваем поиск
+        filterList(genreSearch, '.genre-item', 'data-genre-name');
+        filterList(keywordSearch, '.keyword-item', 'data-keyword-name');
+
+        // Настраиваем остальные функции
+        setupShowAllToggle(showAllGenresBtn, genreList, '200px', '400px');
+        setupShowAllToggle(showAllKeywordsBtn, keywordList, '200px', '400px');
+        setupAutoAppliedTags();
+        setupActiveTagRemoval();
+        setupAutoSubmit();
+
+        console.log('All search functionalities initialized');
     }
-    if (keywordSearch && keywordSearch.value) {
-        filterList(keywordItems, keywordSearch.value);
-    }
+
+    // Запускаем инициализацию
+    setTimeout(initializeAll, 100);
 });
 </script>
