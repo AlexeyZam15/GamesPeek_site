@@ -12,9 +12,12 @@ def game_list(request):
     show_similarity = False
 
     # Получаем множественные параметры фильтров
-    selected_genres = request.GET.getlist('genre')  # Множественный выбор жанров
-    selected_keyword_categories = request.GET.getlist('keyword_category')  # Множественный выбор ключевых слов
-    current_sort = request.GET.get('sort', '-rating_count')
+    selected_genres = request.GET.getlist('genre')
+    selected_keyword_categories = request.GET.getlist('keyword_category')
+
+    # ПО УМОЛЧАНИЮ: если ищем похожие игры, сортируем по похожести
+    default_sort = '-similarity' if 'similar_to' in request.GET else '-rating_count'
+    current_sort = request.GET.get('sort', default_sort)
 
     # Поиск похожих игр
     similar_to_id = request.GET.get('similar_to')
@@ -51,17 +54,17 @@ def game_list(request):
         # Применяем дополнительные фильтры если есть
         if selected_genres:
             games_with_similarity = [item for item in games_with_similarity
-                                   if any(genre.id in [int(g) for g in selected_genres]
-                                         for genre in item['game'].genres.all())]
+                                     if any(genre.id in [int(g) for g in selected_genres]
+                                            for genre in item['game'].genres.all())]
 
         if selected_keyword_categories:
             games_with_similarity = [item for item in games_with_similarity
-                                   if any(keyword.category.id in [int(k) for k in selected_keyword_categories]
-                                         for keyword in item['game'].keywords.all())]
+                                     if any(keyword.category.id in [int(k) for k in selected_keyword_categories]
+                                            for keyword in item['game'].keywords.all())]
 
-        # Сортировка для похожих игр
+        # СОРТИРОВКА для похожих игр
         if current_sort == '-similarity':
-            # Уже отсортировано по similarity_score
+            # Уже отсортировано по similarity_score из кэша
             pass
         elif current_sort == '-rating_count':
             games_with_similarity.sort(key=lambda x: x['game'].rating_count or 0, reverse=True)
@@ -78,18 +81,17 @@ def game_list(request):
     else:
         # Применяем множественные фильтры жанров
         if selected_genres:
-            # Фильтруем по всем выбранным жанрам (AND логика)
             for genre_id in selected_genres:
                 games = games.filter(genres__id=genre_id)
 
         # Применяем множественные фильтры ключевых слов
         if selected_keyword_categories:
-            # Фильтруем по всем выбранным категориям ключевых слов (AND логика)
             for keyword_category_id in selected_keyword_categories:
                 games = games.filter(keywords__category__id=keyword_category_id)
 
         # Сортировка
-        if current_sort in ['name', '-name', 'rating', '-rating', 'rating_count', '-rating_count', '-first_release_date']:
+        if current_sort in ['name', '-name', 'rating', '-rating', 'rating_count', '-rating_count',
+                            '-first_release_date']:
             games = games.order_by(current_sort)
 
     # Получаем популярные ключевые слова для фильтров
@@ -106,8 +108,8 @@ def game_list(request):
             'current_sort': current_sort,
             'similar_game': similar_game,
             'show_similarity': True,
-            'selected_genres': [int(g) for g in selected_genres],  # Передаем выбранные жанры в шаблон
-            'selected_keyword_categories': [int(k) for k in selected_keyword_categories],  # Передаем выбранные ключевые слова
+            'selected_genres': [int(g) for g in selected_genres],
+            'selected_keyword_categories': [int(k) for k in selected_keyword_categories],
         }
     else:
         context = {
@@ -119,8 +121,8 @@ def game_list(request):
             'current_sort': current_sort,
             'similar_game': None,
             'show_similarity': False,
-            'selected_genres': [int(g) for g in selected_genres],  # Передаем выбранные жанры в шаблон
-            'selected_keyword_categories': [int(k) for k in selected_keyword_categories],  # Передаем выбранные ключевые слова
+            'selected_genres': [int(g) for g in selected_genres],
+            'selected_keyword_categories': [int(k) for k in selected_keyword_categories],
         }
 
     return render(request, 'games/game_list.html', context)
@@ -133,7 +135,7 @@ def game_detail(request, pk):
         pk=pk
     )
 
-    # Используем алгоритм похожести
+    # Используем ОБНОВЛЕННЫЙ алгоритм похожести
     similarity_engine = GameSimilarity()
     similar_games_data = similarity_engine.find_similar_games(game, limit=6, min_similarity=15)
 

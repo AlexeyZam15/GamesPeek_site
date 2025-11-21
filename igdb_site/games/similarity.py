@@ -1,34 +1,35 @@
 import math
 from django.db.models import Q
-from .models import Game, Keyword
+from .models import Game, Keyword, Genre
 
 
 class GameSimilarity:
     """
-    Улучшенный алгоритм поиска похожих игр с увеличенными процентами схожести
+    Алгоритм поиска похожих игр с приоритетом: Жанры > Ключ.слова жанров > Геймплей
     """
 
-    # УВЕЛИЧЕННЫЕ веса для всех категорий
+    # Веса с приоритетом: Жанры > Ключ.слова жанров > Геймплей
     WEIGHTS = {
-        'Genre': 8.0,  # Увеличенный вес жанров
-        'Gameplay': 6.0,  # Увеличенный вес геймплея
-        'Setting': 5.0,  # Увеличенный вес сеттинга
-        'Narrative': 4.0,  # Увеличенный вес нарратива
-        'Characters': 3.5,  # Увеличенный вес персонажей
-        'Technical': 2.5,  # Увеличенный вес технических аспектов
-        'Graphics': 2.0,  # Увеличенный вес графики
-        'Multiplayer': 2.0,  # Увеличенный вес мультиплеера
-        'Audio': 1.5,  # Увеличенный вес аудио
-        'Platform': 1.2,  # Увеличенный вес платформ
-        'Context': 1.0,  # Увеличенный вес контекста
-        'Achievements': 0.8,  # Увеличенный вес достижений
-        'Development': 0.5,  # Увеличенный вес разработки
-        'Other': 0.3,  # Для неизвестных категорий
+        'genres': 25.0,  # МАКСИМАЛЬНЫЙ вес для ЖАНРОВ (модель Genre)
+        'Genre': 8.0,  # Высокий вес для ключевых слов категории Genre
+        'Gameplay': 6.0,  # Средний вес для геймплейных ключевых слов
+        'Setting': 4.0,
+        'Narrative': 3.5,
+        'Characters': 3.0,
+        'Technical': 2.5,
+        'Graphics': 2.0,
+        'Multiplayer': 1.8,
+        'Audio': 1.5,
+        'Platform': 1.2,
+        'Context': 1.0,
+        'Achievements': 0.8,
+        'Development': 0.5,
+        'Other': 0.3,
     }
 
     def calculate_similarity(self, game1, game2):
         """
-        Вычисляет похожесть между двумя играми (0-100%) с увеличенными процентами
+        Вычисляет похожесть между двумя играми с приоритетом жанров
         """
         if game1 == game2:
             return 100.0
@@ -36,19 +37,30 @@ class GameSimilarity:
         total_score = 0
         max_possible_score = 0
 
-        # 1. СХОДСТВО ПО ЖАНРАМ (самое важное) - УВЕЛИЧЕННЫЙ ВКЛАД
+        # 1. СХОДСТВО ПО ЖАНРАМ (МОДЕЛЬ GENRE) - МАКСИМАЛЬНЫЙ ПРИОРИТЕТ
         genres1 = set(game1.genres.all())
         genres2 = set(game2.genres.all())
 
         if genres1 and genres2:
             common_genres = genres1.intersection(genres2)
             if common_genres:
-                # УВЕЛИЧИВАЕМ вклад жанров
+                # Базовая схожесть по жанрам
                 genre_similarity = len(common_genres) / max(len(genres1), len(genres2))
-                total_score += genre_similarity * self.WEIGHTS['Genre']
-                max_possible_score += self.WEIGHTS['Genre']
 
-        # 2. СХОДСТВО ПО КЛЮЧЕВЫМ СЛОВАМ (по всем категориям) - УВЕЛИЧЕННЫЙ ВКЛАД
+                # ДОПОЛНИТЕЛЬНЫЙ БУСТ за совпадение жанров
+                genre_multiplier = 1.0
+                if len(common_genres) >= 3:
+                    genre_multiplier = 2.0  # Очень большой буст для 3+ общих жанров
+                elif len(common_genres) == 2:
+                    genre_multiplier = 1.6  # Большой буст для 2 общих жанров
+                elif len(common_genres) == 1:
+                    genre_multiplier = 1.3  # Средний буст для 1 общего жанра
+
+                genre_score = genre_similarity * self.WEIGHTS['genres'] * genre_multiplier
+                total_score += genre_score
+                max_possible_score += self.WEIGHTS['genres'] * genre_multiplier
+
+        # 2. СХОДСТВО ПО КЛЮЧЕВЫМ СЛОВАМ (по всем категориям)
         keywords1 = game1.keywords.select_related('category').all()
         keywords2 = game2.keywords.select_related('category').all()
 
@@ -68,7 +80,7 @@ class GameSimilarity:
                     keyword_categories[category_name] = {'game1': set(), 'game2': set()}
                 keyword_categories[category_name]['game2'].add(keyword.name)
 
-            # Считаем похожесть для каждой категории - УВЕЛИЧИВАЕМ вклад
+            # Считаем похожесть для каждой категории
             for category_name, keywords in keyword_categories.items():
                 weight = self.WEIGHTS.get(category_name, self.WEIGHTS['Other'])
 
@@ -78,15 +90,23 @@ class GameSimilarity:
                 if keywords1_set and keywords2_set:
                     common_keywords = keywords1_set.intersection(keywords2_set)
                     if common_keywords:
-                        # УВЕЛИЧИВАЕМ схожесть за счет общих ключевых слов
                         category_similarity = len(common_keywords) / max(len(keywords1_set), len(keywords2_set))
-                        total_score += category_similarity * weight
-                        max_possible_score += weight
 
-        # 3. ДОПОЛНИТЕЛЬНЫЕ ФАКТОРЫ для увеличения процентов
+                        # Дополнительный буст для категории Genre (ключевые слова жанров)
+                        category_multiplier = 1.0
+                        if category_name == 'Genre':
+                            category_multiplier = 1.4  # Буст для ключевых слов жанров
+                        elif category_name == 'Gameplay':
+                            category_multiplier = 1.2  # Небольшой буст для геймплея
+
+                        category_score = category_similarity * weight * category_multiplier
+                        total_score += category_score
+                        max_possible_score += weight * category_multiplier
+
+        # 3. ДОПОЛНИТЕЛЬНЫЕ ФАКТОРЫ
         additional_score = 0
 
-        # Общие платформы (небольшой бонус)
+        # Общие платформы
         platforms1 = set(game1.platforms.all())
         platforms2 = set(game2.platforms.all())
         if platforms1 and platforms2:
@@ -95,48 +115,48 @@ class GameSimilarity:
                 platform_similarity = len(common_platforms) / max(len(platforms1), len(platforms2))
                 additional_score += platform_similarity * 1.0
 
-        # Похожий рейтинг (небольшой бонус)
+        # Похожий рейтинг
         if game1.rating and game2.rating:
             rating_diff = abs(game1.rating - game2.rating)
-            if rating_diff <= 1.0:  # Разница менее 1 балла
-                additional_score += 0.5
-            elif rating_diff <= 2.0:  # Разница менее 2 баллов
-                additional_score += 0.2
+            if rating_diff <= 0.5:  # Разница менее 0.5 балла
+                additional_score += 0.8
+            elif rating_diff <= 1.0:  # Разница менее 1 балла
+                additional_score += 0.4
 
         total_score += additional_score
-        max_possible_score += 1.5  # Максимальный дополнительный балл
+        max_possible_score += 1.8  # Максимальный дополнительный балл
 
-        # Нормализуем результат (0-100%) с УВЕЛИЧЕНИЕМ
+        # Нормализуем результат (0-100%)
         if max_possible_score == 0:
             return 0.0
 
         base_similarity = (total_score / max_possible_score) * 100
 
-        # УВЕЛИЧИВАЕМ итоговый процент с помощью нелинейной функции
+        # Увеличиваем итоговый процент для лучшего отображения
         final_similarity = self._boost_similarity_score(base_similarity)
 
         return min(final_similarity, 100.0)
 
     def _boost_similarity_score(self, base_score):
         """
-        Увеличивает базовый процент схожести с помощью нелинейной функции
+        Увеличивает базовый процент схожести
         """
         if base_score <= 0:
             return 0
         elif base_score <= 20:
-            return base_score * 1.5  # Увеличиваем низкие проценты
+            return base_score * 1.6
         elif base_score <= 50:
-            return base_score * 1.3  # Увеличиваем средние проценты
+            return base_score * 1.3
         else:
-            return base_score * 1.15  # Увеличиваем высокие проценты
+            return base_score * 1.15
 
     def find_similar_games(self, game, limit=20, min_similarity=15):
         """
-        Находит похожие игры для указанной игры с увеличенными процентами
+        Находит похожие игры для указанной игры
         """
         similar_games = []
 
-        # Ищем все игры кроме текущей (с жанрами и ключевыми словами)
+        # Ищем все игры кроме текущей
         all_games = Game.objects.exclude(pk=game.pk).prefetch_related(
             'genres', 'keywords__category', 'platforms'
         )
@@ -145,7 +165,7 @@ class GameSimilarity:
             similarity = self.calculate_similarity(game, candidate_game)
 
             if similarity >= min_similarity:
-                # Получаем общие жанры и ключевые слова по категориям
+                # Получаем общие жанры и ключевые слова
                 common_genres = set(game.genres.all()).intersection(set(candidate_game.genres.all()))
                 common_keywords_by_category = self.get_common_keywords_by_category(game, candidate_game)
 
@@ -160,7 +180,7 @@ class GameSimilarity:
                     'similarity': similarity,
                     'common_genres': list(common_genres),
                     'common_keywords': common_keywords_by_category,
-                    'matching_categories': matching_categories[:3]  # Топ-3 категории
+                    'matching_categories': matching_categories[:3]
                 })
 
         # Сортируем по похожести (от большей к меньшей)
@@ -194,17 +214,17 @@ class GameSimilarity:
         """
         breakdown = {}
 
-        # 1. Жанры
+        # 1. Жанры (модель Genre)
         genres1 = set(game1.genres.all())
         genres2 = set(game2.genres.all())
 
         if genres1 and genres2:
             common_genres = genres1.intersection(genres2)
             genre_similarity = len(common_genres) / max(len(genres1), len(genres2)) * 100
-            breakdown['Genre'] = {
+            breakdown['Genres'] = {
                 'similarity_percent': genre_similarity,
                 'common_items': [genre.name for genre in common_genres],
-                'weight': self.WEIGHTS['Genre']
+                'weight': self.WEIGHTS['genres']
             }
 
         # 2. Ключевые слова по всем категориям
