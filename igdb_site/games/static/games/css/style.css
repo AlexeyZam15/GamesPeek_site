@@ -436,3 +436,25 @@ footer {
 .similarity-badge {
     text-align: center;
 }
+
+.active-genre-tag, .active-keyword-tag {
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.active-genre-tag:hover, .active-keyword-tag:hover {
+    opacity: 0.8;
+}
+
+.genre-list, .keyword-list {
+    background-color: #f8f9fa;
+}
+
+.genre-item, .keyword-item {
+    transition: background-color 0.2s;
+}
+
+.genre-item:hover, .keyword-item:hover {
+    background-color: #e9ecef;
+    border-radius: 4px;
+}

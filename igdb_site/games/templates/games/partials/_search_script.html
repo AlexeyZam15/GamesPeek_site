@@ -1,0 +1,103 @@
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('main-search-form');
+
+    // Элементы поиска
+    const genreSearch = document.getElementById('genre-search');
+    const keywordSearch = document.getElementById('keyword-search');
+
+    // Списки элементов
+    const genreItems = document.querySelectorAll('.genre-item');
+    const keywordItems = document.querySelectorAll('.keyword-item');
+
+    // Активные теги
+    const activeGenresContainer = document.getElementById('active-genres');
+    const activeKeywordsContainer = document.getElementById('active-keywords');
+
+    // Функция для фильтрации списка в колонках
+    function filterList(items, searchTerm) {
+        const term = searchTerm.toLowerCase().trim();
+        let visibleCount = 0;
+
+        items.forEach(item => {
+            const itemName = item.getAttribute('data-genre-name') || item.getAttribute('data-keyword-name');
+            const isVisible = itemName.includes(term);
+
+            item.style.display = isVisible ? 'block' : 'none';
+            if (isVisible) visibleCount++;
+        });
+
+        return visibleCount;
+    }
+
+    // Поиск по жанрам
+    if (genreSearch) {
+        genreSearch.addEventListener('input', function() {
+            filterList(genreItems, this.value);
+        });
+    }
+
+    // Поиск по ключевым словам
+    if (keywordSearch) {
+        keywordSearch.addEventListener('input', function() {
+            filterList(keywordItems, this.value);
+        });
+    }
+
+    // Удаление активных тегов
+    function setupActiveTagRemoval() {
+        // Удаление активных жанров
+        document.querySelectorAll('.active-genre-tag').forEach(tag => {
+            tag.addEventListener('click', function() {
+                const genreId = this.getAttribute('data-genre-id');
+                const checkbox = document.querySelector(`input[value="${genreId}"]`);
+                if (checkbox) {
+                    checkbox.checked = false;
+                }
+                this.remove();
+                form.submit();
+            });
+        });
+
+        // Удаление активных ключевых слов
+        document.querySelectorAll('.active-keyword-tag').forEach(tag => {
+            tag.addEventListener('click', function() {
+                const keywordId = this.getAttribute('data-keyword-id');
+                const checkbox = document.querySelector(`input[value="${keywordId}"]`);
+                if (checkbox) {
+                    checkbox.checked = false;
+                }
+                this.remove();
+                form.submit();
+            });
+        });
+    }
+
+    // Авто-отправка формы при изменении чекбоксов
+    const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            form.submit();
+        });
+    });
+
+    // Авто-отправка формы при изменении сортировки
+    const sortSelect = document.querySelector('select[name="sort"]');
+    if (sortSelect) {
+        sortSelect.addEventListener('change', function() {
+            form.submit();
+        });
+    }
+
+    // Инициализация
+    setupActiveTagRemoval();
+
+    // Скрываем неактивные элементы при загрузке (опционально)
+    if (genreSearch && genreSearch.value) {
+        filterList(genreItems, genreSearch.value);
+    }
+    if (keywordSearch && keywordSearch.value) {
+        filterList(keywordItems, keywordSearch.value);
+    }
+});
+</script>

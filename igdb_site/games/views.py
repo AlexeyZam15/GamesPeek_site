@@ -11,6 +11,11 @@ def game_list(request):
     similar_game = None
     show_similarity = False
 
+    # Получаем множественные параметры фильтров
+    selected_genres = request.GET.getlist('genre')  # Множественный выбор жанров
+    selected_keyword_categories = request.GET.getlist('keyword_category')  # Множественный выбор ключевых слов
+    current_sort = request.GET.get('sort', '-rating_count')
+
     # Поиск похожих игр
     similar_to_id = request.GET.get('similar_to')
     if similar_to_id:
@@ -44,48 +49,48 @@ def game_list(request):
                 })
 
         # Применяем дополнительные фильтры если есть
-        search_query = request.GET.get('search')
-        if search_query:
+        if selected_genres:
             games_with_similarity = [item for item in games_with_similarity
-                                     if search_query.lower() in item['game'].name.lower()]
+                                   if any(genre.id in [int(g) for g in selected_genres]
+                                         for genre in item['game'].genres.all())]
 
-        genre_filter = request.GET.get('genre')
-        if genre_filter:
+        if selected_keyword_categories:
             games_with_similarity = [item for item in games_with_similarity
-                                     if item['game'].genres.filter(id=genre_filter).exists()]
+                                   if any(keyword.category.id in [int(k) for k in selected_keyword_categories]
+                                         for keyword in item['game'].keywords.all())]
 
-        platform_filter = request.GET.get('platform')
-        if platform_filter:
-            games_with_similarity = [item for item in games_with_similarity
-                                     if item['game'].platforms.filter(id=platform_filter).exists()]
-
-        keyword_category_filter = request.GET.get('keyword_category')
-        if keyword_category_filter:
-            games_with_similarity = [item for item in games_with_similarity
-                                     if item['game'].keywords.filter(category__id=keyword_category_filter).exists()]
+        # Сортировка для похожих игр
+        if current_sort == '-similarity':
+            # Уже отсортировано по similarity_score
+            pass
+        elif current_sort == '-rating_count':
+            games_with_similarity.sort(key=lambda x: x['game'].rating_count or 0, reverse=True)
+        elif current_sort == '-rating':
+            games_with_similarity.sort(key=lambda x: x['game'].rating or 0, reverse=True)
+        elif current_sort == 'name':
+            games_with_similarity.sort(key=lambda x: x['game'].name.lower())
+        elif current_sort == '-name':
+            games_with_similarity.sort(key=lambda x: x['game'].name.lower(), reverse=True)
+        elif current_sort == '-first_release_date':
+            games_with_similarity.sort(key=lambda x: x['game'].first_release_date or '', reverse=True)
 
     # Обычный поиск (без похожих игр)
     else:
-        search_query = request.GET.get('search')
-        if search_query:
-            games = games.filter(name__icontains=search_query)
+        # Применяем множественные фильтры жанров
+        if selected_genres:
+            # Фильтруем по всем выбранным жанрам (AND логика)
+            for genre_id in selected_genres:
+                games = games.filter(genres__id=genre_id)
 
-        genre_filter = request.GET.get('genre')
-        if genre_filter:
-            games = games.filter(genres__id=genre_filter)
-
-        platform_filter = request.GET.get('platform')
-        if platform_filter:
-            games = games.filter(platforms__id=platform_filter)
-
-        keyword_category_filter = request.GET.get('keyword_category')
-        if keyword_category_filter:
-            games = games.filter(keywords__category__id=keyword_category_filter)
+        # Применяем множественные фильтры ключевых слов
+        if selected_keyword_categories:
+            # Фильтруем по всем выбранным категориям ключевых слов (AND логика)
+            for keyword_category_id in selected_keyword_categories:
+                games = games.filter(keywords__category__id=keyword_category_id)
 
         # Сортировка
-        sort = request.GET.get('sort', '-rating_count')
-        if sort in ['name', '-name', 'rating', '-rating', 'rating_count', '-rating_count']:
-            games = games.order_by(sort)
+        if current_sort in ['name', '-name', 'rating', '-rating', 'rating_count', '-rating_count', '-first_release_date']:
+            games = games.order_by(current_sort)
 
     # Получаем популярные ключевые слова для фильтров
     popular_keywords = Keyword.objects.filter(usage_count__gt=0).order_by('-usage_count')[:20]
@@ -98,10 +103,11 @@ def game_list(request):
             'platforms': Platform.objects.all(),
             'keyword_categories': KeywordCategory.objects.all(),
             'popular_keywords': popular_keywords,
-            'search_query': search_query or '',
-            'current_sort': request.GET.get('sort', '-rating_count'),
+            'current_sort': current_sort,
             'similar_game': similar_game,
             'show_similarity': True,
+            'selected_genres': [int(g) for g in selected_genres],  # Передаем выбранные жанры в шаблон
+            'selected_keyword_categories': [int(k) for k in selected_keyword_categories],  # Передаем выбранные ключевые слова
         }
     else:
         context = {
@@ -110,10 +116,11 @@ def game_list(request):
             'platforms': Platform.objects.all(),
             'keyword_categories': KeywordCategory.objects.all(),
             'popular_keywords': popular_keywords,
-            'search_query': search_query or '',
-            'current_sort': sort,
+            'current_sort': current_sort,
             'similar_game': None,
             'show_similarity': False,
+            'selected_genres': [int(g) for g in selected_genres],  # Передаем выбранные жанры в шаблон
+            'selected_keyword_categories': [int(k) for k in selected_keyword_categories],  # Передаем выбранные ключевые слова
         }
 
     return render(request, 'games/game_list.html', context)
@@ -208,7 +215,6 @@ def keyword_category_view(request, category_id):
     return render(request, 'games/keyword_category.html', context)
 
 
-# games/views.py
 def game_search(request):
     """Простой поиск игр по названию"""
     search_query = request.GET.get('q', '')

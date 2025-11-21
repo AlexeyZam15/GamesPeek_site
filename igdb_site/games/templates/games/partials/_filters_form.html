@@ -1,0 +1,104 @@
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="get" id="main-search-form">
+            {% if similar_game %}
+            <input type="hidden" name="similar_to" value="{{ similar_game.id }}">
+            {% endif %}
+
+            <div class="row g-3">
+                <!-- Сортировка -->
+                <div class="col-md-6">
+                    <label class="form-label">Sort by:</label>
+                    <select name="sort" class="form-select">
+                        <option value="-similarity" {% if current_sort == "-similarity" or similar_game %}selected{% endif %}>Most Similar</option>
+                        <option value="-rating_count" {% if current_sort == "-rating_count" %}selected{% endif %}>Most Popular</option>
+                        <option value="-rating" {% if current_sort == "-rating" %}selected{% endif %}>Highest Rated</option>
+                        <option value="name" {% if current_sort == "name" %}selected{% endif %}>Name A-Z</option>
+                        <option value="-name" {% if current_sort == "-name" %}selected{% endif %}>Name Z-A</option>
+                        <option value="-first_release_date" {% if current_sort == "-first_release_date" %}selected{% endif %}>Newest First</option>
+                    </select>
+                </div>
+
+                <!-- Жанры -->
+                <div class="col-12">
+                    <label class="form-label">Filter by Genres:</label>
+                    <input type="text" class="form-control mb-2" id="genre-search" placeholder="Search genres..." autocomplete="off">
+
+                    <!-- Активные жанры -->
+                    <div id="active-genres" class="mb-2">
+                        {% for genre in genres %}
+                            {% if genre.id in selected_genres or similar_game and genre in similar_game.genres.all %}
+                            <span class="badge bg-primary me-1 mb-1 active-genre-tag" data-genre-id="{{ genre.id }}">
+                                {{ genre.name }} ×
+                            </span>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+
+                    <!-- Список жанров в 3 колонки -->
+                    <div class="genre-list border rounded p-2" style="max-height: 200px; overflow-y: auto;">
+                        <div class="row">
+                            {% for genre in genres %}
+                            <div class="col-md-4 col-sm-6 genre-item" data-genre-name="{{ genre.name|lower }}">
+                                <div class="form-check">
+                                    <input class="form-check-input genre-checkbox" type="checkbox" name="genre"
+                                           value="{{ genre.id }}" id="genre_{{ genre.id }}"
+                                           {% if genre.id in selected_genres or similar_game and genre in similar_game.genres.all %}checked{% endif %}>
+                                    <label class="form-check-label small" for="genre_{{ genre.id }}">
+                                        {{ genre.name }}
+                                    </label>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Ключевые слова -->
+                <div class="col-12">
+                    <label class="form-label">Filter by Features:</label>
+                    <input type="text" class="form-control mb-2" id="keyword-search" placeholder="Search features..." autocomplete="off">
+
+                    <!-- Активные ключевые слова -->
+                    <div id="active-keywords" class="mb-2">
+                        {% for keyword in popular_keywords %}
+                            {% if keyword.category.id in selected_keyword_categories or similar_game and keyword in similar_game.keywords.all %}
+                            <span class="badge bg-success me-1 mb-1 active-keyword-tag" data-keyword-id="{{ keyword.category.id }}">
+                                {{ keyword.name }} ×
+                            </span>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+
+                    <!-- Список ключевых слов в 3 колонки -->
+                    <div class="keyword-list border rounded p-2" style="max-height: 200px; overflow-y: auto;">
+                        <div class="row">
+                            {% for keyword in popular_keywords %}
+                            <div class="col-md-4 col-sm-6 keyword-item" data-keyword-name="{{ keyword.name|lower }}">
+                                <div class="form-check">
+                                    <input class="form-check-input keyword-checkbox" type="checkbox" name="keyword_category"
+                                           value="{{ keyword.category.id }}" id="keyword_{{ keyword.id }}"
+                                           {% if keyword.category.id in selected_keyword_categories or similar_game and keyword in similar_game.keywords.all %}checked{% endif %}>
+                                    <label class="form-check-label small" for="keyword_{{ keyword.id }}">
+                                        {{ keyword.name }}
+                                    </label>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Кнопки -->
+                <div class="col-12">
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            Apply Filters
+                        </button>
+                        <a href="{% url 'game_list' %}" class="btn btn-secondary">Show All Games</a>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
