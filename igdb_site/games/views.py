@@ -2,20 +2,33 @@ from .similarity import GameSimilarity
 from django.db import models
 from django.shortcuts import render, get_object_or_404
 from .models import Game, Genre, Keyword, KeywordCategory, Platform, GameSimilarityCache
+import json
+import base64
 
 
 def game_list(request):
     """Список всех игр с поиском похожих игр по выбранным критериям"""
     games = Game.objects.all().prefetch_related('genres', 'platforms', 'keywords')
 
-    # Получаем параметры
-    selected_genres = request.GET.getlist('genre')
-    selected_keywords = request.GET.getlist('keyword')
+    # Получаем параметры в новом компактном формате
     find_similar = request.GET.get('find_similar') == '1'
 
-    # Конвертируем в integers
-    selected_genres_int = [int(g) for g in selected_genres if g]
-    selected_keywords_int = [int(k) for k in selected_keywords if k]
+    # Новый компактный формат параметров
+    genres_param = request.GET.get('g', '')
+    keywords_param = request.GET.get('k', '')
+
+    # Конвертируем строки в списки integers
+    selected_genres_int = [int(g) for g in genres_param.split(',') if g.strip()] if genres_param else []
+    selected_keywords_int = [int(k) for k in keywords_param.split(',') if k.strip()] if keywords_param else []
+
+    # Старый формат (для обратной совместимости)
+    if not selected_genres_int:
+        selected_genres = request.GET.getlist('genre')
+        selected_genres_int = [int(g) for g in selected_genres if g]
+
+    if not selected_keywords_int:
+        selected_keywords = request.GET.getlist('keyword')
+        selected_keywords_int = [int(k) for k in selected_keywords if k]
 
     # Автоматически включаем режим похожих игр если переданы критерии
     if not find_similar and (selected_genres_int or selected_keywords_int):
@@ -78,6 +91,14 @@ def game_list(request):
                             '-first_release_date']:
             games = games.order_by(current_sort)
 
+    # Генерируем компактный URL для шаблона
+    compact_url_params = generate_compact_url_params(
+        find_similar=find_similar,
+        genres=selected_genres_int,
+        keywords=selected_keywords_int,
+        sort=current_sort
+    )
+
     context = {
         'games': games if not show_similarity else [],
         'games_with_similarity': games_with_similarity if show_similarity else [],
@@ -90,10 +111,54 @@ def game_list(request):
         'selected_genres': selected_genres_int,
         'selected_keywords': selected_keywords_int,
         'find_similar': find_similar,
+        'compact_url_params': compact_url_params,  # Для использования в шаблоне
     }
 
     return render(request, 'games/game_list.html', context)
 
+
+def generate_compact_url_params(find_similar=False, genres=None, keywords=None, sort=None):
+    """
+    Генерирует компактные параметры URL
+    """
+    params = {}
+
+    if find_similar:
+        params['find_similar'] = '1'
+
+    if genres:
+        params['g'] = ','.join(str(g) for g in genres)
+
+    if keywords:
+        params['k'] = ','.join(str(k) for k in keywords)
+
+    if sort:
+        params['sort'] = sort
+
+    return params
+
+
+def get_compact_game_list_url(find_similar=False, genres=None, keywords=None, sort=None):
+    """
+    Вспомогательная функция для генерации полного URL с компактными параметрами
+    """
+    params = generate_compact_url_params(
+        find_similar=find_similar,
+        genres=genres,
+        keywords=keywords,
+        sort=sort
+    )
+
+    from django.urls import reverse
+    from urllib.parse import urlencode
+
+    base_url = reverse('game_list')
+    if params:
+        return f"{base_url}?{urlencode(params)}"
+    return base_url
+
+
+# Остальные функции остаются без изменений
 def game_detail(request, pk):
     """Детальная страница игры с похожими играми"""
     game = get_object_or_404(

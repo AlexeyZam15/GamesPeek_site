@@ -1,8 +1,10 @@
 <div class="card mb-4">
     <div class="card-body">
         <form method="get" id="main-search-form">
-            <!-- Скрытые параметры -->
+            <!-- Скрытые параметры для компактного формата -->
             <input type="hidden" name="find_similar" id="find_similar_field" value="{% if find_similar %}1{% endif %}">
+            <input type="hidden" name="g" id="genres-field" value="{{ selected_genres|join:',' }}">
+            <input type="hidden" name="k" id="keywords-field" value="{{ selected_keywords|join:',' }}">
 
             <div class="row g-3">
                 <!-- Сортировка -->
@@ -46,7 +48,7 @@
                             {% for genre in genres %}
                             <div class="genre-item" data-genre-name="{{ genre.name|lower }}">
                                 <div class="form-check">
-                                    <input class="form-check-input genre-checkbox" type="checkbox" name="genre"
+                                    <input class="form-check-input genre-checkbox" type="checkbox"
                                            value="{{ genre.id }}" id="genre_{{ genre.id }}"
                                            {% if genre.id in selected_genres %}checked{% endif %}>
                                     <label class="form-check-label small" for="genre_{{ genre.id }}">
@@ -95,7 +97,7 @@
                             {% for keyword in popular_keywords %}
                             <div class="keyword-item" data-keyword-name="{{ keyword.name|lower }}">
                                 <div class="form-check">
-                                    <input class="form-check-input keyword-checkbox" type="checkbox" name="keyword"
+                                    <input class="form-check-input keyword-checkbox" type="checkbox"
                                            value="{{ keyword.id }}" id="keyword_{{ keyword.id }}"
                                            {% if keyword.id in selected_keywords %}checked{% endif %}>
                                     <label class="form-check-label small" for="keyword_{{ keyword.id }}">
@@ -134,3 +136,121 @@
         </form>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Обновляем скрытые поля при изменении чекбоксов
+    function updateHiddenFields() {
+        // Обновляем жанры
+        const genreCheckboxes = document.querySelectorAll('.genre-checkbox:checked');
+        const genreIds = Array.from(genreCheckboxes).map(cb => cb.value);
+        document.getElementById('genres-field').value = genreIds.join(',');
+
+        // Обновляем ключевые слова
+        const keywordCheckboxes = document.querySelectorAll('.keyword-checkbox:checked');
+        const keywordIds = Array.from(keywordCheckboxes).map(cb => cb.value);
+        document.getElementById('keywords-field').value = keywordIds.join(',');
+    }
+
+    // Слушаем изменения чекбоксов
+    document.querySelectorAll('.genre-checkbox, .keyword-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', updateHiddenFields);
+    });
+
+    // Удаление активных тегов
+    document.addEventListener('click', function(e) {
+        // Удаление жанра
+        if (e.target.classList.contains('active-genre-tag')) {
+            const genreId = e.target.getAttribute('data-genre-id');
+            const checkbox = document.querySelector(`.genre-checkbox[value="${genreId}"]`);
+            if (checkbox) {
+                checkbox.checked = false;
+                updateHiddenFields();
+                // Можно добавить отправку формы здесь или оставить пользователю нажать кнопку
+            }
+        }
+
+        // Удаление ключевого слова
+        if (e.target.classList.contains('active-keyword-tag')) {
+            const keywordId = e.target.getAttribute('data-keyword-id');
+            const checkbox = document.querySelector(`.keyword-checkbox[value="${keywordId}"]`);
+            if (checkbox) {
+                checkbox.checked = false;
+                updateHiddenFields();
+            }
+        }
+    });
+
+    // Поиск по жанрам
+    const genreSearch = document.getElementById('genre-search');
+    if (genreSearch) {
+        genreSearch.addEventListener('input', function() {
+            const searchTerm = this.value.toLowerCase();
+            document.querySelectorAll('.genre-item').forEach(item => {
+                const genreName = item.getAttribute('data-genre-name');
+                if (genreName.includes(searchTerm)) {
+                    item.style.display = 'block';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        });
+    }
+
+    // Поиск по ключевым словам
+    const keywordSearch = document.getElementById('keyword-search');
+    if (keywordSearch) {
+        keywordSearch.addEventListener('input', function() {
+            const searchTerm = this.value.toLowerCase();
+            document.querySelectorAll('.keyword-item').forEach(item => {
+                const keywordName = item.getAttribute('data-keyword-name');
+                if (keywordName.includes(searchTerm)) {
+                    item.style.display = 'block';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        });
+    }
+
+    // Показать/скрыть все жанры
+    const showAllGenresBtn = document.querySelector('.show-all-genres-btn');
+    if (showAllGenresBtn) {
+        showAllGenresBtn.addEventListener('click', function() {
+            const genreList = document.querySelector('.genre-list');
+            const showText = this.querySelector('.show-text');
+            const hideText = this.querySelector('.hide-text');
+
+            if (genreList.style.maxHeight === '200px') {
+                genreList.style.maxHeight = 'none';
+                showText.style.display = 'none';
+                hideText.style.display = 'inline';
+            } else {
+                genreList.style.maxHeight = '200px';
+                showText.style.display = 'inline';
+                hideText.style.display = 'none';
+            }
+        });
+    }
+
+    // Показать/скрыть все ключевые слова
+    const showAllKeywordsBtn = document.querySelector('.show-all-keywords-btn');
+    if (showAllKeywordsBtn) {
+        showAllKeywordsBtn.addEventListener('click', function() {
+            const keywordList = document.querySelector('.keyword-list');
+            const showText = this.querySelector('.show-text');
+            const hideText = this.querySelector('.hide-text');
+
+            if (keywordList.style.maxHeight === '200px') {
+                keywordList.style.maxHeight = 'none';
+                showText.style.display = 'none';
+                hideText.style.display = 'inline';
+            } else {
+                keywordList.style.maxHeight = '200px';
+                showText.style.display = 'inline';
+                hideText.style.display = 'none';
+            }
+        });
+    }
+});
+</script>

@@ -1,3 +1,5 @@
+{% load game_tags %}
+
 <div class="col-xl-3 col-lg-4 col-md-6 mb-4">
     <div class="card h-100 game-card">
         {% if game.cover_url %}
@@ -52,8 +54,9 @@
                 <a href="{% url 'game_detail' game.id %}" class="btn btn-sm btn-outline-primary">
                     <i class="bi bi-info-circle"></i> Details
                 </a>
-                <a href="{% url 'game_list' %}?find_similar=1{% for genre in game.genres.all %}&genre={{ genre.id }}{% endfor %}{% for keyword in game.keywords.all|slice:':5' %}&keyword={{ keyword.id }}{% endfor %}"
-                   class="btn btn-sm btn-outline-info">
+
+                <!-- ПРОСТАЯ И КОМПАКТНАЯ ССЫЛКА -->
+                <a href="{% get_find_similar_url game %}" class="btn btn-sm btn-outline-info">
                     <i class="bi bi-search-heart"></i> Find Similar
                 </a>
             </div>
