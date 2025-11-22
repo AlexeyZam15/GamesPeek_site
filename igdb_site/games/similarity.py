@@ -10,8 +10,8 @@ class VirtualGame:
         self.genre_ids = genre_ids or []
         self.keyword_ids = keyword_ids or []
         self.genres = Genre.objects.filter(id__in=genre_ids) if genre_ids else []
-        self.keywords = Keyword.objects.filter(id__in=keyword_ids).select_related('category') if keyword_ids else []
-        self.platforms = []  # Виртуальная игра не имеет платформ
+        self.keywords = Keyword.objects.filter(id__in=keyword_ids) if keyword_ids else []
+        self.platforms = []
         self.name = "Custom Search Criteria"
         self.rating = None
         self.rating_count = 0
@@ -22,233 +22,132 @@ class VirtualGame:
 
 class GameSimilarity:
     """
-    Алгоритм поиска похожих игр с приоритетом: Жанры > Ключ.слова жанров > Геймплей
+    Алгоритм похожести: 70% за жанры, 30% за ключевые слова
+    Начинаем с 100% и отнимаем за различия
     """
-
-    # Веса с приоритетом: Жанры > Ключ.слова жанров > Геймплей
-    WEIGHTS = {
-        'genres': 25.0,  # МАКСИМАЛЬНЫЙ вес для ЖАНРОВ (модель Genre)
-        'Genre': 8.0,  # Высокий вес для ключевых слов категории Genre
-        'Gameplay': 6.0,  # Средний вес для геймплейных ключевых слов
-        'Setting': 4.0,
-        'Narrative': 3.5,
-        'Characters': 3.0,
-        'Technical': 2.5,
-        'Graphics': 2.0,
-        'Multiplayer': 1.8,
-        'Audio': 1.5,
-        'Platform': 1.2,
-        'Context': 1.0,
-        'Achievements': 0.8,
-        'Development': 0.5,
-        'Other': 0.3,
-    }
 
     def calculate_similarity(self, game1, game2):
         """
-        Вычисляет похожесть между двумя играми с приоритетом жанров
+        Вычисляет похожесть между двумя играми
         """
         if game1 == game2:
             return 100.0
 
-        total_score = 0
-        max_possible_score = 0
+        # Начинаем с 100%
+        similarity = 100.0
 
-        # 1. СХОДСТВО ПО ЖАНРАМ (МОДЕЛЬ GENRE) - МАКСИМАЛЬНЫЙ ПРИОРИТЕТ
+        # 1. ОТНИМАЕМ ЗА РАЗЛИЧИЯ В ЖАНРАХ (максимум 70%)
+        similarity -= self._calculate_genre_penalty(game1, game2)
+
+        # 2. ОТНИМАЕМ ЗА РАЗЛИЧИЯ В КЛЮЧЕВЫХ СЛОВАХ (максимум 30%)
+        similarity -= self._calculate_keyword_penalty(game1, game2)
+
+        return max(0.0, similarity)
+
+    def _calculate_genre_penalty(self, game1, game2):
+        """
+        Рассчитывает штраф за различия в жанрах (0-70%)
+        Штрафуем только за отсутствие жанров из game1 в game2
+        """
         genres1 = set(game1.genres.all())
         genres2 = set(game2.genres.all())
 
-        if genres1 and genres2:
-            common_genres = genres1.intersection(genres2)
-            if common_genres:
-                # Базовая схожесть по жанрам
-                genre_similarity = len(common_genres) / max(len(genres1), len(genres2))
-
-                # ДОПОЛНИТЕЛЬНЫЙ БУСТ за совпадение жанров
-                genre_multiplier = 1.0
-                if len(common_genres) >= 3:
-                    genre_multiplier = 2.0  # Очень большой буст для 3+ общих жанров
-                elif len(common_genres) == 2:
-                    genre_multiplier = 1.6  # Большой буст для 2 общих жанров
-                elif len(common_genres) == 1:
-                    genre_multiplier = 1.3  # Средний буст для 1 общего жанра
-
-                genre_score = genre_similarity * self.WEIGHTS['genres'] * genre_multiplier
-                total_score += genre_score
-                max_possible_score += self.WEIGHTS['genres'] * genre_multiplier
-
-        # 2. СХОДСТВО ПО КЛЮЧЕВЫМ СЛОВАМ (по всем категориям)
-        keywords1 = game1.keywords.select_related('category').all()
-        keywords2 = game2.keywords.select_related('category').all()
-
-        if keywords1 and keywords2:
-            # Группируем ключевые слова по категориям
-            keyword_categories = {}
-
-            for keyword in keywords1:
-                category_name = keyword.category.name if keyword.category else 'Other'
-                if category_name not in keyword_categories:
-                    keyword_categories[category_name] = {'game1': set(), 'game2': set()}
-                keyword_categories[category_name]['game1'].add(keyword.name)
-
-            for keyword in keywords2:
-                category_name = keyword.category.name if keyword.category else 'Other'
-                if category_name not in keyword_categories:
-                    keyword_categories[category_name] = {'game1': set(), 'game2': set()}
-                keyword_categories[category_name]['game2'].add(keyword.name)
-
-            # Считаем похожесть для каждой категории
-            for category_name, keywords in keyword_categories.items():
-                weight = self.WEIGHTS.get(category_name, self.WEIGHTS['Other'])
-
-                keywords1_set = keywords['game1']
-                keywords2_set = keywords['game2']
-
-                if keywords1_set and keywords2_set:
-                    common_keywords = keywords1_set.intersection(keywords2_set)
-                    if common_keywords:
-                        category_similarity = len(common_keywords) / max(len(keywords1_set), len(keywords2_set))
-
-                        # Дополнительный буст для категории Genre (ключевые слова жанров)
-                        category_multiplier = 1.0
-                        if category_name == 'Genre':
-                            category_multiplier = 1.4  # Буст для ключевых слов жанров
-                        elif category_name == 'Gameplay':
-                            category_multiplier = 1.2  # Небольшой буст для геймплея
-
-                        category_score = category_similarity * weight * category_multiplier
-                        total_score += category_score
-                        max_possible_score += weight * category_multiplier
-
-        # 3. ДОПОЛНИТЕЛЬНЫЕ ФАКТОРЫ
-        additional_score = 0
-
-        # Общие платформы
-        platforms1 = set(game1.platforms.all())
-        platforms2 = set(game2.platforms.all())
-        if platforms1 and platforms2:
-            common_platforms = platforms1.intersection(platforms2)
-            if common_platforms:
-                platform_similarity = len(common_platforms) / max(len(platforms1), len(platforms2))
-                additional_score += platform_similarity * 1.0
-
-        # Похожий рейтинг
-        if game1.rating and game2.rating:
-            rating_diff = abs(game1.rating - game2.rating)
-            if rating_diff <= 0.5:  # Разница менее 0.5 балла
-                additional_score += 0.8
-            elif rating_diff <= 1.0:  # Разница менее 1 балла
-                additional_score += 0.4
-
-        total_score += additional_score
-        max_possible_score += 1.8  # Максимальный дополнительный балл
-
-        # Нормализуем результат (0-100%)
-        if max_possible_score == 0:
+        if not genres1:
+            # Если у исходной игры нет жанров - не штрафуем
             return 0.0
 
-        base_similarity = (total_score / max_possible_score) * 100
+        # Жанры из исходной игры, которые отсутствуют в проверяемой игре
+        missing_genres = genres1 - genres2
 
-        # Увеличиваем итоговый процент для лучшего отображения
-        final_similarity = self._boost_similarity_score(base_similarity)
+        if not missing_genres:
+            # Все жанры исходной игры присутствуют - нет штрафа
+            return 0.0
 
-        return min(final_similarity, 100.0)
+        # Штраф = (количество отсутствующих жанров / общее количество жанров в исходной игре) * 70%
+        penalty = (len(missing_genres) / len(genres1)) * 70.0
+        return penalty
+
+    def _calculate_keyword_penalty(self, game1, game2):
+        """
+        Рассчитывает штраф за различия в ключевых словах (0-30%)
+        Штрафуем только за отсутствие ключевых слов из game1 в game2
+        """
+        keywords1 = set(game1.keywords.all())
+        keywords2 = set(game2.keywords.all())
+
+        if not keywords1:
+            # Если у исходной игры нет ключевых слов - не штрафуем
+            return 0.0
+
+        # Ключевые слова из исходной игры, которые отсутствуют в проверяемой игре
+        missing_keywords = keywords1 - keywords2
+
+        if not missing_keywords:
+            # Все ключевые слова исходной игры присутствуют - нет штрафа
+            return 0.0
+
+        # Штраф = (количество отсутствующих ключ.слов / общее количество ключ.слов в исходной игре) * 30%
+        penalty = (len(missing_keywords) / len(keywords1)) * 30.0
+        return penalty
 
     def calculate_similarity_to_virtual(self, virtual_game, real_game):
         """
         Вычисляет похожесть между виртуальной игрой (критериями) и реальной игрой
         """
-        total_score = 0
-        max_possible_score = 0
+        # Начинаем с 100%
+        similarity = 100.0
 
-        # 1. СХОДСТВО ПО ЖАНРАМ
+        # 1. ОТНИМАЕМ ЗА ОТСУТСТВИЕ ЖАНРОВ (максимум 70%)
+        similarity -= self._calculate_virtual_genre_penalty(virtual_game, real_game)
+
+        # 2. ОТНИМАЕМ ЗА ОТСУТСТВИЕ КЛЮЧЕВЫХ СЛОВ (максимум 30%)
+        similarity -= self._calculate_virtual_keyword_penalty(virtual_game, real_game)
+
+        return max(0.0, similarity)
+
+    def _calculate_virtual_genre_penalty(self, virtual_game, real_game):
+        """
+        Рассчитывает штраф за отсутствие жанров виртуальной игры в реальной игре
+        """
         virtual_genres = set(virtual_game.genres)
         real_genres = set(real_game.genres.all())
 
-        if virtual_genres and real_genres:
-            common_genres = virtual_genres.intersection(real_genres)
-            if common_genres:
-                # Для виртуальной игры считаем схожесть по количеству совпавших жанров
-                genre_similarity = len(common_genres) / len(virtual_genres)
-
-                genre_multiplier = 1.0
-                if len(common_genres) >= 3:
-                    genre_multiplier = 2.0
-                elif len(common_genres) == 2:
-                    genre_multiplier = 1.6
-                elif len(common_genres) == 1:
-                    genre_multiplier = 1.3
-
-                genre_score = genre_similarity * self.WEIGHTS['genres'] * genre_multiplier
-                total_score += genre_score
-                max_possible_score += self.WEIGHTS['genres'] * genre_multiplier
-
-        # 2. СХОДСТВО ПО КЛЮЧЕВЫМ СЛОВАМ
-        virtual_keywords = set(virtual_game.keywords)
-        real_keywords = set(real_game.keywords.select_related('category').all())
-
-        if virtual_keywords and real_keywords:
-            # Группируем ключевые слова виртуальной игры по категориям
-            virtual_categories = {}
-            for keyword in virtual_keywords:
-                category_name = keyword.category.name if keyword.category else 'Other'
-                if category_name not in virtual_categories:
-                    virtual_categories[category_name] = set()
-                virtual_categories[category_name].add(keyword.name)
-
-            # Считаем похожесть для каждой категории виртуальной игры
-            for category_name, virtual_keywords_set in virtual_categories.items():
-                weight = self.WEIGHTS.get(category_name, self.WEIGHTS['Other'])
-
-                # Находим ключевые слова реальной игры в этой категории
-                real_keywords_in_category = set()
-                for keyword in real_keywords:
-                    kw_category_name = keyword.category.name if keyword.category else 'Other'
-                    if kw_category_name == category_name:
-                        real_keywords_in_category.add(keyword.name)
-
-                if virtual_keywords_set and real_keywords_in_category:
-                    common_keywords = virtual_keywords_set.intersection(real_keywords_in_category)
-                    if common_keywords:
-                        # Схожесть = сколько % виртуальных ключевых слов нашлось в реальной игре
-                        category_similarity = len(common_keywords) / len(virtual_keywords_set)
-
-                        category_multiplier = 1.0
-                        if category_name == 'Genre':
-                            category_multiplier = 1.4
-                        elif category_name == 'Gameplay':
-                            category_multiplier = 1.2
-
-                        category_score = category_similarity * weight * category_multiplier
-                        total_score += category_score
-                        max_possible_score += weight * category_multiplier
-
-        # 3. ДОПОЛНИТЕЛЬНЫЕ ФАКТОРЫ (только рейтинг, так как у виртуальной игры нет платформ)
-        if real_game.rating and real_game.rating >= 4.0:  # Буст для хорошо оцененных игр
-            total_score += 0.5
-            max_possible_score += 0.5
-
-        # Нормализуем результат
-        if max_possible_score == 0:
+        if not virtual_genres:
+            # Если в виртуальной игре не указаны жанры - не штрафуем
             return 0.0
 
-        base_similarity = (total_score / max_possible_score) * 100
-        final_similarity = self._boost_similarity_score(base_similarity)
+        # Жанры из виртуальной игры, которые отсутствуют в реальной игре
+        missing_genres = virtual_genres - real_genres
 
-        return min(final_similarity, 100.0)
+        if not missing_genres:
+            # Все жанры виртуальной игры присутствуют - нет штрафа
+            return 0.0
 
-    def _boost_similarity_score(self, base_score):
+        # Штраф = (количество отсутствующих жанров / общее количество жанров в виртуальной игре) * 70%
+        penalty = (len(missing_genres) / len(virtual_genres)) * 70.0
+        return penalty
+
+    def _calculate_virtual_keyword_penalty(self, virtual_game, real_game):
         """
-        Увеличивает базовый процент схожести
+        Рассчитывает штраф за отсутствие ключевых слов виртуальной игры в реальной игре
         """
-        if base_score <= 0:
-            return 0
-        elif base_score <= 20:
-            return base_score * 1.6
-        elif base_score <= 50:
-            return base_score * 1.3
-        else:
-            return base_score * 1.15
+        virtual_keywords = set(virtual_game.keywords)
+        real_keywords = set(real_game.keywords.all())
+
+        if not virtual_keywords:
+            # Если в виртуальной игре не указаны ключевые слова - не штрафуем
+            return 0.0
+
+        # Ключевые слова из виртуальной игры, которые отсутствуют в реальной игре
+        missing_keywords = virtual_keywords - real_keywords
+
+        if not missing_keywords:
+            # Все ключевые слова виртуальной игры присутствуют - нет штрафа
+            return 0.0
+
+        # Штраф = (количество отсутствующих ключ.слов / общее количество ключ.слов в виртуальной игре) * 30%
+        penalty = (len(missing_keywords) / len(virtual_keywords)) * 30.0
+        return penalty
 
     def find_similar_games(self, game, limit=20, min_similarity=15):
         """
@@ -256,73 +155,84 @@ class GameSimilarity:
         """
         similar_games = []
 
-        # Ищем все игры кроме текущей
         all_games = Game.objects.exclude(pk=game.pk).prefetch_related(
-            'genres', 'keywords__category', 'platforms'
+            'genres', 'keywords', 'platforms'
         )
 
         for candidate_game in all_games:
             similarity = self.calculate_similarity(game, candidate_game)
 
             if similarity >= min_similarity:
-                # Получаем общие жанры и ключевые слова
                 common_genres = set(game.genres.all()).intersection(set(candidate_game.genres.all()))
-                common_keywords_by_category = self.get_common_keywords_by_category(game, candidate_game)
-
-                # Получаем названия категорий с наибольшим количеством совпадений
-                matching_categories = []
-                for category_name, keywords in common_keywords_by_category.items():
-                    if keywords:
-                        matching_categories.append(category_name)
+                common_keywords = set(game.keywords.all()).intersection(set(candidate_game.keywords.all()))
 
                 similar_games.append({
                     'game': candidate_game,
                     'similarity': similarity,
                     'common_genres': list(common_genres),
-                    'common_keywords': common_keywords_by_category,
-                    'matching_categories': matching_categories[:3]
+                    'common_keywords': list(common_keywords)
                 })
 
-        # Сортируем по похожести (от большей к меньшей)
         similar_games.sort(key=lambda x: x['similarity'], reverse=True)
-
         return similar_games[:limit]
 
     def find_similar_games_to_criteria(self, genre_ids=None, keyword_ids=None, limit=50, min_similarity=15):
         """
         Находит игры, похожие на виртуальную игру из выбранных критериев
         """
-        # Создаем виртуальную игру из критериев
         virtual_game = VirtualGame(genre_ids=genre_ids, keyword_ids=keyword_ids)
-
         similar_games = []
 
-        # Ищем среди всех игр
         all_games = Game.objects.all().prefetch_related(
-            'genres', 'keywords__category', 'platforms'
+            'genres', 'keywords', 'platforms'
         )
 
         for candidate_game in all_games:
             similarity = self.calculate_similarity_to_virtual(virtual_game, candidate_game)
 
             if similarity >= min_similarity:
-                # Получаем общие жанры и ключевые слова
                 common_genres = set(virtual_game.genres).intersection(set(candidate_game.genres.all()))
+                common_keywords = set(virtual_game.keywords).intersection(set(candidate_game.keywords.all()))
 
                 similar_games.append({
                     'game': candidate_game,
                     'similarity': similarity,
                     'common_genres': list(common_genres),
-                    'matching_criteria': self.get_matching_criteria(virtual_game, candidate_game)
+                    'common_keywords': list(common_keywords)
                 })
 
-        # Сортируем по похожести
         similar_games.sort(key=lambda x: x['similarity'], reverse=True)
         return similar_games[:limit]
 
+    def get_similarity_breakdown(self, game1, game2):
+        """
+        Детальная разбивка похожести по категориям
+        """
+        breakdown = {}
+
+        # Штраф за жанры
+        genre_penalty = self._calculate_genre_penalty(game1, game2)
+        breakdown['genres'] = {
+            'penalty': genre_penalty,
+            'max_penalty': 70.0,
+            'score': 70.0 - genre_penalty
+        }
+
+        # Штраф за ключевые слова
+        keyword_penalty = self._calculate_keyword_penalty(game1, game2)
+        breakdown['keywords'] = {
+            'penalty': keyword_penalty,
+            'max_penalty': 30.0,
+            'score': 30.0 - keyword_penalty
+        }
+
+        breakdown['total_similarity'] = 100.0 - genre_penalty - keyword_penalty
+
+        return breakdown
+
     def get_common_keywords_by_category(self, game1, game2):
         """
-        Возвращает общие ключевые слова по категориям
+        Возвращает общие ключевые слова по категориям (для обратной совместимости)
         """
         keywords1 = game1.keywords.select_related('category').all()
         keywords2 = game2.keywords.select_related('category').all()
@@ -342,7 +252,7 @@ class GameSimilarity:
 
     def get_matching_criteria(self, virtual_game, real_game):
         """
-        Возвращает информацию о совпавших критериях
+        Возвращает информацию о совпавших критериях (для обратной совместимости)
         """
         matching = {
             'genres': [],
@@ -366,61 +276,3 @@ class GameSimilarity:
             matching['keywords_by_category'][category_name].append(keyword.name)
 
         return matching
-
-    def get_similarity_breakdown(self, game1, game2):
-        """
-        Детальная разбивка похожести по всем категориям
-        """
-        breakdown = {}
-
-        # 1. Жанры (модель Genre)
-        genres1 = set(game1.genres.all())
-        genres2 = set(game2.genres.all())
-
-        if genres1 and genres2:
-            common_genres = genres1.intersection(genres2)
-            genre_similarity = len(common_genres) / max(len(genres1), len(genres2)) * 100
-            breakdown['Genres'] = {
-                'similarity_percent': genre_similarity,
-                'common_items': [genre.name for genre in common_genres],
-                'weight': self.WEIGHTS['genres']
-            }
-
-        # 2. Ключевые слова по всем категориям
-        keywords1 = game1.keywords.select_related('category').all()
-        keywords2 = game2.keywords.select_related('category').all()
-
-        if keywords1 and keywords2:
-            # Группируем ключевые слова по категориям для обеих игр
-            categories_data = {}
-
-            for keyword in keywords1:
-                category_name = keyword.category.name if keyword.category else 'Other'
-                if category_name not in categories_data:
-                    categories_data[category_name] = {'game1': set(), 'game2': set()}
-                categories_data[category_name]['game1'].add(keyword.name)
-
-            for keyword in keywords2:
-                category_name = keyword.category.name if keyword.category else 'Other'
-                if category_name not in categories_data:
-                    categories_data[category_name] = {'game1': set(), 'game2': set()}
-                categories_data[category_name]['game2'].add(keyword.name)
-
-            # Считаем похожесть для каждой категории
-            for category_name, data in categories_data.items():
-                keywords1_set = data['game1']
-                keywords2_set = data['game2']
-
-                if keywords1_set and keywords2_set:
-                    common_keywords = keywords1_set.intersection(keywords2_set)
-                    category_similarity = len(common_keywords) / max(len(keywords1_set), len(keywords2_set)) * 100
-                    weight = self.WEIGHTS.get(category_name, self.WEIGHTS['Other'])
-
-                    breakdown[category_name] = {
-                        'similarity_percent': category_similarity,
-                        'common_items': list(common_keywords),
-                        'weight': weight
-                    }
-
-        return breakdown
-
