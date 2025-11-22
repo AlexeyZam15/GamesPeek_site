@@ -14,7 +14,7 @@
             <h6 class="card-title">{{ game.name }}</h6>
 
             {% if similarity_percent %}
-            <!-- Процент схожести (только когда передан) -->
+            <!-- Процент схожести -->
             <div class="similarity-badge mb-2">
                 {% if similarity_percent >= 80 %}
                 <span class="badge bg-success fs-6">
@@ -52,12 +52,8 @@
                 <a href="{% url 'game_detail' game.id %}" class="btn btn-sm btn-outline-primary">
                     <i class="bi bi-info-circle"></i> Details
                 </a>
-                {% if similar_game %}
-                <a href="{% url 'game_comparison' similar_game.id game.id %}" class="btn btn-sm btn-outline-secondary compare-btn">
-                    <i class="bi bi-graph-up"></i> Compare
-                </a>
-                {% endif %}
-                <a href="{% url 'game_list' %}?similar_to={{ game.id }}" class="btn btn-sm btn-outline-info">
+                <a href="{% url 'game_list' %}?find_similar=1{% for genre in game.genres.all %}&genre={{ genre.id }}{% endfor %}{% for keyword in game.keywords.all|slice:':5' %}&keyword={{ keyword.id }}{% endfor %}"
+                   class="btn btn-sm btn-outline-info">
                     <i class="bi bi-search-heart"></i> Find Similar
                 </a>
             </div>

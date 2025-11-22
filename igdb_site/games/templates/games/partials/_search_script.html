@@ -15,13 +15,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const showAllGenresBtn = document.querySelector('.show-all-genres-btn');
     const showAllKeywordsBtn = document.querySelector('.show-all-keywords-btn');
 
-    // Функция для проверки, является ли элемент auto-applied
-    function isAutoApplied(item) {
-        const checkbox = item.querySelector('input[type="checkbox"]');
-        return checkbox && checkbox.disabled && !checkbox.checked;
-    }
-
-    // Функция для фильтрации с правильным скрытием элементов
+    // Функция для фильтрации списков
     function filterList(searchInput, itemSelector, nameAttribute) {
         if (!searchInput) return;
 
@@ -30,95 +24,16 @@ document.addEventListener('DOMContentLoaded', function() {
             const items = document.querySelectorAll(itemSelector);
 
             items.forEach(item => {
-                const itemName = item.getAttribute(nameAttribute);
+                const itemName = item.getAttribute(nameAttribute).toLowerCase();
                 const isMatch = itemName.includes(searchTerm);
-                const isAutoAppliedItem = isAutoApplied(item);
-
-                if (searchTerm === '') {
-                    // При пустом поиске ВСЕГДА скрываем auto-applied элементы
-                    // и показываем только обычные элементы
-                    if (isAutoAppliedItem) {
-                        item.style.display = 'none';
-                    } else {
-                        item.style.display = 'block';
-                    }
-                } else {
-                    // При активном поиске показываем/скрываем по результатам
-                    // включая auto-applied элементы если они подходят под поиск
-                    item.style.display = isMatch ? 'block' : 'none';
-                }
+                item.style.display = isMatch ? 'block' : 'none';
             });
         });
 
-        // Обработчик для очистки поля (крестик в IE/Edge)
+        // Обработчик для очистки поля
         searchInput.addEventListener('search', function() {
             if (this.value === '') {
                 this.dispatchEvent(new Event('input'));
-            }
-        });
-    }
-
-    // Функция для инициализации скрытия auto-applied элементов
-    function initializeAutoAppliedHiding() {
-        // Скрываем auto-applied жанры
-        const genreItems = document.querySelectorAll('.genre-item');
-        genreItems.forEach(item => {
-            if (isAutoApplied(item)) {
-                item.style.display = 'none';
-            }
-        });
-
-        // Скрываем auto-applied ключевые слова
-        const keywordItems = document.querySelectorAll('.keyword-item');
-        keywordItems.forEach(item => {
-            if (isAutoApplied(item)) {
-                item.style.display = 'none';
-            }
-        });
-    }
-
-    // Функция для управления auto-applied тегами
-    function setupAutoAppliedTags() {
-        const autoAppliedSections = document.querySelectorAll('.auto-applied-section');
-
-        autoAppliedSections.forEach(section => {
-            const tagsContainer = section.querySelector('.auto-applied-tags');
-            const showMoreBtn = section.querySelector('.show-more-auto-applied');
-            const tags = section.querySelectorAll('.auto-applied-tag');
-
-            if (tags.length > 8) {
-                // Скрываем теги после 8-го
-                tags.forEach((tag, index) => {
-                    if (index >= 8) {
-                        tag.style.display = 'none';
-                    }
-                });
-
-                // Показываем кнопку "more"
-                showMoreBtn.style.display = 'inline-block';
-
-                let isExpanded = false;
-                showMoreBtn.addEventListener('click', function() {
-                    isExpanded = !isExpanded;
-
-                    if (isExpanded) {
-                        // Показываем все теги
-                        tags.forEach(tag => {
-                            tag.style.display = 'inline-block';
-                        });
-                        showMoreBtn.querySelector('.show-more-text').style.display = 'none';
-                        showMoreBtn.querySelector('.show-less-text').style.display = 'inline';
-                    } else {
-                        // Скрываем теги после 8-го
-                        tags.forEach((tag, index) => {
-                            if (index >= 8) {
-                                tag.style.display = 'none';
-                            }
-                        });
-                        showMoreBtn.querySelector('.show-more-text').style.display = 'inline';
-                        showMoreBtn.querySelector('.show-less-text').style.display = 'none';
-                    }
-                });
             }
         });
     }
@@ -133,12 +48,10 @@ document.addEventListener('DOMContentLoaded', function() {
             isExpanded = !isExpanded;
 
             if (isExpanded) {
-                // Показываем весь список
                 listElement.style.maxHeight = expandedHeight;
                 showAllBtn.querySelector('.show-text').style.display = 'none';
                 showAllBtn.querySelector('.hide-text').style.display = 'inline';
             } else {
-                // Скрываем до стандартной высоты
                 listElement.style.maxHeight = defaultHeight;
                 showAllBtn.querySelector('.show-text').style.display = 'inline';
                 showAllBtn.querySelector('.hide-text').style.display = 'none';
@@ -173,10 +86,11 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Авто-отправка формы
+    // Авто-отправка формы для чекбоксов и сортировки
     function setupAutoSubmit() {
-        document.querySelectorAll('input[type="checkbox"]:not([disabled])').forEach(checkbox => {
+        document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
             checkbox.addEventListener('change', function() {
+                document.getElementById('find_similar_field').value = '0';
                 form.submit();
             });
         });
@@ -191,24 +105,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Инициализация всех функций
     function initializeAll() {
-        // Сначала инициализируем скрытие auto-applied элементов
-        initializeAutoAppliedHiding();
-
-        // Затем настраиваем поиск
         filterList(genreSearch, '.genre-item', 'data-genre-name');
         filterList(keywordSearch, '.keyword-item', 'data-keyword-name');
 
-        // Настраиваем остальные функции
         setupShowAllToggle(showAllGenresBtn, genreList, '200px', '400px');
         setupShowAllToggle(showAllKeywordsBtn, keywordList, '200px', '400px');
-        setupAutoAppliedTags();
         setupActiveTagRemoval();
         setupAutoSubmit();
 
         console.log('All search functionalities initialized');
     }
 
-    // Запускаем инициализацию
     setTimeout(initializeAll, 100);
 });
 </script>

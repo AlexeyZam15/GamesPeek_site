@@ -1,43 +1,5 @@
 <div class="row">
     {% for game in games %}
-    <div class="col-xl-3 col-lg-4 col-md-6 mb-4">
-        <div class="card h-100 game-card">
-            {% if game.cover_url %}
-            <img src="{{ game.cover_url }}" class="card-img-top" alt="{{ game.name }}"
-                 style="height: 250px; object-fit: cover;">
-            {% else %}
-            <div class="card-img-top bg-light d-flex align-items-center justify-content-center"
-                 style="height: 250px;">
-                <span class="text-muted">No Cover</span>
-            </div>
-            {% endif %}
-
-            <div class="card-body">
-                <h6 class="card-title">{{ game.name }}</h6>
-                <p class="card-text small text-muted">
-                    {% for genre in game.genres.all|slice:":2" %}
-                    <span class="badge bg-secondary mb-1">{{ genre.name }}</span>
-                    {% endfor %}
-                </p>
-                {% if game.rating %}
-                <div class="d-flex align-items-center mb-2">
-                    <small class="text-warning">⭐ {{ game.rating|floatformat:1 }}</small>
-                    <small class="text-muted ms-2">({{ game.rating_count }})</small>
-                </div>
-                {% endif %}
-            </div>
-
-            <div class="card-footer">
-                <div class="d-grid gap-2">
-                    <a href="{% url 'game_detail' game.id %}" class="btn btn-sm btn-outline-primary">
-                        <i class="bi bi-info-circle"></i> Details
-                    </a>
-                    <a href="{% url 'game_list' %}?similar_to={{ game.id }}" class="btn btn-sm btn-outline-info">
-                        <i class="bi bi-search-heart"></i> Find Similar
-                    </a>
-                </div>
-            </div>
-        </div>
-    </div>
+        {% include 'games/partials/_game_card.html' with game=game %}
     {% endfor %}
 </div>

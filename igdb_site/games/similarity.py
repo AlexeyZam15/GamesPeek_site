@@ -3,6 +3,23 @@ from django.db.models import Q
 from .models import Game, Keyword, Genre
 
 
+class VirtualGame:
+    """Виртуальная игра, созданная из выбранных критериев"""
+
+    def __init__(self, genre_ids=None, keyword_ids=None):
+        self.genre_ids = genre_ids or []
+        self.keyword_ids = keyword_ids or []
+        self.genres = Genre.objects.filter(id__in=genre_ids) if genre_ids else []
+        self.keywords = Keyword.objects.filter(id__in=keyword_ids).select_related('category') if keyword_ids else []
+        self.platforms = []  # Виртуальная игра не имеет платформ
+        self.name = "Custom Search Criteria"
+        self.rating = None
+        self.rating_count = 0
+
+    def __str__(self):
+        return f"VirtualGame(genres: {len(self.genres)}, keywords: {len(self.keywords)})"
+
+
 class GameSimilarity:
     """
     Алгоритм поиска похожих игр с приоритетом: Жанры > Ключ.слова жанров > Геймплей
@@ -137,6 +154,89 @@ class GameSimilarity:
 
         return min(final_similarity, 100.0)
 
+    def calculate_similarity_to_virtual(self, virtual_game, real_game):
+        """
+        Вычисляет похожесть между виртуальной игрой (критериями) и реальной игрой
+        """
+        total_score = 0
+        max_possible_score = 0
+
+        # 1. СХОДСТВО ПО ЖАНРАМ
+        virtual_genres = set(virtual_game.genres)
+        real_genres = set(real_game.genres.all())
+
+        if virtual_genres and real_genres:
+            common_genres = virtual_genres.intersection(real_genres)
+            if common_genres:
+                # Для виртуальной игры считаем схожесть по количеству совпавших жанров
+                genre_similarity = len(common_genres) / len(virtual_genres)
+
+                genre_multiplier = 1.0
+                if len(common_genres) >= 3:
+                    genre_multiplier = 2.0
+                elif len(common_genres) == 2:
+                    genre_multiplier = 1.6
+                elif len(common_genres) == 1:
+                    genre_multiplier = 1.3
+
+                genre_score = genre_similarity * self.WEIGHTS['genres'] * genre_multiplier
+                total_score += genre_score
+                max_possible_score += self.WEIGHTS['genres'] * genre_multiplier
+
+        # 2. СХОДСТВО ПО КЛЮЧЕВЫМ СЛОВАМ
+        virtual_keywords = set(virtual_game.keywords)
+        real_keywords = set(real_game.keywords.select_related('category').all())
+
+        if virtual_keywords and real_keywords:
+            # Группируем ключевые слова виртуальной игры по категориям
+            virtual_categories = {}
+            for keyword in virtual_keywords:
+                category_name = keyword.category.name if keyword.category else 'Other'
+                if category_name not in virtual_categories:
+                    virtual_categories[category_name] = set()
+                virtual_categories[category_name].add(keyword.name)
+
+            # Считаем похожесть для каждой категории виртуальной игры
+            for category_name, virtual_keywords_set in virtual_categories.items():
+                weight = self.WEIGHTS.get(category_name, self.WEIGHTS['Other'])
+
+                # Находим ключевые слова реальной игры в этой категории
+                real_keywords_in_category = set()
+                for keyword in real_keywords:
+                    kw_category_name = keyword.category.name if keyword.category else 'Other'
+                    if kw_category_name == category_name:
+                        real_keywords_in_category.add(keyword.name)
+
+                if virtual_keywords_set and real_keywords_in_category:
+                    common_keywords = virtual_keywords_set.intersection(real_keywords_in_category)
+                    if common_keywords:
+                        # Схожесть = сколько % виртуальных ключевых слов нашлось в реальной игре
+                        category_similarity = len(common_keywords) / len(virtual_keywords_set)
+
+                        category_multiplier = 1.0
+                        if category_name == 'Genre':
+                            category_multiplier = 1.4
+                        elif category_name == 'Gameplay':
+                            category_multiplier = 1.2
+
+                        category_score = category_similarity * weight * category_multiplier
+                        total_score += category_score
+                        max_possible_score += weight * category_multiplier
+
+        # 3. ДОПОЛНИТЕЛЬНЫЕ ФАКТОРЫ (только рейтинг, так как у виртуальной игры нет платформ)
+        if real_game.rating and real_game.rating >= 4.0:  # Буст для хорошо оцененных игр
+            total_score += 0.5
+            max_possible_score += 0.5
+
+        # Нормализуем результат
+        if max_possible_score == 0:
+            return 0.0
+
+        base_similarity = (total_score / max_possible_score) * 100
+        final_similarity = self._boost_similarity_score(base_similarity)
+
+        return min(final_similarity, 100.0)
+
     def _boost_similarity_score(self, base_score):
         """
         Увеличивает базовый процент схожести
@@ -188,6 +288,38 @@ class GameSimilarity:
 
         return similar_games[:limit]
 
+    def find_similar_games_to_criteria(self, genre_ids=None, keyword_ids=None, limit=50, min_similarity=15):
+        """
+        Находит игры, похожие на виртуальную игру из выбранных критериев
+        """
+        # Создаем виртуальную игру из критериев
+        virtual_game = VirtualGame(genre_ids=genre_ids, keyword_ids=keyword_ids)
+
+        similar_games = []
+
+        # Ищем среди всех игр
+        all_games = Game.objects.all().prefetch_related(
+            'genres', 'keywords__category', 'platforms'
+        )
+
+        for candidate_game in all_games:
+            similarity = self.calculate_similarity_to_virtual(virtual_game, candidate_game)
+
+            if similarity >= min_similarity:
+                # Получаем общие жанры и ключевые слова
+                common_genres = set(virtual_game.genres).intersection(set(candidate_game.genres.all()))
+
+                similar_games.append({
+                    'game': candidate_game,
+                    'similarity': similarity,
+                    'common_genres': list(common_genres),
+                    'matching_criteria': self.get_matching_criteria(virtual_game, candidate_game)
+                })
+
+        # Сортируем по похожести
+        similar_games.sort(key=lambda x: x['similarity'], reverse=True)
+        return similar_games[:limit]
+
     def get_common_keywords_by_category(self, game1, game2):
         """
         Возвращает общие ключевые слова по категориям
@@ -207,6 +339,33 @@ class GameSimilarity:
                     break
 
         return common_keywords
+
+    def get_matching_criteria(self, virtual_game, real_game):
+        """
+        Возвращает информацию о совпавших критериях
+        """
+        matching = {
+            'genres': [],
+            'keywords_by_category': {}
+        }
+
+        # Совпавшие жанры
+        virtual_genres = set(virtual_game.genres)
+        real_genres = set(real_game.genres.all())
+        matching['genres'] = list(virtual_genres.intersection(real_genres))
+
+        # Совпавшие ключевые слова по категориям
+        virtual_keywords = set(virtual_game.keywords)
+        real_keywords = set(real_game.keywords.all())
+
+        common_keywords = virtual_keywords.intersection(real_keywords)
+        for keyword in common_keywords:
+            category_name = keyword.category.name if keyword.category else 'Other'
+            if category_name not in matching['keywords_by_category']:
+                matching['keywords_by_category'][category_name] = []
+            matching['keywords_by_category'][category_name].append(keyword.name)
+
+        return matching
 
     def get_similarity_breakdown(self, game1, game2):
         """
@@ -264,3 +423,4 @@ class GameSimilarity:
                     }
 
         return breakdown
+

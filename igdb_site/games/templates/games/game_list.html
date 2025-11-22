@@ -5,15 +5,10 @@
 
 {% block content %}
 <div class="container">
-    <!-- ЗАГОЛОВОК ОСТАВЛЯЕМ ЗДЕСЬ -->
+    <!-- ЗАГОЛОВОК -->
     <div class="row mb-4">
         <div class="col-12">
             <h1>🎮 Browse Games</h1>
-            {% if similar_game %}
-            <div class="alert alert-info mt-3">
-                <h5 class="mb-0">🎯 Games similar to <strong>"{{ similar_game.name }}"</strong></h5>
-            </div>
-            {% endif %}
         </div>
     </div>
 
