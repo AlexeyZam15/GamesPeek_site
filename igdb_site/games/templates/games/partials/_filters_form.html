@@ -28,15 +28,22 @@
                     <!-- Активные жанры -->
                     <div id="active-genres" class="mb-2">
                         {% if selected_genres %}
-                        <div class="mb-1">
-                            <small class="text-muted">Selected genres:</small>
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div class="d-flex align-items-center gap-2">
+                                <button type="button" class="btn btn-sm clear-genres-btn btn-outline-primary"
+                                        style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;">
+                                    <i class="bi bi-x-circle me-1"></i>Clear All
+                                </button>
+                                <small class="text-muted" style="font-weight: 500;">Selected genres ({{ selected_genres|length }})</small>
+                            </div>
                         </div>
                         {% endif %}
 
                         {% for genre in genres %}
                             {% if genre.id in selected_genres %}
-                            <span class="badge bg-primary me-1 mb-1 active-genre-tag" data-genre-id="{{ genre.id }}">
-                                {{ genre.name }} ×
+                            <span class="badge bg-primary me-1 mb-1 active-genre-tag" data-genre-id="{{ genre.id }}"
+                                  style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                {{ genre.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
                             </span>
                             {% endif %}
                         {% endfor %}
@@ -77,15 +84,22 @@
                     <!-- Активные ключевые слова -->
                     <div id="active-keywords" class="mb-2">
                         {% if selected_keywords %}
-                        <div class="mb-1">
-                            <small class="text-muted">Selected features:</small>
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div class="d-flex align-items-center gap-2">
+                                <button type="button" class="btn btn-sm clear-keywords-btn btn-outline-primary"
+                                        style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;">
+                                    <i class="bi bi-x-circle me-1"></i>Clear All
+                                </button>
+                                <small class="text-muted" style="font-weight: 500;">Selected features ({{ selected_keywords|length }})</small>
+                            </div>
                         </div>
                         {% endif %}
 
                         {% for keyword in popular_keywords %}
                             {% if keyword.id in selected_keywords %}
-                            <span class="badge bg-success me-1 mb-1 active-keyword-tag" data-keyword-id="{{ keyword.id }}">
-                                {{ keyword.name }} ×
+                            <span class="badge bg-success me-1 mb-1 active-keyword-tag" data-keyword-id="{{ keyword.id }}"
+                                  style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                {{ keyword.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
                             </span>
                             {% endif %}
                         {% endfor %}
@@ -157,6 +171,32 @@ document.addEventListener('DOMContentLoaded', function() {
         checkbox.addEventListener('change', updateHiddenFields);
     });
 
+    // Очистка всех жанров
+    const clearGenresBtn = document.querySelector('.clear-genres-btn');
+    if (clearGenresBtn) {
+        clearGenresBtn.addEventListener('click', function() {
+            document.querySelectorAll('.genre-checkbox:checked').forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            updateHiddenFields();
+            // Обновляем страницу
+            document.getElementById('main-search-form').submit();
+        });
+    }
+
+    // Очистка всех ключевых слов
+    const clearKeywordsBtn = document.querySelector('.clear-keywords-btn');
+    if (clearKeywordsBtn) {
+        clearKeywordsBtn.addEventListener('click', function() {
+            document.querySelectorAll('.keyword-checkbox:checked').forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            updateHiddenFields();
+            // Обновляем страницу
+            document.getElementById('main-search-form').submit();
+        });
+    }
+
     // Удаление активных тегов
     document.addEventListener('click', function(e) {
         // Удаление жанра
@@ -166,7 +206,8 @@ document.addEventListener('DOMContentLoaded', function() {
             if (checkbox) {
                 checkbox.checked = false;
                 updateHiddenFields();
-                // Можно добавить отправку формы здесь или оставить пользователю нажать кнопку
+                // Обновляем страницу при клике на ×
+                document.getElementById('main-search-form').submit();
             }
         }
 
@@ -177,6 +218,8 @@ document.addEventListener('DOMContentLoaded', function() {
             if (checkbox) {
                 checkbox.checked = false;
                 updateHiddenFields();
+                // Обновляем страницу при клике на ×
+                document.getElementById('main-search-form').submit();
             }
         }
     });
