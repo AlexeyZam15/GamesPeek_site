@@ -135,14 +135,9 @@
                 <!-- Кнопки -->
                 <div class="col-12">
                     <div class="d-flex gap-2 flex-wrap">
-                        <button type="submit" class="btn btn-primary" onclick="document.getElementById('find_similar_field').value='0'">
+                        <button type="submit" class="btn btn-primary">
                             Apply Filters
                         </button>
-                        {% if selected_genres or selected_keywords %}
-                        <button type="submit" class="btn btn-success" onclick="document.getElementById('find_similar_field').value='1'">
-                            🔍 Find Similar Games
-                        </button>
-                        {% endif %}
                         <a href="{% url 'game_list' %}" class="btn btn-secondary">Show All Games</a>
                     </div>
                 </div>
@@ -164,6 +159,13 @@ document.addEventListener('DOMContentLoaded', function() {
         const keywordCheckboxes = document.querySelectorAll('.keyword-checkbox:checked');
         const keywordIds = Array.from(keywordCheckboxes).map(cb => cb.value);
         document.getElementById('keywords-field').value = keywordIds.join(',');
+
+        // Автоматически включаем режим поиска похожих игр при выборе фильтров
+        if (genreIds.length > 0 || keywordIds.length > 0) {
+            document.getElementById('find_similar_field').value = '1';
+        } else {
+            document.getElementById('find_similar_field').value = '0';
+        }
     }
 
     // Слушаем изменения чекбоксов
