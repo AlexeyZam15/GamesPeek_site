@@ -16,7 +16,7 @@
     --surface-dark: #0f0f0f;
     --border: #333333;
     --border-dark: #262626;
-    --border-radius: 8px; /* Уменьшено с 12px */
+    --border-radius: 8px;
     --box-shadow: 0 4px 20px rgba(255, 107, 53, 0.15);
     --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -57,7 +57,7 @@ body {
     color: var(--text-dark) !important;
     font-weight: 600;
     transition: var(--transition);
-    border-radius: 6px; /* Уменьшено с 8px */
+    border-radius: 6px;
     padding: 0.75rem 1.25rem !important;
     margin: 0 0.25rem;
     font-size: 0.95rem;
@@ -95,7 +95,7 @@ body {
     border: 1px solid var(--border);
     overflow: hidden;
     position: relative;
-    height: 100%; /* Добавлено для лучшего выравнивания */
+    height: 100%;
 }
 
 .card::before {
@@ -180,13 +180,13 @@ body {
     height: 320px;
     object-fit: cover;
     width: 100%;
-    object-position: center 30%; /* ИЗМЕНЕНО: показываем больше нижней части */
+    object-position: center 30%;
 }
 
 .game-card:hover .card-img-top {
     transform: scale(1.08);
     filter: grayscale(0);
-    object-position: center 35%; /* ИЗМЕНЕНО: при hover тоже смещаем вниз */
+    object-position: center 35%;
 }
 
 .game-card .card-body {
@@ -227,15 +227,6 @@ body {
     margin-top: auto;
 }
 
-/* Альтернативный вариант - если нужно показать еще больше нижней части */
-.game-card .card-img-top.alternative {
-    object-position: center 40%; /* Еще больше смещение вниз */
-}
-
-.game-card:hover .card-img-top.alternative {
-    object-position: center 45%;
-}
-
 /* Для мобильных устройств */
 @media (max-width: 768px) {
     .game-card {
@@ -244,7 +235,7 @@ body {
 
     .game-card .card-img-top {
         height: 220px;
-        object-position: center 25%; /* Меньше смещение для мобильных */
+        object-position: center 25%;
     }
 
     .game-card:hover .card-img-top {
@@ -273,10 +264,9 @@ body {
     }
 }
 
-
 /* ===== BUTTONS ===== */
 .btn {
-    border-radius: 6px; /* Уменьшено с 8px */
+    border-radius: 6px;
     font-weight: 700;
     padding: 0.75rem 1.5rem;
     transition: var(--transition);
@@ -351,7 +341,7 @@ body {
 
 /* ===== BADGES ===== */
 .badge {
-    border-radius: 12px; /* Уменьшено с 16px */
+    border-radius: 12px;
     font-weight: 700;
     padding: 0.5rem 1rem;
     font-size: 0.8rem;
@@ -386,7 +376,7 @@ body {
 
 /* ===== FORMS ===== */
 .form-control, .form-select {
-    border-radius: 6px; /* Уменьшено с 8px */
+    border-radius: 6px;
     border: 1px solid var(--border);
     padding: 0.875rem 1rem;
     transition: var(--transition);
@@ -406,13 +396,12 @@ body {
     color: #666;
 }
 
-/* ИСПРАВЛЕНИЕ ЧЕКБОКСОВ - уменьшены размеры */
 .form-check-input {
     cursor: pointer;
-    width: 1.1em; /* Уменьшено с 1.2em */
-    height: 1.1em; /* Уменьшено с 1.2em */
+    width: 1.1em;
+    height: 1.1em;
     margin-right: 0.75rem;
-    margin-top: 0.15em; /* Уменьшено с 0.2em */
+    margin-top: 0.15em;
     border: 2px solid var(--border);
     background: var(--surface-dark);
     transition: var(--transition);
@@ -464,7 +453,7 @@ body {
 }
 
 .page-link {
-    border-radius: 6px !important; /* Уменьшено с 8px */
+    border-radius: 6px !important;
     margin: 0 0.25rem;
     border: 1px solid var(--border);
     color: var(--text-dark);
@@ -533,7 +522,7 @@ footer {
 
 .genre-item, .keyword-item {
     background: var(--surface-dark);
-    border-radius: 6px; /* Уменьшено с 8px */
+    border-radius: 6px;
     padding: 1rem;
     transition: var(--transition);
     border: 1px solid var(--border);
@@ -549,7 +538,7 @@ footer {
 .genre-list, .keyword-list {
     background: var(--surface-dark);
     border: 1px solid var(--border);
-    border-radius: 6px; /* Уменьшено с 8px */
+    border-radius: 6px;
     transition: max-height 0.3s ease;
     scroll-behavior: smooth;
     overflow-y: auto;
@@ -567,7 +556,7 @@ footer {
 #genre-search, #keyword-search {
     background: var(--surface-dark);
     border: 1px solid var(--border);
-    border-radius: 6px; /* Уменьшено с 8px */
+    border-radius: 6px;
     padding: 0.875rem 1rem;
     transition: var(--transition);
     font-size: 0.9rem;
@@ -587,7 +576,7 @@ footer {
     background: transparent;
     color: var(--secondary-color);
     border: 1px solid var(--secondary-color);
-    border-radius: 6px; /* Уменьшено с 8px */
+    border-radius: 6px;
     padding: 0.75rem 1.5rem;
     font-size: 0.85rem;
     transition: var(--transition);
@@ -613,52 +602,6 @@ footer {
     transform: scale(0.98);
 }
 
-/* Auto-applied sections */
-.auto-applied-section .alert {
-    background: rgba(255, 107, 53, 0.05);
-    border: 1px solid var(--secondary-color);
-    border-radius: 6px; /* Уменьшено с 8px */
-    padding: 1rem 1.25rem;
-    margin-bottom: 1.5rem;
-}
-
-/* ИСПРАВЛЕНИЕ ЦВЕТА AUTO-APPLIED ТЕГОВ */
-.auto-applied-tag {
-    background: linear-gradient(135deg, var(--secondary-color), var(--accent-color)); /* Градиент вместо серого */
-    color: var(--text-light) !important; /* Белый текст для читаемости */
-    border: 1px solid transparent;
-    font-size: 0.8rem;
-    padding: 0.5rem 0.75rem;
-    margin: 0.25rem 0.375rem;
-    display: inline-block;
-    font-weight: 700;
-    border-radius: 12px; /* Уменьшено с 16px */
-    box-shadow: 0 2px 6px rgba(255, 107, 53, 0.3); /* Добавлена тень */
-}
-
-.auto-applied-tags {
-    display: inline;
-    line-height: 1.6;
-}
-
-.show-more-auto-applied {
-    background: transparent;
-    border: 1px solid var(--info-color);
-    color: var(--info-color);
-    border-radius: 4px; /* Уменьшено с 6px */
-    padding: 0.5rem 1rem;
-    font-size: 0.8rem;
-    transition: var(--transition);
-    vertical-align: middle;
-    margin-left: 0.75rem;
-    font-weight: 700;
-}
-
-.show-more-auto-applied:hover {
-    background: var(--info-color);
-    color: var(--primary-color);
-}
-
 /* Form check improvements for filters */
 #main-search-form .form-check {
     margin: 0;
@@ -676,13 +619,6 @@ footer {
     flex-grow: 1;
     margin-bottom: 0;
     line-height: 1.4;
-}
-
-/* Disabled auto-applied items */
-.genre-item input[disabled] + .form-check-label,
-.keyword-item input[disabled] + .form-check-label {
-    color: #666;
-    opacity: 0.6;
 }
 
 /* ===== ANIMATIONS ===== */
@@ -773,11 +709,11 @@ footer {
 
     .game-card {
         margin-bottom: 1.5rem;
-        min-height: 380px; /* Уменьшено для мобильных */
+        min-height: 380px;
     }
 
     .game-card .card-img-top {
-        height: 180px; /* Уменьшено для мобильных */
+        height: 180px;
     }
 
     .btn {
@@ -786,7 +722,7 @@ footer {
     }
 
     .card-body {
-        padding: 1.25rem; /* Увеличено для мобильных */
+        padding: 1.25rem;
     }
 
     h1 {
@@ -810,16 +746,6 @@ footer {
     .genre-list.expanded, .keyword-list.expanded {
         max-height: 300px !important;
     }
-
-    .auto-applied-tags {
-        max-width: calc(100% - 80px);
-    }
-
-    .auto-applied-tag {
-        font-size: 0.75rem;
-        padding: 0.375rem 0.625rem;
-        margin: 0.125rem 0.25rem;
-    }
 }
 
 @media (max-width: 576px) {
@@ -833,21 +759,12 @@ footer {
     }
 
     .game-card .card-title {
-        font-size: 1.1rem; /* Увеличено для мобильных */
+        font-size: 1.1rem;
     }
 
     .show-all-genres-btn, .show-all-keywords-btn {
         width: 100%;
         padding: 1rem;
-    }
-
-    .auto-applied-section .alert {
-        padding: 0.875rem;
-    }
-
-    .auto-applied-tags {
-        display: block;
-        max-width: 100%;
     }
 }
 
@@ -863,12 +780,6 @@ footer {
     grid-column: 1 / -1;
     font-size: 1rem;
     font-weight: 600;
-}
-
-/* Hide auto-applied items initially */
-.genre-item[style*="display: none"],
-.keyword-item[style*="display: none"] {
-    display: none !important;
 }
 
 /* ===== GAME DETAIL PAGE STYLES ===== */
@@ -889,7 +800,7 @@ footer {
 
 .game-tabs .nav-link {
     border: none;
-    color: var(--text-muted);
+    color: var(--text-dark);
     font-weight: 600;
     padding: 0.75rem 1.25rem;
     border-radius: var(--border-radius) var(--border-radius) 0 0;
@@ -930,17 +841,6 @@ footer {
 /* Анимации для табов */
 .tab-pane {
     animation: fadeIn 0.3s ease-in-out;
-}
-
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(10px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
 }
 
 /* Стили для компактных секций */
@@ -1018,49 +918,6 @@ footer {
 .bg-orange {
     background: linear-gradient(135deg, #e67e22, #f39c12) !important;
     border: none;
-}
-
-/* Стили для похожих игр */
-.similar-games-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 1rem;
-}
-
-.similar-game-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--border-radius);
-    transition: var(--transition);
-    overflow: hidden;
-}
-
-.similar-game-card:hover {
-    transform: translateY(-2px);
-    border-color: var(--secondary-color);
-    box-shadow: 0 8px 25px rgba(255, 107, 53, 0.15);
-}
-
-.similar-game-card img {
-    height: 120px;
-    object-fit: cover;
-    width: 100%;
-}
-
-.similar-game-card .card-body {
-    padding: 1rem;
-}
-
-.similar-game-card .card-title {
-    font-size: 0.9rem;
-    font-weight: 600;
-    margin-bottom: 0.5rem;
-    line-height: 1.3;
-}
-
-.similarity-badge .badge {
-    font-size: 0.75rem;
-    padding: 0.25rem 0.5rem;
 }
 
 /* Стили для текстового контента с ограничением высоты */
@@ -1181,19 +1038,6 @@ footer {
         padding: 1rem;
     }
 
-    .similar-games-grid {
-        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-        gap: 0.75rem;
-    }
-
-    .similar-game-card img {
-        height: 100px;
-    }
-
-    .similar-game-card .card-body {
-        padding: 0.75rem;
-    }
-
     .keyword-category {
         padding: 0.75rem;
     }
@@ -1222,23 +1066,9 @@ footer {
         padding: 0.5rem 0.75rem;
     }
 
-    .similar-games-grid {
-        grid-template-columns: 1fr 1fr;
-    }
-
     .compact-section {
         margin-bottom: 1rem;
     }
-}
-
-/* Стили для скрытия/показа контента */
-.d-none {
-    display: none !important;
-}
-
-/* Плавная прокрутка для якорей */
-html {
-    scroll-behavior: smooth;
 }
 
 /* Улучшенные стили для карточек на странице деталей */
@@ -1262,43 +1092,4 @@ html {
 
 .game-detail-card .card-body {
     padding: 1.25rem;
-}
-
-/* ===== SMALL GAME CARDS ===== */
-.game-card-small {
-    transition: var(--transition);
-    border: 1px solid var(--border);
-}
-
-.game-card-small:hover {
-    transform: translateY(-2px);
-    border-color: var(--secondary-color);
-    box-shadow: 0 4px 12px rgba(255, 107, 53, 0.15);
-}
-
-.game-card-small .card-title {
-    font-weight: 600;
-}
-
-/* Адаптивность для маленьких карточек */
-@media (max-width: 768px) {
-    .game-card-small .card-body {
-        padding: 0.75rem;
-    }
-
-    .game-card-small .card-title {
-        font-size: 0.75rem;
-        min-height: 1.8rem;
-    }
-
-    .game-card-small .btn {
-        font-size: 0.7rem;
-        padding: 0.25rem 0.5rem;
-    }
-}
-
-@media (max-width: 576px) {
-    .game-card-small {
-        margin-bottom: 1rem;
-    }
 }
