@@ -1,231 +1,84 @@
-{% extends 'games/base.html' %}
+{% extends 'base.html' %}
 
 {% block title %}Compare: {{ game1.name }} vs {{ game2.name }} - GamesPeek{% endblock %}
 
 {% block content %}
-<div class="row">
-    <!-- Header with Games -->
-    <div class="col-12">
-        <div class="row align-items-center">
-            <div class="col-md-5 text-center">
-                <div class="card">
+<div class="comparison-hero">
+    <div class="row align-items-center">
+        <!-- Game 1 -->
+        <div class="col-md-5 text-center">
+            <div class="game-comparison-card">
+                <a href="{% url 'game_detail' game1.pk %}" class="game-link">
                     {% if game1.cover_url %}
-                    <img src="{{ game1.cover_url }}" class="card-img-top" alt="{{ game1.name }}" style="height: 200px; object-fit: cover;">
-                    {% endif %}
-                    <div class="card-body">
-                        <h4>{{ game1.name }}</h4>
-                        <div>
-                            {% for genre in game1.genres.all %}
-                            <span class="badge bg-danger me-1">{{ genre.name }}</span>
-                            {% endfor %}
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-md-2 text-center">
-                <div class="card bg-light">
-                    <div class="card-body py-3">
-                        <h2 class="display-4
-                            {% if similarity_score > 70 %}text-success
-                            {% elif similarity_score > 40 %}text-warning
-                            {% else %}text-info{% endif %}">
-                            {{ similarity_score|floatformat:1 }}%
-                        </h2>
-                        <p class="lead mb-0">Similarity</p>
-                        <small class="text-muted">Based on weighted criteria</small>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-md-5 text-center">
-                <div class="card">
-                    {% if game2.cover_url %}
-                    <img src="{{ game2.cover_url }}" class="card-img-top" alt="{{ game2.name }}" style="height: 200px; object-fit: cover;">
-                    {% endif %}
-                    <div class="card-body">
-                        <h4>{{ game2.name }}</h4>
-                        <div>
-                            {% for genre in game2.genres.all %}
-                            <span class="badge bg-danger me-1">{{ genre.name }}</span>
-                            {% endfor %}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Weighted Similarity Breakdown -->
-<div class="row mt-5">
-    <div class="col-12">
-        <h3>🎯 Similarity Analysis</h3>
-        <p class="text-muted">Criteria sorted by importance (weight)</p>
-
-        <div class="card">
-            <div class="card-body">
-                {% for category, data in breakdown.items %}
-                <div class="similarity-category mb-4">
-                    <!-- Category Header -->
-                    <div class="row align-items-center mb-2">
-                        <div class="col-md-4">
-                            <h5 class="mb-0">
-                                {% if category == 'Genre' %}🎮 Genre
-                                {% elif category == 'Gameplay' %}⚡ Gameplay
-                                {% elif category == 'Setting' %}🌍 Setting
-                                {% elif category == 'Narrative' %}📖 Narrative
-                                {% elif category == 'Characters' %}👥 Characters
-                                {% elif category == 'Technical' %}⚙️ Technical
-                                {% elif category == 'Graphics' %}🎨 Graphics
-                                {% elif category == 'Platform' %}💻 Platform
-                                {% elif category == 'Multiplayer' %}👥 Multiplayer
-                                {% elif category == 'Achievements' %}🏆 Achievements
-                                {% elif category == 'Audio' %}🔊 Audio
-                                {% elif category == 'Context' %}🌐 Context
-                                {% elif category == 'Development' %}🔧 Development
-                                {% else %}📊 {{ category }}{% endif %}
-                            </h5>
-                            <small class="text-muted">
-                                Weight: <strong>{{ data.weight }}</strong>
-                                | Impact: <strong>{{ data.weight|floatformat:1 }}x</strong>
-                            </small>
-                        </div>
-                        <div class="col-md-5">
-                            <div class="progress" style="height: 30px;">
-                                <div class="progress-bar
-                                    {% if data.similarity_percent > 70 %}bg-success
-                                    {% elif data.similarity_percent > 40 %}bg-warning
-                                    {% else %}bg-info{% endif %}"
-                                    style="width: {{ data.similarity_percent }}%">
-                                    <span class="fw-bold">{{ data.similarity_percent|floatformat:1 }}%</span>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-3 text-end">
-                            <span class="badge
-                                {% if data.similarity_percent > 70 %}bg-success
-                                {% elif data.similarity_percent > 40 %}bg-warning
-                                {% else %}bg-info{% endif %}">
-                                {{ data.common_items|length }} common
-                            </span>
-                        </div>
-                    </div>
-
-                    <!-- Common Items -->
-                    {% if data.common_items %}
-                    <div class="row">
-                        <div class="col-12">
-                            <div class="common-items bg-light p-3 rounded">
-                                <strong>Shared elements:</strong>
-                                <div class="d-flex flex-wrap gap-1 mt-2">
-                                    {% for item in data.common_items %}
-                                    <span class="badge
-                                        {% if category == 'Genre' %}bg-danger
-                                        {% elif category == 'Gameplay' %}bg-warning text-dark
-                                        {% elif category == 'Setting' %}bg-primary
-                                        {% elif category == 'Narrative' %}bg-purple
-                                        {% elif category == 'Characters' %}bg-pink
-                                        {% elif category == 'Technical' %}bg-dark
-                                        {% elif category == 'Graphics' %}bg-success
-                                        {% elif category == 'Platform' %}bg-info
-                                        {% elif category == 'Multiplayer' %}bg-orange
-                                        {% elif category == 'Achievements' %}bg-gold text-dark
-                                        {% elif category == 'Audio' %}bg-teal
-                                        {% elif category == 'Context' %}bg-indigo
-                                        {% elif category == 'Development' %}bg-brown
-                                        {% else %}bg-secondary{% endif %}">
-                                        {{ item }}
-                                    </span>
-                                    {% endfor %}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                    <img src="{{ game1.cover_url }}" class="card-img-top comparison-cover" alt="{{ game1.name }}">
                     {% else %}
-                    <div class="row">
-                        <div class="col-12">
-                            <div class="bg-light p-3 rounded text-muted">
-                                <em>No shared {{ category|lower }} elements</em>
-                            </div>
-                        </div>
+                    <div class="comparison-cover bg-light d-flex align-items-center justify-content-center">
+                        <span class="text-muted">No Cover</span>
+                    </div>
+                    {% endif %}
+                </a>
+                <div class="card-body">
+                    <a href="{% url 'game_detail' game1.pk %}" class="text-decoration-none">
+                        <h3 class="game-title">{{ game1.name }}</h3>
+                    </a>
+                    <div class="game-genres">
+                        {% for genre in game1.genres.all %}
+                        <span class="badge bg-danger mb-1">{{ genre.name }}</span>
+                        {% endfor %}
+                    </div>
+                    {% if game1.rating %}
+                    <div class="game-rating mt-2">
+                        <span class="text-warning">⭐ {{ game1.rating|floatformat:1 }}</span>
+                        <small class="text-muted">({{ game1.rating_count }} ratings)</small>
                     </div>
                     {% endif %}
                 </div>
-                {% endfor %}
             </div>
         </div>
-    </div>
-</div>
 
-<!-- Weight Explanation -->
-<div class="row mt-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <h5>📈 Weight System Explanation</h5>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-6">
-                        <h6>🎮 Genre (Weight: 5.0x)</h6>
-                        <p class="small text-muted">
-                            <strong>Most important</strong> - Games in the same genre share core gameplay mechanics and player expectations.
-                        </p>
-
-                        <h6>⚡ Gameplay (Weight: 4.0x)</h6>
-                        <p class="small text-muted">
-                            <strong>Very important</strong> - Shared gameplay mechanics like combat systems, crafting, or progression.
-                        </p>
-
-                        <h6>🌍 Setting (Weight: 3.5x)</h6>
-                        <p class="small text-muted">
-                            <strong>Important</strong> - Similar worlds, locations, time periods, and environments.
-                        </p>
-
-                        <h6>📖 Narrative (Weight: 3.0x)</h6>
-                        <p class="small text-muted">
-                            <strong>Important</strong> - Shared story structures, themes, and narrative elements.
-                        </p>
-
-                        <h6>👥 Characters (Weight: 2.5x)</h6>
-                        <p class="small text-muted">
-                            <strong>Moderately important</strong> - Similar character types, roles, and development.
-                        </p>
-                    </div>
-                    <div class="col-md-6">
-                        <h6>⚙️ Technical (Weight: 2.0x)</h6>
-                        <p class="small text-muted">
-                            <strong>Moderately important</strong> - Shared technical features and performance aspects.
-                        </p>
-
-                        <h6>🎨 Graphics (Weight: 1.5x)</h6>
-                        <p class="small text-muted">
-                            <strong>Somewhat important</strong> - Similar visual styles and art direction.
-                        </p>
-
-                        <h6>👥 Multiplayer (Weight: 1.5x)</h6>
-                        <p class="small text-muted">
-                            <strong>Somewhat important</strong> - Shared multiplayer features and online capabilities.
-                        </p>
-
-                        <h6>🔊 Audio (Weight: 1.0x)</h6>
-                        <p class="small text-muted">
-                            <strong>Less important</strong> - Similar audio design, music, and voice acting.
-                        </p>
-
-                        <h6>🏆 Achievements (Weight: 0.5x)</h6>
-                        <p class="small text-muted">
-                            <strong>Minimal impact</strong> - Shared achievement systems and rewards.
-                        </p>
-                    </div>
+        <!-- Similarity Score -->
+        <div class="col-md-2 text-center">
+            <div class="similarity-card">
+                <div class="similarity-score
+                    {% if similarity_score > 70 %}score-high
+                    {% elif similarity_score > 40 %}score-medium
+                    {% else %}score-low{% endif %}">
+                    {{ similarity_score|floatformat:0 }}%
                 </div>
+                <div class="similarity-label">Match</div>
+                <div class="similarity-description">
+                    <small class="text-muted">Overall Similarity</small>
+                </div>
+            </div>
+        </div>
 
-                <div class="mt-3 p-3 bg-info bg-opacity-10 rounded">
-                    <small>
-                        <strong>How it works:</strong> Each category's similarity percentage is multiplied by its weight,
-                        then normalized to produce the final score. Core gameplay elements have the strongest influence on recommendations.
-                    </small>
+        <!-- Game 2 -->
+        <div class="col-md-5 text-center">
+            <div class="game-comparison-card">
+                <a href="{% url 'game_detail' game2.pk %}" class="game-link">
+                    {% if game2.cover_url %}
+                    <img src="{{ game2.cover_url }}" class="card-img-top comparison-cover" alt="{{ game2.name }}">
+                    {% else %}
+                    <div class="comparison-cover bg-light d-flex align-items-center justify-content-center">
+                        <span class="text-muted">No Cover</span>
+                    </div>
+                    {% endif %}
+                </a>
+                <div class="card-body">
+                    <a href="{% url 'game_detail' game2.pk %}" class="text-decoration-none">
+                        <h3 class="game-title">{{ game2.name }}</h3>
+                    </a>
+                    <div class="game-genres">
+                        {% for genre in game2.genres.all %}
+                        <span class="badge bg-danger mb-1">{{ genre.name }}</span>
+                        {% endfor %}
+                    </div>
+                    {% if game2.rating %}
+                    <div class="game-rating mt-2">
+                        <span class="text-warning">⭐ {{ game2.rating|floatformat:1 }}</span>
+                        <small class="text-muted">({{ game2.rating_count }} ratings)</small>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -233,55 +86,111 @@
 </div>
 
 <!-- Quick Stats -->
-<div class="row mt-4">
-    <div class="col-md-4">
-        <div class="card">
-            <div class="card-body text-center">
-                <h3>{{ breakdown.Genre.common_items|length }}</h3>
-                <p class="text-muted mb-0">Shared Genres</p>
-                <small>Most Impactful</small>
-            </div>
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="stat-card">
+            <div class="stat-number">{{ shared_genres_count }}</div>
+            <div class="stat-label">Shared Genres</div>
+            <div class="stat-description">Common categories</div>
         </div>
     </div>
-    <div class="col-md-4">
-        <div class="card">
-            <div class="card-body text-center">
-                <h3>{{ breakdown.Gameplay.common_items|length }}</h3>
-                <p class="text-muted mb-0">Gameplay Features</p>
-                <small>Core Mechanics</small>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-4">
-        <div class="card">
-            <div class="card-body text-center">
-                <h3>
-                    {% with total_common=0 %}
-                    {% for category, data in breakdown.items %}
-                        {% if data.common_items %}
-                            {% with total_common=total_common|add:data.common_items|length %}
-                            {% endwith %}
-                        {% endif %}
-                    {% endfor %}
-                    {{ total_common }}
-                    {% endwith %}
-                </h3>
-                <p class="text-muted mb-0">Total Shared Elements</p>
-                <small>Across all categories</small>
-            </div>
+    <div class="col-md-6">
+        <div class="stat-card">
+            <div class="stat-number">{{ shared_keywords_count }}</div>
+            <div class="stat-label">Shared Keywords</div>
+            <div class="stat-description">Common features</div>
         </div>
     </div>
 </div>
 
-<!-- Navigation -->
+<!-- Shared Genres -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="shared-section">
+            <h4 class="section-title">🎮 Shared Genres</h4>
+            {% if shared_genres %}
+            <div class="shared-items-grid">
+                {% for genre in shared_genres %}
+                <span class="shared-item item-genre">{{ genre.name }}</span>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="no-shared-items">
+                <span class="text-muted">No shared genres</span>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Shared Keywords by Category -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="shared-section">
+            <h4 class="section-title">🔑 Shared Keywords by Category</h4>
+            {% if shared_keywords_by_category %}
+                {% for category_name, keywords in shared_keywords_by_category.items %}
+                <div class="keyword-category-section mb-3">
+                    <h5 class="category-title">
+                        {% if category_name == 'Gameplay' %}⚡ Gameplay
+                        {% elif category_name == 'Setting' %}🌍 Setting
+                        {% elif category_name == 'Narrative' %}📖 Narrative
+                        {% elif category_name == 'Characters' %}👥 Characters
+                        {% elif category_name == 'Technical' %}⚙️ Technical
+                        {% elif category_name == 'Graphics' %}🎨 Graphics
+                        {% elif category_name == 'Platform' %}💻 Platform
+                        {% elif category_name == 'Multiplayer' %}👥 Multiplayer
+                        {% elif category_name == 'Achievements' %}🏆 Achievements
+                        {% elif category_name == 'Audio' %}🔊 Audio
+                        {% elif category_name == 'Context' %}🌐 Context
+                        {% elif category_name == 'Development' %}🔧 Development
+                        {% else %}📊 {{ category_name }}{% endif %}
+                    </h5>
+                    <div class="shared-items-grid">
+                        {% for keyword in keywords %}
+                        <span class="shared-item
+                            {% if category_name == 'Gameplay' %}item-gameplay
+                            {% elif category_name == 'Setting' %}item-setting
+                            {% elif category_name == 'Narrative' %}item-narrative
+                            {% elif category_name == 'Characters' %}item-characters
+                            {% elif category_name == 'Technical' %}item-technical
+                            {% elif category_name == 'Graphics' %}item-graphics
+                            {% elif category_name == 'Platform' %}item-platform
+                            {% elif category_name == 'Multiplayer' %}item-multiplayer
+                            {% elif category_name == 'Achievements' %}item-achievements
+                            {% elif category_name == 'Audio' %}item-audio
+                            {% elif category_name == 'Context' %}item-context
+                            {% elif category_name == 'Development' %}item-development
+                            {% else %}item-default{% endif %}">
+                            {{ keyword.name }}
+                        </span>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+            <div class="no-shared-items">
+                <span class="text-muted">No shared keywords</span>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Action Buttons -->
 <div class="row mt-4">
-    <div class="col-12 text-center">
-        <a href="{% url 'game_detail' game1.pk %}" class="btn btn-outline-secondary me-2">
-            ← Back to {{ game1.name }}
-        </a>
-        <a href="{% url 'game_detail' game2.pk %}" class="btn btn-outline-secondary">
-            Back to {{ game2.name }} →
-        </a>
+    <div class="col-12">
+        <div class="action-buttons">
+            <a href="{% url 'game_detail' game1.pk %}" class="btn btn-outline-primary btn-lg">
+                <i class="bi bi-arrow-left"></i> Back to {{ game1.name }}
+            </a>
+            <a href="{% url 'game_detail' game2.pk %}" class="btn btn-outline-primary btn-lg">
+                Back to {{ game2.name }} <i class="bi bi-arrow-right"></i>
+            </a>
+            <a href="{% url 'game_list' %}" class="btn btn-primary-gradient btn-lg">
+                <i class="bi bi-search"></i> Find More Games
+            </a>
+        </div>
     </div>
 </div>
 {% endblock %}

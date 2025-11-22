@@ -59,6 +59,19 @@
                 <a href="{% get_find_similar_url game %}" class="btn btn-sm btn-outline-info">
                     <i class="bi bi-search-heart"></i> Find Similar
                 </a>
+
+                <!-- КНОПКА СРАВНЕНИЯ - ТОЛЬКО В РЕЖИМЕ ПОИСКА ПОХОЖИХ ИГР -->
+                {% if show_similarity and source_game and source_game.id != game.id %}
+                <a href="{% url 'game_comparison' source_game.id game.id %}?similarity={{ similarity_percent|floatformat:0 }}"
+                   class="btn btn-sm btn-outline-warning">
+                    <i class="bi bi-arrow-left-right"></i>
+                    {% if source_game.id == 0 %}
+                    Compare with Criteria
+                    {% else %}
+                    Compare with {{ source_game.name }}
+                    {% endif %}
+                </a>
+                {% endif %}
             </div>
         </div>
     </div>

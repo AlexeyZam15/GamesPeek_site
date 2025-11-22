@@ -42,6 +42,7 @@ def game_list(request):
 
     show_similarity = False
     games_with_similarity = []
+    source_game = None
 
     # РЕЖИМ ПОИСКА ПОХОЖИХ ИГР ПО КРИТЕРИЯМ
     if find_similar and (selected_genres_int or selected_keywords_int):
@@ -63,6 +64,26 @@ def game_list(request):
             }
             for item in similar_games_data
         ]
+
+        # Определяем исходную игру для сравнения
+        source_game_id = request.GET.get('source_game')
+        if source_game_id:
+            try:
+                source_game = Game.objects.get(id=source_game_id)
+            except Game.DoesNotExist:
+                source_game = None
+
+        # Если нет исходной игры, создаем виртуальную на основе критериев
+        if not source_game:
+            class VirtualGame:
+                def __init__(self, genres, keywords):
+                    self.id = 0  # Специальный ID
+                    self.name = "Your Search Criteria"
+                    self.genres = Genre.objects.filter(id__in=genres)
+                    self.keywords = Keyword.objects.filter(id__in=keywords)
+                    self.cover_url = None
+
+            source_game = VirtualGame(selected_genres_int, selected_keywords_int)
 
         # Сортировка
         if current_sort == '-rating_count':
@@ -111,7 +132,8 @@ def game_list(request):
         'selected_genres': selected_genres_int,
         'selected_keywords': selected_keywords_int,
         'find_similar': find_similar,
-        'compact_url_params': compact_url_params,  # Для использования в шаблоне
+        'compact_url_params': compact_url_params,
+        'source_game': source_game,  # Всегда передаем source_game (может быть None)
     }
 
     return render(request, 'games/game_list.html', context)
@@ -158,7 +180,6 @@ def get_compact_game_list_url(find_similar=False, genres=None, keywords=None, so
     return base_url
 
 
-# Остальные функции остаются без изменений
 def game_detail(request, pk):
     """Детальная страница игры с похожими играми"""
     game = get_object_or_404(
@@ -235,15 +256,43 @@ def game_comparison(request, pk1, pk2):
         pk=pk2
     )
 
-    similarity_engine = GameSimilarity()
-    similarity_score = similarity_engine.calculate_similarity(game1, game2)
-    breakdown = similarity_engine.get_similarity_breakdown(game1, game2)
+    # Пробуем взять процент из URL, если передан
+    url_similarity = request.GET.get('similarity')
+    if url_similarity:
+        try:
+            similarity_score = float(url_similarity)
+        except (ValueError, TypeError):
+            similarity_score = 0
+    else:
+        # Используем обычный расчет как fallback
+        similarity_engine = GameSimilarity()
+        similarity_score = similarity_engine.calculate_similarity(game1, game2)
+
+    # Рассчитываем общие элементы
+    shared_genres = game1.genres.all() & game2.genres.all()
+    shared_keywords = game1.keywords.all() & game2.keywords.all()
+
+    shared_genres_count = shared_genres.count()
+    shared_keywords_count = shared_keywords.count()
+
+    # Группируем ключевые слова по категориям
+    keyword_categories = KeywordCategory.objects.all()
+    shared_keywords_by_category = {}
+
+    for category in keyword_categories:
+        category_keywords = shared_keywords.filter(category=category)
+        if category_keywords.exists():
+            shared_keywords_by_category[category.name] = category_keywords
 
     context = {
         'game1': game1,
         'game2': game2,
         'similarity_score': similarity_score,
-        'breakdown': breakdown,
+        'shared_genres': shared_genres,
+        'shared_keywords': shared_keywords,
+        'shared_genres_count': shared_genres_count,
+        'shared_keywords_count': shared_keywords_count,
+        'shared_keywords_by_category': shared_keywords_by_category,
     }
     return render(request, 'games/game_comparison.html', context)
 

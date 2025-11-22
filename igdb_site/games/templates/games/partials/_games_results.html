@@ -37,7 +37,7 @@
         {% endif %}
 
         {% if show_similarity and games_with_similarity %}
-            {% include 'games/partials/_similar_games_grid.html' with games=games_with_similarity %}
+            {% include 'games/partials/_similar_games_grid.html' with games=games_with_similarity show_similarity=show_similarity source_game=source_game %}
         {% elif games %}
             {% include 'games/partials/_regular_games_grid.html' with games=games %}
         {% else %}

@@ -1,5 +1,5 @@
 <div class="row">
     {% for game_data in games %}
-        {% include 'games/partials/_game_card.html' with game=game_data.game similarity_percent=game_data.similarity %}
+        {% include 'games/partials/_game_card.html' with game=game_data.game similarity_percent=game_data.similarity show_similarity=show_similarity source_game=source_game %}
     {% endfor %}
 </div>
