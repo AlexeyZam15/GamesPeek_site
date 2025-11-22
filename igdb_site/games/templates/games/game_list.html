@@ -12,6 +12,47 @@
         </div>
     </div>
 
+    <!-- СЕКЦИЯ ИСХОДНОЙ ИГРЫ (только в режиме поиска похожих) -->
+    {% if show_similarity and source_game and source_game.id != 0 %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="source-game-section">
+                <h4>🔍 Finding games similar to:</h4>
+                <div class="source-game-card">
+                    {% if source_game.cover_url %}
+                    <a href="{% url 'game_detail' source_game.id %}" class="source-game-cover-link">
+                        <img src="{{ source_game.cover_url }}" class="source-game-cover" alt="{{ source_game.name }}">
+                    </a>
+                    {% endif %}
+                    <div class="source-game-info">
+                        <a href="{% url 'game_detail' source_game.id %}" class="text-decoration-none">
+                            <h5 class="source-game-title">{{ source_game.name }}</h5>
+                        </a>
+                        <div class="source-game-details">
+                            {% if source_game.rating %}
+                            <div class="source-game-rating">
+                                <span class="text-warning">⭐ {{ source_game.rating|floatformat:1 }}</span>
+                                <small class="text-muted">({{ source_game.rating_count }} ratings)</small>
+                            </div>
+                            {% endif %}
+                            <div class="source-game-genres">
+                                {% for genre in source_game.genres.all %}
+                                <span class="badge bg-danger">{{ genre.name }}</span>
+                                {% endfor %}
+                            </div>
+                            {% if source_game.summary %}
+                            <div class="source-game-summary">
+                                <p class="small text-muted mb-0">{{ source_game.summary|truncatewords:30 }}</p>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Форма фильтров -->
     {% include 'games/partials/_filters_form.html' %}
 

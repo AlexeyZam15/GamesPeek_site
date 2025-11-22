@@ -8,34 +8,6 @@
             {% endif %}
         </div>
 
-        {% if selected_genres or selected_keywords %}
-        <div class="alert alert-info mb-4">
-            <div class="d-flex flex-wrap gap-2 align-items-center">
-                {% if selected_genres %}
-                <div>
-                    <strong>Genres:</strong>
-                    {% for genre in genres %}
-                        {% if genre.id in selected_genres %}
-                        <span class="badge bg-primary me-1">{{ genre.name }}</span>
-                        {% endif %}
-                    {% endfor %}
-                </div>
-                {% endif %}
-
-                {% if selected_keywords %}
-                <div>
-                    <strong>Features:</strong>
-                    {% for keyword in popular_keywords %}
-                        {% if keyword.id in selected_keywords %}
-                        <span class="badge bg-success me-1">{{ keyword.name }}</span>
-                        {% endif %}
-                    {% endfor %}
-                </div>
-                {% endif %}
-            </div>
-        </div>
-        {% endif %}
-
         {% if show_similarity and games_with_similarity %}
             {% include 'games/partials/_similar_games_grid.html' with games=games_with_similarity show_similarity=show_similarity source_game=source_game %}
         {% elif games %}

@@ -48,23 +48,6 @@ def game_list(request):
     if find_similar and (selected_genres_int or selected_keywords_int):
         show_similarity = True
 
-        similarity_engine = GameSimilarity()
-        similar_games_data = similarity_engine.find_similar_games_to_criteria(
-            genre_ids=selected_genres_int,
-            keyword_ids=selected_keywords_int,
-            limit=50,
-            min_similarity=15
-        )
-
-        # Формируем правильную структуру данных
-        games_with_similarity = [
-            {
-                'game': item['game'],
-                'similarity': item['similarity']
-            }
-            for item in similar_games_data
-        ]
-
         # Определяем исходную игру для сравнения
         source_game_id = request.GET.get('source_game')
         if source_game_id:
@@ -84,6 +67,24 @@ def game_list(request):
                     self.cover_url = None
 
             source_game = VirtualGame(selected_genres_int, selected_keywords_int)
+
+        # Получаем похожие игры (теперь без фильтрации исходной игры)
+        similarity_engine = GameSimilarity()
+        similar_games_data = similarity_engine.find_similar_games_to_criteria(
+            genre_ids=selected_genres_int,
+            keyword_ids=selected_keywords_int,
+            limit=50,
+            min_similarity=15
+        )
+
+        # Формируем структуру данных (без фильтрации)
+        games_with_similarity = [
+            {
+                'game': item['game'],
+                'similarity': item['similarity']
+            }
+            for item in similar_games_data
+        ]
 
         # Сортировка
         if current_sort == '-rating_count':
@@ -133,7 +134,7 @@ def game_list(request):
         'selected_keywords': selected_keywords_int,
         'find_similar': find_similar,
         'compact_url_params': compact_url_params,
-        'source_game': source_game,  # Всегда передаем source_game (может быть None)
+        'source_game': source_game,
     }
 
     return render(request, 'games/game_list.html', context)
