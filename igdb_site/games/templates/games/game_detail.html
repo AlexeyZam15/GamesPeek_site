@@ -28,7 +28,8 @@
                         <div class="col-md-9 col-lg-10">
                             <div class="d-flex flex-column h-100 justify-content-between">
                                 <div>
-                                    <h1 class="display-6 fw-bold mb-2 text-gradient">{{ game.name }}</h1>
+                                    <!-- Изменен цвет названия игры -->
+                                    <h1 class="display-6 fw-bold mb-2 text-info">{{ game.name }}</h1>
 
                                     <!-- Рейтинг и дата релиза -->
                                     <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
@@ -43,18 +44,19 @@
 
                                         {% if game.first_release_date %}
                                         <div class="release-date">
-                                            <span class="fw-semibold text-light">Released:</span>
-                                            <span class="text-muted ms-1">{{ game.first_release_date|date:"M j, Y" }}</span>
+                                            <div class="badge bg-info text-white fs-6">
+                                                <span>Released: {{ game.first_release_date|date:"M j, Y" }}</span>
+                                            </div>
                                         </div>
                                         {% endif %}
                                     </div>
 
-                                    <!-- Жанры -->
+                                    <!-- Жанры с измененным цветом фона -->
                                     {% if game.genres.all %}
                                     <div class="mb-3">
                                         <div class="d-flex flex-wrap gap-1">
                                             {% for genre in game.genres.all %}
-                                            <span class="badge bg-primary-gradient px-2 py-1 fs-6">{{ genre.name }}</span>
+                                            <span class="badge bg-success px-2 py-1 fs-6">{{ genre.name }}</span>
                                             {% endfor %}
                                         </div>
                                     </div>
@@ -76,6 +78,7 @@
         </div>
     </div>
 
+    <!-- Остальной код без изменений -->
     <!-- Табы для основного контента -->
     <div class="game-tabs">
         <ul class="nav nav-tabs" id="gameTabs" role="tablist">
