@@ -1,7 +1,7 @@
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from games.igdb_api import make_igdb_request, set_debug_mode
-from games.models import Game, Genre, Keyword, Platform
+from games.models import Game, Genre, Keyword, Platform, Screenshot
 
 
 class Command(BaseCommand):
@@ -19,14 +19,44 @@ class Command(BaseCommand):
             default=500,
             help='Размер пачки для загрузки (макс. 500)'
         )
+        parser.add_argument(
+            '--load-screenshots',
+            action='store_true',
+            help='Загружать скриншоты для игр'
+        )
+        parser.add_argument(
+            '--max-screenshots',
+            type=int,
+            default=0,
+            help='Максимальное количество скриншотов на игру (0 = загружать все)'
+        )
+        parser.add_argument(
+            '--skip-existing',
+            action='store_true',
+            help='Пропускать игры, которые уже есть в базе'
+        )
+        parser.add_argument(
+            '--update-screenshots',
+            action='store_true',
+            help='Обновить скриншоты для существующих игр (дозагрузить недостающие)'
+        )
 
     def handle(self, *args, **options):
         debug = options['debug']
         batch_size = min(options['batch_size'], 500)
+        load_screenshots = options['load_screenshots']
+        max_screenshots = options['max_screenshots']
+        skip_existing = options['skip_existing']
+        update_screenshots = options['update_screenshots']
 
         set_debug_mode(debug)
 
         self.stdout.write('🎮 ПОИСК ВСЕХ ТАКТИЧЕСКИХ RPG (без лимита)')
+        if load_screenshots:
+            screenshot_limit = "все" if max_screenshots == 0 else max_screenshots
+            self.stdout.write(f'📸 ЗАГРУЗКА СКРИНШОТОВ ВКЛЮЧЕНА (макс: {screenshot_limit})')
+        if update_screenshots:
+            self.stdout.write('🔄 ОБНОВЛЕНИЕ СКРИНШОТОВ ДЛЯ СУЩЕСТВУЮЩИХ ИГР ВКЛЮЧЕНО')
         self.stdout.write('=' * 60)
 
         try:
@@ -123,6 +153,8 @@ class Command(BaseCommand):
             loaded_count = 0
             skipped_count = 0
             error_count = 0
+            screenshots_loaded = 0
+            screenshots_updated = 0
 
             for i, game_data in enumerate(all_tactical_games, 1):
                 game_id = game_data.get('id')
@@ -132,7 +164,15 @@ class Command(BaseCommand):
                     error_count += 1
                     continue
 
-                if not Game.objects.filter(igdb_id=game_id).exists():
+                game_exists = Game.objects.filter(igdb_id=game_id).exists()
+
+                if skip_existing and game_exists:
+                    skipped_count += 1
+                    if debug and i % 20 == 0:
+                        self.stdout.write(f'   ⏭️  Уже в базе (пропуск): {game_name}')
+                    continue
+
+                if not game_exists:
                     if debug or i % 10 == 0:
                         self.stdout.write(f'   [{i}/{len(all_tactical_games)}] Загрузка: {game_name}')
 
@@ -142,6 +182,12 @@ class Command(BaseCommand):
                             loaded_count += 1
                             if debug:
                                 self.stdout.write(f'   ✅ Загружена: {game_name}')
+
+                            # Загружаем скриншоты для новой игры
+                            if load_screenshots:
+                                loaded = self.load_game_screenshots(game_id, max_screenshots)
+                                screenshots_loaded += loaded
+
                         elif result == 'error':
                             error_count += 1
                             self.stderr.write(f'   ❌ Ошибка загрузки: {game_name}')
@@ -153,6 +199,25 @@ class Command(BaseCommand):
                     if debug and i % 20 == 0:
                         self.stdout.write(f'   ⏭️  Уже в базе: {game_name}')
 
+                    # Обновляем скриншоты для существующих игр
+                    if update_screenshots or load_screenshots:
+                        game = Game.objects.get(igdb_id=game_id)
+                        current_screenshots_count = game.screenshots.count()
+
+                        # Получаем общее количество скриншотов на IGDB
+                        total_igdb_screenshots = self.get_igdb_screenshots_count(game_id)
+
+                        if current_screenshots_count < total_igdb_screenshots:
+                            self.stdout.write(f'   🔄 Обновление скриншотов для: {game_name}')
+                            self.stdout.write(
+                                f'      В базе: {current_screenshots_count}, на IGDB: {total_igdb_screenshots}')
+
+                            # Удаляем старые скриншоты и загружаем заново
+                            game.screenshots.all().delete()
+                            loaded = self.load_game_screenshots(game_id, max_screenshots)
+                            screenshots_updated += loaded
+                            self.stdout.write(f'      ✅ Загружено новых скриншотов: {loaded}')
+
             # Итоги
             self.stdout.write('\n' + '=' * 60)
             self.stdout.write(self.style.SUCCESS('✅ ПОИСК ЗАВЕРШЕН!'))
@@ -160,6 +225,13 @@ class Command(BaseCommand):
             self.stdout.write(f'• Новых игр загружено в базу: {loaded_count}')
             self.stdout.write(f'• Уже было в базе: {skipped_count}')
             self.stdout.write(f'• Ошибок при загрузке: {error_count}')
+
+            if load_screenshots or update_screenshots:
+                self.stdout.write(f'• Скриншотов загружено для новых игр: {screenshots_loaded}')
+                self.stdout.write(f'• Скриншотов обновлено для существующих игр: {screenshots_updated}')
+                total_screenshots = Screenshot.objects.count()
+                self.stdout.write(f'• Всего скриншотов в базе: {total_screenshots}')
+
             self.stdout.write(f'• Всего тактических RPG в базе: {Game.objects.filter(genres__igdb_id=12).count()}')
 
             # Топ-10 самых популярных найденных RPG
@@ -175,6 +247,75 @@ class Command(BaseCommand):
             import traceback
             self.stderr.write(traceback.format_exc())
 
+    def get_igdb_screenshots_count(self, game_id):
+        """Получает общее количество скриншотов для игры на IGDB"""
+        try:
+            query = f'''
+                fields game;
+                where game = {game_id};
+                limit 500;
+            '''
+            screenshots_data = make_igdb_request('screenshots', query)
+            return len(screenshots_data) if screenshots_data else 0
+        except Exception:
+            return 0
+
+    def load_game_screenshots(self, game_id, max_screenshots=0):
+        """Загружает скриншоты для конкретной игры"""
+        try:
+            # Определяем лимит для запроса
+            limit = 500 if max_screenshots == 0 else max_screenshots
+
+            query = f'''
+                fields *;
+                where game = {game_id};
+                limit {limit};
+            '''
+
+            screenshots_data = make_igdb_request('screenshots', query)
+
+            if not screenshots_data:
+                return 0
+
+            game = Game.objects.get(igdb_id=game_id)
+            loaded_screenshots = 0
+
+            for screenshot_data in screenshots_data:
+                screenshot_id = screenshot_data.get('id')
+                image_url = screenshot_data.get('url')
+
+                if not screenshot_id or not image_url:
+                    continue
+
+                # Пропускаем если уже существует
+                if Screenshot.objects.filter(igdb_id=screenshot_id).exists():
+                    continue
+
+                # Создаем URL для скриншота в высоком качестве
+                high_res_url = f"https:{image_url.replace('thumb', 'screenshot_big')}"
+
+                screenshot = Screenshot(
+                    igdb_id=screenshot_id,
+                    game=game,
+                    image_url=high_res_url,
+                    width=screenshot_data.get('width', 1920),
+                    height=screenshot_data.get('height', 1080),
+                    caption=screenshot_data.get('caption', '')
+                )
+
+                screenshot.save()
+                loaded_screenshots += 1
+
+                # Если достигли максимального количества, прерываем
+                if max_screenshots > 0 and loaded_screenshots >= max_screenshots:
+                    break
+
+            return loaded_screenshots
+
+        except Exception as e:
+            self.stderr.write(f'   ❌ Ошибка загрузки скриншотов для игры {game_id}: {e}')
+            return 0
+
     def process_game(self, game_data):
         """Обработать одну игру"""
         igdb_id = game_data['id']
@@ -187,6 +328,7 @@ class Command(BaseCommand):
             game = Game(igdb_id=igdb_id)
             game.name = game_data.get('name', '')
             game.summary = game_data.get('summary', '')
+            game.storyline = game_data.get('storyline', '')
             game.rating = game_data.get('rating')
             game.rating_count = game_data.get('rating_count', 0)
 
