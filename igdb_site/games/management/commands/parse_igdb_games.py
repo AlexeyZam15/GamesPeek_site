@@ -173,10 +173,15 @@ class Command(BaseCommand):
                 if first_line.lower() in ['igdb', 'igdb.com', 'games']:
                     continue
 
-                # ОЧИСТКА ТЕКСТА - только от лишних частей в первой строке
+                # ОЧИСТКА ТЕКСТА - удаляем год и лишние части
                 clean_text = first_line
+                # Удаляем год в скобках (2011)
+                clean_text = re.sub(r'\s*\(\d{4}\)\s*$', '', clean_text)
+                # Удаляем "IGDB.com" и всё что после
                 clean_text = re.sub(r'\s*IGDB\.com.*$', '', clean_text)
+                # Удаляем путь после ›
                 clean_text = re.sub(r'\s*›\s*.*$', '', clean_text)
+                # Удаляем "- IGDB"
                 clean_text = re.sub(r'\s*-\s*IGDB$', '', clean_text)
                 clean_text = clean_text.strip()
 
@@ -186,7 +191,7 @@ class Command(BaseCommand):
                 self.stdout.write(f"   📝 Найдено: '{clean_text}'")
 
                 return {
-                    'name': clean_text,
+                    'name': clean_text,  # Без года
                     'year': expected_year,
                     'url': href
                 }
