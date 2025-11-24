@@ -86,6 +86,15 @@
                 </button>
             </li>
             <li class="nav-item" role="presentation">
+                <button class="nav-link" id="screenshots-tab" data-bs-toggle="tab" data-bs-target="#screenshots"
+                        type="button" role="tab" aria-controls="screenshots" aria-selected="false">
+                    <i class="bi bi-image me-2"></i>Screenshots
+                    {% if game.screenshots.all %}
+                    <span class="badge bg-secondary ms-1">{{ game.screenshots.all|length }}</span>
+                    {% endif %}
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
                 <button class="nav-link" id="features-tab" data-bs-toggle="tab" data-bs-target="#features"
                         type="button" role="tab" aria-controls="features" aria-selected="false">
                     <i class="bi bi-tags me-2"></i>Features
@@ -103,7 +112,7 @@
                         {% if game.summary %}
                         <div class="compact-section">
                             <div class="section-header">
-                                <h6><i class="bi bi-journal-text me-2"></i>About This Game</h6>
+                                <h6 class="text-warning"><i class="bi bi-journal-text me-2"></i>About This Game</h6>
                             </div>
                             <div class="game-detail-card card">
                                 <div class="card-body">
@@ -126,7 +135,7 @@
                         {% if game.storyline %}
                         <div class="compact-section">
                             <div class="section-header">
-                                <h6><i class="bi bi-book me-2"></i>Storyline</h6>
+                                <h6 class="text-info"><i class="bi bi-book me-2"></i>Storyline</h6>
                             </div>
                             <div class="game-detail-card card">
                                 <div class="card-body">
@@ -152,7 +161,7 @@
                         {% if game.platforms.all %}
                         <div class="compact-section">
                             <div class="section-header">
-                                <h6><i class="bi bi-controller me-2"></i>Platforms</h6>
+                                <h6 class="text-light"><i class="bi bi-controller me-2"></i>Platforms</h6>
                             </div>
                             <div class="game-detail-card card">
                                 <div class="card-body">
@@ -169,7 +178,7 @@
                         <!-- Быстрые действия -->
                         <div class="compact-section">
                             <div class="section-header">
-                                <h6><i class="bi bi-lightning me-2"></i>Quick Actions</h6>
+                                <h6 class="text-light"><i class="bi bi-lightning me-2"></i>Quick Actions</h6>
                             </div>
                             <div class="game-detail-card card">
                                 <div class="card-body">
@@ -190,6 +199,46 @@
                 </div>
             </div>
 
+            <!-- Вкладка Screenshots -->
+            <div class="tab-pane fade" id="screenshots" role="tabpanel" aria-labelledby="screenshots-tab">
+                {% if game.screenshots.all %}
+                <div class="screenshots-gallery">
+                    <div class="row g-3">
+                        {% for screenshot in game.screenshots.all %}
+                        <div class="col-md-6 col-lg-4 col-xl-3">
+                            <div class="screenshot-card card h-100">
+                                <a href="{{ screenshot.image_url }}" data-fancybox="screenshots"
+                                   data-caption="{{ game.name }} - Screenshot {{ forloop.counter }}">
+                                    <img src="{{ screenshot.image_url }}"
+                                         class="card-img-top screenshot-image"
+                                         alt="{{ game.name }} - Screenshot {{ forloop.counter }}"
+                                         loading="lazy">
+                                </a>
+                                {% if screenshot.caption %}
+                                <div class="card-body p-3">
+                                    <p class="card-text text-muted small mb-0">{{ screenshot.caption }}</p>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% else %}
+                <div class="game-detail-card card">
+                    <div class="card-body text-center py-5">
+                        <div class="mb-3">
+                            <i class="bi bi-image text-muted" style="font-size: 3rem;"></i>
+                        </div>
+                        <h5 class="text-muted mb-2">No Screenshots Available</h5>
+                        <p class="text-muted mb-0">
+                            Screenshots for this game haven't been loaded yet.
+                        </p>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
             <!-- Вкладка Features -->
             <div class="tab-pane fade" id="features" role="tabpanel" aria-labelledby="features-tab">
                 {% if game.keywords.all %}
@@ -199,12 +248,13 @@
                     {% if gameplay_keywords %}
                     <div class="col-md-6">
                         <div class="keyword-category">
-                            <h6 class="text-warning">
+                            <h6 class="category-title" style="color: #f39c12 !important;">
                                 <i class="bi bi-joystick me-2"></i>Gameplay
                             </h6>
                             <div class="d-flex flex-wrap gap-1">
                                 {% for keyword in gameplay_keywords %}
-                                <span class="badge bg-success">{{ keyword.name }}</span>
+                                <span class="badge"
+                                      style="background: linear-gradient(135deg, #f39c12, #e67e22) !important; color: white !important;">{{ keyword.name }}</span>
                                 {% endfor %}
                             </div>
                         </div>
@@ -217,12 +267,13 @@
                     {% if setting_keywords %}
                     <div class="col-md-6">
                         <div class="keyword-category">
-                            <h6 class="text-info">
+                            <h6 class="category-title" style="color: #3498db !important;">
                                 <i class="bi bi-globe me-2"></i>Setting
                             </h6>
                             <div class="d-flex flex-wrap gap-1">
                                 {% for keyword in setting_keywords %}
-                                <span class="badge bg-info">{{ keyword.name }}</span>
+                                <span class="badge"
+                                      style="background: linear-gradient(135deg, #3498db, #2980b9) !important; color: white !important;">{{ keyword.name }}</span>
                                 {% endfor %}
                             </div>
                         </div>
@@ -235,12 +286,13 @@
                     {% if narrative_keywords %}
                     <div class="col-md-6">
                         <div class="keyword-category">
-                            <h6 class="text-purple">
+                            <h6 class="category-title" style="color: #9b59b6 !important;">
                                 <i class="bi bi-chat-left-text me-2"></i>Narrative
                             </h6>
                             <div class="d-flex flex-wrap gap-1">
                                 {% for keyword in narrative_keywords %}
-                                <span class="badge bg-purple">{{ keyword.name }}</span>
+                                <span class="badge"
+                                      style="background: linear-gradient(135deg, #9b59b6, #8e44ad) !important; color: white !important;">{{ keyword.name }}</span>
                                 {% endfor %}
                             </div>
                         </div>
@@ -253,12 +305,13 @@
                     {% if character_keywords %}
                     <div class="col-md-6">
                         <div class="keyword-category">
-                            <h6 class="text-pink">
+                            <h6 class="category-title" style="color: #e84393 !important;">
                                 <i class="bi bi-people me-2"></i>Characters
                             </h6>
                             <div class="d-flex flex-wrap gap-1">
                                 {% for keyword in character_keywords %}
-                                <span class="badge bg-pink">{{ keyword.name }}</span>
+                                <span class="badge"
+                                      style="background: linear-gradient(135deg, #e84393, #fd79a8) !important; color: white !important;">{{ keyword.name }}</span>
                                 {% endfor %}
                             </div>
                         </div>
@@ -271,12 +324,13 @@
                     {% if multiplayer_keywords %}
                     <div class="col-md-6">
                         <div class="keyword-category">
-                            <h6 class="text-orange">
+                            <h6 class="category-title" style="color: #e67e22 !important;">
                                 <i class="bi bi-controller me-2"></i>Multiplayer
                             </h6>
                             <div class="d-flex flex-wrap gap-1">
                                 {% for keyword in multiplayer_keywords %}
-                                <span class="badge bg-orange">{{ keyword.name }}</span>
+                                <span class="badge"
+                                      style="background: linear-gradient(135deg, #e67e22, #d35400) !important; color: white !important;">{{ keyword.name }}</span>
                                 {% endfor %}
                             </div>
                         </div>
@@ -289,12 +343,51 @@
                     {% if technical_keywords %}
                     <div class="col-md-6">
                         <div class="keyword-category">
-                            <h6 class="text-secondary">
+                            <h6 class="category-title" style="color: #95a5a6 !important;">
                                 <i class="bi bi-gear me-2"></i>Technical
                             </h6>
                             <div class="d-flex flex-wrap gap-1">
                                 {% for keyword in technical_keywords %}
-                                <span class="badge bg-secondary">{{ keyword.name }}</span>
+                                <span class="badge"
+                                      style="background: linear-gradient(135deg, #7f8c8d, #95a5a6) !important; color: white !important;">{{ keyword.name }}</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% endwith %}
+
+                    <!-- Graphics -->
+                    {% with graphics_keywords=game.graphics_keywords %}
+                    {% if graphics_keywords %}
+                    <div class="col-md-6">
+                        <div class="keyword-category">
+                            <h6 class="category-title" style="color: #27ae60 !important;">
+                                <i class="bi bi-image me-2"></i>Graphics
+                            </h6>
+                            <div class="d-flex flex-wrap gap-1">
+                                {% for keyword in graphics_keywords %}
+                                <span class="badge"
+                                      style="background: linear-gradient(135deg, #27ae60, #229954) !important; color: white !important;">{{ keyword.name }}</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% endwith %}
+
+                    <!-- Audio -->
+                    {% with audio_keywords=game.audio_keywords %}
+                    {% if audio_keywords %}
+                    <div class="col-md-6">
+                        <div class="keyword-category">
+                            <h6 class="category-title" style="color: #e74c3c !important;">
+                                <i class="bi bi-volume-up me-2"></i>Audio
+                            </h6>
+                            <div class="d-flex flex-wrap gap-1">
+                                {% for keyword in audio_keywords %}
+                                <span class="badge"
+                                      style="background: linear-gradient(135deg, #e74c3c, #c0392b) !important; color: white !important;">{{ keyword.name }}</span>
                                 {% endfor %}
                             </div>
                         </div>
@@ -317,7 +410,26 @@
     </div>
 </div>
 
+<!-- Подключение Fancybox для галереи -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui@5.0/dist/fancybox/fancybox.css"/>
+<script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui@5.0/dist/fancybox/fancybox.umd.js"></script>
+
 <script>
+    // Инициализация Fancybox
+    Fancybox.bind("[data-fancybox]", {
+        // Настройки Fancybox
+        Thumbs: {
+            type: "classic",
+        },
+        Toolbar: {
+            display: {
+                left: [],
+                middle: [],
+                right: ["close"],
+            },
+        },
+    });
+
     function toggleText(type) {
         const element = document.getElementById(`${type}-text`);
         const button = event.target.closest('.toggle-text-btn');
@@ -338,9 +450,9 @@
     // Активация таба при переходе по якорю
     document.addEventListener('DOMContentLoaded', function() {
         const urlHash = window.location.hash;
-        if (urlHash === '#similar-games' && document.getElementById('similar-tab')) {
-            const similarTab = new bootstrap.Tab(document.getElementById('similar-tab'));
-            similarTab.show();
+        if (urlHash === '#screenshots' && document.getElementById('screenshots-tab')) {
+            const screenshotsTab = new bootstrap.Tab(document.getElementById('screenshots-tab'));
+            screenshotsTab.show();
         }
     });
 </script>
