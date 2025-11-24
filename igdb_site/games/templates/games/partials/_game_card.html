@@ -1,4 +1,4 @@
-{% load game_tags %}
+{% load game_tags platform_icons %}
 
 <div class="col-xl-3 col-lg-4 col-md-6 mb-4">
     <div class="card h-100 game-card">
@@ -16,7 +16,6 @@
             <h6 class="card-title">{{ game.name }}</h6>
 
             {% if similarity_percent %}
-            <!-- Процент схожести -->
             <div class="similarity-badge mb-2">
                 {% if similarity_percent >= 80 %}
                 <span class="badge bg-success fs-6">
@@ -34,12 +33,29 @@
             </div>
             {% endif %}
 
-            <!-- ВСЕ ЖАНРЫ -->
-            <p class="card-text small text-muted">
-                {% for genre in game.genres.all %}
-                <span class="badge bg-secondary mb-1">{{ genre.name }}</span>
-                {% endfor %}
-            </p>
+            <!-- ЖАНРЫ -->
+            {% if game.genres.all %}
+            <div class="mb-2">
+                <div class="game-genres">
+                    {% for genre in game.genres.all %}
+                    <span class="badge bg-primary mb-1 small">{{ genre.name }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- ПЛАТФОРМЫ С ОРИГИНАЛЬНЫМИ ИКОНКАМИ -->
+            {% if game.platforms.all %}
+            <div class="mb-2">
+                <div class="platform-icons d-flex flex-wrap gap-2 align-items-center">
+                    {% for platform in game.platforms.all %}
+                    <span class="platform-icon" data-bs-toggle="tooltip" title="{{ platform.name }}">
+                    {% platform_icon platform.name %}
+                </span>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
 
             {% if game.rating %}
             <div class="d-flex align-items-center mb-2">
@@ -54,13 +70,9 @@
                 <a href="{% url 'game_detail' game.id %}" class="btn btn-sm btn-outline-primary">
                     <i class="bi bi-info-circle"></i> Details
                 </a>
-
-                <!-- ПРОСТАЯ И КОМПАКТНАЯ ССЫЛКА -->
                 <a href="{% get_find_similar_url game %}" class="btn btn-sm btn-outline-info">
                     <i class="bi bi-search-heart"></i> Find Similar
                 </a>
-
-                <!-- КНОПКА СРАВНЕНИЯ - ТОЛЬКО В РЕЖИМЕ ПОИСКА ПОХОЖИХ ИГР -->
                 {% if show_similarity and source_game %}
                 <a href="{% url 'game_comparison' source_game.id game.id %}?similarity={{ similarity_percent|floatformat:0 }}"
                    class="btn btn-sm btn-outline-warning">

@@ -64,9 +64,71 @@ class Genre(models.Model):
 class Platform(models.Model):
     igdb_id = models.IntegerField(unique=True)
     name = models.CharField(max_length=100)
+    slug = models.SlugField(max_length=50, blank=True, null=True)
 
     def __str__(self):
         return self.name
+
+    def get_platform_slug(self):
+        """Возвращает slug для платформы для использования в URL иконок"""
+        name_lower = self.name.lower()
+
+        # PlayStation
+        if 'playstation 5' in name_lower or 'ps5' in name_lower:
+            return 'playstation5'
+        elif 'playstation 4' in name_lower or 'ps4' in name_lower:
+            return 'playstation4'
+        elif 'playstation 3' in name_lower or 'ps3' in name_lower:
+            return 'playstation3'
+        elif 'playstation 2' in name_lower or 'ps2' in name_lower:
+            return 'playstation2'
+        elif 'playstation 1' in name_lower or 'ps1' in name_lower:
+            return 'playstation'
+        elif 'psp' in name_lower:
+            return 'psp'
+        elif 'vita' in name_lower:
+            return 'vita'
+
+        # Xbox
+        elif 'xbox series x' in name_lower or 'xbox series s' in name_lower:
+            return 'xbox-series-x'
+        elif 'xbox one' in name_lower:
+            return 'xbox-one'
+        elif 'xbox 360' in name_lower:
+            return 'xbox-360'
+        elif 'xbox' in name_lower:
+            return 'xbox'
+
+        # Nintendo
+        elif 'nintendo switch' in name_lower:
+            return 'nintendo-switch'
+        elif 'wii u' in name_lower:
+            return 'wii-u'
+        elif 'wii' in name_lower:
+            return 'wii'
+        elif 'nintendo 3ds' in name_lower:
+            return 'nintendo-3ds'
+        elif 'nintendo ds' in name_lower:
+            return 'nintendo-ds'
+        elif 'game boy' in name_lower:
+            return 'game-boy'
+
+        # PC
+        elif 'windows' in name_lower:
+            return 'windows'
+        elif 'linux' in name_lower:
+            return 'linux'
+        elif 'mac' in name_lower or 'macos' in name_lower:
+            return 'macos'
+
+        # Mobile
+        elif 'android' in name_lower:
+            return 'android'
+        elif 'ios' in name_lower:
+            return 'ios'
+
+        else:
+            return 'default'
 
 
 class Game(models.Model):
