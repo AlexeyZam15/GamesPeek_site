@@ -1358,3 +1358,71 @@ footer {
         height: 150px;
     }
 }
+
+/* ===== SEARCH INPUT STYLES ===== */
+.form-control {
+    color: var(--text-light) !important;
+}
+
+.form-control::placeholder {
+    color: #b0b0b0 !important;
+}
+
+.input-group .form-control {
+    background: var(--surface-dark) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text-light) !important;
+}
+
+.input-group .form-control:focus {
+    background: var(--surface) !important;
+    border-color: var(--secondary-color) !important;
+    color: var(--text-light) !important;
+    box-shadow: 0 0 0 2px rgba(255, 107, 53, 0.1) !important;
+}
+
+.input-group .btn-outline-light {
+    border: 1px solid var(--border) !important;
+    border-left: none !important;
+    color: var(--text-dark) !important;
+    background: var(--surface-dark) !important;
+}
+
+.input-group .btn-outline-light:hover {
+    background: var(--secondary-color) !important;
+    border-color: var(--secondary-color) !important;
+    color: var(--primary-color) !important;
+}
+
+/* ===== LARGER GENRE BADGES IN GAME CARDS ===== */
+.game-card .game-genres .badge {
+    font-size: 0.85rem !important;
+    padding: 0.45rem 0.9rem !important;
+    margin: 0.1rem !important;
+    border-radius: 12px !important;
+    font-weight: 600 !important;
+}
+
+.game-card .game-genres {
+    gap: 0.25rem !important;
+    margin-bottom: 0.5rem !important;
+}
+
+.game-card .card-title {
+    margin-bottom: 0.4rem !important;
+}
+
+@media (max-width: 768px) {
+    .game-card .game-genres .badge {
+        font-size: 0.8rem !important;
+        padding: 0.4rem 0.8rem !important;
+    }
+
+    .game-card .game-genres {
+        margin-bottom: 0.4rem !important;
+    }
+
+    .game-card .card-title {
+        margin-bottom: 0.3rem !important;
+    }
+}
