@@ -2,18 +2,55 @@
     <div class="col-12">
         <div class="d-flex justify-content-between align-items-center mb-3">
             {% if show_similarity %}
-            <h5>Found {{ games_with_similarity|length }} similar games</h5>
+            <h5>Found {{ total_count }} similar games</h5>
             {% else %}
-            <h5>Found {{ games.count }} games</h5>
+            <h5>Found {{ total_count }} games</h5>
             {% endif %}
         </div>
 
         {% if show_similarity and games_with_similarity %}
-            {% include 'games/partials/_similar_games_grid.html' with games=games_with_similarity show_similarity=show_similarity source_game=source_game %}
+            {% include 'games/partials/_games_grid.html' with games=games_with_similarity show_similarity=show_similarity source_game=source_game %}
         {% elif games %}
-            {% include 'games/partials/_regular_games_grid.html' with games=games %}
+            {% include 'games/partials/_games_grid.html' with games=games %}
         {% else %}
             {% include 'games/partials/_no_games_found.html' %}
+        {% endif %}
+
+        <!-- ПАГИНАЦИЯ -->
+        {% if is_paginated %}
+        <nav aria-label="Page navigation" class="mt-4">
+            <ul class="pagination justify-content-center">
+                {% if page_obj.has_previous %}
+                <li class="page-item">
+                    <a class="page-link" href="?page=1{% for key,value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">First</a>
+                </li>
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Previous</a>
+                </li>
+                {% endif %}
+
+                {% for num in page_obj.paginator.page_range %}
+                    {% if page_obj.number == num %}
+                    <li class="page-item active">
+                        <span class="page-link">{{ num }}</span>
+                    </li>
+                    {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ num }}{% for key,value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">{{ num }}</a>
+                    </li>
+                    {% endif %}
+                {% endfor %}
+
+                {% if page_obj.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.next_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Next</a>
+                </li>
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}{% for key,value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Last</a>
+                </li>
+                {% endif %}
+            </ul>
+        </nav>
         {% endif %}
     </div>
 </div>

@@ -1,9 +1,9 @@
 from .similarity import GameSimilarity
 from django.db import models
 from django.shortcuts import render, get_object_or_404
-from .models import Game, Genre, Keyword, KeywordCategory, Platform, GameSimilarityCache
-import json
-import base64
+from .models import Game, Genre, Keyword, KeywordCategory, Platform
+
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 
 
 def game_list(request):
@@ -43,6 +43,7 @@ def game_list(request):
     show_similarity = False
     games_with_similarity = []
     source_game = None
+    total_count = 0
 
     # РЕЖИМ ПОИСКА ПОХОЖИХ ИГР ПО КРИТЕРИЯМ
     if find_similar and (selected_genres_int or selected_keywords_int):
@@ -53,7 +54,7 @@ def game_list(request):
         similar_games_data = similarity_engine.find_similar_games_to_criteria(
             genre_ids=selected_genres_int,
             keyword_ids=selected_keywords_int,
-            limit=50,
+            limit=200,  # Увеличиваем лимит для пагинации
             min_similarity=15
         )
 
@@ -65,6 +66,8 @@ def game_list(request):
             }
             for item in similar_games_data
         ]
+
+        total_count = len(games_with_similarity)
 
         # Создаем простой source_game для передачи в шаблон
         class SimpleSourceGame:
@@ -101,6 +104,28 @@ def game_list(request):
                             '-first_release_date']:
             games = games.order_by(current_sort)
 
+        total_count = games.count()
+
+    # ПАГИНАЦИЯ
+    page = request.GET.get('page', 1)
+
+    # Определяем данные для пагинации
+    if show_similarity:
+        data_to_paginate = games_with_similarity
+        total_count = len(games_with_similarity)
+    else:
+        data_to_paginate = games
+        total_count = games.count()
+
+    paginator = Paginator(data_to_paginate, 16)  # 16 игр на страницу
+
+    try:
+        page_obj = paginator.page(page)
+    except PageNotAnInteger:
+        page_obj = paginator.page(1)
+    except EmptyPage:
+        page_obj = paginator.page(paginator.num_pages)
+
     # Генерируем компактный URL для шаблона
     compact_url_params = generate_compact_url_params(
         find_similar=find_similar,
@@ -110,8 +135,9 @@ def game_list(request):
     )
 
     context = {
-        'games': games if not show_similarity else [],
-        'games_with_similarity': games_with_similarity if show_similarity else [],
+        'games': page_obj if not show_similarity else [],
+        'games_with_similarity': page_obj.object_list if show_similarity else [],
+        # Используем object_list для похожих игр
         'genres': Genre.objects.all(),
         'platforms': Platform.objects.all(),
         'keyword_categories': KeywordCategory.objects.all(),
@@ -123,6 +149,10 @@ def game_list(request):
         'find_similar': find_similar,
         'compact_url_params': compact_url_params,
         'source_game': source_game,
+        'total_count': total_count,
+        'page_obj': page_obj,
+        'is_paginated': paginator.num_pages > 1,
+        'paginator': paginator,
     }
 
     return render(request, 'games/game_list.html', context)
