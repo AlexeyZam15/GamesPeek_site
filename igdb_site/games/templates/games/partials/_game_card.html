@@ -1,78 +1,87 @@
 {% load game_tags platform_icons %}
 
 <div class="col-xl-3 col-lg-4 col-md-6 mb-4">
-    <div class="card h-100 game-card">
-        {% if game.cover_url %}
-        <img src="{{ game.cover_url }}" class="card-img-top" alt="{{ game.name }}"
-             style="height: 250px; object-fit: cover;">
-        {% else %}
-        <div class="card-img-top bg-light d-flex align-items-center justify-content-center"
-             style="height: 250px;">
-            <span class="text-muted">No Cover</span>
-        </div>
-        {% endif %}
+    <div class="card h-100 game-card d-flex flex-column">
+        <!-- Контейнер для обложки с наложенными элементами -->
+        <div class="card-img-top-container position-relative" style="height: 250px; overflow: hidden;">
+            {% if game.cover_url %}
+                <img src="{{ game.cover_url }}" class="card-img-top w-100" alt="{{ game.name }}"
+                     style="object-fit: cover; object-position: center 20%; height: 110%;">
+            {% else %}
+                <div class="card-img-top bg-light w-100 h-100 d-flex align-items-center justify-content-center">
+                    <span class="text-muted">No Cover</span>
+                </div>
+            {% endif %}
 
-        <div class="card-body">
-            <h6 class="card-title">{{ game.name }}</h6>
-
+            <!-- Процент похожести в правом верхнем углу -->
             {% if similarity_percent %}
-            <div class="similarity-badge mb-2">
-                {% if similarity_percent >= 80 %}
-                <span class="badge bg-success fs-6">
-                    ⭐ {{ similarity_percent|floatformat:0 }}% Match
-                </span>
-                {% elif similarity_percent >= 60 %}
-                <span class="badge bg-warning text-dark fs-6">
-                    👍 {{ similarity_percent|floatformat:0 }}% Match
-                </span>
-                {% else %}
-                <span class="badge bg-info fs-6">
-                    🔍 {{ similarity_percent|floatformat:0 }}% Match
-                </span>
+                <div class="position-absolute top-0 end-0 p-2">
+                    <div class="similarity-percent-overlay rounded px-2 py-1
+            {% if similarity_percent >= 80 %}bg-success
+            {% elif similarity_percent >= 60 %}bg-warning
+            {% else %}bg-info{% endif %} bg-opacity-90">
+            <span class="text-white fw-bold fs-6">
+                {{ similarity_percent|floatformat:0 }}%
+            </span>
+                    </div>
+                </div>
+            {% endif %}
+
+            <!-- Платформы в левом нижнем углу без фона -->
+            {% if game.platforms.all %}
+                <div class="position-absolute bottom-0 start-0 p-2 platforms-overlay">
+                    <div class="d-flex flex-wrap gap-1">
+                        {% for platform in game.platforms.all %}
+                            <span class="platform-icon text-white"
+                                  data-bs-toggle="tooltip" title="{{ platform.name }}"
+                                  style="filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.8));">
+                {% platform_icon platform.name %}
+            </span>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- Card body -->
+        <div class="card-body flex-grow-1 d-flex flex-column">
+            <!-- Заголовок с фиксированной высотой -->
+            <div class="game-title-container" style="min-height: 48px;">
+                <h6 class="card-title">{{ game.name }}</h6>
+            </div>
+
+            <!-- ЖАНРЫ с фиксированной высотой -->
+            {% if game.genres.all %}
+                <div class="mb-2 genres-container" style="min-height: 50px;">
+                    <div class="game-genres">
+                        {% for genre in game.genres.all %}
+                            <span class="badge bg-primary mb-1 small">{{ genre.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% else %}
+                <div class="mb-2 genres-container" style="min-height: 50px;"></div>
+            {% endif %}
+
+            <!-- РЕЙТИНГ И ГОД ВЫПУСКА -->
+            <div class="mt-auto">
+                {% if game.rating %}
+                    <div class="d-flex align-items-center mb-1">
+                        <small class="text-warning">⭐ {{ game.rating|floatformat:1 }}</small>
+                        <small class="text-muted ms-2">({{ game.rating_count }})</small>
+                    </div>
+                {% endif %}
+
+                {% if game.first_release_date %}
+                    <div class="release-year">
+                        <small class="text-muted">{{ game.first_release_date|date:"Y" }}</small>
+                    </div>
                 {% endif %}
             </div>
-            {% endif %}
-
-            <!-- ЖАНРЫ -->
-            {% if game.genres.all %}
-            <div class="mb-2">
-                <div class="game-genres">
-                    {% for genre in game.genres.all %}
-                    <span class="badge bg-primary mb-1 small">{{ genre.name }}</span>
-                    {% endfor %}
-                </div>
-            </div>
-            {% endif %}
-
-            <!-- ПЛАТФОРМЫ С ОРИГИНАЛЬНЫМИ ИКОНКАМИ -->
-            {% if game.platforms.all %}
-            <div class="mb-2">
-                <div class="platform-icons d-flex flex-wrap gap-2 align-items-center">
-                    {% for platform in game.platforms.all %}
-                    <span class="platform-icon" data-bs-toggle="tooltip" title="{{ platform.name }}">
-                    {% platform_icon platform.name %}
-                </span>
-                    {% endfor %}
-                </div>
-            </div>
-            {% endif %}
-
-            {% if game.rating %}
-            <div class="d-flex align-items-center mb-1">
-                <small class="text-warning">⭐ {{ game.rating|floatformat:1 }}</small>
-                <small class="text-muted ms-2">({{ game.rating_count }})</small>
-            </div>
-            {% endif %}
-
-            <!-- ГОД ВЫПУСКА -->
-            {% if game.first_release_date %}
-            <div class="release-year">
-                <small class="text-muted">{{ game.first_release_date|date:"Y" }}</small>
-            </div>
-            {% endif %}
         </div>
 
-        <div class="card-footer">
+        <!-- Футер с кнопками -->
+        <div class="card-footer mt-auto">
             <div class="d-grid gap-2">
                 <a href="{% url 'game_detail' game.id %}" class="btn btn-sm btn-outline-primary">
                     <i class="bi bi-info-circle"></i> Details
@@ -85,10 +94,10 @@
 
                 <!-- Compare Button -->
                 {% if show_similarity and source_game %}
-                <a href="{% url 'game_comparison' game.id %}?genres={{ selected_genres|join:',' }}&keywords={{ selected_keywords|join:',' }}&similarity={{ similarity_percent|floatformat:0 }}{% if source_game.source_game_id %}&source_game={{ source_game.source_game_id }}{% endif %}"
-                   class="btn btn-sm btn-outline-warning">
-                    <i class="bi bi-arrow-left-right"></i> Compare
-                </a>
+                    <a href="{% url 'game_comparison' game.id %}?genres={{ selected_genres|join:',' }}&keywords={{ selected_keywords|join:',' }}&similarity={{ similarity_percent|floatformat:0 }}{% if source_game.source_game_id %}&source_game={{ source_game.source_game_id }}{% endif %}"
+                       class="btn btn-sm btn-outline-warning">
+                        <i class="bi bi-arrow-left-right"></i> Compare
+                    </a>
                 {% endif %}
             </div>
         </div>

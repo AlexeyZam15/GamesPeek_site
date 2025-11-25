@@ -144,7 +144,7 @@ Compare: {{ game1.name }} vs {{ game2.name }} - GamesPeek
                             <div class="breakdown-section">
                                 <h6 class="text-info">🎮 Genres ({{ genres_total_weight }}% total)</h6>
 
-                                <!-- Exact Match Penalty -->
+                                <!-- Exact Match Bonus -->
                                 <div class="breakdown-item">
                                     <div class="d-flex justify-content-between align-items-center">
                                     <span class="breakdown-label">
@@ -157,25 +157,25 @@ Compare: {{ game1.name }} vs {{ game2.name }} - GamesPeek
                                         {% endif %}
                                     </span>
                                         <span class="breakdown-value {% if are_genres_exactly_same %}text-success{% else %}text-danger{% endif %}">
-                                        {% if are_genres_exactly_same %}0%{% else %}-{{ genres_exact_match_weight }}%{% endif %}
+                                        {% if are_genres_exactly_same %}+{{ genres_exact_match_weight }}%{% else %}+0%{% endif %}
                                     </span>
                                     </div>
                                 </div>
 
-                                <!-- Missing Genres Penalty -->
+                                <!-- Genre Overlap Score -->
                                 <div class="breakdown-item">
                                     <div class="d-flex justify-content-between align-items-center">
                                     <span class="breakdown-label">
-                                        Missing genres penalty
+                                        Genre overlap
                                     </span>
-                                        <span class="breakdown-value text-danger">
-                                        -{{ genre_missing_penalty|floatformat:1 }}%
+                                        <span class="breakdown-value text-success">
+                                        +{{ genre_overlap_score|floatformat:1 }}%
                                     </span>
                                     </div>
                                     <small class="text-muted">
-                                        {{ missing_genres_count }} of {{ total_source_genres }} genres missing
-                                        {% if missing_genres %}
-                                        <br><span class="text-warning">Missing: {{ missing_genres|join:", " }}</span>
+                                        {{ shared_genres_count }} of {{ total_source_genres }} genres matched
+                                        {% if shared_genres %}
+                                        <br><span class="text-success">Matched: {{ shared_genres|join:", " }}</span>
                                         {% endif %}
                                     </small>
                                 </div>
@@ -199,14 +199,14 @@ Compare: {{ game1.name }} vs {{ game2.name }} - GamesPeek
                                 <div class="breakdown-item">
                                     <div class="d-flex justify-content-between align-items-center">
                                     <span class="breakdown-label">
-                                        Missing keywords penalty
+                                        Keyword overlap
                                     </span>
-                                        <span class="breakdown-value text-danger">
-                                        -{{ keyword_penalty|floatformat:1 }}%
+                                        <span class="breakdown-value text-success">
+                                        +{{ keyword_overlap_score|floatformat:1 }}%
                                     </span>
                                     </div>
                                     <small class="text-muted">
-                                        {{ missing_keywords_count }} of {{ total_source_keywords }} keywords missing
+                                        {{ shared_keywords_count }} of {{ total_source_keywords }} keywords matched
                                     </small>
                                 </div>
 
@@ -230,15 +230,9 @@ Compare: {{ game1.name }} vs {{ game2.name }} - GamesPeek
                                     <h5 class="text-warning mb-2">Final Calculation</h5>
                                     <div class="calculation-formula">
                                         <code class="text-light">
-                                            100%
-                                            {% if not are_genres_exactly_same %}- {{ genres_exact_match_weight }}%
-                                            (genre exact match){% endif %}
-                                            {% if genre_missing_penalty > 0 %}- {{ genre_missing_penalty|floatformat:1
-                                            }}% (missing genres){% endif %}
-                                            {% if keyword_penalty > 0 %}- {{ keyword_penalty|floatformat:1 }}% (missing
-                                            keywords){% endif %}
-                                            = <strong class="text-warning">{{ similarity_score|floatformat:1
-                                            }}%</strong>
+                                            Genres: {{ genres_score|floatformat:1 }}%
+                                            + Keywords: {{ keywords_score|floatformat:1 }}%
+                                            = <strong class="text-warning">{{ similarity_score|floatformat:1 }}%</strong>
                                         </code>
                                     </div>
                                 </div>

@@ -1,4 +1,4 @@
-from .similarity import GameSimilarity
+from .similarity import GameSimilarity, VirtualGame
 from django.db import models
 from django.shortcuts import render, get_object_or_404
 from .models import Game, Genre, Keyword, KeywordCategory, Platform
@@ -10,10 +10,8 @@ def game_list(request):
     """Список всех игр с поиском похожих игр по выбранным критериям"""
     games = Game.objects.all().prefetch_related('genres', 'platforms', 'keywords')
 
-    # Получаем параметры в новом компактном формате
+    # Получаем параметры
     find_similar = request.GET.get('find_similar') == '1'
-
-    # Новый компактный формат параметров
     genres_param = request.GET.get('g', '')
     keywords_param = request.GET.get('k', '')
     platforms_param = request.GET.get('p', '')
@@ -36,7 +34,7 @@ def game_list(request):
         selected_platforms = request.GET.getlist('platform')
         selected_platforms_int = [int(p) for p in selected_platforms if p]
 
-    # Автоматически включаем режим похожих игр если переданы критерии (только жанры и ключевые слова)
+    # Автоматически включаем режим похожих игр если переданы критерии
     if not find_similar and (selected_genres_int or selected_keywords_int):
         find_similar = True
 
@@ -45,8 +43,6 @@ def game_list(request):
     current_sort = request.GET.get('sort', default_sort)
 
     popular_keywords = Keyword.objects.filter(usage_count__gt=0).order_by('-usage_count')[:100]
-
-    # Платформы сортируем по количеству игр (популярности)
     platforms = Platform.objects.annotate(
         game_count=models.Count('game')
     ).filter(game_count__gt=0).order_by('-game_count', 'name')
@@ -60,16 +56,21 @@ def game_list(request):
     if find_similar and (selected_genres_int or selected_keywords_int):
         show_similarity = True
 
-        # Получаем похожие игры
-        similarity_engine = GameSimilarity()
-        similar_games_data = similarity_engine.find_similar_games_to_criteria(
+        # Создаем виртуальную игру для критериев
+        virtual_game = VirtualGame(
             genre_ids=selected_genres_int,
-            keyword_ids=selected_keywords_int,
+            keyword_ids=selected_keywords_int
+        )
+
+        # ИСПОЛЬЗУЕМ ЕДИНЫЙ МЕТОД
+        similarity_engine = GameSimilarity()
+        similar_games_data = similarity_engine.find_similar_games(
+            source_game=virtual_game,
             limit=200,
             min_similarity=15
         )
 
-        # ФИЛЬТРУЕМ ПО ПЛАТФОРМАМ (если выбраны) - только отсеиваем результаты
+        # ФИЛЬТРУЕМ ПО ПЛАТФОРМАМ
         if selected_platforms_int:
             similar_games_data = [
                 item for item in similar_games_data
@@ -88,7 +89,6 @@ def game_list(request):
         total_count = len(games_with_similarity)
 
         # Создаем простой source_game для передачи в шаблон
-        # НЕ включаем платформы в source_game, чтобы они не переносились автоматически
         class SimpleSourceGame:
             def __init__(self, source_game_id=None, genres=None, keywords=None):
                 self.id = source_game_id
@@ -126,7 +126,6 @@ def game_list(request):
             for keyword_id in selected_keywords_int:
                 games = games.filter(keywords__id=keyword_id)
 
-        # ФИЛЬТРАЦИЯ ПО ПЛАТФОРМАМ
         if selected_platforms_int:
             for platform_id in selected_platforms_int:
                 games = games.filter(platforms__id=platform_id)
@@ -168,8 +167,8 @@ def game_list(request):
     context = {
         'games': page_obj if not show_similarity else [],
         'games_with_similarity': page_obj.object_list if show_similarity else [],
-        'genres': Genre.objects.all().order_by('name'),  # Жанры по алфавиту
-        'platforms': platforms,  # Платформы по популярности
+        'genres': Genre.objects.all().order_by('name'),
+        'platforms': platforms,
         'keyword_categories': KeywordCategory.objects.all(),
         'popular_keywords': popular_keywords,
         'current_sort': current_sort,
@@ -187,7 +186,6 @@ def game_list(request):
     }
 
     return render(request, 'games/game_list.html', context)
-
 
 def generate_compact_url_params(find_similar=False, genres=None, keywords=None, platforms=None, sort=None):
     """
@@ -241,7 +239,7 @@ def game_detail(request, pk):
         pk=pk
     )
 
-    # Используем ОБНОВЛЕННЫЙ алгоритм похожести
+    # ИСПОЛЬЗУЕМ ЕДИНЫЙ МЕТОД
     similarity_engine = GameSimilarity()
     similar_games_data = similarity_engine.find_similar_games(game, limit=6, min_similarity=15)
 
@@ -316,16 +314,13 @@ def game_comparison(request, pk2):
         criteria_keywords = []
         is_criteria_comparison = True
 
-        # Если есть source_game_id, пытаемся получить исходную игру
+        # Определяем source (игра или критерии)
         if source_game_id:
             try:
                 game1 = Game.objects.get(pk=source_game_id)
-
-                # Получаем критерии исходной игры
                 source_genres = set(game1.genres.values_list('id', flat=True))
                 source_keywords = set(game1.keywords.values_list('id', flat=True))
 
-                # Получаем текущие критерии из URL
                 current_genres = set([int(g) for g in genres_param.split(',') if g.strip()]) if genres_param else set()
                 current_keywords = set(
                     [int(k) for k in keywords_param.split(',') if k.strip()]) if keywords_param else set()
@@ -339,73 +334,53 @@ def game_comparison(request, pk2):
                     criteria_keywords = Keyword.objects.filter(id__in=current_keywords)
 
             except Game.DoesNotExist:
-                # Исходной игры нет - сравниваем с критериями
                 selected_genres = [int(g) for g in genres_param.split(',') if g.strip()] if genres_param else []
                 selected_keywords = [int(k) for k in keywords_param.split(',') if k.strip()] if keywords_param else []
                 criteria_genres = Genre.objects.filter(id__in=selected_genres)
                 criteria_keywords = Keyword.objects.filter(id__in=selected_keywords)
         else:
-            # Нет source_game_id - сравниваем с критериями
             selected_genres = [int(g) for g in genres_param.split(',') if g.strip()] if genres_param else []
             selected_keywords = [int(k) for k in keywords_param.split(',') if k.strip()] if keywords_param else []
             criteria_genres = Genre.objects.filter(id__in=selected_genres)
             criteria_keywords = Keyword.objects.filter(id__in=selected_keywords)
 
-        # Получаем similarity из URL
-        url_similarity = request.GET.get('similarity')
-        if url_similarity:
-            try:
-                similarity_score = float(url_similarity)
-            except (ValueError, TypeError):
-                similarity_score = 0
-        else:
-            # Если не передан, рассчитываем (только для режима игра-игра)
-            if game1 and not is_criteria_comparison:
-                similarity_engine = GameSimilarity()
-                similarity_score = similarity_engine.calculate_similarity(game1, game2)
-            else:
-                similarity_score = 0
+        # ИСПОЛЬЗУЕМ ЕДИНЫЙ МЕТОД ДЛЯ РАСЧЕТА
+        similarity_engine = GameSimilarity()
 
-        # Рассчитываем общие элементы и breakdown данные
         if is_criteria_comparison:
-            # Режим критерии-игра
+            source = VirtualGame(
+                genre_ids=[g.id for g in criteria_genres],
+                keyword_ids=[k.id for k in criteria_keywords]
+            )
+        else:
+            source = game1
+
+        similarity_score = similarity_engine.calculate_similarity(source, game2)
+        breakdown = similarity_engine.get_similarity_breakdown(source, game2)
+
+        # Рассчитываем общие элементы
+        if is_criteria_comparison:
             shared_genres = game2.genres.all() & criteria_genres
             shared_keywords = game2.keywords.all() & criteria_keywords
-
-            # Для breakdown
             source_genres = set(criteria_genres)
             source_keywords = set(criteria_keywords)
-            target_genres = set(game2.genres.all())
-            target_keywords = set(game2.keywords.all())
-
         else:
-            # Режим игра-игра
             shared_genres = game1.genres.all() & game2.genres.all()
             shared_keywords = game1.keywords.all() & game2.keywords.all()
-
-            # Для breakdown
             source_genres = set(game1.genres.all())
             source_keywords = set(game1.keywords.all())
-            target_genres = set(game2.genres.all())
-            target_keywords = set(game2.keywords.all())
 
-        # Расчет breakdown данных
+        target_genres = set(game2.genres.all())
+        target_keywords = set(game2.keywords.all())
+
+        # Расчет breakdown данных для отображения
         are_genres_exactly_same = source_genres == target_genres
         missing_genres = source_genres - target_genres
-        missing_keywords = source_keywords - target_keywords
 
-        # Расчет штрафов с использованием констант
-        from .similarity import GameSimilarity
-        similarity_engine = GameSimilarity()
-        genre_missing_penalty = (len(missing_genres) / len(
-            source_genres)) * similarity_engine.GENRES_MISSING_PENALTY_WEIGHT if source_genres else 0.0
-        keyword_penalty = (len(missing_keywords) / len(
-            source_keywords)) * similarity_engine.KEYWORDS_TOTAL_WEIGHT if source_keywords else 0.0
-
-        # Расчет итоговых scores
-        genres_score = similarity_engine.GENRES_TOTAL_WEIGHT - (
-            similarity_engine.GENRES_EXACT_MATCH_WEIGHT if not are_genres_exactly_same else 0.0) - genre_missing_penalty
-        keywords_score = similarity_engine.KEYWORDS_TOTAL_WEIGHT - keyword_penalty
+        # Извлекаем данные из breakdown
+        genres_score = breakdown['genres']['score']
+        keywords_score = breakdown['keywords']['score']
+        genre_overlap_score = breakdown['genres']['components']['partial_match']
 
         # Группируем общие ключевые слова по категориям
         keyword_categories = KeywordCategory.objects.all()
@@ -430,26 +405,23 @@ def game_comparison(request, pk2):
             'is_criteria_comparison': is_criteria_comparison,
             # Breakdown data
             'are_genres_exactly_same': are_genres_exactly_same,
-            'genre_missing_penalty': genre_missing_penalty,
-            'keyword_penalty': keyword_penalty,
+            'genre_overlap_score': genre_overlap_score,
+            'keyword_overlap_score': keywords_score,
             'genres_score': genres_score,
             'keywords_score': keywords_score,
             'missing_genres_count': len(missing_genres),
-            'missing_keywords_count': len(missing_keywords),
             'total_source_genres': len(source_genres),
-            'total_source_keywords': len(source_keywords),
             'missing_genres': [genre.name for genre in missing_genres],
-            # Константы для отображения в шаблоне (форматируем без .0)
+            # Константы для отображения в шаблоне
             'genres_total_weight': int(similarity_engine.GENRES_TOTAL_WEIGHT),
             'genres_exact_match_weight': int(similarity_engine.GENRES_EXACT_MATCH_WEIGHT),
-            'genres_missing_penalty_weight': int(similarity_engine.GENRES_MISSING_PENALTY_WEIGHT),
+            'genres_partial_match_weight': int(similarity_engine.GENRES_PARTIAL_MATCH_WEIGHT),
             'keywords_total_weight': int(similarity_engine.KEYWORDS_TOTAL_WEIGHT),
         }
 
         return render(request, 'games/game_comparison.html', context)
 
     except Exception as e:
-        # Fallback в случае любой ошибки
         from django.http import HttpResponseServerError
         return HttpResponseServerError(f"Error in comparison: {str(e)}")
 
