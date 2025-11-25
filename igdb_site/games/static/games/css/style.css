@@ -1426,3 +1426,46 @@ footer {
         margin-bottom: 0.3rem !important;
     }
 }
+
+.algorithm-breakdown .breakdown-section {
+    padding: 1rem;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.05);
+    margin-bottom: 1rem;
+}
+
+.breakdown-item {
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.breakdown-item:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+}
+
+.breakdown-label {
+    font-weight: 500;
+}
+
+.breakdown-value {
+    font-weight: bold;
+}
+
+.breakdown-total {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 2px solid rgba(255,255,255,0.2);
+}
+
+.calculation-formula {
+    font-size: 1.1rem;
+    padding: 1rem;
+    background: rgba(0,0,0,0.3);
+    border-radius: 6px;
+}
+
+.final-calculation {
+    border: 2px solid #ffc107 !important;
+}

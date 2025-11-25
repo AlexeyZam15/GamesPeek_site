@@ -1,166 +1,299 @@
 {% extends 'base.html' %}
 
 {% block title %}
-    {% if is_criteria_comparison %}
-        Compare: Search Criteria vs {{ game2.name }} - GamesPeek
-    {% else %}
-        Compare: {{ game1.name }} vs {{ game2.name }} - GamesPeek
-    {% endif %}
+{% if is_criteria_comparison %}
+Compare: Search Criteria vs {{ game2.name }} - GamesPeek
+{% else %}
+Compare: {{ game1.name }} vs {{ game2.name }} - GamesPeek
+{% endif %}
 {% endblock %}
 
 {% block content %}
-<div class="comparison-hero">
-    <div class="row align-items-center">
-        <!-- ЛЕВАЯ СТОРОНА: Игра или Критерии -->
-        <div class="col-md-5 text-center">
-            <div class="game-comparison-card">
-                {% if is_criteria_comparison %}
-                    <!-- КРИТЕРИИ -->
-                    <div class="criteria-header">
-                        <i class="bi bi-search" style="font-size: 4rem; color: #6c757d;"></i>
-                        <h3 class="game-title mt-3">Search Criteria</h3>
-                    </div>
-                    <div class="card-body">
-                        {% if criteria_genres %}
-                        <div class="game-genres">
-                            {% for genre in criteria_genres %}
-                            <span class="badge bg-danger mb-1">{{ genre.name }}</span>
-                            {% endfor %}
+<div class="container-fluid py-4">
+    <!-- Хедер с основной информацией -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="game-header-card card border-0">
+                <div class="card-body p-4">
+                    <div class="row align-items-center">
+                        <!-- ЛЕВАЯ СТОРОНА: Игра или Критерии -->
+                        <div class="col-md-5 text-center">
+                            <div class="game-comparison-card">
+                                {% if is_criteria_comparison %}
+                                <!-- КРИТЕРИИ -->
+                                <div class="criteria-header">
+                                    <i class="bi bi-search" style="font-size: 4rem; color: #6c757d;"></i>
+                                    <h3 class="game-title mt-3">Search Criteria</h3>
+                                </div>
+                                <div class="card-body">
+                                    {% if criteria_genres %}
+                                    <div class="game-genres">
+                                        <h6>Selected Genres:</h6>
+                                        {% for genre in criteria_genres %}
+                                        <span class="badge bg-danger mb-1">{{ genre.name }}</span>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                    {% if criteria_keywords %}
+                                    <div class="game-keywords mt-2">
+                                        <h6>Selected Keywords:</h6>
+                                        {% for keyword in criteria_keywords %}
+                                        <span class="badge bg-info mb-1">{{ keyword.name }}</span>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                {% else %}
+                                <!-- ИГРА 1 -->
+                                <a href="{% url 'game_detail' game1.pk %}" class="game-link">
+                                    {% if game1.cover_url %}
+                                    <img src="{{ game1.cover_url }}" class="card-img-top comparison-cover"
+                                         alt="{{ game1.name }}">
+                                    {% else %}
+                                    <div class="comparison-cover bg-light d-flex align-items-center justify-content-center">
+                                        <span class="text-muted">No Cover</span>
+                                    </div>
+                                    {% endif %}
+                                </a>
+                                <div class="card-body">
+                                    <a href="{% url 'game_detail' game1.pk %}" class="text-decoration-none">
+                                        <h3 class="game-title">{{ game1.name }}</h3>
+                                    </a>
+                                    <div class="game-genres">
+                                        {% for genre in game1.genres.all %}
+                                        <span class="badge bg-danger mb-1">{{ genre.name }}</span>
+                                        {% endfor %}
+                                    </div>
+                                    {% if game1.rating %}
+                                    <div class="game-rating mt-2">
+                                        <span class="text-warning">⭐ {{ game1.rating|floatformat:1 }}</span>
+                                        <small class="text-muted">({{ game1.rating_count }} ratings)</small>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+                            </div>
                         </div>
-                        {% endif %}
-                        {% if criteria_keywords %}
-                        <div class="game-keywords mt-2">
-                            {% for keyword in criteria_keywords %}
-                            <span class="badge bg-info mb-1">{{ keyword.name }}</span>
-                            {% endfor %}
+
+                        <!-- Similarity Score -->
+                        <div class="col-md-2 text-center">
+                            <div class="similarity-card">
+                                <div class="similarity-score
+                                    {% if similarity_score > 70 %}score-high
+                                    {% elif similarity_score > 40 %}score-medium
+                                    {% else %}score-low{% endif %}">
+                                    {{ similarity_score|floatformat:0 }}%
+                                </div>
+                                <div class="similarity-label">Match</div>
+                                <div class="similarity-description">
+                                    <small class="text-muted">Overall Similarity</small>
+                                </div>
+                            </div>
                         </div>
-                        {% endif %}
+
+                        <!-- ПРАВАЯ СТОРОНА: Игра 2 -->
+                        <div class="col-md-5 text-center">
+                            <div class="game-comparison-card">
+                                <a href="{% url 'game_detail' game2.pk %}" class="game-link">
+                                    {% if game2.cover_url %}
+                                    <img src="{{ game2.cover_url }}" class="card-img-top comparison-cover"
+                                         alt="{{ game2.name }}">
+                                    {% else %}
+                                    <div class="comparison-cover bg-light d-flex align-items-center justify-content-center">
+                                        <span class="text-muted">No Cover</span>
+                                    </div>
+                                    {% endif %}
+                                </a>
+                                <div class="card-body">
+                                    <a href="{% url 'game_detail' game2.pk %}" class="text-decoration-none">
+                                        <h3 class="game-title">{{ game2.name }}</h3>
+                                    </a>
+                                    <div class="game-genres">
+                                        {% for genre in game2.genres.all %}
+                                        <span class="badge bg-danger mb-1">{{ genre.name }}</span>
+                                        {% endfor %}
+                                    </div>
+                                    {% if game2.rating %}
+                                    <div class="game-rating mt-2">
+                                        <span class="text-warning">⭐ {{ game2.rating|floatformat:1 }}</span>
+                                        <small class="text-muted">({{ game2.rating_count }} ratings)</small>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Algorithm Breakdown -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="algorithm-breakdown card">
+                <div class="card-header bg-dark">
+                    <h5 class="mb-0 text-warning">
+                        <i class="bi bi-calculator me-2"></i>Similarity Algorithm Breakdown
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <!-- Genres Section -->
+                        <div class="col-md-6">
+                            <div class="breakdown-section">
+                                <h6 class="text-info">🎮 Genres ({{ genres_total_weight }}% total)</h6>
+
+                                <!-- Exact Match Penalty -->
+                                <div class="breakdown-item">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                    <span class="breakdown-label">
+                                        {% if are_genres_exactly_same %}
+                                        <i class="bi bi-check-circle-fill text-success me-1"></i>
+                                        Exact genre match
+                                        {% else %}
+                                        <i class="bi bi-x-circle-fill text-danger me-1"></i>
+                                        Not exact genre match
+                                        {% endif %}
+                                    </span>
+                                        <span class="breakdown-value {% if are_genres_exactly_same %}text-success{% else %}text-danger{% endif %}">
+                                        {% if are_genres_exactly_same %}0%{% else %}-{{ genres_exact_match_weight }}%{% endif %}
+                                    </span>
+                                    </div>
+                                </div>
+
+                                <!-- Missing Genres Penalty -->
+                                <div class="breakdown-item">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                    <span class="breakdown-label">
+                                        Missing genres penalty
+                                    </span>
+                                        <span class="breakdown-value text-danger">
+                                        -{{ genre_missing_penalty|floatformat:1 }}%
+                                    </span>
+                                    </div>
+                                    <small class="text-muted">
+                                        {{ missing_genres_count }} of {{ total_source_genres }} genres missing
+                                        {% if missing_genres %}
+                                        <br><span class="text-warning">Missing: {{ missing_genres|join:", " }}</span>
+                                        {% endif %}
+                                    </small>
+                                </div>
+
+                                <div class="breakdown-total">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <strong>Genres Total:</strong>
+                                        <strong class="{% if genres_score >= 50 %}text-success{% else %}text-warning{% endif %}">
+                                            {{ genres_score|floatformat:1 }}%
+                                        </strong>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Keywords Section -->
+                        <div class="col-md-6">
+                            <div class="breakdown-section">
+                                <h6 class="text-info">🔑 Keywords ({{ keywords_total_weight }}% total)</h6>
+
+                                <div class="breakdown-item">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                    <span class="breakdown-label">
+                                        Missing keywords penalty
+                                    </span>
+                                        <span class="breakdown-value text-danger">
+                                        -{{ keyword_penalty|floatformat:1 }}%
+                                    </span>
+                                    </div>
+                                    <small class="text-muted">
+                                        {{ missing_keywords_count }} of {{ total_source_keywords }} keywords missing
+                                    </small>
+                                </div>
+
+                                <div class="breakdown-total">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <strong>Keywords Total:</strong>
+                                        <strong class="{% if keywords_score >= 20 %}text-success{% else %}text-warning{% endif %}">
+                                            {{ keywords_score|floatformat:1 }}%
+                                        </strong>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Final Calculation -->
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <div class="final-calculation card bg-dark border-warning">
+                                <div class="card-body text-center">
+                                    <h5 class="text-warning mb-2">Final Calculation</h5>
+                                    <div class="calculation-formula">
+                                        <code class="text-light">
+                                            100%
+                                            {% if not are_genres_exactly_same %}- {{ genres_exact_match_weight }}%
+                                            (genre exact match){% endif %}
+                                            {% if genre_missing_penalty > 0 %}- {{ genre_missing_penalty|floatformat:1
+                                            }}% (missing genres){% endif %}
+                                            {% if keyword_penalty > 0 %}- {{ keyword_penalty|floatformat:1 }}% (missing
+                                            keywords){% endif %}
+                                            = <strong class="text-warning">{{ similarity_score|floatformat:1
+                                            }}%</strong>
+                                        </code>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Stats -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="stat-card">
+                <div class="stat-number">{{ shared_genres_count }}</div>
+                <div class="stat-label">Shared Genres</div>
+                <div class="stat-description">Common categories</div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="stat-card">
+                <div class="stat-number">{{ shared_keywords_count }}</div>
+                <div class="stat-label">Shared Keywords</div>
+                <div class="stat-description">Common features</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Shared Genres -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="shared-section">
+                <h4 class="section-title">🎮 Shared Genres</h4>
+                {% if shared_genres %}
+                <div class="shared-items-grid">
+                    {% for genre in shared_genres %}
+                    <span class="shared-item item-genre">{{ genre.name }}</span>
+                    {% endfor %}
+                </div>
                 {% else %}
-                    <!-- ИГРА 1 -->
-                    <a href="{% url 'game_detail' game1.pk %}" class="game-link">
-                        {% if game1.cover_url %}
-                        <img src="{{ game1.cover_url }}" class="card-img-top comparison-cover" alt="{{ game1.name }}">
-                        {% else %}
-                        <div class="comparison-cover bg-light d-flex align-items-center justify-content-center">
-                            <span class="text-muted">No Cover</span>
-                        </div>
-                        {% endif %}
-                    </a>
-                    <div class="card-body">
-                        <a href="{% url 'game_detail' game1.pk %}" class="text-decoration-none">
-                            <h3 class="game-title">{{ game1.name }}</h3>
-                        </a>
-                        <div class="game-genres">
-                            {% for genre in game1.genres.all %}
-                            <span class="badge bg-danger mb-1">{{ genre.name }}</span>
-                            {% endfor %}
-                        </div>
-                        {% if game1.rating %}
-                        <div class="game-rating mt-2">
-                            <span class="text-warning">⭐ {{ game1.rating|floatformat:1 }}</span>
-                            <small class="text-muted">({{ game1.rating_count }} ratings)</small>
-                        </div>
-                        {% endif %}
-                    </div>
+                <div class="no-shared-items">
+                    <span class="text-muted">No shared genres</span>
+                </div>
                 {% endif %}
             </div>
         </div>
-
-        <!-- Similarity Score -->
-        <div class="col-md-2 text-center">
-            <div class="similarity-card">
-                <div class="similarity-score
-                    {% if similarity_score > 70 %}score-high
-                    {% elif similarity_score > 40 %}score-medium
-                    {% else %}score-low{% endif %}">
-                    {{ similarity_score|floatformat:0 }}%
-                </div>
-                <div class="similarity-label">Match</div>
-                <div class="similarity-description">
-                    <small class="text-muted">Overall Similarity</small>
-                </div>
-            </div>
-        </div>
-
-        <!-- ПРАВАЯ СТОРОНА: Игра 2 -->
-        <div class="col-md-5 text-center">
-            <div class="game-comparison-card">
-                <a href="{% url 'game_detail' game2.pk %}" class="game-link">
-                    {% if game2.cover_url %}
-                    <img src="{{ game2.cover_url }}" class="card-img-top comparison-cover" alt="{{ game2.name }}">
-                    {% else %}
-                    <div class="comparison-cover bg-light d-flex align-items-center justify-content-center">
-                        <span class="text-muted">No Cover</span>
-                    </div>
-                    {% endif %}
-                </a>
-                <div class="card-body">
-                    <a href="{% url 'game_detail' game2.pk %}" class="text-decoration-none">
-                        <h3 class="game-title">{{ game2.name }}</h3>
-                    </a>
-                    <div class="game-genres">
-                        {% for genre in game2.genres.all %}
-                        <span class="badge bg-danger mb-1">{{ genre.name }}</span>
-                        {% endfor %}
-                    </div>
-                    {% if game2.rating %}
-                    <div class="game-rating mt-2">
-                        <span class="text-warning">⭐ {{ game2.rating|floatformat:1 }}</span>
-                        <small class="text-muted">({{ game2.rating_count }} ratings)</small>
-                    </div>
-                    {% endif %}
-                </div>
-            </div>
-        </div>
     </div>
-</div>
 
-<!-- Остальная часть шаблона остается без изменений -->
-<!-- Quick Stats -->
-<div class="row mb-4">
-    <div class="col-md-6">
-        <div class="stat-card">
-            <div class="stat-number">{{ shared_genres_count }}</div>
-            <div class="stat-label">Shared Genres</div>
-            <div class="stat-description">Common categories</div>
-        </div>
-    </div>
-    <div class="col-md-6">
-        <div class="stat-card">
-            <div class="stat-number">{{ shared_keywords_count }}</div>
-            <div class="stat-label">Shared Keywords</div>
-            <div class="stat-description">Common features</div>
-        </div>
-    </div>
-</div>
-
-<!-- Shared Genres -->
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="shared-section">
-            <h4 class="section-title">🎮 Shared Genres</h4>
-            {% if shared_genres %}
-            <div class="shared-items-grid">
-                {% for genre in shared_genres %}
-                <span class="shared-item item-genre">{{ genre.name }}</span>
-                {% endfor %}
-            </div>
-            {% else %}
-            <div class="no-shared-items">
-                <span class="text-muted">No shared genres</span>
-            </div>
-            {% endif %}
-        </div>
-    </div>
-</div>
-
-<!-- Shared Keywords by Category -->
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="shared-section">
-            <h4 class="section-title">🔑 Shared Keywords by Category</h4>
-            {% if shared_keywords_by_category %}
+    <!-- Shared Keywords by Category -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="shared-section">
+                <h4 class="section-title">🔑 Shared Keywords by Category</h4>
+                {% if shared_keywords_by_category %}
                 {% for category_name, keywords in shared_keywords_by_category.items %}
                 <div class="keyword-category-section mb-3">
                     <h5 class="category-title">
@@ -181,57 +314,59 @@
                     <div class="shared-items-grid">
                         {% for keyword in keywords %}
                         <span class="shared-item
-                            {% if category_name == 'Gameplay' %}item-gameplay
-                            {% elif category_name == 'Setting' %}item-setting
-                            {% elif category_name == 'Narrative' %}item-narrative
-                            {% elif category_name == 'Characters' %}item-characters
-                            {% elif category_name == 'Technical' %}item-technical
-                            {% elif category_name == 'Graphics' %}item-graphics
-                            {% elif category_name == 'Platform' %}item-platform
-                            {% elif category_name == 'Multiplayer' %}item-multiplayer
-                            {% elif category_name == 'Achievements' %}item-achievements
-                            {% elif category_name == 'Audio' %}item-audio
-                            {% elif category_name == 'Context' %}item-context
-                            {% elif category_name == 'Development' %}item-development
-                            {% else %}item-default{% endif %}">
-                            {{ keyword.name }}
-                        </span>
+                                {% if category_name == 'Gameplay' %}item-gameplay
+                                {% elif category_name == 'Setting' %}item-setting
+                                {% elif category_name == 'Narrative' %}item-narrative
+                                {% elif category_name == 'Characters' %}item-characters
+                                {% elif category_name == 'Technical' %}item-technical
+                                {% elif category_name == 'Graphics' %}item-graphics
+                                {% elif category_name == 'Platform' %}item-platform
+                                {% elif category_name == 'Multiplayer' %}item-multiplayer
+                                {% elif category_name == 'Achievements' %}item-achievements
+                                {% elif category_name == 'Audio' %}item-audio
+                                {% elif category_name == 'Context' %}item-context
+                                {% elif category_name == 'Development' %}item-development
+                                {% else %}item-default{% endif %}">
+                                {{ keyword.name }}
+                            </span>
                         {% endfor %}
                     </div>
                 </div>
                 {% endfor %}
-            {% else %}
-            <div class="no-shared-items">
-                <span class="text-muted">No shared keywords</span>
+                {% else %}
+                <div class="no-shared-items">
+                    <span class="text-muted">No shared keywords</span>
+                </div>
+                {% endif %}
             </div>
-            {% endif %}
+        </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="action-buttons">
+                {% if is_criteria_comparison %}
+                <a href="{% url 'game_list' %}?find_similar=1&g={{ criteria_genres|join:',' }}&k={{ criteria_keywords|join:',' }}"
+                   class="btn btn-outline-primary btn-lg">
+                    <i class="bi bi-arrow-left"></i> Back to Similar Games
+                </a>
+                {% else %}
+                <a href="{% url 'game_detail' game1.pk %}" class="btn btn-outline-primary btn-lg">
+                    <i class="bi bi-arrow-left"></i> Back to {{ game1.name }}
+                </a>
+                {% endif %}
+
+                <a href="{% url 'game_detail' game2.pk %}" class="btn btn-outline-primary btn-lg">
+                    Back to {{ game2.name }} <i class="bi bi-arrow-right"></i>
+                </a>
+
+                <a href="{% url 'game_list' %}" class="btn btn-primary-gradient btn-lg">
+                    <i class="bi bi-search"></i> Find More Games
+                </a>
+            </div>
         </div>
     </div>
 </div>
 
-<!-- Action Buttons -->
-<div class="row mt-4">
-    <div class="col-12">
-        <div class="action-buttons">
-            {% if is_criteria_comparison %}
-            <a href="{% url 'game_list' %}?find_similar=1&g={{ criteria_genres|join:',' }}&k={{ criteria_keywords|join:',' }}"
-               class="btn btn-outline-primary btn-lg">
-                <i class="bi bi-arrow-left"></i> Back to Similar Games
-            </a>
-            {% else %}
-            <a href="{% url 'game_detail' game1.pk %}" class="btn btn-outline-primary btn-lg">
-                <i class="bi bi-arrow-left"></i> Back to {{ game1.name }}
-            </a>
-            {% endif %}
-
-            <a href="{% url 'game_detail' game2.pk %}" class="btn btn-outline-primary btn-lg">
-                Back to {{ game2.name }} <i class="bi bi-arrow-right"></i>
-            </a>
-
-            <a href="{% url 'game_list' %}" class="btn btn-primary-gradient btn-lg">
-                <i class="bi bi-search"></i> Find More Games
-            </a>
-        </div>
-    </div>
-</div>
 {% endblock %}

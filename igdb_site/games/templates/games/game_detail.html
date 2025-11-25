@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% load static %}
+{% load game_tags %}
 
 {% block title %}{{ game.name }} - GamesPeek{% endblock %}
 
@@ -178,7 +179,7 @@
                         </div>
                         {% endif %}
 
-                        <!-- Быстрые действия -->
+                        <!-- Quick Actions -->
                         <div class="compact-section">
                             <div class="section-header">
                                 <h6 class="text-light"><i class="bi bi-lightning me-2"></i>Quick Actions</h6>
@@ -186,11 +187,13 @@
                             <div class="game-detail-card card">
                                 <div class="card-body">
                                     <div class="quick-actions-grid">
+                                        <!-- Similar by Genres - только жанры -->
                                         <a href="{% url 'game_list' %}?find_similar=1{% for genre in game.genres.all %}&genre={{ genre.id }}{% endfor %}"
                                            class="btn btn-outline-primary btn-sm py-2">
-                                            <i class="bi bi-search me-2"></i>Similar by Genres
+                                            <i class="bi bi-controller me-2"></i>Similar by Genres
                                         </a>
-                                        <a href="{% url 'game_list' %}?find_similar=1{% for keyword in game.keywords.all|slice:':5' %}&keyword={{ keyword.id }}{% endfor %}"
+                                        <!-- Similar by Features - только ключевые слова -->
+                                        <a href="{% url 'game_list' %}?find_similar=1{% for keyword in game.keywords.all %}&keyword={{ keyword.id }}{% endfor %}"
                                            class="btn btn-outline-info btn-sm py-2">
                                             <i class="bi bi-tags me-2"></i>Similar by Features
                                         </a>

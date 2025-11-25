@@ -22,9 +22,14 @@ class VirtualGame:
 
 class GameSimilarity:
     """
-    Алгоритм похожести: 70% за жанры, 30% за ключевые слова
-    Начинаем с 100% и отнимаем за различия
+    Обновленный алгоритм похожести: штраф за несоответствие жанров + штраф за недостающие жанры
     """
+
+    # Конфигурационные константы
+    GENRES_TOTAL_WEIGHT = 70.0  # Общий вес жанров
+    GENRES_EXACT_MATCH_WEIGHT = 10.0  # Штраф если жанры не одинаковые
+    GENRES_MISSING_PENALTY_WEIGHT = 60.0  # Штраф за недостающие жанры
+    KEYWORDS_TOTAL_WEIGHT = 30.0  # Общий вес ключевых слов
 
     def calculate_similarity(self, game1, game2):
         """
@@ -36,76 +41,93 @@ class GameSimilarity:
         # Начинаем с 100%
         similarity = 100.0
 
-        # 1. ОТНИМАЕМ ЗА РАЗЛИЧИЯ В ЖАНРАХ (максимум 70%)
-        similarity -= self._calculate_genre_penalty(game1, game2)
+        # 1. ШТРАФ ЕСЛИ ЖАНРЫ НЕ ОДИНАКОВЫЕ
+        if not self._are_genres_exactly_same(game1, game2):
+            similarity -= self.GENRES_EXACT_MATCH_WEIGHT
 
-        # 2. ОТНИМАЕМ ЗА РАЗЛИЧИЯ В КЛЮЧЕВЫХ СЛОВАХ (максимум 30%)
-        similarity -= self._calculate_keyword_penalty(game1, game2)
+        # 2. ШТРАФ ЗА НЕДОСТАЮЩИЕ ЖАНРЫ
+        genre_missing_penalty = self._calculate_genre_missing_penalty(game1, game2)
+        similarity -= genre_missing_penalty
+
+        # 3. ШТРАФ ЗА НЕДОСТАЮЩИЕ КЛЮЧЕВЫЕ СЛОВА
+        keyword_penalty = self._calculate_keyword_penalty(game1, game2)
+        similarity -= keyword_penalty
 
         return max(0.0, similarity)
 
-    def _calculate_genre_penalty(self, game1, game2):
+    def _are_genres_exactly_same(self, game1, game2):
         """
-        Рассчитывает штраф за различия в жанрах (0-70%)
-        Штрафуем только за отсутствие жанров из game1 в game2
+        Проверяет, совпадают ли жанры ровно
+        """
+        genres1 = set(game1.genres.all())
+        genres2 = set(game2.genres.all())
+        return genres1 == genres2
+
+    def _calculate_genre_missing_penalty(self, game1, game2):
+        """
+        Рассчитывает штраф за недостающие жанры (0-GENRES_MISSING_PENALTY_WEIGHT%)
         """
         genres1 = set(game1.genres.all())
         genres2 = set(game2.genres.all())
 
         if not genres1:
-            # Если у исходной игры нет жанров - не штрафуем
             return 0.0
 
-        # Жанры из исходной игры, которые отсутствуют в проверяемой игре
         missing_genres = genres1 - genres2
 
         if not missing_genres:
-            # Все жанры исходной игры присутствуют - нет штрафа
             return 0.0
 
-        # Штраф = (количество отсутствующих жанров / общее количество жанров в исходной игре) * 70%
-        penalty = (len(missing_genres) / len(genres1)) * 70.0
+        penalty = (len(missing_genres) / len(genres1)) * self.GENRES_MISSING_PENALTY_WEIGHT
         return penalty
 
     def _calculate_keyword_penalty(self, game1, game2):
         """
-        Рассчитывает штраф за различия в ключевых словах (0-30%)
-        Штрафуем только за отсутствие ключевых слов из game1 в game2
+        Рассчитывает штраф за различия в ключевых словах (0-KEYWORDS_TOTAL_WEIGHT%)
         """
         keywords1 = set(game1.keywords.all())
         keywords2 = set(game2.keywords.all())
 
         if not keywords1:
-            # Если у исходной игры нет ключевых слов - не штрафуем
             return 0.0
 
-        # Ключевые слова из исходной игры, которые отсутствуют в проверяемой игре
         missing_keywords = keywords1 - keywords2
 
         if not missing_keywords:
-            # Все ключевые слова исходной игры присутствуют - нет штрафа
             return 0.0
 
-        # Штраф = (количество отсутствующих ключ.слов / общее количество ключ.слов в исходной игре) * 30%
-        penalty = (len(missing_keywords) / len(keywords1)) * 30.0
+        penalty = (len(missing_keywords) / len(keywords1)) * self.KEYWORDS_TOTAL_WEIGHT
         return penalty
 
     def calculate_similarity_to_virtual(self, virtual_game, real_game):
         """
         Вычисляет похожесть между виртуальной игрой (критериями) и реальной игрой
         """
-        # Начинаем с 100%
         similarity = 100.0
 
-        # 1. ОТНИМАЕМ ЗА ОТСУТСТВИЕ ЖАНРОВ (максимум 70%)
-        similarity -= self._calculate_virtual_genre_penalty(virtual_game, real_game)
+        # 1. ШТРАФ ЕСЛИ ЖАНРЫ НЕ ОДИНАКОВЫЕ
+        if not self._are_virtual_genres_exactly_same(virtual_game, real_game):
+            similarity -= self.GENRES_EXACT_MATCH_WEIGHT
 
-        # 2. ОТНИМАЕМ ЗА ОТСУТСТВИЕ КЛЮЧЕВЫХ СЛОВ (максимум 30%)
-        similarity -= self._calculate_virtual_keyword_penalty(virtual_game, real_game)
+        # 2. ШТРАФ ЗА ОТСУТСТВИЕ ЖАНРОВ
+        genre_missing_penalty = self._calculate_virtual_genre_missing_penalty(virtual_game, real_game)
+        similarity -= genre_missing_penalty
+
+        # 3. ШТРАФ ЗА ОТСУТСТВИЕ КЛЮЧЕВЫХ СЛОВ
+        keyword_penalty = self._calculate_virtual_keyword_penalty(virtual_game, real_game)
+        similarity -= keyword_penalty
 
         return max(0.0, similarity)
 
-    def _calculate_virtual_genre_penalty(self, virtual_game, real_game):
+    def _are_virtual_genres_exactly_same(self, virtual_game, real_game):
+        """
+        Проверяет, совпадают ли жанры виртуальной игры с реальной ровно
+        """
+        virtual_genres = set(virtual_game.genres)
+        real_genres = set(real_game.genres.all())
+        return virtual_genres == real_genres
+
+    def _calculate_virtual_genre_missing_penalty(self, virtual_game, real_game):
         """
         Рассчитывает штраф за отсутствие жанров виртуальной игры в реальной игре
         """
@@ -113,18 +135,14 @@ class GameSimilarity:
         real_genres = set(real_game.genres.all())
 
         if not virtual_genres:
-            # Если в виртуальной игре не указаны жанры - не штрафуем
             return 0.0
 
-        # Жанры из виртуальной игры, которые отсутствуют в реальной игре
         missing_genres = virtual_genres - real_genres
 
         if not missing_genres:
-            # Все жанры виртуальной игры присутствуют - нет штрафа
             return 0.0
 
-        # Штраф = (количество отсутствующих жанров / общее количество жанров в виртуальной игре) * 70%
-        penalty = (len(missing_genres) / len(virtual_genres)) * 70.0
+        penalty = (len(missing_genres) / len(virtual_genres)) * self.GENRES_MISSING_PENALTY_WEIGHT
         return penalty
 
     def _calculate_virtual_keyword_penalty(self, virtual_game, real_game):
@@ -135,20 +153,17 @@ class GameSimilarity:
         real_keywords = set(real_game.keywords.all())
 
         if not virtual_keywords:
-            # Если в виртуальной игре не указаны ключевые слова - не штрафуем
             return 0.0
 
-        # Ключевые слова из виртуальной игры, которые отсутствуют в реальной игре
         missing_keywords = virtual_keywords - real_keywords
 
         if not missing_keywords:
-            # Все ключевые слова виртуальной игры присутствуют - нет штрафа
             return 0.0
 
-        # Штраф = (количество отсутствующих ключ.слов / общее количество ключ.слов в виртуальной игре) * 30%
-        penalty = (len(missing_keywords) / len(virtual_keywords)) * 30.0
+        penalty = (len(missing_keywords) / len(virtual_keywords)) * self.KEYWORDS_TOTAL_WEIGHT
         return penalty
 
+    # Остальные методы остаются без изменений
     def find_similar_games(self, game, limit=20, min_similarity=15):
         """
         Находит похожие игры для указанной игры
