@@ -16,10 +16,12 @@ def game_list(request):
     # Новый компактный формат параметров
     genres_param = request.GET.get('g', '')
     keywords_param = request.GET.get('k', '')
+    platforms_param = request.GET.get('p', '')
 
     # Конвертируем строки в списки integers
     selected_genres_int = [int(g) for g in genres_param.split(',') if g.strip()] if genres_param else []
     selected_keywords_int = [int(k) for k in keywords_param.split(',') if k.strip()] if keywords_param else []
+    selected_platforms_int = [int(p) for p in platforms_param.split(',') if p.strip()] if platforms_param else []
 
     # Старый формат (для обратной совместимости)
     if not selected_genres_int:
@@ -30,7 +32,11 @@ def game_list(request):
         selected_keywords = request.GET.getlist('keyword')
         selected_keywords_int = [int(k) for k in selected_keywords if k]
 
-    # Автоматически включаем режим похожих игр если переданы критерии
+    if not selected_platforms_int:
+        selected_platforms = request.GET.getlist('platform')
+        selected_platforms_int = [int(p) for p in selected_platforms if p]
+
+    # Автоматически включаем режим похожих игр если переданы критерии (только жанры и ключевые слова)
     if not find_similar and (selected_genres_int or selected_keywords_int):
         find_similar = True
 
@@ -39,6 +45,11 @@ def game_list(request):
     current_sort = request.GET.get('sort', default_sort)
 
     popular_keywords = Keyword.objects.filter(usage_count__gt=0).order_by('-usage_count')[:100]
+
+    # Платформы сортируем по количеству игр (популярности)
+    platforms = Platform.objects.annotate(
+        game_count=models.Count('game')
+    ).filter(game_count__gt=0).order_by('-game_count', 'name')
 
     show_similarity = False
     games_with_similarity = []
@@ -54,11 +65,18 @@ def game_list(request):
         similar_games_data = similarity_engine.find_similar_games_to_criteria(
             genre_ids=selected_genres_int,
             keyword_ids=selected_keywords_int,
-            limit=200,  # Увеличиваем лимит для пагинации
+            limit=200,
             min_similarity=15
         )
 
-        # Формируем структуру данных (включая все игры)
+        # ФИЛЬТРУЕМ ПО ПЛАТФОРМАМ (если выбраны) - только отсеиваем результаты
+        if selected_platforms_int:
+            similar_games_data = [
+                item for item in similar_games_data
+                if any(platform.id in selected_platforms_int for platform in item['game'].platforms.all())
+            ]
+
+        # Формируем структуру данных
         games_with_similarity = [
             {
                 'game': item['game'],
@@ -70,6 +88,7 @@ def game_list(request):
         total_count = len(games_with_similarity)
 
         # Создаем простой source_game для передачи в шаблон
+        # НЕ включаем платформы в source_game, чтобы они не переносились автоматически
         class SimpleSourceGame:
             def __init__(self, source_game_id=None, genres=None, keywords=None):
                 self.id = source_game_id
@@ -78,7 +97,6 @@ def game_list(request):
                 self.genres = genres or []
                 self.keywords = keywords or []
 
-        # И при создании:
         source_game_id = request.GET.get('source_game')
         source_game = SimpleSourceGame(
             source_game_id=source_game_id,
@@ -97,7 +115,6 @@ def game_list(request):
             games_with_similarity.sort(key=lambda x: x['game'].name.lower(), reverse=True)
         elif current_sort == '-first_release_date':
             games_with_similarity.sort(key=lambda x: x['game'].first_release_date or '', reverse=True)
-        # Для '-similarity' уже отсортировано
 
     # ОБЫЧНЫЙ РЕЖИМ ФИЛЬТРАЦИИ
     else:
@@ -109,6 +126,11 @@ def game_list(request):
             for keyword_id in selected_keywords_int:
                 games = games.filter(keywords__id=keyword_id)
 
+        # ФИЛЬТРАЦИЯ ПО ПЛАТФОРМАМ
+        if selected_platforms_int:
+            for platform_id in selected_platforms_int:
+                games = games.filter(platforms__id=platform_id)
+
         if current_sort in ['name', '-name', 'rating', '-rating', 'rating_count', '-rating_count',
                             '-first_release_date']:
             games = games.order_by(current_sort)
@@ -118,7 +140,6 @@ def game_list(request):
     # ПАГИНАЦИЯ
     page = request.GET.get('page', 1)
 
-    # Определяем данные для пагинации
     if show_similarity:
         data_to_paginate = games_with_similarity
         total_count = len(games_with_similarity)
@@ -126,7 +147,7 @@ def game_list(request):
         data_to_paginate = games
         total_count = games.count()
 
-    paginator = Paginator(data_to_paginate, 16)  # 16 игр на страницу
+    paginator = Paginator(data_to_paginate, 16)
 
     try:
         page_obj = paginator.page(page)
@@ -140,21 +161,22 @@ def game_list(request):
         find_similar=find_similar,
         genres=selected_genres_int,
         keywords=selected_keywords_int,
+        platforms=selected_platforms_int,
         sort=current_sort
     )
 
     context = {
         'games': page_obj if not show_similarity else [],
         'games_with_similarity': page_obj.object_list if show_similarity else [],
-        # Используем object_list для похожих игр
-        'genres': Genre.objects.all(),
-        'platforms': Platform.objects.all(),
+        'genres': Genre.objects.all().order_by('name'),  # Жанры по алфавиту
+        'platforms': platforms,  # Платформы по популярности
         'keyword_categories': KeywordCategory.objects.all(),
         'popular_keywords': popular_keywords,
         'current_sort': current_sort,
         'show_similarity': show_similarity,
         'selected_genres': selected_genres_int,
         'selected_keywords': selected_keywords_int,
+        'selected_platforms': selected_platforms_int,
         'find_similar': find_similar,
         'compact_url_params': compact_url_params,
         'source_game': source_game,
@@ -167,7 +189,7 @@ def game_list(request):
     return render(request, 'games/game_list.html', context)
 
 
-def generate_compact_url_params(find_similar=False, genres=None, keywords=None, sort=None):
+def generate_compact_url_params(find_similar=False, genres=None, keywords=None, platforms=None, sort=None):
     """
     Генерирует компактные параметры URL
     """
@@ -182,13 +204,16 @@ def generate_compact_url_params(find_similar=False, genres=None, keywords=None, 
     if keywords:
         params['k'] = ','.join(str(k) for k in keywords)
 
+    if platforms:  # ДОБАВЛЕНО: параметр platforms
+        params['p'] = ','.join(str(p) for p in platforms)
+
     if sort:
         params['sort'] = sort
 
     return params
 
 
-def get_compact_game_list_url(find_similar=False, genres=None, keywords=None, sort=None):
+def get_compact_game_list_url(find_similar=False, genres=None, keywords=None, platforms=None, sort=None):
     """
     Вспомогательная функция для генерации полного URL с компактными параметрами
     """
@@ -196,6 +221,7 @@ def get_compact_game_list_url(find_similar=False, genres=None, keywords=None, so
         find_similar=find_similar,
         genres=genres,
         keywords=keywords,
+        platforms=platforms,  # ДОБАВЛЕНО
         sort=sort
     )
 
@@ -446,3 +472,43 @@ def game_search(request):
         'total_results': games.count(),
     }
     return render(request, 'games/game_search.html', context)
+
+
+def platform_list(request):
+    """Страница со списком всех платформ"""
+    platforms = Platform.objects.annotate(
+        game_count=models.Count('game')
+    ).filter(game_count__gt=0).order_by('-game_count', 'name')
+
+    context = {
+        'platforms': platforms,
+    }
+    return render(request, 'games/platform_list.html', context)
+
+
+def platform_games(request, platform_id):
+    """Список игр для конкретной платформы"""
+    platform = get_object_or_404(Platform, id=platform_id)
+    games = Game.objects.filter(platforms=platform).prefetch_related(
+        'genres', 'platforms', 'keywords'
+    ).order_by('-rating_count', '-rating')
+
+    # Пагинация
+    paginator = Paginator(games, 20)
+    page = request.GET.get('page', 1)
+
+    try:
+        page_obj = paginator.page(page)
+    except PageNotAnInteger:
+        page_obj = paginator.page(1)
+    except EmptyPage:
+        page_obj = paginator.page(paginator.num_pages)
+
+    context = {
+        'platform': platform,
+        'games': page_obj,
+        'total_games': games.count(),
+        'page_obj': page_obj,
+        'is_paginated': paginator.num_pages > 1,
+    }
+    return render(request, 'games/platform_games.html', context)

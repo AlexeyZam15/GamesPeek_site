@@ -10,50 +10,53 @@
     <link rel="stylesheet" href="{% static 'games/css/style.css' %}">
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark">
-        <div class="container">
-            <!-- ИЗМЕНЕНО: логотип ведет на главную -->
-            <a class="navbar-brand" href="{% url 'home' %}">
-                <i class="bi bi-eye"></i> GamesPeek
-            </a>
+<nav class="navbar navbar-expand-lg navbar-dark">
+    <div class="container">
+        <!-- ИЗМЕНЕНО: логотип ведет на главную -->
+        <a class="navbar-brand" href="{% url 'home' %}">
+            <i class="bi bi-eye"></i> GamesPeek
+        </a>
 
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
 
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <!-- Навигационные ссылки -->
-                <div class="navbar-nav me-auto">
-                    <a class="nav-link" href="{% url 'game_list' %}">
-                        <i class="bi bi-controller"></i> Browse Games
-                    </a>
-                </div>
-
-                <!-- Поисковая строка -->
-                <form class="d-flex" method="get" action="{% url 'game_search' %}">
-                    <div class="input-group input-group-sm">
-                        <input type="text" class="form-control" name="q" placeholder="Search games..."
-                               aria-label="Search games" style="width: 200px;">
-                        <button class="btn btn-outline-light" type="submit">
-                            <i class="bi bi-search"></i>
-                        </button>
-                    </div>
-                </form>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <!-- Навигационные ссылки -->
+            <div class="navbar-nav me-auto">
+                <a class="nav-link" href="{% url 'game_list' %}">
+                    <i class="bi bi-controller"></i> Browse Games
+                </a>
+                <a class="nav-link" href="{% url 'platform_list' %}">
+                    <i class="bi bi-device-ssd"></i> Platforms
+                </a>
             </div>
+
+            <!-- Поисковая строка -->
+            <form class="d-flex" method="get" action="{% url 'game_search' %}">
+                <div class="input-group input-group-sm">
+                    <input type="text" class="form-control" name="q" placeholder="Search games..."
+                           aria-label="Search games" style="width: 200px;">
+                    <button class="btn btn-outline-light" type="submit">
+                        <i class="bi bi-search"></i>
+                    </button>
+                </div>
+            </form>
         </div>
-    </nav>
+    </div>
+</nav>
 
-    <main class="container my-4">
-        {% block content %}
-        {% endblock %}
-    </main>
+<main class="container my-4">
+    {% block content %}
+    {% endblock %}
+</main>
 
-    <footer class="py-4 mt-5">
-        <div class="container text-center">
-            <p>GamesPeek - Video Game Discovery Platform powered by IGDB API</p>
-        </div>
-    </footer>
+<footer class="py-4 mt-5">
+    <div class="container text-center">
+        <p>GamesPeek - Video Game Discovery Platform powered by IGDB API</p>
+    </div>
+</footer>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

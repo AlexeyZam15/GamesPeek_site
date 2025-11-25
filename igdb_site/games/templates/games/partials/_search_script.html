@@ -1,96 +1,105 @@
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    const form = document.getElementById('main-search-form');
-    console.log('Search script initialized');
+    document.addEventListener('DOMContentLoaded', function() {
+        const form = document.getElementById('main-search-form');
+        console.log('Search script initialized');
 
-    // Элементы поиска
-    const genreSearch = document.getElementById('genre-search');
-    const keywordSearch = document.getElementById('keyword-search');
+        // Элементы поиска
+        const genreSearch = document.getElementById('genre-search');
+        const keywordSearch = document.getElementById('keyword-search');
 
-    // Элементы списков
-    const genreList = document.querySelector('.genre-list');
-    const keywordList = document.querySelector('.keyword-list');
+        // Элементы списков
+        const genreList = document.querySelector('.genre-list');
+        const keywordList = document.querySelector('.keyword-list');
 
-    // Кнопки "Show all"
-    const showAllGenresBtn = document.querySelector('.show-all-genres-btn');
-    const showAllKeywordsBtn = document.querySelector('.show-all-keywords-btn');
+        // Кнопки "Show all"
+        const showAllGenresBtn = document.querySelector('.show-all-genres-btn');
+        const showAllKeywordsBtn = document.querySelector('.show-all-keywords-btn');
 
-    // Функция для фильтрации списков
-    function filterList(searchInput, itemSelector, nameAttribute) {
-        if (!searchInput) return;
+        // Функция для фильтрации списков
+        function filterList(searchInput, itemSelector, nameAttribute) {
+            if (!searchInput) return;
 
-        searchInput.addEventListener('input', function() {
-            const searchTerm = this.value.toLowerCase().trim();
-            const items = document.querySelectorAll(itemSelector);
+            searchInput.addEventListener('input', function() {
+                const searchTerm = this.value.toLowerCase().trim();
+                const items = document.querySelectorAll(itemSelector);
 
-            items.forEach(item => {
-                const itemName = item.getAttribute(nameAttribute).toLowerCase();
-                const isMatch = itemName.includes(searchTerm);
-                item.style.display = isMatch ? 'block' : 'none';
+                items.forEach(item => {
+                    const itemName = item.getAttribute(nameAttribute).toLowerCase();
+                    const isMatch = itemName.includes(searchTerm);
+                    item.style.display = isMatch ? 'block' : 'none';
+                });
             });
-        });
 
-        // Обработчик для очистки поля
-        searchInput.addEventListener('search', function() {
-            if (this.value === '') {
-                this.dispatchEvent(new Event('input'));
-            }
-        });
-    }
-
-    // Функция для переключения отображения полного списка
-    function setupShowAllToggle(showAllBtn, listElement, defaultHeight = '200px', expandedHeight = '400px') {
-        if (!showAllBtn || !listElement) return;
-
-        let isExpanded = false;
-
-        showAllBtn.addEventListener('click', function() {
-            isExpanded = !isExpanded;
-
-            if (isExpanded) {
-                listElement.style.maxHeight = expandedHeight;
-                showAllBtn.querySelector('.show-text').style.display = 'none';
-                showAllBtn.querySelector('.hide-text').style.display = 'inline';
-            } else {
-                listElement.style.maxHeight = defaultHeight;
-                showAllBtn.querySelector('.show-text').style.display = 'inline';
-                showAllBtn.querySelector('.hide-text').style.display = 'none';
-            }
-        });
-    }
-
-    // Удаление активных тегов
-    function setupActiveTagRemoval() {
-        document.querySelectorAll('.active-genre-tag').forEach(tag => {
-            tag.addEventListener('click', function() {
-                const genreId = this.getAttribute('data-genre-id');
-                const checkbox = document.querySelector(`input[value="${genreId}"]`);
-                if (checkbox) {
-                    checkbox.checked = false;
+            // Обработчик для очистки поля
+            searchInput.addEventListener('search', function() {
+                if (this.value === '') {
+                    this.dispatchEvent(new Event('input'));
                 }
-                this.remove();
-                form.submit();
             });
-        });
+        }
 
-        document.querySelectorAll('.active-keyword-tag').forEach(tag => {
-            tag.addEventListener('click', function() {
-                const keywordId = this.getAttribute('data-keyword-id');
-                const checkbox = document.querySelector(`input[value="${keywordId}"]`);
-                if (checkbox) {
-                    checkbox.checked = false;
+        // Функция для переключения отображения полного списка
+        function setupShowAllToggle(showAllBtn, listElement, defaultHeight = '200px', expandedHeight = '400px') {
+            if (!showAllBtn || !listElement) return;
+
+            let isExpanded = false;
+
+            showAllBtn.addEventListener('click', function() {
+                isExpanded = !isExpanded;
+
+                if (isExpanded) {
+                    listElement.style.maxHeight = expandedHeight;
+                    showAllBtn.querySelector('.show-text').style.display = 'none';
+                    showAllBtn.querySelector('.hide-text').style.display = 'inline';
+                } else {
+                    listElement.style.maxHeight = defaultHeight;
+                    showAllBtn.querySelector('.show-text').style.display = 'inline';
+                    showAllBtn.querySelector('.hide-text').style.display = 'none';
                 }
-                this.remove();
-                form.submit();
             });
-        });
-    }
+        }
 
-    // Авто-отправка формы для чекбоксов и сортировки
+        // Удаление активных тегов
+        function setupActiveTagRemoval() {
+            document.querySelectorAll('.active-genre-tag').forEach(tag => {
+                tag.addEventListener('click', function() {
+                    const genreId = this.getAttribute('data-genre-id');
+                    const checkbox = document.querySelector(`input[value="${genreId}"]`);
+                    if (checkbox) {
+                        checkbox.checked = false;
+                    }
+                    this.remove();
+                    form.submit();
+                });
+            });
+
+            document.querySelectorAll('.active-keyword-tag').forEach(tag => {
+                tag.addEventListener('click', function() {
+                    const keywordId = this.getAttribute('data-keyword-id');
+                    const checkbox = document.querySelector(`input[value="${keywordId}"]`);
+                    if (checkbox) {
+                        checkbox.checked = false;
+                    }
+                    this.remove();
+                    form.submit();
+                });
+            });
+        }
+
+        // Авто-отправка формы для чекбоксов и сортировки
     function setupAutoSubmit() {
-        document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+        // Для жанров и ключевых слов - включаем режим похожих игр
+        document.querySelectorAll('.genre-checkbox, .keyword-checkbox').forEach(checkbox => {
             checkbox.addEventListener('change', function() {
-                document.getElementById('find_similar_field').value = '0';
+                document.getElementById('find_similar_field').value = '1';
+                form.submit();
+            });
+        });
+
+        // Для платформ - НЕ включаем режим похожих игр, просто фильтруем
+        document.querySelectorAll('.platform-checkbox').forEach(checkbox => {
+            checkbox.addEventListener('change', function() {
+                // Не меняем find_similar_field, оставляем текущее значение
                 form.submit();
             });
         });
@@ -103,19 +112,19 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Инициализация всех функций
-    function initializeAll() {
-        filterList(genreSearch, '.genre-item', 'data-genre-name');
-        filterList(keywordSearch, '.keyword-item', 'data-keyword-name');
+        // Инициализация всех функций
+        function initializeAll() {
+            filterList(genreSearch, '.genre-item', 'data-genre-name');
+            filterList(keywordSearch, '.keyword-item', 'data-keyword-name');
 
-        setupShowAllToggle(showAllGenresBtn, genreList, '200px', '400px');
-        setupShowAllToggle(showAllKeywordsBtn, keywordList, '200px', '400px');
-        setupActiveTagRemoval();
-        setupAutoSubmit();
+            setupShowAllToggle(showAllGenresBtn, genreList, '200px', '400px');
+            setupShowAllToggle(showAllKeywordsBtn, keywordList, '200px', '400px');
+            setupActiveTagRemoval();
+            setupAutoSubmit();
 
-        console.log('All search functionalities initialized');
-    }
+            console.log('All search functionalities initialized');
+        }
 
-    setTimeout(initializeAll, 100);
-});
+        setTimeout(initializeAll, 100);
+    });
 </script>

@@ -2,47 +2,60 @@
     <div class="card-body">
         <form method="get" id="main-search-form">
             <!-- Скрытые параметры для компактного формата -->
-            <input type="hidden" name="find_similar" id="find_similar_field" value="{% if find_similar %}1{% endif %}">
-            <input type="hidden" name="g" id="genres-field" value="{{ selected_genres|join:',' }}">
-            <input type="hidden" name="k" id="keywords-field" value="{{ selected_keywords|join:',' }}">
+            <input type="hidden" name="find_similar" id="find_similar_field"
+                   value="{% if find_similar %}1{% else %}0{% endif %}"> <input type="hidden" name="k"
+                                                                                id="keywords-field"
+                                                                                value="
+
+                                                                                        {{ selected_keywords|join:',' }}">
+            <input type="hidden" name="p" id="platforms-field" value="{{ selected_platforms|join:',' }}">
 
             <div class="row g-3">
                 <!-- Сортировка -->
                 <div class="col-md-6">
                     <label class="form-label">Sort by:</label>
                     <select name="sort" class="form-select">
-                        <option value="-similarity" {% if current_sort == "-similarity" and find_similar %}selected{% endif %}>Most Similar</option>
-                        <option value="-rating_count" {% if current_sort == "-rating_count" %}selected{% endif %}>Most Popular</option>
-                        <option value="-rating" {% if current_sort == "-rating" %}selected{% endif %}>Highest Rated</option>
+                        <option value="-similarity"
+                                {% if current_sort == "-similarity" and find_similar %}selected{% endif %}>Most Similar
+                        </option>
+                        <option value="-rating_count" {% if current_sort == "-rating_count" %}selected{% endif %}>Most
+                            Popular
+                        </option>
+                        <option value="-rating" {% if current_sort == "-rating" %}selected{% endif %}>Highest Rated
+                        </option>
                         <option value="name" {% if current_sort == "name" %}selected{% endif %}>Name A-Z</option>
                         <option value="-name" {% if current_sort == "-name" %}selected{% endif %}>Name Z-A</option>
-                        <option value="-first_release_date" {% if current_sort == "-first_release_date" %}selected{% endif %}>Newest First</option>
+                        <option value="-first_release_date"
+                                {% if current_sort == "-first_release_date" %}selected{% endif %}>Newest First
+                        </option>
                     </select>
                 </div>
 
                 <!-- Жанры -->
                 <div class="col-12">
                     <label class="form-label">Filter by Genres:</label>
-                    <input type="text" class="form-control mb-2" id="genre-search" placeholder="Search genres..." autocomplete="off">
+                    <input type="text" class="form-control mb-2" id="genre-search" placeholder="Search genres..."
+                           autocomplete="off">
 
                     <!-- Активные жанры -->
                     <div id="active-genres" class="mb-2">
                         {% if selected_genres %}
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <div class="d-flex align-items-center gap-2">
-                                <button type="button" class="btn btn-sm clear-genres-btn btn-outline-primary"
-                                        style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;">
-                                    <i class="bi bi-x-circle me-1"></i>Clear All
-                                </button>
-                                <small class="text-muted" style="font-weight: 500;">Selected genres ({{ selected_genres|length }})</small>
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div class="d-flex align-items-center gap-2">
+                                    <button type="button" class="btn btn-sm clear-genres-btn btn-outline-primary"
+                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;">
+                                        <i class="bi bi-x-circle me-1"></i>Clear All
+                                    </button>
+                                    <small class="text-muted" style="font-weight: 500;">Selected genres
+                                        ({{ selected_genres|length }})</small>
+                                </div>
                             </div>
-                        </div>
                         {% endif %}
 
                         {% for genre in genres %}
                             {% if genre.id in selected_genres %}
-                            <span class="badge bg-primary me-1 mb-1 active-genre-tag" data-genre-id="{{ genre.id }}"
-                                  style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                <span class="badge bg-primary me-1 mb-1 active-genre-tag" data-genre-id="{{ genre.id }}"
+                                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
                                 {{ genre.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
                             </span>
                             {% endif %}
@@ -51,18 +64,19 @@
 
                     <!-- Список жанров -->
                     <div class="genre-list border rounded p-2" style="max-height: 200px; overflow-y: auto;">
-                        <div class="genre-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                        <div class="genre-grid"
+                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
                             {% for genre in genres %}
-                            <div class="genre-item" data-genre-name="{{ genre.name|lower }}">
-                                <div class="form-check">
-                                    <input class="form-check-input genre-checkbox" type="checkbox"
-                                           value="{{ genre.id }}" id="genre_{{ genre.id }}"
-                                           {% if genre.id in selected_genres %}checked{% endif %}>
-                                    <label class="form-check-label small" for="genre_{{ genre.id }}">
-                                        {{ genre.name }}
-                                    </label>
+                                <div class="genre-item" data-genre-name="{{ genre.name|lower }}">
+                                    <div class="form-check">
+                                        <input class="form-check-input genre-checkbox" type="checkbox"
+                                               value="{{ genre.id }}" id="genre_{{ genre.id }}"
+                                               {% if genre.id in selected_genres %}checked{% endif %}>
+                                        <label class="form-check-label small" for="genre_{{ genre.id }}">
+                                            {{ genre.name }}
+                                        </label>
+                                    </div>
                                 </div>
-                            </div>
                             {% endfor %}
                         </div>
                     </div>
@@ -79,26 +93,29 @@
                 <!-- Ключевые слова -->
                 <div class="col-12">
                     <label class="form-label">Filter by Features:</label>
-                    <input type="text" class="form-control mb-2" id="keyword-search" placeholder="Search features..." autocomplete="off">
+                    <input type="text" class="form-control mb-2" id="keyword-search" placeholder="Search features..."
+                           autocomplete="off">
 
                     <!-- Активные ключевые слова -->
                     <div id="active-keywords" class="mb-2">
                         {% if selected_keywords %}
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <div class="d-flex align-items-center gap-2">
-                                <button type="button" class="btn btn-sm clear-keywords-btn btn-outline-primary"
-                                        style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;">
-                                    <i class="bi bi-x-circle me-1"></i>Clear All
-                                </button>
-                                <small class="text-muted" style="font-weight: 500;">Selected features ({{ selected_keywords|length }})</small>
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div class="d-flex align-items-center gap-2">
+                                    <button type="button" class="btn btn-sm clear-keywords-btn btn-outline-primary"
+                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;">
+                                        <i class="bi bi-x-circle me-1"></i>Clear All
+                                    </button>
+                                    <small class="text-muted" style="font-weight: 500;">Selected features
+                                        ({{ selected_keywords|length }})</small>
+                                </div>
                             </div>
-                        </div>
                         {% endif %}
 
                         {% for keyword in popular_keywords %}
                             {% if keyword.id in selected_keywords %}
-                            <span class="badge bg-success me-1 mb-1 active-keyword-tag" data-keyword-id="{{ keyword.id }}"
-                                  style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                <span class="badge bg-success me-1 mb-1 active-keyword-tag"
+                                      data-keyword-id="{{ keyword.id }}"
+                                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
                                 {{ keyword.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
                             </span>
                             {% endif %}
@@ -107,18 +124,19 @@
 
                     <!-- Список ключевых слов -->
                     <div class="keyword-list border rounded p-2" style="max-height: 200px; overflow-y: auto;">
-                        <div class="keyword-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                        <div class="keyword-grid"
+                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
                             {% for keyword in popular_keywords %}
-                            <div class="keyword-item" data-keyword-name="{{ keyword.name|lower }}">
-                                <div class="form-check">
-                                    <input class="form-check-input keyword-checkbox" type="checkbox"
-                                           value="{{ keyword.id }}" id="keyword_{{ keyword.id }}"
-                                           {% if keyword.id in selected_keywords %}checked{% endif %}>
-                                    <label class="form-check-label small" for="keyword_{{ keyword.id }}">
-                                        {{ keyword.name }}
-                                    </label>
+                                <div class="keyword-item" data-keyword-name="{{ keyword.name|lower }}">
+                                    <div class="form-check">
+                                        <input class="form-check-input keyword-checkbox" type="checkbox"
+                                               value="{{ keyword.id }}" id="keyword_{{ keyword.id }}"
+                                               {% if keyword.id in selected_keywords %}checked{% endif %}>
+                                        <label class="form-check-label small" for="keyword_{{ keyword.id }}">
+                                            {{ keyword.name }}
+                                        </label>
+                                    </div>
                                 </div>
-                            </div>
                             {% endfor %}
                         </div>
                     </div>
@@ -127,6 +145,67 @@
                     <div class="text-center mt-2">
                         <button type="button" class="btn btn-outline-secondary btn-sm show-all-keywords-btn">
                             <span class="show-text">Show all features</span>
+                            <span class="hide-text" style="display: none;">Show less</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Платформы -->
+                <div class="col-12">
+                    <label class="form-label">Filter by Platforms:</label>
+                    <input type="text" class="form-control mb-2" id="platform-search" placeholder="Search platforms..."
+                           autocomplete="off">
+
+                    <!-- Активные платформы -->
+                    <div id="active-platforms" class="mb-2">
+                        {% if selected_platforms %}
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div class="d-flex align-items-center gap-2">
+                                    <button type="button" class="btn btn-sm clear-platforms-btn btn-outline-info"
+                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;">
+                                        <i class="bi bi-x-circle me-1"></i>Clear All
+                                    </button>
+                                    <small class="text-muted" style="font-weight: 500;">Selected platforms
+                                        ({{ selected_platforms|length }})</small>
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        <!-- В секции активных платформ -->
+                        {% for platform in platforms %}
+                            {% if platform.id in selected_platforms %}
+                                <span class="badge bg-info me-1 mb-1 active-platform-tag" data-platform-id="{{ platform.id }}"
+      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+    {{ platform.display_name }} <span class="text-light">({{ platform.game_count }})</span> <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+</span>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+
+                    <!-- Список платформ -->
+                    <div class="platform-list border rounded p-2" style="max-height: 200px; overflow-y: auto;">
+                        <div class="platform-grid"
+                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                            {% for platform in platforms %}
+                                <div class="platform-item" data-platform-name="{{ platform.name|lower }}">
+                                    <div class="form-check">
+                                        <input class="form-check-input platform-checkbox" type="checkbox"
+                                               value="{{ platform.id }}" id="platform_{{ platform.id }}"
+                                               {% if platform.id in selected_platforms %}checked{% endif %}>
+                                        <label class="form-check-label small" for="platform_{{ platform.id }}">
+                                            {{ platform.display_name }}
+                                            <span class="text-muted">({{ platform.game_count }})</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <!-- Кнопка "Show all platforms" -->
+                    <div class="text-center mt-2">
+                        <button type="button" class="btn btn-outline-secondary btn-sm show-all-platforms-btn">
+                            <span class="show-text">Show all platforms</span>
                             <span class="hide-text" style="display: none;">Show less</span>
                         </button>
                     </div>
@@ -147,155 +226,244 @@
 </div>
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Обновляем скрытые поля при изменении чекбоксов
-    function updateHiddenFields() {
-        // Обновляем жанры
-        const genreCheckboxes = document.querySelectorAll('.genre-checkbox:checked');
-        const genreIds = Array.from(genreCheckboxes).map(cb => cb.value);
-        document.getElementById('genres-field').value = genreIds.join(',');
+    document.addEventListener('DOMContentLoaded', function () {
+        // Обновляем скрытые поля при изменении чекбоксов
+        function updateHiddenFields() {
+            // Обновляем жанры
+            const genreCheckboxes = document.querySelectorAll('.genre-checkbox:checked');
+            const genreIds = Array.from(genreCheckboxes).map(cb => cb.value);
+            document.getElementById('genres-field').value = genreIds.join(',');
 
-        // Обновляем ключевые слова
-        const keywordCheckboxes = document.querySelectorAll('.keyword-checkbox:checked');
-        const keywordIds = Array.from(keywordCheckboxes).map(cb => cb.value);
-        document.getElementById('keywords-field').value = keywordIds.join(',');
+            // Обновляем ключевые слова
+            const keywordCheckboxes = document.querySelectorAll('.keyword-checkbox:checked');
+            const keywordIds = Array.from(keywordCheckboxes).map(cb => cb.value);
+            document.getElementById('keywords-field').value = keywordIds.join(',');
 
-        // Автоматически включаем режим поиска похожих игр при выборе фильтров
-        if (genreIds.length > 0 || keywordIds.length > 0) {
-            document.getElementById('find_similar_field').value = '1';
-        } else {
-            document.getElementById('find_similar_field').value = '0';
-        }
-    }
+            // Обновляем платформы
+            const platformCheckboxes = document.querySelectorAll('.platform-checkbox:checked');
+            const platformIds = Array.from(platformCheckboxes).map(cb => cb.value);
+            document.getElementById('platforms-field').value = platformIds.join(',');
 
-    // Слушаем изменения чекбоксов
-    document.querySelectorAll('.genre-checkbox, .keyword-checkbox').forEach(checkbox => {
-        checkbox.addEventListener('change', updateHiddenFields);
-    });
-
-    // Очистка всех жанров
-    const clearGenresBtn = document.querySelector('.clear-genres-btn');
-    if (clearGenresBtn) {
-        clearGenresBtn.addEventListener('click', function() {
-            document.querySelectorAll('.genre-checkbox:checked').forEach(checkbox => {
-                checkbox.checked = false;
-            });
-            updateHiddenFields();
-            // Обновляем страницу
-            document.getElementById('main-search-form').submit();
-        });
-    }
-
-    // Очистка всех ключевых слов
-    const clearKeywordsBtn = document.querySelector('.clear-keywords-btn');
-    if (clearKeywordsBtn) {
-        clearKeywordsBtn.addEventListener('click', function() {
-            document.querySelectorAll('.keyword-checkbox:checked').forEach(checkbox => {
-                checkbox.checked = false;
-            });
-            updateHiddenFields();
-            // Обновляем страницу
-            document.getElementById('main-search-form').submit();
-        });
-    }
-
-    // Удаление активных тегов
-    document.addEventListener('click', function(e) {
-        // Удаление жанра
-        if (e.target.classList.contains('active-genre-tag')) {
-            const genreId = e.target.getAttribute('data-genre-id');
-            const checkbox = document.querySelector(`.genre-checkbox[value="${genreId}"]`);
-            if (checkbox) {
-                checkbox.checked = false;
-                updateHiddenFields();
-                // Обновляем страницу при клике на ×
-                document.getElementById('main-search-form').submit();
+            // Автоматически включаем режим поиска похожих игр только при выборе жанров или ключевых слов
+            // Платформы НЕ включают режим похожих игр автоматически
+            if (genreIds.length > 0 || keywordIds.length > 0) {
+                document.getElementById('find_similar_field').value = '1';
+            } else {
+                document.getElementById('find_similar_field').value = '0';
             }
         }
 
-        // Удаление ключевого слова
-        if (e.target.classList.contains('active-keyword-tag')) {
-            const keywordId = e.target.getAttribute('data-keyword-id');
-            const checkbox = document.querySelector(`.keyword-checkbox[value="${keywordId}"]`);
-            if (checkbox) {
-                checkbox.checked = false;
-                updateHiddenFields();
-                // Обновляем страницу при клике на ×
-                document.getElementById('main-search-form').submit();
-            }
-        }
-    });
+        // Слушаем изменения чекбоксов
+        document.querySelectorAll('.genre-checkbox, .keyword-checkbox, .platform-checkbox').forEach(checkbox => {
+            checkbox.addEventListener('change', updateHiddenFields);
+        });
 
-    // Поиск по жанрам
-    const genreSearch = document.getElementById('genre-search');
-    if (genreSearch) {
-        genreSearch.addEventListener('input', function() {
-            const searchTerm = this.value.toLowerCase();
-            document.querySelectorAll('.genre-item').forEach(item => {
-                const genreName = item.getAttribute('data-genre-name');
-                if (genreName.includes(searchTerm)) {
-                    item.style.display = 'block';
+        // Очистка всех жанров
+        const clearGenresBtn = document.querySelector('.clear-genres-btn');
+        if (clearGenresBtn) {
+            clearGenresBtn.addEventListener('click', function () {
+                document.querySelectorAll('.genre-checkbox:checked').forEach(checkbox => {
+                    checkbox.checked = false;
+                });
+                updateHiddenFields();
+                document.getElementById('main-search-form').submit();
+            });
+        }
+
+        // Очистка всех ключевых слов
+        const clearKeywordsBtn = document.querySelector('.clear-keywords-btn');
+        if (clearKeywordsBtn) {
+            clearKeywordsBtn.addEventListener('click', function () {
+                document.querySelectorAll('.keyword-checkbox:checked').forEach(checkbox => {
+                    checkbox.checked = false;
+                });
+                updateHiddenFields();
+                document.getElementById('main-search-form').submit();
+            });
+        }
+
+        // Очистка всех платформ
+        const clearPlatformsBtn = document.querySelector('.clear-platforms-btn');
+        if (clearPlatformsBtn) {
+            clearPlatformsBtn.addEventListener('click', function () {
+                document.querySelectorAll('.platform-checkbox:checked').forEach(checkbox => {
+                    checkbox.checked = false;
+                });
+                updateHiddenFields();
+                document.getElementById('main-search-form').submit();
+            });
+        }
+
+        // Удаление активных тегов
+        document.addEventListener('click', function (e) {
+            // Удаление жанра
+            if (e.target.classList.contains('active-genre-tag')) {
+                const genreId = e.target.getAttribute('data-genre-id');
+                const checkbox = document.querySelector(`.genre-checkbox[value="${genreId}"]`);
+                if (checkbox) {
+                    checkbox.checked = false;
+                    updateHiddenFields();
+                    document.getElementById('main-search-form').submit();
+                }
+            }
+
+            // Удаление ключевого слова
+            if (e.target.classList.contains('active-keyword-tag')) {
+                const keywordId = e.target.getAttribute('data-keyword-id');
+                const checkbox = document.querySelector(`.keyword-checkbox[value="${keywordId}"]`);
+                if (checkbox) {
+                    checkbox.checked = false;
+                    updateHiddenFields();
+                    document.getElementById('main-search-form').submit();
+                }
+            }
+
+            // Удаление платформы
+            if (e.target.classList.contains('active-platform-tag')) {
+                const platformId = e.target.getAttribute('data-platform-id');
+                const checkbox = document.querySelector(`.platform-checkbox[value="${platformId}"]`);
+                if (checkbox) {
+                    checkbox.checked = false;
+                    updateHiddenFields();
+                    document.getElementById('main-search-form').submit();
+                }
+            }
+        });
+
+        // Поиск по жанрам
+        const genreSearch = document.getElementById('genre-search');
+        if (genreSearch) {
+            genreSearch.addEventListener('input', function () {
+                const searchTerm = this.value.toLowerCase();
+                document.querySelectorAll('.genre-item').forEach(item => {
+                    const genreName = item.getAttribute('data-genre-name');
+                    if (genreName.includes(searchTerm)) {
+                        item.style.display = 'block';
+                    } else {
+                        item.style.display = 'none';
+                    }
+                });
+            });
+        }
+
+        // Поиск по ключевым словам
+        const keywordSearch = document.getElementById('keyword-search');
+        if (keywordSearch) {
+            keywordSearch.addEventListener('input', function () {
+                const searchTerm = this.value.toLowerCase();
+                document.querySelectorAll('.keyword-item').forEach(item => {
+                    const keywordName = item.getAttribute('data-keyword-name');
+                    if (keywordName.includes(searchTerm)) {
+                        item.style.display = 'block';
+                    } else {
+                        item.style.display = 'none';
+                    }
+                });
+            });
+        }
+
+        // Поиск по платформам
+        const platformSearch = document.getElementById('platform-search');
+        if (platformSearch) {
+            platformSearch.addEventListener('input', function () {
+                const searchTerm = this.value.toLowerCase();
+                document.querySelectorAll('.platform-item').forEach(item => {
+                    const platformName = item.getAttribute('data-platform-name');
+                    if (platformName.includes(searchTerm)) {
+                        item.style.display = 'block';
+                    } else {
+                        item.style.display = 'none';
+                    }
+                });
+            });
+        }
+
+        // Показать/скрыть все жанры
+        const showAllGenresBtn = document.querySelector('.show-all-genres-btn');
+        if (showAllGenresBtn) {
+            showAllGenresBtn.addEventListener('click', function () {
+                const genreList = document.querySelector('.genre-list');
+                const showText = this.querySelector('.show-text');
+                const hideText = this.querySelector('.hide-text');
+
+                if (genreList.style.maxHeight === '200px') {
+                    genreList.style.maxHeight = 'none';
+                    showText.style.display = 'none';
+                    hideText.style.display = 'inline';
                 } else {
-                    item.style.display = 'none';
+                    genreList.style.maxHeight = '200px';
+                    showText.style.display = 'inline';
+                    hideText.style.display = 'none';
                 }
             });
-        });
-    }
+        }
 
-    // Поиск по ключевым словам
-    const keywordSearch = document.getElementById('keyword-search');
-    if (keywordSearch) {
-        keywordSearch.addEventListener('input', function() {
-            const searchTerm = this.value.toLowerCase();
-            document.querySelectorAll('.keyword-item').forEach(item => {
-                const keywordName = item.getAttribute('data-keyword-name');
-                if (keywordName.includes(searchTerm)) {
-                    item.style.display = 'block';
+        // Показать/скрыть все ключевые слова
+        const showAllKeywordsBtn = document.querySelector('.show-all-keywords-btn');
+        if (showAllKeywordsBtn) {
+            showAllKeywordsBtn.addEventListener('click', function () {
+                const keywordList = document.querySelector('.keyword-list');
+                const showText = this.querySelector('.show-text');
+                const hideText = this.querySelector('.hide-text');
+
+                if (keywordList.style.maxHeight === '200px') {
+                    keywordList.style.maxHeight = 'none';
+                    showText.style.display = 'none';
+                    hideText.style.display = 'inline';
                 } else {
-                    item.style.display = 'none';
+                    keywordList.style.maxHeight = '200px';
+                    showText.style.display = 'inline';
+                    hideText.style.display = 'none';
                 }
             });
-        });
-    }
+        }
 
-    // Показать/скрыть все жанры
-    const showAllGenresBtn = document.querySelector('.show-all-genres-btn');
-    if (showAllGenresBtn) {
-        showAllGenresBtn.addEventListener('click', function() {
-            const genreList = document.querySelector('.genre-list');
-            const showText = this.querySelector('.show-text');
-            const hideText = this.querySelector('.hide-text');
+        // Показать/скрыть все платформы
+        const showAllPlatformsBtn = document.querySelector('.show-all-platforms-btn');
+        if (showAllPlatformsBtn) {
+            showAllPlatformsBtn.addEventListener('click', function () {
+                const platformList = document.querySelector('.platform-list');
+                const showText = this.querySelector('.show-text');
+                const hideText = this.querySelector('.hide-text');
 
-            if (genreList.style.maxHeight === '200px') {
-                genreList.style.maxHeight = 'none';
-                showText.style.display = 'none';
-                hideText.style.display = 'inline';
-            } else {
-                genreList.style.maxHeight = '200px';
-                showText.style.display = 'inline';
-                hideText.style.display = 'none';
+                if (platformList.style.maxHeight === '200px') {
+                    platformList.style.maxHeight = 'none';
+                    showText.style.display = 'none';
+                    hideText.style.display = 'inline';
+                } else {
+                    platformList.style.maxHeight = '200px';
+                    showText.style.display = 'inline';
+                    hideText.style.display = 'none';
+                }
+            });
+        }
+
+        // Авто-отправка формы для чекбоксов и сортировки
+        function setupAutoSubmit() {
+            // Для жанров и ключевых слов - включаем режим похожих игр
+            document.querySelectorAll('.genre-checkbox, .keyword-checkbox').forEach(checkbox => {
+                checkbox.addEventListener('change', function () {
+                    document.getElementById('find_similar_field').value = '1';
+                    document.getElementById('main-search-form').submit();
+                });
+            });
+
+            // Для платформ - НЕ включаем режим похожих игр, просто фильтруем
+            document.querySelectorAll('.platform-checkbox').forEach(checkbox => {
+                checkbox.addEventListener('change', function () {
+                    // Не меняем find_similar_field, оставляем текущее значение
+                    document.getElementById('main-search-form').submit();
+                });
+            });
+
+            const sortSelect = document.querySelector('select[name="sort"]');
+            if (sortSelect) {
+                sortSelect.addEventListener('change', function () {
+                    document.getElementById('main-search-form').submit();
+                });
             }
-        });
-    }
+        }
 
-    // Показать/скрыть все ключевые слова
-    const showAllKeywordsBtn = document.querySelector('.show-all-keywords-btn');
-    if (showAllKeywordsBtn) {
-        showAllKeywordsBtn.addEventListener('click', function() {
-            const keywordList = document.querySelector('.keyword-list');
-            const showText = this.querySelector('.show-text');
-            const hideText = this.querySelector('.hide-text');
-
-            if (keywordList.style.maxHeight === '200px') {
-                keywordList.style.maxHeight = 'none';
-                showText.style.display = 'none';
-                hideText.style.display = 'inline';
-            } else {
-                keywordList.style.maxHeight = '200px';
-                showText.style.display = 'inline';
-                hideText.style.display = 'none';
-            }
-        });
-    }
-});
+        setupAutoSubmit();
+    });
 </script>

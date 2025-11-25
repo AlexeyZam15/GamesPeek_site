@@ -130,6 +130,85 @@ class Platform(models.Model):
         else:
             return 'default'
 
+    def game_count(self):
+        """Количество игр на этой платформе"""
+        return self.game_set.count()
+
+    @property
+    def icon_class(self):
+        """Возвращает CSS класс для иконки платформы"""
+        slug = self.get_platform_slug()
+        return f"platform-icon platform-{slug}"
+
+    @property
+    def icon_url(self):
+        """Возвращает URL иконки платформы"""
+        # Можно использовать локальные иконки или внешние
+        slug = self.get_platform_slug()
+        return f"/static/platforms/{slug}.png"
+        # Или внешние иконки:
+        # return f"https://images.igdb.com/igdb/image/upload/t_platform_logo/{self.igdb_id}.png"
+
+    @property
+    def display_name(self):
+        """Возвращает отображаемое имя платформы"""
+        name_lower = self.name.lower()
+
+        # Исправляем только очень длинные названия
+        if 'pc (microsoft windows)' in name_lower:
+            return 'PC'
+        elif 'xbox series x|s' in name_lower:
+            return 'Xbox Series X/S'
+        elif 'super nintendo entertainment system' in name_lower:
+            return 'Super Nintendo'
+        elif 'commodore c64/128/max' in name_lower:
+            return 'Commodore 64'
+        elif 'sega mega drive/genesis' in name_lower:
+            return 'Sega Genesis'
+        elif '3do interactive multiplayer' in name_lower:
+            return '3DO'
+        elif 'legacy mobile device' in name_lower:
+            return 'Mobile'
+        elif 'turbografx-16/pc engine cd' in name_lower:
+            return 'TurboGrafx-CD'
+        elif 'intellivision amico' in name_lower:
+            return 'Intellivision'
+        elif 'neo geo pocket color' in name_lower:
+            return 'Neo Geo Pocket'
+        elif 'wonderswan color' in name_lower:
+            return 'WonderSwan'
+        elif 'atari 8-bit' in name_lower:
+            return 'Atari 8-bit'
+        elif 'bbc microcomputer system' in name_lower:
+            return 'BBC Micro'
+        elif 'pc-9800 series' in name_lower:
+            return 'PC-9800'
+        elif 'pc-8800 series' in name_lower:
+            return 'PC-8800'
+        elif 'sharp mz-2200' in name_lower:
+            return 'Sharp MZ'
+        elif 'turbografx-16/pc engine' in name_lower:
+            return 'TurboGrafx-16'
+        elif 'nintendo entertainment system' in name_lower:
+            return 'NES'
+        elif 'meta quest' in name_lower:
+            return 'Meta Quest'
+        elif 'playstation vr2' in name_lower:
+            return 'PS VR2'
+        elif 'oculus quest' in name_lower:
+            return 'Oculus Quest'
+        elif 'blackberry os' in name_lower:
+            return 'BlackBerry'
+        elif 'sega cd' in name_lower:
+            return 'Sega CD'
+        elif 'oculus vr' in name_lower:
+            return 'Oculus'
+        elif 'windows' in name_lower:
+            return 'PC'
+
+        # Для остальных оставляем оригинальное название
+        return self.name
+
 
 class Game(models.Model):
     igdb_id = models.IntegerField(unique=True)
