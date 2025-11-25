@@ -58,9 +58,16 @@
             {% endif %}
 
             {% if game.rating %}
-            <div class="d-flex align-items-center mb-2">
+            <div class="d-flex align-items-center mb-1">
                 <small class="text-warning">⭐ {{ game.rating|floatformat:1 }}</small>
                 <small class="text-muted ms-2">({{ game.rating_count }})</small>
+            </div>
+            {% endif %}
+
+            <!-- ГОД ВЫПУСКА -->
+            {% if game.first_release_date %}
+            <div class="release-year">
+                <small class="text-muted">{{ game.first_release_date|date:"Y" }}</small>
             </div>
             {% endif %}
         </div>
