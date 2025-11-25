@@ -13,25 +13,22 @@ def get_find_similar_url(game):
     from django.urls import reverse
     from urllib.parse import urlencode
 
-    # Получаем жанры и ключевые слова игры
+    # Получаем ВСЕ жанры и ключевые слова игры (не только популярные)
     genres = game.genres.all()
     keywords = game.keywords.all()
 
-    # Берем только популярные ключевые слова (например, с usage_count > 5)
-    popular_keywords = [k for k in keywords if k.usage_count > 5][:10]
-
     params = {
         'find_similar': '1',
-        'source_game': game.id,  # ← ДОБАВИТЬ ИСХОДНУЮ ИГРУ
+        'source_game': game.id,  # Передаем ID исходной игры
     }
 
-    # Добавляем жанры
+    # Добавляем ВСЕ жанры
     if genres:
         params['g'] = ','.join(str(g.id) for g in genres)
 
-    # Добавляем ключевые слова
-    if popular_keywords:
-        params['k'] = ','.join(str(k.id) for k in popular_keywords)
+    # Добавляем ВСЕ ключевые слова (не только популярные)
+    if keywords:
+        params['k'] = ','.join(str(k.id) for k in keywords)
 
     base_url = reverse('game_list')
     return f"{base_url}?{urlencode(params)}"

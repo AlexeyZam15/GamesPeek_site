@@ -77,11 +77,15 @@
                 <a href="{% url 'game_detail' game.id %}" class="btn btn-sm btn-outline-primary">
                     <i class="bi bi-info-circle"></i> Details
                 </a>
+
+                <!-- Find Similar Button -->
                 <a href="{% get_find_similar_url game %}" class="btn btn-sm btn-outline-info">
                     <i class="bi bi-search-heart"></i> Find Similar
                 </a>
+
+                <!-- Compare Button -->
                 {% if show_similarity and source_game %}
-                <a href="{% url 'game_comparison' source_game.id game.id %}?similarity={{ similarity_percent|floatformat:0 }}"
+                <a href="{% url 'game_comparison' game.id %}?genres={{ selected_genres|join:',' }}&keywords={{ selected_keywords|join:',' }}&similarity={{ similarity_percent|floatformat:0 }}{% if source_game.source_game_id %}&source_game={{ source_game.source_game_id }}{% endif %}"
                    class="btn btn-sm btn-outline-warning">
                     <i class="bi bi-arrow-left-right"></i> Compare
                 </a>

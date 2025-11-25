@@ -71,11 +71,20 @@ def game_list(request):
 
         # Создаем простой source_game для передачи в шаблон
         class SimpleSourceGame:
-            def __init__(self, genres, keywords):
-                self.id = 0  # Специальный ID для критериев
+            def __init__(self, source_game_id=None, genres=None, keywords=None):
+                self.id = source_game_id
                 self.name = "Search Criteria"
+                self.source_game_id = source_game_id
+                self.genres = genres or []
+                self.keywords = keywords or []
 
-        source_game = SimpleSourceGame(selected_genres_int, selected_keywords_int)
+        # И при создании:
+        source_game_id = request.GET.get('source_game')
+        source_game = SimpleSourceGame(
+            source_game_id=source_game_id,
+            genres=selected_genres_int,
+            keywords=selected_keywords_int
+        )
 
         # Сортировка
         if current_sort == '-rating_count':
@@ -264,18 +273,58 @@ def keyword_category_view(request, category_id):
     return render(request, 'games/keyword_category.html', context)
 
 
-def game_comparison(request, pk1, pk2):
-    """Детальное сравнение двух игр"""
-    game1 = get_object_or_404(
-        Game.objects.prefetch_related('keywords', 'genres', 'platforms'),
-        pk=pk1
-    )
+def game_comparison(request, pk2):
+    """Универсальное сравнение: игра-игра или критерии-игра"""
     game2 = get_object_or_404(
         Game.objects.prefetch_related('keywords', 'genres', 'platforms'),
         pk=pk2
     )
 
-    # Пробуем взять процент из URL, если передан
+    source_game_id = request.GET.get('source_game')
+    genres_param = request.GET.get('genres', '')
+    keywords_param = request.GET.get('keywords', '')
+
+    game1 = None
+    criteria_genres = []
+    criteria_keywords = []
+    is_criteria_comparison = True  # По умолчанию сравниваем с критериями
+
+    # Если есть source_game_id, пытаемся получить исходную игру
+    if source_game_id:
+        try:
+            game1 = Game.objects.get(pk=source_game_id)
+
+            # Получаем критерии исходной игры
+            source_genres = set(game1.genres.values_list('id', flat=True))
+            source_keywords = set(game1.keywords.values_list('id', flat=True))
+
+            # Получаем текущие критерии из URL
+            current_genres = set([int(g) for g in genres_param.split(',') if g.strip()]) if genres_param else set()
+            current_keywords = set(
+                [int(k) for k in keywords_param.split(',') if k.strip()]) if keywords_param else set()
+
+            # Если критерии совпадают с исходной игрой - сравниваем игры
+            if source_genres == current_genres and source_keywords == current_keywords:
+                is_criteria_comparison = False
+            else:
+                # Критерии изменились - сравниваем с критериями
+                criteria_genres = Genre.objects.filter(id__in=current_genres)
+                criteria_keywords = Keyword.objects.filter(id__in=current_keywords)
+
+        except Game.DoesNotExist:
+            # Исходной игры нет - сравниваем с критериями
+            selected_genres = [int(g) for g in genres_param.split(',') if g.strip()] if genres_param else []
+            selected_keywords = [int(k) for k in keywords_param.split(',') if k.strip()] if keywords_param else []
+            criteria_genres = Genre.objects.filter(id__in=selected_genres)
+            criteria_keywords = Keyword.objects.filter(id__in=selected_keywords)
+    else:
+        # Нет source_game_id - сравниваем с критериями
+        selected_genres = [int(g) for g in genres_param.split(',') if g.strip()] if genres_param else []
+        selected_keywords = [int(k) for k in keywords_param.split(',') if k.strip()] if keywords_param else []
+        criteria_genres = Genre.objects.filter(id__in=selected_genres)
+        criteria_keywords = Keyword.objects.filter(id__in=selected_keywords)
+
+    # Получаем similarity из URL
     url_similarity = request.GET.get('similarity')
     if url_similarity:
         try:
@@ -283,13 +332,22 @@ def game_comparison(request, pk1, pk2):
         except (ValueError, TypeError):
             similarity_score = 0
     else:
-        # Используем обычный расчет как fallback
-        similarity_engine = GameSimilarity()
-        similarity_score = similarity_engine.calculate_similarity(game1, game2)
+        # Если не передан, рассчитываем (только для режима игра-игра)
+        if game1 and not is_criteria_comparison:
+            similarity_engine = GameSimilarity()
+            similarity_score = similarity_engine.calculate_similarity(game1, game2)
+        else:
+            similarity_score = 0
 
     # Рассчитываем общие элементы
-    shared_genres = game1.genres.all() & game2.genres.all()
-    shared_keywords = game1.keywords.all() & game2.keywords.all()
+    if is_criteria_comparison:
+        # Режим критерии-игра
+        shared_genres = game2.genres.all() & criteria_genres
+        shared_keywords = game2.keywords.all() & criteria_keywords
+    else:
+        # Режим игра-игра
+        shared_genres = game1.genres.all() & game2.genres.all()
+        shared_keywords = game1.keywords.all() & game2.keywords.all()
 
     shared_genres_count = shared_genres.count()
     shared_keywords_count = shared_keywords.count()
@@ -306,12 +364,15 @@ def game_comparison(request, pk1, pk2):
     context = {
         'game1': game1,
         'game2': game2,
+        'criteria_genres': criteria_genres,
+        'criteria_keywords': criteria_keywords,
         'similarity_score': similarity_score,
         'shared_genres': shared_genres,
         'shared_keywords': shared_keywords,
         'shared_genres_count': shared_genres_count,
         'shared_keywords_count': shared_keywords_count,
         'shared_keywords_by_category': shared_keywords_by_category,
+        'is_criteria_comparison': is_criteria_comparison,
     }
     return render(request, 'games/game_comparison.html', context)
 

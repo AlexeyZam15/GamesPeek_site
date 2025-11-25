@@ -1,38 +1,69 @@
 {% extends 'base.html' %}
 
-{% block title %}Compare: {{ game1.name }} vs {{ game2.name }} - GamesPeek{% endblock %}
+{% block title %}
+    {% if is_criteria_comparison %}
+        Compare: Search Criteria vs {{ game2.name }} - GamesPeek
+    {% else %}
+        Compare: {{ game1.name }} vs {{ game2.name }} - GamesPeek
+    {% endif %}
+{% endblock %}
 
 {% block content %}
 <div class="comparison-hero">
     <div class="row align-items-center">
-        <!-- Game 1 -->
+        <!-- ЛЕВАЯ СТОРОНА: Игра или Критерии -->
         <div class="col-md-5 text-center">
             <div class="game-comparison-card">
-                <a href="{% url 'game_detail' game1.pk %}" class="game-link">
-                    {% if game1.cover_url %}
-                    <img src="{{ game1.cover_url }}" class="card-img-top comparison-cover" alt="{{ game1.name }}">
-                    {% else %}
-                    <div class="comparison-cover bg-light d-flex align-items-center justify-content-center">
-                        <span class="text-muted">No Cover</span>
+                {% if is_criteria_comparison %}
+                    <!-- КРИТЕРИИ -->
+                    <div class="criteria-header">
+                        <i class="bi bi-search" style="font-size: 4rem; color: #6c757d;"></i>
+                        <h3 class="game-title mt-3">Search Criteria</h3>
                     </div>
-                    {% endif %}
-                </a>
-                <div class="card-body">
-                    <a href="{% url 'game_detail' game1.pk %}" class="text-decoration-none">
-                        <h3 class="game-title">{{ game1.name }}</h3>
+                    <div class="card-body">
+                        {% if criteria_genres %}
+                        <div class="game-genres">
+                            {% for genre in criteria_genres %}
+                            <span class="badge bg-danger mb-1">{{ genre.name }}</span>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                        {% if criteria_keywords %}
+                        <div class="game-keywords mt-2">
+                            {% for keyword in criteria_keywords %}
+                            <span class="badge bg-info mb-1">{{ keyword.name }}</span>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                {% else %}
+                    <!-- ИГРА 1 -->
+                    <a href="{% url 'game_detail' game1.pk %}" class="game-link">
+                        {% if game1.cover_url %}
+                        <img src="{{ game1.cover_url }}" class="card-img-top comparison-cover" alt="{{ game1.name }}">
+                        {% else %}
+                        <div class="comparison-cover bg-light d-flex align-items-center justify-content-center">
+                            <span class="text-muted">No Cover</span>
+                        </div>
+                        {% endif %}
                     </a>
-                    <div class="game-genres">
-                        {% for genre in game1.genres.all %}
-                        <span class="badge bg-danger mb-1">{{ genre.name }}</span>
-                        {% endfor %}
+                    <div class="card-body">
+                        <a href="{% url 'game_detail' game1.pk %}" class="text-decoration-none">
+                            <h3 class="game-title">{{ game1.name }}</h3>
+                        </a>
+                        <div class="game-genres">
+                            {% for genre in game1.genres.all %}
+                            <span class="badge bg-danger mb-1">{{ genre.name }}</span>
+                            {% endfor %}
+                        </div>
+                        {% if game1.rating %}
+                        <div class="game-rating mt-2">
+                            <span class="text-warning">⭐ {{ game1.rating|floatformat:1 }}</span>
+                            <small class="text-muted">({{ game1.rating_count }} ratings)</small>
+                        </div>
+                        {% endif %}
                     </div>
-                    {% if game1.rating %}
-                    <div class="game-rating mt-2">
-                        <span class="text-warning">⭐ {{ game1.rating|floatformat:1 }}</span>
-                        <small class="text-muted">({{ game1.rating_count }} ratings)</small>
-                    </div>
-                    {% endif %}
-                </div>
+                {% endif %}
             </div>
         </div>
 
@@ -52,7 +83,7 @@
             </div>
         </div>
 
-        <!-- Game 2 -->
+        <!-- ПРАВАЯ СТОРОНА: Игра 2 -->
         <div class="col-md-5 text-center">
             <div class="game-comparison-card">
                 <a href="{% url 'game_detail' game2.pk %}" class="game-link">
@@ -85,6 +116,7 @@
     </div>
 </div>
 
+<!-- Остальная часть шаблона остается без изменений -->
 <!-- Quick Stats -->
 <div class="row mb-4">
     <div class="col-md-6">
@@ -181,12 +213,21 @@
 <div class="row mt-4">
     <div class="col-12">
         <div class="action-buttons">
+            {% if is_criteria_comparison %}
+            <a href="{% url 'game_list' %}?find_similar=1&g={{ criteria_genres|join:',' }}&k={{ criteria_keywords|join:',' }}"
+               class="btn btn-outline-primary btn-lg">
+                <i class="bi bi-arrow-left"></i> Back to Similar Games
+            </a>
+            {% else %}
             <a href="{% url 'game_detail' game1.pk %}" class="btn btn-outline-primary btn-lg">
                 <i class="bi bi-arrow-left"></i> Back to {{ game1.name }}
             </a>
+            {% endif %}
+
             <a href="{% url 'game_detail' game2.pk %}" class="btn btn-outline-primary btn-lg">
                 Back to {{ game2.name }} <i class="bi bi-arrow-right"></i>
             </a>
+
             <a href="{% url 'game_list' %}" class="btn btn-primary-gradient btn-lg">
                 <i class="bi bi-search"></i> Find More Games
             </a>

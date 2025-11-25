@@ -65,7 +65,7 @@
 
                                 <!-- Кнопки действий -->
                                 <div class="d-flex flex-wrap gap-2 mt-3">
-                                    <a href="{% url 'game_list' %}?find_similar=1{% for genre in game.genres.all %}&genre={{ genre.id }}{% endfor %}{% for keyword in game.keywords.all|slice:':5' %}&keyword={{ keyword.id }}{% endfor %}"
+                                    <a href="{% get_find_similar_url game %}"
                                        class="btn btn-primary-gradient px-3 py-2 fw-bold">
                                         <i class="bi bi-search-heart me-1"></i>Find Similar
                                     </a>
