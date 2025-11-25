@@ -1,213 +1,255 @@
+<!-- Блок фильтров -->
 <div class="card mb-4">
     <div class="card-body">
         <form method="get" id="main-search-form">
-            <!-- Скрытые параметры для компактного формата -->
+            <!-- Скрытые параметры -->
             <input type="hidden" name="find_similar" id="find_similar_field"
-                   value="{% if find_similar %}1{% else %}0{% endif %}"> <input type="hidden" name="k"
-                                                                                id="keywords-field"
-                                                                                value="
-
-                                                                                        {{ selected_keywords|join:',' }}">
+                   value="{% if find_similar %}1{% else %}0{% endif %}">
+            <input type="hidden" name="k" id="keywords-field" value="{{ selected_keywords|join:',' }}">
             <input type="hidden" name="p" id="platforms-field" value="{{ selected_platforms|join:',' }}">
+            <input type="hidden" name="g" id="genres-field" value="{{ selected_genres|join:',' }}">
 
             <div class="row g-3">
-                <!-- Сортировка -->
-                <div class="col-md-6">
-                    <label class="form-label">Sort by:</label>
-                    <select name="sort" class="form-select">
-                        <option value="-similarity"
-                                {% if current_sort == "-similarity" and find_similar %}selected{% endif %}>Most Similar
-                        </option>
-                        <option value="-rating_count" {% if current_sort == "-rating_count" %}selected{% endif %}>Most
-                            Popular
-                        </option>
-                        <option value="-rating" {% if current_sort == "-rating" %}selected{% endif %}>Highest Rated
-                        </option>
-                        <option value="name" {% if current_sort == "name" %}selected{% endif %}>Name A-Z</option>
-                        <option value="-name" {% if current_sort == "-name" %}selected{% endif %}>Name Z-A</option>
-                        <option value="-first_release_date"
-                                {% if current_sort == "-first_release_date" %}selected{% endif %}>Newest First
-                        </option>
-                    </select>
-                </div>
+                <!-- Встроенная сортировка -->
+                {% include 'games/partials/_sort_form.html' %}
 
-                <!-- Жанры -->
+                <!-- Поисковые фильтры -->
                 <div class="col-12">
-                    <label class="form-label">Filter by Genres:</label>
-                    <input type="text" class="form-control mb-2" id="genre-search" placeholder="Search genres..."
-                           autocomplete="off">
+                    <div class="search-filter-section">
+                        <h6 class="border-bottom pb-2 mb-3 toggle-section" data-target="search-filters-content"
+                            style="cursor: pointer;">
+                            <i class="bi bi-chevron-down me-2"></i>🔍 Search Filters
+                        </h6>
+                        <div id="search-filters-content">
+                            <div class="filter-subsection">
+                                <label class="form-label toggle-subsection" data-target="platforms-content"
+                                       style="cursor: pointer;">
+                                    <i class="bi bi-chevron-down me-1"></i>Platforms:
+                                </label>
+                                <div id="platforms-content">
+                                    <input type="text" class="form-control mb-2" id="platform-search"
+                                           placeholder="Search platforms..." autocomplete="off">
 
-                    <!-- Активные жанры -->
-                    <div id="active-genres" class="mb-2">
-                        {% if selected_genres %}
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <div class="d-flex align-items-center gap-2">
-                                    <button type="button" class="btn btn-sm clear-genres-btn btn-outline-primary"
-                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;">
-                                        <i class="bi bi-x-circle me-1"></i>Clear All
-                                    </button>
-                                    <small class="text-muted" style="font-weight: 500;">Selected genres
-                                        ({{ selected_genres|length }})</small>
-                                </div>
-                            </div>
-                        {% endif %}
+                                    <!-- Активные платформы -->
+                                    <div id="active-platforms" class="mb-2">
+                                        {% if selected_platforms %}
+                                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <button type="button"
+                                                            class="btn btn-sm clear-platforms-btn btn-outline-info"
+                                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;">
+                                                        <i class="bi bi-x-circle me-1"></i>Clear All
+                                                    </button>
+                                                    <small class="text-muted" style="font-weight: 500;">
+                                                        Selected platforms ({{ selected_platforms|length }})
+                                                    </small>
+                                                </div>
+                                            </div>
+                                        {% endif %}
 
-                        {% for genre in genres %}
-                            {% if genre.id in selected_genres %}
-                                <span class="badge bg-primary me-1 mb-1 active-genre-tag" data-genre-id="{{ genre.id }}"
-                                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
-                                {{ genre.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
-                            </span>
-                            {% endif %}
-                        {% endfor %}
-                    </div>
+                                        {% for platform in platforms %}
+                                            {% if platform.id in selected_platforms %}
+                                                <span class="badge bg-info me-1 mb-1 active-platform-tag"
+                                                      data-platform-id="{{ platform.id }}"
+                                                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                                    {{ platform.display_name }}
+                                                    <span class="text-light">({{ platform.game_count }})</span>
+                                                    <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                                                </span>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </div>
 
-                    <!-- Список жанров -->
-                    <div class="genre-list border rounded p-2" style="max-height: 200px; overflow-y: auto;">
-                        <div class="genre-grid"
-                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
-                            {% for genre in genres %}
-                                <div class="genre-item" data-genre-name="{{ genre.name|lower }}">
-                                    <div class="form-check">
-                                        <input class="form-check-input genre-checkbox" type="checkbox"
-                                               value="{{ genre.id }}" id="genre_{{ genre.id }}"
-                                               {% if genre.id in selected_genres %}checked{% endif %}>
-                                        <label class="form-check-label small" for="genre_{{ genre.id }}">
-                                            {{ genre.name }}
-                                        </label>
+                                    <!-- Список платформ -->
+                                    <div class="platform-list border rounded p-2"
+                                         style="max-height: 200px; overflow-y: auto;">
+                                        <div class="platform-grid"
+                                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                                            {% for platform in platforms %}
+                                                <div class="platform-item"
+                                                     data-platform-name="{{ platform.name|lower }}">
+                                                    <div class="form-check">
+                                                        <input class="form-check-input platform-checkbox"
+                                                               type="checkbox"
+                                                               value="{{ platform.id }}" id="platform_{{ platform.id }}"
+                                                               {% if platform.id in selected_platforms %}checked{% endif %}>
+                                                        <label class="form-check-label small"
+                                                               for="platform_{{ platform.id }}">
+                                                            {{ platform.display_name }}
+                                                            <span class="text-muted">({{ platform.game_count }})</span>
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+
+                                    <!-- Кнопка "Show all platforms" -->
+                                    <div class="text-center mt-2">
+                                        <button type="button"
+                                                class="btn btn-outline-secondary btn-sm show-all-platforms-btn">
+                                            <span class="show-text">Show all platforms</span>
+                                            <span class="hide-text" style="display: none;">Show less</span>
+                                        </button>
                                     </div>
                                 </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-
-                    <!-- Кнопка "Show all genres" -->
-                    <div class="text-center mt-2">
-                        <button type="button" class="btn btn-outline-secondary btn-sm show-all-genres-btn">
-                            <span class="show-text">Show all genres</span>
-                            <span class="hide-text" style="display: none;">Show less</span>
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Ключевые слова -->
-                <div class="col-12">
-                    <label class="form-label">Filter by Features:</label>
-                    <input type="text" class="form-control mb-2" id="keyword-search" placeholder="Search features..."
-                           autocomplete="off">
-
-                    <!-- Активные ключевые слова -->
-                    <div id="active-keywords" class="mb-2">
-                        {% if selected_keywords %}
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <div class="d-flex align-items-center gap-2">
-                                    <button type="button" class="btn btn-sm clear-keywords-btn btn-outline-primary"
-                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;">
-                                        <i class="bi bi-x-circle me-1"></i>Clear All
-                                    </button>
-                                    <small class="text-muted" style="font-weight: 500;">Selected features
-                                        ({{ selected_keywords|length }})</small>
-                                </div>
                             </div>
-                        {% endif %}
-
-                        {% for keyword in popular_keywords %}
-                            {% if keyword.id in selected_keywords %}
-                                <span class="badge bg-success me-1 mb-1 active-keyword-tag"
-                                      data-keyword-id="{{ keyword.id }}"
-                                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
-                                {{ keyword.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
-                            </span>
-                            {% endif %}
-                        {% endfor %}
-                    </div>
-
-                    <!-- Список ключевых слов -->
-                    <div class="keyword-list border rounded p-2" style="max-height: 200px; overflow-y: auto;">
-                        <div class="keyword-grid"
-                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
-                            {% for keyword in popular_keywords %}
-                                <div class="keyword-item" data-keyword-name="{{ keyword.name|lower }}">
-                                    <div class="form-check">
-                                        <input class="form-check-input keyword-checkbox" type="checkbox"
-                                               value="{{ keyword.id }}" id="keyword_{{ keyword.id }}"
-                                               {% if keyword.id in selected_keywords %}checked{% endif %}>
-                                        <label class="form-check-label small" for="keyword_{{ keyword.id }}">
-                                            {{ keyword.name }}
-                                        </label>
-                                    </div>
-                                </div>
-                            {% endfor %}
                         </div>
-                    </div>
-
-                    <!-- Кнопка "Show all features" -->
-                    <div class="text-center mt-2">
-                        <button type="button" class="btn btn-outline-secondary btn-sm show-all-keywords-btn">
-                            <span class="show-text">Show all features</span>
-                            <span class="hide-text" style="display: none;">Show less</span>
-                        </button>
                     </div>
                 </div>
 
-                <!-- Платформы -->
+                <!-- Фильтры похожести -->
                 <div class="col-12">
-                    <label class="form-label">Filter by Platforms:</label>
-                    <input type="text" class="form-control mb-2" id="platform-search" placeholder="Search platforms..."
-                           autocomplete="off">
+                    <div class="similarity-filter-section">
+                        <h6 class="border-bottom pb-2 mb-3 toggle-section" data-target="similarity-filters-content"
+                            style="cursor: pointer;">
+                            <i class="bi bi-chevron-down me-2"></i>🎯 Find Similar Games
+                        </h6>
+                        <div id="similarity-filters-content">
+                            <!-- Genres -->
+                            <div class="filter-subsection">
+                                <label class="form-label toggle-subsection" data-target="genres-content"
+                                       style="cursor: pointer;">
+                                    <i class="bi bi-chevron-down me-1"></i>Genres:
+                                </label>
+                                <div id="genres-content">
+                                    <input type="text" class="form-control mb-2" id="genre-search"
+                                           placeholder="Search genres..." autocomplete="off">
 
-                    <!-- Активные платформы -->
-                    <div id="active-platforms" class="mb-2">
-                        {% if selected_platforms %}
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <div class="d-flex align-items-center gap-2">
-                                    <button type="button" class="btn btn-sm clear-platforms-btn btn-outline-info"
-                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;">
-                                        <i class="bi bi-x-circle me-1"></i>Clear All
-                                    </button>
-                                    <small class="text-muted" style="font-weight: 500;">Selected platforms
-                                        ({{ selected_platforms|length }})</small>
-                                </div>
-                            </div>
-                        {% endif %}
+                                    <!-- Активные жанры -->
+                                    <div id="active-genres" class="mb-2">
+                                        {% if selected_genres %}
+                                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <button type="button"
+                                                            class="btn btn-sm clear-genres-btn btn-outline-primary"
+                                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;">
+                                                        <i class="bi bi-x-circle me-1"></i>Clear All
+                                                    </button>
+                                                    <small class="text-muted" style="font-weight: 500;">
+                                                        Selected genres ({{ selected_genres|length }})
+                                                    </small>
+                                                </div>
+                                            </div>
+                                        {% endif %}
 
-                        <!-- В секции активных платформ -->
-                        {% for platform in platforms %}
-                            {% if platform.id in selected_platforms %}
-                                <span class="badge bg-info me-1 mb-1 active-platform-tag" data-platform-id="{{ platform.id }}"
-      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
-    {{ platform.display_name }} <span class="text-light">({{ platform.game_count }})</span> <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
-</span>
-                            {% endif %}
-                        {% endfor %}
-                    </div>
+                                        {% for genre in genres %}
+                                            {% if genre.id in selected_genres %}
+                                                <span class="badge bg-primary me-1 mb-1 active-genre-tag"
+                                                      data-genre-id="{{ genre.id }}"
+                                                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                                            {{ genre.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                                                        </span>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </div>
 
-                    <!-- Список платформ -->
-                    <div class="platform-list border rounded p-2" style="max-height: 200px; overflow-y: auto;">
-                        <div class="platform-grid"
-                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
-                            {% for platform in platforms %}
-                                <div class="platform-item" data-platform-name="{{ platform.name|lower }}">
-                                    <div class="form-check">
-                                        <input class="form-check-input platform-checkbox" type="checkbox"
-                                               value="{{ platform.id }}" id="platform_{{ platform.id }}"
-                                               {% if platform.id in selected_platforms %}checked{% endif %}>
-                                        <label class="form-check-label small" for="platform_{{ platform.id }}">
-                                            {{ platform.display_name }}
-                                            <span class="text-muted">({{ platform.game_count }})</span>
-                                        </label>
+                                    <!-- Список жанров -->
+                                    <div class="genre-list border rounded p-2"
+                                         style="max-height: 200px; overflow-y: auto;">
+                                        <div class="genre-grid"
+                                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                                            {% for genre in genres %}
+                                                <div class="genre-item" data-genre-name="{{ genre.name|lower }}">
+                                                    <div class="form-check">
+                                                        <input class="form-check-input genre-checkbox"
+                                                               type="checkbox"
+                                                               value="{{ genre.id }}" id="genre_{{ genre.id }}"
+                                                               {% if genre.id in selected_genres %}checked{% endif %}>
+                                                        <label class="form-check-label small"
+                                                               for="genre_{{ genre.id }}">
+                                                            {{ genre.name }}
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+
+                                    <!-- Кнопка "Show all genres" -->
+                                    <div class="text-center mt-2">
+                                        <button type="button"
+                                                class="btn btn-outline-secondary btn-sm show-all-genres-btn">
+                                            <span class="show-text">Show all genres</span>
+                                            <span class="hide-text" style="display: none;">Show less</span>
+                                        </button>
                                     </div>
                                 </div>
-                            {% endfor %}
-                        </div>
-                    </div>
+                            </div>
 
-                    <!-- Кнопка "Show all platforms" -->
-                    <div class="text-center mt-2">
-                        <button type="button" class="btn btn-outline-secondary btn-sm show-all-platforms-btn">
-                            <span class="show-text">Show all platforms</span>
-                            <span class="hide-text" style="display: none;">Show less</span>
-                        </button>
+                            <!-- Features -->
+                            <div class="filter-subsection mt-3">
+                                <label class="form-label toggle-subsection" data-target="features-content"
+                                       style="cursor: pointer;">
+                                    <i class="bi bi-chevron-down me-1"></i>Features:
+                                </label>
+                                <div id="features-content">
+                                    <input type="text" class="form-control mb-2" id="keyword-search"
+                                           placeholder="Search features..." autocomplete="off">
+
+                                    <!-- Активные ключевые слова -->
+                                    <div id="active-keywords" class="mb-2">
+                                        {% if selected_keywords %}
+                                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <button type="button"
+                                                            class="btn btn-sm clear-keywords-btn btn-outline-success"
+                                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;">
+                                                        <i class="bi bi-x-circle me-1"></i>Clear All
+                                                    </button>
+                                                    <small class="text-muted" style="font-weight: 500;">
+                                                        Selected features ({{ selected_keywords|length }})
+                                                    </small>
+                                                </div>
+                                            </div>
+                                        {% endif %}
+
+                                        {% for keyword in popular_keywords %}
+                                            {% if keyword.id in selected_keywords %}
+                                                <span class="badge bg-success me-1 mb-1 active-keyword-tag"
+                                                      data-keyword-id="{{ keyword.id }}"
+                                                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                                            {{ keyword.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                                                        </span>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </div>
+
+                                    <!-- Список ключевых слов -->
+                                    <div class="keyword-list border rounded p-2"
+                                         style="max-height: 200px; overflow-y: auto;">
+                                        <div class="keyword-grid"
+                                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                                            {% for keyword in popular_keywords %}
+                                                <div class="keyword-item"
+                                                     data-keyword-name="{{ keyword.name|lower }}">
+                                                    <div class="form-check">
+                                                        <input class="form-check-input keyword-checkbox"
+                                                               type="checkbox"
+                                                               value="{{ keyword.id }}"
+                                                               id="keyword_{{ keyword.id }}"
+                                                               {% if keyword.id in selected_keywords %}checked{% endif %}>
+                                                        <label class="form-check-label small"
+                                                               for="keyword_{{ keyword.id }}">
+                                                            {{ keyword.name }}
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+
+                                    <!-- Кнопка "Show all features" -->
+                                    <div class="text-center mt-2">
+                                        <button type="button"
+                                                class="btn btn-outline-secondary btn-sm show-all-keywords-btn">
+                                            <span class="show-text">Show all features</span>
+                                            <span class="hide-text" style="display: none;">Show less</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -227,6 +269,17 @@
 
 <script>
     document.addEventListener('DOMContentLoaded', function () {
+        // Инициализация - скрываем все блоки при загрузке
+        document.querySelectorAll('[id$="-content"]').forEach(content => {
+            content.style.display = 'none';
+        });
+
+        // Меняем иконки на chevron-right
+        document.querySelectorAll('.toggle-section i, .toggle-subsection i').forEach(icon => {
+            icon.classList.remove('bi-chevron-down');
+            icon.classList.add('bi-chevron-right');
+        });
+
         // Обновляем скрытые поля при изменении чекбоксов
         function updateHiddenFields() {
             // Обновляем жанры
@@ -463,6 +516,44 @@
                 });
             }
         }
+
+        // Переключение секций
+        document.querySelectorAll('.toggle-section').forEach(section => {
+            section.addEventListener('click', function () {
+                const targetId = this.getAttribute('data-target');
+                const targetContent = document.getElementById(targetId);
+                const icon = this.querySelector('i');
+
+                if (targetContent.style.display === 'none') {
+                    targetContent.style.display = 'block';
+                    icon.classList.remove('bi-chevron-right');
+                    icon.classList.add('bi-chevron-down');
+                } else {
+                    targetContent.style.display = 'none';
+                    icon.classList.remove('bi-chevron-down');
+                    icon.classList.add('bi-chevron-right');
+                }
+            });
+        });
+
+        // Переключение подсекций (Platforms, Genres, Features)
+        document.querySelectorAll('.toggle-subsection').forEach(subsection => {
+            subsection.addEventListener('click', function () {
+                const targetId = this.getAttribute('data-target');
+                const targetContent = document.getElementById(targetId);
+                const icon = this.querySelector('i');
+
+                if (targetContent.style.display === 'none') {
+                    targetContent.style.display = 'block';
+                    icon.classList.remove('bi-chevron-right');
+                    icon.classList.add('bi-chevron-down');
+                } else {
+                    targetContent.style.display = 'none';
+                    icon.classList.remove('bi-chevron-down');
+                    icon.classList.add('bi-chevron-right');
+                }
+            });
+        });
 
         setupAutoSubmit();
     });

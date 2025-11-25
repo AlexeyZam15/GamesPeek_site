@@ -1,0 +1,40 @@
+<!-- Секция сортировки -->
+<div class="col-12">
+    <div class="sorting-section border-bottom pb-3 mb-3">
+        <div class="row align-items-center">
+            <div class="col-md-2">
+                <label class="form-label mb-0"><strong>Sort by:</strong></label>
+            </div>
+            <div class="col-md-6">
+                <select name="sort" class="form-select">
+                    <option value="-similarity" {% if current_sort == "-similarity" and find_similar %}selected{% endif %}>
+                        Most Similar
+                    </option>
+                    <option value="-rating_count" {% if current_sort == "-rating_count" %}selected{% endif %}>
+                        Most Popular
+                    </option>
+                    <option value="-rating" {% if current_sort == "-rating" %}selected{% endif %}>
+                        Highest Rated
+                    </option>
+                    <option value="name" {% if current_sort == "name" %}selected{% endif %}>
+                        Name A-Z
+                    </option>
+                    <option value="-name" {% if current_sort == "-name" %}selected{% endif %}>
+                        Name Z-A
+                    </option>
+                    <option value="-first_release_date" {% if current_sort == "-first_release_date" %}selected{% endif %}>
+                        Newest First
+                    </option>
+                    <option value="first_release_date" {% if current_sort == "first_release_date" %}selected{% endif %}>
+                        Oldest First
+                    </option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <button type="submit" class="btn btn-outline-primary w-100">
+                    <i class="bi bi-arrow-down-up"></i> Apply Sort
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
