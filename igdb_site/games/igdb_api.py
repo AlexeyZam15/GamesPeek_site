@@ -83,3 +83,38 @@ def make_igdb_request(endpoint, query, debug=None):
     except requests.exceptions.RequestException as e:
         print(f"❌ IGDB API request failed: {e}")
         raise Exception(f"IGDB API request failed: {e}")
+
+
+def get_companies(company_ids):
+    """Получает данные о компаниях из IGDB"""
+    fields = "id,name,description,country,logo.url,website"
+    query = f'fields {fields}; where id = ({",".join(map(str, company_ids))});'
+    return make_igdb_request('companies', query)
+
+
+def get_themes(theme_ids):
+    """Получает данные о темах из IGDB"""
+    fields = "id,name"
+    query = f'fields {fields}; where id = ({",".join(map(str, theme_ids))});'
+    return make_igdb_request('themes', query)
+
+
+def get_player_perspectives(perspective_ids):
+    """Получает данные о перспективах игрока из IGDB"""
+    fields = "id,name"
+    query = f'fields {fields}; where id = ({",".join(map(str, perspective_ids))});'
+    return make_igdb_request('player_perspectives', query)
+
+
+def get_game_modes(mode_ids):
+    """Получает данные о режимах игры из IGDB"""
+    fields = "id,name"
+    query = f'fields {fields}; where id = ({",".join(map(str, mode_ids))});'
+    return make_igdb_request('game_modes', query)
+
+
+def get_series(series_ids):
+    """Получает данные о сериях из IGDB"""
+    fields = "id,name,description,created_at"
+    query = f'fields {fields}; where id = ({",".join(map(str, series_ids))});'
+    return make_igdb_request('collections', query)  # В IGDB серии называются collections

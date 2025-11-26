@@ -1,6 +1,90 @@
 from django.db import models
 
 
+class Company(models.Model):
+    """Компании (разработчики и издатели)"""
+    igdb_id = models.IntegerField(unique=True)
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
+    country = models.IntegerField(blank=True, null=True)  # country code from IGDB
+    logo_url = models.URLField(blank=True, null=True)
+    website = models.URLField(blank=True, null=True)
+
+    # Типы компании
+    DEVELOPER = 'developer'
+    PUBLISHER = 'publisher'
+    SUPPORTING = 'supporting'
+    PORTING = 'porting'
+    COMPANY_TYPE_CHOICES = [
+        (DEVELOPER, 'Developer'),
+        (PUBLISHER, 'Publisher'),
+        (SUPPORTING, 'Supporting'),
+        (PORTING, 'Porting'),
+    ]
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        verbose_name_plural = "Companies"
+        ordering = ['name']
+
+
+class Series(models.Model):
+    """Игровые серии (например, The Legend of Zelda, Final Fantasy)"""
+    igdb_id = models.IntegerField(unique=True)
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+    def game_count(self):
+        """Количество игр в серии"""
+        return self.games.count()
+
+    class Meta:
+        verbose_name_plural = "Series"
+        ordering = ['name']
+
+
+class Theme(models.Model):
+    """Темы игр (например, Fantasy, Horror, Sci-Fi)"""
+    igdb_id = models.IntegerField(unique=True)
+    name = models.CharField(max_length=100)
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        ordering = ['name']
+
+
+class PlayerPerspective(models.Model):
+    """Перспектива игрока (например, First-person, Third-person)"""
+    igdb_id = models.IntegerField(unique=True)
+    name = models.CharField(max_length=100)
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        ordering = ['name']
+
+
+class GameMode(models.Model):
+    """Режимы игры (например, Single-player, Multiplayer)"""
+    igdb_id = models.IntegerField(unique=True)
+    name = models.CharField(max_length=100)
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        ordering = ['name']
+
+
 class KeywordCategory(models.Model):
     """Категория ключевых слов (геймплей, сеттинг, etc.)"""
     name = models.CharField(max_length=100)
@@ -219,10 +303,43 @@ class Game(models.Model):
     rating_count = models.IntegerField(default=0)
     first_release_date = models.DateTimeField(blank=True, null=True)
 
-    # Связи
+    # Существующие связи
     genres = models.ManyToManyField(Genre, blank=True)
     platforms = models.ManyToManyField(Platform, blank=True)
-    keywords = models.ManyToManyField(Keyword, blank=True)  # Все ключевые слова
+    keywords = models.ManyToManyField(Keyword, blank=True)
+
+    # НОВЫЕ СВЯЗИ
+    series = models.ForeignKey(
+        Series,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='games'
+    )
+
+    # Для порядка игр в серии (если применимо)
+    series_order = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Порядковый номер в серии (1, 2, 3...)"
+    )
+
+    # Связи с компаниями
+    developers = models.ManyToManyField(
+        Company,
+        related_name='developed_games',
+        blank=True
+    )
+    publishers = models.ManyToManyField(
+        Company,
+        related_name='published_games',
+        blank=True
+    )
+
+    # Новые категории
+    themes = models.ManyToManyField(Theme, blank=True)
+    player_perspectives = models.ManyToManyField(PlayerPerspective, blank=True)
+    game_modes = models.ManyToManyField(GameMode, blank=True)
 
     cover_url = models.URLField(blank=True, null=True)
 
@@ -232,10 +349,67 @@ class Game(models.Model):
     class Meta:
         ordering = ['-rating_count']
 
-    # Property для удобного доступа к ключевым словам по категориям
+    # НОВЫЕ PROPERTY ДЛЯ СЕРИЙ
+    @property
+    def is_part_of_series(self):
+        """Принадлежит ли игра к какой-либо серии"""
+        return self.series is not None
+
+    @property
+    def display_series_info(self):
+        """Отображаемая информация о серии"""
+        if self.series and self.series_order:
+            return f"{self.series.name} #{self.series_order}"
+        elif self.series:
+            return self.series.name
+        return "Standalone Game"
+
+    def get_series_games(self):
+        """Возвращает все игры из той же серии"""
+        if self.series:
+            return self.series.games.exclude(id=self.id).order_by('series_order', 'first_release_date')
+        return Game.objects.none()
+
+    # PROPERTY ДЛЯ КОМПАНИЙ
+    @property
+    def main_developer(self):
+        """Основной разработчик (первый в списке)"""
+        return self.developers.first()
+
+    @property
+    def main_publisher(self):
+        """Основной издатель (первый в списке)"""
+        return self.publishers.first()
+
+    @property
+    def developer_names(self):
+        """Список имен разработчиков"""
+        return list(self.developers.values_list('name', flat=True))
+
+    @property
+    def publisher_names(self):
+        """Список имен издателей"""
+        return list(self.publishers.values_list('name', flat=True))
+
+    # PROPERTY ДЛЯ ТЕМ И ПЕРСПЕКТИВ
+    @property
+    def theme_names(self):
+        """Список тем"""
+        return list(self.themes.values_list('name', flat=True))
+
+    @property
+    def perspective_names(self):
+        """Список перспектив"""
+        return list(self.player_perspectives.values_list('name', flat=True))
+
+    @property
+    def game_mode_names(self):
+        """Список режимов игры"""
+        return list(self.game_modes.values_list('name', flat=True))
+
+    # Существующие property для ключевых слов остаются без изменений
     @property
     def gameplay_keywords(self):
-        """Возвращает только геймплейные ключевые слова"""
         return self.keywords.filter(category__name='Gameplay')
 
     @property
