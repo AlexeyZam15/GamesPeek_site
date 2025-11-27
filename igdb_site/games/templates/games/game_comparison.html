@@ -19,7 +19,7 @@
                             <!-- ЛЕВАЯ СТОРОНА: Игра или Критерии -->
                             <div class="col-md-5 text-center">
                                 {% if is_criteria_comparison %}
-                                    {% include 'games/partials/_comparison_game_card.html' with criteria_genres=criteria_genres criteria_keywords=criteria_keywords criteria_themes=criteria_themes criteria_perspectives=criteria_perspectives criteria_developers=criteria_developers %}
+                                    {% include 'games/partials/_comparison_game_card.html' with criteria_genres=criteria_genres criteria_keywords=criteria_keywords criteria_themes=criteria_themes criteria_perspectives=criteria_perspectives criteria_developers=criteria_developers criteria_game_modes=criteria_game_modes %}
                                 {% else %}
                                     {% include 'games/partials/_comparison_game_card.html' with game=game1 %}
                                 {% endif %}
@@ -109,7 +109,7 @@
                                     <div class="breakdown-total">
                                         <div class="d-flex justify-content-between align-items-center">
                                             <strong>Genres Total:</strong>
-                                            <strong class="{% if breakdown.genres.score >= 15 %}text-success{% else %}text-warning{% endif %}">
+                                            <strong class="{% if breakdown.genres.score >= 12 %}text-success{% else %}text-warning{% endif %}">
                                                 {{ breakdown.genres.score|floatformat:1 }}%
                                             </strong>
                                         </div>
@@ -140,7 +140,7 @@
                                     <div class="breakdown-total">
                                         <div class="d-flex justify-content-between align-items-center">
                                             <strong>Features Total:</strong>
-                                            <strong class="{% if breakdown.keywords.score >= 10 %}text-success{% else %}text-warning{% endif %}">
+                                            <strong class="{% if breakdown.keywords.score >= 12 %}text-success{% else %}text-warning{% endif %}">
                                                 {{ breakdown.keywords.score|floatformat:1 }}%
                                             </strong>
                                         </div>
@@ -183,7 +183,7 @@
                         <!-- Second Row of Breakdown -->
                         <div class="row mt-3">
                             <!-- Developers Section -->
-                            <div class="col-md-6">
+                            <div class="col-md-4">
                                 <div class="breakdown-section">
                                     <h6 class="text-info">🏢 Developers ({{ developers_weight }}% total)</h6>
 
@@ -214,7 +214,7 @@
                             </div>
 
                             <!-- Perspectives Section -->
-                            <div class="col-md-6">
+                            <div class="col-md-4">
                                 <div class="breakdown-section">
                                     <h6 class="text-info">👁️ Perspectives ({{ perspectives_weight }}% total)</h6>
 
@@ -243,6 +243,37 @@
                                     </div>
                                 </div>
                             </div>
+
+                            <!-- Game Modes Section -->
+                            <div class="col-md-4">
+                                <div class="breakdown-section">
+                                    <h6 class="text-info">🎯 Game Modes ({{ game_modes_weight }}% total)</h6>
+
+                                    <div class="breakdown-item">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                    <span class="breakdown-label">
+                                        Game Mode overlap
+                                    </span>
+                                            <span class="breakdown-value text-success">
+                                        +{{ breakdown.game_modes.score|floatformat:1 }}%
+                                    </span>
+                                        </div>
+                                        <small class="text-muted">
+                                            {{ breakdown.game_modes.common_elements|length }}
+                                            of {{ breakdown.game_modes.source_count }} game modes matched
+                                        </small>
+                                    </div>
+
+                                    <div class="breakdown-total">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <strong>Game Modes Total:</strong>
+                                            <strong class="{% if breakdown.game_modes.score >= 2 %}text-success{% else %}text-warning{% endif %}">
+                                                {{ breakdown.game_modes.score|floatformat:1 }}%
+                                            </strong>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Final Calculation -->
@@ -258,6 +289,7 @@
                                                 + Themes: {{ breakdown.themes.score|floatformat:1 }}%
                                                 + Developers: {{ breakdown.developers.score|floatformat:1 }}%
                                                 + Perspectives: {{ breakdown.perspectives.score|floatformat:1 }}%
+                                                + Game Modes: {{ breakdown.game_modes.score|floatformat:1 }}%
                                                 = <strong class="text-warning">
                                                 {{ similarity_score|floatformat:1 }}%</strong>
                                             </code>
@@ -310,9 +342,9 @@
             </div>
             <div class="col-md-2">
                 <div class="stat-card">
-                    <div class="stat-number">{{ similarity_score|floatformat:0 }}%</div>
-                    <div class="stat-label">Overall Match</div>
-                    <div class="stat-description">Total similarity</div>
+                    <div class="stat-number">{{ shared_game_modes_count }}</div>
+                    <div class="stat-label">Shared Game Modes</div>
+                    <div class="stat-description">Same play styles</div>
                 </div>
             </div>
         </div>
@@ -397,6 +429,26 @@
             </div>
         </div>
 
+        <!-- Shared Game Modes -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="shared-section">
+                    <h4 class="section-title">🎯 Shared Game Modes</h4>
+                    {% if shared_game_modes %}
+                        <div class="shared-items-grid">
+                            {% for game_mode in shared_game_modes %}
+                                <span class="shared-item item-game-mode">{{ game_mode.name }}</span>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="no-shared-items">
+                            <span class="text-muted">No shared game modes</span>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
         <!-- Shared Keywords by Category -->
         <div class="row mb-4">
             <div class="col-12">
@@ -458,7 +510,8 @@
                     {% if is_criteria_comparison %}
                         <a href="{% url 'game_list' %}?find_similar=1&g={{ selected_genres|join:',' }}&k=
                                 {{ selected_keywords|join:',' }}&t={{ selected_themes|join:',' }}&pp=
-                                {{ selected_perspectives|join:',' }}&d={{ selected_developers|join:',' }}"
+                                {{ selected_perspectives|join:',' }}&d={{ selected_developers|join:',' }}&gm=
+                                {{ selected_game_modes|join:',' }}"
                            class="btn btn-outline-primary btn-lg">
                             <i class="bi bi-arrow-left"></i> Back to Similar Games
                         </a>
@@ -572,6 +625,13 @@
             flex-direction: column;
             align-items: center;
             text-align: center;
+        }
+
+        /* Стили для Game Modes */
+        .item-game-mode {
+            background: linear-gradient(135deg, #8e44ad, #9b59b6);
+            color: white;
+            border: none;
         }
     </style>
 

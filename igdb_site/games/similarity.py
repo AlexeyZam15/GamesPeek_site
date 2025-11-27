@@ -6,13 +6,14 @@ class VirtualGame:
     """Виртуальная игра, созданная из выбранных критериев"""
 
     def __init__(self, genre_ids=None, keyword_ids=None, theme_ids=None,
-                 perspective_ids=None, developer_ids=None, series_id=None):
+                 perspective_ids=None, developer_ids=None, series_id=None, game_mode_ids=None):
         self.genre_ids = genre_ids or []
         self.keyword_ids = keyword_ids or []
         self.theme_ids = theme_ids or []
         self.perspective_ids = perspective_ids or []
         self.developer_ids = developer_ids or []
         self.series_id = series_id
+        self.game_mode_ids = game_mode_ids or []
 
         self.genres = Genre.objects.filter(id__in=genre_ids) if genre_ids else []
         self.keywords = Keyword.objects.filter(id__in=keyword_ids) if keyword_ids else []
@@ -20,13 +21,14 @@ class VirtualGame:
         self.player_perspectives = PlayerPerspective.objects.filter(id__in=perspective_ids) if perspective_ids else []
         self.developers = Company.objects.filter(id__in=developer_ids) if developer_ids else []
         self.series = Series.objects.filter(id=series_id).first() if series_id else None
+        self.game_modes = GameMode.objects.filter(id__in=game_mode_ids) if game_mode_ids else []
 
         self.name = "Custom Search Criteria"
         self.rating = None
         self.rating_count = 0
 
     def __str__(self):
-        return f"VirtualGame(genres: {len(self.genres)}, keywords: {len(self.keywords)})"
+        return f"VirtualGame(genres: {len(self.genres)}, keywords: {len(self.keywords)}, game_modes: {len(self.game_modes)})"
 
 
 class GameSimilarity:
@@ -35,20 +37,22 @@ class GameSimilarity:
 
     ВЕСА КОМПОНЕНТОВ:
     - Жанры: 30% (10% за точное совпадение + 20% за частичное)
-    - Ключевые слова: 25%
+    - Ключевые слова: 30%
     - Темы: 20%
-    - Разработчики: 15%
+    - Разработчики: 5%
     - Перспективы: 10%
+    - Режимы игры: 5%
     """
 
     # Конфигурационные константы с оптимизированными весами
     GENRES_TOTAL_WEIGHT = 30.0
-    GENRES_EXACT_MATCH_WEIGHT = 10.0  # Бонус за точное совпадение жанров
-    GENRES_PARTIAL_MATCH_WEIGHT = 20.0  # За частичное совпадение
-    KEYWORDS_WEIGHT = 25.0
+    GENRES_EXACT_MATCH_WEIGHT = 10.0
+    GENRES_PARTIAL_MATCH_WEIGHT = 20.0
+    KEYWORDS_WEIGHT = 30.0
     THEMES_WEIGHT = 20.0
-    DEVELOPERS_WEIGHT = 15.0
+    DEVELOPERS_WEIGHT = 5.0
     PERSPECTIVES_WEIGHT = 10.0
+    GAME_MODES_WEIGHT = 5.0
 
     def calculate_similarity(self, source, target):
         """
@@ -64,7 +68,7 @@ class GameSimilarity:
 
         similarity = 0.0
 
-        # 1. ЖАНРЫ (30% всего)
+        # 1. ЖАНРЫ (25% всего)
         genre_score = self._calculate_genre_similarity(source, target)
         similarity += genre_score
 
@@ -100,6 +104,14 @@ class GameSimilarity:
         )
         similarity += perspective_score
 
+        # 6. РЕЖИМЫ ИГРЫ (5%)
+        game_mode_score = self._calculate_set_similarity(
+            self._get_game_modes(source),
+            self._get_game_modes(target),
+            self.GAME_MODES_WEIGHT
+        )
+        similarity += game_mode_score
+
         return max(0.0, min(100.0, similarity))
 
     def _calculate_genre_similarity(self, source, target):
@@ -121,7 +133,7 @@ class GameSimilarity:
         if source_genres == target_genres:
             total_score += self.GENRES_EXACT_MATCH_WEIGHT
 
-        # 2. Частичное совпадение жанров (до 20%)
+        # 2. Частичное совпадение жанров (до 15%)
         common_genres = source_genres.intersection(target_genres)
         union_genres = source_genres.union(target_genres)
 
@@ -186,6 +198,13 @@ class GameSimilarity:
             return set(obj.player_perspectives.all())
         return set()
 
+    def _get_game_modes(self, obj):
+        if isinstance(obj, VirtualGame):
+            return set(obj.game_modes)
+        elif hasattr(obj, 'game_modes'):
+            return set(obj.game_modes.all())
+        return set()
+
     def _get_series(self, obj):
         if isinstance(obj, VirtualGame):
             return obj.series
@@ -206,7 +225,7 @@ class GameSimilarity:
             all_games = Game.objects.all()
 
         all_games = all_games.prefetch_related(
-            'genres', 'keywords', 'themes', 'developers', 'player_perspectives'
+            'genres', 'keywords', 'themes', 'developers', 'player_perspectives', 'game_modes'
         )
 
         for candidate_game in all_games:
@@ -218,13 +237,11 @@ class GameSimilarity:
                     'game': candidate_game,
                     'similarity': similarity,
                     'common_genres': list(self._get_genres(source_game).intersection(self._get_genres(candidate_game))),
-                    'common_keywords': list(
-                        self._get_keywords(source_game).intersection(self._get_keywords(candidate_game))),
+                    'common_keywords': list(self._get_keywords(source_game).intersection(self._get_keywords(candidate_game))),
                     'common_themes': list(self._get_themes(source_game).intersection(self._get_themes(candidate_game))),
-                    'common_developers': list(
-                        self._get_developers(source_game).intersection(self._get_developers(candidate_game))),
-                    'common_perspectives': list(
-                        self._get_perspectives(source_game).intersection(self._get_perspectives(candidate_game))),
+                    'common_developers': list(self._get_developers(source_game).intersection(self._get_developers(candidate_game))),
+                    'common_perspectives': list(self._get_perspectives(source_game).intersection(self._get_perspectives(candidate_game))),
+                    'common_game_modes': list(self._get_game_modes(source_game).intersection(self._get_game_modes(candidate_game))),
                 }
 
                 similar_games.append(common_data)
@@ -255,6 +272,9 @@ class GameSimilarity:
         )
         perspective_score = self._calculate_set_similarity(
             self._get_perspectives(source), self._get_perspectives(target), self.PERSPECTIVES_WEIGHT
+        )
+        game_mode_score = self._calculate_set_similarity(
+            self._get_game_modes(source), self._get_game_modes(target), self.GAME_MODES_WEIGHT
         )
 
         breakdown = {
@@ -296,7 +316,14 @@ class GameSimilarity:
                 'source_count': len(self._get_perspectives(source)),
                 'target_count': len(self._get_perspectives(target))
             },
-            'total_similarity': genre_score + keyword_score + theme_score + developer_score + perspective_score
+            'game_modes': {
+                'score': game_mode_score,
+                'max_score': self.GAME_MODES_WEIGHT,
+                'common_elements': list(self._get_game_modes(source).intersection(self._get_game_modes(target))),
+                'source_count': len(self._get_game_modes(source)),
+                'target_count': len(self._get_game_modes(target))
+            },
+            'total_similarity': genre_score + keyword_score + theme_score + developer_score + perspective_score + game_mode_score
         }
 
         return breakdown

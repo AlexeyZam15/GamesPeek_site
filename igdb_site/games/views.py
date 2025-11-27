@@ -82,8 +82,8 @@ def game_list(request):
             keyword_ids=selected_keywords_int,
             theme_ids=selected_themes_int,
             perspective_ids=selected_perspectives_int,
-            developer_ids=selected_developers_int
-            # НЕ добавляем game_mode_ids в схожесть
+            developer_ids=selected_developers_int,
+            game_mode_ids=selected_game_modes_int
         )
 
         # ИСПОЛЬЗУЕМ НОВЫЙ АЛГОРИТМ
@@ -120,15 +120,16 @@ def game_list(request):
         # Создаем простой source_game для передачи в шаблон
         class SimpleSourceGame:
             def __init__(self, source_game_id=None, genres=None, keywords=None, themes=None, developers=None,
-                         perspectives=None):
+                         perspectives=None, game_modes=None):  # ← ДОБАВИТЬ
                 self.id = source_game_id
                 self.name = "Search Criteria"
                 self.source_game_id = source_game_id
-                self.genres_ids = genres or []  # Переименуем чтобы избежать конфликта
+                self.genres_ids = genres or []
                 self.keywords_ids = keywords or []
                 self.themes_ids = themes or []
                 self.developers_ids = developers or []
                 self.perspectives_ids = perspectives or []
+                self.game_modes_ids = game_modes or []  # ← ДОБАВИТЬ
 
         source_game = SimpleSourceGame(
             source_game_id=source_game_id,
@@ -395,7 +396,7 @@ def game_comparison(request, pk2):
     try:
         game2 = get_object_or_404(
             Game.objects.prefetch_related('keywords', 'genres', 'platforms', 'themes', 'developers',
-                                          'player_perspectives'),
+                                          'player_perspectives', 'game_modes'),
             pk=pk2
         )
 
@@ -405,6 +406,7 @@ def game_comparison(request, pk2):
         themes_param = request.GET.get('t', '')
         perspectives_param = request.GET.get('pp', '')
         developers_param = request.GET.get('d', '')
+        game_modes_param = request.GET.get('gm', '')
 
         game1 = None
         criteria_genres = []
@@ -412,6 +414,7 @@ def game_comparison(request, pk2):
         criteria_themes = []
         criteria_perspectives = []
         criteria_developers = []
+        criteria_game_modes = []
 
         # ВСЕГДА показываем исходную игру, если есть source_game_id
         if source_game_id:
@@ -427,19 +430,21 @@ def game_comparison(request, pk2):
 
         # Если нет исходной игры, но есть критерии - используем критерии
         if is_criteria_comparison and (
-                genres_param or keywords_param or themes_param or perspectives_param or developers_param):
+                genres_param or keywords_param or themes_param or perspectives_param or developers_param or game_modes_param):
             selected_genres = [int(g) for g in genres_param.split(',') if g.strip()] if genres_param else []
             selected_keywords = [int(k) for k in keywords_param.split(',') if k.strip()] if keywords_param else []
             selected_themes = [int(t) for t in themes_param.split(',') if t.strip()] if themes_param else []
             selected_perspectives = [int(pp) for pp in perspectives_param.split(',') if
                                      pp.strip()] if perspectives_param else []
             selected_developers = [int(d) for d in developers_param.split(',') if d.strip()] if developers_param else []
+            selected_game_modes = [int(gm) for gm in game_modes_param.split(',') if gm.strip()] if game_modes_param else []
 
             criteria_genres = Genre.objects.filter(id__in=selected_genres)
             criteria_keywords = Keyword.objects.filter(id__in=selected_keywords)
             criteria_themes = Theme.objects.filter(id__in=selected_themes)
             criteria_perspectives = PlayerPerspective.objects.filter(id__in=selected_perspectives)
             criteria_developers = Company.objects.filter(id__in=selected_developers)
+            criteria_game_modes = GameMode.objects.filter(id__in=selected_game_modes)
 
         # ИСПОЛЬЗУЕМ НОВЫЙ АЛГОРИТМ ДЛЯ РАСЧЕТА
         similarity_engine = GameSimilarity()
@@ -450,7 +455,8 @@ def game_comparison(request, pk2):
                 keyword_ids=[k.id for k in criteria_keywords],
                 theme_ids=[t.id for t in criteria_themes],
                 perspective_ids=[pp.id for pp in criteria_perspectives],
-                developer_ids=[d.id for d in criteria_developers]
+                developer_ids=[d.id for d in criteria_developers],
+                game_mode_ids=[gm.id for gm in criteria_game_modes]
             )
         else:
             source = game1
@@ -467,12 +473,14 @@ def game_comparison(request, pk2):
             shared_themes = game2.themes.all() & criteria_themes
             shared_perspectives = game2.player_perspectives.all() & criteria_perspectives
             shared_developers = game2.developers.all() & criteria_developers
+            shared_game_modes = game2.game_modes.all() & criteria_game_modes
 
             source_genres = set(criteria_genres)
             source_keywords = set(criteria_keywords)
             source_themes = set(criteria_themes)
             source_perspectives = set(criteria_perspectives)
             source_developers = set(criteria_developers)
+            source_game_modes = set(criteria_game_modes)
         else:
             # Сравниваем две игры
             shared_genres = game1.genres.all() & game2.genres.all()
@@ -480,18 +488,21 @@ def game_comparison(request, pk2):
             shared_themes = game1.themes.all() & game2.themes.all()
             shared_perspectives = game1.player_perspectives.all() & game2.player_perspectives.all()
             shared_developers = game1.developers.all() & game2.developers.all()
+            shared_game_modes = game1.game_modes.all() & game2.game_modes.all()
 
             source_genres = set(game1.genres.all())
             source_keywords = set(game1.keywords.all())
             source_themes = set(game1.themes.all())
             source_perspectives = set(game1.player_perspectives.all())
             source_developers = set(game1.developers.all())
+            source_game_modes = set(game1.game_modes.all())
 
         target_genres = set(game2.genres.all())
         target_keywords = set(game2.keywords.all())
         target_themes = set(game2.themes.all())
         target_perspectives = set(game2.player_perspectives.all())
         target_developers = set(game2.developers.all())
+        target_game_modes = set(game2.game_modes.all())
 
         # Группируем общие ключевые слова по категориям
         keyword_categories = KeywordCategory.objects.all()
@@ -510,17 +521,20 @@ def game_comparison(request, pk2):
             'criteria_themes': criteria_themes,
             'criteria_perspectives': criteria_perspectives,
             'criteria_developers': criteria_developers,
+            'criteria_game_modes': criteria_game_modes,
             'similarity_score': similarity_score,
             'shared_genres': shared_genres,
             'shared_keywords': shared_keywords,
             'shared_themes': shared_themes,
             'shared_perspectives': shared_perspectives,
             'shared_developers': shared_developers,
+            'shared_game_modes': shared_game_modes,
             'shared_genres_count': shared_genres.count(),
             'shared_keywords_count': shared_keywords.count(),
             'shared_themes_count': shared_themes.count(),
             'shared_perspectives_count': shared_perspectives.count(),
             'shared_developers_count': shared_developers.count(),
+            'shared_game_modes_count': shared_game_modes.count(),
             'shared_keywords_by_category': shared_keywords_by_category,
             'is_criteria_comparison': is_criteria_comparison and not game1,  # Только если нет game1
             # Breakdown data из нового алгоритма
@@ -531,7 +545,15 @@ def game_comparison(request, pk2):
             'themes_weight': int(similarity_engine.THEMES_WEIGHT),
             'developers_weight': int(similarity_engine.DEVELOPERS_WEIGHT),
             'perspectives_weight': int(similarity_engine.PERSPECTIVES_WEIGHT),
+            'game_modes_weight': int(similarity_engine.GAME_MODES_WEIGHT),
             'genres_exact_match_weight': int(similarity_engine.GENRES_EXACT_MATCH_WEIGHT),
+            # Для кнопки "Back to Similar Games"
+            'selected_genres': selected_genres if is_criteria_comparison and not game1 else [],
+            'selected_keywords': selected_keywords if is_criteria_comparison and not game1 else [],
+            'selected_themes': selected_themes if is_criteria_comparison and not game1 else [],
+            'selected_perspectives': selected_perspectives if is_criteria_comparison and not game1 else [],
+            'selected_developers': selected_developers if is_criteria_comparison and not game1 else [],
+            'selected_game_modes': selected_game_modes if is_criteria_comparison and not game1 else [],
         }
 
         return render(request, 'games/game_comparison.html', context)

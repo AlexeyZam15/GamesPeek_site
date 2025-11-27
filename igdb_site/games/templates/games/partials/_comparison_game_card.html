@@ -42,6 +42,17 @@
         </div>
         {% endif %}
 
+        <!-- Режимы игры -->
+        {% if game.game_modes.all %}
+        <div class="game-modes mb-3">
+            <div class="d-flex flex-wrap gap-1 justify-content-center">
+                {% for mode in game.game_modes.all %}
+                <span class="badge bg-purple px-2 py-1">{{ mode.name }}</span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
         <!-- Разработчики -->
         {% if game.developers.all %}
         <div class="game-developers mb-3">
@@ -136,6 +147,25 @@
             </div>
         </div>
         {% endif %}
+
+        <!-- Game Modes для критериев -->
+        {% if criteria_game_modes %}
+        <div class="game-modes mb-3">
+            <div class="d-flex flex-wrap gap-1 justify-content-center">
+                {% for mode in criteria_game_modes %}
+                <span class="badge bg-purple px-2 py-1">{{ mode.name }}</span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
     </div>
     {% endif %}
 </div>
+
+<style>
+    .bg-purple {
+        background: linear-gradient(135deg, #8e44ad, #9b59b6) !important;
+        color: white;
+        border: none;
+    }
+</style>
