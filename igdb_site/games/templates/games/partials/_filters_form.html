@@ -12,6 +12,7 @@
             <input type="hidden" name="t" id="themes-field" value="{{ selected_themes|join:',' }}">
             <input type="hidden" name="pp" id="perspectives-field" value="{{ selected_perspectives|join:',' }}">
             <input type="hidden" name="d" id="developers-field" value="{{ selected_developers|join:',' }}">
+            <input type="hidden" name="gm" id="game-modes-field" value="{{ selected_game_modes|join:',' }}"> <!-
 
             <div class="row g-3">
                 <!-- Встроенная сортировка -->
@@ -143,7 +144,8 @@
                                                 <span class="badge bg-primary me-1 mb-1 active-genre-tag"
                                                       data-genre-id="{{ genre.id }}"
                                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
-                                                    {{ genre.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                                                    {{ genre.name }} <i class="bi bi-x ms-1"
+                                                                        style="font-size: 0.9rem;"></i>
                                                 </span>
                                             {% endif %}
                                         {% endfor %}
@@ -214,7 +216,8 @@
                                                 <span class="badge bg-success me-1 mb-1 active-keyword-tag"
                                                       data-keyword-id="{{ keyword.id }}"
                                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
-                                                    {{ keyword.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                                                    {{ keyword.name }} <i class="bi bi-x ms-1"
+                                                                          style="font-size: 0.9rem;"></i>
                                                 </span>
                                             {% endif %}
                                         {% endfor %}
@@ -289,7 +292,8 @@
                                                 <span class="badge bg-warning me-1 mb-1 active-theme-tag"
                                                       data-theme-id="{{ theme.id }}"
                                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
-                                                    {{ theme.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                                                    {{ theme.name }} <i class="bi bi-x ms-1"
+                                                                        style="font-size: 0.9rem;"></i>
                                                 </span>
                                             {% endif %}
                                         {% endfor %}
@@ -361,7 +365,8 @@
                                                 <span class="badge bg-info me-1 mb-1 active-perspective-tag"
                                                       data-perspective-id="{{ perspective.id }}"
                                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
-                                                    {{ perspective.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                                                    {{ perspective.name }} <i class="bi bi-x ms-1"
+                                                                              style="font-size: 0.9rem;"></i>
                                                 </span>
                                             {% endif %}
                                         {% endfor %}
@@ -373,11 +378,13 @@
                                         <div class="perspective-grid"
                                              style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
                                             {% for perspective in perspectives %}
-                                                <div class="perspective-item" data-perspective-name="{{ perspective.name|lower }}">
+                                                <div class="perspective-item"
+                                                     data-perspective-name="{{ perspective.name|lower }}">
                                                     <div class="form-check">
                                                         <input class="form-check-input perspective-checkbox"
                                                                type="checkbox"
-                                                               value="{{ perspective.id }}" id="perspective_{{ perspective.id }}"
+                                                               value="{{ perspective.id }}"
+                                                               id="perspective_{{ perspective.id }}"
                                                                {% if perspective.id in selected_perspectives %}checked{% endif %}>
                                                         <label class="form-check-label small"
                                                                for="perspective_{{ perspective.id }}">
@@ -433,7 +440,8 @@
                                                 <span class="badge bg-dark me-1 mb-1 active-developer-tag"
                                                       data-developer-id="{{ developer.id }}"
                                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
-                                                    {{ developer.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                                                    {{ developer.name }} <i class="bi bi-x ms-1"
+                                                                            style="font-size: 0.9rem;"></i>
                                                 </span>
                                             {% endif %}
                                         {% endfor %}
@@ -445,11 +453,13 @@
                                         <div class="developer-grid"
                                              style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
                                             {% for developer in developers %}
-                                                <div class="developer-item" data-developer-name="{{ developer.name|lower }}">
+                                                <div class="developer-item"
+                                                     data-developer-name="{{ developer.name|lower }}">
                                                     <div class="form-check">
                                                         <input class="form-check-input developer-checkbox"
                                                                type="checkbox"
-                                                               value="{{ developer.id }}" id="developer_{{ developer.id }}"
+                                                               value="{{ developer.id }}"
+                                                               id="developer_{{ developer.id }}"
                                                                {% if developer.id in selected_developers %}checked{% endif %}>
                                                         <label class="form-check-label small"
                                                                for="developer_{{ developer.id }}">
@@ -467,6 +477,79 @@
                                         <button type="button"
                                                 class="btn btn-outline-secondary btn-sm show-all-developers-btn">
                                             <span class="show-text">Show all developers</span>
+                                            <span class="hide-text" style="display: none;">Show less</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- Game Modes -->
+                            <div class="filter-subsection mt-3">
+                                <label class="form-label toggle-subsection" data-target="game-modes-content"
+                                       style="cursor: pointer;">
+                                    <i class="bi bi-chevron-down me-1"></i>🎮 Game Modes:
+                                </label>
+                                <div id="game-modes-content">
+                                    <input type="text" class="form-control mb-2" id="game-mode-search"
+                                           placeholder="Search game modes..." autocomplete="off">
+
+                                    <!-- Активные режимы игры -->
+                                    <div id="active-game-modes" class="mb-2">
+                                        {% if selected_game_modes %}
+                                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <button type="button"
+                                                            class="btn btn-sm clear-game-modes-btn btn-outline-purple"
+                                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;">
+                                                        <i class="bi bi-x-circle me-1"></i>Clear All
+                                                    </button>
+                                                    <small class="text-muted" style="font-weight: 500;">
+                                                        Selected game modes ({{ selected_game_modes|length }})
+                                                    </small>
+                                                </div>
+                                            </div>
+                                        {% endif %}
+
+                                        {% for game_mode in game_modes %}
+                                            {% if game_mode.id in selected_game_modes %}
+                                                <span class="badge bg-purple me-1 mb-1 active-game-mode-tag"
+                                                      data-game-mode-id="{{ game_mode.id }}"
+                                                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                        {{ game_mode.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                    </span>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </div>
+
+                                    <!-- Список режимов игры -->
+                                    <div class="game-mode-list border rounded p-2"
+                                         style="max-height: 200px; overflow-y: auto;">
+                                        <div class="game-mode-grid"
+                                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                                            {% for game_mode in game_modes %}
+                                                <div class="game-mode-item"
+                                                     data-game-mode-name="{{ game_mode.name|lower }}">
+                                                    <div class="form-check">
+                                                        <input class="form-check-input game-mode-checkbox"
+                                                               type="checkbox"
+                                                               value="{{ game_mode.id }}"
+                                                               id="game_mode_{{ game_mode.id }}"
+                                                               {% if game_mode.id in selected_game_modes %}checked{% endif %}>
+                                                        <label class="form-check-label small"
+                                                               for="game_mode_{{ game_mode.id }}">
+                                                            {{ game_mode.name }}
+                                                            <span class="text-muted">({{ game_mode.game_count }})</span>
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+
+                                    <!-- Кнопка "Show all game modes" -->
+                                    <div class="text-center mt-2">
+                                        <button type="button"
+                                                class="btn btn-outline-secondary btn-sm show-all-game-modes-btn">
+                                            <span class="show-text">Show all game modes</span>
                                             <span class="hide-text" style="display: none;">Show less</span>
                                         </button>
                                     </div>
@@ -520,7 +603,6 @@
             const platformIds = Array.from(platformCheckboxes).map(cb => cb.value);
             document.getElementById('platforms-field').value = platformIds.join(',');
 
-            // НОВЫЕ ПОЛЯ
             // Обновляем темы
             const themeCheckboxes = document.querySelectorAll('.theme-checkbox:checked');
             const themeIds = Array.from(themeCheckboxes).map(cb => cb.value);
@@ -536,9 +618,14 @@
             const developerIds = Array.from(developerCheckboxes).map(cb => cb.value);
             document.getElementById('developers-field').value = developerIds.join(',');
 
+            // ОБНОВЛЯЕМ РЕЖИМЫ ИГРЫ
+            const gameModeCheckboxes = document.querySelectorAll('.game-mode-checkbox:checked');
+            const gameModeIds = Array.from(gameModeCheckboxes).map(cb => cb.value);
+            document.getElementById('game-modes-field').value = gameModeIds.join(',');
+
             // Автоматически включаем режим поиска похожих игр при выборе любых критериев похожести
             if (genreIds.length > 0 || keywordIds.length > 0 || themeIds.length > 0 ||
-                perspectiveIds.length > 0 || developerIds.length > 0) {
+                perspectiveIds.length > 0 || developerIds.length > 0 || gameModeIds.length > 0) {
                 document.getElementById('find_similar_field').value = '1';
             } else {
                 document.getElementById('find_similar_field').value = '0';
@@ -546,12 +633,48 @@
         }
 
         // Слушаем изменения всех чекбоксов
-        document.querySelectorAll('.genre-checkbox, .keyword-checkbox, .platform-checkbox, .theme-checkbox, .perspective-checkbox, .developer-checkbox').forEach(checkbox => {
+        document.querySelectorAll('.genre-checkbox, .keyword-checkbox, .platform-checkbox, .theme-checkbox, .perspective-checkbox, .developer-checkbox, .game-mode-checkbox').forEach(checkbox => {
             checkbox.addEventListener('change', updateHiddenFields);
         });
 
-        // Функции очистки для новых фильтров
+        // Функции очистки для всех фильтров
         function setupClearButtons() {
+            // Очистка жанров
+            const clearGenresBtn = document.querySelector('.clear-genres-btn');
+            if (clearGenresBtn) {
+                clearGenresBtn.addEventListener('click', function () {
+                    document.querySelectorAll('.genre-checkbox:checked').forEach(checkbox => {
+                        checkbox.checked = false;
+                    });
+                    updateHiddenFields();
+                    document.getElementById('main-search-form').submit();
+                });
+            }
+
+            // Очистка ключевых слов
+            const clearKeywordsBtn = document.querySelector('.clear-keywords-btn');
+            if (clearKeywordsBtn) {
+                clearKeywordsBtn.addEventListener('click', function () {
+                    document.querySelectorAll('.keyword-checkbox:checked').forEach(checkbox => {
+                        checkbox.checked = false;
+                    });
+                    updateHiddenFields();
+                    document.getElementById('main-search-form').submit();
+                });
+            }
+
+            // Очистка платформ
+            const clearPlatformsBtn = document.querySelector('.clear-platforms-btn');
+            if (clearPlatformsBtn) {
+                clearPlatformsBtn.addEventListener('click', function () {
+                    document.querySelectorAll('.platform-checkbox:checked').forEach(checkbox => {
+                        checkbox.checked = false;
+                    });
+                    updateHiddenFields();
+                    document.getElementById('main-search-form').submit();
+                });
+            }
+
             // Очистка тем
             const clearThemesBtn = document.querySelector('.clear-themes-btn');
             if (clearThemesBtn) {
@@ -587,10 +710,55 @@
                     document.getElementById('main-search-form').submit();
                 });
             }
+
+            // ОЧИСТКА РЕЖИМОВ ИГРЫ
+            const clearGameModesBtn = document.querySelector('.clear-game-modes-btn');
+            if (clearGameModesBtn) {
+                clearGameModesBtn.addEventListener('click', function () {
+                    document.querySelectorAll('.game-mode-checkbox:checked').forEach(checkbox => {
+                        checkbox.checked = false;
+                    });
+                    updateHiddenFields();
+                    document.getElementById('main-search-form').submit();
+                });
+            }
         }
 
-        // Удаление активных тегов для новых фильтров
+        // Удаление активных тегов для всех фильтров
         document.addEventListener('click', function (e) {
+            // Удаление жанра
+            if (e.target.classList.contains('active-genre-tag')) {
+                const genreId = e.target.getAttribute('data-genre-id');
+                const checkbox = document.querySelector(`.genre-checkbox[value="${genreId}"]`);
+                if (checkbox) {
+                    checkbox.checked = false;
+                    updateHiddenFields();
+                    document.getElementById('main-search-form').submit();
+                }
+            }
+
+            // Удаление ключевого слова
+            if (e.target.classList.contains('active-keyword-tag')) {
+                const keywordId = e.target.getAttribute('data-keyword-id');
+                const checkbox = document.querySelector(`.keyword-checkbox[value="${keywordId}"]`);
+                if (checkbox) {
+                    checkbox.checked = false;
+                    updateHiddenFields();
+                    document.getElementById('main-search-form').submit();
+                }
+            }
+
+            // Удаление платформы
+            if (e.target.classList.contains('active-platform-tag')) {
+                const platformId = e.target.getAttribute('data-platform-id');
+                const checkbox = document.querySelector(`.platform-checkbox[value="${platformId}"]`);
+                if (checkbox) {
+                    checkbox.checked = false;
+                    updateHiddenFields();
+                    document.getElementById('main-search-form').submit();
+                }
+            }
+
             // Удаление темы
             if (e.target.classList.contains('active-theme-tag')) {
                 const themeId = e.target.getAttribute('data-theme-id');
@@ -623,10 +791,69 @@
                     document.getElementById('main-search-form').submit();
                 }
             }
+
+            // УДАЛЕНИЕ РЕЖИМА ИГРЫ
+            if (e.target.classList.contains('active-game-mode-tag')) {
+                const gameModeId = e.target.getAttribute('data-game-mode-id');
+                const checkbox = document.querySelector(`.game-mode-checkbox[value="${gameModeId}"]`);
+                if (checkbox) {
+                    checkbox.checked = false;
+                    updateHiddenFields();
+                    document.getElementById('main-search-form').submit();
+                }
+            }
         });
 
-        // Поиск для новых фильтров
+        // Поиск для всех фильтров
         function setupSearchFilters() {
+            // Поиск по жанрам
+            const genreSearch = document.getElementById('genre-search');
+            if (genreSearch) {
+                genreSearch.addEventListener('input', function () {
+                    const searchTerm = this.value.toLowerCase();
+                    document.querySelectorAll('.genre-item').forEach(item => {
+                        const genreName = item.getAttribute('data-genre-name');
+                        if (genreName.includes(searchTerm)) {
+                            item.style.display = 'block';
+                        } else {
+                            item.style.display = 'none';
+                        }
+                    });
+                });
+            }
+
+            // Поиск по ключевым словам
+            const keywordSearch = document.getElementById('keyword-search');
+            if (keywordSearch) {
+                keywordSearch.addEventListener('input', function () {
+                    const searchTerm = this.value.toLowerCase();
+                    document.querySelectorAll('.keyword-item').forEach(item => {
+                        const keywordName = item.getAttribute('data-keyword-name');
+                        if (keywordName.includes(searchTerm)) {
+                            item.style.display = 'block';
+                        } else {
+                            item.style.display = 'none';
+                        }
+                    });
+                });
+            }
+
+            // Поиск по платформам
+            const platformSearch = document.getElementById('platform-search');
+            if (platformSearch) {
+                platformSearch.addEventListener('input', function () {
+                    const searchTerm = this.value.toLowerCase();
+                    document.querySelectorAll('.platform-item').forEach(item => {
+                        const platformName = item.getAttribute('data-platform-name');
+                        if (platformName.includes(searchTerm)) {
+                            item.style.display = 'block';
+                        } else {
+                            item.style.display = 'none';
+                        }
+                    });
+                });
+            }
+
             // Поиск по темам
             const themeSearch = document.getElementById('theme-search');
             if (themeSearch) {
@@ -674,10 +901,86 @@
                     });
                 });
             }
+
+            // ПОИСК ПО РЕЖИМАМ ИГРЫ
+            const gameModeSearch = document.getElementById('game-mode-search');
+            if (gameModeSearch) {
+                gameModeSearch.addEventListener('input', function () {
+                    const searchTerm = this.value.toLowerCase();
+                    document.querySelectorAll('.game-mode-item').forEach(item => {
+                        const gameModeName = item.getAttribute('data-game-mode-name');
+                        if (gameModeName.includes(searchTerm)) {
+                            item.style.display = 'block';
+                        } else {
+                            item.style.display = 'none';
+                        }
+                    });
+                });
+            }
         }
 
-        // Показать/скрыть для новых фильтров
+        // Показать/скрыть для всех фильтров
         function setupShowAllToggles() {
+            // Жанры
+            const showAllGenresBtn = document.querySelector('.show-all-genres-btn');
+            if (showAllGenresBtn) {
+                showAllGenresBtn.addEventListener('click', function () {
+                    const genreList = document.querySelector('.genre-list');
+                    const showText = this.querySelector('.show-text');
+                    const hideText = this.querySelector('.hide-text');
+
+                    if (genreList.style.maxHeight === '200px') {
+                        genreList.style.maxHeight = 'none';
+                        showText.style.display = 'none';
+                        hideText.style.display = 'inline';
+                    } else {
+                        genreList.style.maxHeight = '200px';
+                        showText.style.display = 'inline';
+                        hideText.style.display = 'none';
+                    }
+                });
+            }
+
+            // Ключевые слова
+            const showAllKeywordsBtn = document.querySelector('.show-all-keywords-btn');
+            if (showAllKeywordsBtn) {
+                showAllKeywordsBtn.addEventListener('click', function () {
+                    const keywordList = document.querySelector('.keyword-list');
+                    const showText = this.querySelector('.show-text');
+                    const hideText = this.querySelector('.hide-text');
+
+                    if (keywordList.style.maxHeight === '200px') {
+                        keywordList.style.maxHeight = 'none';
+                        showText.style.display = 'none';
+                        hideText.style.display = 'inline';
+                    } else {
+                        keywordList.style.maxHeight = '200px';
+                        showText.style.display = 'inline';
+                        hideText.style.display = 'none';
+                    }
+                });
+            }
+
+            // Платформы
+            const showAllPlatformsBtn = document.querySelector('.show-all-platforms-btn');
+            if (showAllPlatformsBtn) {
+                showAllPlatformsBtn.addEventListener('click', function () {
+                    const platformList = document.querySelector('.platform-list');
+                    const showText = this.querySelector('.show-text');
+                    const hideText = this.querySelector('.hide-text');
+
+                    if (platformList.style.maxHeight === '200px') {
+                        platformList.style.maxHeight = 'none';
+                        showText.style.display = 'none';
+                        hideText.style.display = 'inline';
+                    } else {
+                        platformList.style.maxHeight = '200px';
+                        showText.style.display = 'inline';
+                        hideText.style.display = 'none';
+                    }
+                });
+            }
+
             // Темы
             const showAllThemesBtn = document.querySelector('.show-all-themes-btn');
             if (showAllThemesBtn) {
@@ -737,12 +1040,32 @@
                     }
                 });
             }
+
+            // РЕЖИМЫ ИГРЫ
+            const showAllGameModesBtn = document.querySelector('.show-all-game-modes-btn');
+            if (showAllGameModesBtn) {
+                showAllGameModesBtn.addEventListener('click', function () {
+                    const gameModeList = document.querySelector('.game-mode-list');
+                    const showText = this.querySelector('.show-text');
+                    const hideText = this.querySelector('.hide-text');
+
+                    if (gameModeList.style.maxHeight === '200px') {
+                        gameModeList.style.maxHeight = 'none';
+                        showText.style.display = 'none';
+                        hideText.style.display = 'inline';
+                    } else {
+                        gameModeList.style.maxHeight = '200px';
+                        showText.style.display = 'inline';
+                        hideText.style.display = 'none';
+                    }
+                });
+            }
         }
 
-        // Авто-отправка формы для новых чекбоксов
+        // Авто-отправка формы для всех чекбоксов
         function setupAutoSubmit() {
             // Для всех критериев похожести - включаем режим похожих игр
-            document.querySelectorAll('.genre-checkbox, .keyword-checkbox, .theme-checkbox, .perspective-checkbox, .developer-checkbox').forEach(checkbox => {
+            document.querySelectorAll('.genre-checkbox, .keyword-checkbox, .theme-checkbox, .perspective-checkbox, .developer-checkbox, .game-mode-checkbox').forEach(checkbox => {
                 checkbox.addEventListener('change', function () {
                     document.getElementById('find_similar_field').value = '1';
                     document.getElementById('main-search-form').submit();
@@ -803,7 +1126,7 @@
             });
         });
 
-        // Инициализация всех новых функций
+        // Инициализация всех функций
         setupClearButtons();
         setupSearchFilters();
         setupShowAllToggles();

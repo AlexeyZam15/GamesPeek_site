@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% load static %}
 {% load game_tags %}
+{% load platform_icons %}
 
 {% block title %}{{ game.name }} - GamesPeek{% endblock %}
 
@@ -32,6 +33,16 @@
                                     <div>
                                         <!-- Изменен цвет названия игры -->
                                         <h1 class="display-6 fw-bold mb-2 text-info">{{ game.name }}</h1>
+
+                                        <!-- Серия и порядковый номер -->
+                                        {% if game.is_part_of_series %}
+                                        <div class="mb-2">
+                                            <span class="badge bg-primary px-2 py-1 fs-6">
+                                                <i class="bi bi-collection-play me-1"></i>
+                                                {{ game.display_series_info }}
+                                            </span>
+                                        </div>
+                                        {% endif %}
 
                                         <!-- Рейтинг и дата релиза -->
                                         <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
@@ -78,6 +89,17 @@
                                                 </div>
                                             {% endif %}
 
+                                            <!-- Режимы игры -->
+                                            {% if game.game_modes.all %}
+                                                <div class="mb-2">
+                                                    <div class="d-flex flex-wrap gap-1">
+                                                        {% for mode in game.game_modes.all %}
+                                                            <span class="badge bg-purple px-2 py-1">{{ mode.name }}</span>
+                                                        {% endfor %}
+                                                    </div>
+                                                </div>
+                                            {% endif %}
+
                                             <!-- Разработчики -->
                                             {% if game.developers.all %}
                                                 <div class="mb-2">
@@ -85,6 +107,18 @@
                                                     <div class="d-flex flex-wrap gap-1">
                                                         {% for developer in game.developers.all %}
                                                             <span class="badge bg-dark px-2 py-1">{{ developer.name }}</span>
+                                                        {% endfor %}
+                                                    </div>
+                                                </div>
+                                            {% endif %}
+
+                                            <!-- Издатели -->
+                                            {% if game.publishers.all %}
+                                                <div class="mb-2">
+                                                    <small class="text-muted">Published by:</small>
+                                                    <div class="d-flex flex-wrap gap-1">
+                                                        {% for publisher in game.publishers.all %}
+                                                            <span class="badge bg-secondary px-2 py-1">{{ publisher.name }}</span>
                                                         {% endfor %}
                                                     </div>
                                                 </div>
@@ -114,6 +148,12 @@
                                                     data-bs-toggle="collapse" data-bs-target="#similarGamesCollapse">
                                                 <i class="bi bi-stars me-1"></i>Similar Games
                                             </button>
+                                        {% endif %}
+                                        {% if game.is_part_of_series and game.get_series_games %}
+                                        <button class="btn btn-outline-success px-3 py-2" type="button"
+                                                data-bs-toggle="collapse" data-bs-target="#seriesGamesCollapse">
+                                            <i class="bi bi-collection me-1"></i>Series Games
+                                        </button>
                                         {% endif %}
                                     </div>
                                 </div>
@@ -181,6 +221,13 @@
                                                                 {% endfor %}
                                                             </div>
                                                         {% endif %}
+                                                        {% if similar.common_developers %}
+                                                            <div class="mb-1">
+                                                                {% for developer in similar.common_developers|slice:":1" %}
+                                                                    <span class="badge bg-dark me-1 small">{{ developer.name }}</span>
+                                                                {% endfor %}
+                                                            </div>
+                                                        {% endif %}
                                                     </div>
                                                     <!-- Кнопка Compare -->
                                                     <div class="mt-2">
@@ -200,6 +247,75 @@
                     </div>
                 </div>
             </div>
+        {% endif %}
+
+        <!-- Series Games Collapse -->
+        {% if game.is_part_of_series and game.get_series_games %}
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="collapse" id="seriesGamesCollapse">
+                    <div class="card">
+                        <div class="card-header bg-dark">
+                            <h5 class="mb-0 text-success">
+                                <i class="bi bi-collection me-2"></i>{{ game.series.name }} Series
+                                <small class="text-muted">({{ game.get_series_games|length }} other games)</small>
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                {% for series_game in game.get_series_games %}
+                                    <div class="col-md-6 col-lg-4 col-xl-3 mb-3">
+                                        <div class="series-game-card card h-100">
+                                            <div class="card-body">
+                                                <div class="d-flex align-items-start mb-2">
+                                                    {% if series_game.cover_url %}
+                                                        <img src="{{ series_game.cover_url }}"
+                                                             class="rounded me-3"
+                                                             alt="{{ series_game.name }}"
+                                                             style="width: 60px; height: 80px; object-fit: cover;">
+                                                    {% endif %}
+                                                    <div class="flex-grow-1">
+                                                        <h6 class="card-title mb-1">
+                                                            <a href="{% url 'game_detail' series_game.id %}"
+                                                               class="text-decoration-none">
+                                                                {{ series_game.name }}
+                                                            </a>
+                                                        </h6>
+                                                        {% if series_game.series_order %}
+                                                        <div class="series-order-badge">
+                                                            <span class="badge bg-primary">
+                                                                Part {{ series_game.series_order }}
+                                                            </span>
+                                                        </div>
+                                                        {% endif %}
+                                                    </div>
+                                                </div>
+                                                <div class="game-preview-info">
+                                                    {% if series_game.genres.all %}
+                                                        <div class="mb-1">
+                                                            {% for genre in series_game.genres.all|slice:":2" %}
+                                                                <span class="badge bg-success me-1 small">{{ genre.name }}</span>
+                                                            {% endfor %}
+                                                        </div>
+                                                    {% endif %}
+                                                    {% if series_game.first_release_date %}
+                                                    <div class="release-info">
+                                                        <small class="text-muted">
+                                                            {{ series_game.first_release_date|date:"Y" }}
+                                                        </small>
+                                                    </div>
+                                                    {% endif %}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
         {% endif %}
 
         <!-- Табы для основного контента -->
@@ -291,7 +407,7 @@
 
                         <!-- Правая колонка - Платформы и быстрые действия -->
                         <div class="col-lg-4">
-                            <!-- Платформы -->
+                            <!-- Платформы с иконками -->
                             {% if game.platforms.all %}
                                 <div class="compact-section">
                                     <div class="section-header">
@@ -299,9 +415,17 @@
                                     </div>
                                     <div class="game-detail-card card">
                                         <div class="card-body">
-                                            <div class="platform-badges">
+                                            <div class="platforms-list">
                                                 {% for platform in game.platforms.all %}
-                                                    <span class="badge bg-secondary px-2 py-1">{{ platform.name }}</span>
+                                                    <div class="platform-item d-flex align-items-center mb-2">
+                                                        <span class="platform-icon me-2"
+                                                              data-bs-toggle="tooltip"
+                                                              title="{{ platform.name }}"
+                                                              style="font-size: 1.2rem;">
+                                                            {% platform_icon platform.name %}
+                                                        </span>
+                                                        <span class="text-light small">{{ platform.display_name }}</span>
+                                                    </div>
                                                 {% endfor %}
                                             </div>
                                         </div>
@@ -339,11 +463,27 @@
                                                 </a>
                                             {% endif %}
 
+                                            <!-- Similar by Game Modes -->
+                                            {% if game.game_modes.all %}
+                                                <a href="{% url 'game_list' %}?find_similar=1{% for mode in game.game_modes.all %}&gm={{ mode.id }}{% endfor %}"
+                                                   class="btn btn-outline-purple btn-sm py-2">
+                                                    <i class="bi bi-people me-2"></i>Similar Game Modes
+                                                </a>
+                                            {% endif %}
+
                                             <!-- Similar by Perspectives -->
                                             {% if game.player_perspectives.all %}
                                                 <a href="{% url 'game_list' %}?find_similar=1{% for perspective in game.player_perspectives.all %}&pp={{ perspective.id }}{% endfor %}"
                                                    class="btn btn-outline-info btn-sm py-2">
                                                     <i class="bi bi-eye me-2"></i>Similar Perspective
+                                                </a>
+                                            {% endif %}
+
+                                            <!-- View Series -->
+                                            {% if game.series %}
+                                                <a href="{% url 'game_list' %}?series={{ game.series.id }}"
+                                                   class="btn btn-outline-success btn-sm py-2">
+                                                    <i class="bi bi-collection me-2"></i>View Series
                                                 </a>
                                             {% endif %}
                                         </div>
@@ -680,13 +820,23 @@
                                                     series</p>
                                             {% endif %}
                                             {% if game.series.description %}
-                                                <p class="text-light small">
-                                                    {{ game.series.description|truncatewords:30 }}</p>
+                                                <div class="collapsible-text {% if game.series.description|wordcount <= 30 %}expanded{% endif %}"
+                                                     id="series-description-text">
+                                                    <p class="text-light small mb-0">{{ game.series.description }}</p>
+                                                </div>
+                                                {% if game.series.description|wordcount > 30 %}
+                                                    <button class="toggle-text-btn" onclick="toggleText('series-description')">
+                                                        <span>Read more</span>
+                                                        <i class="bi bi-chevron-down"></i>
+                                                    </button>
+                                                {% endif %}
                                             {% endif %}
-                                            <a href="{% url 'game_list' %}?series={{ game.series.id }}"
-                                               class="btn btn-outline-success btn-sm">
-                                                View all games in series
-                                            </a>
+                                            <div class="mt-3">
+                                                <a href="{% url 'game_list' %}?series={{ game.series.id }}"
+                                                   class="btn btn-outline-success btn-sm">
+                                                    View all {{ game.series.game_count }} games in series
+                                                </a>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -703,12 +853,12 @@
     <script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui@5.0/dist/fancybox/fancybox.umd.js"></script>
 
     <style>
-        .similar-game-card {
+        .similar-game-card, .series-game-card {
             transition: transform 0.2s ease-in-out;
             border: 1px solid #444;
         }
 
-        .similar-game-card:hover {
+        .similar-game-card:hover, .series-game-card:hover {
             transform: translateY(-2px);
             border-color: #666;
         }
@@ -731,6 +881,33 @@
 
         .similarity-score-badge .badge {
             font-size: 0.7rem;
+        }
+
+        .bg-purple {
+            background-color: #6f42c1 !important;
+        }
+
+        .btn-outline-purple {
+            color: #6f42c1;
+            border-color: #6f42c1;
+        }
+
+        .btn-outline-purple:hover {
+            background-color: #6f42c1;
+            color: white;
+        }
+
+        .platforms-list .platform-item {
+            padding: 4px 0;
+        }
+
+        .platform-icon {
+            opacity: 0.8;
+            transition: opacity 0.2s;
+        }
+
+        .platform-icon:hover {
+            opacity: 1;
         }
     </style>
 
@@ -776,6 +953,12 @@
                 const advancedTab = new bootstrap.Tab(document.getElementById('advanced-tab'));
                 advancedTab.show();
             }
+
+            // Инициализация тултипов для платформ
+            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+            var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl)
+            })
         });
     </script>
 {% endblock %}

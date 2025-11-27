@@ -1,7 +1,7 @@
 from .similarity import GameSimilarity, VirtualGame
 from django.db import models
 from django.shortcuts import render, get_object_or_404
-from .models import Game, Genre, Keyword, KeywordCategory, Platform, Theme, PlayerPerspective, Company, Series
+from .models import Game, Genre, Keyword, KeywordCategory, Platform, Theme, PlayerPerspective, Company, Series, GameMode
 
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 
@@ -9,10 +9,10 @@ from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 def game_list(request):
     """Список всех игр с поиском похожих игр по выбранным критериям"""
     games = Game.objects.all().prefetch_related(
-        'genres', 'platforms', 'keywords', 'themes', 'developers', 'player_perspectives'
+        'genres', 'platforms', 'keywords', 'themes', 'developers', 'player_perspectives', 'game_modes'
     )
 
-    # Получаем параметры для ВСЕХ критериев
+    # Получаем параметры для ВСЕХ критериев (ДОБАВИТЬ Game Modes)
     find_similar = request.GET.get('find_similar') == '1'
     genres_param = request.GET.get('g', '')
     keywords_param = request.GET.get('k', '')
@@ -20,33 +20,22 @@ def game_list(request):
     themes_param = request.GET.get('t', '')
     perspectives_param = request.GET.get('pp', '')
     developers_param = request.GET.get('d', '')
+    game_modes_param = request.GET.get('gm', '')  # ← ДОБАВИТЬ
     source_game_id = request.GET.get('source_game')
 
-    # Конвертируем строки в списки integers
+    # Конвертируем строки в списки integers (ДОБАВИТЬ Game Modes)
     selected_genres_int = [int(g) for g in genres_param.split(',') if g.strip()] if genres_param else []
     selected_keywords_int = [int(k) for k in keywords_param.split(',') if k.strip()] if keywords_param else []
     selected_platforms_int = [int(p) for p in platforms_param.split(',') if p.strip()] if platforms_param else []
     selected_themes_int = [int(t) for t in themes_param.split(',') if t.strip()] if themes_param else []
-    selected_perspectives_int = [int(pp) for pp in perspectives_param.split(',') if
-                                 pp.strip()] if perspectives_param else []
+    selected_perspectives_int = [int(pp) for pp in perspectives_param.split(',') if pp.strip()] if perspectives_param else []
     selected_developers_int = [int(d) for d in developers_param.split(',') if d.strip()] if developers_param else []
+    selected_game_modes_int = [int(gm) for gm in game_modes_param.split(',') if gm.strip()] if game_modes_param else []  # ← ДОБАВИТЬ
 
-    # Старый формат (для обратной совместимости)
-    if not selected_genres_int:
-        selected_genres = request.GET.getlist('genre')
-        selected_genres_int = [int(g) for g in selected_genres if g]
-
-    if not selected_keywords_int:
-        selected_keywords = request.GET.getlist('keyword')
-        selected_keywords_int = [int(k) for k in selected_keywords if k]
-
-    if not selected_platforms_int:
-        selected_platforms = request.GET.getlist('platform')
-        selected_platforms_int = [int(p) for p in selected_platforms if p]
-
-    # Автоматически включаем режим похожих игр если переданы критерии
+    # Автоматически включаем режим похожих игр если переданы критерии (ОБНОВИТЬ условие)
     if not find_similar and (
-            selected_genres_int or selected_keywords_int or selected_themes_int or selected_developers_int or selected_perspectives_int):
+            selected_genres_int or selected_keywords_int or selected_themes_int or
+            selected_developers_int or selected_perspectives_int or selected_game_modes_int):  # ← ДОБАВИТЬ
         find_similar = True
 
     # Сортировка
@@ -59,6 +48,10 @@ def game_list(request):
     ).filter(game_count__gt=0).order_by('-game_count', 'name')
 
     # Новые данные для фильтров
+    game_modes = GameMode.objects.annotate(
+        game_count=models.Count('game')
+    ).filter(game_count__gt=0).order_by('name')
+
     themes = Theme.objects.annotate(
         game_count=models.Count('game')
     ).filter(game_count__gt=0).order_by('name')
@@ -78,16 +71,19 @@ def game_list(request):
 
     # РЕЖИМ ПОИСКА ПОХОЖИХ ИГР ПО КРИТЕРИЯМ
     if find_similar and (
-            selected_genres_int or selected_keywords_int or selected_themes_int or selected_developers_int or selected_perspectives_int):
+            selected_genres_int or selected_keywords_int or selected_themes_int or
+            selected_developers_int or selected_perspectives_int or selected_game_modes_int):  # ← ДОБАВИТЬ
+
         show_similarity = True
 
-        # Создаем виртуальную игру для критериев с ВСЕМИ параметрами
+        # Создаем виртуальную игру для критериев (БЕЗ game_mode_ids для схожести)
         virtual_game = VirtualGame(
             genre_ids=selected_genres_int,
             keyword_ids=selected_keywords_int,
             theme_ids=selected_themes_int,
             perspective_ids=selected_perspectives_int,
             developer_ids=selected_developers_int
+            # НЕ добавляем game_mode_ids в схожесть
         )
 
         # ИСПОЛЬЗУЕМ НОВЫЙ АЛГОРИТМ
@@ -200,6 +196,11 @@ def game_list(request):
             for developer_id in selected_developers_int:
                 games = games.filter(developers__id=developer_id)
 
+        # ДОБАВИТЬ фильтр по Game Modes
+        if selected_game_modes_int:
+            for game_mode_id in selected_game_modes_int:
+                games = games.filter(game_modes__id=game_mode_id)
+
         if current_sort in ['name', '-name', 'rating', '-rating', 'rating_count', '-rating_count',
                             '-first_release_date']:
             games = games.order_by(current_sort)
@@ -234,6 +235,7 @@ def game_list(request):
         themes=selected_themes_int,
         perspectives=selected_perspectives_int,
         developers=selected_developers_int,
+        game_modes=selected_game_modes_int,  # ← ДОБАВИТЬ
         sort=current_sort
     )
 
@@ -245,6 +247,7 @@ def game_list(request):
         'themes': themes,
         'perspectives': perspectives,
         'developers': developers,
+        'game_modes': game_modes,  # ← ДОБАВИТЬ
         'keyword_categories': KeywordCategory.objects.all(),
         'popular_keywords': popular_keywords,
         'current_sort': current_sort,
@@ -254,6 +257,7 @@ def game_list(request):
         'selected_themes': selected_themes_int,
         'selected_perspectives': selected_perspectives_int,
         'selected_developers': selected_developers_int,
+        'selected_game_modes': selected_game_modes_int,  # ← ДОБАВИТЬ
         'source_game': source_game,
         'selected_platforms': selected_platforms_int,
         'find_similar': find_similar,
@@ -266,9 +270,8 @@ def game_list(request):
 
     return render(request, 'games/game_list.html', context)
 
-
 def generate_compact_url_params(find_similar=False, genres=None, keywords=None, platforms=None,
-                                themes=None, perspectives=None, developers=None, sort=None):
+                                themes=None, perspectives=None, developers=None, game_modes=None, sort=None):
     """
     Генерирует компактные параметры URL с ВСЕМИ критериями
     """
@@ -295,6 +298,10 @@ def generate_compact_url_params(find_similar=False, genres=None, keywords=None, 
 
     if developers:
         params['d'] = ','.join(str(d) for d in developers)
+
+    # ДОБАВИТЬ Game Modes
+    if game_modes:
+        params['gm'] = ','.join(str(gm) for gm in game_modes)
 
     if sort:
         params['sort'] = sort
@@ -330,7 +337,10 @@ def get_compact_game_list_url(find_similar=False, genres=None, keywords=None, pl
 def game_detail(request, pk):
     """Детальная страница игры с похожими играми"""
     game = get_object_or_404(
-        Game.objects.prefetch_related('keywords', 'genres', 'platforms', 'themes', 'developers', 'player_perspectives'),
+        Game.objects.prefetch_related(
+            'keywords', 'genres', 'platforms', 'themes',
+            'developers', 'player_perspectives', 'game_modes', 'publishers'  # ← ДОБАВИТЬ
+        ),
         pk=pk
     )
 

@@ -19,10 +19,11 @@ def get_find_similar_url(game):
     themes = game.themes.all()
     perspectives = game.player_perspectives.all()
     developers = game.developers.all()
+    game_modes = game.game_modes.all()  # ← ДОБАВИТЬ
 
     params = {
         'find_similar': '1',
-        'source_game': game.id,  # Передаем ID исходной игры для сравнения
+        'source_game': game.id,
     }
 
     # Добавляем ВСЕ критерии
@@ -40,6 +41,10 @@ def get_find_similar_url(game):
 
     if developers:
         params['d'] = ','.join(str(d.id) for d in developers)
+
+    # ДОБАВИТЬ Game Modes (только для фильтрации)
+    if game_modes:
+        params['gm'] = ','.join(str(gm.id) for gm in game_modes)
 
     base_url = reverse('game_list')
     return f"{base_url}?{urlencode(params)}"
@@ -59,6 +64,7 @@ def get_comparison_url(source_game, target_game):
     themes = source_game.themes.all()
     perspectives = source_game.player_perspectives.all()
     developers = source_game.developers.all()
+    game_modes = source_game.game_modes.all()  # ← ДОБАВИТЬ
 
     params = {
         'source_game': source_game.id,
@@ -80,13 +86,17 @@ def get_comparison_url(source_game, target_game):
     if developers:
         params['d'] = ','.join(str(d.id) for d in developers)
 
+    # ДОБАВИТЬ Game Modes
+    if game_modes:
+        params['gm'] = ','.join(str(gm.id) for gm in game_modes)
+
     base_url = reverse('game_comparison', args=[target_game.id])
     return f"{base_url}?{urlencode(params)}"
 
 
 @register.simple_tag
 def get_card_comparison_url(source_game, target_game, selected_genres=None, selected_keywords=None,
-                            selected_themes=None, selected_perspectives=None, selected_developers=None):
+                            selected_themes=None, selected_perspectives=None, selected_developers=None, selected_game_modes=None):  # ← ДОБАВИТЬ
     """
     Генерирует URL для сравнения из карточки игры
     """
@@ -125,6 +135,12 @@ def get_card_comparison_url(source_game, target_game, selected_genres=None, sele
             params['d'] = ','.join(str(d) for d in source_game.developers_ids)
         elif hasattr(source_game, 'developers') and source_game.developers:
             params['d'] = ','.join(str(d) for d in source_game.developers)
+
+        # ДОБАВИТЬ Game Modes
+        if hasattr(source_game, 'game_modes_ids') and source_game.game_modes_ids:
+            params['gm'] = ','.join(str(gm) for gm in source_game.game_modes_ids)
+        elif hasattr(source_game, 'game_modes') and source_game.game_modes:
+            params['gm'] = ','.join(str(gm) for gm in source_game.game_modes)
     else:
         # Используем переданные критерии поиска (из game_list)
         if selected_genres:
@@ -137,6 +153,9 @@ def get_card_comparison_url(source_game, target_game, selected_genres=None, sele
             params['pp'] = ','.join(str(pp) for pp in selected_perspectives)
         if selected_developers:
             params['d'] = ','.join(str(d) for d in selected_developers)
+        # ДОБАВИТЬ Game Modes
+        if selected_game_modes:
+            params['gm'] = ','.join(str(gm) for gm in selected_game_modes)
 
     base_url = reverse('game_comparison', args=[target_game.id])
     return f"{base_url}?{urlencode(params)}"
