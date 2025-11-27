@@ -128,11 +128,29 @@ def game_list(request):
                 self.id = source_game_id
                 self.name = "Search Criteria"
                 self.source_game_id = source_game_id
-                self.genres = genres or []
-                self.keywords = keywords or []
-                self.themes = themes or []
-                self.developers = developers or []
-                self.perspectives = perspectives or []
+                self.genres_ids = genres or []  # Переименуем чтобы избежать конфликта
+                self.keywords_ids = keywords or []
+                self.themes_ids = themes or []
+                self.developers_ids = developers or []
+                self.perspectives_ids = perspectives or []
+
+        source_game = SimpleSourceGame(
+            source_game_id=source_game_id,
+            genres=selected_genres_int,
+            keywords=selected_keywords_int,
+            themes=selected_themes_int,
+            developers=selected_developers_int,
+            perspectives=selected_perspectives_int
+        )
+
+        source_game = SimpleSourceGame(
+            source_game_id=source_game_id,
+            genres=selected_genres_int,
+            keywords=selected_keywords_int,
+            themes=selected_themes_int,
+            developers=selected_developers_int,
+            perspectives=selected_perspectives_int
+        )
 
         source_game = SimpleSourceGame(
             source_game_id=source_game_id,
@@ -233,13 +251,13 @@ def game_list(request):
         'show_similarity': show_similarity,
         'selected_genres': selected_genres_int,
         'selected_keywords': selected_keywords_int,
-        'selected_platforms': selected_platforms_int,
         'selected_themes': selected_themes_int,
         'selected_perspectives': selected_perspectives_int,
         'selected_developers': selected_developers_int,
+        'source_game': source_game,
+        'selected_platforms': selected_platforms_int,
         'find_similar': find_similar,
         'compact_url_params': compact_url_params,
-        'source_game': source_game,
         'total_count': total_count,
         'page_obj': page_obj,
         'is_paginated': paginator.num_pages > 1,
@@ -498,12 +516,12 @@ def game_comparison(request, pk2):
             # Breakdown data из нового алгоритма
             'breakdown': breakdown,
             # Константы для отображения в шаблоне
-            'genres_weight': int(similarity_engine.GENRES_WEIGHT),
+            'genres_weight': int(similarity_engine.GENRES_TOTAL_WEIGHT),
             'keywords_weight': int(similarity_engine.KEYWORDS_WEIGHT),
             'themes_weight': int(similarity_engine.THEMES_WEIGHT),
             'developers_weight': int(similarity_engine.DEVELOPERS_WEIGHT),
             'perspectives_weight': int(similarity_engine.PERSPECTIVES_WEIGHT),
-            'genres_exact_match_weight': int(similarity_engine.GENRES_EXACT_MATCH_WEIGHT)
+            'genres_exact_match_weight': int(similarity_engine.GENRES_EXACT_MATCH_WEIGHT),
         }
 
         return render(request, 'games/game_comparison.html', context)

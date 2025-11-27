@@ -127,7 +127,7 @@
 
                 <!-- Compare Button -->
                 {% if show_similarity and source_game %}
-                    <a href="{% url 'game_comparison' game.id %}?g={{ selected_genres|join:',' }}&k={{ selected_keywords|join:',' }}&t={{ selected_themes|join:',' }}&pp={{ selected_perspectives|join:',' }}&d={{ selected_developers|join:',' }}&similarity={{ similarity_percent|floatformat:0 }}{% if source_game.source_game_id %}&source_game={{ source_game.source_game_id }}{% endif %}"
+                    <a href="{% get_card_comparison_url source_game game selected_genres selected_keywords selected_themes selected_perspectives selected_developers %}"
                        class="btn btn-sm btn-outline-warning">
                         <i class="bi bi-arrow-left-right"></i> Compare
                     </a>

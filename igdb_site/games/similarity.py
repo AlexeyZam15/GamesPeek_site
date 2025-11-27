@@ -34,7 +34,7 @@ class GameSimilarity:
     УНИВЕРСАЛЬНЫЙ алгоритм похожести с учетом ОСНОВНЫХ критериев:
 
     ВЕСА КОМПОНЕНТОВ:
-    - Жанры: 30%
+    - Жанры: 30% (10% за точное совпадение + 20% за частичное)
     - Ключевые слова: 25%
     - Темы: 20%
     - Разработчики: 15%
@@ -42,12 +42,13 @@ class GameSimilarity:
     """
 
     # Конфигурационные константы с оптимизированными весами
-    GENRES_WEIGHT = 30.0
+    GENRES_TOTAL_WEIGHT = 30.0
+    GENRES_EXACT_MATCH_WEIGHT = 10.0  # Бонус за точное совпадение жанров
+    GENRES_PARTIAL_MATCH_WEIGHT = 20.0  # За частичное совпадение
     KEYWORDS_WEIGHT = 25.0
     THEMES_WEIGHT = 20.0
     DEVELOPERS_WEIGHT = 15.0
     PERSPECTIVES_WEIGHT = 10.0
-    GENRES_EXACT_MATCH_WEIGHT = 10.0
 
     def calculate_similarity(self, source, target):
         """
@@ -63,12 +64,8 @@ class GameSimilarity:
 
         similarity = 0.0
 
-        # 1. ЖАНРЫ (30%)
-        genre_score = self._calculate_set_similarity(
-            self._get_genres(source),
-            self._get_genres(target),
-            self.GENRES_WEIGHT
-        )
+        # 1. ЖАНРЫ (30% всего)
+        genre_score = self._calculate_genre_similarity(source, target)
         similarity += genre_score
 
         # 2. КЛЮЧЕВЫЕ СЛОВА (25%)
@@ -104,6 +101,35 @@ class GameSimilarity:
         similarity += perspective_score
 
         return max(0.0, min(100.0, similarity))
+
+    def _calculate_genre_similarity(self, source, target):
+        """
+        Специальный расчет для жанров с бонусом за точное совпадение
+        """
+        source_genres = self._get_genres(source)
+        target_genres = self._get_genres(target)
+
+        if not source_genres and not target_genres:
+            return self.GENRES_TOTAL_WEIGHT
+
+        if not source_genres or not target_genres:
+            return 0.0
+
+        total_score = 0.0
+
+        # 1. Точное совпадение жанров (10%)
+        if source_genres == target_genres:
+            total_score += self.GENRES_EXACT_MATCH_WEIGHT
+
+        # 2. Частичное совпадение жанров (до 20%)
+        common_genres = source_genres.intersection(target_genres)
+        union_genres = source_genres.union(target_genres)
+
+        if union_genres:
+            genre_overlap_ratio = len(common_genres) / len(union_genres)
+            total_score += genre_overlap_ratio * self.GENRES_PARTIAL_MATCH_WEIGHT
+
+        return total_score
 
     def _calculate_set_similarity(self, set1, set2, max_score):
         """
@@ -210,9 +236,14 @@ class GameSimilarity:
         """
         Детальная разбивка похожести по компонентам
         """
-        genre_score = self._calculate_set_similarity(
-            self._get_genres(source), self._get_genres(target), self.GENRES_WEIGHT
-        )
+        # Расчет схожести жанров с учетом точного совпадения
+        source_genres = self._get_genres(source)
+        target_genres = self._get_genres(target)
+
+        genre_exact_match = source_genres == target_genres
+        genre_score = self._calculate_genre_similarity(source, target)
+
+        # Расчет остальных компонентов
         keyword_score = self._calculate_set_similarity(
             self._get_keywords(source), self._get_keywords(target), self.KEYWORDS_WEIGHT
         )
@@ -229,10 +260,13 @@ class GameSimilarity:
         breakdown = {
             'genres': {
                 'score': genre_score,
-                'max_score': self.GENRES_WEIGHT,
-                'common_elements': list(self._get_genres(source).intersection(self._get_genres(target))),
-                'source_count': len(self._get_genres(source)),
-                'target_count': len(self._get_genres(target))
+                'max_score': self.GENRES_TOTAL_WEIGHT,
+                'exact_match': genre_exact_match,
+                'exact_match_bonus': self.GENRES_EXACT_MATCH_WEIGHT if genre_exact_match else 0.0,
+                'partial_match_score': genre_score - (self.GENRES_EXACT_MATCH_WEIGHT if genre_exact_match else 0.0),
+                'common_elements': list(source_genres.intersection(target_genres)),
+                'source_count': len(source_genres),
+                'target_count': len(target_genres)
             },
             'keywords': {
                 'score': keyword_score,

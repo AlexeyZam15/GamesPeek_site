@@ -70,31 +70,31 @@
                                     <!-- Exact Match Bonus -->
                                     <div class="breakdown-item">
                                         <div class="d-flex justify-content-between align-items-center">
-                                    <span class="breakdown-label">
-                                        {% if breakdown.genres.source_count == breakdown.genres.target_count and breakdown.genres.common_elements|length == breakdown.genres.source_count %}
-                                            <i class="bi bi-check-circle-fill text-success me-1"></i>
-                                            Exact genre match
-                                        {% else %}
-                                            <i class="bi bi-x-circle-fill text-danger me-1"></i>
-                                            Not exact genre match
-                                        {% endif %}
-                                    </span>
-                                            <span class="breakdown-value {% if breakdown.genres.source_count == breakdown.genres.target_count and breakdown.genres.common_elements|length == breakdown.genres.source_count %}text-success{% else %}text-danger{% endif %}">
-                                        {% if breakdown.genres.source_count == breakdown.genres.target_count and breakdown.genres.common_elements|length == breakdown.genres.source_count %}
-                                            +{{ genres_exact_match_weight }}%{% else %}+0%{% endif %}
-                                    </span>
+                <span class="breakdown-label">
+                    {% if breakdown.genres.exact_match %}
+                        <i class="bi bi-check-circle-fill text-success me-1"></i>
+                        Exact genre match
+                    {% else %}
+                        <i class="bi bi-x-circle-fill text-danger me-1"></i>
+                        Not exact genre match
+                    {% endif %}
+                </span>
+                                            <span class="breakdown-value {% if breakdown.genres.exact_match %}text-success{% else %}text-danger{% endif %}">
+                    {% if breakdown.genres.exact_match %}+{{ breakdown.genres.exact_match_bonus|floatformat:0 }}
+                        %{% else %}+0%{% endif %}
+                </span>
                                         </div>
                                     </div>
 
                                     <!-- Genre Overlap Score -->
                                     <div class="breakdown-item">
                                         <div class="d-flex justify-content-between align-items-center">
-                                    <span class="breakdown-label">
-                                        Genre overlap
-                                    </span>
+                <span class="breakdown-label">
+                    Genre overlap
+                </span>
                                             <span class="breakdown-value text-success">
-                                        +{{ breakdown.genres.score|floatformat:1 }}%
-                                    </span>
+                    +{{ breakdown.genres.partial_match_score|floatformat:1 }}%
+                </span>
                                         </div>
                                         <small class="text-muted">
                                             {{ breakdown.genres.common_elements|length }}

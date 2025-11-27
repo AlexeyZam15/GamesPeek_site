@@ -82,3 +82,61 @@ def get_comparison_url(source_game, target_game):
 
     base_url = reverse('game_comparison', args=[target_game.id])
     return f"{base_url}?{urlencode(params)}"
+
+
+@register.simple_tag
+def get_card_comparison_url(source_game, target_game, selected_genres=None, selected_keywords=None,
+                            selected_themes=None, selected_perspectives=None, selected_developers=None):
+    """
+    Генерирует URL для сравнения из карточки игры
+    """
+    from django.urls import reverse
+    from urllib.parse import urlencode
+
+    params = {}
+
+    # Определяем какие критерии использовать
+    if source_game and hasattr(source_game, 'source_game_id') and source_game.source_game_id:
+        # Если есть исходная игра (из game_detail)
+        params['source_game'] = source_game.source_game_id
+
+        # Используем критерии из source_game
+        if hasattr(source_game, 'genres_ids') and source_game.genres_ids:
+            params['g'] = ','.join(str(g) for g in source_game.genres_ids)
+        elif hasattr(source_game, 'genres') and source_game.genres:
+            params['g'] = ','.join(str(g) for g in source_game.genres)
+
+        if hasattr(source_game, 'keywords_ids') and source_game.keywords_ids:
+            params['k'] = ','.join(str(k) for k in source_game.keywords_ids)
+        elif hasattr(source_game, 'keywords') and source_game.keywords:
+            params['k'] = ','.join(str(k) for k in source_game.keywords)
+
+        if hasattr(source_game, 'themes_ids') and source_game.themes_ids:
+            params['t'] = ','.join(str(t) for t in source_game.themes_ids)
+        elif hasattr(source_game, 'themes') and source_game.themes:
+            params['t'] = ','.join(str(t) for t in source_game.themes)
+
+        if hasattr(source_game, 'perspectives_ids') and source_game.perspectives_ids:
+            params['pp'] = ','.join(str(p) for p in source_game.perspectives_ids)
+        elif hasattr(source_game, 'perspectives') and source_game.perspectives:
+            params['pp'] = ','.join(str(p) for p in source_game.perspectives)
+
+        if hasattr(source_game, 'developers_ids') and source_game.developers_ids:
+            params['d'] = ','.join(str(d) for d in source_game.developers_ids)
+        elif hasattr(source_game, 'developers') and source_game.developers:
+            params['d'] = ','.join(str(d) for d in source_game.developers)
+    else:
+        # Используем переданные критерии поиска (из game_list)
+        if selected_genres:
+            params['g'] = ','.join(str(g) for g in selected_genres)
+        if selected_keywords:
+            params['k'] = ','.join(str(k) for k in selected_keywords)
+        if selected_themes:
+            params['t'] = ','.join(str(t) for t in selected_themes)
+        if selected_perspectives:
+            params['pp'] = ','.join(str(pp) for pp in selected_perspectives)
+        if selected_developers:
+            params['d'] = ','.join(str(d) for d in selected_developers)
+
+    base_url = reverse('game_comparison', args=[target_game.id])
+    return f"{base_url}?{urlencode(params)}"
