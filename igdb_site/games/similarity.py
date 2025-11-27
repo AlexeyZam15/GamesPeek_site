@@ -1,16 +1,26 @@
 from django.db.models import Q
-from .models import Game, Keyword, Genre
+from .models import Game, Keyword, Genre, Series, Company, Theme, PlayerPerspective, GameMode
 
 
 class VirtualGame:
     """Виртуальная игра, созданная из выбранных критериев"""
 
-    def __init__(self, genre_ids=None, keyword_ids=None):
+    def __init__(self, genre_ids=None, keyword_ids=None, theme_ids=None,
+                 perspective_ids=None, developer_ids=None, series_id=None):
         self.genre_ids = genre_ids or []
         self.keyword_ids = keyword_ids or []
+        self.theme_ids = theme_ids or []
+        self.perspective_ids = perspective_ids or []
+        self.developer_ids = developer_ids or []
+        self.series_id = series_id
+
         self.genres = Genre.objects.filter(id__in=genre_ids) if genre_ids else []
         self.keywords = Keyword.objects.filter(id__in=keyword_ids) if keyword_ids else []
-        self.platforms = []
+        self.themes = Theme.objects.filter(id__in=theme_ids) if theme_ids else []
+        self.player_perspectives = PlayerPerspective.objects.filter(id__in=perspective_ids) if perspective_ids else []
+        self.developers = Company.objects.filter(id__in=developer_ids) if developer_ids else []
+        self.series = Series.objects.filter(id=series_id).first() if series_id else None
+
         self.name = "Custom Search Criteria"
         self.rating = None
         self.rating_count = 0
@@ -21,16 +31,23 @@ class VirtualGame:
 
 class GameSimilarity:
     """
-    Унифицированный алгоритм похожести:
-    - 70% за жанры (10% за точное совпадение + 60% за частичное совпадение)
-    - 30% за ключевые слова
+    УНИВЕРСАЛЬНЫЙ алгоритм похожести с учетом ОСНОВНЫХ критериев:
+
+    ВЕСА КОМПОНЕНТОВ:
+    - Жанры: 30%
+    - Ключевые слова: 25%
+    - Темы: 20%
+    - Разработчики: 15%
+    - Перспективы: 10%
     """
 
-    # Конфигурационные константы
-    GENRES_TOTAL_WEIGHT = 70.0
+    # Конфигурационные константы с оптимизированными весами
+    GENRES_WEIGHT = 30.0
+    KEYWORDS_WEIGHT = 25.0
+    THEMES_WEIGHT = 20.0
+    DEVELOPERS_WEIGHT = 15.0
+    PERSPECTIVES_WEIGHT = 10.0
     GENRES_EXACT_MATCH_WEIGHT = 10.0
-    GENRES_PARTIAL_MATCH_WEIGHT = 60.0
-    KEYWORDS_TOTAL_WEIGHT = 30.0
 
     def calculate_similarity(self, source, target):
         """
@@ -46,69 +63,69 @@ class GameSimilarity:
 
         similarity = 0.0
 
-        # 1. ЖАНРЫ (70% всего)
-        genre_score = self._calculate_genre_similarity(source, target)
+        # 1. ЖАНРЫ (30%)
+        genre_score = self._calculate_set_similarity(
+            self._get_genres(source),
+            self._get_genres(target),
+            self.GENRES_WEIGHT
+        )
         similarity += genre_score
 
-        # 2. КЛЮЧЕВЫЕ СЛОВА (30% всего)
-        keyword_score = self._calculate_keyword_similarity(source, target)
+        # 2. КЛЮЧЕВЫЕ СЛОВА (25%)
+        keyword_score = self._calculate_set_similarity(
+            self._get_keywords(source),
+            self._get_keywords(target),
+            self.KEYWORDS_WEIGHT
+        )
         similarity += keyword_score
+
+        # 3. ТЕМЫ (20%)
+        theme_score = self._calculate_set_similarity(
+            self._get_themes(source),
+            self._get_themes(target),
+            self.THEMES_WEIGHT
+        )
+        similarity += theme_score
+
+        # 4. РАЗРАБОТЧИКИ (15%)
+        developer_score = self._calculate_set_similarity(
+            self._get_developers(source),
+            self._get_developers(target),
+            self.DEVELOPERS_WEIGHT
+        )
+        similarity += developer_score
+
+        # 5. ПЕРСПЕКТИВЫ (10%)
+        perspective_score = self._calculate_set_similarity(
+            self._get_perspectives(source),
+            self._get_perspectives(target),
+            self.PERSPECTIVES_WEIGHT
+        )
+        similarity += perspective_score
 
         return max(0.0, min(100.0, similarity))
 
-    def _calculate_genre_similarity(self, source, target):
+    def _calculate_set_similarity(self, set1, set2, max_score):
         """
-        Универсальный расчет жанров
+        Универсальный расчет схожести для любых множеств
         """
-        source_genres = self._get_genres(source)
-        target_genres = self._get_genres(target)
+        if not set1 and not set2:
+            return max_score  # Оба пустые - полное совпадение
 
-        if not source_genres and not target_genres:
-            return self.GENRES_TOTAL_WEIGHT
+        if not set1 or not set2:
+            return 0.0  # Один пустой - нет совпадения
 
-        if not source_genres or not target_genres:
-            return 0.0
+        common_elements = set1.intersection(set2)
+        union_elements = set1.union(set2)
 
-        total_score = 0.0
-
-        # 1. Точное совпадение жанров (10%)
-        if source_genres == target_genres:
-            total_score += self.GENRES_EXACT_MATCH_WEIGHT
-
-        # 2. Частичное совпадение жанров (до 60%)
-        common_genres = source_genres.intersection(target_genres)
-        union_genres = source_genres.union(target_genres)
-
-        if union_genres:
-            genre_overlap_ratio = len(common_genres) / len(union_genres)
-            total_score += genre_overlap_ratio * self.GENRES_PARTIAL_MATCH_WEIGHT
-
-        return total_score
-
-    def _calculate_keyword_similarity(self, source, target):
-        """
-        Универсальный расчет ключевых слов
-        """
-        source_keywords = self._get_keywords(source)
-        target_keywords = self._get_keywords(target)
-
-        if not source_keywords and not target_keywords:
-            return self.KEYWORDS_TOTAL_WEIGHT
-
-        if not source_keywords or not target_keywords:
-            return 0.0
-
-        common_keywords = source_keywords.intersection(target_keywords)
-        union_keywords = source_keywords.union(target_keywords)
-
-        if union_keywords:
-            keyword_overlap_ratio = len(common_keywords) / len(union_keywords)
-            return keyword_overlap_ratio * self.KEYWORDS_TOTAL_WEIGHT
+        if union_elements:
+            overlap_ratio = len(common_elements) / len(union_elements)
+            return overlap_ratio * max_score
 
         return 0.0
 
+    # УНИВЕРСАЛЬНЫЕ МЕТОДЫ ДЛЯ ПОЛУЧЕНИЯ ДАННЫХ
     def _get_genres(self, obj):
-        """Универсальное получение жанров"""
         if isinstance(obj, VirtualGame):
             return set(obj.genres)
         elif hasattr(obj, 'genres'):
@@ -116,12 +133,39 @@ class GameSimilarity:
         return set()
 
     def _get_keywords(self, obj):
-        """Универсальное получение ключевых слов"""
         if isinstance(obj, VirtualGame):
             return set(obj.keywords)
         elif hasattr(obj, 'keywords'):
             return set(obj.keywords.all())
         return set()
+
+    def _get_themes(self, obj):
+        if isinstance(obj, VirtualGame):
+            return set(obj.themes)
+        elif hasattr(obj, 'themes'):
+            return set(obj.themes.all())
+        return set()
+
+    def _get_developers(self, obj):
+        if isinstance(obj, VirtualGame):
+            return set(obj.developers)
+        elif hasattr(obj, 'developers'):
+            return set(obj.developers.all())
+        return set()
+
+    def _get_perspectives(self, obj):
+        if isinstance(obj, VirtualGame):
+            return set(obj.player_perspectives)
+        elif hasattr(obj, 'player_perspectives'):
+            return set(obj.player_perspectives.all())
+        return set()
+
+    def _get_series(self, obj):
+        if isinstance(obj, VirtualGame):
+            return obj.series
+        elif hasattr(obj, 'series'):
+            return obj.series
+        return None
 
     def find_similar_games(self, source_game, limit=20, min_similarity=15):
         """
@@ -135,55 +179,90 @@ class GameSimilarity:
         else:
             all_games = Game.objects.all()
 
-        all_games = all_games.prefetch_related('genres', 'keywords', 'platforms')
+        all_games = all_games.prefetch_related(
+            'genres', 'keywords', 'themes', 'developers', 'player_perspectives'
+        )
 
         for candidate_game in all_games:
             similarity = self.calculate_similarity(source_game, candidate_game)
 
             if similarity >= min_similarity:
-                source_genres = self._get_genres(source_game)
-                target_genres = self._get_genres(candidate_game)
-                source_keywords = self._get_keywords(source_game)
-                target_keywords = self._get_keywords(candidate_game)
-
-                common_genres = source_genres.intersection(target_genres)
-                common_keywords = source_keywords.intersection(target_keywords)
-
-                similar_games.append({
+                # Собираем общие элементы для детальной информации
+                common_data = {
                     'game': candidate_game,
                     'similarity': similarity,
-                    'common_genres': list(common_genres),
-                    'common_keywords': list(common_keywords)
-                })
+                    'common_genres': list(self._get_genres(source_game).intersection(self._get_genres(candidate_game))),
+                    'common_keywords': list(
+                        self._get_keywords(source_game).intersection(self._get_keywords(candidate_game))),
+                    'common_themes': list(self._get_themes(source_game).intersection(self._get_themes(candidate_game))),
+                    'common_developers': list(
+                        self._get_developers(source_game).intersection(self._get_developers(candidate_game))),
+                    'common_perspectives': list(
+                        self._get_perspectives(source_game).intersection(self._get_perspectives(candidate_game))),
+                }
+
+                similar_games.append(common_data)
 
         similar_games.sort(key=lambda x: x['similarity'], reverse=True)
         return similar_games[:limit]
 
     def get_similarity_breakdown(self, source, target):
         """
-        Детальная разбивка похожести
+        Детальная разбивка похожести по компонентам
         """
-        genre_score = self._calculate_genre_similarity(source, target)
-        keyword_score = self._calculate_keyword_similarity(source, target)
-
-        source_genres = self._get_genres(source)
-        target_genres = self._get_genres(target)
+        genre_score = self._calculate_set_similarity(
+            self._get_genres(source), self._get_genres(target), self.GENRES_WEIGHT
+        )
+        keyword_score = self._calculate_set_similarity(
+            self._get_keywords(source), self._get_keywords(target), self.KEYWORDS_WEIGHT
+        )
+        theme_score = self._calculate_set_similarity(
+            self._get_themes(source), self._get_themes(target), self.THEMES_WEIGHT
+        )
+        developer_score = self._calculate_set_similarity(
+            self._get_developers(source), self._get_developers(target), self.DEVELOPERS_WEIGHT
+        )
+        perspective_score = self._calculate_set_similarity(
+            self._get_perspectives(source), self._get_perspectives(target), self.PERSPECTIVES_WEIGHT
+        )
 
         breakdown = {
             'genres': {
                 'score': genre_score,
-                'max_score': self.GENRES_TOTAL_WEIGHT,
-                'components': {
-                    'exact_match': self.GENRES_EXACT_MATCH_WEIGHT if source_genres == target_genres else 0.0,
-                    'partial_match': genre_score - (
-                        self.GENRES_EXACT_MATCH_WEIGHT if source_genres == target_genres else 0.0)
-                }
+                'max_score': self.GENRES_WEIGHT,
+                'common_elements': list(self._get_genres(source).intersection(self._get_genres(target))),
+                'source_count': len(self._get_genres(source)),
+                'target_count': len(self._get_genres(target))
             },
             'keywords': {
                 'score': keyword_score,
-                'max_score': self.KEYWORDS_TOTAL_WEIGHT
+                'max_score': self.KEYWORDS_WEIGHT,
+                'common_elements': list(self._get_keywords(source).intersection(self._get_keywords(target))),
+                'source_count': len(self._get_keywords(source)),
+                'target_count': len(self._get_keywords(target))
             },
-            'total_similarity': genre_score + keyword_score
+            'themes': {
+                'score': theme_score,
+                'max_score': self.THEMES_WEIGHT,
+                'common_elements': list(self._get_themes(source).intersection(self._get_themes(target))),
+                'source_count': len(self._get_themes(source)),
+                'target_count': len(self._get_themes(target))
+            },
+            'developers': {
+                'score': developer_score,
+                'max_score': self.DEVELOPERS_WEIGHT,
+                'common_elements': list(self._get_developers(source).intersection(self._get_developers(target))),
+                'source_count': len(self._get_developers(source)),
+                'target_count': len(self._get_developers(target))
+            },
+            'perspectives': {
+                'score': perspective_score,
+                'max_score': self.PERSPECTIVES_WEIGHT,
+                'common_elements': list(self._get_perspectives(source).intersection(self._get_perspectives(target))),
+                'source_count': len(self._get_perspectives(source)),
+                'target_count': len(self._get_perspectives(target))
+            },
+            'total_similarity': genre_score + keyword_score + theme_score + developer_score + perspective_score
         }
 
         return breakdown

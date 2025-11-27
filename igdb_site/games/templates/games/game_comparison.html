@@ -1,313 +1,428 @@
 {% extends 'base.html' %}
 
 {% block title %}
-{% if is_criteria_comparison %}
-Compare: Search Criteria vs {{ game2.name }} - GamesPeek
-{% else %}
-Compare: {{ game1.name }} vs {{ game2.name }} - GamesPeek
-{% endif %}
+    {% if is_criteria_comparison %}
+        Compare: Search Criteria vs {{ game2.name }} - GamesPeek
+    {% else %}
+        Compare: {{ game1.name }} vs {{ game2.name }} - GamesPeek
+    {% endif %}
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid py-4">
-    <!-- Хедер с основной информацией -->
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="game-header-card card border-0">
-                <div class="card-body p-4">
-                    <div class="row align-items-center">
-                        <!-- ЛЕВАЯ СТОРОНА: Игра или Критерии -->
-                        <div class="col-md-5 text-center">
-                            <div class="game-comparison-card">
+    <div class="container-fluid py-4">
+        <!-- Хедер с основной информацией -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="game-header-card card border-0">
+                    <div class="card-body p-4">
+                        <div class="row align-items-center">
+                            <!-- ЛЕВАЯ СТОРОНА: Игра или Критерии -->
+                            <div class="col-md-5 text-center">
                                 {% if is_criteria_comparison %}
-                                <!-- КРИТЕРИИ -->
-                                <div class="criteria-header">
-                                    <i class="bi bi-search" style="font-size: 4rem; color: #6c757d;"></i>
-                                    <h3 class="game-title mt-3">Search Criteria</h3>
-                                </div>
-                                <div class="card-body">
-                                    {% if criteria_genres %}
-                                    <div class="game-genres">
-                                        <h6>Selected Genres:</h6>
-                                        {% for genre in criteria_genres %}
-                                        <span class="badge bg-danger mb-1">{{ genre.name }}</span>
-                                        {% endfor %}
-                                    </div>
-                                    {% endif %}
-                                    {% if criteria_keywords %}
-                                    <div class="game-keywords mt-2">
-                                        <h6>Selected Keywords:</h6>
-                                        {% for keyword in criteria_keywords %}
-                                        <span class="badge bg-info mb-1">{{ keyword.name }}</span>
-                                        {% endfor %}
-                                    </div>
-                                    {% endif %}
-                                </div>
+                                    {% include 'games/partials/_comparison_game_card.html' with criteria_genres=criteria_genres criteria_keywords=criteria_keywords criteria_themes=criteria_themes criteria_perspectives=criteria_perspectives criteria_developers=criteria_developers %}
                                 {% else %}
-                                <!-- ИГРА 1 -->
-                                <a href="{% url 'game_detail' game1.pk %}" class="game-link">
-                                    {% if game1.cover_url %}
-                                    <img src="{{ game1.cover_url }}" class="card-img-top comparison-cover"
-                                         alt="{{ game1.name }}">
-                                    {% else %}
-                                    <div class="comparison-cover bg-light d-flex align-items-center justify-content-center">
-                                        <span class="text-muted">No Cover</span>
-                                    </div>
-                                    {% endif %}
-                                </a>
-                                <div class="card-body">
-                                    <a href="{% url 'game_detail' game1.pk %}" class="text-decoration-none">
-                                        <h3 class="game-title">{{ game1.name }}</h3>
-                                    </a>
-                                    <div class="game-genres">
-                                        {% for genre in game1.genres.all %}
-                                        <span class="badge bg-danger mb-1">{{ genre.name }}</span>
-                                        {% endfor %}
-                                    </div>
-                                    {% if game1.rating %}
-                                    <div class="game-rating mt-2">
-                                        <span class="text-warning">⭐ {{ game1.rating|floatformat:1 }}</span>
-                                        <small class="text-muted">({{ game1.rating_count }} ratings)</small>
-                                    </div>
-                                    {% endif %}
-                                </div>
+                                    {% include 'games/partials/_comparison_game_card.html' with game=game1 %}
                                 {% endif %}
                             </div>
-                        </div>
 
-                        <!-- Similarity Score -->
-                        <div class="col-md-2 text-center">
-                            <div class="similarity-card">
-                                <div class="similarity-score
-                                    {% if similarity_score > 70 %}score-high
-                                    {% elif similarity_score > 40 %}score-medium
-                                    {% else %}score-low{% endif %}">
-                                    {{ similarity_score|floatformat:0 }}%
-                                </div>
-                                <div class="similarity-label">Match</div>
-                                <div class="similarity-description">
-                                    <small class="text-muted">Overall Similarity</small>
+                            <!-- Similarity Score -->
+                            <div class="col-md-2 text-center">
+                                <div class="similarity-card">
+                                    <div class="similarity-score
+                                {% if similarity_score > 70 %}score-high
+                                {% elif similarity_score > 40 %}score-medium
+                                {% else %}score-low{% endif %}">
+                                        {{ similarity_score|floatformat:0 }}%
+                                    </div>
+                                    <div class="similarity-label">Match</div>
+                                    <div class="similarity-description">
+                                        <small class="text-muted">Overall Similarity</small>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
 
-                        <!-- ПРАВАЯ СТОРОНА: Игра 2 -->
-                        <div class="col-md-5 text-center">
-                            <div class="game-comparison-card">
-                                <a href="{% url 'game_detail' game2.pk %}" class="game-link">
-                                    {% if game2.cover_url %}
-                                    <img src="{{ game2.cover_url }}" class="card-img-top comparison-cover"
-                                         alt="{{ game2.name }}">
-                                    {% else %}
-                                    <div class="comparison-cover bg-light d-flex align-items-center justify-content-center">
-                                        <span class="text-muted">No Cover</span>
-                                    </div>
-                                    {% endif %}
-                                </a>
-                                <div class="card-body">
-                                    <a href="{% url 'game_detail' game2.pk %}" class="text-decoration-none">
-                                        <h3 class="game-title">{{ game2.name }}</h3>
-                                    </a>
-                                    <div class="game-genres">
-                                        {% for genre in game2.genres.all %}
-                                        <span class="badge bg-danger mb-1">{{ genre.name }}</span>
-                                        {% endfor %}
-                                    </div>
-                                    {% if game2.rating %}
-                                    <div class="game-rating mt-2">
-                                        <span class="text-warning">⭐ {{ game2.rating|floatformat:1 }}</span>
-                                        <small class="text-muted">({{ game2.rating_count }} ratings)</small>
-                                    </div>
-                                    {% endif %}
-                                </div>
+                            <!-- ПРАВАЯ СТОРОНА: Игра 2 -->
+                            <div class="col-md-5 text-center">
+                                {% include 'games/partials/_comparison_game_card.html' with game=game2 %}
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
-    </div>
 
-    <!-- Algorithm Breakdown -->
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="algorithm-breakdown card">
-                <div class="card-header bg-dark">
-                    <h5 class="mb-0 text-warning">
-                        <i class="bi bi-calculator me-2"></i>Similarity Algorithm Breakdown
-                    </h5>
-                </div>
-                <div class="card-body">
-                    <div class="row">
-                        <!-- Genres Section -->
-                        <div class="col-md-6">
-                            <div class="breakdown-section">
-                                <h6 class="text-info">🎮 Genres ({{ genres_total_weight }}% total)</h6>
+        <!-- Algorithm Breakdown -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="algorithm-breakdown card">
+                    <div class="card-header bg-dark">
+                        <h5 class="mb-0 text-warning">
+                            <i class="bi bi-calculator me-2"></i>Similarity Algorithm Breakdown
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <!-- Genres Section -->
+                            <div class="col-md-4">
+                                <div class="breakdown-section">
+                                    <h6 class="text-info">🎮 Genres ({{ genres_weight }}% total)</h6>
 
-                                <!-- Exact Match Bonus -->
-                                <div class="breakdown-item">
-                                    <div class="d-flex justify-content-between align-items-center">
+                                    <!-- Exact Match Bonus -->
+                                    <div class="breakdown-item">
+                                        <div class="d-flex justify-content-between align-items-center">
                                     <span class="breakdown-label">
-                                        {% if are_genres_exactly_same %}
-                                        <i class="bi bi-check-circle-fill text-success me-1"></i>
-                                        Exact genre match
+                                        {% if breakdown.genres.source_count == breakdown.genres.target_count and breakdown.genres.common_elements|length == breakdown.genres.source_count %}
+                                            <i class="bi bi-check-circle-fill text-success me-1"></i>
+                                            Exact genre match
                                         {% else %}
-                                        <i class="bi bi-x-circle-fill text-danger me-1"></i>
-                                        Not exact genre match
+                                            <i class="bi bi-x-circle-fill text-danger me-1"></i>
+                                            Not exact genre match
                                         {% endif %}
                                     </span>
-                                        <span class="breakdown-value {% if are_genres_exactly_same %}text-success{% else %}text-danger{% endif %}">
-                                        {% if are_genres_exactly_same %}+{{ genres_exact_match_weight }}%{% else %}+0%{% endif %}
+                                            <span class="breakdown-value {% if breakdown.genres.source_count == breakdown.genres.target_count and breakdown.genres.common_elements|length == breakdown.genres.source_count %}text-success{% else %}text-danger{% endif %}">
+                                        {% if breakdown.genres.source_count == breakdown.genres.target_count and breakdown.genres.common_elements|length == breakdown.genres.source_count %}
+                                            +{{ genres_exact_match_weight }}%{% else %}+0%{% endif %}
                                     </span>
+                                        </div>
                                     </div>
-                                </div>
 
-                                <!-- Genre Overlap Score -->
-                                <div class="breakdown-item">
-                                    <div class="d-flex justify-content-between align-items-center">
+                                    <!-- Genre Overlap Score -->
+                                    <div class="breakdown-item">
+                                        <div class="d-flex justify-content-between align-items-center">
                                     <span class="breakdown-label">
                                         Genre overlap
                                     </span>
-                                        <span class="breakdown-value text-success">
-                                        +{{ genre_overlap_score|floatformat:1 }}%
+                                            <span class="breakdown-value text-success">
+                                        +{{ breakdown.genres.score|floatformat:1 }}%
                                     </span>
+                                        </div>
+                                        <small class="text-muted">
+                                            {{ breakdown.genres.common_elements|length }}
+                                            of {{ breakdown.genres.source_count }} genres matched
+                                            {% if breakdown.genres.common_elements %}
+                                                <br><span class="text-success">Matched:
+                                                {{ breakdown.genres.common_elements|join:", " }}</span>
+                                            {% endif %}
+                                        </small>
                                     </div>
-                                    <small class="text-muted">
-                                        {{ shared_genres_count }} of {{ total_source_genres }} genres matched
-                                        {% if shared_genres %}
-                                        <br><span class="text-success">Matched: {{ shared_genres|join:", " }}</span>
-                                        {% endif %}
-                                    </small>
-                                </div>
 
-                                <div class="breakdown-total">
-                                    <div class="d-flex justify-content-between align-items-center">
-                                        <strong>Genres Total:</strong>
-                                        <strong class="{% if genres_score >= 50 %}text-success{% else %}text-warning{% endif %}">
-                                            {{ genres_score|floatformat:1 }}%
-                                        </strong>
+                                    <div class="breakdown-total">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <strong>Genres Total:</strong>
+                                            <strong class="{% if breakdown.genres.score >= 15 %}text-success{% else %}text-warning{% endif %}">
+                                                {{ breakdown.genres.score|floatformat:1 }}%
+                                            </strong>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
 
-                        <!-- Keywords Section -->
-                        <div class="col-md-6">
-                            <div class="breakdown-section">
-                                <h6 class="text-info">🔑 Keywords ({{ keywords_total_weight }}% total)</h6>
+                            <!-- Keywords Section -->
+                            <div class="col-md-4">
+                                <div class="breakdown-section">
+                                    <h6 class="text-info">🔑 Features ({{ keywords_weight }}% total)</h6>
 
-                                <div class="breakdown-item">
-                                    <div class="d-flex justify-content-between align-items-center">
+                                    <div class="breakdown-item">
+                                        <div class="d-flex justify-content-between align-items-center">
                                     <span class="breakdown-label">
-                                        Keyword overlap
+                                        Feature overlap
                                     </span>
-                                        <span class="breakdown-value text-success">
-                                        +{{ keyword_overlap_score|floatformat:1 }}%
+                                            <span class="breakdown-value text-success">
+                                        +{{ breakdown.keywords.score|floatformat:1 }}%
                                     </span>
+                                        </div>
+                                        <small class="text-muted">
+                                            {{ breakdown.keywords.common_elements|length }}
+                                            of {{ breakdown.keywords.source_count }} features matched
+                                        </small>
                                     </div>
-                                    <small class="text-muted">
-                                        {{ shared_keywords_count }} of {{ total_source_keywords }} keywords matched
-                                    </small>
-                                </div>
 
-                                <div class="breakdown-total">
-                                    <div class="d-flex justify-content-between align-items-center">
-                                        <strong>Keywords Total:</strong>
-                                        <strong class="{% if keywords_score >= 20 %}text-success{% else %}text-warning{% endif %}">
-                                            {{ keywords_score|floatformat:1 }}%
-                                        </strong>
+                                    <div class="breakdown-total">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <strong>Features Total:</strong>
+                                            <strong class="{% if breakdown.keywords.score >= 10 %}text-success{% else %}text-warning{% endif %}">
+                                                {{ breakdown.keywords.score|floatformat:1 }}%
+                                            </strong>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Themes Section -->
+                            <div class="col-md-4">
+                                <div class="breakdown-section">
+                                    <h6 class="text-info">🎭 Themes ({{ themes_weight }}% total)</h6>
+
+                                    <div class="breakdown-item">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                    <span class="breakdown-label">
+                                        Theme overlap
+                                    </span>
+                                            <span class="breakdown-value text-success">
+                                        +{{ breakdown.themes.score|floatformat:1 }}%
+                                    </span>
+                                        </div>
+                                        <small class="text-muted">
+                                            {{ breakdown.themes.common_elements|length }}
+                                            of {{ breakdown.themes.source_count }} themes matched
+                                        </small>
+                                    </div>
+
+                                    <div class="breakdown-total">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <strong>Themes Total:</strong>
+                                            <strong class="{% if breakdown.themes.score >= 10 %}text-success{% else %}text-warning{% endif %}">
+                                                {{ breakdown.themes.score|floatformat:1 }}%
+                                            </strong>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Second Row of Breakdown -->
+                        <div class="row mt-3">
+                            <!-- Developers Section -->
+                            <div class="col-md-6">
+                                <div class="breakdown-section">
+                                    <h6 class="text-info">🏢 Developers ({{ developers_weight }}% total)</h6>
+
+                                    <div class="breakdown-item">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                    <span class="breakdown-label">
+                                        Developer overlap
+                                    </span>
+                                            <span class="breakdown-value text-success">
+                                        +{{ breakdown.developers.score|floatformat:1 }}%
+                                    </span>
+                                        </div>
+                                        <small class="text-muted">
+                                            {{ breakdown.developers.common_elements|length }}
+                                            of {{ breakdown.developers.source_count }} developers matched
+                                        </small>
+                                    </div>
+
+                                    <div class="breakdown-total">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <strong>Developers Total:</strong>
+                                            <strong class="{% if breakdown.developers.score >= 7 %}text-success{% else %}text-warning{% endif %}">
+                                                {{ breakdown.developers.score|floatformat:1 }}%
+                                            </strong>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Perspectives Section -->
+                            <div class="col-md-6">
+                                <div class="breakdown-section">
+                                    <h6 class="text-info">👁️ Perspectives ({{ perspectives_weight }}% total)</h6>
+
+                                    <div class="breakdown-item">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                    <span class="breakdown-label">
+                                        Perspective overlap
+                                    </span>
+                                            <span class="breakdown-value text-success">
+                                        +{{ breakdown.perspectives.score|floatformat:1 }}%
+                                    </span>
+                                        </div>
+                                        <small class="text-muted">
+                                            {{ breakdown.perspectives.common_elements|length }}
+                                            of {{ breakdown.perspectives.source_count }} perspectives matched
+                                        </small>
+                                    </div>
+
+                                    <div class="breakdown-total">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <strong>Perspectives Total:</strong>
+                                            <strong class="{% if breakdown.perspectives.score >= 5 %}text-success{% else %}text-warning{% endif %}">
+                                                {{ breakdown.perspectives.score|floatformat:1 }}%
+                                            </strong>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Final Calculation -->
+                        <div class="row mt-3">
+                            <div class="col-12">
+                                <div class="final-calculation card bg-dark border-warning">
+                                    <div class="card-body text-center">
+                                        <h5 class="text-warning mb-2">Final Calculation</h5>
+                                        <div class="calculation-formula">
+                                            <code class="text-light">
+                                                Genres: {{ breakdown.genres.score|floatformat:1 }}%
+                                                + Features: {{ breakdown.keywords.score|floatformat:1 }}%
+                                                + Themes: {{ breakdown.themes.score|floatformat:1 }}%
+                                                + Developers: {{ breakdown.developers.score|floatformat:1 }}%
+                                                + Perspectives: {{ breakdown.perspectives.score|floatformat:1 }}%
+                                                = <strong class="text-warning">
+                                                {{ similarity_score|floatformat:1 }}%</strong>
+                                            </code>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
 
-                    <!-- Final Calculation -->
-                    <div class="row mt-3">
-                        <div class="col-12">
-                            <div class="final-calculation card bg-dark border-warning">
-                                <div class="card-body text-center">
-                                    <h5 class="text-warning mb-2">Final Calculation</h5>
-                                    <div class="calculation-formula">
-                                        <code class="text-light">
-                                            Genres: {{ genres_score|floatformat:1 }}%
-                                            + Keywords: {{ keywords_score|floatformat:1 }}%
-                                            = <strong class="text-warning">{{ similarity_score|floatformat:1 }}%</strong>
-                                        </code>
-                                    </div>
-                                </div>
-                            </div>
+        <!-- Quick Stats -->
+        <div class="row mb-4">
+            <div class="col-md-2">
+                <div class="stat-card">
+                    <div class="stat-number">{{ shared_genres_count }}</div>
+                    <div class="stat-label">Shared Genres</div>
+                    <div class="stat-description">Common categories</div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="stat-card">
+                    <div class="stat-number">{{ shared_keywords_count }}</div>
+                    <div class="stat-label">Shared Features</div>
+                    <div class="stat-description">Common gameplay</div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="stat-card">
+                    <div class="stat-number">{{ shared_themes_count }}</div>
+                    <div class="stat-label">Shared Themes</div>
+                    <div class="stat-description">Common atmosphere</div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="stat-card">
+                    <div class="stat-number">{{ shared_developers_count }}</div>
+                    <div class="stat-label">Shared Developers</div>
+                    <div class="stat-description">Same studios</div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="stat-card">
+                    <div class="stat-number">{{ shared_perspectives_count }}</div>
+                    <div class="stat-label">Shared Perspectives</div>
+                    <div class="stat-description">Same camera view</div>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="stat-card">
+                    <div class="stat-number">{{ similarity_score|floatformat:0 }}%</div>
+                    <div class="stat-label">Overall Match</div>
+                    <div class="stat-description">Total similarity</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Shared Genres -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="shared-section">
+                    <h4 class="section-title">🎮 Shared Genres</h4>
+                    {% if shared_genres %}
+                        <div class="shared-items-grid">
+                            {% for genre in shared_genres %}
+                                <span class="shared-item item-genre">{{ genre.name }}</span>
+                            {% endfor %}
                         </div>
-                    </div>
+                    {% else %}
+                        <div class="no-shared-items">
+                            <span class="text-muted">No shared genres</span>
+                        </div>
+                    {% endif %}
                 </div>
             </div>
         </div>
-    </div>
 
-    <!-- Quick Stats -->
-    <div class="row mb-4">
-        <div class="col-md-6">
-            <div class="stat-card">
-                <div class="stat-number">{{ shared_genres_count }}</div>
-                <div class="stat-label">Shared Genres</div>
-                <div class="stat-description">Common categories</div>
-            </div>
-        </div>
-        <div class="col-md-6">
-            <div class="stat-card">
-                <div class="stat-number">{{ shared_keywords_count }}</div>
-                <div class="stat-label">Shared Keywords</div>
-                <div class="stat-description">Common features</div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Shared Genres -->
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="shared-section">
-                <h4 class="section-title">🎮 Shared Genres</h4>
-                {% if shared_genres %}
-                <div class="shared-items-grid">
-                    {% for genre in shared_genres %}
-                    <span class="shared-item item-genre">{{ genre.name }}</span>
-                    {% endfor %}
+        <!-- Shared Themes -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="shared-section">
+                    <h4 class="section-title">🎭 Shared Themes</h4>
+                    {% if shared_themes %}
+                        <div class="shared-items-grid">
+                            {% for theme in shared_themes %}
+                                <span class="shared-item item-theme">{{ theme.name }}</span>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="no-shared-items">
+                            <span class="text-muted">No shared themes</span>
+                        </div>
+                    {% endif %}
                 </div>
-                {% else %}
-                <div class="no-shared-items">
-                    <span class="text-muted">No shared genres</span>
-                </div>
-                {% endif %}
             </div>
         </div>
-    </div>
 
-    <!-- Shared Keywords by Category -->
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="shared-section">
-                <h4 class="section-title">🔑 Shared Keywords by Category</h4>
-                {% if shared_keywords_by_category %}
-                {% for category_name, keywords in shared_keywords_by_category.items %}
-                <div class="keyword-category-section mb-3">
-                    <h5 class="category-title">
-                        {% if category_name == 'Gameplay' %}⚡ Gameplay
-                        {% elif category_name == 'Setting' %}🌍 Setting
-                        {% elif category_name == 'Narrative' %}📖 Narrative
-                        {% elif category_name == 'Characters' %}👥 Characters
-                        {% elif category_name == 'Technical' %}⚙️ Technical
-                        {% elif category_name == 'Graphics' %}🎨 Graphics
-                        {% elif category_name == 'Platform' %}💻 Platform
-                        {% elif category_name == 'Multiplayer' %}👥 Multiplayer
-                        {% elif category_name == 'Achievements' %}🏆 Achievements
-                        {% elif category_name == 'Audio' %}🔊 Audio
-                        {% elif category_name == 'Context' %}🌐 Context
-                        {% elif category_name == 'Development' %}🔧 Development
-                        {% else %}📊 {{ category_name }}{% endif %}
-                    </h5>
-                    <div class="shared-items-grid">
-                        {% for keyword in keywords %}
-                        <span class="shared-item
+        <!-- Shared Developers -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="shared-section">
+                    <h4 class="section-title">🏢 Shared Developers</h4>
+                    {% if shared_developers %}
+                        <div class="shared-items-grid">
+                            {% for developer in shared_developers %}
+                                <span class="shared-item item-developer">{{ developer.name }}</span>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="no-shared-items">
+                            <span class="text-muted">No shared developers</span>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Shared Perspectives -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="shared-section">
+                    <h4 class="section-title">👁️ Shared Perspectives</h4>
+                    {% if shared_perspectives %}
+                        <div class="shared-items-grid">
+                            {% for perspective in shared_perspectives %}
+                                <span class="shared-item item-perspective">{{ perspective.name }}</span>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="no-shared-items">
+                            <span class="text-muted">No shared perspectives</span>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Shared Keywords by Category -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="shared-section">
+                    <h4 class="section-title">🔑 Shared Features by Category</h4>
+                    {% if shared_keywords_by_category %}
+                        {% for category_name, keywords in shared_keywords_by_category.items %}
+                            <div class="keyword-category-section mb-3">
+                                <h5 class="category-title">
+                                    {% if category_name == 'Gameplay' %}⚡ Gameplay
+                                    {% elif category_name == 'Setting' %}🌍 Setting
+                                    {% elif category_name == 'Narrative' %}📖 Narrative
+                                    {% elif category_name == 'Characters' %}👥 Characters
+                                    {% elif category_name == 'Technical' %}⚙️ Technical
+                                    {% elif category_name == 'Graphics' %}🎨 Graphics
+                                    {% elif category_name == 'Platform' %}💻 Platform
+                                    {% elif category_name == 'Multiplayer' %}👥 Multiplayer
+                                    {% elif category_name == 'Achievements' %}🏆 Achievements
+                                    {% elif category_name == 'Audio' %}🔊 Audio
+                                    {% elif category_name == 'Context' %}🌐 Context
+                                    {% elif category_name == 'Development' %}🔧 Development
+                                    {% else %}📊 {{ category_name }}{% endif %}
+                                </h5>
+                                <div class="shared-items-grid">
+                                    {% for keyword in keywords %}
+                                        <span class="shared-item
                                 {% if category_name == 'Gameplay' %}item-gameplay
                                 {% elif category_name == 'Setting' %}item-setting
                                 {% elif category_name == 'Narrative' %}item-narrative
@@ -323,44 +438,178 @@ Compare: {{ game1.name }} vs {{ game2.name }} - GamesPeek
                                 {% else %}item-default{% endif %}">
                                 {{ keyword.name }}
                             </span>
+                                    {% endfor %}
+                                </div>
+                            </div>
                         {% endfor %}
-                    </div>
+                    {% else %}
+                        <div class="no-shared-items">
+                            <span class="text-muted">No shared features</span>
+                        </div>
+                    {% endif %}
                 </div>
-                {% endfor %}
-                {% else %}
-                <div class="no-shared-items">
-                    <span class="text-muted">No shared keywords</span>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="action-buttons">
+                    {% if is_criteria_comparison %}
+                        <a href="{% url 'game_list' %}?find_similar=1&g={{ selected_genres|join:',' }}&k=
+                                {{ selected_keywords|join:',' }}&t={{ selected_themes|join:',' }}&pp=
+                                {{ selected_perspectives|join:',' }}&d={{ selected_developers|join:',' }}"
+                           class="btn btn-outline-primary btn-lg">
+                            <i class="bi bi-arrow-left"></i> Back to Similar Games
+                        </a>
+                    {% else %}
+                        <a href="{% url 'game_detail' game1.pk %}" class="btn btn-outline-primary btn-lg">
+                            <i class="bi bi-arrow-left"></i> Back to {{ game1.name }}
+                        </a>
+                    {% endif %}
+
+                    <a href="{% url 'game_detail' game2.pk %}" class="btn btn-outline-primary btn-lg">
+                        Back to {{ game2.name }} <i class="bi bi-arrow-right"></i>
+                    </a>
+
+                    <a href="{% url 'game_list' %}" class="btn btn-primary-gradient btn-lg">
+                        <i class="bi bi-search"></i> Find More Games
+                    </a>
                 </div>
-                {% endif %}
             </div>
         </div>
     </div>
 
-    <!-- Action Buttons -->
-    <div class="row mt-4">
-        <div class="col-12">
-            <div class="action-buttons">
-                {% if is_criteria_comparison %}
-                <a href="{% url 'game_list' %}?find_similar=1&g={{ criteria_genres|join:',' }}&k={{ criteria_keywords|join:',' }}"
-                   class="btn btn-outline-primary btn-lg">
-                    <i class="bi bi-arrow-left"></i> Back to Similar Games
-                </a>
-                {% else %}
-                <a href="{% url 'game_detail' game1.pk %}" class="btn btn-outline-primary btn-lg">
-                    <i class="bi bi-arrow-left"></i> Back to {{ game1.name }}
-                </a>
-                {% endif %}
+    <style>
+        .game-comparison-card {
+            background: transparent;
+            border: none;
+            padding: 0;
+            height: 100%;
+        }
 
-                <a href="{% url 'game_detail' game2.pk %}" class="btn btn-outline-primary btn-lg">
-                    Back to {{ game2.name }} <i class="bi bi-arrow-right"></i>
-                </a>
+        .comparison-cover {
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
 
-                <a href="{% url 'game_list' %}" class="btn btn-primary-gradient btn-lg">
-                    <i class="bi bi-search"></i> Find More Games
-                </a>
-            </div>
-        </div>
-    </div>
-</div>
+        .game-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #ff6b35 !important; /* Оранжевый цвет */
+            margin-bottom: 15px;
+            text-align: center;
+        }
 
+        .similarity-card {
+            padding: 20px;
+        }
+
+        .similarity-score {
+            font-size: 3.5rem;
+            font-weight: 800;
+            margin-bottom: 5px;
+        }
+
+        .similarity-score.score-high {
+            color: #28a745;
+        }
+
+        .similarity-score.score-medium {
+            color: #ffc107;
+        }
+
+        .similarity-score.score-low {
+            color: #17a2b8;
+        }
+
+        .similarity-label {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #6c757d;
+            margin-bottom: 5px;
+        }
+
+        .keywords-container {
+            position: relative;
+        }
+
+        .keywords-collapsible {
+            transition: all 0.3s ease;
+        }
+
+        .keywords-hidden {
+            margin-top: 8px;
+        }
+
+        .badge {
+            font-size: 0.8rem;
+            font-weight: 500;
+            border-radius: 12px;
+        }
+
+        .criteria-header {
+            padding: 20px 0;
+        }
+
+        .criteria-header i {
+            opacity: 0.9;
+        }
+
+        .text-warning {
+            color: #ff6b35 !important; /* Оранжевый вместо стандартного желтого */
+        }
+
+        /* Убираем отступы у карточек */
+        .card-body.p-0 {
+            padding: 0 !important;
+        }
+
+        /* Центрируем содержимое */
+        .game-comparison-card > div {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+        }
+    </style>
+
+    <script>
+        function toggleKeywords() {
+            const hiddenKeywords = document.getElementById('hidden-keywords');
+            const toggleText = document.getElementById('keywords-toggle-text');
+            const toggleIcon = document.getElementById('keywords-toggle-icon');
+
+            if (hiddenKeywords.style.display === 'none') {
+                hiddenKeywords.style.display = 'block';
+                toggleText.textContent = 'Show less';
+                toggleIcon.className = 'bi bi-chevron-up';
+            } else {
+                hiddenKeywords.style.display = 'none';
+                toggleText.textContent = 'Show more';
+                toggleIcon.className = 'bi bi-chevron-down';
+            }
+        }
+
+        // Автоматическая настройка отображения ключевых слов
+        document.addEventListener('DOMContentLoaded', function () {
+            const keywordsContainer = document.querySelector('.keywords-container');
+            if (keywordsContainer) {
+                const allKeywords = keywordsContainer.querySelectorAll('.badge');
+                if (allKeywords.length > 10) {
+                    const visibleKeywords = keywordsContainer.querySelectorAll('.keywords-collapsible .badge');
+                    if (visibleKeywords.length > 6) {
+                        const hiddenSection = document.getElementById('hidden-keywords');
+                        if (hiddenSection) {
+                            const keywordsArray = Array.from(visibleKeywords);
+                            keywordsArray.slice(6).forEach(keyword => {
+                                hiddenSection.appendChild(keyword);
+                            });
+                        }
+                    }
+                }
+            }
+        });
+    </script>
 {% endblock %}

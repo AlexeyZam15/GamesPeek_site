@@ -5,461 +5,777 @@
 {% block title %}{{ game.name }} - GamesPeek{% endblock %}
 
 {% block content %}
-<div class="container-fluid py-4">
-    <!-- Хедер с основной информацией -->
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="game-header-card card border-0">
-                <div class="card-body p-4">
-                    <div class="row align-items-center">
-                        <!-- Обложка -->
-                        <div class="col-md-3 col-lg-2">
-                            {% if game.cover_url %}
-                            <img src="{{ game.cover_url }}" class="img-fluid rounded-3 shadow-lg" alt="{{ game.name }}"
-                                 style="max-height: 250px; width: auto;">
-                            {% else %}
-                            <div class="bg-dark rounded-3 shadow-lg d-flex align-items-center justify-content-center"
-                                 style="height: 250px; min-width: 180px;">
-                                <span class="text-muted">No Cover</span>
+    <div class="container-fluid py-4">
+        <!-- Хедер с основной информацией -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="game-header-card card border-0">
+                    <div class="card-body p-4">
+                        <div class="row align-items-center">
+                            <!-- Обложка -->
+                            <div class="col-md-3 col-lg-2">
+                                {% if game.cover_url %}
+                                    <img src="{{ game.cover_url }}" class="img-fluid rounded-3 shadow-lg"
+                                         alt="{{ game.name }}"
+                                         style="max-height: 250px; width: auto;">
+                                {% else %}
+                                    <div class="bg-dark rounded-3 shadow-lg d-flex align-items-center justify-content-center"
+                                         style="height: 250px; min-width: 180px;">
+                                        <span class="text-muted">No Cover</span>
+                                    </div>
+                                {% endif %}
                             </div>
+
+                            <!-- Основная информация -->
+                            <div class="col-md-9 col-lg-10">
+                                <div class="d-flex flex-column h-100 justify-content-between">
+                                    <div>
+                                        <!-- Изменен цвет названия игры -->
+                                        <h1 class="display-6 fw-bold mb-2 text-info">{{ game.name }}</h1>
+
+                                        <!-- Рейтинг и дата релиза -->
+                                        <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
+                                            {% if game.rating %}
+                                                <div class="d-flex align-items-center">
+                                                    <div class="rating-badge bg-warning text-dark px-3 py-1 rounded-3">
+                                                        <span class="fw-bold">⭐ {{ game.rating|floatformat:1 }}</span>
+                                                        <small class="ms-1 text-muted">({{ game.rating_count }})</small>
+                                                    </div>
+                                                </div>
+                                            {% endif %}
+
+                                            {% if game.first_release_date %}
+                                                <div class="release-date">
+                                                    <div class="badge bg-info text-white fs-6">
+                                                        <span>Released:
+                                                            {{ game.first_release_date|date:"M j, Y" }}</span>
+                                                    </div>
+                                                </div>
+                                            {% endif %}
+                                        </div>
+
+                                        <!-- Жанры с измененным цветом фона -->
+                                        {% if game.genres.all %}
+                                            <div class="mb-3">
+                                                <div class="d-flex flex-wrap gap-1">
+                                                    {% for genre in game.genres.all %}
+                                                        <span class="badge bg-success px-2 py-1 fs-6">{{ genre.name }}</span>
+                                                    {% endfor %}
+                                                </div>
+                                            </div>
+                                        {% endif %}
+
+                                        <!-- НОВЫЕ КРИТЕРИИ: Темы, Разработчики, Перспективы -->
+                                        <div class="game-additional-criteria mb-3">
+                                            <!-- Темы -->
+                                            {% if game.themes.all %}
+                                                <div class="mb-2">
+                                                    <div class="d-flex flex-wrap gap-1">
+                                                        {% for theme in game.themes.all %}
+                                                            <span class="badge bg-warning px-2 py-1">{{ theme.name }}</span>
+                                                        {% endfor %}
+                                                    </div>
+                                                </div>
+                                            {% endif %}
+
+                                            <!-- Разработчики -->
+                                            {% if game.developers.all %}
+                                                <div class="mb-2">
+                                                    <small class="text-muted">Developed by:</small>
+                                                    <div class="d-flex flex-wrap gap-1">
+                                                        {% for developer in game.developers.all %}
+                                                            <span class="badge bg-dark px-2 py-1">{{ developer.name }}</span>
+                                                        {% endfor %}
+                                                    </div>
+                                                </div>
+                                            {% endif %}
+
+                                            <!-- Перспективы -->
+                                            {% if game.player_perspectives.all %}
+                                                <div class="mb-2">
+                                                    <div class="d-flex flex-wrap gap-1">
+                                                        {% for perspective in game.player_perspectives.all %}
+                                                            <span class="badge bg-primary px-2 py-1">{{ perspective.name }}</span>
+                                                        {% endfor %}
+                                                    </div>
+                                                </div>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+
+                                    <!-- Кнопки действий -->
+                                    <div class="d-flex flex-wrap gap-2 mt-3">
+                                        <a href="{% get_find_similar_url game %}"
+                                           class="btn btn-primary-gradient px-3 py-2 fw-bold">
+                                            <i class="bi bi-search-heart me-1"></i>Find Similar
+                                        </a>
+                                        {% if similar_games %}
+                                            <button class="btn btn-outline-info px-3 py-2" type="button"
+                                                    data-bs-toggle="collapse" data-bs-target="#similarGamesCollapse">
+                                                <i class="bi bi-stars me-1"></i>Similar Games
+                                            </button>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Similar Games Collapse -->
+        {% if similar_games %}
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="collapse" id="similarGamesCollapse">
+                        <div class="card">
+                            <div class="card-header bg-dark">
+                                <h5 class="mb-0 text-warning">
+                                    <i class="bi bi-stars me-2"></i>Similar Games
+                                    <small class="text-muted">(Based on our similarity algorithm)</small>
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    {% for similar in similar_games %}
+                                        <div class="col-md-6 col-lg-4 col-xl-3 mb-3">
+                                            <div class="similar-game-card card h-100">
+                                                <div class="card-body">
+                                                    <div class="d-flex align-items-start mb-2">
+                                                        {% if similar.game.cover_url %}
+                                                            <img src="{{ similar.game.cover_url }}"
+                                                                 class="rounded me-3"
+                                                                 alt="{{ similar.game.name }}"
+                                                                 style="width: 60px; height: 80px; object-fit: cover;">
+                                                        {% endif %}
+                                                        <div class="flex-grow-1">
+                                                            <h6 class="card-title mb-1">
+                                                                <a href="{% url 'game_detail' similar.game.id %}"
+                                                                   class="text-decoration-none">
+                                                                    {{ similar.game.name }}
+                                                                </a>
+                                                            </h6>
+                                                            <div class="similarity-score-badge">
+                                                <span class="badge
+                                                    {% if similar.similarity >= 80 %}bg-success
+                                                    {% elif similar.similarity >= 60 %}bg-warning
+                                                    {% else %}bg-info{% endif %}">
+                                                    {{ similar.similarity|floatformat:0 }}% match
+                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="game-preview-info">
+                                                        {% if similar.common_genres %}
+                                                            <div class="mb-1">
+                                                                {% for genre in similar.common_genres|slice:":2" %}
+                                                                    <span class="badge bg-success me-1 small">{{ genre.name }}</span>
+                                                                {% endfor %}
+                                                            </div>
+                                                        {% endif %}
+                                                        {% if similar.common_themes %}
+                                                            <div class="mb-1">
+                                                                {% for theme in similar.common_themes|slice:":1" %}
+                                                                    <span class="badge bg-warning me-1 small">{{ theme.name }}</span>
+                                                                {% endfor %}
+                                                            </div>
+                                                        {% endif %}
+                                                    </div>
+                                                    <!-- Кнопка Compare -->
+                                                    <div class="mt-2">
+                                                        <!-- ПЕРЕДАЕМ ВСЕ КРИТЕРИИ ИСХОДНОЙ ИГРЫ -->
+                                                        <a href="{% get_comparison_url game similar.game %}"
+                                                           class="btn btn-outline-primary btn-sm w-100">
+                                                            <i class="bi bi-arrow-left-right"></i> Compare
+                                                        </a>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
+        <!-- Табы для основного контента -->
+        <div class="game-tabs">
+            <ul class="nav nav-tabs" id="gameTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview"
+                            type="button" role="tab" aria-controls="overview" aria-selected="true">
+                        <i class="bi bi-info-circle me-2"></i>Overview
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="screenshots-tab" data-bs-toggle="tab" data-bs-target="#screenshots"
+                            type="button" role="tab" aria-controls="screenshots" aria-selected="false">
+                        <i class="bi bi-image me-2"></i>Screenshots
+                        {% if game.screenshots.all %}
+                            <span class="badge bg-secondary ms-1">{{ game.screenshots.all|length }}</span>
+                        {% endif %}
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="features-tab" data-bs-toggle="tab" data-bs-target="#features"
+                            type="button" role="tab" aria-controls="features" aria-selected="false">
+                        <i class="bi bi-tags me-2"></i>Features
+                    </button>
+                </li>
+                <!-- НОВАЯ ВКЛАДКА: Advanced Info -->
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="advanced-tab" data-bs-toggle="tab" data-bs-target="#advanced"
+                            type="button" role="tab" aria-controls="advanced" aria-selected="false">
+                        <i class="bi bi-gear me-2"></i>Advanced Info
+                    </button>
+                </li>
+            </ul>
+
+            <div class="tab-content" id="gameTabsContent">
+                <!-- Вкладка Overview -->
+                <div class="tab-pane fade show active" id="overview" role="tabpanel" aria-labelledby="overview-tab">
+                    <div class="row g-4">
+                        <!-- Левая колонка - Описание и сюжет -->
+                        <div class="col-lg-8">
+                            <!-- Описание -->
+                            {% if game.summary %}
+                                <div class="compact-section">
+                                    <div class="section-header">
+                                        <h6 class="text-warning"><i class="bi bi-journal-text me-2"></i>About This Game
+                                        </h6>
+                                    </div>
+                                    <div class="game-detail-card card">
+                                        <div class="card-body">
+                                            <div class="collapsible-text {% if game.summary|wordcount <= 100 %}expanded{% endif %}"
+                                                 id="summary-text">
+                                                <p class="card-text text-light mb-0">{{ game.summary }}</p>
+                                            </div>
+                                            {% if game.summary|wordcount > 100 %}
+                                                <button class="toggle-text-btn" onclick="toggleText('summary')">
+                                                    <span>Read more</span>
+                                                    <i class="bi bi-chevron-down"></i>
+                                                </button>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endif %}
+
+                            <!-- Сюжет -->
+                            {% if game.storyline %}
+                                <div class="compact-section">
+                                    <div class="section-header">
+                                        <h6 class="text-info"><i class="bi bi-book me-2"></i>Storyline</h6>
+                                    </div>
+                                    <div class="game-detail-card card">
+                                        <div class="card-body">
+                                            <div class="collapsible-text {% if game.storyline|wordcount <= 80 %}expanded{% endif %}"
+                                                 id="storyline-text">
+                                                <p class="card-text text-light mb-0">{{ game.storyline }}</p>
+                                            </div>
+                                            {% if game.storyline|wordcount > 80 %}
+                                                <button class="toggle-text-btn" onclick="toggleText('storyline')">
+                                                    <span>Read more</span>
+                                                    <i class="bi bi-chevron-down"></i>
+                                                </button>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
                             {% endif %}
                         </div>
 
-                        <!-- Основная информация -->
-                        <div class="col-md-9 col-lg-10">
-                            <div class="d-flex flex-column h-100 justify-content-between">
-                                <div>
-                                    <!-- Изменен цвет названия игры -->
-                                    <h1 class="display-6 fw-bold mb-2 text-info">{{ game.name }}</h1>
-
-                                    <!-- Рейтинг и дата релиза -->
-                                    <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
-                                        {% if game.rating %}
-                                        <div class="d-flex align-items-center">
-                                            <div class="rating-badge bg-warning text-dark px-3 py-1 rounded-3">
-                                                <span class="fw-bold">⭐ {{ game.rating|floatformat:1 }}</span>
-                                                <small class="ms-1 text-muted">({{ game.rating_count }})</small>
+                        <!-- Правая колонка - Платформы и быстрые действия -->
+                        <div class="col-lg-4">
+                            <!-- Платформы -->
+                            {% if game.platforms.all %}
+                                <div class="compact-section">
+                                    <div class="section-header">
+                                        <h6 class="text-light"><i class="bi bi-controller me-2"></i>Platforms</h6>
+                                    </div>
+                                    <div class="game-detail-card card">
+                                        <div class="card-body">
+                                            <div class="platform-badges">
+                                                {% for platform in game.platforms.all %}
+                                                    <span class="badge bg-secondary px-2 py-1">{{ platform.name }}</span>
+                                                {% endfor %}
                                             </div>
                                         </div>
-                                        {% endif %}
-
-                                        {% if game.first_release_date %}
-                                        <div class="release-date">
-                                            <div class="badge bg-info text-white fs-6">
-                                                <span>Released: {{ game.first_release_date|date:"M j, Y" }}</span>
-                                            </div>
-                                        </div>
-                                        {% endif %}
                                     </div>
-
-                                    <!-- Жанры с измененным цветом фона -->
-                                    {% if game.genres.all %}
-                                    <div class="mb-3">
-                                        <div class="d-flex flex-wrap gap-1">
-                                            {% for genre in game.genres.all %}
-                                            <span class="badge bg-success px-2 py-1 fs-6">{{ genre.name }}</span>
-                                            {% endfor %}
-                                        </div>
-                                    </div>
-                                    {% endif %}
                                 </div>
+                            {% endif %}
 
-                                <!-- Кнопки действий -->
-                                <div class="d-flex flex-wrap gap-2 mt-3">
-                                    <a href="{% get_find_similar_url game %}"
-                                       class="btn btn-primary-gradient px-3 py-2 fw-bold">
-                                        <i class="bi bi-search-heart me-1"></i>Find Similar
-                                    </a>
+                            <!-- Quick Actions -->
+                            <div class="compact-section">
+                                <div class="section-header">
+                                    <h6 class="text-light"><i class="bi bi-lightning me-2"></i>Quick Actions</h6>
+                                </div>
+                                <div class="game-detail-card card">
+                                    <div class="card-body">
+                                        <div class="quick-actions-grid">
+                                            <!-- Similar by All Criteria -->
+                                            <a href="{% get_find_similar_url game %}"
+                                               class="btn btn-outline-primary btn-sm py-2">
+                                                <i class="bi bi-search-heart me-2"></i>Find Similar Games
+                                            </a>
+
+                                            <!-- Similar by Themes -->
+                                            {% if game.themes.all %}
+                                                <a href="{% url 'game_list' %}?find_similar=1{% for theme in game.themes.all %}&t={{ theme.id }}{% endfor %}"
+                                                   class="btn btn-outline-warning btn-sm py-2">
+                                                    <i class="bi bi-palette me-2"></i>Similar Themes
+                                                </a>
+                                            {% endif %}
+
+                                            <!-- Similar by Developers -->
+                                            {% if game.developers.all %}
+                                                <a href="{% url 'game_list' %}?find_similar=1{% for developer in game.developers.all %}&d={{ developer.id }}{% endfor %}"
+                                                   class="btn btn-outline-dark btn-sm py-2">
+                                                    <i class="bi bi-building me-2"></i>Same Developers
+                                                </a>
+                                            {% endif %}
+
+                                            <!-- Similar by Perspectives -->
+                                            {% if game.player_perspectives.all %}
+                                                <a href="{% url 'game_list' %}?find_similar=1{% for perspective in game.player_perspectives.all %}&pp={{ perspective.id }}{% endfor %}"
+                                                   class="btn btn-outline-info btn-sm py-2">
+                                                    <i class="bi bi-eye me-2"></i>Similar Perspective
+                                                </a>
+                                            {% endif %}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
-    </div>
 
-    <!-- Остальной код без изменений -->
-    <!-- Табы для основного контента -->
-    <div class="game-tabs">
-        <ul class="nav nav-tabs" id="gameTabs" role="tablist">
-            <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview"
-                        type="button" role="tab" aria-controls="overview" aria-selected="true">
-                    <i class="bi bi-info-circle me-2"></i>Overview
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="screenshots-tab" data-bs-toggle="tab" data-bs-target="#screenshots"
-                        type="button" role="tab" aria-controls="screenshots" aria-selected="false">
-                    <i class="bi bi-image me-2"></i>Screenshots
+                <!-- Вкладка Screenshots -->
+                <div class="tab-pane fade" id="screenshots" role="tabpanel" aria-labelledby="screenshots-tab">
                     {% if game.screenshots.all %}
-                    <span class="badge bg-secondary ms-1">{{ game.screenshots.all|length }}</span>
+                        <div class="screenshots-gallery">
+                            <div class="row g-3">
+                                {% for screenshot in game.screenshots.all %}
+                                    <div class="col-md-6 col-lg-4 col-xl-3">
+                                        <div class="screenshot-card card h-100">
+                                            <a href="{{ screenshot.image_url }}" data-fancybox="screenshots"
+                                               data-caption="{{ game.name }} - Screenshot {{ forloop.counter }}">
+                                                <img src="{{ screenshot.image_url }}"
+                                                     class="card-img-top screenshot-image"
+                                                     alt="{{ game.name }} - Screenshot {{ forloop.counter }}"
+                                                     loading="lazy">
+                                            </a>
+                                            {% if screenshot.caption %}
+                                                <div class="card-body p-3">
+                                                    <p class="card-text text-muted small mb-0">{{ screenshot.caption }}</p>
+                                                </div>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% else %}
+                        <div class="game-detail-card card">
+                            <div class="card-body text-center py-5">
+                                <div class="mb-3">
+                                    <i class="bi bi-image text-muted" style="font-size: 3rem;"></i>
+                                </div>
+                                <h5 class="text-muted mb-2">No Screenshots Available</h5>
+                                <p class="text-muted mb-0">
+                                    Screenshots for this game haven't been loaded yet.
+                                </p>
+                            </div>
+                        </div>
                     {% endif %}
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="features-tab" data-bs-toggle="tab" data-bs-target="#features"
-                        type="button" role="tab" aria-controls="features" aria-selected="false">
-                    <i class="bi bi-tags me-2"></i>Features
-                </button>
-            </li>
-        </ul>
-
-        <div class="tab-content" id="gameTabsContent">
-            <!-- Вкладка Overview -->
-            <div class="tab-pane fade show active" id="overview" role="tabpanel" aria-labelledby="overview-tab">
-                <div class="row g-4">
-                    <!-- Левая колонка - Описание и сюжет -->
-                    <div class="col-lg-8">
-                        <!-- Описание -->
-                        {% if game.summary %}
-                        <div class="compact-section">
-                            <div class="section-header">
-                                <h6 class="text-warning"><i class="bi bi-journal-text me-2"></i>About This Game</h6>
-                            </div>
-                            <div class="game-detail-card card">
-                                <div class="card-body">
-                                    <div class="collapsible-text {% if game.summary|wordcount <= 100 %}expanded{% endif %}"
-                                         id="summary-text">
-                                        <p class="card-text text-light mb-0">{{ game.summary }}</p>
-                                    </div>
-                                    {% if game.summary|wordcount > 100 %}
-                                    <button class="toggle-text-btn" onclick="toggleText('summary')">
-                                        <span>Read more</span>
-                                        <i class="bi bi-chevron-down"></i>
-                                    </button>
-                                    {% endif %}
-                                </div>
-                            </div>
-                        </div>
-                        {% endif %}
-
-                        <!-- Сюжет -->
-                        {% if game.storyline %}
-                        <div class="compact-section">
-                            <div class="section-header">
-                                <h6 class="text-info"><i class="bi bi-book me-2"></i>Storyline</h6>
-                            </div>
-                            <div class="game-detail-card card">
-                                <div class="card-body">
-                                    <div class="collapsible-text {% if game.storyline|wordcount <= 80 %}expanded{% endif %}"
-                                         id="storyline-text">
-                                        <p class="card-text text-light mb-0">{{ game.storyline }}</p>
-                                    </div>
-                                    {% if game.storyline|wordcount > 80 %}
-                                    <button class="toggle-text-btn" onclick="toggleText('storyline')">
-                                        <span>Read more</span>
-                                        <i class="bi bi-chevron-down"></i>
-                                    </button>
-                                    {% endif %}
-                                </div>
-                            </div>
-                        </div>
-                        {% endif %}
-                    </div>
-
-                    <!-- Правая колонка - Платформы и быстрые действия -->
-                    <div class="col-lg-4">
-                        <!-- Платформы -->
-                        {% if game.platforms.all %}
-                        <div class="compact-section">
-                            <div class="section-header">
-                                <h6 class="text-light"><i class="bi bi-controller me-2"></i>Platforms</h6>
-                            </div>
-                            <div class="game-detail-card card">
-                                <div class="card-body">
-                                    <div class="platform-badges">
-                                        {% for platform in game.platforms.all %}
-                                        <span class="badge bg-secondary px-2 py-1">{{ platform.name }}</span>
-                                        {% endfor %}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        {% endif %}
-
-                        <!-- Quick Actions -->
-                        <div class="compact-section">
-                            <div class="section-header">
-                                <h6 class="text-light"><i class="bi bi-lightning me-2"></i>Quick Actions</h6>
-                            </div>
-                            <div class="game-detail-card card">
-                                <div class="card-body">
-                                    <div class="quick-actions-grid">
-                                        <!-- Similar by Genres - только жанры -->
-                                        <a href="{% url 'game_list' %}?find_similar=1{% for genre in game.genres.all %}&genre={{ genre.id }}{% endfor %}"
-                                           class="btn btn-outline-primary btn-sm py-2">
-                                            <i class="bi bi-controller me-2"></i>Similar by Genres
-                                        </a>
-                                        <!-- Similar by Features - только ключевые слова -->
-                                        <a href="{% url 'game_list' %}?find_similar=1{% for keyword in game.keywords.all %}&keyword={{ keyword.id }}{% endfor %}"
-                                           class="btn btn-outline-info btn-sm py-2">
-                                            <i class="bi bi-tags me-2"></i>Similar by Features
-                                        </a>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
                 </div>
-            </div>
 
-            <!-- Вкладка Screenshots -->
-            <div class="tab-pane fade" id="screenshots" role="tabpanel" aria-labelledby="screenshots-tab">
-                {% if game.screenshots.all %}
-                <div class="screenshots-gallery">
-                    <div class="row g-3">
-                        {% for screenshot in game.screenshots.all %}
-                        <div class="col-md-6 col-lg-4 col-xl-3">
-                            <div class="screenshot-card card h-100">
-                                <a href="{{ screenshot.image_url }}" data-fancybox="screenshots"
-                                   data-caption="{{ game.name }} - Screenshot {{ forloop.counter }}">
-                                    <img src="{{ screenshot.image_url }}"
-                                         class="card-img-top screenshot-image"
-                                         alt="{{ game.name }} - Screenshot {{ forloop.counter }}"
-                                         loading="lazy">
-                                </a>
-                                {% if screenshot.caption %}
-                                <div class="card-body p-3">
-                                    <p class="card-text text-muted small mb-0">{{ screenshot.caption }}</p>
-                                </div>
+                <!-- Вкладка Features -->
+                <div class="tab-pane fade" id="features" role="tabpanel" aria-labelledby="features-tab">
+                    {% if game.keywords.all %}
+                        <div class="row g-3">
+                            <!-- Gameplay -->
+                            {% with gameplay_keywords=game.gameplay_keywords %}
+                                {% if gameplay_keywords %}
+                                    <div class="col-md-6">
+                                        <div class="keyword-category">
+                                            <h6 class="category-title" style="color: #f39c12 !important;">
+                                                <i class="bi bi-joystick me-2"></i>Gameplay
+                                            </h6>
+                                            <div class="d-flex flex-wrap gap-1">
+                                                {% for keyword in gameplay_keywords %}
+                                                    <span class="badge"
+                                                          style="background: linear-gradient(135deg, #f39c12, #e67e22) !important; color: white !important;">{{ keyword.name }}</span>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </div>
                                 {% endif %}
+                            {% endwith %}
+
+                            <!-- Setting -->
+                            {% with setting_keywords=game.setting_keywords %}
+                                {% if setting_keywords %}
+                                    <div class="col-md-6">
+                                        <div class="keyword-category">
+                                            <h6 class="category-title" style="color: #3498db !important;">
+                                                <i class="bi bi-globe me-2"></i>Setting
+                                            </h6>
+                                            <div class="d-flex flex-wrap gap-1">
+                                                {% for keyword in setting_keywords %}
+                                                    <span class="badge"
+                                                          style="background: linear-gradient(135deg, #3498db, #2980b9) !important; color: white !important;">{{ keyword.name }}</span>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                {% endif %}
+                            {% endwith %}
+
+                            <!-- Narrative -->
+                            {% with narrative_keywords=game.narrative_keywords %}
+                                {% if narrative_keywords %}
+                                    <div class="col-md-6">
+                                        <div class="keyword-category">
+                                            <h6 class="category-title" style="color: #9b59b6 !important;">
+                                                <i class="bi bi-chat-left-text me-2"></i>Narrative
+                                            </h6>
+                                            <div class="d-flex flex-wrap gap-1">
+                                                {% for keyword in narrative_keywords %}
+                                                    <span class="badge"
+                                                          style="background: linear-gradient(135deg, #9b59b6, #8e44ad) !important; color: white !important;">{{ keyword.name }}</span>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                {% endif %}
+                            {% endwith %}
+
+                            <!-- Characters -->
+                            {% with character_keywords=game.character_keywords %}
+                                {% if character_keywords %}
+                                    <div class="col-md-6">
+                                        <div class="keyword-category">
+                                            <h6 class="category-title" style="color: #e84393 !important;">
+                                                <i class="bi bi-people me-2"></i>Characters
+                                            </h6>
+                                            <div class="d-flex flex-wrap gap-1">
+                                                {% for keyword in character_keywords %}
+                                                    <span class="badge"
+                                                          style="background: linear-gradient(135deg, #e84393, #fd79a8) !important; color: white !important;">{{ keyword.name }}</span>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                {% endif %}
+                            {% endwith %}
+
+                            <!-- Multiplayer -->
+                            {% with multiplayer_keywords=game.multiplayer_keywords %}
+                                {% if multiplayer_keywords %}
+                                    <div class="col-md-6">
+                                        <div class="keyword-category">
+                                            <h6 class="category-title" style="color: #e67e22 !important;">
+                                                <i class="bi bi-controller me-2"></i>Multiplayer
+                                            </h6>
+                                            <div class="d-flex flex-wrap gap-1">
+                                                {% for keyword in multiplayer_keywords %}
+                                                    <span class="badge"
+                                                          style="background: linear-gradient(135deg, #e67e22, #d35400) !important; color: white !important;">{{ keyword.name }}</span>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                {% endif %}
+                            {% endwith %}
+
+                            <!-- Technical -->
+                            {% with technical_keywords=game.technical_keywords %}
+                                {% if technical_keywords %}
+                                    <div class="col-md-6">
+                                        <div class="keyword-category">
+                                            <h6 class="category-title" style="color: #95a5a6 !important;">
+                                                <i class="bi bi-gear me-2"></i>Technical
+                                            </h6>
+                                            <div class="d-flex flex-wrap gap-1">
+                                                {% for keyword in technical_keywords %}
+                                                    <span class="badge"
+                                                          style="background: linear-gradient(135deg, #7f8c8d, #95a5a6) !important; color: white !important;">{{ keyword.name }}</span>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                {% endif %}
+                            {% endwith %}
+
+                            <!-- Graphics -->
+                            {% with graphics_keywords=game.graphics_keywords %}
+                                {% if graphics_keywords %}
+                                    <div class="col-md-6">
+                                        <div class="keyword-category">
+                                            <h6 class="category-title" style="color: #27ae60 !important;">
+                                                <i class="bi bi-image me-2"></i>Graphics
+                                            </h6>
+                                            <div class="d-flex flex-wrap gap-1">
+                                                {% for keyword in graphics_keywords %}
+                                                    <span class="badge"
+                                                          style="background: linear-gradient(135deg, #27ae60, #229954) !important; color: white !important;">{{ keyword.name }}</span>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                {% endif %}
+                            {% endwith %}
+
+                            <!-- Audio -->
+                            {% with audio_keywords=game.audio_keywords %}
+                                {% if audio_keywords %}
+                                    <div class="col-md-6">
+                                        <div class="keyword-category">
+                                            <h6 class="category-title" style="color: #e74c3c !important;">
+                                                <i class="bi bi-volume-up me-2"></i>Audio
+                                            </h6>
+                                            <div class="d-flex flex-wrap gap-1">
+                                                {% for keyword in audio_keywords %}
+                                                    <span class="badge"
+                                                          style="background: linear-gradient(135deg, #e74c3c, #c0392b) !important; color: white !important;">{{ keyword.name }}</span>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                {% endif %}
+                            {% endwith %}
+                        </div>
+                    {% else %}
+                        <div class="game-detail-card card">
+                            <div class="card-body text-center">
+                                <p class="text-muted mb-0">
+                                    <i class="bi bi-tags me-2"></i>
+                                    No feature keywords available for this game
+                                </p>
                             </div>
                         </div>
-                        {% endfor %}
+                    {% endif %}
+                </div>
+
+                <!-- НОВАЯ ВКЛАДКА: Advanced Info -->
+                <div class="tab-pane fade" id="advanced" role="tabpanel" aria-labelledby="advanced-tab">
+                    <div class="row g-4">
+                        <!-- Game Modes -->
+                        {% if game.game_modes.all %}
+                            <div class="col-md-6">
+                                <div class="compact-section">
+                                    <div class="section-header">
+                                        <h6 class="text-primary"><i class="bi bi-people me-2"></i>Game Modes</h6>
+                                    </div>
+                                    <div class="game-detail-card card">
+                                        <div class="card-body">
+                                            <div class="d-flex flex-wrap gap-1">
+                                                {% for mode in game.game_modes.all %}
+                                                    <span class="badge bg-primary px-2 py-1">{{ mode.name }}</span>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        <!-- Player Perspectives -->
+                        {% if game.player_perspectives.all %}
+                            <div class="col-md-6">
+                                <div class="compact-section">
+                                    <div class="section-header">
+                                        <h6 class="text-info"><i class="bi bi-eye me-2"></i>Player Perspectives</h6>
+                                    </div>
+                                    <div class="game-detail-card card">
+                                        <div class="card-body">
+                                            <div class="d-flex flex-wrap gap-1">
+                                                {% for perspective in game.player_perspectives.all %}
+                                                    <span class="badge bg-info px-2 py-1">{{ perspective.name }}</span>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        <!-- Themes -->
+                        {% if game.themes.all %}
+                            <div class="col-md-6">
+                                <div class="compact-section">
+                                    <div class="section-header">
+                                        <h6 class="text-warning"><i class="bi bi-palette me-2"></i>Themes</h6>
+                                    </div>
+                                    <div class="game-detail-card card">
+                                        <div class="card-body">
+                                            <div class="d-flex flex-wrap gap-1">
+                                                {% for theme in game.themes.all %}
+                                                    <span class="badge bg-warning px-2 py-1">{{ theme.name }}</span>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        <!-- Developers -->
+                        {% if game.developers.all %}
+                            <div class="col-md-6">
+                                <div class="compact-section">
+                                    <div class="section-header">
+                                        <h6 class="text-dark"><i class="bi bi-building me-2"></i>Developers</h6>
+                                    </div>
+                                    <div class="game-detail-card card">
+                                        <div class="card-body">
+                                            <div class="d-flex flex-wrap gap-1">
+                                                {% for developer in game.developers.all %}
+                                                    <span class="badge bg-dark px-2 py-1">{{ developer.name }}</span>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        <!-- Publishers -->
+                        {% if game.publishers.all %}
+                            <div class="col-md-6">
+                                <div class="compact-section">
+                                    <div class="section-header">
+                                        <h6 class="text-secondary"><i class="bi bi-shop me-2"></i>Publishers</h6>
+                                    </div>
+                                    <div class="game-detail-card card">
+                                        <div class="card-body">
+                                            <div class="d-flex flex-wrap gap-1">
+                                                {% for publisher in game.publishers.all %}
+                                                    <span class="badge bg-secondary px-2 py-1">{{ publisher.name }}</span>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        <!-- Series Info -->
+                        {% if game.series %}
+                            <div class="col-md-6">
+                                <div class="compact-section">
+                                    <div class="section-header">
+                                        <h6 class="text-success"><i class="bi bi-collection me-2"></i>Series</h6>
+                                    </div>
+                                    <div class="game-detail-card card">
+                                        <div class="card-body">
+                                            <h6>{{ game.series.name }}</h6>
+                                            {% if game.series_order %}
+                                                <p class="text-muted mb-2">Part {{ game.series_order }} in the
+                                                    series</p>
+                                            {% endif %}
+                                            {% if game.series.description %}
+                                                <p class="text-light small">
+                                                    {{ game.series.description|truncatewords:30 }}</p>
+                                            {% endif %}
+                                            <a href="{% url 'game_list' %}?series={{ game.series.id }}"
+                                               class="btn btn-outline-success btn-sm">
+                                                View all games in series
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endif %}
                     </div>
                 </div>
-                {% else %}
-                <div class="game-detail-card card">
-                    <div class="card-body text-center py-5">
-                        <div class="mb-3">
-                            <i class="bi bi-image text-muted" style="font-size: 3rem;"></i>
-                        </div>
-                        <h5 class="text-muted mb-2">No Screenshots Available</h5>
-                        <p class="text-muted mb-0">
-                            Screenshots for this game haven't been loaded yet.
-                        </p>
-                    </div>
-                </div>
-                {% endif %}
-            </div>
-
-            <!-- Вкладка Features -->
-            <div class="tab-pane fade" id="features" role="tabpanel" aria-labelledby="features-tab">
-                {% if game.keywords.all %}
-                <div class="row g-3">
-                    <!-- Gameplay -->
-                    {% with gameplay_keywords=game.gameplay_keywords %}
-                    {% if gameplay_keywords %}
-                    <div class="col-md-6">
-                        <div class="keyword-category">
-                            <h6 class="category-title" style="color: #f39c12 !important;">
-                                <i class="bi bi-joystick me-2"></i>Gameplay
-                            </h6>
-                            <div class="d-flex flex-wrap gap-1">
-                                {% for keyword in gameplay_keywords %}
-                                <span class="badge"
-                                      style="background: linear-gradient(135deg, #f39c12, #e67e22) !important; color: white !important;">{{ keyword.name }}</span>
-                                {% endfor %}
-                            </div>
-                        </div>
-                    </div>
-                    {% endif %}
-                    {% endwith %}
-
-                    <!-- Setting -->
-                    {% with setting_keywords=game.setting_keywords %}
-                    {% if setting_keywords %}
-                    <div class="col-md-6">
-                        <div class="keyword-category">
-                            <h6 class="category-title" style="color: #3498db !important;">
-                                <i class="bi bi-globe me-2"></i>Setting
-                            </h6>
-                            <div class="d-flex flex-wrap gap-1">
-                                {% for keyword in setting_keywords %}
-                                <span class="badge"
-                                      style="background: linear-gradient(135deg, #3498db, #2980b9) !important; color: white !important;">{{ keyword.name }}</span>
-                                {% endfor %}
-                            </div>
-                        </div>
-                    </div>
-                    {% endif %}
-                    {% endwith %}
-
-                    <!-- Narrative -->
-                    {% with narrative_keywords=game.narrative_keywords %}
-                    {% if narrative_keywords %}
-                    <div class="col-md-6">
-                        <div class="keyword-category">
-                            <h6 class="category-title" style="color: #9b59b6 !important;">
-                                <i class="bi bi-chat-left-text me-2"></i>Narrative
-                            </h6>
-                            <div class="d-flex flex-wrap gap-1">
-                                {% for keyword in narrative_keywords %}
-                                <span class="badge"
-                                      style="background: linear-gradient(135deg, #9b59b6, #8e44ad) !important; color: white !important;">{{ keyword.name }}</span>
-                                {% endfor %}
-                            </div>
-                        </div>
-                    </div>
-                    {% endif %}
-                    {% endwith %}
-
-                    <!-- Characters -->
-                    {% with character_keywords=game.character_keywords %}
-                    {% if character_keywords %}
-                    <div class="col-md-6">
-                        <div class="keyword-category">
-                            <h6 class="category-title" style="color: #e84393 !important;">
-                                <i class="bi bi-people me-2"></i>Characters
-                            </h6>
-                            <div class="d-flex flex-wrap gap-1">
-                                {% for keyword in character_keywords %}
-                                <span class="badge"
-                                      style="background: linear-gradient(135deg, #e84393, #fd79a8) !important; color: white !important;">{{ keyword.name }}</span>
-                                {% endfor %}
-                            </div>
-                        </div>
-                    </div>
-                    {% endif %}
-                    {% endwith %}
-
-                    <!-- Multiplayer -->
-                    {% with multiplayer_keywords=game.multiplayer_keywords %}
-                    {% if multiplayer_keywords %}
-                    <div class="col-md-6">
-                        <div class="keyword-category">
-                            <h6 class="category-title" style="color: #e67e22 !important;">
-                                <i class="bi bi-controller me-2"></i>Multiplayer
-                            </h6>
-                            <div class="d-flex flex-wrap gap-1">
-                                {% for keyword in multiplayer_keywords %}
-                                <span class="badge"
-                                      style="background: linear-gradient(135deg, #e67e22, #d35400) !important; color: white !important;">{{ keyword.name }}</span>
-                                {% endfor %}
-                            </div>
-                        </div>
-                    </div>
-                    {% endif %}
-                    {% endwith %}
-
-                    <!-- Technical -->
-                    {% with technical_keywords=game.technical_keywords %}
-                    {% if technical_keywords %}
-                    <div class="col-md-6">
-                        <div class="keyword-category">
-                            <h6 class="category-title" style="color: #95a5a6 !important;">
-                                <i class="bi bi-gear me-2"></i>Technical
-                            </h6>
-                            <div class="d-flex flex-wrap gap-1">
-                                {% for keyword in technical_keywords %}
-                                <span class="badge"
-                                      style="background: linear-gradient(135deg, #7f8c8d, #95a5a6) !important; color: white !important;">{{ keyword.name }}</span>
-                                {% endfor %}
-                            </div>
-                        </div>
-                    </div>
-                    {% endif %}
-                    {% endwith %}
-
-                    <!-- Graphics -->
-                    {% with graphics_keywords=game.graphics_keywords %}
-                    {% if graphics_keywords %}
-                    <div class="col-md-6">
-                        <div class="keyword-category">
-                            <h6 class="category-title" style="color: #27ae60 !important;">
-                                <i class="bi bi-image me-2"></i>Graphics
-                            </h6>
-                            <div class="d-flex flex-wrap gap-1">
-                                {% for keyword in graphics_keywords %}
-                                <span class="badge"
-                                      style="background: linear-gradient(135deg, #27ae60, #229954) !important; color: white !important;">{{ keyword.name }}</span>
-                                {% endfor %}
-                            </div>
-                        </div>
-                    </div>
-                    {% endif %}
-                    {% endwith %}
-
-                    <!-- Audio -->
-                    {% with audio_keywords=game.audio_keywords %}
-                    {% if audio_keywords %}
-                    <div class="col-md-6">
-                        <div class="keyword-category">
-                            <h6 class="category-title" style="color: #e74c3c !important;">
-                                <i class="bi bi-volume-up me-2"></i>Audio
-                            </h6>
-                            <div class="d-flex flex-wrap gap-1">
-                                {% for keyword in audio_keywords %}
-                                <span class="badge"
-                                      style="background: linear-gradient(135deg, #e74c3c, #c0392b) !important; color: white !important;">{{ keyword.name }}</span>
-                                {% endfor %}
-                            </div>
-                        </div>
-                    </div>
-                    {% endif %}
-                    {% endwith %}
-                </div>
-                {% else %}
-                <div class="game-detail-card card">
-                    <div class="card-body text-center">
-                        <p class="text-muted mb-0">
-                            <i class="bi bi-tags me-2"></i>
-                            No feature keywords available for this game
-                        </p>
-                    </div>
-                </div>
-                {% endif %}
             </div>
         </div>
     </div>
-</div>
 
-<!-- Подключение Fancybox для галереи -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui@5.0/dist/fancybox/fancybox.css"/>
-<script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui@5.0/dist/fancybox/fancybox.umd.js"></script>
+    <!-- Подключение Fancybox для галереи -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui@5.0/dist/fancybox/fancybox.css"/>
+    <script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui@5.0/dist/fancybox/fancybox.umd.js"></script>
 
-<script>
-    // Инициализация Fancybox
-    Fancybox.bind("[data-fancybox]", {
-        // Настройки Fancybox
-        Thumbs: {
-            type: "classic",
-        },
-        Toolbar: {
-            display: {
-                left: [],
-                middle: [],
-                right: ["close"],
+    <style>
+        .similar-game-card {
+            transition: transform 0.2s ease-in-out;
+            border: 1px solid #444;
+        }
+
+        .similar-game-card:hover {
+            transform: translateY(-2px);
+            border-color: #666;
+        }
+
+        .game-additional-criteria .badge {
+            font-size: 0.8rem;
+        }
+
+        .quick-actions-grid {
+            display: grid;
+            gap: 8px;
+        }
+
+        .quick-actions-grid .btn {
+            text-align: left;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .similarity-score-badge .badge {
+            font-size: 0.7rem;
+        }
+    </style>
+
+    <script>
+        // Инициализация Fancybox
+        Fancybox.bind("[data-fancybox]", {
+            Thumbs: {
+                type: "classic",
             },
-        },
-    });
+            Toolbar: {
+                display: {
+                    left: [],
+                    middle: [],
+                    right: ["close"],
+                },
+            },
+        });
 
-    function toggleText(type) {
-        const element = document.getElementById(`${type}-text`);
-        const button = event.target.closest('.toggle-text-btn');
-        const icon = button.querySelector('i');
-        const span = button.querySelector('span');
+        function toggleText(type) {
+            const element = document.getElementById(`${type}-text`);
+            const button = event.target.closest('.toggle-text-btn');
+            const icon = button.querySelector('i');
+            const span = button.querySelector('span');
 
-        if (element.classList.contains('expanded')) {
-            element.classList.remove('expanded');
-            span.textContent = 'Read more';
-            icon.className = 'bi bi-chevron-down';
-        } else {
-            element.classList.add('expanded');
-            span.textContent = 'Show less';
-            icon.className = 'bi bi-chevron-up';
+            if (element.classList.contains('expanded')) {
+                element.classList.remove('expanded');
+                span.textContent = 'Read more';
+                icon.className = 'bi bi-chevron-down';
+            } else {
+                element.classList.add('expanded');
+                span.textContent = 'Show less';
+                icon.className = 'bi bi-chevron-up';
+            }
         }
-    }
 
-    // Активация таба при переходе по якорю
-    document.addEventListener('DOMContentLoaded', function() {
-        const urlHash = window.location.hash;
-        if (urlHash === '#screenshots' && document.getElementById('screenshots-tab')) {
-            const screenshotsTab = new bootstrap.Tab(document.getElementById('screenshots-tab'));
-            screenshotsTab.show();
-        }
-    });
-</script>
+        // Активация таба при переходе по якорю
+        document.addEventListener('DOMContentLoaded', function () {
+            const urlHash = window.location.hash;
+            if (urlHash === '#screenshots' && document.getElementById('screenshots-tab')) {
+                const screenshotsTab = new bootstrap.Tab(document.getElementById('screenshots-tab'));
+                screenshotsTab.show();
+            } else if (urlHash === '#advanced' && document.getElementById('advanced-tab')) {
+                const advancedTab = new bootstrap.Tab(document.getElementById('advanced-tab'));
+                advancedTab.show();
+            }
+        });
+    </script>
 {% endblock %}

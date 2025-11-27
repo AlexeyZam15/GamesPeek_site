@@ -63,6 +63,39 @@
                 <div class="mb-2 genres-container" style="min-height: 50px;"></div>
             {% endif %}
 
+            <!-- НОВАЯ ИНФОРМАЦИЯ: ТЕМЫ И РАЗРАБОТЧИКИ -->
+            <div class="game-additional-info mb-2">
+                <!-- Темы -->
+                {% if game.themes.all %}
+                    <div class="mb-1">
+                        {% for theme in game.themes.all|slice:":2" %}
+                            <span class="badge bg-warning mb-1 small">{{ theme.name }}</span>
+                        {% endfor %}
+                        {% if game.themes.all|length > 2 %}
+                            <span class="badge bg-warning mb-1 small">+{{ game.themes.all|length|add:"-2" }}</span>
+                        {% endif %}
+                    </div>
+                {% endif %}
+
+                <!-- Разработчики -->
+                {% if game.developers.all %}
+                    <div class="mb-1">
+                        {% for developer in game.developers.all|slice:":1" %}
+                            <span class="badge bg-dark mb-1 small">{{ developer.name }}</span>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+                <!-- Перспективы -->
+                {% if game.player_perspectives.all %}
+                    <div class="mb-1">
+                        {% for perspective in game.player_perspectives.all %}
+                            <span class="badge bg-info mb-1 small">{{ perspective.name }}</span>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+
             <!-- РЕЙТИНГ И ГОД ВЫПУСКА -->
             <div class="mt-auto">
                 {% if game.rating %}
@@ -94,7 +127,7 @@
 
                 <!-- Compare Button -->
                 {% if show_similarity and source_game %}
-                    <a href="{% url 'game_comparison' game.id %}?genres={{ selected_genres|join:',' }}&keywords={{ selected_keywords|join:',' }}&similarity={{ similarity_percent|floatformat:0 }}{% if source_game.source_game_id %}&source_game={{ source_game.source_game_id }}{% endif %}"
+                    <a href="{% url 'game_comparison' game.id %}?g={{ selected_genres|join:',' }}&k={{ selected_keywords|join:',' }}&t={{ selected_themes|join:',' }}&pp={{ selected_perspectives|join:',' }}&d={{ selected_developers|join:',' }}&similarity={{ similarity_percent|floatformat:0 }}{% if source_game.source_game_id %}&source_game={{ source_game.source_game_id }}{% endif %}"
                        class="btn btn-sm btn-outline-warning">
                         <i class="bi bi-arrow-left-right"></i> Compare
                     </a>

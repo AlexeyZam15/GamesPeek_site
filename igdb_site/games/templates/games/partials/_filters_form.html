@@ -5,9 +5,13 @@
             <!-- Скрытые параметры -->
             <input type="hidden" name="find_similar" id="find_similar_field"
                    value="{% if find_similar %}1{% else %}0{% endif %}">
+            <input type="hidden" name="g" id="genres-field" value="{{ selected_genres|join:',' }}">
             <input type="hidden" name="k" id="keywords-field" value="{{ selected_keywords|join:',' }}">
             <input type="hidden" name="p" id="platforms-field" value="{{ selected_platforms|join:',' }}">
-            <input type="hidden" name="g" id="genres-field" value="{{ selected_genres|join:',' }}">
+            <!-- НОВЫЕ СКРЫТЫЕ ПОЛЯ -->
+            <input type="hidden" name="t" id="themes-field" value="{{ selected_themes|join:',' }}">
+            <input type="hidden" name="pp" id="perspectives-field" value="{{ selected_perspectives|join:',' }}">
+            <input type="hidden" name="d" id="developers-field" value="{{ selected_developers|join:',' }}">
 
             <div class="row g-3">
                 <!-- Встроенная сортировка -->
@@ -21,6 +25,7 @@
                             <i class="bi bi-chevron-down me-2"></i>🔍 Search Filters
                         </h6>
                         <div id="search-filters-content">
+                            <!-- Platforms фильтр (остается без изменений) -->
                             <div class="filter-subsection">
                                 <label class="form-label toggle-subsection" data-target="platforms-content"
                                        style="cursor: pointer;">
@@ -138,8 +143,8 @@
                                                 <span class="badge bg-primary me-1 mb-1 active-genre-tag"
                                                       data-genre-id="{{ genre.id }}"
                                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
-                                                            {{ genre.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
-                                                        </span>
+                                                    {{ genre.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                                                </span>
                                             {% endif %}
                                         {% endfor %}
                                     </div>
@@ -209,8 +214,8 @@
                                                 <span class="badge bg-success me-1 mb-1 active-keyword-tag"
                                                       data-keyword-id="{{ keyword.id }}"
                                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
-                                                            {{ keyword.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
-                                                        </span>
+                                                    {{ keyword.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                                                </span>
                                             {% endif %}
                                         {% endfor %}
                                     </div>
@@ -244,6 +249,224 @@
                                         <button type="button"
                                                 class="btn btn-outline-secondary btn-sm show-all-keywords-btn">
                                             <span class="show-text">Show all features</span>
+                                            <span class="hide-text" style="display: none;">Show less</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- НОВЫЕ ФИЛЬТРЫ -->
+
+                            <!-- Themes -->
+                            <div class="filter-subsection mt-3">
+                                <label class="form-label toggle-subsection" data-target="themes-content"
+                                       style="cursor: pointer;">
+                                    <i class="bi bi-chevron-down me-1"></i>🎭 Themes:
+                                </label>
+                                <div id="themes-content">
+                                    <input type="text" class="form-control mb-2" id="theme-search"
+                                           placeholder="Search themes..." autocomplete="off">
+
+                                    <!-- Активные темы -->
+                                    <div id="active-themes" class="mb-2">
+                                        {% if selected_themes %}
+                                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <button type="button"
+                                                            class="btn btn-sm clear-themes-btn btn-outline-warning"
+                                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;">
+                                                        <i class="bi bi-x-circle me-1"></i>Clear All
+                                                    </button>
+                                                    <small class="text-muted" style="font-weight: 500;">
+                                                        Selected themes ({{ selected_themes|length }})
+                                                    </small>
+                                                </div>
+                                            </div>
+                                        {% endif %}
+
+                                        {% for theme in themes %}
+                                            {% if theme.id in selected_themes %}
+                                                <span class="badge bg-warning me-1 mb-1 active-theme-tag"
+                                                      data-theme-id="{{ theme.id }}"
+                                                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                                    {{ theme.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                                                </span>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </div>
+
+                                    <!-- Список тем -->
+                                    <div class="theme-list border rounded p-2"
+                                         style="max-height: 200px; overflow-y: auto;">
+                                        <div class="theme-grid"
+                                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                                            {% for theme in themes %}
+                                                <div class="theme-item" data-theme-name="{{ theme.name|lower }}">
+                                                    <div class="form-check">
+                                                        <input class="form-check-input theme-checkbox"
+                                                               type="checkbox"
+                                                               value="{{ theme.id }}" id="theme_{{ theme.id }}"
+                                                               {% if theme.id in selected_themes %}checked{% endif %}>
+                                                        <label class="form-check-label small"
+                                                               for="theme_{{ theme.id }}">
+                                                            {{ theme.name }}
+                                                            <span class="text-muted">({{ theme.game_count }})</span>
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+
+                                    <!-- Кнопка "Show all themes" -->
+                                    <div class="text-center mt-2">
+                                        <button type="button"
+                                                class="btn btn-outline-secondary btn-sm show-all-themes-btn">
+                                            <span class="show-text">Show all themes</span>
+                                            <span class="hide-text" style="display: none;">Show less</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Perspectives -->
+                            <div class="filter-subsection mt-3">
+                                <label class="form-label toggle-subsection" data-target="perspectives-content"
+                                       style="cursor: pointer;">
+                                    <i class="bi bi-chevron-down me-1"></i>👁️ Perspectives:
+                                </label>
+                                <div id="perspectives-content">
+                                    <input type="text" class="form-control mb-2" id="perspective-search"
+                                           placeholder="Search perspectives..." autocomplete="off">
+
+                                    <!-- Активные перспективы -->
+                                    <div id="active-perspectives" class="mb-2">
+                                        {% if selected_perspectives %}
+                                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <button type="button"
+                                                            class="btn btn-sm clear-perspectives-btn btn-outline-info"
+                                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;">
+                                                        <i class="bi bi-x-circle me-1"></i>Clear All
+                                                    </button>
+                                                    <small class="text-muted" style="font-weight: 500;">
+                                                        Selected perspectives ({{ selected_perspectives|length }})
+                                                    </small>
+                                                </div>
+                                            </div>
+                                        {% endif %}
+
+                                        {% for perspective in perspectives %}
+                                            {% if perspective.id in selected_perspectives %}
+                                                <span class="badge bg-info me-1 mb-1 active-perspective-tag"
+                                                      data-perspective-id="{{ perspective.id }}"
+                                                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                                    {{ perspective.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                                                </span>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </div>
+
+                                    <!-- Список перспектив -->
+                                    <div class="perspective-list border rounded p-2"
+                                         style="max-height: 200px; overflow-y: auto;">
+                                        <div class="perspective-grid"
+                                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                                            {% for perspective in perspectives %}
+                                                <div class="perspective-item" data-perspective-name="{{ perspective.name|lower }}">
+                                                    <div class="form-check">
+                                                        <input class="form-check-input perspective-checkbox"
+                                                               type="checkbox"
+                                                               value="{{ perspective.id }}" id="perspective_{{ perspective.id }}"
+                                                               {% if perspective.id in selected_perspectives %}checked{% endif %}>
+                                                        <label class="form-check-label small"
+                                                               for="perspective_{{ perspective.id }}">
+                                                            {{ perspective.name }}
+                                                            <span class="text-muted">({{ perspective.game_count }})</span>
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+
+                                    <!-- Кнопка "Show all perspectives" -->
+                                    <div class="text-center mt-2">
+                                        <button type="button"
+                                                class="btn btn-outline-secondary btn-sm show-all-perspectives-btn">
+                                            <span class="show-text">Show all perspectives</span>
+                                            <span class="hide-text" style="display: none;">Show less</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Developers -->
+                            <div class="filter-subsection mt-3">
+                                <label class="form-label toggle-subsection" data-target="developers-content"
+                                       style="cursor: pointer;">
+                                    <i class="bi bi-chevron-down me-1"></i>🏢 Developers:
+                                </label>
+                                <div id="developers-content">
+                                    <input type="text" class="form-control mb-2" id="developer-search"
+                                           placeholder="Search developers..." autocomplete="off">
+
+                                    <!-- Активные разработчики -->
+                                    <div id="active-developers" class="mb-2">
+                                        {% if selected_developers %}
+                                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <button type="button"
+                                                            class="btn btn-sm clear-developers-btn btn-outline-dark"
+                                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;">
+                                                        <i class="bi bi-x-circle me-1"></i>Clear All
+                                                    </button>
+                                                    <small class="text-muted" style="font-weight: 500;">
+                                                        Selected developers ({{ selected_developers|length }})
+                                                    </small>
+                                                </div>
+                                            </div>
+                                        {% endif %}
+
+                                        {% for developer in developers %}
+                                            {% if developer.id in selected_developers %}
+                                                <span class="badge bg-dark me-1 mb-1 active-developer-tag"
+                                                      data-developer-id="{{ developer.id }}"
+                                                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                                    {{ developer.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                                                </span>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </div>
+
+                                    <!-- Список разработчиков -->
+                                    <div class="developer-list border rounded p-2"
+                                         style="max-height: 200px; overflow-y: auto;">
+                                        <div class="developer-grid"
+                                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                                            {% for developer in developers %}
+                                                <div class="developer-item" data-developer-name="{{ developer.name|lower }}">
+                                                    <div class="form-check">
+                                                        <input class="form-check-input developer-checkbox"
+                                                               type="checkbox"
+                                                               value="{{ developer.id }}" id="developer_{{ developer.id }}"
+                                                               {% if developer.id in selected_developers %}checked{% endif %}>
+                                                        <label class="form-check-label small"
+                                                               for="developer_{{ developer.id }}">
+                                                            {{ developer.name }}
+                                                            <span class="text-muted">({{ developer.developed_game_count }})</span>
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+
+                                    <!-- Кнопка "Show all developers" -->
+                                    <div class="text-center mt-2">
+                                        <button type="button"
+                                                class="btn btn-outline-secondary btn-sm show-all-developers-btn">
+                                            <span class="show-text">Show all developers</span>
                                             <span class="hide-text" style="display: none;">Show less</span>
                                         </button>
                                     </div>
@@ -297,62 +520,81 @@
             const platformIds = Array.from(platformCheckboxes).map(cb => cb.value);
             document.getElementById('platforms-field').value = platformIds.join(',');
 
-            // Автоматически включаем режим поиска похожих игр только при выборе жанров или ключевых слов
-            // Платформы НЕ включают режим похожих игр автоматически
-            if (genreIds.length > 0 || keywordIds.length > 0) {
+            // НОВЫЕ ПОЛЯ
+            // Обновляем темы
+            const themeCheckboxes = document.querySelectorAll('.theme-checkbox:checked');
+            const themeIds = Array.from(themeCheckboxes).map(cb => cb.value);
+            document.getElementById('themes-field').value = themeIds.join(',');
+
+            // Обновляем перспективы
+            const perspectiveCheckboxes = document.querySelectorAll('.perspective-checkbox:checked');
+            const perspectiveIds = Array.from(perspectiveCheckboxes).map(cb => cb.value);
+            document.getElementById('perspectives-field').value = perspectiveIds.join(',');
+
+            // Обновляем разработчиков
+            const developerCheckboxes = document.querySelectorAll('.developer-checkbox:checked');
+            const developerIds = Array.from(developerCheckboxes).map(cb => cb.value);
+            document.getElementById('developers-field').value = developerIds.join(',');
+
+            // Автоматически включаем режим поиска похожих игр при выборе любых критериев похожести
+            if (genreIds.length > 0 || keywordIds.length > 0 || themeIds.length > 0 ||
+                perspectiveIds.length > 0 || developerIds.length > 0) {
                 document.getElementById('find_similar_field').value = '1';
             } else {
                 document.getElementById('find_similar_field').value = '0';
             }
         }
 
-        // Слушаем изменения чекбоксов
-        document.querySelectorAll('.genre-checkbox, .keyword-checkbox, .platform-checkbox').forEach(checkbox => {
+        // Слушаем изменения всех чекбоксов
+        document.querySelectorAll('.genre-checkbox, .keyword-checkbox, .platform-checkbox, .theme-checkbox, .perspective-checkbox, .developer-checkbox').forEach(checkbox => {
             checkbox.addEventListener('change', updateHiddenFields);
         });
 
-        // Очистка всех жанров
-        const clearGenresBtn = document.querySelector('.clear-genres-btn');
-        if (clearGenresBtn) {
-            clearGenresBtn.addEventListener('click', function () {
-                document.querySelectorAll('.genre-checkbox:checked').forEach(checkbox => {
-                    checkbox.checked = false;
+        // Функции очистки для новых фильтров
+        function setupClearButtons() {
+            // Очистка тем
+            const clearThemesBtn = document.querySelector('.clear-themes-btn');
+            if (clearThemesBtn) {
+                clearThemesBtn.addEventListener('click', function () {
+                    document.querySelectorAll('.theme-checkbox:checked').forEach(checkbox => {
+                        checkbox.checked = false;
+                    });
+                    updateHiddenFields();
+                    document.getElementById('main-search-form').submit();
                 });
-                updateHiddenFields();
-                document.getElementById('main-search-form').submit();
-            });
+            }
+
+            // Очистка перспектив
+            const clearPerspectivesBtn = document.querySelector('.clear-perspectives-btn');
+            if (clearPerspectivesBtn) {
+                clearPerspectivesBtn.addEventListener('click', function () {
+                    document.querySelectorAll('.perspective-checkbox:checked').forEach(checkbox => {
+                        checkbox.checked = false;
+                    });
+                    updateHiddenFields();
+                    document.getElementById('main-search-form').submit();
+                });
+            }
+
+            // Очистка разработчиков
+            const clearDevelopersBtn = document.querySelector('.clear-developers-btn');
+            if (clearDevelopersBtn) {
+                clearDevelopersBtn.addEventListener('click', function () {
+                    document.querySelectorAll('.developer-checkbox:checked').forEach(checkbox => {
+                        checkbox.checked = false;
+                    });
+                    updateHiddenFields();
+                    document.getElementById('main-search-form').submit();
+                });
+            }
         }
 
-        // Очистка всех ключевых слов
-        const clearKeywordsBtn = document.querySelector('.clear-keywords-btn');
-        if (clearKeywordsBtn) {
-            clearKeywordsBtn.addEventListener('click', function () {
-                document.querySelectorAll('.keyword-checkbox:checked').forEach(checkbox => {
-                    checkbox.checked = false;
-                });
-                updateHiddenFields();
-                document.getElementById('main-search-form').submit();
-            });
-        }
-
-        // Очистка всех платформ
-        const clearPlatformsBtn = document.querySelector('.clear-platforms-btn');
-        if (clearPlatformsBtn) {
-            clearPlatformsBtn.addEventListener('click', function () {
-                document.querySelectorAll('.platform-checkbox:checked').forEach(checkbox => {
-                    checkbox.checked = false;
-                });
-                updateHiddenFields();
-                document.getElementById('main-search-form').submit();
-            });
-        }
-
-        // Удаление активных тегов
+        // Удаление активных тегов для новых фильтров
         document.addEventListener('click', function (e) {
-            // Удаление жанра
-            if (e.target.classList.contains('active-genre-tag')) {
-                const genreId = e.target.getAttribute('data-genre-id');
-                const checkbox = document.querySelector(`.genre-checkbox[value="${genreId}"]`);
+            // Удаление темы
+            if (e.target.classList.contains('active-theme-tag')) {
+                const themeId = e.target.getAttribute('data-theme-id');
+                const checkbox = document.querySelector(`.theme-checkbox[value="${themeId}"]`);
                 if (checkbox) {
                     checkbox.checked = false;
                     updateHiddenFields();
@@ -360,10 +602,10 @@
                 }
             }
 
-            // Удаление ключевого слова
-            if (e.target.classList.contains('active-keyword-tag')) {
-                const keywordId = e.target.getAttribute('data-keyword-id');
-                const checkbox = document.querySelector(`.keyword-checkbox[value="${keywordId}"]`);
+            // Удаление перспективы
+            if (e.target.classList.contains('active-perspective-tag')) {
+                const perspectiveId = e.target.getAttribute('data-perspective-id');
+                const checkbox = document.querySelector(`.perspective-checkbox[value="${perspectiveId}"]`);
                 if (checkbox) {
                     checkbox.checked = false;
                     updateHiddenFields();
@@ -371,10 +613,10 @@
                 }
             }
 
-            // Удаление платформы
-            if (e.target.classList.contains('active-platform-tag')) {
-                const platformId = e.target.getAttribute('data-platform-id');
-                const checkbox = document.querySelector(`.platform-checkbox[value="${platformId}"]`);
+            // Удаление разработчика
+            if (e.target.classList.contains('active-developer-tag')) {
+                const developerId = e.target.getAttribute('data-developer-id');
+                const checkbox = document.querySelector(`.developer-checkbox[value="${developerId}"]`);
                 if (checkbox) {
                     checkbox.checked = false;
                     updateHiddenFields();
@@ -383,118 +625,124 @@
             }
         });
 
-        // Поиск по жанрам
-        const genreSearch = document.getElementById('genre-search');
-        if (genreSearch) {
-            genreSearch.addEventListener('input', function () {
-                const searchTerm = this.value.toLowerCase();
-                document.querySelectorAll('.genre-item').forEach(item => {
-                    const genreName = item.getAttribute('data-genre-name');
-                    if (genreName.includes(searchTerm)) {
-                        item.style.display = 'block';
+        // Поиск для новых фильтров
+        function setupSearchFilters() {
+            // Поиск по темам
+            const themeSearch = document.getElementById('theme-search');
+            if (themeSearch) {
+                themeSearch.addEventListener('input', function () {
+                    const searchTerm = this.value.toLowerCase();
+                    document.querySelectorAll('.theme-item').forEach(item => {
+                        const themeName = item.getAttribute('data-theme-name');
+                        if (themeName.includes(searchTerm)) {
+                            item.style.display = 'block';
+                        } else {
+                            item.style.display = 'none';
+                        }
+                    });
+                });
+            }
+
+            // Поиск по перспективам
+            const perspectiveSearch = document.getElementById('perspective-search');
+            if (perspectiveSearch) {
+                perspectiveSearch.addEventListener('input', function () {
+                    const searchTerm = this.value.toLowerCase();
+                    document.querySelectorAll('.perspective-item').forEach(item => {
+                        const perspectiveName = item.getAttribute('data-perspective-name');
+                        if (perspectiveName.includes(searchTerm)) {
+                            item.style.display = 'block';
+                        } else {
+                            item.style.display = 'none';
+                        }
+                    });
+                });
+            }
+
+            // Поиск по разработчикам
+            const developerSearch = document.getElementById('developer-search');
+            if (developerSearch) {
+                developerSearch.addEventListener('input', function () {
+                    const searchTerm = this.value.toLowerCase();
+                    document.querySelectorAll('.developer-item').forEach(item => {
+                        const developerName = item.getAttribute('data-developer-name');
+                        if (developerName.includes(searchTerm)) {
+                            item.style.display = 'block';
+                        } else {
+                            item.style.display = 'none';
+                        }
+                    });
+                });
+            }
+        }
+
+        // Показать/скрыть для новых фильтров
+        function setupShowAllToggles() {
+            // Темы
+            const showAllThemesBtn = document.querySelector('.show-all-themes-btn');
+            if (showAllThemesBtn) {
+                showAllThemesBtn.addEventListener('click', function () {
+                    const themeList = document.querySelector('.theme-list');
+                    const showText = this.querySelector('.show-text');
+                    const hideText = this.querySelector('.hide-text');
+
+                    if (themeList.style.maxHeight === '200px') {
+                        themeList.style.maxHeight = 'none';
+                        showText.style.display = 'none';
+                        hideText.style.display = 'inline';
                     } else {
-                        item.style.display = 'none';
+                        themeList.style.maxHeight = '200px';
+                        showText.style.display = 'inline';
+                        hideText.style.display = 'none';
                     }
                 });
-            });
-        }
+            }
 
-        // Поиск по ключевым словам
-        const keywordSearch = document.getElementById('keyword-search');
-        if (keywordSearch) {
-            keywordSearch.addEventListener('input', function () {
-                const searchTerm = this.value.toLowerCase();
-                document.querySelectorAll('.keyword-item').forEach(item => {
-                    const keywordName = item.getAttribute('data-keyword-name');
-                    if (keywordName.includes(searchTerm)) {
-                        item.style.display = 'block';
+            // Перспективы
+            const showAllPerspectivesBtn = document.querySelector('.show-all-perspectives-btn');
+            if (showAllPerspectivesBtn) {
+                showAllPerspectivesBtn.addEventListener('click', function () {
+                    const perspectiveList = document.querySelector('.perspective-list');
+                    const showText = this.querySelector('.show-text');
+                    const hideText = this.querySelector('.hide-text');
+
+                    if (perspectiveList.style.maxHeight === '200px') {
+                        perspectiveList.style.maxHeight = 'none';
+                        showText.style.display = 'none';
+                        hideText.style.display = 'inline';
                     } else {
-                        item.style.display = 'none';
+                        perspectiveList.style.maxHeight = '200px';
+                        showText.style.display = 'inline';
+                        hideText.style.display = 'none';
                     }
                 });
-            });
-        }
+            }
 
-        // Поиск по платформам
-        const platformSearch = document.getElementById('platform-search');
-        if (platformSearch) {
-            platformSearch.addEventListener('input', function () {
-                const searchTerm = this.value.toLowerCase();
-                document.querySelectorAll('.platform-item').forEach(item => {
-                    const platformName = item.getAttribute('data-platform-name');
-                    if (platformName.includes(searchTerm)) {
-                        item.style.display = 'block';
+            // Разработчики
+            const showAllDevelopersBtn = document.querySelector('.show-all-developers-btn');
+            if (showAllDevelopersBtn) {
+                showAllDevelopersBtn.addEventListener('click', function () {
+                    const developerList = document.querySelector('.developer-list');
+                    const showText = this.querySelector('.show-text');
+                    const hideText = this.querySelector('.hide-text');
+
+                    if (developerList.style.maxHeight === '200px') {
+                        developerList.style.maxHeight = 'none';
+                        showText.style.display = 'none';
+                        hideText.style.display = 'inline';
                     } else {
-                        item.style.display = 'none';
+                        developerList.style.maxHeight = '200px';
+                        showText.style.display = 'inline';
+                        hideText.style.display = 'none';
                     }
                 });
-            });
+            }
         }
 
-        // Показать/скрыть все жанры
-        const showAllGenresBtn = document.querySelector('.show-all-genres-btn');
-        if (showAllGenresBtn) {
-            showAllGenresBtn.addEventListener('click', function () {
-                const genreList = document.querySelector('.genre-list');
-                const showText = this.querySelector('.show-text');
-                const hideText = this.querySelector('.hide-text');
-
-                if (genreList.style.maxHeight === '200px') {
-                    genreList.style.maxHeight = 'none';
-                    showText.style.display = 'none';
-                    hideText.style.display = 'inline';
-                } else {
-                    genreList.style.maxHeight = '200px';
-                    showText.style.display = 'inline';
-                    hideText.style.display = 'none';
-                }
-            });
-        }
-
-        // Показать/скрыть все ключевые слова
-        const showAllKeywordsBtn = document.querySelector('.show-all-keywords-btn');
-        if (showAllKeywordsBtn) {
-            showAllKeywordsBtn.addEventListener('click', function () {
-                const keywordList = document.querySelector('.keyword-list');
-                const showText = this.querySelector('.show-text');
-                const hideText = this.querySelector('.hide-text');
-
-                if (keywordList.style.maxHeight === '200px') {
-                    keywordList.style.maxHeight = 'none';
-                    showText.style.display = 'none';
-                    hideText.style.display = 'inline';
-                } else {
-                    keywordList.style.maxHeight = '200px';
-                    showText.style.display = 'inline';
-                    hideText.style.display = 'none';
-                }
-            });
-        }
-
-        // Показать/скрыть все платформы
-        const showAllPlatformsBtn = document.querySelector('.show-all-platforms-btn');
-        if (showAllPlatformsBtn) {
-            showAllPlatformsBtn.addEventListener('click', function () {
-                const platformList = document.querySelector('.platform-list');
-                const showText = this.querySelector('.show-text');
-                const hideText = this.querySelector('.hide-text');
-
-                if (platformList.style.maxHeight === '200px') {
-                    platformList.style.maxHeight = 'none';
-                    showText.style.display = 'none';
-                    hideText.style.display = 'inline';
-                } else {
-                    platformList.style.maxHeight = '200px';
-                    showText.style.display = 'inline';
-                    hideText.style.display = 'none';
-                }
-            });
-        }
-
-        // Авто-отправка формы для чекбоксов и сортировки
+        // Авто-отправка формы для новых чекбоксов
         function setupAutoSubmit() {
-            // Для жанров и ключевых слов - включаем режим похожих игр
-            document.querySelectorAll('.genre-checkbox, .keyword-checkbox').forEach(checkbox => {
+            // Для всех критериев похожести - включаем режим похожих игр
+            document.querySelectorAll('.genre-checkbox, .keyword-checkbox, .theme-checkbox, .perspective-checkbox, .developer-checkbox').forEach(checkbox => {
                 checkbox.addEventListener('change', function () {
                     document.getElementById('find_similar_field').value = '1';
                     document.getElementById('main-search-form').submit();
@@ -536,7 +784,7 @@
             });
         });
 
-        // Переключение подсекций (Platforms, Genres, Features)
+        // Переключение подсекций
         document.querySelectorAll('.toggle-subsection').forEach(subsection => {
             subsection.addEventListener('click', function () {
                 const targetId = this.getAttribute('data-target');
@@ -555,6 +803,10 @@
             });
         });
 
+        // Инициализация всех новых функций
+        setupClearButtons();
+        setupSearchFilters();
+        setupShowAllToggles();
         setupAutoSubmit();
     });
 </script>
