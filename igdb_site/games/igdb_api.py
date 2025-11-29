@@ -1,9 +1,14 @@
 # igdb_api.py
 import requests
+import time  # ← ДОБАВЬТЕ ЭТУ СТРОКУ
 from django.conf import settings
 
 # Глобальная переменная для управления выводом
 DEBUG = False
+
+# Кэш для токена
+_access_token = None
+_token_expiry = None
 
 
 def set_debug_mode(debug_enabled):
@@ -19,8 +24,15 @@ def debug_print(message):
 
 
 def get_igdb_access_token():
-    """Получает access token для IGDB API с отладкой."""
-    debug_print("🔑 Getting IGDB access token...")
+    """Получает access token для IGDB API с кэшированием."""
+    global _access_token, _token_expiry
+
+    # Если токен еще действителен, возвращаем его
+    if _access_token and _token_expiry and time.time() < _token_expiry:
+        debug_print("🔑 Using cached access token")
+        return _access_token
+
+    debug_print("🔑 Getting new IGDB access token...")
 
     url = 'https://id.twitch.tv/oauth2/token'
     params = {
@@ -38,9 +50,12 @@ def get_igdb_access_token():
             response.raise_for_status()
 
         data = response.json()
-        token = data['access_token']
-        debug_print("✅ Successfully got access token")
-        return token
+        _access_token = data['access_token']
+        # Токены обычно действительны 60 дней, но будем консервативны - 30 дней
+        _token_expiry = time.time() + (30 * 24 * 60 * 60) - 3600  # минус 1 час на всякий случай
+
+        debug_print("✅ Successfully got new access token")
+        return _access_token
 
     except requests.exceptions.RequestException as e:
         debug_print(f"❌ Failed to get IGDB access token: {e}")
