@@ -309,10 +309,8 @@ class Game(models.Model):
     keywords = models.ManyToManyField(Keyword, blank=True)
 
     # НОВЫЕ СВЯЗИ
-    series = models.ForeignKey(
+    series = models.ManyToManyField(
         Series,
-        on_delete=models.SET_NULL,
-        null=True,
         blank=True,
         related_name='games'
     )

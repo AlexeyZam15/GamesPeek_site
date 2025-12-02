@@ -1,6 +1,6 @@
-# management/commands/load_games.py
 from django.core.management.base import BaseCommand
 from django.utils import timezone
+from django.db.models import Q, Count
 from games.igdb_api import make_igdb_request
 from games.models import (
     Game, Genre, Keyword, Platform, Series,
@@ -9,16 +9,27 @@ from games.models import (
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
+from collections import Counter
 
 
 class Command(BaseCommand):
-    help = 'Загрузка тактических RPG с перезаписью всех данных'
+    help = 'Загрузка игр из IGDB с разными фильтрами'
 
     def add_arguments(self, parser):
-        parser.add_argument('--overwrite', action='store_true', help='Удалить существующие игры и загрузить заново')
-        parser.add_argument('--debug', action='store_true', help='Включить режим отладки')
+        parser.add_argument('--tactical-rpg', action='store_true',
+                            help='Загружать только тактические RPG')
+        parser.add_argument('--overwrite', action='store_true',
+                            help='Удалить существующие игры и загрузить заново')
+        parser.add_argument('--debug', action='store_true',
+                            help='Включить режим отладки')
         parser.add_argument('--limit', type=int, default=0,
                             help='Ограничить количество загружаемых игр (0 - без ограничения)')
+        parser.add_argument('--offset', type=int, default=0,
+                            help='Пропустить указанное количество игр (пагинация)')
+        parser.add_argument('--min-rating-count', type=int, default=0,
+                            help='Минимальное количество оценок для фильтрации (0 - без фильтра)')
+        parser.add_argument('--skip-existing', action='store_true',
+                            help='Пропускать игры, которые уже есть в базе данных')
 
     # ==================== ОСНОВНЫЕ МЕТОДЫ ====================
 
@@ -127,14 +138,25 @@ class Command(BaseCommand):
             batch_data = make_igdb_request(endpoint, query, debug=False)
 
             batch_map = {}
+            processed_ids = set()
             for item_data in batch_data:
                 item_id = item_data.get('id')
                 if not item_id:
                     continue
 
+                processed_ids.add(item_id)
                 item_name = item_data.get('name', f'{name} {item_id}')
                 item = create_func(item_id, item_name)
                 batch_map[item_id] = item
+
+            # Отладка: проверяем какие ID не были обработаны
+            if debug:
+                with lock:
+                    all_batch_ids = set(batch_ids)
+                    missing_ids = all_batch_ids - processed_ids
+                    if missing_ids:
+                        self.stdout.write(
+                            f'         ⚠️  {name} пачка {batch_num}: {len(missing_ids)} ID не получены от API')
 
             with lock:
                 result_map.update(batch_map)
@@ -349,21 +371,97 @@ class Command(BaseCommand):
         """Параллельная загрузка дополнительных данных пачками по 10"""
         return self._batch_processor(game_ids, self._process_additional_data_batch, '📚', 'доп. данных', debug)
 
-    def create_model_func(self, model_class):
-        """Универсальная функция создания моделей"""
+    def create_model_func(self, model_class, debug=False):
+        """Универсальная функция создания моделей с отладкой"""
         model_name = model_class.__name__
 
         def create_func(item_id, item_name):
-            obj, _ = model_class.objects.get_or_create(
-                igdb_id=item_id,
-                defaults={'name': item_name}
-            )
-            if obj.name != item_name and obj.name.startswith(f'{model_name} '):
-                obj.name = item_name
-                obj.save()
-            return obj
+            try:
+                # Пытаемся найти существующий объект
+                existing = model_class.objects.filter(igdb_id=item_id).first()
+
+                if existing:
+                    # Проверяем, нужно ли обновить имя
+                    needs_update = False
+
+                    # Если имя по умолчанию ("Series XXXX"), обновляем
+                    if model_name == 'Series' and existing.name.startswith(f'{model_name} '):
+                        needs_update = True
+                    # Если текущее имя пустое, а новое не пустое
+                    elif not existing.name.strip() and item_name.strip():
+                        needs_update = True
+
+                    if needs_update:
+                        if debug:
+                            self.stdout.write(
+                                f'      🔄 Обновление {model_name} {item_id}: "{existing.name}" → "{item_name}"')
+                        existing.name = item_name
+                        existing.save()
+
+                    return existing
+                else:
+                    # Создаем новый объект
+                    if debug and model_name == 'Series':
+                        self.stdout.write(f'      ✨ Создание новой серии {item_id}: "{item_name}"')
+
+                    obj = model_class.objects.create(
+                        igdb_id=item_id,
+                        name=item_name
+                    )
+                    return obj
+
+            except Exception as e:
+                if debug:
+                    self.stderr.write(f'      ❌ Ошибка создания {model_name} {item_id}: {e}')
+                # В случае ошибки, пытаемся получить или создать с минимальными данными
+                obj, created = model_class.objects.get_or_create(
+                    igdb_id=item_id,
+                    defaults={'name': item_name}
+                )
+                return obj
 
         return create_func
+
+    def create_series_func(self, debug=False):
+        """Специальная функция для создания серий с детальной отладкой"""
+
+        def create_series(item_id, item_name):
+            # Сначала проверяем, есть ли уже такая серия
+            existing = Series.objects.filter(igdb_id=item_id).first()
+
+            if existing:
+                # Если серия уже существует, проверяем нужно ли обновить имя
+                if existing.name != item_name:
+                    # Проверяем, не является ли текущее имя именем по умолчанию
+                    if existing.name.startswith('Series ') and not item_name.startswith('Series '):
+                        # Обновляем имя
+                        existing.name = item_name
+                        existing.save()
+                        if debug:
+                            self.stdout.write(
+                                f'         🔄 Обновлена серия {item_id}: "{existing.name}" → "{item_name}"')
+                return existing
+            else:
+                # Создаем новую серию
+                try:
+                    series = Series.objects.create(
+                        igdb_id=item_id,
+                        name=item_name
+                    )
+                    if debug:
+                        self.stdout.write(f'         ✨ Создана серия {item_id}: "{item_name}"')
+                    return series
+                except Exception as e:
+                    if debug:
+                        self.stderr.write(f'         ❌ Ошибка создания серии {item_id}: {e}')
+                    # Пробуем создать с минимальными данными
+                    series, _ = Series.objects.get_or_create(
+                        igdb_id=item_id,
+                        defaults={'name': item_name}
+                    )
+                    return series
+
+        return create_series
 
     def create_game_object(self, game_data, cover_map):
         """Создает объект игры"""
@@ -389,9 +487,16 @@ class Command(BaseCommand):
 
     def _create_relations(self, all_game_relations, game_map, relation_type, through_model,
                           relation_field, field_name, batch_size=100, debug=False):
-        """Универсальный метод для создания связей"""
+        """Универсальный метод для создания связей M2M"""
         relations_to_create = []
         count = 0
+
+        # Если game_map пустой, создаем его
+        if not game_map:
+            # Получаем ID всех игр из relations
+            game_ids = [rel['game_id'] for rel in all_game_relations]
+            games = Game.objects.filter(igdb_id__in=game_ids)
+            game_map = {game.igdb_id: game for game in games}
 
         for rel in all_game_relations:
             game = game_map.get(rel['game_id'])
@@ -399,11 +504,12 @@ class Command(BaseCommand):
                 continue
 
             for relation_obj in rel.get(relation_field, []):
-                relations_to_create.append(through_model(
-                    game_id=game.id,
-                    **{f'{field_name}_id': relation_obj.id}
-                ))
-                count += 1
+                if relation_obj:
+                    relations_to_create.append(through_model(
+                        game_id=game.id,
+                        **{f'{field_name}_id': relation_obj.id}
+                    ))
+                    count += 1
 
         if relations_to_create:
             through_model.objects.bulk_create(relations_to_create, batch_size=batch_size, ignore_conflicts=True)
@@ -413,7 +519,7 @@ class Command(BaseCommand):
         return count
 
     def create_relations_batch(self, all_game_relations, genre_map, platform_map, keyword_map, debug=False):
-        """Создает связи для игр пачками"""
+        """Создает основные M2M связи для игр пачками"""
         if not all_game_relations:
             if debug:
                 self.stdout.write('   ⚠️  Нет связей для создания')
@@ -502,9 +608,9 @@ class Command(BaseCommand):
 
         return game_genre_count, game_platform_count, game_keyword_count
 
-    def create_additional_relations_batch(self, all_game_relations, series_map, company_map,
-                                          theme_map, perspective_map, mode_map, debug=False):
-        """Создает дополнительные связи для игр пачками"""
+    def create_all_additional_relations(self, all_game_relations, series_map, company_map,
+                                        theme_map, perspective_map, mode_map, debug=False):
+        """Создает все дополнительные M2M связи для игр"""
         if not all_game_relations:
             if debug:
                 self.stdout.write('   ⚠️  Нет дополнительных связей для создания')
@@ -539,7 +645,7 @@ class Command(BaseCommand):
             if rel['game_id'] not in game_map:
                 continue
 
-            # Серии
+            # Серии (теперь M2M - добавляем все)
             for series_obj in rel.get('series', []):
                 if series_obj and hasattr(series_obj, 'id'):
                     prepared_rel['series'].append(series_obj)
@@ -586,30 +692,19 @@ class Command(BaseCommand):
             total_modes = sum(len(rel['modes']) for rel in game_relations_prepared)
 
             self.stdout.write(f'   📊 Всего доп. связей для создания:')
-            self.stdout.write(f'      • Серии: {total_series}')
+            self.stdout.write(f'      • Серии (M2M): {total_series}')
             self.stdout.write(f'      • Разработчики: {total_developers}')
             self.stdout.write(f'      • Издатели: {total_publishers}')
             self.stdout.write(f'      • Темы: {total_themes}')
             self.stdout.write(f'      • Перспективы: {total_perspectives}')
             self.stdout.write(f'      • Режимы: {total_modes}')
 
-        # Обновляем серии для игр
-        series_count = 0
-        games_to_update = []
-        for rel in game_relations_prepared:
-            game = game_map.get(rel['game_id'])
-            if game and rel.get('series'):
-                # Берем первую серию
-                game.series = rel['series'][0]
-                games_to_update.append(game)
-                series_count += 1
+        # Создаем M2M связи с сериями
+        series_count = self._create_relations(
+            game_relations_prepared, game_map, 'series', Game.series.through,
+            'series', 'series', debug=debug
+        )
 
-        if games_to_update:
-            Game.objects.bulk_update(games_to_update, ['series'])
-            if debug:
-                self.stdout.write(f'   ✅ Создано связей с сериями: {series_count}')
-
-        # Создаем остальные связи
         developer_count = self._create_relations(
             game_relations_prepared, game_map, 'developers', Game.developers.through,
             'developers', 'company', debug=debug
@@ -637,6 +732,7 @@ class Command(BaseCommand):
 
         if debug:
             self.stdout.write(f'   ✅ Создано доп. связей:')
+            self.stdout.write(f'      • С сериями (M2M): {series_count}')
             self.stdout.write(f'      • С разработчиками: {developer_count}')
             self.stdout.write(f'      • С издателями: {publisher_count}')
             self.stdout.write(f'      • С темами: {theme_count}')
@@ -645,12 +741,187 @@ class Command(BaseCommand):
 
         return series_count, developer_count, publisher_count, theme_count, perspective_count, mode_count
 
-    def load_tactical_rpg_games(self, debug=False, limit=0):
+    def prepare_game_relations(self, game_basic_map, game_data_map, additional_data_map, data_maps, debug=False):
+        """Подготавливает связи для игр с учетом M2M для series"""
+        if debug:
+            self.stdout.write('\n📋 ПОДГОТОВКА СВЯЗЕЙ ДЛЯ ИГР...')
+
+        start_step = time.time()
+        all_game_relations = []
+        games_without_data = 0
+        games_without_additional = 0
+
+        # ★★★ СТАТИСТИКА ПО СЕРИЯМ ★★★
+        total_series_found = 0
+        total_series_mapped = 0
+
+        for game_id in game_basic_map.keys():
+            game_data = game_data_map.get(game_id)
+            if not game_data:
+                games_without_data += 1
+                continue
+
+            additional_data = additional_data_map.get(game_id, {})
+            if not additional_data:
+                games_without_additional += 1
+
+            developer_ids = set()
+            publisher_ids = set()
+
+            if additional_data.get('involved_companies'):
+                for company_data in additional_data['involved_companies']:
+                    company_id = company_data.get('company')
+                    if not company_id:
+                        continue
+
+                    if company_data.get('developer', False):
+                        developer_ids.add(company_id)
+                    if company_data.get('publisher', False):
+                        publisher_ids.add(company_id)
+
+            relations = {
+                'game_id': game_id,
+                'genres': [],
+                'platforms': [],
+                'keywords': [],
+                'series': [],  # Теперь M2M - список
+                'developers': [],
+                'publishers': [],
+                'themes': [],
+                'perspectives': [],
+                'modes': [],
+            }
+
+            # Жанры
+            for gid in game_data.get('genres', []):
+                if gid in data_maps['genre_map']:
+                    relations['genres'].append(data_maps['genre_map'][gid])
+
+            # Платформы
+            for pid in game_data.get('platforms', []):
+                if pid in data_maps['platform_map']:
+                    relations['platforms'].append(data_maps['platform_map'][pid])
+
+            # Ключевые слова
+            for kid in game_data.get('keywords', []):
+                if kid in data_maps['keyword_map']:
+                    relations['keywords'].append(data_maps['keyword_map'][kid])
+
+            # Серии - теперь M2M, добавляем все серии
+            series_ids_in_data = additional_data.get('collections', [])
+            total_series_found += len(series_ids_in_data)
+
+            for sid in series_ids_in_data:
+                if sid in data_maps['series_map']:
+                    relations['series'].append(data_maps['series_map'][sid])
+                    total_series_mapped += 1
+                elif debug:
+                    self.stdout.write(f'   ⚠️  Серия ID {sid} не найдена в series_map для игры {game_id}')
+
+            # Разработчики
+            for cid in developer_ids:
+                if cid in data_maps['company_map']:
+                    relations['developers'].append(data_maps['company_map'][cid])
+
+            # Издатели
+            for cid in publisher_ids:
+                if cid in data_maps['company_map']:
+                    relations['publishers'].append(data_maps['company_map'][cid])
+
+            # Темы
+            for tid in additional_data.get('themes', []):
+                if tid in data_maps['theme_map']:
+                    relations['themes'].append(data_maps['theme_map'][tid])
+
+            # Перспективы
+            for pid in additional_data.get('player_perspectives', []):
+                if pid in data_maps['perspective_map']:
+                    relations['perspectives'].append(data_maps['perspective_map'][pid])
+
+            # Режимы
+            for mid in additional_data.get('game_modes', []):
+                if mid in data_maps['mode_map']:
+                    relations['modes'].append(data_maps['mode_map'][mid])
+
+            # Проверяем, есть ли хотя бы какие-то связи
+            has_relations = any([
+                relations['genres'],
+                relations['platforms'],
+                relations['keywords'],
+                relations['series'],
+                relations['developers'],
+                relations['publishers'],
+                relations['themes'],
+                relations['perspectives'],
+                relations['modes'],
+            ])
+
+            if has_relations:
+                all_game_relations.append(relations)
+
+            if debug and not has_relations:
+                self.stdout.write(f'   ⚠️  Игра {game_id} не имеет связей')
+
+        step_time = time.time() - start_step
+
+        if debug:
+            self.stdout.write(f'   📊 Подготовлено связей для {len(all_game_relations)} игр')
+            self.stdout.write(f'   ⚠️  Игр без основных данных: {games_without_data}')
+            self.stdout.write(f'   ⚠️  Игр без дополнительных данных: {games_without_additional}')
+
+            # ★★★ СТАТИСТИКА ПО СЕРИЯМ ★★★
+            self.stdout.write(f'\n   🔍 СТАТИСТИКА СЕРИЙ В ПОДГОТОВКЕ:')
+            self.stdout.write(f'      • Найдено ID серий в данных: {total_series_found}')
+            self.stdout.write(f'      • Сопоставлено с series_map: {total_series_mapped}')
+
+            if total_series_found > 0:
+                mapping_rate = (total_series_mapped / total_series_found) * 100
+                self.stdout.write(f'      • Процент сопоставления: {mapping_rate:.1f}%')
+
+            # Статистика по типам связей
+            if all_game_relations:
+                stats = {
+                    'genres': 0,
+                    'platforms': 0,
+                    'keywords': 0,
+                    'series': 0,
+                    'developers': 0,
+                    'publishers': 0,
+                    'themes': 0,
+                    'perspectives': 0,
+                    'modes': 0,
+                }
+
+                for rel in all_game_relations:
+                    stats['genres'] += len(rel['genres'])
+                    stats['platforms'] += len(rel['platforms'])
+                    stats['keywords'] += len(rel['keywords'])
+                    stats['series'] += len(rel['series'])
+                    stats['developers'] += len(rel['developers'])
+                    stats['publishers'] += len(rel['publishers'])
+                    stats['themes'] += len(rel['themes'])
+                    stats['perspectives'] += len(rel['perspectives'])
+                    stats['modes'] += len(rel['modes'])
+
+                self.stdout.write(f'   📈 Статистика связей:')
+                for key, count in stats.items():
+                    if count > 0:
+                        self.stdout.write(f'      • {key}: {count}')
+
+        return all_game_relations, step_time
+
+    def load_tactical_rpg_games(self, debug=False, limit=0, offset=0, min_rating_count=0, skip_existing=False):
         """Загрузка тактических RPG по жанру и ключевым словам"""
         self.stdout.write('🔍 Поиск тактических RPG...')
 
         if limit > 0:
             self.stdout.write(f'   🔒 Установлен лимит: {limit} игр')
+        if offset > 0:
+            self.stdout.write(f'   ⏭️  Пропуск первых: {offset} игр')
+        if min_rating_count > 0:
+            self.stdout.write(f'   ⭐ Минимальное количество оценок: {min_rating_count}')
+        if skip_existing:
+            self.stdout.write(f'   ⏭️  Режим skip-existing: пропуск игр, которые уже есть в базе')
 
         if debug:
             self.stdout.write('   🔎 Поиск жанра "Tactical"...')
@@ -693,24 +964,69 @@ class Command(BaseCommand):
         where_clause = ' | '.join(where_conditions)
         full_where = f'genres = (12) & ({where_clause})'  # 12 = RPG жанр
 
+        if min_rating_count > 0:
+            full_where = f'{full_where} & rating_count >= {min_rating_count}'
+
         if debug:
             self.stdout.write('   🎯 Построение запроса...')
             self.stdout.write(f'   📋 Условие: {full_where}')
 
-        return self.load_games_by_query(full_where, debug, limit)
+        return self.load_games_by_query(full_where, debug, limit, offset, skip_existing)
 
-    def load_games_by_query(self, where_clause, debug=False, limit=0):
-        """Загрузка игр по запросу с пагинацией"""
-        all_games = []
-        offset = 0
-        max_limit = 500
-        batch_number = 1
+    def load_all_popular_games(self, debug=False, limit=0, offset=0, min_rating_count=0, skip_existing=False):
+        """Загрузка всех игр с сортировкой по популярности (rating_count)"""
+        self.stdout.write('🔍 Загрузка популярных игр...')
+
+        if limit > 0:
+            self.stdout.write(f'   🔒 Установлен лимит: {limit} игр')
+        if offset > 0:
+            self.stdout.write(f'   ⏭️  Пропуск первых: {offset} игр')
+        if min_rating_count > 0:
+            self.stdout.write(f'   ⭐ Минимальное количество оценок: {min_rating_count}')
+        if skip_existing:
+            self.stdout.write(f'   ⏭️  Режим skip-existing: пропуск игр, которые уже есть в базе')
+
+        # Базовое условие - исключаем игры без названия и с нулевым rating_count
+        where_conditions = ['name != null']
+
+        if min_rating_count > 0:
+            where_conditions.append(f'rating_count >= {min_rating_count}')
+        else:
+            # Если не указан min_rating_count, все равно фильтруем игры с хотя бы одной оценкой
+            where_conditions.append('rating_count > 0')
+
+        where_clause = ' & '.join(where_conditions)
 
         if debug:
+            self.stdout.write('   🎯 Построение запроса...')
+            self.stdout.write(f'   📋 Условие: {where_clause}')
+            self.stdout.write('   📊 Сортировка: по количеству оценок (rating_count)')
+
+        return self.load_games_by_query(where_clause, debug, limit, offset, skip_existing)
+
+    def load_games_by_query(self, where_clause, debug=False, limit=0, offset=0, skip_existing=False):
+        """Загрузка игр по запросу с пагинацией и offset"""
+        all_games = []
+        current_offset = offset  # Начинаем с указанного offset
+        max_limit = 500
+        batch_number = 1
+        total_offset = offset  # Общий offset для статистики
+
+        if debug:
+            self.stdout.write(f'   📥 Начало загрузки игр...')
             if limit > 0:
-                self.stdout.write(f'   📥 Начало загрузки игр пачками по {max_limit} (всего до {limit})...')
-            else:
-                self.stdout.write(f'   📥 Начало загрузки игр пачками по {max_limit}...')
+                self.stdout.write(f'   🎯 Цель: загрузить до {limit} игр')
+            if offset > 0:
+                self.stdout.write(f'   ⏭️  Начинаем с позиции: {offset}')
+            if skip_existing:
+                self.stdout.write(f'   ⏭️  Пропуск существующих игр')
+
+        # Если включен режим skip-existing, получаем ID игр, которые уже есть в базе
+        existing_game_ids = set()
+        if skip_existing:
+            existing_game_ids = set(Game.objects.values_list('igdb_id', flat=True))
+            if debug:
+                self.stdout.write(f'   📊 Уже есть в базе: {len(existing_game_ids)} игр')
 
         while True:
             # Если установлен лимит и мы уже набрали достаточно игр - выходим
@@ -726,14 +1042,15 @@ class Command(BaseCommand):
                 current_limit = min(remaining, max_limit)
 
             if debug:
-                self.stdout.write(f'   📦 Пачка игр {batch_number}: позиция {offset}-{offset + current_limit}...')
+                self.stdout.write(
+                    f'   📦 Пачка игр {batch_number}: позиция {current_offset}-{current_offset + current_limit}...')
 
             query = f'''
                 fields name,summary,storyline,genres,keywords,rating,rating_count,first_release_date,platforms,cover;
                 where {where_clause};
                 sort rating_count desc;
                 limit {current_limit};
-                offset {offset};
+                offset {current_offset};
             '''.strip()
 
             batch_games = make_igdb_request('games', query, debug=False)
@@ -742,17 +1059,38 @@ class Command(BaseCommand):
                     self.stdout.write(f'   💤 Пачка игр {batch_number}: больше игр нет')
                 break
 
+            # Фильтруем игры, которые уже есть в базе (если включен skip-existing)
+            if skip_existing:
+                filtered_batch_games = []
+                skipped_count = 0
+                for game in batch_games:
+                    game_id = game.get('id')
+                    if game_id in existing_game_ids:
+                        skipped_count += 1
+                        if debug and skipped_count <= 5:  # Показываем только первые 5
+                            self.stdout.write(
+                                f'      ⏭️  Пропущена существующая игра: {game.get("name")} (ID: {game_id})')
+                    else:
+                        filtered_batch_games.append(game)
+
+                if debug and skipped_count > 0:
+                    self.stdout.write(f'      ⏭️  Пропущено {skipped_count} существующих игр из пачки')
+                    if skipped_count == len(batch_games):
+                        self.stdout.write(f'      💤 Вся пачка состоит из существующих игр')
+
+                batch_games = filtered_batch_games
+
             batch_loaded = len(batch_games)
             all_games.extend(batch_games)
 
             if debug:
                 self.stdout.write(f'   ✅ Пачка игр {batch_number}: загружено {batch_loaded} игр')
 
-            offset += batch_loaded
+            current_offset += batch_loaded
             batch_number += 1
 
             # Если загрузили меньше, чем запрашивали, значит это последняя пачка
-            # ИЛИ если достигли лимита
+            # ИЛИ если достигнут лимит
             if batch_loaded < current_limit or (limit > 0 and len(all_games) >= limit):
                 if debug:
                     if limit > 0 and len(all_games) >= limit:
@@ -763,9 +1101,11 @@ class Command(BaseCommand):
 
         if debug:
             if limit > 0:
-                self.stdout.write(f'   📊 Загружено игр: {len(all_games)} из {limit} за {batch_number - 1} пачек')
+                self.stdout.write(
+                    f'   📊 Загружено игр: {len(all_games)} из {limit} (с offset {total_offset}) за {batch_number - 1} пачек')
             else:
-                self.stdout.write(f'   📊 Всего загружено игр: {len(all_games)} за {batch_number - 1} пачек')
+                self.stdout.write(
+                    f'   📊 Всего загружено игр: {len(all_games)} (с offset {total_offset}) за {batch_number - 1} пачек')
 
         # Если установлен лимит, обрезаем список до нужного количества
         if limit > 0:
@@ -912,25 +1252,59 @@ class Command(BaseCommand):
         if debug:
             self._print_complete_statistics(stats)
 
+            # ★★★ ДОБАВЛЕНО: Детальная диагностика связей серий ★★★
+            self.stdout.write('\n' + '=' * 60)
+            self.debug_series_relations(collected_data, data_maps, all_game_relations, relations_results, debug)
+
         return stats
 
     def handle(self, *args, **options):
+        tactical_rpg = options['tactical_rpg']
         overwrite = options['overwrite']
         debug = options['debug']
         limit = options['limit']
+        offset = options['offset']
+        min_rating_count = options['min_rating_count']
+        skip_existing = options['skip_existing']
 
-        self.stdout.write('🎮 ЗАГРУЗКА ТАКТИЧЕСКИХ RPG ИЗ IGDB')
+        self.stdout.write('🎮 ЗАГРУЗКА ИГР ИЗ IGDB')
         self.stdout.write('=' * 60)
+
+        # Определяем тип загрузки
+        if tactical_rpg:
+            self.stdout.write('🎯 РЕЖИМ: Тактические RPG')
+        else:
+            self.stdout.write('📊 РЕЖИМ: Все популярные игры')
 
         if limit > 0:
             self.stdout.write(f'📊 ЛИМИТ: загружается не более {limit} игр')
+        if offset > 0:
+            self.stdout.write(f'⏭️  OFFSET: пропускаем первые {offset} игр')
+        if min_rating_count > 0:
+            self.stdout.write(f'⭐ ФИЛЬТР: игры с не менее {min_rating_count} оценками')
+        if skip_existing:
+            self.stdout.write('⏭️  SKIP-EXISTING: пропуск игр, которые уже есть в базе')
+        if overwrite:
+            self.stdout.write('🔄 OVERWRITE: найденные игры будут удалены и загружены заново')
 
         if debug:
             self.stdout.write('🐛 РЕЖИМ ОТЛАДКИ ВКЛЮЧЕН')
             self.stdout.write('-' * 40)
 
-        # Загружаем тактические RPG
-        all_games = self.load_tactical_rpg_games(debug, limit)
+        # Проверяем совместимость опций
+        if overwrite and skip_existing:
+            self.stdout.write('⚠️  ВНИМАНИЕ: опция --skip-existing игнорируется, так как включен --overwrite')
+            skip_existing = False
+
+        # Загружаем игры в зависимости от режима
+        if tactical_rpg:
+            all_games = self.load_tactical_rpg_games(
+                debug, limit, offset, min_rating_count, skip_existing
+            )
+        else:
+            all_games = self.load_all_popular_games(
+                debug, limit, offset, min_rating_count, skip_existing
+            )
 
         if not all_games:
             self.stdout.write('❌ Не найдено игр для загрузки')
@@ -939,7 +1313,7 @@ class Command(BaseCommand):
         self.stdout.write(f'📥 Найдено игр для обработки: {len(all_games)}')
 
         if overwrite:
-            self.stdout.write('🔄 РЕЖИМ ПЕРЕЗАПИСИ - найденные тактические RPG будут удалены и загружены заново!')
+            self.stdout.write('🔄 РЕЖИМ ПЕРЕЗАПИСИ - найденные игры будут удалены и загружены заново!')
 
             # Получаем ID найденных игр
             game_ids_to_delete = [game_data.get('id') for game_data in all_games if game_data.get('id')]
@@ -997,12 +1371,24 @@ class Command(BaseCommand):
             self.stdout.write('✅ ЗАГРУЗКА ЗАВЕРШЕНА!')
             self.stdout.write(f'⏱️  Время: {result_stats["total_time"]:.2f}с')
 
+            if tactical_rpg:
+                self.stdout.write('🎯 Тип: Тактические RPG')
+            else:
+                self.stdout.write('📊 Тип: Все популярные игры')
+
             if limit > 0:
                 self.stdout.write(f'📊 Лимит: {limit}')
+            if offset > 0:
+                self.stdout.write(f'⏭️  Offset: {offset}')
+            if min_rating_count > 0:
+                self.stdout.write(f'⭐ Мин. оценок: {min_rating_count}')
 
             self.stdout.write(f'🎮 Найдено: {result_stats["total_games_found"]}')
             self.stdout.write(f'✅ Загружено: {result_stats["created_count"]}')
             self.stdout.write(f'⏭️  Пропущено: {result_stats["skipped_count"]}')
+            if skip_existing and not overwrite:
+                self.stdout.write(
+                    f'⏭️  Пропущено существующих: {result_stats["skipped_count"] - len(all_games) + result_stats["created_count"] if result_stats["skipped_count"] > 0 else 0}')
 
     def collect_all_data_with_stats(self, all_games_data, debug=False):
         """Собирает все данные со статистикой"""
@@ -1026,7 +1412,7 @@ class Command(BaseCommand):
         if debug:
             self.stdout.write(f'   ✅ Основные ID собраны за {collect_time:.2f}с')
 
-        # 2️⃣ Сбор информации о скриншотах (исправленный)
+        # 2️⃣ Сбор информации о скриншотах
         if debug:
             self.stdout.write('\n2️⃣  📸 СБОР ИНФОРМАЦИИ О СКРИНШОТАХ...')
 
@@ -1066,6 +1452,24 @@ class Command(BaseCommand):
 
         # Объединяем ID из дополнительных данных
         collected_data['all_series_ids'] = additional_stats.get('all_series_ids', [])
+
+        # ДЕТАЛЬНАЯ ОТЛАДКА ДЛЯ СЕРИЙ
+        if debug and 'all_series_ids' in collected_data:
+            series_ids = collected_data['all_series_ids']
+            if series_ids:
+                self.stdout.write(f'\n   🔍 ДЕТАЛЬНАЯ ОТЛАДКА СЕРИЙ:')
+                self.stdout.write(f'      • Всего ID серий: {len(series_ids)}')
+                self.stdout.write(f'      • Уникальных ID: {len(set(series_ids))}')
+                self.stdout.write(f'      • Диапазон ID: {min(series_ids)} - {max(series_ids)}')
+
+                # Проверяем дубликаты
+                counter = Counter(series_ids)
+                duplicates = {id: count for id, count in counter.items() if count > 1}
+                if duplicates:
+                    self.stdout.write(f'      • Найдено дубликатов: {len(duplicates)}')
+                    for series_id, count in list(duplicates.items())[:5]:
+                        self.stdout.write(f'        - ID {series_id}: {count} раз')
+
         collected_data['all_company_ids'] = additional_stats.get('all_company_ids', [])
         collected_data['all_theme_ids'] = additional_stats.get('all_theme_ids', [])
         collected_data['all_perspective_ids'] = additional_stats.get('all_perspective_ids', [])
@@ -1319,7 +1723,7 @@ class Command(BaseCommand):
         start_step = time.time()
         data_maps['genre_map'] = self.load_data_parallel_generic(
             collected_data['all_genre_ids'], 'genres', Genre,
-            self.create_model_func(Genre), '🎭', 'жанров', debug
+            self.create_model_func(Genre, debug), '🎭', 'жанров', debug
         )
         step_times['genres'] = time.time() - start_step
 
@@ -1329,7 +1733,7 @@ class Command(BaseCommand):
         start_step = time.time()
         data_maps['platform_map'] = self.load_data_parallel_generic(
             collected_data['all_platform_ids'], 'platforms', Platform,
-            self.create_model_func(Platform), '🖥️', 'платформ', debug
+            self.create_model_func(Platform, debug), '🖥️', 'платформ', debug
         )
         step_times['platforms'] = time.time() - start_step
 
@@ -1339,18 +1743,25 @@ class Command(BaseCommand):
         start_step = time.time()
         data_maps['keyword_map'] = self.load_data_parallel_generic(
             collected_data['all_keyword_ids'], 'keywords', Keyword,
-            self.create_model_func(Keyword), '🔑', 'ключевых слов', debug
+            self.create_model_func(Keyword, debug), '🔑', 'ключевых слов', debug
         )
         step_times['keywords'] = time.time() - start_step
 
         # 5️⃣ ПАРАЛЛЕЛЬНАЯ загрузка серий
         if debug:
             self.stdout.write('\n5️⃣  📚 ЗАГРУЗКА СЕРИЙ...')
+
         start_step = time.time()
+
+        # Проверяем данные перед загрузкой
+        series_ids = collected_data['all_series_ids']
+
+        # Загружаем серии с отладкой
         data_maps['series_map'] = self.load_data_parallel_generic(
-            collected_data['all_series_ids'], 'collections', Series,
-            self.create_model_func(Series), '📚', 'серий', debug
+            series_ids, 'collections', Series,
+            self.create_series_func(debug), '📚', 'серий', debug
         )
+
         step_times['series'] = time.time() - start_step
 
         # 6️⃣ ПАРАЛЛЕЛЬНАЯ загрузка компаний
@@ -1359,7 +1770,7 @@ class Command(BaseCommand):
         start_step = time.time()
         data_maps['company_map'] = self.load_data_parallel_generic(
             collected_data['all_company_ids'], 'companies', Company,
-            self.create_model_func(Company), '🏢', 'компаний', debug
+            self.create_model_func(Company, debug), '🏢', 'компаний', debug
         )
         step_times['companies'] = time.time() - start_step
 
@@ -1369,7 +1780,7 @@ class Command(BaseCommand):
         start_step = time.time()
         data_maps['theme_map'] = self.load_data_parallel_generic(
             collected_data['all_theme_ids'], 'themes', Theme,
-            self.create_model_func(Theme), '🎨', 'тем', debug
+            self.create_model_func(Theme, debug), '🎨', 'тем', debug
         )
         step_times['themes'] = time.time() - start_step
 
@@ -1379,7 +1790,7 @@ class Command(BaseCommand):
         start_step = time.time()
         data_maps['perspective_map'] = self.load_data_parallel_generic(
             collected_data['all_perspective_ids'], 'player_perspectives', PlayerPerspective,
-            self.create_model_func(PlayerPerspective), '👁️', 'перспектив', debug
+            self.create_model_func(PlayerPerspective, debug), '👁️', 'перспектив', debug
         )
         step_times['perspectives'] = time.time() - start_step
 
@@ -1389,161 +1800,45 @@ class Command(BaseCommand):
         start_step = time.time()
         data_maps['mode_map'] = self.load_data_parallel_generic(
             collected_data['all_mode_ids'], 'game_modes', GameMode,
-            self.create_model_func(GameMode), '🎮', 'режимов', debug
+            self.create_model_func(GameMode, debug), '🎮', 'режимов', debug
         )
         step_times['modes'] = time.time() - start_step
 
+        # 🔟 Выводим общую статистику загрузки
+        if debug:
+            self.stdout.write('\n📊 ОБЩАЯ СТАТИСТИКА ЗАГРУЗКИ ДАННЫХ:')
+            self.stdout.write('   ────────────────────────────────')
+
+            data_types = [
+                ('🖼️  Обложки', 'covers', len(data_maps.get('cover_map', {})),
+                 len(collected_data.get('all_cover_ids', []))),
+                ('🎭 Жанры', 'genres', len(data_maps.get('genre_map', {})),
+                 len(collected_data.get('all_genre_ids', []))),
+                ('🖥️  Платформы', 'platforms', len(data_maps.get('platform_map', {})),
+                 len(collected_data.get('all_platform_ids', []))),
+                ('🔑 Ключевые слова', 'keywords', len(data_maps.get('keyword_map', {})),
+                 len(collected_data.get('all_keyword_ids', []))),
+                ('📚 Серии', 'series', len(data_maps.get('series_map', {})),
+                 len(collected_data.get('all_series_ids', []))),
+                ('🏢 Компании', 'companies', len(data_maps.get('company_map', {})),
+                 len(collected_data.get('all_company_ids', []))),
+                ('🎨 Темы', 'themes', len(data_maps.get('theme_map', {})), len(collected_data.get('all_theme_ids', []))),
+                ('👁️  Перспективы', 'perspectives', len(data_maps.get('perspective_map', {})),
+                 len(collected_data.get('all_perspective_ids', []))),
+                ('🎮 Режимы', 'modes', len(data_maps.get('mode_map', {})), len(collected_data.get('all_mode_ids', []))),
+            ]
+
+            for display_name, key, loaded, total in data_types:
+                if total > 0:
+                    success_rate = (loaded / total) * 100
+                    time_val = step_times.get(key, 0)
+                    self.stdout.write(f'   • {display_name}: {loaded}/{total} ({success_rate:.1f}%) [{time_val:.2f}с]')
+
+            # Суммарное время
+            total_load_time = sum(step_times.values())
+            self.stdout.write(f'   ⏱️  Общее время загрузки: {total_load_time:.2f}с')
+
         return data_maps, step_times
-
-    def prepare_game_relations(self, game_basic_map, game_data_map, additional_data_map, data_maps, debug=False):
-        """Подготавливает связи для игр"""
-        if debug:
-            self.stdout.write('\n📋 ПОДГОТОВКА СВЯЗЕЙ ДЛЯ ИГР...')
-
-        start_step = time.time()
-        all_game_relations = []
-        games_without_data = 0
-        games_without_additional = 0
-
-        for game_id in game_basic_map.keys():
-            game_data = game_data_map.get(game_id)
-            if not game_data:
-                games_without_data += 1
-                continue
-
-            additional_data = additional_data_map.get(game_id, {})
-            if not additional_data:
-                games_without_additional += 1
-
-            developer_ids = set()
-            publisher_ids = set()
-
-            if additional_data.get('involved_companies'):
-                for company_data in additional_data['involved_companies']:
-                    company_id = company_data.get('company')
-                    if not company_id:
-                        continue
-
-                    if company_data.get('developer', False):
-                        developer_ids.add(company_id)
-                    if company_data.get('publisher', False):
-                        publisher_ids.add(company_id)
-
-            relations = {
-                'game_id': game_id,
-                'genres': [],
-                'platforms': [],
-                'keywords': [],
-                'series': [],
-                'developers': [],
-                'publishers': [],
-                'themes': [],
-                'perspectives': [],
-                'modes': [],
-            }
-
-            # Жанры
-            for gid in game_data.get('genres', []):
-                if gid in data_maps['genre_map']:
-                    relations['genres'].append(data_maps['genre_map'][gid])
-
-            # Платформы
-            for pid in game_data.get('platforms', []):
-                if pid in data_maps['platform_map']:
-                    relations['platforms'].append(data_maps['platform_map'][pid])
-
-            # Ключевые слова
-            for kid in game_data.get('keywords', []):
-                if kid in data_maps['keyword_map']:
-                    relations['keywords'].append(data_maps['keyword_map'][kid])
-
-            # Серии
-            for sid in additional_data.get('collections', []):
-                if sid in data_maps['series_map']:
-                    relations['series'].append(data_maps['series_map'][sid])
-
-            # Разработчики
-            for cid in developer_ids:
-                if cid in data_maps['company_map']:
-                    relations['developers'].append(data_maps['company_map'][cid])
-
-            # Издатели
-            for cid in publisher_ids:
-                if cid in data_maps['company_map']:
-                    relations['publishers'].append(data_maps['company_map'][cid])
-
-            # Темы
-            for tid in additional_data.get('themes', []):
-                if tid in data_maps['theme_map']:
-                    relations['themes'].append(data_maps['theme_map'][tid])
-
-            # Перспективы
-            for pid in additional_data.get('player_perspectives', []):
-                if pid in data_maps['perspective_map']:
-                    relations['perspectives'].append(data_maps['perspective_map'][pid])
-
-            # Режимы
-            for mid in additional_data.get('game_modes', []):
-                if mid in data_maps['mode_map']:
-                    relations['modes'].append(data_maps['mode_map'][mid])
-
-            # Проверяем, есть ли хотя бы какие-то связи
-            has_relations = any([
-                relations['genres'],
-                relations['platforms'],
-                relations['keywords'],
-                relations['series'],
-                relations['developers'],
-                relations['publishers'],
-                relations['themes'],
-                relations['perspectives'],
-                relations['modes'],
-            ])
-
-            if has_relations:
-                all_game_relations.append(relations)
-
-            if debug and not has_relations:
-                self.stdout.write(f'   ⚠️  Игра {game_id} не имеет связей')
-
-        step_time = time.time() - start_step
-
-        if debug:
-            self.stdout.write(f'   📊 Подготовлено связей для {len(all_game_relations)} игр')
-            self.stdout.write(f'   ⚠️  Игр без основных данных: {games_without_data}')
-            self.stdout.write(f'   ⚠️  Игр без дополнительных данных: {games_without_additional}')
-
-            # Статистика по типам связей
-            if all_game_relations:
-                stats = {
-                    'genres': 0,
-                    'platforms': 0,
-                    'keywords': 0,
-                    'series': 0,
-                    'developers': 0,
-                    'publishers': 0,
-                    'themes': 0,
-                    'perspectives': 0,
-                    'modes': 0,
-                }
-
-                for rel in all_game_relations:
-                    stats['genres'] += len(rel['genres'])
-                    stats['platforms'] += len(rel['platforms'])
-                    stats['keywords'] += len(rel['keywords'])
-                    stats['series'] += len(rel['series'])
-                    stats['developers'] += len(rel['developers'])
-                    stats['publishers'] += len(rel['publishers'])
-                    stats['themes'] += len(rel['themes'])
-                    stats['perspectives'] += len(rel['perspectives'])
-                    stats['modes'] += len(rel['modes'])
-
-                self.stdout.write(f'   📈 Статистика связей:')
-                for key, count in stats.items():
-                    if count > 0:
-                        self.stdout.write(f'      • {key}: {count}')
-
-        return all_game_relations, step_time
 
     def create_all_relations(self, all_game_relations, data_maps, debug=False):
         """Создает все связи для игр и возвращает статистику возможных связей"""
@@ -1557,7 +1852,7 @@ class Command(BaseCommand):
             'possible_genre_relations': 0,
             'possible_platform_relations': 0,
             'possible_keyword_relations': 0,
-            'possible_series_relations': 0,
+            'possible_series_relations': 0,  # Теперь M2M - считаем все связи
             'possible_developer_relations': 0,
             'possible_publisher_relations': 0,
             'possible_theme_relations': 0,
@@ -1570,7 +1865,7 @@ class Command(BaseCommand):
             possible_stats['possible_genre_relations'] += len(rel.get('genres', []))
             possible_stats['possible_platform_relations'] += len(rel.get('platforms', []))
             possible_stats['possible_keyword_relations'] += len(rel.get('keywords', []))
-            possible_stats['possible_series_relations'] += len(rel.get('series', []))
+            possible_stats['possible_series_relations'] += len(rel.get('series', []))  # Все M2M связи
             possible_stats['possible_developer_relations'] += len(rel.get('developers', []))
             possible_stats['possible_publisher_relations'] += len(rel.get('publishers', []))
             possible_stats['possible_theme_relations'] += len(rel.get('themes', []))
@@ -1583,10 +1878,40 @@ class Command(BaseCommand):
             data_maps['keyword_map'], debug
         )
 
-        # Дополнительные связи
-        series_relations, developer_relations, publisher_relations, theme_relations, perspective_relations, mode_relations = self.create_additional_relations_batch(
-            all_game_relations, data_maps['series_map'], data_maps['company_map'],
-            data_maps['theme_map'], data_maps['perspective_map'], data_maps['mode_map'], debug
+        # Получаем ID игр для создания game_map
+        game_ids = [rel['game_id'] for rel in all_game_relations]
+        games = Game.objects.filter(igdb_id__in=game_ids)
+        game_map = {game.igdb_id: game for game in games}
+
+        # Дополнительные M2M связи
+        series_relations = self._create_relations(
+            all_game_relations, game_map, 'series', Game.series.through,
+            'series', 'series', debug=debug
+        )
+
+        developer_relations = self._create_relations(
+            all_game_relations, game_map, 'developers', Game.developers.through,
+            'developers', 'company', debug=debug
+        )
+
+        publisher_relations = self._create_relations(
+            all_game_relations, game_map, 'publishers', Game.publishers.through,
+            'publishers', 'company', debug=debug
+        )
+
+        theme_relations = self._create_relations(
+            all_game_relations, game_map, 'themes', Game.themes.through,
+            'themes', 'theme', debug=debug
+        )
+
+        perspective_relations = self._create_relations(
+            all_game_relations, game_map, 'perspectives', Game.player_perspectives.through,
+            'perspectives', 'playerperspective', debug=debug
+        )
+
+        mode_relations = self._create_relations(
+            all_game_relations, game_map, 'modes', Game.game_modes.through,
+            'modes', 'gamemode', debug=debug
         )
 
         step_time = time.time() - start_step
@@ -1644,7 +1969,7 @@ class Command(BaseCommand):
         self.stdout.write(f'      🎭 С жанрами: {relations_results.get("genre_relations", 0)}')
         self.stdout.write(f'      🖥️  С платформами: {relations_results.get("platform_relations", 0)}')
         self.stdout.write(f'      🔑 С ключевыми словами: {relations_results.get("keyword_relations", 0)}')
-        self.stdout.write(f'      📚 С сериями: {relations_results.get("series_relations", 0)}')
+        self.stdout.write(f'      📚 С сериями (M2M): {relations_results.get("series_relations", 0)}')
         self.stdout.write(f'      🏢 С разработчиками: {relations_results.get("developer_relations", 0)}')
         self.stdout.write(f'      📦 С издателями: {relations_results.get("publisher_relations", 0)}')
         self.stdout.write(f'      🎨 С темами: {relations_results.get("theme_relations", 0)}')
@@ -1686,6 +2011,54 @@ class Command(BaseCommand):
                 if 'screenshots_info' in collected_data:
                     screenshots_info = collected_data.get('screenshots_info', {})
                     self.stdout.write(f'   • Информация о скриншотах (screenshots_info): {len(screenshots_info)} игр')
+
+        # ★★★ ДИАГНОСТИКА РАСХОЖДЕНИЙ В СТАТИСТИКЕ СЕРИЙ ★★★
+        if debug and relations_possible and relations_results:
+            possible_series = relations_possible.get('possible_series_relations', 0)
+            created_series = relations_results.get('series_relations', 0)
+
+            if possible_series > 0:
+                self.stdout.write(f'\n🔍 ДЕТАЛЬНАЯ ДИАГНОСТИКА СТАТИСТИКИ СЕРИЙ (M2M):')
+                self.stdout.write(f'   • Возможных M2M связей (из данных): {possible_series}')
+                self.stdout.write(f'   • Созданных M2M связей: {created_series}')
+
+                if created_series < possible_series:
+                    discrepancy = possible_series - created_series
+                    self.stdout.write(f'   ❌ Расхождение: {discrepancy}')
+
+                    # Проверяем возможные причины
+                    self.stdout.write(f'   🔍 Возможные причины расхождения:')
+
+                    # 1. Проверяем M2M связи в базе
+                    from django.db import connection
+                    try:
+                        with connection.cursor() as cursor:
+                            # Получаем количество M2M связей игр с сериями
+                            cursor.execute("SELECT COUNT(*) FROM games_game_series")
+                            m2m_count = cursor.fetchone()[0]
+                            self.stdout.write(f'      • M2M связей в базе: {m2m_count}')
+
+                            # Получаем количество уникальных игр с сериями
+                            cursor.execute("SELECT COUNT(DISTINCT game_id) FROM games_game_series")
+                            unique_games_with_series = cursor.fetchone()[0]
+                            self.stdout.write(f'      • Уникальных игр с сериями: {unique_games_with_series}')
+
+                            # Среднее количество серий на игру
+                            if unique_games_with_series > 0:
+                                avg_series_per_game = m2m_count / unique_games_with_series
+                                self.stdout.write(f'      • Среднее серий на игру (M2M): {avg_series_per_game:.1f}')
+                    except Exception as e:
+                        self.stdout.write(f'      ⚠️  Не удалось проверить M2M связи: {e}')
+
+                    # 2. Проверяем, сколько игр создано в этой сессии
+                    self.stdout.write(f'      • Игр создано в этой сессии: {created_count}')
+
+                else:
+                    self.stdout.write(f'   ✅ Все M2M связи созданы успешно!')
+
+                # Процент успешности
+                success_rate = (created_series / possible_series) * 100 if possible_series > 0 else 0
+                self.stdout.write(f'   📈 Успешность создания M2M связей: {success_rate:.1f}%')
 
         # Добавляем статистику по скриншотам в collected_data
         collected_data_with_screenshots = loaded_data_stats.get('collected', {}).copy()
@@ -1776,7 +2149,6 @@ class Command(BaseCommand):
         self.stdout.write(f'   • Успешно загружено: {stats["created_count"]}')
         self.stdout.write(f'   • Пропущено (уже существуют): {stats["skipped_count"]}')
         self.stdout.write(f'   • Ошибок: {stats["error_count"]}')
-        # Убрали пункт про скриншоты отсюда
 
         # Статистика собранных vs загруженных данных
         self.stdout.write('\n📈 СТАТИСТИКА ДАННЫХ (СОБРАНО / ЗАГРУЖЕНО):')
@@ -1791,7 +2163,7 @@ class Command(BaseCommand):
             ('👁️  Перспективы', 'perspectives'),
             ('🎮 Режимы', 'modes'),
             ('🖼️  Обложки', 'covers'),
-            ('📸 Скриншоты', 'screenshots'),  # Оставляем здесь
+            ('📸 Скриншоты', 'screenshots'),
         ]
 
         for display_name, key in data_types:
@@ -1841,22 +2213,29 @@ class Command(BaseCommand):
 
                     self.stdout.write(f'   • {display_name}: {loaded}/{collected} ({percentage:.1f}%){time_str}')
 
-        # Статистика связей
-        if stats['relations']:
+        # Статистика связей - УДАЛЕН БЛОК "РЕЗУЛЬТАТЫ ЗАГРУЗКИ"
+        if stats['relations'] and stats['relations_possible']:
             self.stdout.write('\n🔗 СТАТИСТИКА СВЯЗЕЙ (СОЗДАНО / ВОЗМОЖНО):')
+
+            # Серии (M2M)
+            created_series = stats['relations'].get('series_relations', 0)
+            possible_series = stats['relations_possible'].get('possible_series_relations', 0)
+
+            if possible_series > 0:
+                series_percentage = (created_series / possible_series * 100) if possible_series > 0 else 0
+                self.stdout.write(f'   • 📚 Серии (M2M): {created_series}/{possible_series} ({series_percentage:.1f}%)')
+
+            # Другие типы связей
             relations_info = [
                 ('🎭 Жанры', 'genre_relations', 'possible_genre_relations'),
                 ('🖥️  Платформы', 'platform_relations', 'possible_platform_relations'),
                 ('🔑 Ключевые слова', 'keyword_relations', 'possible_keyword_relations'),
-                ('📚 Серии', 'series_relations', 'possible_series_relations'),
                 ('🏢 Разработчики', 'developer_relations', 'possible_developer_relations'),
                 ('📦 Издатели', 'publisher_relations', 'possible_publisher_relations'),
                 ('🎨 Темы', 'theme_relations', 'possible_theme_relations'),
                 ('👁️  Перспективы', 'perspective_relations', 'possible_perspective_relations'),
                 ('🎮 Режимы', 'mode_relations', 'possible_mode_relations'),
             ]
-
-            relations_time = stats['step_times'].get('relations', 0)
 
             for display_name, created_key, possible_key in relations_info:
                 created = stats['relations'].get(created_key, 0)
@@ -1865,23 +2244,6 @@ class Command(BaseCommand):
                 if possible > 0:
                     percentage = (created / possible * 100) if possible > 0 else 0
                     self.stdout.write(f'   • {display_name}: {created}/{possible} ({percentage:.1f}%)')
-                elif created > 0:
-                    self.stdout.write(f'   • {display_name}: {created}')
-
-            if relations_time > 0:
-                total_created = sum(stats['relations'].values())
-                total_possible = sum(stats['relations_possible'].values())
-
-                if total_created > 0 and relations_time > 0:
-                    speed = total_created / relations_time
-                    self.stdout.write(f'   ⏱️  Время создания связей: {relations_time:.2f}с ({speed:.1f} связей/сек)')
-
-                    if total_possible > 0:
-                        total_percentage = (total_created / total_possible * 100)
-                        self.stdout.write(
-                            f'   📊 Всего связей: {total_created}/{total_possible} ({total_percentage:.1f}%)')
-                else:
-                    self.stdout.write(f'   ⏱️  Время создания связей: {relations_time:.2f}с')
 
         # Состояние базы данных
         self.stdout.write('\n🗄️  ТЕКУЩЕЕ СОСТОЯНИЕ БАЗЫ ДАННЫХ:')
@@ -1894,7 +2256,7 @@ class Command(BaseCommand):
         self.stdout.write(f'   🎨 Тем: {stats["total_themes"]}')
         self.stdout.write(f'   👁️  Перспектив: {stats["total_perspectives"]}')
         self.stdout.write(f'   🎮 Режимов: {stats["total_modes"]}')
-        self.stdout.write(f'   📸 Скриншотов: {stats["total_screenshots"]}')  # Оставляем здесь
+        self.stdout.write(f'   📸 Скриншотов: {stats["total_screenshots"]}')
 
         # Время ключевых этапов
         self.stdout.write('\n⏱️  ВРЕМЯ КЛЮЧЕВЫХ ЭТАПОВ:')
@@ -1999,3 +2361,151 @@ class Command(BaseCommand):
             'games_with_screenshots': len([v for v in screenshots_info.values() if v > 0]),
             'games_total': len(game_ids)
         }
+
+    def debug_series_loading(self):
+        """Метод для диагностики загрузки серий"""
+        self.stdout.write('🔍 ДИАГНОСТИКА ПРОБЛЕМЫ С СЕРИЯМИ')
+        self.stdout.write('=' * 60)
+
+        # 1. Проверяем текущее состояние в базе
+        total_series_in_db = Series.objects.count()
+        self.stdout.write(f'📊 СЕРИИ В БАЗЕ ДАННЫХ: {total_series_in_db}')
+
+        # 2. Проверяем дубликаты по igdb_id
+        duplicates = Series.objects.values('igdb_id').annotate(
+            count=Count('igdb_id')).filter(count__gt=1)
+
+        if duplicates.exists():
+            self.stdout.write(f'⚠️  Найдено дубликатов по igdb_id: {duplicates.count()}')
+            for dup in duplicates[:5]:
+                self.stdout.write(f'   • ID {dup["igdb_id"]}: {dup["count"]} записей')
+
+        # 3. Проверяем серии с пустыми именами
+        empty_name_series = Series.objects.filter(name='')
+        if empty_name_series.exists():
+            self.stdout.write(f'⚠️  Серии с пустыми именами: {empty_name_series.count()}')
+
+        # 4. Проверяем серии с именами по умолчанию
+        default_name_series = Series.objects.filter(name__startswith='Series ')
+        if default_name_series.exists():
+            self.stdout.write(f'⚠️  Серии с именами по умолчанию: {default_name_series.count()}')
+            for s in default_name_series[:5]:
+                self.stdout.write(f'   • ID {s.igdb_id}: "{s.name}"')
+
+        return {
+            'total_series': total_series_in_db,
+            'duplicates_count': duplicates.count() if duplicates.exists() else 0,
+            'empty_names': empty_name_series.count(),
+            'default_names': default_name_series.count()
+        }
+
+    def check_series_in_database(self):
+        """Проверяет состояние серий в базе данных"""
+        from games.models import Series
+
+        self.stdout.write('\n🔍 ПРОВЕРКА СЕРИЙ В БАЗЕ ДАННЫХ')
+        self.stdout.write('=' * 60)
+
+        # 1. Общее количество
+        total_series = Series.objects.count()
+        self.stdout.write(f'📊 Всего серий в базе: {total_series}')
+
+        # 2. Серии с пустыми именами
+        empty_name_series = Series.objects.filter(name='')
+        empty_count = empty_name_series.count()
+        if empty_count > 0:
+            self.stdout.write(f'⚠️  Серии с пустыми именами: {empty_count}')
+            for series in empty_name_series[:5]:
+                self.stdout.write(f'   • ID {series.igdb_id}')
+
+        # 3. Серии с именами по умолчанию
+        default_name_series = Series.objects.filter(name__startswith='Series ')
+        default_count = default_name_series.count()
+        if default_count > 0:
+            self.stdout.write(f'⚠️  Серии с именами по умолчанию: {default_count}')
+            for series in default_name_series[:5]:
+                self.stdout.write(f'   • ID {series.igdb_id}: "{series.name}"')
+
+        # 4. Дубликаты по igdb_id
+        duplicates = Series.objects.values('igdb_id').annotate(
+            count=Count('igdb_id')).filter(count__gt=1)
+
+        duplicate_count = duplicates.count()
+        if duplicate_count > 0:
+            self.stdout.write(f'🚨 Дубликаты по igdb_id: {duplicate_count}')
+            for dup in duplicates[:5]:
+                series_list = Series.objects.filter(igdb_id=dup['igdb_id'])
+                self.stdout.write(f'   • ID {dup["igdb_id"]}: {dup["count"]} записей')
+                for s in series_list:
+                    self.stdout.write(f'     - "{s.name}" (ID базы: {s.id})')
+
+        # 5. Статистика по именам серий (упрощенная)
+        self.stdout.write(f'\n📈 Статистика по именам серий:')
+
+        # Имена нормальной длины
+        normal_names = Series.objects.filter(~Q(name=''), ~Q(name__startswith='Series '))
+        normal_count = normal_names.count()
+        self.stdout.write(f'   • Нормальные имена: {normal_count}')
+
+        # Процент нормальных имен
+        if total_series > 0:
+            normal_percentage = (normal_count / total_series) * 100
+            self.stdout.write(f'   • Процент нормальных имен: {normal_percentage:.1f}%')
+
+        # 6. Примеры последних добавленных серий
+        recent_series = Series.objects.order_by('-id')[:5]
+        self.stdout.write(f'\n📋 Последние 5 добавленных серий:')
+        for series in recent_series:
+            self.stdout.write(f'   • ID {series.igdb_id}: "{series.name}"')
+
+        return {
+            'total_series': total_series,
+            'empty_names': empty_count,
+            'default_names': default_count,
+            'duplicates': duplicate_count,
+            'normal_names': normal_count
+        }
+
+    def debug_series_relations(self, collected_data, data_maps, all_game_relations, relations_results, debug=False):
+        """Детальная диагностика M2M связей с сериями"""
+        if not debug:
+            return
+
+        self.stdout.write('\n🔍 ДЕТАЛЬНАЯ ДИАГНОСТИКА M2M СВЯЗЕЙ С СЕРИЯМИ')
+        self.stdout.write('=' * 60)
+
+        # 1. Проверяем M2M связи в базе данных
+        from django.db import connection
+        try:
+            with connection.cursor() as cursor:
+                # Количество M2M связей
+                cursor.execute("SELECT COUNT(*) FROM games_game_series")
+                m2m_total = cursor.fetchone()[0]
+                self.stdout.write(f'📊 M2M СВЯЗЕЙ ИГР-СЕРИЙ В БАЗЕ: {m2m_total}')
+
+                # Количество уникальных игр с сериями
+                cursor.execute("SELECT COUNT(DISTINCT game_id) FROM games_game_series")
+                unique_games = cursor.fetchone()[0]
+                self.stdout.write(f'   • Уникальных игр с сериями: {unique_games}')
+
+                # Среднее количество серий на игру
+                if unique_games > 0:
+                    avg_series = m2m_total / unique_games
+                    self.stdout.write(f'   • Среднее серий на игру: {avg_series:.1f}')
+
+                # Проверяем серии без связей
+                cursor.execute("""
+                               SELECT s.id, s.name, s.igdb_id
+                               FROM games_series s
+                                        LEFT JOIN games_game_series gs ON s.id = gs.series_id
+                               WHERE gs.series_id IS NULL LIMIT 10
+                               """)
+                series_without_games = cursor.fetchall()
+
+                if series_without_games:
+                    self.stdout.write(f'\n⚠️  СЕРИИ БЕЗ ИГР: {len(series_without_games)}')
+                    for s_id, s_name, igdb_id in series_without_games:
+                        self.stdout.write(f'   • "{s_name}" (ID: {igdb_id})')
+
+        except Exception as e:
+            self.stdout.write(f'   ⚠️  Ошибка проверки M2M связей: {e}')
