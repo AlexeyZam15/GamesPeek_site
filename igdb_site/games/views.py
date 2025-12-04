@@ -110,7 +110,8 @@ def game_list(request):
                 'common_keywords': item['common_keywords'],
                 'common_themes': item['common_themes'],
                 'common_developers': item['common_developers'],
-                'common_perspectives': item['common_perspectives']
+                'common_perspectives': item['common_perspectives'],
+                'common_game_modes': item['common_game_modes']
             }
             for item in similar_games_data
         ]
