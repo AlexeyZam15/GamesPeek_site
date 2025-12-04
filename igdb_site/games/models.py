@@ -1,12 +1,31 @@
 from django.db import models
 
 
+class Country(models.Model):
+    """Модель для стран"""
+    igdb_id = models.IntegerField(unique=True, blank=True, null=True)
+    name = models.CharField(max_length=100)
+    code = models.CharField(max_length=10, blank=True, null=True)  # ISO код страны
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        verbose_name_plural = "Countries"
+        ordering = ['name']
+
 class Company(models.Model):
     """Компании (разработчики и издатели)"""
     igdb_id = models.IntegerField(unique=True)
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
-    country = models.IntegerField(blank=True, null=True)  # country code from IGDB
+    country = models.ForeignKey(
+        Country,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='companies'
+    )
     logo_url = models.URLField(blank=True, null=True)
     website = models.URLField(blank=True, null=True)
 
@@ -37,12 +56,51 @@ class Series(models.Model):
     description = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # Дополнительные поля для лучшей организации
+    slug = models.SlugField(max_length=255, unique=True, blank=True, null=True)
+    is_main_series = models.BooleanField(default=True, help_text="Основная серия (не спин-офф)")
+    parent_series = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='subseries',
+        help_text="Родительская серия, если это подсерия"
+    )
+
     def __str__(self):
         return self.name
 
+    @property
     def game_count(self):
         """Количество игр в серии"""
         return self.games.count()
+
+    @property
+    def first_game(self):
+        """Первая игра в серии (по дате релиза или порядковому номеру)"""
+        return self.games.order_by('first_release_date', 'series_order').first()
+
+    @property
+    def latest_game(self):
+        """Последняя игра в серии"""
+        return self.games.order_by('-first_release_date').first()
+
+    @property
+    def years_active(self):
+        """Годы активности серии"""
+        games = self.games.exclude(first_release_date__isnull=True)
+        if games.exists():
+            dates = games.values_list('first_release_date', flat=True)
+            years = [date.year for date in dates if date]
+            if years:
+                return f"{min(years)} - {max(years)}"
+        return "N/A"
+
+    def get_games_in_order(self):
+        """Возвращает игры в правильном порядке"""
+        # Сначала по порядковому номеру, потом по дате релиза
+        return self.games.order_by('series_order', 'first_release_date')
 
     class Meta:
         verbose_name_plural = "Series"
@@ -308,7 +366,7 @@ class Game(models.Model):
     platforms = models.ManyToManyField(Platform, blank=True)
     keywords = models.ManyToManyField(Keyword, blank=True)
 
-    # НОВЫЕ СВЯЗИ
+    # Связи с сериями
     series = models.ManyToManyField(
         Series,
         blank=True,
@@ -319,7 +377,7 @@ class Game(models.Model):
     series_order = models.PositiveIntegerField(
         null=True,
         blank=True,
-        help_text="Порядковый номер в серии (1, 2, 3...)"
+        help_text="Порядковый номер в серии (1, 2, 3...). Если игра в нескольких сериях, это относится к основной серии."
     )
 
     # Связи с компаниями
@@ -347,26 +405,58 @@ class Game(models.Model):
     class Meta:
         ordering = ['-rating_count']
 
-    # НОВЫЕ PROPERTY ДЛЯ СЕРИЙ
+    # ИСПРАВЛЕННЫЕ PROPERTY ДЛЯ СЕРИЙ
     @property
     def is_part_of_series(self):
         """Принадлежит ли игра к какой-либо серии"""
-        return self.series is not None
+        return self.series.exists()
+
+    @property
+    def main_series(self):
+        """Возвращает первую (основную) серию игры"""
+        return self.series.first()
 
     @property
     def display_series_info(self):
-        """Отображаемая информация о серии"""
-        if self.series and self.series_order:
-            return f"{self.series.name} #{self.series_order}"
-        elif self.series:
-            return self.series.name
-        return "Standalone Game"
+        """Отображаемая информация о сериях"""
+        if not self.series.exists():
+            return ""
 
-    def get_series_games(self):
-        """Возвращает все игры из той же серии"""
-        if self.series:
-            return self.series.games.exclude(id=self.id).order_by('series_order', 'first_release_date')
+        series_names = list(self.series.values_list('name', flat=True))
+        if len(series_names) == 1:
+            info = series_names[0]
+            if self.series_order:
+                info += f" (Part {self.series_order})"
+            return info
+        else:
+            info = ", ".join(series_names)
+            if self.series_order:
+                info += f" (Main series: Part {self.series_order})"
+            return f"Series: {info}"
+
+    def get_series_games(self, series=None):
+        """Возвращает все игры из той же серии/серий"""
+        if series:
+            # Если указана конкретная серия
+            return series.games.exclude(id=self.id).order_by('first_release_date')
+        elif self.series.exists():
+            # Если не указана серия, берем первую (основную)
+            main_series = self.series.first()
+            return main_series.games.exclude(id=self.id).order_by('first_release_date')
         return Game.objects.none()
+
+    def get_all_series_games(self):
+        """Возвращает все игры из всех серий этой игры"""
+        all_games = Game.objects.none()
+        for series in self.series.all():
+            series_games = series.games.exclude(id=self.id)
+            all_games = all_games.union(series_games)
+        return all_games.distinct()
+
+    @property
+    def series_count(self):
+        """Количество серий, к которым принадлежит игра"""
+        return self.series.count()
 
     # PROPERTY ДЛЯ КОМПАНИЙ
     @property
@@ -405,7 +495,7 @@ class Game(models.Model):
         """Список режимов игры"""
         return list(self.game_modes.values_list('name', flat=True))
 
-    # Существующие property для ключевых слов остаются без изменений
+    # Существующие property для ключевых слов
     @property
     def gameplay_keywords(self):
         return self.keywords.filter(category__name='Gameplay')

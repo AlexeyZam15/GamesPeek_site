@@ -4,7 +4,7 @@ import threading
 from games.igdb_api import make_igdb_request
 from games.models import (
     Game, Genre, Keyword, Platform, Series,
-    Company, Theme, PlayerPerspective, GameMode, Screenshot
+    Company, Theme, PlayerPerspective, GameMode, Screenshot, Country
 )
 
 
@@ -14,6 +14,8 @@ class DataLoader:
     def __init__(self, stdout, stderr):
         self.stdout = stdout
         self.stderr = stderr
+        self._db_lock = threading.Lock()
+
 
     def _batch_processor(self, ids_list, process_batch_func, emoji, name, debug=False):
         """Универсальный метод для обработки данных пачками"""
@@ -346,47 +348,50 @@ class DataLoader:
 
         def create_func(item_id, item_name):
             try:
-                # Пытаемся найти существующий объект
-                existing = model_class.objects.filter(igdb_id=item_id).first()
+                # Используем блокировку при работе с базой данных
+                with self._db_lock:
+                    # Пытаемся найти существующий объект
+                    existing = model_class.objects.filter(igdb_id=item_id).first()
 
-                if existing:
-                    # Проверяем, нужно ли обновить имя
-                    needs_update = False
+                    if existing:
+                        # Проверяем, нужно ли обновить имя
+                        needs_update = False
 
-                    # Если имя по умолчанию ("Series XXXX"), обновляем
-                    if model_name == 'Series' and existing.name.startswith(f'{model_name} '):
-                        needs_update = True
-                    # Если текущее имя пустое, а новое не пустое
-                    elif not existing.name.strip() and item_name.strip():
-                        needs_update = True
+                        # Если имя по умолчанию ("Series XXXX"), обновляем
+                        if model_name == 'Series' and existing.name.startswith(f'{model_name} '):
+                            needs_update = True
+                        # Если текущее имя пустое, а новое не пустое
+                        elif not existing.name.strip() and item_name.strip():
+                            needs_update = True
 
-                    if needs_update:
-                        if debug:
-                            self.stdout.write(
-                                f'      🔄 Обновление {model_name} {item_id}: "{existing.name}" → "{item_name}"')
-                        existing.name = item_name
-                        existing.save()
+                        if needs_update:
+                            if debug:
+                                self.stdout.write(
+                                    f'      🔄 Обновление {model_name} {item_id}: "{existing.name}" → "{item_name}"')
+                            existing.name = item_name
+                            existing.save()
 
-                    return existing
-                else:
-                    # Создаем новый объект
-                    if debug and model_name == 'Series':
-                        self.stdout.write(f'      ✨ Создание новой серии {item_id}: "{item_name}"')
+                        return existing
+                    else:
+                        # Создаем новый объект
+                        if debug and model_name == 'Series':
+                            self.stdout.write(f'      ✨ Создание новой серии {item_id}: "{item_name}"')
 
-                    obj = model_class.objects.create(
-                        igdb_id=item_id,
-                        name=item_name
-                    )
-                    return obj
+                        obj = model_class.objects.create(
+                            igdb_id=item_id,
+                            name=item_name
+                        )
+                        return obj
 
             except Exception as e:
                 if debug:
                     self.stderr.write(f'      ❌ Ошибка создания {model_name} {item_id}: {e}')
                 # В случае ошибки, пытаемся получить или создать с минимальными данными
-                obj, created = model_class.objects.get_or_create(
-                    igdb_id=item_id,
-                    defaults={'name': item_name}
-                )
+                with self._db_lock:
+                    obj, created = model_class.objects.get_or_create(
+                        igdb_id=item_id,
+                        defaults={'name': item_name}
+                    )
                 return obj
 
         return create_func
@@ -539,14 +544,16 @@ class DataLoader:
 
         step_times['series'] = time.time() - start_step
 
-        # 6️⃣ ПАРАЛЛЕЛЬНАЯ загрузка компаний
+        # 6️⃣ ПАРАЛЛЕЛЬНАЯ загрузка компаний (С ОБНОВЛЕННОЙ ЛОГИКОЙ ДЛЯ СТРАН)
         if debug:
-            self.stdout.write('\n6️⃣  🏢 ЗАГРУЗКА КОМПАНИЙ...')
+            self.stdout.write('\n6️⃣  🏢 ЗАГРУЗКА КОМПАНИЙ СО СТРАНАМИ...')
         start_step = time.time()
-        data_maps['company_map'] = self.load_data_parallel_generic(
-            collected_data['all_company_ids'], 'companies', Company,
-            self.create_model_func(Company, debug), '🏢', 'компаний', debug
+
+        # Используем специальный метод для компаний, который загрузит также информацию о странах
+        data_maps['company_map'] = self.load_companies_with_country_parallel(
+            collected_data['all_company_ids'], debug
         )
+
         step_times['companies'] = time.time() - start_step
 
         # 7️⃣ ПАРАЛЛЕЛЬНАЯ загрузка тем
@@ -609,8 +616,151 @@ class DataLoader:
                     time_val = step_times.get(key, 0)
                     self.stdout.write(f'   • {display_name}: {loaded}/{total} ({success_rate:.1f}%) [{time_val:.2f}с]')
 
+            # Дополнительная информация о компаниях и странах
+            if 'company_map' in data_maps:
+                companies_with_country = sum(1 for c in data_maps['company_map'].values() if c.country)
+                total_companies = len(data_maps['company_map'])
+                if total_companies > 0:
+                    country_percentage = (companies_with_country / total_companies) * 100
+                    self.stdout.write(
+                        f'   • 🌍 Компаний с указанной страной: {companies_with_country}/{total_companies} ({country_percentage:.1f}%)')
+
             # Суммарное время
             total_load_time = sum(step_times.values())
             self.stdout.write(f'   ⏱️  Общее время загрузки: {total_load_time:.2f}с')
 
         return data_maps, step_times
+
+    def _process_companies_with_country_batch(self, batch_num, batch_ids, company_map, lock,
+                                              total_batches, name, debug):
+        """Обрабатывает пачку компаний с информацией о стране"""
+        try:
+            if debug:
+                with lock:
+                    self.stdout.write(f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_ids)} компаний')
+
+            id_list = ','.join(map(str, batch_ids))
+            # Только необходимые поля: id, name, country
+            query = f'fields id,name,country; where id = ({id_list});'
+
+            batch_data = make_igdb_request('companies', query, debug=False)
+
+            batch_map = {}
+            for company_data in batch_data:
+                company_id = company_data.get('id')
+                if not company_id:
+                    continue
+
+                # Создаем или получаем компанию
+                existing = Company.objects.filter(igdb_id=company_id).first()
+
+                if existing:
+                    company = existing
+                    # Обновляем имя если оно пустое
+                    if not company.name.strip() and company_data.get('name'):
+                        company.name = company_data.get('name')
+                        company.save()
+                else:
+                    # Создаем новую компанию
+                    company = Company.objects.create(
+                        igdb_id=company_id,
+                        name=company_data.get('name', f'Company {company_id}')
+                    )
+
+                # Страна
+                country_code = company_data.get('country')
+                if country_code and not company.country:
+                    # Используем блокировку для создания страны
+                    with self._db_lock if hasattr(self, '_db_lock') else threading.Lock():
+                        country_obj, created = Country.objects.get_or_create(
+                            code=country_code,
+                            defaults={'name': f'Country {country_code}'}
+                        )
+                        company.country = country_obj
+                        company.save()
+
+                    if debug and created:
+                        with lock:
+                            self.stdout.write(f'         🌍 Создана страна с кодом: {country_code}')
+
+                batch_map[company_id] = company
+
+            with lock:
+                company_map.update(batch_map)
+
+            if debug:
+                with lock:
+                    self.stdout.write(
+                        f'         ✅ Пачка {name} {batch_num}/{total_batches}: {len(batch_data)} компаний')
+
+        except Exception as e:
+            if debug:
+                with lock:
+                    self.stderr.write(f'         ❌ Ошибка пачки {name} {batch_num}/{total_batches}: {e}')
+
+    def load_companies_with_country_parallel(self, company_ids, debug=False):
+        """Параллельная загрузка компаний с информацией о стране"""
+        if not company_ids:
+            if debug:
+                self.stdout.write('   ⚠️  Нет ID компаний для загрузки')
+            return {}
+
+        if debug:
+            self.stdout.write(f'   🏢 Загрузка {len(company_ids)} компаний с информацией о стране...')
+
+        # Используем существующий метод загрузки пачками
+        company_map = self._batch_processor(
+            company_ids,
+            self._process_companies_with_country_batch,
+            '🏢',
+            'компаний со странами',
+            debug
+        )
+
+        # После загрузки всех компаний, загружаем недостающую информацию о странах
+        if debug:
+            self.stdout.write(f'   🌍 Проверка информации о странах...')
+
+        # Получаем ID всех стран, которые есть в компаниях
+        country_codes = set()
+        for company in company_map.values():
+            if hasattr(company, 'country') and company.country and company.country.code:
+                country_codes.add(company.country.code)
+
+        # Загружаем информацию о странах
+        if country_codes:
+            self.load_countries_parallel(list(country_codes), debug)
+
+        return company_map
+
+    def load_countries_parallel(self, country_codes, debug=False):
+        """Создает страны по кодам"""
+        if not country_codes:
+            return {}
+
+        if debug:
+            self.stdout.write(f'   🌍 Создание {len(country_codes)} стран по кодам...')
+
+        country_map = {}
+
+        for country_code in country_codes:
+            if not country_code:
+                continue
+
+            try:
+                # Просто создаем страну с кодом
+                country_obj, created = Country.objects.get_or_create(
+                    code=country_code,
+                    defaults={'name': f'Country {country_code}'}
+                )
+
+                country_map[country_code] = country_obj
+
+                if debug and created:
+                    self.stdout.write(f'      🌍 Создана страна: {country_code}')
+
+            except Exception as e:
+                if debug:
+                    self.stderr.write(f'      ⚠️  Ошибка создания страны {country_code}: {e}')
+
+        return country_map
