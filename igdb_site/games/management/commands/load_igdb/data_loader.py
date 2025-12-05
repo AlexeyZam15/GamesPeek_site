@@ -15,6 +15,44 @@ class DataLoader:
         self.stdout = stdout
         self.stderr = stderr
         self._db_lock = threading.Lock()
+        self._api_lock = threading.Lock()  # Блокировка для контроля rate limiting
+        self._last_request_time = 0
+        self._min_request_interval = 0.25  # Минимальный интервал между запросами: 4 запроса в секунду
+        self._retry_delay = 2.0  # Задержка при 429 ошибке
+
+    def _rate_limited_request(self, endpoint, query, debug=False, max_retries=3):
+        """Выполняет запрос к API с rate limiting и retry логикой"""
+        for attempt in range(max_retries):
+            try:
+                # Rate limiting: ждем между запросами
+                with self._api_lock:
+                    current_time = time.time()
+                    time_since_last = current_time - self._last_request_time
+
+                    if time_since_last < self._min_request_interval:
+                        sleep_time = self._min_request_interval - time_since_last
+                        time.sleep(sleep_time)
+
+                    self._last_request_time = time.time()
+
+                # Выполняем запрос
+                response = make_igdb_request(endpoint, query, debug=debug)
+                return response
+
+            except Exception as e:
+                error_msg = str(e)
+
+                # Проверяем, является ли ошибка 429 (Too Many Requests)
+                if "429" in error_msg or "Too Many Requests" in error_msg:
+                    wait_time = self._retry_delay * (attempt + 1)  # Экспоненциальная задержка
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    # Для других ошибок не пытаемся повторно
+                    raise
+
+        # Если все попытки исчерпаны
+        raise Exception(f"API request failed after {max_retries} retries")
 
     def _batch_processor(self, ids_list, process_batch_func, emoji, name, debug=False):
         """Универсальный метод для обработки данных пачками"""
@@ -97,7 +135,7 @@ class DataLoader:
             else:
                 id_list = ','.join(map(str, batch_ids))
                 query = f'fields id,name; where id = ({id_list});'
-                batch_data = make_igdb_request(endpoint, query, debug=False)
+                batch_data = self._rate_limited_request(endpoint, query, debug=False)
 
             data_by_id = {item['id']: item for item in batch_data if 'id' in item}
 
@@ -154,7 +192,7 @@ class DataLoader:
 
             id_list = ','.join(map(str, batch_ids))
             query = f'fields id,url,image_id; where id = ({id_list});'
-            batch_data = make_igdb_request('covers', query, debug=False)
+            batch_data = self._rate_limited_request('covers', query, debug=False)
 
             data_by_id = {item['id']: item for item in batch_data if 'id' in item}
 
@@ -217,27 +255,18 @@ class DataLoader:
                 try:
                     game_screenshots_count = screenshots_info.get(game_id, 0)
                     if game_screenshots_count <= 0:
-                        if debug:
-                            with lock:
-                                self.stdout.write(f'            ℹ️  Игра {game_id}: нет скриншотов')
                         return (game_id, 0)
 
                     query = f'fields id,url,image_id,width,height; where game = {game_id}; limit {game_screenshots_count};'
-                    screenshots_data = make_igdb_request('screenshots', query, debug=False)
+                    screenshots_data = self._rate_limited_request('screenshots', query, debug=False)
 
                     if not screenshots_data:
-                        if debug:
-                            with lock:
-                                self.stdout.write(f'            ℹ️  Игра {game_id}: 0 скриншотов получено')
                         return (game_id, 0)
 
                     with self._db_lock:
                         game_obj = Game.objects.filter(igdb_id=game_id).first()
 
                     if not game_obj:
-                        if debug:
-                            with lock:
-                                self.stderr.write(f'            ❌ Игра {game_id} не найдена в БД')
                         return (game_id, 0)
 
                     with self._db_lock:
@@ -260,15 +289,8 @@ class DataLoader:
                     if screenshots_to_create:
                         with self._db_lock:
                             Screenshot.objects.bulk_create(screenshots_to_create, batch_size=10)
-                        if debug:
-                            with lock:
-                                self.stdout.write(
-                                    f'            ✅ Игра {game_id}: {len(screenshots_to_create)} скриншотов')
                         return (game_id, len(screenshots_to_create))
                     else:
-                        if debug:
-                            with lock:
-                                self.stdout.write(f'            ℹ️  Игра {game_id}: все скриншоты уже загружены')
                         return (game_id, 0)
 
                 except Exception as e:
@@ -286,7 +308,8 @@ class DataLoader:
                     game_id = futures[future]
                     try:
                         game_id, count = future.result()
-                        batch_map[game_id] = count
+                        if count > 0:
+                            batch_map[game_id] = count
                     except Exception as e:
                         if debug:
                             with lock:
@@ -341,7 +364,7 @@ class DataLoader:
                        themes,player_perspectives,game_modes;
                 where id = ({id_list});
             '''
-            batch_data = make_igdb_request('games', query, debug=False)
+            batch_data = self._rate_limited_request('games', query, debug=False)
 
             data_by_id = {item['id']: item for item in batch_data if 'id' in item}
 
@@ -423,7 +446,7 @@ class DataLoader:
 
             id_list = ','.join(map(str, batch_ids))
             query = f'fields id,name,country; where id = ({id_list});'
-            batch_data = make_igdb_request('companies', query, debug=False)
+            batch_data = self._rate_limited_request('companies', query, debug=False)
 
             data_by_id = {item['id']: item for item in batch_data if 'id' in item}
 
