@@ -3,6 +3,7 @@
     background: linear-gradient(135deg, rgba(30, 30, 46, 0.9) 0%, rgba(18, 18, 33, 0.9) 100%);
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.1);
+    overflow: hidden;
 }
 
 .btn-primary-gradient {
@@ -128,46 +129,54 @@
     border: none;
 }
 
-/* ===== СТИЛИ ДЛЯ ОБЛОЖКИ ===== */
+/* ===== СТИЛИ ДЛЯ ОБЛОЖКИ НА ВСЮ ВЫСОТУ ===== */
+
+/* Основные контейнеры */
+.game-header-card {
+    height: 100%;
+    min-height: 600px;
+}
+
+.card-body.p-0 {
+    height: 100%;
+    padding: 0 !important;
+}
+
+.row.g-0 {
+    height: 100%;
+    margin: 0;
+}
+
+/* Колонка с обложкой */
+.col-md-5.col-lg-4.col-xl-4.d-flex.align-items-stretch {
+    padding: 0;
+    min-height: 600px;
+}
+
+/* Обертка для обложки */
 .game-cover-wrapper {
     width: 100%;
-    padding: 20px;
+    height: 100%;
     background: linear-gradient(135deg,
         rgba(255, 107, 53, 0.1),
         rgba(255, 140, 0, 0.07),
         rgba(13, 110, 253, 0.05));
-    border-radius: 15px;
-    border: 2px solid rgba(255, 255, 255, 0.12);
-    box-shadow:
-        0 20px 40px rgba(0, 0, 0, 0.3),
-        inset 0 0 30px rgba(0, 0, 0, 0.2);
-    transition: all 0.3s ease;
-    position: relative;
+    border-right: 2px solid rgba(255, 255, 255, 0.12);
+    display: flex;
+    align-items: center;
+    justify-content: center;
     overflow: hidden;
+    position: relative;
+    transition: all 0.3s ease;
 }
 
-.game-cover-wrapper::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 1px;
-    background: linear-gradient(90deg,
-        transparent,
-        rgba(255, 255, 255, 0.3),
-        transparent);
-}
-
+/* Сама обложка */
 .game-cover-main {
+    object-fit: cover !important;
+    object-position: center !important;
     width: 100% !important;
-    height: auto !important;
-    max-height: 500px !important;
-    object-fit: contain !important;
-    border-radius: 12px !important;
-    box-shadow:
-        0 15px 50px rgba(0, 0, 0, 0.6),
-        0 0 0 1px rgba(255, 255, 255, 0.1) !important;
+    height: 100% !important;
+    min-height: 600px;
     transition: all 0.3s ease !important;
     background: #0a0a0a;
     position: relative;
@@ -175,25 +184,19 @@
 }
 
 .game-cover-main:hover {
-    transform: translateY(-5px) scale(1.02) !important;
-    box-shadow:
-        0 25px 60px rgba(0, 0, 0, 0.7),
-        0 0 0 2px rgba(13, 110, 253, 0.3) !important;
-    filter: brightness(1.05);
+    transform: scale(1.05) !important;
+    filter: brightness(1.1);
 }
 
+/* Плейсхолдер на всю высоту */
 .no-cover-placeholder {
     width: 100%;
-    height: 400px;
+    height: 100%;
     background: linear-gradient(135deg, #0a0a0a, #1a1a1a, #0a0a0a);
-    border-radius: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 2px solid rgba(255, 255, 255, 0.15);
-    box-shadow:
-        0 20px 40px rgba(0, 0, 0, 0.3),
-        inset 0 0 40px rgba(0, 0, 0, 0.2);
+    border-right: 2px solid rgba(255, 255, 255, 0.15);
     position: relative;
     overflow: hidden;
 }
@@ -230,13 +233,29 @@
     text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
 }
 
-/* Адаптивность для заголовка и рейтинга */
+/* Колонка с информацией */
+.col-md-7.col-lg-8.col-xl-8 {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+}
+
+.col-md-7.col-lg-8.col-xl-8 > .h-100.p-4 {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    padding: 2rem !important;
+}
+
+/* Адаптивность для обложки */
 @media (max-width: 1200px) {
-    .game-cover-main {
-        max-height: 450px !important;
+    .col-md-5.col-lg-4.col-xl-4.d-flex.align-items-stretch {
+        min-height: 550px;
     }
-    .no-cover-placeholder {
-        height: 450px;
+
+    .game-cover-main {
+        min-height: 550px;
     }
 
     .rating-display .bi-star-fill {
@@ -249,11 +268,24 @@
 }
 
 @media (max-width: 992px) {
-    .game-cover-main {
-        max-height: 400px !important;
+    .col-md-5.col-lg-4.col-xl-4.d-flex.align-items-stretch {
+        min-height: 400px;
     }
+
+    .game-cover-main {
+        min-height: 400px;
+    }
+
+    .game-cover-wrapper {
+        border-right: none;
+        border-bottom: 2px solid rgba(255, 255, 255, 0.12);
+        border-radius: 0;
+    }
+
     .no-cover-placeholder {
-        height: 400px;
+        border-right: none;
+        border-bottom: 2px solid rgba(255, 255, 255, 0.15);
+        border-radius: 0;
     }
 
     .rating-display {
@@ -269,14 +301,23 @@
     .rating-display .fs-1 {
         font-size: 2.2rem;
     }
+
+    .col-md-7.col-lg-8.col-xl-8 > .h-100.p-4 {
+        padding: 1.5rem !important;
+    }
 }
 
 @media (max-width: 768px) {
-    .game-cover-main {
-        max-height: 350px !important;
+    .col-md-5.col-lg-4.col-xl-4.d-flex.align-items-stretch {
+        min-height: 350px;
     }
-    .no-cover-placeholder {
-        height: 350px;
+
+    .game-cover-main {
+        min-height: 350px;
+    }
+
+    .game-header-card {
+        min-height: auto;
     }
 
     /* Адаптация заголовка и рейтинга для мобильных */
@@ -305,19 +346,18 @@
         font-size: 2rem;
     }
 
-    .col-md-5.col-lg-4.col-xl-4,
-    .col-md-7.col-lg-8.col-xl-8 {
-        width: 100% !important;
-        margin-bottom: 1.5rem;
+    .col-md-7.col-lg-8.col-xl-8 > .h-100.p-4 {
+        padding: 1rem !important;
     }
 }
 
 @media (max-width: 576px) {
-    .game-cover-main {
-        max-height: 300px !important;
+    .col-md-5.col-lg-4.col-xl-4.d-flex.align-items-stretch {
+        min-height: 300px;
     }
-    .no-cover-placeholder {
-        height: 300px;
+
+    .game-cover-main {
+        min-height: 300px;
     }
 
     .display-5 {
@@ -333,14 +373,20 @@
     }
 }
 
-/* Компенсация высоты для колонки с информацией */
-.col-md-7.col-lg-8.col-xl-8 {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
+/* Увеличение размера иконок */
+.bi-calendar-event,
+.bi-collection-play,
+.bi-controller,
+.bi-grid,
+.bi-palette,
+.bi-camera-video,
+.bi-people {
+    font-size: 1.2rem !important;
 }
 
-/* Адаптация заголовков */
+/* Дополнительные исправления для лучшего отображения */
+
+/* Для длинных названий игр */
 h1.display-5 {
     font-size: calc(2rem + 1.5vw) !important;
     line-height: 1.2 !important;
@@ -353,25 +399,28 @@ h1.display-5 {
     font-size: 1.2rem !important;
 }
 
-/* Увеличение размера иконок */
-.bi-calendar-event,
-.bi-collection-play,
-.bi-controller,
-.bi-grid,
-.bi-palette,
-.bi-camera-video,
-.bi-people {
-    font-size: 1.2rem !important;
+/* Баджи для платформ, жанров и т.д. */
+.badge {
+    font-size: 0.95rem !important;
+    padding: 0.5rem 1rem !important;
 }
 
-/* Дополнительные стили для лучшего отображения */
-.game-header-card .row.align-items-start {
-    min-height: 500px;
+/* Кнопки внизу */
+.d-flex.flex-wrap.gap-3.mt-auto.pt-4 {
+    margin-top: auto !important;
+    padding-top: 2rem !important;
 }
 
+/* Защита от переполнения контента */
+.col-md-7.col-lg-8.col-xl-8 > .h-100.p-4 {
+    overflow-y: auto;
+    max-height: 100%;
+}
+
+/* Улучшение скролла для мобильных */
 @media (max-width: 768px) {
-    .game-header-card .row.align-items-start {
-        min-height: auto;
-        flex-direction: column;
+    .col-md-7.col-lg-8.col-xl-8 > .h-100.p-4 {
+        overflow-y: visible;
+        max-height: none;
     }
 }
