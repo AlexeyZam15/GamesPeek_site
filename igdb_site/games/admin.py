@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.db.models import Count
 from .models import Game, Genre, Platform, Keyword, KeywordCategory
 
 
@@ -15,17 +16,48 @@ class KeywordCategoryAdmin(admin.ModelAdmin):
 
 @admin.register(Keyword)
 class KeywordAdmin(admin.ModelAdmin):
-    list_display = ['name', 'category', 'usage_count', 'popularity_level', 'igdb_id']
-    list_filter = ['category', 'usage_count']
+    list_display = ['name', 'category', 'usage_count_display', 'popularity_level_display', 'igdb_id']
+    list_filter = ['category']  # Убрал usage_count из фильтров
     search_fields = ['name']
     list_editable = ['category']
     list_per_page = 50
-    ordering = ['-usage_count']  # Сортировка по популярности
+    ordering = ['name']  # Временно убрал сортировку по usage_count
 
-    def popularity_level(self, obj):
-        return obj.popularity_level
+    def get_queryset(self, request):
+        # Аннотируем queryset с реальным count через базу
+        queryset = super().get_queryset(request)
+        return queryset.annotate(
+            _game_count=Count('game', distinct=True)
+        )
 
-    popularity_level.short_description = 'Popularity'
+    def usage_count_display(self, obj):
+        # Используем аннотированное поле или вычисляем
+        if hasattr(obj, '_game_count'):
+            return obj._game_count
+        return obj.game_set.count()
+
+    usage_count_display.short_description = 'Usage Count'
+    usage_count_display.admin_order_field = '_game_count'  # Позволяет сортировать
+
+    def popularity_level_display(self, obj):
+        # Вычисляем уровень популярности
+        count = self.usage_count_display(obj)
+        if count == 0:
+            return "Unused"
+        elif count <= 5:
+            return "Low"
+        elif count <= 20:
+            return "Medium"
+        elif count <= 100:
+            return "High"
+        else:
+            return "Very High"
+
+    popularity_level_display.short_description = 'Popularity'
+
+    # Обновляем ordering для использования аннотированного поля
+    def get_ordering(self, request):
+        return ['-_game_count', 'name']
 
 
 @admin.register(Genre)
@@ -62,7 +94,7 @@ class GameAdmin(admin.ModelAdmin):
     fieldsets = (
         ('Основная информация', {
             'fields': (
-            'name', 'igdb_id', 'summary', 'storyline', 'rating', 'rating_count', 'first_release_date', 'cover_url')
+                'name', 'igdb_id', 'summary', 'storyline', 'rating', 'rating_count', 'first_release_date', 'cover_url')
         }),
         ('Связи (только просмотр)', {
             'fields': ('display_genres', 'display_platforms', 'display_keywords_by_category'),

@@ -166,33 +166,31 @@ class Keyword(models.Model):
         blank=True,
         related_name='keywords'
     )
-    usage_count = models.IntegerField(default=0)  # ← ДОБАВИТЬ ЭТО ПОЛЕ
-    popularity_score = models.FloatField(default=0.0)  # ← И ЭТО
+
+    # Добавляем реальное поле для хранения счетчика
+    cached_usage_count = models.IntegerField(default=0)
+    last_count_update = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         category_name = self.category.name if self.category else "No Category"
         return f"{self.name} ({category_name})"
 
-    def update_popularity(self):
-        """Обновляет счетчик использования и популярность"""
-        self.usage_count = self.game_set.count()
-        # Можно добавить более сложную формулу для популярности
-        self.popularity_score = self.usage_count
-        self.save()
+    @property
+    def usage_count(self):
+        """Вычисляет сколько игр используют это ключевое слово"""
+        return self.game_set.count()
 
     @property
-    def popularity_level(self):
-        """Возвращает уровень популярности (Low, Medium, High, Very High)"""
-        if self.usage_count == 0:
-            return "Unused"
-        elif self.usage_count <= 5:
-            return "Low"
-        elif self.usage_count <= 20:
-            return "Medium"
-        elif self.usage_count <= 100:
-            return "High"
-        else:
-            return "Very High"
+    def popularity_score(self):
+        """Популярность равна количеству использований"""
+        return float(self.usage_count)
+
+    def update_cached_count(self):
+        """Обновляет кэшированное значение"""
+        from django.utils import timezone
+        self.cached_usage_count = self.usage_count
+        self.last_count_update = timezone.now()
+        self.save(update_fields=['cached_usage_count', 'last_count_update'])
 
 
 class Genre(models.Model):
