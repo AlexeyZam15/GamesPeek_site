@@ -1,9 +1,18 @@
+{% load platform_icons %}
+{% load game_tags %}
+
 <!-- Навигация табов -->
 <ul class="nav nav-tabs" id="gameTabs" role="tablist">
     <li class="nav-item" role="presentation">
         <button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview"
                 type="button" role="tab" aria-controls="overview" aria-selected="true">
             <i class="bi bi-info-circle me-2"></i>Overview
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="details-tab" data-bs-toggle="tab" data-bs-target="#details"
+                type="button" role="tab" aria-controls="details" aria-selected="false">
+            <i class="bi bi-list-check me-2"></i>Details
         </button>
     </li>
     <li class="nav-item" role="presentation">
@@ -140,8 +149,58 @@
         </div>
     </div>
 
+    <!-- Вкладка Details (новая вкладка) -->
+    <div class="tab-pane fade" id="details" role="tabpanel" aria-labelledby="details-tab">
+        <div class="details-grid">
+            <!-- Платформы -->
+            {% if game.platforms.all %}
+                <div class="detail-section platforms">
+                    <h5 class="mb-3"><i class="bi bi-controller me-2"></i>Platforms</h5>
+                    <div class="d-flex flex-wrap gap-3">
+                        {% for platform in game.platforms.all %}
+                            <div class="platform-with-icon">
+                                <div class="platform-icon-wrapper">
+                                    {% platform_icon platform.name %}
+                                </div>
+                                <div class="platform-name">{{ platform.display_name }}</div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+
+            <!-- Темы -->
+            {% if game.themes.all %}
+                <div class="detail-section themes">
+                    <h5 class="mb-3"><i class="bi bi-palette me-2"></i>Themes</h5>
+                    <div class="detail-tags">
+                        {% for theme in game.themes.all %}
+                            <span class="detail-tag theme">{{ theme.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- Если нет ни платформ, ни тем -->
+        {% if not game.platforms.all and not game.themes.all %}
+            <div class="game-detail-card card">
+                <div class="card-body text-center py-5">
+                    <div class="mb-3">
+                        <i class="bi bi-info-circle text-muted" style="font-size: 3rem;"></i>
+                    </div>
+                    <h5 class="text-muted mb-2">No Details Available</h5>
+                    <p class="text-muted mb-0">
+                        Platform and theme details for this game haven't been loaded yet.
+                    </p>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+
     <!-- Вкладка Companies -->
     <div class="tab-pane fade" id="companies" role="tabpanel" aria-labelledby="companies-tab">
+        <!-- ... остальной код companies таба без изменений ... -->
         <div class="row g-4">
             <!-- Разработчики -->
             <div class="col-md-6">
@@ -229,6 +288,7 @@
 
     <!-- Вкладка Keywords -->
     <div class="tab-pane fade" id="keywords" role="tabpanel" aria-labelledby="keywords-tab">
+        <!-- ... остальной код keywords таба без изменений ... -->
         <div class="row">
             <div class="col-12">
                 {% if game.keywords.all %}
@@ -426,6 +486,7 @@
 
     <!-- Вкладка Screenshots -->
     <div class="tab-pane fade" id="screenshots" role="tabpanel" aria-labelledby="screenshots-tab">
+        <!-- ... остальной код screenshots таба без изменений ... -->
         {% if game.screenshots.all %}
             <div class="screenshots-gallery">
                 <div class="row g-3">

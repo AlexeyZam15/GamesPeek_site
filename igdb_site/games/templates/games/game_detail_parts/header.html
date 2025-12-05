@@ -76,23 +76,6 @@
                         </div>
                     {% endif %}
 
-                    <!-- Платформы -->
-                    {% if game.platforms.all %}
-                        <div class="mb-4">
-                            <h6 class="text-light mb-2">
-                                <i class="bi bi-controller me-2"></i>Platforms:
-                            </h6>
-                            <div class="d-flex flex-wrap gap-2">
-                                {% for platform in game.platforms.all %}
-                                    <span class="badge bg-secondary px-3 py-2 d-flex align-items-center">
-                                        {% platform_icon platform.name %}
-                                        <span class="ms-2 fs-6">{{ platform.display_name }}</span>
-                                    </span>
-                                {% endfor %}
-                            </div>
-                        </div>
-                    {% endif %}
-
                     <!-- Жанры -->
                     {% if game.genres.all %}
                         <div class="mb-4">
@@ -107,23 +90,9 @@
                         </div>
                     {% endif %}
 
-                    <!-- Темы -->
-                    {% if game.themes.all %}
-                        <div class="mb-3">
-                            <h6 class="text-light mb-2">
-                                <i class="bi bi-palette me-2"></i>Themes:
-                            </h6>
-                            <div class="d-flex flex-wrap gap-2">
-                                {% for theme in game.themes.all %}
-                                    <span class="badge bg-danger px-3 py-2 fs-6">{{ theme.name }}</span>
-                                {% endfor %}
-                            </div>
-                        </div>
-                    {% endif %}
-
                     <!-- Player Perspectives -->
                     {% if game.player_perspectives.all %}
-                        <div class="mb-3">
+                        <div class="mb-4">
                             <h6 class="text-light mb-2">
                                 <i class="bi bi-camera-video me-2"></i>Perspectives:
                             </h6>
@@ -137,7 +106,7 @@
 
                     <!-- Game Modes -->
                     {% if game.game_modes.all %}
-                        <div class="mb-3">
+                        <div class="mb-4">
                             <h6 class="text-light mb-2">
                                 <i class="bi bi-people me-2"></i>Game Modes:
                             </h6>

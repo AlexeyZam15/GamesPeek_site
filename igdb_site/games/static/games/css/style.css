@@ -1,5 +1,3 @@
-/* games/static/games/css/style.css */
-
 /* ===== VARIABLES ===== */
 :root {
     --primary-color: #000000;
@@ -698,6 +696,409 @@ footer {
     background: var(--surface);
 }
 
+/* ===== ENHANCED GAME DETAIL PAGE STYLES ===== */
+.game-header-card {
+    background: linear-gradient(135deg, rgba(30, 30, 46, 0.9) 0%, rgba(18, 18, 33, 0.9) 100%);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+    height: 100%;
+    min-height: 600px;
+}
+
+/* Стили для вкладки Details */
+.nav-tabs .nav-link {
+    color: #adb5bd;
+    border: none;
+    padding: 12px 20px;
+    font-weight: 500;
+}
+
+.nav-tabs .nav-link.active {
+    color: #fff;
+    background-color: rgba(255, 255, 255, 0.1);
+    border-bottom: 3px solid #0dcaf0;
+}
+
+.nav-tabs .nav-link:hover {
+    color: #fff;
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.game-detail-card {
+    background: rgba(30, 30, 46, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    transition: transform 0.2s ease;
+}
+
+.game-detail-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.collapsible-text {
+    max-height: 150px;
+    overflow: hidden;
+    transition: max-height 0.3s ease-out;
+}
+
+.collapsible-text.expanded {
+    max-height: none;
+}
+
+.toggle-text-btn {
+    background: none;
+    border: none;
+    color: #0dcaf0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 0;
+}
+
+.toggle-text-btn:hover {
+    color: #0dcaf0;
+    text-decoration: underline;
+}
+
+.company-item {
+    transition: all 0.2s ease;
+}
+
+.company-item:hover {
+    background-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+.screenshot-card {
+    transition: transform 0.2s ease;
+    overflow: hidden;
+}
+
+.screenshot-card:hover {
+    transform: scale(1.02);
+}
+
+.screenshot-card:hover img {
+    opacity: 0.9;
+}
+
+/* Стили для рейтинга на той же строке что и заголовок */
+.rating-display {
+    display: flex;
+    align-items: center;
+    margin-bottom: 0;
+    gap: 10px;
+}
+
+.rating-display .bi-star-fill {
+    font-size: 2.5rem;
+    filter: drop-shadow(0 0 10px rgba(255, 193, 7, 0.8));
+}
+
+.rating-display .fs-1 {
+    font-size: 3rem;
+    font-weight: bold;
+}
+
+/* Исправление цветов для Narrative и Achievements */
+.badge[style*="background-color: #e83e8c"] {
+    color: white !important;
+    border: none;
+}
+
+.badge[style*="background-color: #20c997"] {
+    color: white !important;
+    border: none;
+}
+
+/* ===== СТИЛИ ДЛЯ ОБЛОЖКИ НА ВСЮ ВЫСОТУ ===== */
+
+/* Основные контейнеры */
+.card-body.p-0 {
+    height: 100%;
+    padding: 0 !important;
+}
+
+.row.g-0 {
+    height: 100%;
+    margin: 0;
+}
+
+/* Колонка с обложкой */
+.col-md-5.col-lg-4.col-xl-4.d-flex.align-items-stretch {
+    padding: 0;
+    min-height: 600px;
+}
+
+/* Обертка для обложки */
+.game-cover-wrapper {
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg,
+        rgba(255, 107, 53, 0.1),
+        rgba(255, 140, 0, 0.07),
+        rgba(13, 110, 253, 0.05));
+    border-right: 2px solid rgba(255, 255, 255, 0.12);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+    transition: all 0.3s ease;
+}
+
+/* Сама обложка */
+.game-cover-main {
+    object-fit: cover !important;
+    object-position: center !important;
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 600px;
+    transition: all 0.3s ease !important;
+    background: #0a0a0a;
+    position: relative;
+    z-index: 5;
+}
+
+.game-cover-main:hover {
+    transform: scale(1.05) !important;
+    filter: brightness(1.1);
+}
+
+/* Плейсхолдер на всю высоту */
+.no-cover-placeholder {
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, #0a0a0a, #1a1a1a, #0a0a0a);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-right: 2px solid rgba(255, 255, 255, 0.15);
+    position: relative;
+    overflow: hidden;
+}
+
+.no-cover-placeholder::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: linear-gradient(
+        45deg,
+        transparent 30%,
+        rgba(255, 255, 255, 0.03) 50%,
+        transparent 70%
+    );
+    animation: shimmer 3s infinite linear;
+}
+
+@keyframes shimmer {
+    0% { transform: translateX(-50%) translateY(-50%) rotate(0deg); }
+    100% { transform: translateX(-50%) translateY(-50%) rotate(360deg); }
+}
+
+.no-cover-placeholder span {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #555;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    position: relative;
+    z-index: 2;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+
+/* Колонка с информацией */
+.col-md-7.col-lg-8.col-xl-8 {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+}
+
+.col-md-7.col-lg-8.col-xl-8 > .h-100.p-4 {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    padding: 2rem !important;
+}
+
+/* Стили для вкладки Details */
+.platform-item {
+    transition: all 0.2s ease;
+    min-width: 120px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+}
+
+.platform-item:hover {
+    transform: translateY(-5px);
+    border-color: rgba(13, 110, 253, 0.3);
+    background: linear-gradient(135deg, rgba(13, 110, 253, 0.2), rgba(30, 30, 46, 0.9)) !important;
+    box-shadow: 0 5px 15px rgba(13, 110, 253, 0.2);
+}
+
+/* Улучшение для битых иконок платформ */
+.platform-item svg {
+    width: 48px;
+    height: 48px;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+}
+
+/* Стили для сетки деталей */
+.details-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+}
+
+.detail-section {
+    background: rgba(30, 30, 46, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 1.5rem;
+    transition: all 0.3s ease;
+}
+
+.detail-section:hover {
+    border-color: rgba(255, 255, 255, 0.2);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+}
+
+.detail-section h5 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 1.2rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 2px solid;
+    display: flex;
+    align-items: center;
+}
+
+/* Цвета для разных секций */
+.detail-section.platforms h5 {
+    color: #0dcaf0;
+    border-bottom-color: rgba(13, 202, 240, 0.3);
+}
+
+.detail-section.themes h5 {
+    color: #dc3545;
+    border-bottom-color: rgba(220, 53, 69, 0.3);
+}
+
+.detail-section.genres h5 {
+    color: #198754;
+    border-bottom-color: rgba(25, 135, 84, 0.3);
+}
+
+.detail-section.perspectives h5 {
+    color: #0d6efd;
+    border-bottom-color: rgba(13, 110, 253, 0.3);
+}
+
+.detail-section.game-modes h5 {
+    color: #6f42c1;
+    border-bottom-color: rgba(111, 66, 193, 0.3);
+}
+
+/* Стили для вкладки Details внутри */
+.detail-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.detail-tag {
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.detail-tag:hover {
+    transform: translateY(-2px);
+}
+
+/* Цвета тегов в зависимости от категории */
+.detail-tag.platform {
+    background: rgba(13, 202, 240, 0.15);
+    color: #0dcaf0;
+    border: 1px solid rgba(13, 202, 240, 0.3);
+}
+
+.detail-tag.theme {
+    background: rgba(220, 53, 69, 0.15);
+    color: #dc3545;
+    border: 1px solid rgba(220, 53, 69, 0.3);
+}
+
+.detail-tag.genre {
+    background: rgba(25, 135, 84, 0.15);
+    color: #198754;
+    border: 1px solid rgba(25, 135, 84, 0.3);
+}
+
+.detail-tag.perspective {
+    background: rgba(13, 110, 253, 0.15);
+    color: #0d6efd;
+    border: 1px solid rgba(13, 110, 253, 0.3);
+}
+
+.detail-tag.game-mode {
+    background: rgba(111, 66, 193, 0.15);
+    color: #6f42c1;
+    border: 1px solid rgba(111, 66, 193, 0.3);
+}
+
+/* Стили для платформ с иконками */
+.platform-with-icon {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 1rem;
+    background: rgba(13, 202, 240, 0.1);
+    border-radius: 8px;
+    border: 1px solid rgba(13, 202, 240, 0.2);
+    transition: all 0.3s ease;
+    min-width: 140px;
+}
+
+.platform-with-icon:hover {
+    background: rgba(13, 202, 240, 0.2);
+    border-color: rgba(13, 202, 240, 0.4);
+    transform: translateY(-3px);
+}
+
+.platform-icon-wrapper {
+    margin-bottom: 0.75rem;
+    padding: 0.5rem;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 50%;
+    width: 60px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.platform-icon-wrapper svg {
+    width: 32px;
+    height: 32px;
+    fill: #0dcaf0;
+}
+
+.platform-name {
+    font-weight: 600;
+    color: #fff;
+    text-align: center;
+    font-size: 0.95rem;
+}
+
 /* Collapsible text */
 .collapsible-text {
     position: relative;
@@ -748,18 +1149,6 @@ footer {
     background: linear-gradient(135deg, #f39c12, #e67e22);
     color: #2c3e50;
     font-weight: bold;
-}
-
-/* Quick actions */
-.quick-actions-grid {
-    display: grid;
-    gap: 0.5rem;
-}
-
-.quick-actions-grid .btn {
-    text-align: left;
-    padding: 0.75rem 1rem;
-    font-size: 0.85rem;
 }
 
 /* ===== COMPARISON PAGE STYLES ===== */
@@ -1017,6 +1406,18 @@ footer {
     min-width: 200px;
 }
 
+/* Quick actions */
+.quick-actions-grid {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.quick-actions-grid .btn {
+    text-align: left;
+    padding: 0.75rem 1rem;
+    font-size: 0.85rem;
+}
+
 /* ===== ANIMATIONS ===== */
 @keyframes fadeIn {
     from {
@@ -1041,6 +1442,38 @@ footer {
 
 .game-card, .tab-pane {
     animation: fadeIn 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.detail-section {
+    animation: fadeIn 0.3s ease-out;
+}
+
+.tab-pane {
+    animation: fadeIn 0.2s ease-out;
+}
+
+/* Эффект при наведении на кнопки табов */
+.nav-tabs .nav-link {
+    position: relative;
+    overflow: hidden;
+}
+
+.nav-tabs .nav-link::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg,
+        transparent,
+        rgba(255, 255, 255, 0.1),
+        transparent);
+    transition: left 0.5s ease;
+}
+
+.nav-tabs .nav-link:hover::before {
+    left: 100%;
 }
 
 /* ===== UTILITIES ===== */
@@ -1111,6 +1544,76 @@ footer {
     font-size: 1.1rem;
 }
 
+/* Увеличение размера иконок */
+.bi-calendar-event,
+.bi-collection-play,
+.bi-controller,
+.bi-grid,
+.bi-palette,
+.bi-camera-video,
+.bi-people,
+.bi-list-check {
+    font-size: 1.2rem !important;
+}
+
+/* Дополнительные исправления для лучшего отображения */
+
+/* Для длинных названий игр */
+h1.display-5 {
+    font-size: calc(2rem + 1.5vw) !important;
+    line-height: 1.2 !important;
+    flex: 1;
+    min-width: 0;
+    word-break: break-word;
+}
+
+.text-light.fs-5 {
+    font-size: 1.2rem !important;
+}
+
+/* Баджи для платформ, жанров и т.д. */
+.badge {
+    font-size: 0.95rem !important;
+    padding: 0.5rem 1rem !important;
+}
+
+/* Кнопки внизу */
+.d-flex.flex-wrap.gap-3.mt-auto.pt-4 {
+    margin-top: auto !important;
+    padding-top: 2rem !important;
+}
+
+/* Защита от переполнения контента */
+.col-md-7.col-lg-8.col-xl-8 > .h-100.p-4 {
+    overflow-y: auto;
+    max-height: 100%;
+}
+
+/* Улучшение читаемости текста */
+.text-light {
+    color: #e9ecef !important;
+}
+
+.text-muted {
+    color: #8b96a0 !important;
+}
+
+/* Улучшение контраста для доступности */
+.bg-dark {
+    background-color: #1a1a2e !important;
+}
+
+/* Стили для иконок в хедере */
+.bi-calendar-event,
+.bi-collection-play,
+.bi-controller,
+.bi-grid,
+.bi-palette,
+.bi-camera-video,
+.bi-people {
+    color: rgba(255, 255, 255, 0.7);
+}
+
 /* ===== CUSTOM SCROLLBAR ===== */
 ::-webkit-scrollbar {
     width: 6px;
@@ -1130,12 +1633,207 @@ footer {
     background: var(--accent-color);
 }
 
+/* Screenshots gallery */
+.screenshots-gallery {
+    margin-top: 1rem;
+}
+
+.screenshot-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    overflow: hidden;
+}
+
+.screenshot-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.screenshot-image {
+    height: 200px;
+    object-fit: cover;
+    transition: transform 0.3s ease;
+}
+
+.screenshot-card:hover .screenshot-image {
+    transform: scale(1.05);
+}
+
+/* ===== SEARCH INPUT STYLES ===== */
+.form-control {
+    color: var(--text-light) !important;
+}
+
+.form-control::placeholder {
+    color: #b0b0b0 !important;
+}
+
+.input-group .form-control {
+    background: var(--surface-dark) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text-light) !important;
+}
+
+.input-group .form-control:focus {
+    background: var(--surface) !important;
+    border-color: var(--secondary-color) !important;
+    color: var(--text-light) !important;
+    box-shadow: 0 0 0 2px rgba(255, 107, 53, 0.1) !important;
+}
+
+.input-group .btn-outline-light {
+    border: 1px solid var(--border) !important;
+    border-left: none !important;
+    color: var(--text-dark) !important;
+    background: var(--surface-dark) !important;
+}
+
+.input-group .btn-outline-light:hover {
+    background: var(--secondary-color) !important;
+    border-color: var(--secondary-color) !important;
+    color: var(--primary-color) !important;
+}
+
+/* ===== LARGER GENRE BADGES IN GAME CARDS ===== */
+.game-card .game-genres .badge {
+    font-size: 0.85rem !important;
+    padding: 0.45rem 0.9rem !important;
+    margin: 0.1rem !important;
+    border-radius: 12px !important;
+    font-weight: 600 !important;
+}
+
+.game-card .game-genres {
+    gap: 0.25rem !important;
+    margin-bottom: 0.5rem !important;
+}
+
+.game-card .card-title {
+    margin-bottom: 0.4rem !important;
+}
+
+.algorithm-breakdown .breakdown-section {
+    padding: 1rem;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.05);
+    margin-bottom: 1rem;
+}
+
+.breakdown-item {
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.breakdown-item:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+}
+
+.breakdown-label {
+    font-weight: 500;
+}
+
+.breakdown-value {
+    font-weight: bold;
+}
+
+.breakdown-total {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 2px solid rgba(255,255,255,0.2);
+}
+
+.calculation-formula {
+    font-size: 1.1rem;
+    padding: 1rem;
+    background: rgba(0,0,0,0.3);
+    border-radius: 6px;
+}
+
+.final-calculation {
+    border: 2px solid #ffc107 !important;
+}
+
+.btn-outline-purple {
+    color: #6f42c1;
+    border-color: #6f42c1;
+}
+
+.btn-outline-purple:hover {
+    background-color: #6f42c1;
+    color: white;
+}
+
 /* ===== RESPONSIVE DESIGN ===== */
-@media (max-width: 768px) {
-    .container {
-        padding: 0 1rem;
+@media (max-width: 1200px) {
+    .col-md-5.col-lg-4.col-xl-4.d-flex.align-items-stretch {
+        min-height: 550px;
     }
 
+    .game-cover-main {
+        min-height: 550px;
+    }
+
+    .rating-display .bi-star-fill {
+        font-size: 2.2rem;
+    }
+
+    .rating-display .fs-1 {
+        font-size: 2.5rem;
+    }
+}
+
+@media (max-width: 992px) {
+    .col-md-5.col-lg-4.col-xl-4.d-flex.align-items-stretch {
+        min-height: 400px;
+    }
+
+    .game-cover-main {
+        min-height: 400px;
+    }
+
+    .game-cover-wrapper {
+        border-right: none;
+        border-bottom: 2px solid rgba(255, 255, 255, 0.12);
+        border-radius: 0;
+    }
+
+    .no-cover-placeholder {
+        border-right: none;
+        border-bottom: 2px solid rgba(255, 255, 255, 0.15);
+        border-radius: 0;
+    }
+
+    .rating-display {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 5px;
+    }
+
+    .rating-display .bi-star-fill {
+        font-size: 2rem;
+    }
+
+    .rating-display .fs-1 {
+        font-size: 2.2rem;
+    }
+
+    .col-md-7.col-lg-8.col-xl-8 > .h-100.p-4 {
+        padding: 1.5rem !important;
+    }
+
+    /* Адаптивность для вкладки Details */
+    .details-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .platform-with-icon {
+        min-width: 120px;
+    }
+
+    /* Общие адаптации */
     .game-card, .game-comparison-card {
         margin-bottom: 1.5rem;
         min-height: 380px;
@@ -1248,6 +1946,89 @@ footer {
     .section-header h6, .category-title {
         font-size: 0.9rem;
     }
+
+    .screenshot-image {
+        height: 150px;
+    }
+}
+
+@media (max-width: 768px) {
+    .container {
+        padding: 0 1rem;
+    }
+
+    .col-md-5.col-lg-4.col-xl-4.d-flex.align-items-stretch {
+        min-height: 350px;
+    }
+
+    .game-cover-main {
+        min-height: 350px;
+    }
+
+    .game-header-card {
+        min-height: auto;
+    }
+
+    /* Адаптация заголовка и рейтинга для мобильных */
+    .d-flex.justify-content-between.align-items-start {
+        flex-direction: column;
+        align-items: flex-start !important;
+    }
+
+    .display-5 {
+        font-size: 2rem !important;
+        margin-bottom: 1rem !important;
+        width: 100%;
+    }
+
+    .rating-display {
+        flex-direction: row;
+        align-items: center;
+        margin-top: 0.5rem;
+    }
+
+    .rating-display .bi-star-fill {
+        font-size: 1.8rem;
+    }
+
+    .rating-display .fs-1 {
+        font-size: 2rem;
+    }
+
+    .col-md-7.col-lg-8.col-xl-8 > .h-100.p-4 {
+        padding: 1rem !important;
+    }
+
+    /* Адаптивность для вкладки Details */
+    .platform-item {
+        min-width: 100px;
+        padding: 1rem !important;
+    }
+
+    .platform-item svg {
+        width: 36px;
+        height: 36px;
+    }
+
+    .platform-icon-wrapper {
+        width: 50px;
+        height: 50px;
+    }
+
+    .platform-icon-wrapper svg {
+        width: 24px;
+        height: 24px;
+    }
+
+    .detail-section {
+        padding: 1.25rem;
+    }
+
+    /* Улучшение скролла для мобильных */
+    .col-md-7.col-lg-8.col-xl-8 > .h-100.p-4 {
+        overflow-y: visible;
+        max-height: none;
+    }
 }
 
 @media (max-width: 576px) {
@@ -1271,6 +2052,70 @@ footer {
     .show-all-genres-btn, .show-all-keywords-btn {
         width: 100%;
         padding: 1rem;
+    }
+
+    .col-md-5.col-lg-4.col-xl-4.d-flex.align-items-stretch {
+        min-height: 300px;
+    }
+
+    .game-cover-main {
+        min-height: 300px;
+    }
+
+    .display-5 {
+        font-size: 1.75rem !important;
+    }
+
+    .rating-display .bi-star-fill {
+        font-size: 1.5rem;
+    }
+
+    .rating-display .fs-1 {
+        font-size: 1.75rem;
+    }
+
+    /* Адаптивность для вкладки Details */
+    .platform-item {
+        min-width: 80px;
+        padding: 0.75rem !important;
+    }
+
+    .platform-item svg {
+        width: 32px;
+        height: 32px;
+    }
+
+    .platform-icon-wrapper {
+        width: 45px;
+        height: 45px;
+    }
+
+    .platform-icon-wrapper svg {
+        width: 20px;
+        height: 20px;
+    }
+
+    .detail-section {
+        padding: 1rem;
+    }
+
+    .detail-tag {
+        padding: 0.4rem 0.8rem;
+        font-size: 0.85rem;
+    }
+
+    .platform-name {
+        font-size: 0.85rem;
+    }
+
+    /* Стили для навигации табов на мобильных */
+    .game-tabs .nav-link {
+        padding: 10px 15px;
+        font-size: 0.9rem;
+    }
+
+    .game-tabs .bi {
+        font-size: 1rem !important;
     }
 
     /* Comparison page small mobile */
@@ -1317,102 +2162,8 @@ footer {
     .compact-section, .shared-section {
         margin-bottom: 1rem;
     }
-}
 
-/* Enhanced grid for stat cards */
-@media (min-width: 768px) {
-    .stat-card {
-        margin-bottom: 0;
-    }
-}
-
-/* Screenshots gallery */
-.screenshots-gallery {
-    margin-top: 1rem;
-}
-
-.screenshot-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-    overflow: hidden;
-}
-
-.screenshot-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-
-.screenshot-image {
-    height: 200px;
-    object-fit: cover;
-    transition: transform 0.3s ease;
-}
-
-.screenshot-card:hover .screenshot-image {
-    transform: scale(1.05);
-}
-
-@media (max-width: 768px) {
-    .screenshot-image {
-        height: 150px;
-    }
-}
-
-/* ===== SEARCH INPUT STYLES ===== */
-.form-control {
-    color: var(--text-light) !important;
-}
-
-.form-control::placeholder {
-    color: #b0b0b0 !important;
-}
-
-.input-group .form-control {
-    background: var(--surface-dark) !important;
-    border: 1px solid var(--border) !important;
-    color: var(--text-light) !important;
-}
-
-.input-group .form-control:focus {
-    background: var(--surface) !important;
-    border-color: var(--secondary-color) !important;
-    color: var(--text-light) !important;
-    box-shadow: 0 0 0 2px rgba(255, 107, 53, 0.1) !important;
-}
-
-.input-group .btn-outline-light {
-    border: 1px solid var(--border) !important;
-    border-left: none !important;
-    color: var(--text-dark) !important;
-    background: var(--surface-dark) !important;
-}
-
-.input-group .btn-outline-light:hover {
-    background: var(--secondary-color) !important;
-    border-color: var(--secondary-color) !important;
-    color: var(--primary-color) !important;
-}
-
-/* ===== LARGER GENRE BADGES IN GAME CARDS ===== */
-.game-card .game-genres .badge {
-    font-size: 0.85rem !important;
-    padding: 0.45rem 0.9rem !important;
-    margin: 0.1rem !important;
-    border-radius: 12px !important;
-    font-weight: 600 !important;
-}
-
-.game-card .game-genres {
-    gap: 0.25rem !important;
-    margin-bottom: 0.5rem !important;
-}
-
-.game-card .card-title {
-    margin-bottom: 0.4rem !important;
-}
-
-@media (max-width: 768px) {
+    /* Game cards small mobile */
     .game-card .game-genres .badge {
         font-size: 0.8rem !important;
         padding: 0.4rem 0.8rem !important;
@@ -1427,59 +2178,31 @@ footer {
     }
 }
 
-.algorithm-breakdown .breakdown-section {
-    padding: 1rem;
-    border-radius: 8px;
-    background: rgba(255,255,255,0.05);
-    margin-bottom: 1rem;
+/* Адаптивные исправления для очень маленьких экранов */
+@media (max-width: 400px) {
+    .platform-item {
+        min-width: 70px;
+        padding: 0.5rem !important;
+    }
+
+    .platform-item svg {
+        width: 28px;
+        height: 28px;
+    }
+
+    .detail-tags {
+        gap: 0.5rem;
+    }
+
+    .detail-tag {
+        padding: 0.3rem 0.6rem;
+        font-size: 0.8rem;
+    }
 }
 
-.breakdown-item {
-    margin-bottom: 0.75rem;
-    padding-bottom: 0.75rem;
-    border-bottom: 1px solid rgba(255,255,255,0.1);
-}
-
-.breakdown-item:last-child {
-    border-bottom: none;
-    margin-bottom: 0;
-}
-
-.breakdown-label {
-    font-weight: 500;
-}
-
-.breakdown-value {
-    font-weight: bold;
-}
-
-.breakdown-total {
-    margin-top: 1rem;
-    padding-top: 1rem;
-    border-top: 2px solid rgba(255,255,255,0.2);
-}
-
-.calculation-formula {
-    font-size: 1.1rem;
-    padding: 1rem;
-    background: rgba(0,0,0,0.3);
-    border-radius: 6px;
-}
-
-.final-calculation {
-    border: 2px solid #ffc107 !important;
-}
-
-.bg-purple {
-    background-color: #6f42c1 !important;
-}
-
-.btn-outline-purple {
-    color: #6f42c1;
-    border-color: #6f42c1;
-}
-
-.btn-outline-purple:hover {
-    background-color: #6f42c1;
-    color: white;
+/* Enhanced grid for stat cards */
+@media (min-width: 768px) {
+    .stat-card {
+        margin-bottom: 0;
+    }
 }
