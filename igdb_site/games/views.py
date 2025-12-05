@@ -42,7 +42,7 @@ def game_list(request):
     default_sort = '-similarity' if find_similar else '-rating_count'
     current_sort = request.GET.get('sort', default_sort)
 
-    popular_keywords = Keyword.objects.filter(usage_count__gt=0).order_by('-usage_count')[:100]
+    popular_keywords = Keyword.objects.filter(cached_usage_count__gt=0).order_by('-cached_usage_count')
     platforms = Platform.objects.annotate(
         game_count=models.Count('game')
     ).filter(game_count__gt=0).order_by('-game_count', 'name')
@@ -381,8 +381,8 @@ def home(request):
 
     # Популярные теги
     popular_keywords = Keyword.objects.filter(
-        usage_count__gt=0
-    ).select_related('category').order_by('-usage_count')[:30]
+        cached_usage_count__gt=0
+    ).select_related('category').order_by('-cached_usage_count')[:30]
 
     context = {
         'popular_games': popular_games,

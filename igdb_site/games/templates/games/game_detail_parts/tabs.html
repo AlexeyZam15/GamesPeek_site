@@ -296,13 +296,15 @@
 
                 {% if game.keywords.all %}
                     <div class="d-flex flex-wrap gap-2">
-                        {% for keyword in game.keywords.all|dictsortreversed:"usage_count" %}
+                        {% for keyword in game.keywords.all|dictsortreversed:"cached_usage_count" %}
                             <span class="badge bg-secondary px-3 py-2">
                             {{ keyword.name }}
                             <small class="ms-2">
-                                <i class="bi bi-bar-chart me-1"></i>{{ keyword.usage_count }}
+                                <i class="bi bi-bar-chart me-1"></i>
+                                {# Используем cached_usage_count если есть, иначе usage_count #}
+                                {% firstof keyword.cached_usage_count keyword.usage_count %}
                             </small>
-                        </span>
+                            </span>
                         {% endfor %}
                     </div>
                 {% else %}

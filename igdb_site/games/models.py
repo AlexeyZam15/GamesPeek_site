@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 
 class Country(models.Model):
@@ -185,10 +186,22 @@ class Keyword(models.Model):
         """Популярность равна количеству использований"""
         return float(self.usage_count)
 
+    def save(self, *args, **kwargs):
+        # При сохранении обновляем кэшированный счетчик
+        if not self.pk:  # Если это новый объект
+            super().save(*args, **kwargs)
+            self.update_cached_count()
+        else:
+            super().save(*args, **kwargs)
+
     def update_cached_count(self):
         """Обновляет кэшированное значение"""
-        from django.utils import timezone
-        self.cached_usage_count = self.usage_count
+        from .models import Game
+
+        # Получаем актуальное количество
+        actual_count = Game.objects.filter(keywords=self).count()
+
+        self.cached_usage_count = actual_count
         self.last_count_update = timezone.now()
         self.save(update_fields=['cached_usage_count', 'last_count_update'])
 
