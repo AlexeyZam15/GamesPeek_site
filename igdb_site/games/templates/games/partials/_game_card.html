@@ -1,4 +1,4 @@
-{% load game_tags platform_icons %}
+{% load game_tags platform_icons color_tags %}
 
 <div class="col-xl-3 col-lg-4 col-md-6 mb-4">
     <div class="card h-100 game-card d-flex flex-column">
@@ -13,30 +13,30 @@
                 </div>
             {% endif %}
 
-            <!-- Процент похожести в правом верхнем углу -->
-            {% if similarity_percent %}
-                <div class="position-absolute top-0 end-0 p-2">
-                    <div class="similarity-percent-overlay rounded px-2 py-1
-            {% if similarity_percent >= 80 %}bg-success
-            {% elif similarity_percent >= 60 %}bg-warning
-            {% else %}bg-info{% endif %} bg-opacity-90">
-            <span class="text-white fw-bold fs-6">
-                {{ similarity_percent|floatformat:0 }}%
-            </span>
-                    </div>
+            <!-- Рейтинг как SVG изображение -->
+            {% if game.rating %}
+                <div class="position-absolute top-0 start-0 p-1">
+                    {% rating_star_svg game.rating 60 %}
                 </div>
             {% endif %}
 
-            <!-- Платформы в левом нижнем углу без фона -->
+            <!-- Процент схожести как SVG изображение -->
+            {% if similarity_percent %}
+                <div class="position-absolute top-0 end-0 p-1">
+                    {% similarity_pattern_svg similarity_percent 60 %}
+                </div>
+            {% endif %}
+
+            <!-- Платформы -->
             {% if game.platforms.all %}
-                <div class="position-absolute bottom-0 start-0 p-2 platforms-overlay">
+                <div class="position-absolute bottom-0 start-0 p-1 platforms-overlay">
                     <div class="d-flex flex-wrap gap-1">
                         {% for platform in game.platforms.all %}
                             <span class="platform-icon text-white"
-                                  data-bs-toggle="tooltip" title="{{ platform.name }}"
+                                  title="{{ platform.name }}"
                                   style="filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.8));">
-                {% platform_icon platform.name %}
-            </span>
+                                {% platform_icon platform.name %}
+                            </span>
                         {% endfor %}
                     </div>
                 </div>
@@ -45,12 +45,12 @@
 
         <!-- Card body -->
         <div class="card-body flex-grow-1 d-flex flex-column">
-            <!-- Заголовок с фиксированной высотой -->
+            <!-- Заголовок -->
             <div class="game-title-container" style="min-height: 48px;">
                 <h6 class="card-title">{{ game.name }}</h6>
             </div>
 
-            <!-- ЖАНРЫ с фиксированной высотой -->
+            <!-- ЖАНРЫ -->
             {% if game.genres.all %}
                 <div class="mb-2 genres-container" style="min-height: 50px;">
                     <div class="game-genres">
@@ -63,54 +63,23 @@
                 <div class="mb-2 genres-container" style="min-height: 50px;"></div>
             {% endif %}
 
-            <!-- НОВАЯ ИНФОРМАЦИЯ: ТЕМЫ И РАЗРАБОТЧИКИ -->
-            <div class="game-additional-info mb-2">
-                <!-- Темы -->
-                {% if game.themes.all %}
-                    <div class="mb-1">
-                        {% for theme in game.themes.all|slice:":2" %}
-                            <span class="badge bg-warning mb-1 small">{{ theme.name }}</span>
-                        {% endfor %}
-                        {% if game.themes.all|length > 2 %}
-                            <span class="badge bg-warning mb-1 small">+{{ game.themes.all|length|add:"-2" }}</span>
-                        {% endif %}
-                    </div>
-                {% endif %}
+            <!-- Перспективы -->
+            {% if game.player_perspectives.all %}
+                <div class="mb-2">
+                    {% for perspective in game.player_perspectives.all %}
+                        <span class="badge bg-info mb-1 small">{{ perspective.name }}</span>
+                    {% endfor %}
+                </div>
+            {% endif %}
 
-                <!-- Разработчики -->
-                {% if game.developers.all %}
-                    <div class="mb-1">
-                        {% for developer in game.developers.all|slice:":1" %}
-                            <span class="badge bg-dark mb-1 small">{{ developer.name }}</span>
-                        {% endfor %}
-                    </div>
-                {% endif %}
-
-                <!-- Перспективы -->
-                {% if game.player_perspectives.all %}
-                    <div class="mb-1">
-                        {% for perspective in game.player_perspectives.all %}
-                            <span class="badge bg-info mb-1 small">{{ perspective.name }}</span>
-                        {% endfor %}
-                    </div>
-                {% endif %}
-            </div>
-
-            <!-- РЕЙТИНГ И ГОД ВЫПУСКА -->
-            <div class="mt-auto">
-                {% if game.rating %}
-                    <div class="d-flex align-items-center mb-1">
-                        <small class="text-warning">⭐ {{ game.rating|floatformat:1 }}</small>
-                        <small class="text-muted ms-2">({{ game.rating_count }})</small>
-                    </div>
-                {% endif %}
-
-                {% if game.first_release_date %}
+            <!-- Год выпуска -->
+            {% if game.first_release_date %}
+                <div class="mt-auto">
                     <div class="release-year">
                         <small class="text-muted">{{ game.first_release_date|date:"Y" }}</small>
                     </div>
-                {% endif %}
-            </div>
+                </div>
+            {% endif %}
         </div>
 
         <!-- Футер с кнопками -->

@@ -1707,3 +1707,37 @@ h1.display-5 {
     background: var(--surface) !important;
     border: 1px solid var(--border) !important;
 }
+
+/* Стили для SVG изображений */
+.rating-svg, .similarity-svg {
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+    /* Убрали cursor: help */
+}
+
+/* Эффект при наведении */
+.rating-svg:hover, .similarity-svg:hover {
+    opacity: 0.95;
+    transform: scale(1.05);
+    transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+/* Стили для платформ */
+.platform-icon {
+    position: relative;
+    cursor: default;
+}
+
+/* Адаптивные стили */
+@media (max-width: 768px) {
+    .rating-svg, .similarity-svg {
+        width: 52px;
+        height: 52px;
+    }
+}
+
+@media (max-width: 576px) {
+    .rating-svg, .similarity-svg {
+        width: 46px;
+        height: 46px;
+    }
+}
