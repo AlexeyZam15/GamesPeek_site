@@ -16,7 +16,6 @@ class DataLoader:
         self.stderr = stderr
         self._db_lock = threading.Lock()
 
-
     def _batch_processor(self, ids_list, process_batch_func, emoji, name, debug=False):
         """Универсальный метод для обработки данных пачками"""
         if not ids_list:
@@ -25,14 +24,12 @@ class DataLoader:
         result_map = {}
         lock = threading.Lock()
 
-        # Разбиваем на пачки по 10
         batches = [ids_list[i:i + 10] for i in range(0, len(ids_list), 10)]
         total_batches = len(batches)
 
         if debug:
             self.stdout.write(f'      {emoji} Загрузка {name}: {len(ids_list)} объектов, {total_batches} пачек')
 
-        # Запускаем параллельную обработку
         max_workers = min(total_batches, 5)
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -53,64 +50,97 @@ class DataLoader:
 
         if debug:
             loaded = len(result_map)
-            total = len(ids_list)
-            self.stdout.write(f'      {emoji} Всего загружено {name}: {loaded}/{total} (из {total_batches} пачек)')
+            self.stdout.write(
+                f'      {emoji} Всего загружено {name}: {loaded}/{len(ids_list)} (из {total_batches} пачек)')
 
         return result_map
 
-    def _process_generic_batch(self, batch_num, batch_ids, result_map, lock, total_batches, name, debug,
-                               endpoint, create_func):
-        """Обрабатывает пачку данных для универсальной загрузки"""
+    def _generic_process_single(self, obj_id, data_by_id, name, model_class):
+        """Универсальная обработка одного объекта"""
+        if obj_id not in data_by_id:
+            return None
+
+        item_data = data_by_id[obj_id]
+        item_name = item_data.get('name', f'{name} {obj_id}')
+
+        with self._db_lock:
+            existing = model_class.objects.filter(igdb_id=obj_id).first()
+
+            if existing:
+                needs_update = False
+                if model_class == Series and existing.name.startswith('Series ') and not item_name.startswith(
+                        'Series '):
+                    existing.name = item_name
+                    needs_update = True
+                elif not existing.name.strip() and item_name.strip():
+                    existing.name = item_name
+                    needs_update = True
+
+                if needs_update:
+                    existing.save()
+                return (obj_id, existing)
+            else:
+                obj = model_class.objects.create(igdb_id=obj_id, name=item_name)
+                return (obj_id, obj)
+
+    def _process_batch_template(self, batch_num, batch_ids, result_map, lock, total_batches, name, debug,
+                                endpoint, model_class, get_data_func=None, process_single_func=None):
+        """Шаблон для обработки пачки данных"""
         try:
             if debug:
                 with lock:
                     self.stdout.write(f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_ids)} объектов')
 
-            id_list = ','.join(map(str, batch_ids))
-            query = f'fields id,name; where id = ({id_list});'
+            # Загружаем данные
+            if get_data_func:
+                batch_data = get_data_func(batch_ids)
+            else:
+                id_list = ','.join(map(str, batch_ids))
+                query = f'fields id,name; where id = ({id_list});'
+                batch_data = make_igdb_request(endpoint, query, debug=False)
 
-            batch_data = make_igdb_request(endpoint, query, debug=False)
+            data_by_id = {item['id']: item for item in batch_data if 'id' in item}
 
+            # Обрабатываем объекты параллельно
             batch_map = {}
-            processed_ids = set()
-            for item_data in batch_data:
-                item_id = item_data.get('id')
-                if not item_id:
-                    continue
+            with ThreadPoolExecutor(max_workers=min(len(batch_ids), 10)) as executor:
+                futures = {executor.submit(
+                    process_single_func if process_single_func else
+                    lambda obj_id: self._generic_process_single(obj_id, data_by_id, name, model_class),
+                    obj_id
+                ): obj_id for obj_id in batch_ids}
 
-                processed_ids.add(item_id)
-                item_name = item_data.get('name', f'{name} {item_id}')
-                item = create_func(item_id, item_name)
-                batch_map[item_id] = item
-
-            # Отладка: проверяем какие ID не были обработаны
-            if debug:
-                with lock:
-                    all_batch_ids = set(batch_ids)
-                    missing_ids = all_batch_ids - processed_ids
-                    if missing_ids:
-                        self.stdout.write(
-                            f'         ⚠️  {name} пачка {batch_num}: {len(missing_ids)} ID не получены от API')
+                for future in as_completed(futures):
+                    obj_id = futures[future]
+                    try:
+                        result = future.result()
+                        if result:
+                            obj_id, obj = result
+                            batch_map[obj_id] = obj
+                    except Exception as e:
+                        if debug:
+                            with lock:
+                                self.stderr.write(f'               ❌ Ошибка future для {obj_id}: {e}')
 
             with lock:
                 result_map.update(batch_map)
 
             if debug:
                 with lock:
-                    self.stdout.write(
-                        f'         ✅ Пачка {name} {batch_num}/{total_batches}: {len(batch_data)} объектов')
+                    self.stdout.write(f'         ✅ Пачка {name} {batch_num}/{total_batches}: {len(batch_map)} объектов')
 
         except Exception as e:
             if debug:
                 with lock:
                     self.stderr.write(f'         ❌ Ошибка пачки {name} {batch_num}/{total_batches}: {e}')
 
-    def load_data_parallel_generic(self, ids_list, endpoint, model_class, create_func, emoji, name, debug=False):
+    def load_data_parallel_generic(self, ids_list, endpoint, model_class, emoji, name, debug=False):
         """Универсальный метод для параллельной загрузки данных"""
 
         def process_batch(batch_num, batch_ids, result_map, lock, total_batches, name, debug):
-            return self._process_generic_batch(
-                batch_num, batch_ids, result_map, lock, total_batches, name, debug, endpoint, create_func
+            return self._process_batch_template(
+                batch_num, batch_ids, result_map, lock, total_batches, name, debug,
+                endpoint, model_class
             )
 
         return self._batch_processor(ids_list, process_batch, emoji, name, debug)
@@ -124,22 +154,39 @@ class DataLoader:
 
             id_list = ','.join(map(str, batch_ids))
             query = f'fields id,url,image_id; where id = ({id_list});'
-
             batch_data = make_igdb_request('covers', query, debug=False)
 
-            batch_map = {}
-            for cover_data in batch_data:
-                cover_id = cover_data.get('id')
-                if not cover_id:
-                    continue
+            data_by_id = {item['id']: item for item in batch_data if 'id' in item}
 
+            def process_single_cover(cover_id):
+                if cover_id not in data_by_id:
+                    return None
+
+                cover_data = data_by_id[cover_id]
                 if cover_data.get('image_id'):
-                    high_res_url = f"https://images.igdb.com/igdb/image/upload/t_cover_big/{cover_data['image_id']}.jpg"
-                    batch_map[cover_id] = high_res_url
+                    return (cover_id,
+                            f"https://images.igdb.com/igdb/image/upload/t_cover_big/{cover_data['image_id']}.jpg")
                 elif cover_data.get('url'):
                     url = cover_data['url']
-                    high_res_url = f"https:{url.replace('thumb', 'cover_big')}"
-                    batch_map[cover_id] = high_res_url
+                    return (cover_id, f"https:{url.replace('thumb', 'cover_big')}")
+                return None
+
+            # Параллельная обработка
+            batch_map = {}
+            with ThreadPoolExecutor(max_workers=min(len(batch_ids), 10)) as executor:
+                futures = {executor.submit(process_single_cover, cover_id): cover_id for cover_id in batch_ids}
+
+                for future in as_completed(futures):
+                    cover_id = futures[future]
+                    try:
+                        result = future.result()
+                        if result:
+                            cover_id, url = result
+                            batch_map[cover_id] = url
+                    except Exception as e:
+                        if debug:
+                            with lock:
+                                self.stderr.write(f'               ❌ Ошибка future для обложки {cover_id}: {e}')
 
             with lock:
                 cover_map.update(batch_map)
@@ -158,95 +205,101 @@ class DataLoader:
         """Параллельная загрузка обложек"""
         return self._batch_processor(cover_ids, self._process_covers_batch, '🖼️', 'обложек', debug)
 
-    def _load_game_screenshots(self, game_id, screenshots_count, debug=False):
-        """Загружает ВСЕ скриншоты для одной игры, но пачками"""
-        try:
-            # Если скриншотов нет, пропускаем
-            if not screenshots_count or screenshots_count == 0:
-                return 0
-
-            # Загружаем ВСЕ скриншоты для игры
-            query = f'fields id,url,image_id,width,height; where game = {game_id}; limit {screenshots_count};'
-            screenshots_data = make_igdb_request('screenshots', query, debug=False)
-
-            if not screenshots_data:
-                return 0
-
-            screenshots_to_create = []
-            game_obj = Game.objects.filter(igdb_id=game_id).first()
-            if not game_obj:
-                return 0
-
-            for screenshot_data in screenshots_data:
-                image_id = screenshot_data.get('image_id')
-                if image_id:
-                    width = screenshot_data.get('width') or 0
-                    height = screenshot_data.get('height') or 0
-
-                    screenshot_obj = Screenshot(
-                        game=game_obj,
-                        igdb_id=screenshot_data.get('id'),
-                        image_url=f"https://images.igdb.com/igdb/image/upload/t_original/{image_id}.jpg",
-                        width=width,
-                        height=height
-                    )
-                    screenshots_to_create.append(screenshot_obj)
-
-            if screenshots_to_create:
-                # Сохраняем пачками по 10 (как вам нужно)
-                for i in range(0, len(screenshots_to_create), 10):
-                    batch = screenshots_to_create[i:i + 10]
-                    Screenshot.objects.bulk_create(batch, ignore_conflicts=True)
-
-            return len(screenshots_to_create)
-
-        except Exception as e:
-            if debug:
-                self.stderr.write(f'   ❌ Ошибка загрузки скриншотов для игры {game_id}: {e}')
-            return 0
-
     def _process_screenshots_batch(self, batch_num, batch_game_ids, result_map, lock,
                                    total_batches, name, debug, screenshots_info):
-        """Обрабатывает пачку скриншотов, зная сколько их у каждой игры"""
+        """Обрабатывает пачку скриншотов"""
         try:
             if debug:
                 with lock:
                     self.stdout.write(f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_game_ids)} игр')
 
-            batch_screenshots = 0
-
-            for game_id in batch_game_ids:
+            def process_single_game(game_id):
                 try:
-                    # Получаем количество скриншотов для этой игры
                     game_screenshots_count = screenshots_info.get(game_id, 0)
+                    if game_screenshots_count <= 0:
+                        if debug:
+                            with lock:
+                                self.stdout.write(f'            ℹ️  Игра {game_id}: нет скриншотов')
+                        return (game_id, 0)
 
-                    if game_screenshots_count > 0:
-                        screenshots = self._load_game_screenshots(
-                            game_id, game_screenshots_count, debug=debug
-                        )
-                        with lock:
-                            result_map[game_id] = screenshots
-                            batch_screenshots += screenshots
+                    query = f'fields id,url,image_id,width,height; where game = {game_id}; limit {game_screenshots_count};'
+                    screenshots_data = make_igdb_request('screenshots', query, debug=False)
 
-                        if debug and screenshots != game_screenshots_count:
+                    if not screenshots_data:
+                        if debug:
+                            with lock:
+                                self.stdout.write(f'            ℹ️  Игра {game_id}: 0 скриншотов получено')
+                        return (game_id, 0)
+
+                    with self._db_lock:
+                        game_obj = Game.objects.filter(igdb_id=game_id).first()
+
+                    if not game_obj:
+                        if debug:
+                            with lock:
+                                self.stderr.write(f'            ❌ Игра {game_id} не найдена в БД')
+                        return (game_id, 0)
+
+                    with self._db_lock:
+                        existing_ids = set(Screenshot.objects.filter(
+                            game=game_obj,
+                            igdb_id__in=[s.get('id') for s in screenshots_data if s.get('id')]
+                        ).values_list('igdb_id', flat=True))
+
+                    screenshots_to_create = [
+                        Screenshot(
+                            game=game_obj,
+                            igdb_id=s.get('id'),
+                            image_url=f"https://images.igdb.com/igdb/image/upload/t_original/{s.get('image_id')}.jpg",
+                            width=s.get('width') or 0,
+                            height=s.get('height') or 0
+                        ) for s in screenshots_data
+                        if s.get('id') and s.get('image_id') and s.get('id') not in existing_ids
+                    ]
+
+                    if screenshots_to_create:
+                        with self._db_lock:
+                            Screenshot.objects.bulk_create(screenshots_to_create, batch_size=10)
+                        if debug:
                             with lock:
                                 self.stdout.write(
-                                    f'         ⚠️  Игра {game_id}: загружено {screenshots}/{game_screenshots_count} скриншотов'
-                                )
+                                    f'            ✅ Игра {game_id}: {len(screenshots_to_create)} скриншотов')
+                        return (game_id, len(screenshots_to_create))
                     else:
                         if debug:
                             with lock:
-                                self.stdout.write(f'         ℹ️  Игра {game_id}: нет скриншотов')
+                                self.stdout.write(f'            ℹ️  Игра {game_id}: все скриншоты уже загружены')
+                        return (game_id, 0)
 
                 except Exception as e:
                     if debug:
                         with lock:
-                            self.stderr.write(f'         ❌ Ошибка скриншотов для игры {game_id}: {e}')
+                            self.stderr.write(f'            ❌ Ошибка загрузки скриншотов для игры {game_id}: {e}')
+                    return (game_id, 0)
+
+            # Параллельная обработка игр
+            batch_map = {}
+            with ThreadPoolExecutor(max_workers=min(len(batch_game_ids), 10)) as executor:
+                futures = {executor.submit(process_single_game, game_id): game_id for game_id in batch_game_ids}
+
+                for future in as_completed(futures):
+                    game_id = futures[future]
+                    try:
+                        game_id, count = future.result()
+                        batch_map[game_id] = count
+                    except Exception as e:
+                        if debug:
+                            with lock:
+                                self.stderr.write(f'            ❌ Ошибка future для игры {game_id}: {e}')
+
+            with lock:
+                result_map.update(batch_map)
 
             if debug:
+                total_screenshots = sum(batch_map.values())
                 with lock:
                     self.stdout.write(
-                        f'         ✅ Пачка {name} {batch_num}/{total_batches}: {batch_screenshots} скриншотов'
+                        f'         ✅ Пачка {name} {batch_num}/{total_batches}: {total_screenshots} скриншотов из {len(batch_map)} игр'
                     )
 
         except Exception as e:
@@ -255,7 +308,7 @@ class DataLoader:
                     self.stderr.write(f'         ❌ Ошибка пачки {name} {batch_num}/{total_batches}: {e}')
 
     def load_screenshots_parallel(self, game_ids, screenshots_info, debug=False):
-        """Параллельная загрузка скриншотов с учетом информации о количестве"""
+        """Параллельная загрузка скриншотов"""
         if not game_ids:
             return 0
 
@@ -267,6 +320,11 @@ class DataLoader:
         result_map = self._batch_processor(game_ids, process_batch, '📸', 'скриншотов', debug)
 
         total_screenshots = sum(result_map.values()) if result_map else 0
+        if debug:
+            games_with_screenshots = len([v for v in result_map.values() if v > 0])
+            self.stdout.write(
+                f'      📸 Всего загружено {total_screenshots} скриншотов для {games_with_screenshots}/{len(game_ids)} игр')
+
         return total_screenshots
 
     def _process_additional_data_batch(self, batch_num, batch_game_ids, result_map, lock, total_batches, name, debug):
@@ -278,23 +336,43 @@ class DataLoader:
 
             id_list = ','.join(map(str, batch_game_ids))
             query = f'''
-                fields name,collections,franchises,involved_companies.company,
+                fields id,name,collections,franchises,involved_companies.company,
                        involved_companies.developer,involved_companies.publisher,
                        themes,player_perspectives,game_modes;
                 where id = ({id_list});
             '''
-
             batch_data = make_igdb_request('games', query, debug=False)
 
-            with lock:
-                for game_data in batch_data:
-                    game_id = game_data.get('id')
-                    if game_id:
-                        result_map[game_id] = game_data
+            data_by_id = {item['id']: item for item in batch_data if 'id' in item}
 
-                if debug:
-                    self.stdout.write(
-                        f'         ✅ Пачка {name} {batch_num}/{total_batches}: {len(batch_data)} игр')
+            def process_single_game(game_id):
+                if game_id not in data_by_id:
+                    return None
+                return (game_id, data_by_id[game_id])
+
+            # Параллельная обработка
+            batch_map = {}
+            with ThreadPoolExecutor(max_workers=min(len(batch_game_ids), 10)) as executor:
+                futures = {executor.submit(process_single_game, game_id): game_id for game_id in batch_game_ids}
+
+                for future in as_completed(futures):
+                    game_id = futures[future]
+                    try:
+                        result = future.result()
+                        if result:
+                            game_id, game_data = result
+                            batch_map[game_id] = game_data
+                    except Exception as e:
+                        if debug:
+                            with lock:
+                                self.stderr.write(f'               ❌ Ошибка future для игры {game_id}: {e}')
+
+            with lock:
+                result_map.update(batch_map)
+
+            if debug:
+                with lock:
+                    self.stdout.write(f'         ✅ Пачка {name} {batch_num}/{total_batches}: {len(batch_data)} игр')
 
         except Exception as e:
             if debug:
@@ -302,37 +380,30 @@ class DataLoader:
                     self.stderr.write(f'         ❌ Ошибка пачки {name} {batch_num}/{total_batches}: {e}')
 
     def load_additional_data_parallel(self, game_ids, debug=False):
-        """Параллельная загрузка дополнительных данных пачками по 10"""
+        """Параллельная загрузка дополнительных данных"""
         return self._batch_processor(game_ids, self._process_additional_data_batch, '📚', 'доп. данных', debug)
 
     def load_and_process_additional_data(self, game_ids, debug=False):
         """Загружает и обрабатывает дополнительные данные"""
         additional_data_map = self.load_additional_data_parallel(game_ids, debug)
 
-        # Собираем ID дополнительных данных
         all_series_ids = set()
         all_company_ids = set()
         all_theme_ids = set()
         all_perspective_ids = set()
         all_mode_ids = set()
 
-        for additional_data in additional_data_map.values():
-            if additional_data.get('collections'):
-                all_series_ids.update(additional_data['collections'])
-
-            if additional_data.get('themes'):
-                all_theme_ids.update(additional_data['themes'])
-
-            if additional_data.get('player_perspectives'):
-                all_perspective_ids.update(additional_data['player_perspectives'])
-
-            if additional_data.get('game_modes'):
-                all_mode_ids.update(additional_data['game_modes'])
-
-            if additional_data.get('involved_companies'):
-                for company_data in additional_data['involved_companies']:
-                    if company_data.get('company'):
-                        all_company_ids.add(company_data['company'])
+        for data in additional_data_map.values():
+            if data.get('collections'):
+                all_series_ids.update(data['collections'])
+            if data.get('themes'):
+                all_theme_ids.update(data['themes'])
+            if data.get('player_perspectives'):
+                all_perspective_ids.update(data['player_perspectives'])
+            if data.get('game_modes'):
+                all_mode_ids.update(data['game_modes'])
+            if data.get('involved_companies'):
+                all_company_ids.update(c.get('company') for c in data['involved_companies'] if c.get('company'))
 
         return additional_data_map, {
             'all_series_ids': list(all_series_ids),
@@ -341,295 +412,6 @@ class DataLoader:
             'all_perspective_ids': list(all_perspective_ids),
             'all_mode_ids': list(all_mode_ids)
         }
-
-    def create_model_func(self, model_class, debug=False):
-        """Универсальная функция создания моделей с отладкой"""
-        model_name = model_class.__name__
-
-        def create_func(item_id, item_name):
-            try:
-                # Используем блокировку при работе с базой данных
-                with self._db_lock:
-                    # Пытаемся найти существующий объект
-                    existing = model_class.objects.filter(igdb_id=item_id).first()
-
-                    if existing:
-                        # Проверяем, нужно ли обновить имя
-                        needs_update = False
-
-                        # Если имя по умолчанию ("Series XXXX"), обновляем
-                        if model_name == 'Series' and existing.name.startswith(f'{model_name} '):
-                            needs_update = True
-                        # Если текущее имя пустое, а новое не пустое
-                        elif not existing.name.strip() and item_name.strip():
-                            needs_update = True
-
-                        if needs_update:
-                            if debug:
-                                self.stdout.write(
-                                    f'      🔄 Обновление {model_name} {item_id}: "{existing.name}" → "{item_name}"')
-                            existing.name = item_name
-                            existing.save()
-
-                        return existing
-                    else:
-                        # Создаем новый объект
-                        if debug and model_name == 'Series':
-                            self.stdout.write(f'      ✨ Создание новой серии {item_id}: "{item_name}"')
-
-                        obj = model_class.objects.create(
-                            igdb_id=item_id,
-                            name=item_name
-                        )
-                        return obj
-
-            except Exception as e:
-                if debug:
-                    self.stderr.write(f'      ❌ Ошибка создания {model_name} {item_id}: {e}')
-                # В случае ошибки, пытаемся получить или создать с минимальными данными
-                with self._db_lock:
-                    obj, created = model_class.objects.get_or_create(
-                        igdb_id=item_id,
-                        defaults={'name': item_name}
-                    )
-                return obj
-
-        return create_func
-
-    def create_series_func(self, debug=False):
-        """Специальная функция для создания серий с детальной отладкой"""
-
-        def create_series(item_id, item_name):
-            # Сначала проверяем, есть ли уже такая серия
-            existing = Series.objects.filter(igdb_id=item_id).first()
-
-            if existing:
-                # Если серия уже существует, проверяем нужно ли обновить имя
-                if existing.name != item_name:
-                    # Проверяем, не является ли текущее имя именем по умолчанию
-                    if existing.name.startswith('Series ') and not item_name.startswith('Series '):
-                        # Обновляем имя
-                        existing.name = item_name
-                        existing.save()
-                        if debug:
-                            self.stdout.write(
-                                f'         🔄 Обновлена серия {item_id}: "{existing.name}" → "{item_name}"')
-                return existing
-            else:
-                # Создаем новую серию
-                try:
-                    series = Series.objects.create(
-                        igdb_id=item_id,
-                        name=item_name
-                    )
-                    if debug:
-                        self.stdout.write(f'         ✨ Создана серия {item_id}: "{item_name}"')
-                    return series
-                except Exception as e:
-                    if debug:
-                        self.stderr.write(f'         ❌ Ошибка создания серии {item_id}: {e}')
-                    # Пробуем создать с минимальными данными
-                    series, _ = Series.objects.get_or_create(
-                        igdb_id=item_id,
-                        defaults={'name': item_name}
-                    )
-                    return series
-
-        return create_series
-
-    def create_basic_games(self, games_data_list, debug=False):
-        """Создает игры с основными данными"""
-        from .base_command import BaseIgdbCommand
-
-        base_command = BaseIgdbCommand()
-        games_basic_to_create = []
-        game_basic_map = {}
-
-        for game_data in games_data_list:
-            game_id = game_data.get('id')
-            if not game_id:
-                continue
-
-            if Game.objects.filter(igdb_id=game_id).exists():
-                continue
-
-            try:
-                game = base_command.create_game_object(game_data, {})
-                games_basic_to_create.append(game)
-                game_basic_map[game_id] = game
-
-            except Exception as e:
-                if debug:
-                    self.stderr.write(f'   ❌ Ошибка создания игры {game_id}: {e}')
-
-        # Сохраняем игры в базу
-        if games_basic_to_create:
-            Game.objects.bulk_create(games_basic_to_create)
-
-        return len(games_basic_to_create), game_basic_map
-
-    def update_games_with_covers(self, game_basic_map, cover_map, game_data_map, debug=False):
-        """Обновляет игры обложками"""
-        games_to_update = []
-
-        for game in Game.objects.filter(igdb_id__in=game_basic_map.keys()):
-            game_data = game_data_map.get(game.igdb_id)
-            if game_data and game_data.get('cover'):
-                cover_id = game_data['cover']
-                if cover_id in cover_map:
-                    game.cover_url = cover_map[cover_id]
-                    games_to_update.append(game)
-
-        if games_to_update:
-            Game.objects.bulk_update(games_to_update, ['cover_url'])
-
-        return len(games_to_update)
-
-    def load_all_data_types_sequentially(self, collected_data, debug=False):
-        """Последовательно загружает все типы данных"""
-        step_times = {}
-        data_maps = {}
-
-        # 1️⃣ ПАРАЛЛЕЛЬНАЯ загрузка обложек
-        if debug:
-            self.stdout.write('\n1️⃣  🖼️  ЗАГРУЗКА ОБЛОЖЕК...')
-        start_step = time.time()
-        data_maps['cover_map'] = self.load_covers_parallel(collected_data['all_cover_ids'], debug)
-        step_times['covers'] = time.time() - start_step
-
-        # 2️⃣ ПАРАЛЛЕЛЬНАЯ загрузка жанров
-        if debug:
-            self.stdout.write('\n2️⃣  🎭 ЗАГРУЗКА ЖАНРОВ...')
-        start_step = time.time()
-        data_maps['genre_map'] = self.load_data_parallel_generic(
-            collected_data['all_genre_ids'], 'genres', Genre,
-            self.create_model_func(Genre, debug), '🎭', 'жанров', debug
-        )
-        step_times['genres'] = time.time() - start_step
-
-        # 3️⃣ ПАРАЛЛЕЛЬНАЯ загрузка платформ
-        if debug:
-            self.stdout.write('\n3️⃣  🖥️  ЗАГРУЗКА ПЛАТФОРМ...')
-        start_step = time.time()
-        data_maps['platform_map'] = self.load_data_parallel_generic(
-            collected_data['all_platform_ids'], 'platforms', Platform,
-            self.create_model_func(Platform, debug), '🖥️', 'платформ', debug
-        )
-        step_times['platforms'] = time.time() - start_step
-
-        # 4️⃣ ПАРАЛЛЕЛЬНАЯ загрузка ключевых слов
-        if debug:
-            self.stdout.write('\n4️⃣  🔑 ЗАГРУЗКА КЛЮЧЕВЫХ СЛОВ...')
-        start_step = time.time()
-        data_maps['keyword_map'] = self.load_data_parallel_generic(
-            collected_data['all_keyword_ids'], 'keywords', Keyword,
-            self.create_model_func(Keyword, debug), '🔑', 'ключевых слов', debug
-        )
-        step_times['keywords'] = time.time() - start_step
-
-        # 5️⃣ ПАРАЛЛЕЛЬНАЯ загрузка серий
-        if debug:
-            self.stdout.write('\n5️⃣  📚 ЗАГРУЗКА СЕРИЙ...')
-
-        start_step = time.time()
-
-        # Проверяем данные перед загрузкой
-        series_ids = collected_data['all_series_ids']
-
-        # Загружаем серии с отладкой
-        data_maps['series_map'] = self.load_data_parallel_generic(
-            series_ids, 'collections', Series,
-            self.create_series_func(debug), '📚', 'серий', debug
-        )
-
-        step_times['series'] = time.time() - start_step
-
-        # 6️⃣ ПАРАЛЛЕЛЬНАЯ загрузка компаний (С ОБНОВЛЕННОЙ ЛОГИКОЙ ДЛЯ СТРАН)
-        if debug:
-            self.stdout.write('\n6️⃣  🏢 ЗАГРУЗКА КОМПАНИЙ СО СТРАНАМИ...')
-        start_step = time.time()
-
-        # Используем специальный метод для компаний, который загрузит также информацию о странах
-        data_maps['company_map'] = self.load_companies_with_country_parallel(
-            collected_data['all_company_ids'], debug
-        )
-
-        step_times['companies'] = time.time() - start_step
-
-        # 7️⃣ ПАРАЛЛЕЛЬНАЯ загрузка тем
-        if debug:
-            self.stdout.write('\n7️⃣  🎨 ЗАГРУЗКА ТЕМ...')
-        start_step = time.time()
-        data_maps['theme_map'] = self.load_data_parallel_generic(
-            collected_data['all_theme_ids'], 'themes', Theme,
-            self.create_model_func(Theme, debug), '🎨', 'тем', debug
-        )
-        step_times['themes'] = time.time() - start_step
-
-        # 8️⃣ ПАРАЛЛЕЛЬНАЯ загрузка перспектив
-        if debug:
-            self.stdout.write('\n8️⃣  👁️  ЗАГРУЗКА ПЕРСПЕКТИВ...')
-        start_step = time.time()
-        data_maps['perspective_map'] = self.load_data_parallel_generic(
-            collected_data['all_perspective_ids'], 'player_perspectives', PlayerPerspective,
-            self.create_model_func(PlayerPerspective, debug), '👁️', 'перспектив', debug
-        )
-        step_times['perspectives'] = time.time() - start_step
-
-        # 9️⃣ ПАРАЛЛЕЛЬНАЯ загрузка режимов
-        if debug:
-            self.stdout.write('\n9️⃣  🎮 ЗАГРУЗКА РЕЖИМОВ...')
-        start_step = time.time()
-        data_maps['mode_map'] = self.load_data_parallel_generic(
-            collected_data['all_mode_ids'], 'game_modes', GameMode,
-            self.create_model_func(GameMode, debug), '🎮', 'режимов', debug
-        )
-        step_times['modes'] = time.time() - start_step
-
-        # 🔟 Выводим общую статистику загрузки
-        if debug:
-            self.stdout.write('\n📊 ОБЩАЯ СТАТИСТИКА ЗАГРУЗКИ ДАННЫХ:')
-            self.stdout.write('   ────────────────────────────────')
-
-            data_types = [
-                ('🖼️  Обложки', 'covers', len(data_maps.get('cover_map', {})),
-                 len(collected_data.get('all_cover_ids', []))),
-                ('🎭 Жанры', 'genres', len(data_maps.get('genre_map', {})),
-                 len(collected_data.get('all_genre_ids', []))),
-                ('🖥️  Платформы', 'platforms', len(data_maps.get('platform_map', {})),
-                 len(collected_data.get('all_platform_ids', []))),
-                ('🔑 Ключевые слова', 'keywords', len(data_maps.get('keyword_map', {})),
-                 len(collected_data.get('all_keyword_ids', []))),
-                ('📚 Серии', 'series', len(data_maps.get('series_map', {})),
-                 len(collected_data.get('all_series_ids', []))),
-                ('🏢 Компании', 'companies', len(data_maps.get('company_map', {})),
-                 len(collected_data.get('all_company_ids', []))),
-                ('🎨 Темы', 'themes', len(data_maps.get('theme_map', {})), len(collected_data.get('all_theme_ids', []))),
-                ('👁️  Перспективы', 'perspectives', len(data_maps.get('perspective_map', {})),
-                 len(collected_data.get('all_perspective_ids', []))),
-                ('🎮 Режимы', 'modes', len(data_maps.get('mode_map', {})), len(collected_data.get('all_mode_ids', []))),
-            ]
-
-            for display_name, key, loaded, total in data_types:
-                if total > 0:
-                    success_rate = (loaded / total) * 100
-                    time_val = step_times.get(key, 0)
-                    self.stdout.write(f'   • {display_name}: {loaded}/{total} ({success_rate:.1f}%) [{time_val:.2f}с]')
-
-            # Дополнительная информация о компаниях и странах
-            if 'company_map' in data_maps:
-                companies_with_country = sum(1 for c in data_maps['company_map'].values() if c.country)
-                total_companies = len(data_maps['company_map'])
-                if total_companies > 0:
-                    country_percentage = (companies_with_country / total_companies) * 100
-                    self.stdout.write(
-                        f'   • 🌍 Компаний с указанной страной: {companies_with_country}/{total_companies} ({country_percentage:.1f}%)')
-
-            # Суммарное время
-            total_load_time = sum(step_times.values())
-            self.stdout.write(f'   ⏱️  Общее время загрузки: {total_load_time:.2f}с')
-
-        return data_maps, step_times
 
     def _process_companies_with_country_batch(self, batch_num, batch_ids, company_map, lock,
                                               total_batches, name, debug):
@@ -640,50 +422,66 @@ class DataLoader:
                     self.stdout.write(f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_ids)} компаний')
 
             id_list = ','.join(map(str, batch_ids))
-            # Только необходимые поля: id, name, country
             query = f'fields id,name,country; where id = ({id_list});'
-
             batch_data = make_igdb_request('companies', query, debug=False)
 
-            batch_map = {}
-            for company_data in batch_data:
-                company_id = company_data.get('id')
-                if not company_id:
-                    continue
+            data_by_id = {item['id']: item for item in batch_data if 'id' in item}
 
-                # Создаем или получаем компанию
-                existing = Company.objects.filter(igdb_id=company_id).first()
+            def process_single_company(company_id):
+                if company_id not in data_by_id:
+                    return None
 
-                if existing:
-                    company = existing
-                    # Обновляем имя если оно пустое
-                    if not company.name.strip() and company_data.get('name'):
-                        company.name = company_data.get('name')
-                        company.save()
-                else:
-                    # Создаем новую компанию
-                    company = Company.objects.create(
-                        igdb_id=company_id,
-                        name=company_data.get('name', f'Company {company_id}')
-                    )
-
-                # Страна
+                company_data = data_by_id[company_id]
+                company_name = company_data.get('name', f'Company {company_id}')
                 country_code = company_data.get('country')
-                if country_code and not company.country:
-                    # Используем блокировку для создания страны
-                    with self._db_lock if hasattr(self, '_db_lock') else threading.Lock():
-                        country_obj, created = Country.objects.get_or_create(
-                            code=country_code,
-                            defaults={'name': f'Country {country_code}'}
-                        )
-                        company.country = country_obj
-                        company.save()
 
-                    if debug and created:
-                        with lock:
-                            self.stdout.write(f'         🌍 Создана страна с кодом: {country_code}')
+                with self._db_lock:
+                    existing = Company.objects.filter(igdb_id=company_id).first()
 
-                batch_map[company_id] = company
+                    if existing:
+                        needs_update = False
+                        if not existing.name.strip() and company_name.strip():
+                            existing.name = company_name
+                            needs_update = True
+
+                        if country_code and not existing.country:
+                            country_obj, _ = Country.objects.get_or_create(
+                                code=country_code,
+                                defaults={'name': f'Country {country_code}'}
+                            )
+                            existing.country = country_obj
+                            needs_update = True
+
+                        if needs_update:
+                            existing.save()
+                        return (company_id, existing)
+                    else:
+                        company = Company.objects.create(igdb_id=company_id, name=company_name)
+                        if country_code:
+                            country_obj, _ = Country.objects.get_or_create(
+                                code=country_code,
+                                defaults={'name': f'Country {country_code}'}
+                            )
+                            company.country = country_obj
+                            company.save()
+                        return (company_id, company)
+
+            # Параллельная обработка
+            batch_map = {}
+            with ThreadPoolExecutor(max_workers=min(len(batch_ids), 10)) as executor:
+                futures = {executor.submit(process_single_company, company_id): company_id for company_id in batch_ids}
+
+                for future in as_completed(futures):
+                    company_id = futures[future]
+                    try:
+                        result = future.result()
+                        if result:
+                            company_id, company = result
+                            batch_map[company_id] = company
+                    except Exception as e:
+                        if debug:
+                            with lock:
+                                self.stderr.write(f'               ❌ Ошибка future для компании {company_id}: {e}')
 
             with lock:
                 company_map.update(batch_map)
@@ -708,59 +506,113 @@ class DataLoader:
         if debug:
             self.stdout.write(f'   🏢 Загрузка {len(company_ids)} компаний с информацией о стране...')
 
-        # Используем существующий метод загрузки пачками
-        company_map = self._batch_processor(
-            company_ids,
-            self._process_companies_with_country_batch,
-            '🏢',
-            'компаний со странами',
-            debug
-        )
+        return self._batch_processor(company_ids, self._process_companies_with_country_batch, '🏢',
+                                     'компаний со странами', debug)
 
-        # После загрузки всех компаний, загружаем недостающую информацию о странах
-        if debug:
-            self.stdout.write(f'   🌍 Проверка информации о странах...')
+    def create_basic_games(self, games_data_list, debug=False):
+        """Создает игры с основными данными"""
+        from .base_command import BaseIgdbCommand
+        base_command = BaseIgdbCommand()
 
-        # Получаем ID всех стран, которые есть в компаниях
-        country_codes = set()
-        for company in company_map.values():
-            if hasattr(company, 'country') and company.country and company.country.code:
-                country_codes.add(company.country.code)
+        with self._db_lock:
+            existing_game_ids = set(Game.objects.filter(
+                igdb_id__in=[g.get('id') for g in games_data_list if g.get('id')]
+            ).values_list('igdb_id', flat=True))
 
-        # Загружаем информацию о странах
-        if country_codes:
-            self.load_countries_parallel(list(country_codes), debug)
+        def process_single_game(game_data):
+            game_id = game_data.get('id')
+            if not game_id or game_id in existing_game_ids:
+                return None
+            return base_command.create_game_object(game_data, {})
 
-        return company_map
+        # Параллельная обработка
+        games_to_create = []
+        with ThreadPoolExecutor(max_workers=min(len(games_data_list), 10)) as executor:
+            futures = [executor.submit(process_single_game, game_data) for game_data in games_data_list]
 
-    def load_countries_parallel(self, country_codes, debug=False):
-        """Создает страны по кодам"""
-        if not country_codes:
-            return {}
+            for future in as_completed(futures):
+                try:
+                    game = future.result()
+                    if game:
+                        games_to_create.append(game)
+                except Exception as e:
+                    if debug:
+                        self.stderr.write(f'   ❌ Ошибка future создания игры: {e}')
 
-        if debug:
-            self.stdout.write(f'   🌍 Создание {len(country_codes)} стран по кодам...')
+        if games_to_create:
+            with self._db_lock:
+                Game.objects.bulk_create(games_to_create, batch_size=50)
 
-        country_map = {}
+        return len(games_to_create), {game.igdb_id: game for game in games_to_create}
 
-        for country_code in country_codes:
-            if not country_code:
-                continue
+    def update_games_with_covers(self, game_basic_map, cover_map, game_data_map, debug=False):
+        """Обновляет игры обложками"""
+        with self._db_lock:
+            games = list(Game.objects.filter(igdb_id__in=game_basic_map.keys()))
 
-            try:
-                # Просто создаем страну с кодом
-                country_obj, created = Country.objects.get_or_create(
-                    code=country_code,
-                    defaults={'name': f'Country {country_code}'}
-                )
+        def process_single_game(game):
+            game_data = game_data_map.get(game.igdb_id)
+            if game_data and game_data.get('cover'):
+                cover_id = game_data['cover']
+                if cover_id in cover_map and cover_map[cover_id] != game.cover_url:
+                    game.cover_url = cover_map[cover_id]
+                    return game
+            return None
 
-                country_map[country_code] = country_obj
+        # Параллельная обработка
+        games_to_update = []
+        with ThreadPoolExecutor(max_workers=min(len(games), 10)) as executor:
+            futures = [executor.submit(process_single_game, game) for game in games]
 
-                if debug and created:
-                    self.stdout.write(f'      🌍 Создана страна: {country_code}')
+            for future in as_completed(futures):
+                try:
+                    game = future.result()
+                    if game:
+                        games_to_update.append(game)
+                except Exception as e:
+                    if debug:
+                        self.stderr.write(f'   ❌ Ошибка future обновления игры: {e}')
 
-            except Exception as e:
-                if debug:
-                    self.stderr.write(f'      ⚠️  Ошибка создания страны {country_code}: {e}')
+        if games_to_update:
+            with self._db_lock:
+                Game.objects.bulk_update(games_to_update, ['cover_url'], batch_size=50)
 
-        return country_map
+        return len(games_to_update)
+
+    def load_all_data_types_sequentially(self, collected_data, debug=False):
+        """Последовательно загружает все типы данных"""
+        step_times = {}
+        data_maps = {}
+
+        steps = [
+            ('🖼️  Обложки', 'covers', lambda: self.load_covers_parallel(collected_data['all_cover_ids'], debug),
+             'cover_map'),
+            ('🎭 Жанры', 'genres', lambda: self.load_data_parallel_generic(
+                collected_data['all_genre_ids'], 'genres', Genre, '🎭', 'жанров', debug), 'genre_map'),
+            ('🖥️  Платформы', 'platforms', lambda: self.load_data_parallel_generic(
+                collected_data['all_platform_ids'], 'platforms', Platform, '🖥️', 'платформ', debug), 'platform_map'),
+            ('🔑 Ключевые слова', 'keywords', lambda: self.load_data_parallel_generic(
+                collected_data['all_keyword_ids'], 'keywords', Keyword, '🔑', 'ключевых слов', debug), 'keyword_map'),
+            ('📚 Серии', 'series', lambda: self.load_data_parallel_generic(
+                collected_data['all_series_ids'], 'collections', Series, '📚', 'серий', debug), 'series_map'),
+            ('🏢 Компании', 'companies', lambda: self.load_companies_with_country_parallel(
+                collected_data['all_company_ids'], debug), 'company_map'),
+            ('🎨 Темы', 'themes', lambda: self.load_data_parallel_generic(
+                collected_data['all_theme_ids'], 'themes', Theme, '🎨', 'тем', debug), 'theme_map'),
+            ('👁️  Перспективы', 'perspectives', lambda: self.load_data_parallel_generic(
+                collected_data['all_perspective_ids'], 'player_perspectives', PlayerPerspective, '👁️', 'перспектив',
+                debug), 'perspective_map'),
+            ('🎮 Режимы', 'modes', lambda: self.load_data_parallel_generic(
+                collected_data['all_mode_ids'], 'game_modes', GameMode, '🎮', 'режимов', debug), 'mode_map'),
+        ]
+
+        for i, (display_name, key, load_func, map_key) in enumerate(steps, 1):
+            if debug:
+                self.stdout.write(
+                    f'\n{i}️⃣  {display_name.split()[0]} {display_name.split()[1] if len(display_name.split()) > 1 else ""}...')
+
+            start_step = time.time()
+            data_maps[map_key] = load_func()
+            step_times[key] = time.time() - start_step
+
+        return data_maps, step_times
