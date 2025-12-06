@@ -1741,3 +1741,475 @@ h1.display-5 {
         height: 46px;
     }
 }
+
+/* ===== FILTERS ENHANCEMENTS ===== */
+
+/* Стили для раскрывающихся секций фильтров */
+.toggle-section, .toggle-subsection {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: 8px;
+    padding: 12px;
+    margin: -12px;
+}
+
+.toggle-section:hover, .toggle-subsection:hover {
+    background: rgba(255, 107, 53, 0.05);
+    cursor: pointer;
+}
+
+.toggle-section.active, .toggle-subsection.active {
+    background: rgba(255, 107, 53, 0.1);
+}
+
+/* Иконки для секций */
+.toggle-section i, .toggle-subsection i {
+    transition: transform 0.3s ease;
+    color: var(--secondary-color);
+}
+
+.toggle-section.active i, .toggle-subsection.active i {
+    transform: rotate(90deg);
+}
+
+/* Стили для содержимого фильтров */
+[id$="-content"] {
+    transition: all 0.3s ease;
+    overflow: hidden;
+}
+
+/* Стили для всех элементов списков фильтров */
+.platform-grid, .genre-grid, .keyword-grid,
+.theme-grid, .perspective-grid, .developer-grid,
+.game-mode-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
+    padding: 8px 0;
+}
+
+.platform-item, .genre-item, .keyword-item,
+.theme-item, .perspective-item, .developer-item,
+.game-mode-item {
+    background: var(--surface-dark);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.platform-item:hover, .genre-item:hover, .keyword-item:hover,
+.theme-item:hover, .perspective-item:hover, .developer-item:hover,
+.game-mode-item:hover {
+    border-color: var(--secondary-color);
+    background: rgba(255, 107, 53, 0.08);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(255, 107, 53, 0.15);
+}
+
+.platform-item .form-check-label,
+.genre-item .form-check-label,
+.keyword-item .form-check-label,
+.theme-item .form-check-label,
+.perspective-item .form-check-label,
+.developer-item .form-check-label,
+.game-mode-item .form-check-label {
+    color: var(--text-dark);
+    font-weight: 600;
+    transition: color 0.2s ease;
+    user-select: none;
+}
+
+.platform-item:hover .form-check-label,
+.genre-item:hover .form-check-label,
+.keyword-item:hover .form-check-label,
+.theme-item:hover .form-check-label,
+.perspective-item:hover .form-check-label,
+.developer-item:hover .form-check-label,
+.game-mode-item:hover .form-check-label {
+    color: var(--text-light);
+}
+
+.form-check-input:checked ~ .form-check-label {
+    color: var(--secondary-color) !important;
+    font-weight: 700;
+}
+
+/* Стили для списков */
+.platform-list, .genre-list, .keyword-list,
+.theme-list, .perspective-list, .developer-list,
+.game-mode-list {
+    background: var(--surface-dark);
+    border: 1px solid var(--border);
+    border-radius: var(--border-radius);
+    transition: max-height 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    scroll-behavior: smooth;
+}
+
+/* Улучшенный скроллбар для списков фильтров */
+.platform-list::-webkit-scrollbar,
+.genre-list::-webkit-scrollbar,
+.keyword-list::-webkit-scrollbar,
+.theme-list::-webkit-scrollbar,
+.perspective-list::-webkit-scrollbar,
+.developer-list::-webkit-scrollbar,
+.game-mode-list::-webkit-scrollbar {
+    width: 8px;
+}
+
+.platform-list::-webkit-scrollbar-track,
+.genre-list::-webkit-scrollbar-track,
+.keyword-list::-webkit-scrollbar-track,
+.theme-list::-webkit-scrollbar-track,
+.perspective-list::-webkit-scrollbar-track,
+.developer-list::-webkit-scrollbar-track,
+.game-mode-list::-webkit-scrollbar-track {
+    background: var(--surface);
+    border-radius: 4px;
+}
+
+.platform-list::-webkit-scrollbar-thumb,
+.genre-list::-webkit-scrollbar-thumb,
+.keyword-list::-webkit-scrollbar-thumb,
+.theme-list::-webkit-scrollbar-thumb,
+.perspective-list::-webkit-scrollbar-thumb,
+.developer-list::-webkit-scrollbar-thumb,
+.game-mode-list::-webkit-scrollbar-thumb {
+    background: var(--secondary-color);
+    border-radius: 4px;
+}
+
+.platform-list::-webkit-scrollbar-thumb:hover,
+.genre-list::-webkit-scrollbar-thumb:hover,
+.keyword-list::-webkit-scrollbar-thumb:hover,
+.theme-list::-webkit-scrollbar-thumb:hover,
+.perspective-list::-webkit-scrollbar-thumb:hover,
+.developer-list::-webkit-scrollbar-thumb:hover,
+.game-mode-list::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-color);
+}
+
+/* Стили для активных тегов */
+.active-platform-tag, .active-genre-tag, .active-keyword-tag,
+.active-theme-tag, .active-perspective-tag, .active-developer-tag,
+.active-game-mode-tag {
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 16px !important;
+    font-size: 0.9rem !important;
+    border-radius: 20px !important;
+    cursor: pointer;
+    border: 2px solid transparent !important;
+    margin: 4px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.active-platform-tag:hover, .active-genre-tag:hover, .active-keyword-tag:hover,
+.active-theme-tag:hover, .active-perspective-tag:hover, .active-developer-tag:hover,
+.active-game-mode-tag:hover {
+    transform: translateY(-2px) scale(1.05);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+    opacity: 0.9;
+}
+
+.active-platform-tag i, .active-genre-tag i, .active-keyword-tag i,
+.active-theme-tag i, .active-perspective-tag i, .active-developer-tag i,
+.active-game-mode-tag i {
+    transition: transform 0.2s ease;
+}
+
+.active-platform-tag:hover i, .active-genre-tag:hover i, .active-keyword-tag:hover i,
+.active-theme-tag:hover i, .active-perspective-tag:hover i, .active-developer-tag:hover i,
+.active-game-mode-tag:hover i {
+    transform: scale(1.2);
+}
+
+/* Цвета для разных типов фильтров */
+.active-genre-tag {
+    background: linear-gradient(135deg, var(--secondary-color), var(--accent-color)) !important;
+    color: white !important;
+}
+
+.active-keyword-tag {
+    background: linear-gradient(135deg, var(--success-color), #229954) !important;
+    color: white !important;
+}
+
+.active-platform-tag {
+    background: linear-gradient(135deg, var(--info-color), #2980b9) !important;
+    color: white !important;
+}
+
+.active-theme-tag {
+    background: linear-gradient(135deg, var(--warning-color), #e67e22) !important;
+    color: #2c3e50 !important;
+}
+
+.active-perspective-tag {
+    background: linear-gradient(135deg, #3498db, #2980b9) !important;
+    color: white !important;
+}
+
+.active-developer-tag {
+    background: linear-gradient(135deg, #2c3e50, #34495e) !important;
+    color: white !important;
+}
+
+.active-game-mode-tag {
+    background: linear-gradient(135deg, #6f42c1, #8e44ad) !important;
+    color: white !important;
+}
+
+/* Стили для кнопок очистки */
+.clear-platforms-btn, .clear-genres-btn, .clear-keywords-btn,
+.clear-themes-btn, .clear-perspectives-btn, .clear-developers-btn,
+.clear-game-modes-btn {
+    transition: all 0.3s ease !important;
+    border-width: 2px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.5px;
+    position: relative;
+    overflow: hidden;
+}
+
+.clear-platforms-btn:hover, .clear-genres-btn:hover, .clear-keywords-btn:hover,
+.clear-themes-btn:hover, .clear-perspectives-btn:hover, .clear-developers-btn:hover,
+.clear-game-modes-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+
+/* Стили для полей поиска */
+#platform-search, #genre-search, #keyword-search,
+#theme-search, #perspective-search, #developer-search,
+#game-mode-search {
+    background: var(--surface) !important;
+    border: 2px solid var(--border) !important;
+    color: var(--text-light) !important;
+    transition: all 0.3s ease;
+    font-weight: 600;
+}
+
+#platform-search:focus, #genre-search:focus, #keyword-search:focus,
+#theme-search:focus, #perspective-search:focus, #developer-search:focus,
+#game-mode-search:focus {
+    border-color: var(--secondary-color) !important;
+    box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.1) !important;
+    background: var(--surface-dark) !important;
+}
+
+/* Стили для кнопок "Show all" */
+.show-all-platforms-btn, .show-all-genres-btn, .show-all-keywords-btn,
+.show-all-themes-btn, .show-all-perspectives-btn, .show-all-developers-btn,
+.show-all-game-modes-btn {
+    transition: all 0.3s ease !important;
+    border: 2px solid var(--border) !important;
+    font-weight: 600;
+    color: var(--text-dark);
+}
+
+.show-all-platforms-btn:hover, .show-all-genres-btn:hover, .show-all-keywords-btn:hover,
+.show-all-themes-btn:hover, .show-all-perspectives-btn:hover, .show-all-developers-btn:hover,
+.show-all-game-modes-btn:hover {
+    border-color: var(--secondary-color) !important;
+    color: var(--secondary-color) !important;
+    background: rgba(255, 107, 53, 0.05) !important;
+    transform: translateY(-2px);
+}
+
+/* Анимация для секций фильтров */
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+[id$="-content"][style*="display: block"] {
+    animation: slideDown 0.3s ease-out;
+}
+
+/* Стили для подсекций */
+.filter-subsection {
+    margin-bottom: 20px;
+    padding: 16px;
+    background: rgba(26, 26, 26, 0.6);
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    transition: all 0.3s ease;
+}
+
+.filter-subsection:hover {
+    border-color: rgba(255, 107, 53, 0.2);
+    background: rgba(26, 26, 26, 0.8);
+}
+
+/* Адаптивные стили для фильтров */
+@media (max-width: 1200px) {
+    .platform-grid, .genre-grid, .keyword-grid,
+    .theme-grid, .perspective-grid, .developer-grid,
+    .game-mode-grid {
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 10px;
+    }
+}
+
+@media (max-width: 992px) {
+    .platform-grid, .genre-grid, .keyword-grid,
+    .theme-grid, .perspective-grid, .developer-grid,
+    .game-mode-grid {
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        gap: 8px;
+    }
+
+    .platform-item, .genre-item, .keyword-item,
+    .theme-item, .perspective-item, .developer-item,
+    .game-mode-item {
+        padding: 12px;
+    }
+}
+
+@media (max-width: 768px) {
+    .platform-grid, .genre-grid, .keyword-grid,
+    .theme-grid, .perspective-grid, .developer-grid,
+    .game-mode-grid {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+
+    .filter-subsection {
+        padding: 12px;
+        margin-bottom: 16px;
+    }
+
+    .toggle-section, .toggle-subsection {
+        padding: 10px;
+        margin: -10px;
+    }
+}
+
+@media (max-width: 576px) {
+    .active-platform-tag, .active-genre-tag, .active-keyword-tag,
+    .active-theme-tag, .active-perspective-tag, .active-developer-tag,
+    .active-game-mode-tag {
+        padding: 8px 12px !important;
+        font-size: 0.85rem !important;
+    }
+
+    .clear-platforms-btn, .clear-genres-btn, .clear-keywords-btn,
+    .clear-themes-btn, .clear-perspectives-btn, .clear-developers-btn,
+    .clear-game-modes-btn {
+        padding: 0.3rem 0.8rem !important;
+        font-size: 0.85rem !important;
+    }
+}
+
+/* Стили для состояний */
+.loading-state {
+    position: relative;
+    min-height: 100px;
+}
+
+.loading-state::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 40px;
+    height: 40px;
+    border: 3px solid var(--border);
+    border-top: 3px solid var(--secondary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    transform: translate(-50%, -50%);
+}
+
+/* Улучшенные стили для чекбоксов */
+.form-check-input {
+    width: 20px;
+    height: 20px;
+    margin-right: 10px;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s ease;
+}
+
+.form-check-input:checked {
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23000' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='M6 10l3 3l6-6'/%3e%3c/svg%3e");
+    background-color: var(--secondary-color);
+    border-color: var(--secondary-color);
+}
+
+/* Эффект при фокусе */
+.form-check-input:focus {
+    box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.25);
+    border-color: var(--secondary-color);
+}
+
+/* Стили для сообщений о пустых фильтрах */
+.no-results-message {
+    text-align: center;
+    padding: 30px 20px;
+    color: var(--text-dark);
+    font-style: italic;
+    font-size: 1.1rem;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 8px;
+    border: 1px dashed var(--border);
+}
+
+/* Анимация появления элементов */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.platform-item, .genre-item, .keyword-item,
+.theme-item, .perspective-item, .developer-item,
+.game-mode-item {
+    animation: fadeInUp 0.3s ease backwards;
+}
+
+.platform-item:nth-child(2) { animation-delay: 0.05s; }
+.platform-item:nth-child(3) { animation-delay: 0.1s; }
+.platform-item:nth-child(4) { animation-delay: 0.15s; }
+.platform-item:nth-child(5) { animation-delay: 0.2s; }
+.platform-item:nth-child(6) { animation-delay: 0.25s; }
+
+/* Анимация для активных тегов */
+.active-platform-tag, .active-genre-tag, .active-keyword-tag,
+.active-theme-tag, .active-perspective-tag, .active-developer-tag,
+.active-game-mode-tag {
+    animation: fadeInUp 0.3s ease;
+}
+
+/* Стили для состояния "применение фильтров" */
+.applying-filters {
+    pointer-events: none;
+    opacity: 0.7;
+    position: relative;
+}
+
+.applying-filters::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.1);
+    z-index: 1;
+    border-radius: inherit;
+}

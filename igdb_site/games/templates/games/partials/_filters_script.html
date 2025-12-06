@@ -1,15 +1,92 @@
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        // Инициализация - скрываем все блоки при загрузке
-        document.querySelectorAll('[id$="-content"]').forEach(content => {
-            content.style.display = 'none';
+        // Инициализация - скрываем только главные секции при загрузке
+        document.querySelectorAll('.toggle-section').forEach(section => {
+            const targetId = section.getAttribute('data-target');
+            const targetContent = document.getElementById(targetId);
+
+            // Главные секции скрыты по умолчанию
+            if (targetContent) {
+                targetContent.style.display = 'none';
+                const icon = section.querySelector('i');
+                icon.classList.remove('bi-chevron-down');
+                icon.classList.add('bi-chevron-right');
+            }
         });
 
-        // Меняем иконки на chevron-right
-        document.querySelectorAll('.toggle-section i, .toggle-subsection i').forEach(icon => {
-            icon.classList.remove('bi-chevron-down');
-            icon.classList.add('bi-chevron-right');
+        // Раскрываем все подсекции по умолчанию
+        document.querySelectorAll('.toggle-subsection').forEach(subsection => {
+            const targetId = subsection.getAttribute('data-target');
+            const targetContent = document.getElementById(targetId);
+            const icon = subsection.querySelector('i');
+
+            if (targetContent) {
+                // Подсекции раскрыты по умолчанию
+                targetContent.style.display = 'block';
+                icon.classList.remove('bi-chevron-right');
+                icon.classList.add('bi-chevron-down');
+            }
         });
+
+        // Сохраняем состояние в localStorage
+        function saveSectionState(sectionId, isOpen) {
+            localStorage.setItem(`filter_section_${sectionId}`, isOpen ? 'open' : 'closed');
+        }
+
+        function saveSubsectionState(subsectionId, isOpen) {
+            localStorage.setItem(`filter_subsection_${subsectionId}`, isOpen ? 'open' : 'closed');
+        }
+
+        function getSectionState(sectionId) {
+            return localStorage.getItem(`filter_section_${sectionId}`);
+        }
+
+        function getSubsectionState(subsectionId) {
+            return localStorage.getItem(`filter_subsection_${subsectionId}`);
+        }
+
+        // Восстанавливаем состояние при загрузке
+        function restoreSectionStates() {
+            // Восстанавливаем главные секции
+            document.querySelectorAll('.toggle-section').forEach(section => {
+                const targetId = section.getAttribute('data-target');
+                const savedState = getSectionState(targetId);
+                const targetContent = document.getElementById(targetId);
+                const icon = section.querySelector('i');
+
+                if (targetContent && savedState) {
+                    if (savedState === 'open') {
+                        targetContent.style.display = 'block';
+                        icon.classList.remove('bi-chevron-right');
+                        icon.classList.add('bi-chevron-down');
+                    } else {
+                        targetContent.style.display = 'none';
+                        icon.classList.remove('bi-chevron-down');
+                        icon.classList.add('bi-chevron-right');
+                    }
+                }
+            });
+
+            // Восстанавливаем подсекции
+            document.querySelectorAll('.toggle-subsection').forEach(subsection => {
+                const targetId = subsection.getAttribute('data-target');
+                const savedState = getSubsectionState(targetId);
+                const targetContent = document.getElementById(targetId);
+                const icon = subsection.querySelector('i');
+
+                if (targetContent && savedState) {
+                    if (savedState === 'open') {
+                        targetContent.style.display = 'block';
+                        icon.classList.remove('bi-chevron-right');
+                        icon.classList.add('bi-chevron-down');
+                    } else {
+                        targetContent.style.display = 'none';
+                        icon.classList.remove('bi-chevron-down');
+                        icon.classList.add('bi-chevron-right');
+                    }
+                }
+            });
+        }
 
         // Обновляем скрытые поля при изменении чекбоксов
         function updateHiddenFields() {
@@ -43,7 +120,7 @@
             const developerIds = Array.from(developerCheckboxes).map(cb => cb.value);
             document.getElementById('developers-field').value = developerIds.join(',');
 
-            // ОБНОВЛЯЕМ РЕЖИМЫ ИГРЫ
+            // Обновляем режимы игры
             const gameModeCheckboxes = document.querySelectorAll('.game-mode-checkbox:checked');
             const gameModeIds = Array.from(gameModeCheckboxes).map(cb => cb.value);
             document.getElementById('game-modes-field').value = gameModeIds.join(',');
@@ -136,7 +213,7 @@
                 });
             }
 
-            // ОЧИСТКА РЕЖИМОВ ИГРЫ
+            // Очистка режимов игры
             const clearGameModesBtn = document.querySelector('.clear-game-modes-btn');
             if (clearGameModesBtn) {
                 clearGameModesBtn.addEventListener('click', function () {
@@ -217,7 +294,7 @@
                 }
             }
 
-            // УДАЛЕНИЕ РЕЖИМА ИГРЫ
+            // Удаление режима игры
             if (e.target.classList.contains('active-game-mode-tag')) {
                 const gameModeId = e.target.getAttribute('data-game-mode-id');
                 const checkbox = document.querySelector(`.game-mode-checkbox[value="${gameModeId}"]`);
@@ -327,7 +404,7 @@
                 });
             }
 
-            // ПОИСК ПО РЕЖИМАМ ИГРЫ
+            // Поиск по режимам игры
             const gameModeSearch = document.getElementById('game-mode-search');
             if (gameModeSearch) {
                 gameModeSearch.addEventListener('input', function () {
@@ -354,7 +431,7 @@
                     const showText = this.querySelector('.show-text');
                     const hideText = this.querySelector('.hide-text');
 
-                    if (genreList.style.maxHeight === '200px') {
+                    if (genreList.style.maxHeight === '200px' || genreList.style.maxHeight === '') {
                         genreList.style.maxHeight = 'none';
                         showText.style.display = 'none';
                         hideText.style.display = 'inline';
@@ -374,7 +451,7 @@
                     const showText = this.querySelector('.show-text');
                     const hideText = this.querySelector('.hide-text');
 
-                    if (keywordList.style.maxHeight === '200px') {
+                    if (keywordList.style.maxHeight === '200px' || keywordList.style.maxHeight === '') {
                         keywordList.style.maxHeight = 'none';
                         showText.style.display = 'none';
                         hideText.style.display = 'inline';
@@ -394,7 +471,7 @@
                     const showText = this.querySelector('.show-text');
                     const hideText = this.querySelector('.hide-text');
 
-                    if (platformList.style.maxHeight === '200px') {
+                    if (platformList.style.maxHeight === '200px' || platformList.style.maxHeight === '') {
                         platformList.style.maxHeight = 'none';
                         showText.style.display = 'none';
                         hideText.style.display = 'inline';
@@ -414,7 +491,7 @@
                     const showText = this.querySelector('.show-text');
                     const hideText = this.querySelector('.hide-text');
 
-                    if (themeList.style.maxHeight === '200px') {
+                    if (themeList.style.maxHeight === '200px' || themeList.style.maxHeight === '') {
                         themeList.style.maxHeight = 'none';
                         showText.style.display = 'none';
                         hideText.style.display = 'inline';
@@ -434,7 +511,7 @@
                     const showText = this.querySelector('.show-text');
                     const hideText = this.querySelector('.hide-text');
 
-                    if (perspectiveList.style.maxHeight === '200px') {
+                    if (perspectiveList.style.maxHeight === '200px' || perspectiveList.style.maxHeight === '') {
                         perspectiveList.style.maxHeight = 'none';
                         showText.style.display = 'none';
                         hideText.style.display = 'inline';
@@ -454,7 +531,7 @@
                     const showText = this.querySelector('.show-text');
                     const hideText = this.querySelector('.hide-text');
 
-                    if (developerList.style.maxHeight === '200px') {
+                    if (developerList.style.maxHeight === '200px' || developerList.style.maxHeight === '') {
                         developerList.style.maxHeight = 'none';
                         showText.style.display = 'none';
                         hideText.style.display = 'inline';
@@ -466,7 +543,7 @@
                 });
             }
 
-            // РЕЖИМЫ ИГРЫ
+            // Режимы игры
             const showAllGameModesBtn = document.querySelector('.show-all-game-modes-btn');
             if (showAllGameModesBtn) {
                 showAllGameModesBtn.addEventListener('click', function () {
@@ -474,7 +551,7 @@
                     const showText = this.querySelector('.show-text');
                     const hideText = this.querySelector('.hide-text');
 
-                    if (gameModeList.style.maxHeight === '200px') {
+                    if (gameModeList.style.maxHeight === '200px' || gameModeList.style.maxHeight === '') {
                         gameModeList.style.maxHeight = 'none';
                         showText.style.display = 'none';
                         hideText.style.display = 'inline';
@@ -513,7 +590,7 @@
             }
         }
 
-        // Переключение секций
+        // Переключение секций с сохранением состояния
         document.querySelectorAll('.toggle-section').forEach(section => {
             section.addEventListener('click', function () {
                 const targetId = this.getAttribute('data-target');
@@ -524,15 +601,17 @@
                     targetContent.style.display = 'block';
                     icon.classList.remove('bi-chevron-right');
                     icon.classList.add('bi-chevron-down');
+                    saveSectionState(targetId, true);
                 } else {
                     targetContent.style.display = 'none';
                     icon.classList.remove('bi-chevron-down');
                     icon.classList.add('bi-chevron-right');
+                    saveSectionState(targetId, false);
                 }
             });
         });
 
-        // Переключение подсекций
+        // Переключение подсекций с сохранением состояния
         document.querySelectorAll('.toggle-subsection').forEach(subsection => {
             subsection.addEventListener('click', function () {
                 const targetId = this.getAttribute('data-target');
@@ -543,15 +622,18 @@
                     targetContent.style.display = 'block';
                     icon.classList.remove('bi-chevron-right');
                     icon.classList.add('bi-chevron-down');
+                    saveSubsectionState(targetId, true);
                 } else {
                     targetContent.style.display = 'none';
                     icon.classList.remove('bi-chevron-down');
                     icon.classList.add('bi-chevron-right');
+                    saveSubsectionState(targetId, false);
                 }
             });
         });
 
         // Инициализация всех функций
+        restoreSectionStates(); // Восстанавливаем сохраненные состояния
         setupClearButtons();
         setupSearchFilters();
         setupShowAllToggles();
