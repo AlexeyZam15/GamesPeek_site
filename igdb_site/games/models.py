@@ -2,52 +2,38 @@ from django.db import models
 from django.utils import timezone
 
 
-class Country(models.Model):
-    """Модель для стран"""
-    igdb_id = models.IntegerField(unique=True, blank=True, null=True)
-    name = models.CharField(max_length=100)
-    code = models.CharField(max_length=10, blank=True, null=True)  # ISO код страны
-
-    def __str__(self):
-        return self.name
-
-    class Meta:
-        verbose_name_plural = "Countries"
-        ordering = ['name']
-
 class Company(models.Model):
-    """Компании (разработчики и издатели)"""
+    """Компания (разработчик/издатель)"""
     igdb_id = models.IntegerField(unique=True)
     name = models.CharField(max_length=255)
-    description = models.TextField(blank=True, null=True)
-    country = models.ForeignKey(
-        Country,
-        on_delete=models.SET_NULL,
-        blank=True,
-        null=True,
-        related_name='companies'
-    )
-    logo_url = models.URLField(blank=True, null=True)
-    website = models.URLField(blank=True, null=True)
+    description = models.TextField(blank=True)
+    website = models.URLField(blank=True, max_length=500)
 
-    # Типы компании
-    DEVELOPER = 'developer'
-    PUBLISHER = 'publisher'
-    SUPPORTING = 'supporting'
-    PORTING = 'porting'
-    COMPANY_TYPE_CHOICES = [
-        (DEVELOPER, 'Developer'),
-        (PUBLISHER, 'Publisher'),
-        (SUPPORTING, 'Supporting'),
-        (PORTING, 'Porting'),
-    ]
+    # Поле для ID логотипа из IGDB
+    logo_igdb_id = models.CharField(max_length=50, blank=True, null=True, help_text="ID логотипа в IGDB")
+    # URL логотипа (будет генерироваться из logo_igdb_id)
+    logo_url = models.URLField(blank=True, max_length=500)
+    start_date = models.DateTimeField(null=True, blank=True)
+    changed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Компания'
+        verbose_name_plural = 'Компании'
+        ordering = ['name']
 
     def __str__(self):
         return self.name
 
-    class Meta:
-        verbose_name_plural = "Companies"
-        ordering = ['name']
+    @property
+    def logo_image_url(self):
+        """Генерирует URL для логотипа из IGDB если есть logo_igdb_id"""
+        if self.logo_igdb_id:
+            return f"https://images.igdb.com/igdb/image/upload/t_thumb/{self.logo_igdb_id}.jpg"
+        elif self.logo_url:
+            return self.logo_url
+        return ""
 
 
 class Series(models.Model):

@@ -4,7 +4,7 @@ import threading
 from games.igdb_api import make_igdb_request
 from games.models import (
     Game, Genre, Keyword, Platform, Series,
-    Company, Theme, PlayerPerspective, GameMode, Screenshot, Country
+    Company, Theme, PlayerPerspective, GameMode, Screenshot
 )
 
 
@@ -436,101 +436,104 @@ class DataLoader:
             'all_mode_ids': list(all_mode_ids)
         }
 
-    def _process_companies_with_country_batch(self, batch_num, batch_ids, company_map, lock,
-                                              total_batches, name, debug):
-        """Обрабатывает пачку компаний с информацией о стране"""
-        try:
-            if debug:
-                with lock:
-                    self.stdout.write(f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_ids)} компаний')
-
-            id_list = ','.join(map(str, batch_ids))
-            query = f'fields id,name,country; where id = ({id_list});'
-            batch_data = self._rate_limited_request('companies', query, debug=False)
-
-            data_by_id = {item['id']: item for item in batch_data if 'id' in item}
-
-            def process_single_company(company_id):
-                if company_id not in data_by_id:
-                    return None
-
-                company_data = data_by_id[company_id]
-                company_name = company_data.get('name', f'Company {company_id}')
-                country_code = company_data.get('country')
-
-                with self._db_lock:
-                    existing = Company.objects.filter(igdb_id=company_id).first()
-
-                    if existing:
-                        needs_update = False
-                        if not existing.name.strip() and company_name.strip():
-                            existing.name = company_name
-                            needs_update = True
-
-                        if country_code and not existing.country:
-                            country_obj, _ = Country.objects.get_or_create(
-                                code=country_code,
-                                defaults={'name': f'Country {country_code}'}
-                            )
-                            existing.country = country_obj
-                            needs_update = True
-
-                        if needs_update:
-                            existing.save()
-                        return (company_id, existing)
-                    else:
-                        company = Company.objects.create(igdb_id=company_id, name=company_name)
-                        if country_code:
-                            country_obj, _ = Country.objects.get_or_create(
-                                code=country_code,
-                                defaults={'name': f'Country {country_code}'}
-                            )
-                            company.country = country_obj
-                            company.save()
-                        return (company_id, company)
-
-            # Параллельная обработка
-            batch_map = {}
-            with ThreadPoolExecutor(max_workers=min(len(batch_ids), 10)) as executor:
-                futures = {executor.submit(process_single_company, company_id): company_id for company_id in batch_ids}
-
-                for future in as_completed(futures):
-                    company_id = futures[future]
-                    try:
-                        result = future.result()
-                        if result:
-                            company_id, company = result
-                            batch_map[company_id] = company
-                    except Exception as e:
-                        if debug:
-                            with lock:
-                                self.stderr.write(f'               ❌ Ошибка future для компании {company_id}: {e}')
-
-            with lock:
-                company_map.update(batch_map)
-
-            if debug:
-                with lock:
-                    self.stdout.write(
-                        f'         ✅ Пачка {name} {batch_num}/{total_batches}: {len(batch_data)} компаний')
-
-        except Exception as e:
-            if debug:
-                with lock:
-                    self.stderr.write(f'         ❌ Ошибка пачки {name} {batch_num}/{total_batches}: {e}')
-
-    def load_companies_with_country_parallel(self, company_ids, debug=False):
-        """Параллельная загрузка компаний с информацией о стране"""
+    def load_companies_parallel(self, company_ids, debug=False):
+        """Параллельная загрузка компаний с логотипами"""
         if not company_ids:
             if debug:
                 self.stdout.write('   ⚠️  Нет ID компаний для загрузки')
             return {}
 
         if debug:
-            self.stdout.write(f'   🏢 Загрузка {len(company_ids)} компаний с информацией о стране...')
+            self.stdout.write(f'   🏢 Загрузка {len(company_ids)} компаний...')
 
-        return self._batch_processor(company_ids, self._process_companies_with_country_batch, '🏢',
-                                     'компаний со странами', debug)
+        def process_companies_batch(batch_num, batch_ids, company_map, lock, total_batches, name, debug):
+            try:
+                if debug:
+                    with lock:
+                        self.stdout.write(
+                            f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_ids)} компаний')
+
+                # Загружаем данные компаний с логотипами
+                id_list = ','.join(map(str, batch_ids))
+                query = f'fields id,name,logo; where id = ({id_list});'
+                batch_data = self._rate_limited_request('companies', query, debug=False)
+
+                data_by_id = {item['id']: item for item in batch_data if 'id' in item}
+
+                def process_single_company(company_id):
+                    if company_id not in data_by_id:
+                        return None
+
+                    company_data = data_by_id[company_id]
+                    company_name = company_data.get('name', f'Company {company_id}')
+                    logo_igdb_id = company_data.get('logo')  # ID логотипа из IGDB
+
+                    with self._db_lock:
+                        existing = Company.objects.filter(igdb_id=company_id).first()
+
+                        if existing:
+                            needs_update = False
+                            if not existing.name.strip() and company_name.strip():
+                                existing.name = company_name
+                                needs_update = True
+
+                            # Обновляем логотип если есть
+                            if logo_igdb_id and not existing.logo_igdb_id:
+                                existing.logo_igdb_id = logo_igdb_id
+                                # Генерируем URL логотипа
+                                if logo_igdb_id:
+                                    existing.logo_url = f"https://images.igdb.com/igdb/image/upload/t_thumb/{logo_igdb_id}.jpg"
+                                needs_update = True
+
+                            if needs_update:
+                                existing.save()
+                            return (company_id, existing)
+                        else:
+                            # Создаем новую компанию
+                            company = Company(igdb_id=company_id, name=company_name)
+
+                            # Добавляем логотип если есть
+                            if logo_igdb_id:
+                                company.logo_igdb_id = logo_igdb_id
+                                company.logo_url = f"https://images.igdb.com/igdb/image/upload/t_thumb/{logo_igdb_id}.jpg"
+
+                            company.save()
+                            return (company_id, company)
+
+                # Параллельная обработка компаний
+                batch_map = {}
+                with ThreadPoolExecutor(max_workers=min(len(batch_ids), 10)) as executor:
+                    futures = {executor.submit(process_single_company, company_id): company_id for company_id in
+                               batch_ids}
+
+                    for future in as_completed(futures):
+                        company_id = futures[future]
+                        try:
+                            result = future.result()
+                            if result:
+                                company_id, company = result
+                                batch_map[company_id] = company
+                        except Exception as e:
+                            if debug:
+                                with lock:
+                                    self.stderr.write(f'               ❌ Ошибка future для компании {company_id}: {e}')
+
+                with lock:
+                    company_map.update(batch_map)
+
+                if debug:
+                    with lock:
+                        companies_with_logos = len([c for c in batch_map.values() if c.logo_igdb_id])
+                        self.stdout.write(
+                            f'         ✅ Пачка {name} {batch_num}/{total_batches}: {len(batch_map)} компаний '
+                            f'({companies_with_logos} с логотипами)')
+
+            except Exception as e:
+                if debug:
+                    with lock:
+                        self.stderr.write(f'         ❌ Ошибка пачки {name} {batch_num}/{total_batches}: {e}')
+
+        return self._batch_processor(company_ids, process_companies_batch, '🏢', 'компаний', debug)
 
     def create_basic_games(self, games_data_list, debug=False):
         """Создает игры с основными данными"""
@@ -618,8 +621,8 @@ class DataLoader:
                 collected_data['all_keyword_ids'], 'keywords', Keyword, '🔑', 'ключевых слов', debug), 'keyword_map'),
             ('📚 Серии', 'series', lambda: self.load_data_parallel_generic(
                 collected_data['all_series_ids'], 'collections', Series, '📚', 'серий', debug), 'series_map'),
-            ('🏢 Компании', 'companies', lambda: self.load_companies_with_country_parallel(
-                collected_data['all_company_ids'], debug), 'company_map'),
+            ('🏢 Компании', 'companies', lambda: self.load_companies_parallel(
+                collected_data['all_company_ids'], debug), 'company_map'),  # Загрузка компаний с логотипами
             ('🎨 Темы', 'themes', lambda: self.load_data_parallel_generic(
                 collected_data['all_theme_ids'], 'themes', Theme, '🎨', 'тем', debug), 'theme_map'),
             ('👁️  Перспективы', 'perspectives', lambda: self.load_data_parallel_generic(

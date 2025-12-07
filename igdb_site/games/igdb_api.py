@@ -102,7 +102,7 @@ def make_igdb_request(endpoint, query, debug=None):
 
 def get_companies(company_ids):
     """Получает данные о компаниях из IGDB"""
-    fields = "id,name,description,country,logo.url,website"
+    fields = "id,name,description,logo.url,website"
     query = f'fields {fields}; where id = ({",".join(map(str, company_ids))});'
     return make_igdb_request('companies', query)
 
