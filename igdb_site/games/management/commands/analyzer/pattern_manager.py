@@ -123,12 +123,12 @@ class PatternManager:
         'Tactical': [
             r'\btactical(\s+game|\s+decisions|\s+rpg)\b',
             r'\btactics(\s+game)?\b',
+            r'\bturn-based\s+tactics\b',
         ],
         'Turn-based strategy (TBS)': [
             r'\bturn-based\s+strategy\b',
             r'\bturn-based\s+game\b',
             r'\btbs\s+game\b',
-            r'\bturn-based\s+tactics\b',
             r'\bstrategy\s+turn-based\b',
         ],
         'Visual Novel': [
@@ -171,12 +171,10 @@ class PatternManager:
         'Erotic': [
             r'\berotic(\s+content|\s+themes|\s+elements)\b',
             r'\bsexual(\s+content|\s+themes|\s+situations)\b',
-            r'\bromance(\s+novel|\s+game)\b',
-            r'\bdating\s+sim\b',
-            r'\bvisual\s+novel\s+with\s+romance\b',
             r'\bmature(\s+content|\s+themes)\b',
             r'\bexplicit(\s+content|\s+scenes)\b',
-            r'\bsensual(\s+content|\s+themes)\b',
+            r'\badult(\s+content|\s+themes)\b',
+            r'\bnsfw\b',
         ],
         'Fantasy': [
             r'\bfantasy(\s+world|\s+setting|\s+game|\s|$)',
@@ -231,6 +229,8 @@ class PatternManager:
         'Romance': [
             r'\bromance(\s+game)?\b',
             r'\bromantic(\s+story)?\b',
+            r'\bdating\s+sim\b',
+            r'\blove(\s+story|\s+game)\b',
         ],
         'Sandbox': [
             r'\bsandbox(\s+game)?\b',

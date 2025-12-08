@@ -147,8 +147,11 @@ class Command(BaseCommand):
         processor = GameProcessor(self)
         stats = processor.process_games_batch(games_queryset)
 
+        # ВАЖНО: Сохраняем статистику в self.stats
+        self.stats = stats  # ← ДОБАВЬТЕ ЭТУ СТРОЧКУ
+
         # Выводим статистику
-        self.print_stats("СТАТИСТИКА АНАЛИЗА")
+        self.print_stats("СТАТИСТИКА АНАЛИЗА")  # ← ДОБАВЬТЕ ЭТУ СТРОЧКУ
 
     def analyze_single_game_by_id(self, game_id: int):
         """Анализирует одну игру по ID"""
