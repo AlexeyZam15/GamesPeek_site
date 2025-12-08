@@ -1,3 +1,5 @@
+// game_detail_scripts.js
+
 // Инициализация Fancybox
 Fancybox.bind("[data-fancybox]", {
     Thumbs: {
@@ -15,25 +17,30 @@ Fancybox.bind("[data-fancybox]", {
     },
 });
 
-function toggleText(type) {
-    const element = document.getElementById(`${type}-text`);
-    const button = event.currentTarget.closest('.toggle-text-btn'); // Исправлено: currentTarget вместо target
+// Глобальная функция для переключения текста
+window.toggleText = function(type) {
+    const element = document.getElementById(type + '-text');
+    if (!element) return;
+
+    // Получаем кнопку из события
+    const button = window.event.currentTarget;
     const icon = button.querySelector('i');
     const span = button.querySelector('span');
 
     if (element.classList.contains('expanded')) {
         element.classList.remove('expanded');
-        span.textContent = 'Read more';
-        icon.className = 'bi bi-chevron-down';
+        if (span) span.textContent = 'Read more';
+        if (icon) icon.className = 'bi bi-chevron-down';
     } else {
         element.classList.add('expanded');
-        span.textContent = 'Show less';
-        icon.className = 'bi bi-chevron-up';
+        if (span) span.textContent = 'Show less';
+        if (icon) icon.className = 'bi bi-chevron-up';
     }
 }
 
-// Инициализация tooltips
+// Инициализация при загрузке документа
 document.addEventListener('DOMContentLoaded', function () {
+    // Инициализация Bootstrap tooltips
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
     var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
         return new bootstrap.Tooltip(tooltipTriggerEl);
@@ -45,25 +52,20 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!cover) return;
 
         const windowHeight = window.innerHeight;
-        const maxAvailableHeight = windowHeight - 200; // Минус отступы
+        const maxAvailableHeight = windowHeight - 200;
 
-        // Устанавливаем высоту обложки в зависимости от высоты окна
         const targetHeight = Math.min(500, maxAvailableHeight);
-
         cover.style.maxHeight = `${targetHeight}px`;
 
-        // Адаптируем placeholder
         const placeholder = document.querySelector('.no-cover-placeholder');
         if (placeholder) {
             placeholder.style.height = `${targetHeight}px`;
         }
     }
 
-    // Вызываем при загрузке и изменении размера окна
     adjustCoverHeight();
     window.addEventListener('resize', adjustCoverHeight);
 
-    // Также вызываем после полной загрузки изображения
     const coverImg = document.querySelector('.game-cover-main');
     if (coverImg) {
         coverImg.onload = function() {
@@ -71,14 +73,13 @@ document.addEventListener('DOMContentLoaded', function () {
             this.style.opacity = '1';
         };
 
-        // Если изображение уже загружено (из кэша)
         if (coverImg.complete) {
             adjustCoverHeight();
             coverImg.style.opacity = '1';
         }
     }
 
-    // Адаптация для мобильных устройств - динамическая
+    // Адаптация для мобильных устройств
     function adaptMobileLayout() {
         const headerRow = document.querySelector('.row.align-items-start');
         if (headerRow) {
@@ -89,7 +90,6 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
 
-        // Адаптация для рейтинга на мобильных
         const ratingContainer = document.querySelector('.d-flex.justify-content-between.align-items-start');
         if (ratingContainer && window.innerWidth <= 768) {
             ratingContainer.style.flexDirection = 'column';
@@ -97,30 +97,6 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    // Вызываем адаптацию при загрузке и изменении размера
     adaptMobileLayout();
     window.addEventListener('resize', adaptMobileLayout);
-
-    // Добавляем обработчики для кнопок "Read more"
-    document.querySelectorAll('.toggle-text-btn').forEach(button => {
-        button.addEventListener('click', function(e) {
-            // Находим ближайший текстовый элемент
-            const textElement = this.closest('.game-detail-card').querySelector('.collapsible-text');
-            if (textElement) {
-                const type = textElement.id.replace('-text', '');
-                const icon = this.querySelector('i');
-                const span = this.querySelector('span');
-
-                if (textElement.classList.contains('expanded')) {
-                    textElement.classList.remove('expanded');
-                    span.textContent = 'Read more';
-                    icon.className = 'bi bi-chevron-down';
-                } else {
-                    textElement.classList.add('expanded');
-                    span.textContent = 'Show less';
-                    icon.className = 'bi bi-chevron-up';
-                }
-            }
-        });
-    });
 });

@@ -149,7 +149,7 @@
         </div>
     </div>
 
-    <!-- Вкладка Details (новая вкладка) -->
+    <!-- Вкладка Details -->
     <div class="tab-pane fade" id="details" role="tabpanel" aria-labelledby="details-tab">
         <div class="details-grid">
             <!-- Платформы -->
@@ -180,10 +180,46 @@
                     </div>
                 </div>
             {% endif %}
+
+            <!-- Жанры -->
+            {% if game.genres.all %}
+                <div class="detail-section genres">
+                    <h5 class="mb-3"><i class="bi bi-grid me-2"></i>Genres</h5>
+                    <div class="detail-tags">
+                        {% for genre in game.genres.all %}
+                            <span class="detail-tag genre">{{ genre.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+
+            <!-- Перспективы -->
+            {% if game.player_perspectives.all %}
+                <div class="detail-section perspectives">
+                    <h5 class="mb-3"><i class="bi bi-camera-video me-2"></i>Perspectives</h5>
+                    <div class="detail-tags">
+                        {% for perspective in game.player_perspectives.all %}
+                            <span class="detail-tag perspective">{{ perspective.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+
+            <!-- Игровые режимы -->
+            {% if game.game_modes.all %}
+                <div class="detail-section game-modes">
+                    <h5 class="mb-3"><i class="bi bi-people me-2"></i>Game Modes</h5>
+                    <div class="detail-tags">
+                        {% for mode in game.game_modes.all %}
+                            <span class="detail-tag game-mode">{{ mode.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
         </div>
 
-        <!-- Если нет ни платформ, ни тем -->
-        {% if not game.platforms.all and not game.themes.all %}
+        <!-- Если нет деталей -->
+        {% if not game.platforms.all and not game.themes.all and not game.genres.all and not game.player_perspectives.all and not game.game_modes.all %}
             <div class="game-detail-card card">
                 <div class="card-body text-center py-5">
                     <div class="mb-3">
@@ -191,7 +227,7 @@
                     </div>
                     <h5 class="text-muted mb-2">No Details Available</h5>
                     <p class="text-muted mb-0">
-                        Platform and theme details for this game haven't been loaded yet.
+                        Game details haven't been loaded yet.
                     </p>
                 </div>
             </div>
@@ -369,7 +405,6 @@
                             {{ keyword.name }}
                             <small class="ms-2">
                                 <i class="bi bi-bar-chart me-1"></i>
-                                {# Используем cached_usage_count если есть, иначе usage_count #}
                                 {% firstof keyword.cached_usage_count keyword.usage_count %}
                             </small>
                             </span>
@@ -394,7 +429,6 @@
 
     <!-- Вкладка Screenshots -->
     <div class="tab-pane fade" id="screenshots" role="tabpanel" aria-labelledby="screenshots-tab">
-        <!-- ... остальной код screenshots таба без изменений ... -->
         {% if game.screenshots.all %}
             <div class="screenshots-gallery">
                 <div class="row g-3">
@@ -429,3 +463,26 @@
         {% endif %}
     </div>
 </div>
+
+<script>
+    // Простая функция для переключения текста
+    function toggleText(type) {
+        const element = document.getElementById(type + '-text');
+        if (!element) return;
+
+        // Получаем кнопку из события
+        const button = window.event.currentTarget;
+        const icon = button.querySelector('i');
+        const span = button.querySelector('span');
+
+        if (element.classList.contains('expanded')) {
+            element.classList.remove('expanded');
+            if (span) span.textContent = 'Read more';
+            if (icon) icon.className = 'bi bi-chevron-down';
+        } else {
+            element.classList.add('expanded');
+            if (span) span.textContent = 'Show less';
+            if (icon) icon.className = 'bi bi-chevron-up';
+        }
+    }
+</script>
