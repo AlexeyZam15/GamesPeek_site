@@ -417,6 +417,14 @@ def game_comparison(request, pk2):
         criteria_developers = []
         criteria_game_modes = []
 
+        # Инициализируем переменные для выбранных критериев
+        selected_genres = []
+        selected_keywords = []
+        selected_themes = []
+        selected_perspectives = []
+        selected_developers = []
+        selected_game_modes = []
+
         # ВСЕГДА показываем исходную игру, если есть source_game_id
         if source_game_id:
             try:
@@ -438,7 +446,8 @@ def game_comparison(request, pk2):
             selected_perspectives = [int(pp) for pp in perspectives_param.split(',') if
                                      pp.strip()] if perspectives_param else []
             selected_developers = [int(d) for d in developers_param.split(',') if d.strip()] if developers_param else []
-            selected_game_modes = [int(gm) for gm in game_modes_param.split(',') if gm.strip()] if game_modes_param else []
+            selected_game_modes = [int(gm) for gm in game_modes_param.split(',') if
+                                   gm.strip()] if game_modes_param else []
 
             criteria_genres = Genre.objects.filter(id__in=selected_genres)
             criteria_keywords = Keyword.objects.filter(id__in=selected_keywords)
@@ -514,6 +523,10 @@ def game_comparison(request, pk2):
             if category_keywords.exists():
                 shared_keywords_by_category[category.name] = category_keywords
 
+        # Вычисляем среднюю схожесть для отображения на карточке критериев
+        # (если это сравнение с критериями, а не с игрой)
+        average_similarity = similarity_score if is_criteria_comparison and not game1 else None
+
         context = {
             'game1': game1,
             'game2': game2,
@@ -549,12 +562,14 @@ def game_comparison(request, pk2):
             'game_modes_weight': int(similarity_engine.GAME_MODES_WEIGHT),
             'genres_exact_match_weight': int(similarity_engine.GENRES_EXACT_MATCH_WEIGHT),
             # Для кнопки "Back to Similar Games"
-            'selected_genres': selected_genres if is_criteria_comparison and not game1 else [],
-            'selected_keywords': selected_keywords if is_criteria_comparison and not game1 else [],
-            'selected_themes': selected_themes if is_criteria_comparison and not game1 else [],
-            'selected_perspectives': selected_perspectives if is_criteria_comparison and not game1 else [],
-            'selected_developers': selected_developers if is_criteria_comparison and not game1 else [],
-            'selected_game_modes': selected_game_modes if is_criteria_comparison and not game1 else [],
+            'selected_genres': selected_genres,
+            'selected_keywords': selected_keywords,
+            'selected_themes': selected_themes,
+            'selected_perspectives': selected_perspectives,
+            'selected_developers': selected_developers,
+            'selected_game_modes': selected_game_modes,
+            # Для SVG иконки на карточке критериев
+            'average_similarity': average_similarity,
         }
 
         return render(request, 'games/game_comparison.html', context)

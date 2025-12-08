@@ -16,11 +16,11 @@ def get_svg_cache_key(rating=None, similarity_percent=None, color=None, text=Non
     """Создает уникальный ключ для кэша SVG"""
     if rating is not None:
         # Для рейтинга
-        rating_str = f"{float(rating):.1f}"
+        rating_str = f"{float(rating):.1f}" if rating is not None else "NA"
         cache_data = f"rating_{rating_str}_{color}_{size}"
     elif similarity_percent is not None:
         # Для схожести
-        similarity_str = f"{float(similarity_percent):.0f}"
+        similarity_str = f"{float(similarity_percent):.0f}" if similarity_percent is not None else "0"
         cache_data = f"similarity_{similarity_str}_{color}_{size}"
     else:
         # Общий случай
@@ -36,11 +36,20 @@ def get_rating_color(rating):
     Возвращает цвет в формате hex для рейтинга от 0 до 10
     От зеленого (высокий рейтинг) к красному (низкий рейтинг)
     """
+    # Обрабатываем None
+    if rating is None:
+        return "#666666"  # Серый цвет для отсутствующего рейтинга
+
+    try:
+        rating = float(rating)
+    except (ValueError, TypeError):
+        return "#666666"
+
     # Нормализуем рейтинг от 0 до 1
-    normalized = max(0, min(10, float(rating))) / 10
+    normalized = max(0, min(10, rating)) / 10
 
     # Инвертируем для перехода от зеленого к красному
-    # 0 = красный, 1 = зеленый
+    # 0 = красный, 1 = зеленный
     hue = normalized * 120  # 0-120 градусов в HSL
 
     # Настройки насыщенности и яркости
@@ -65,6 +74,11 @@ def get_similarity_color(similarity_percent):
     """
     Возвращает цвет в формате hex для процента схожести
     """
+    if similarity_percent is None:
+        return "#666666"  # Серый для отсутствующего значения
+
+    similarity_percent = float(similarity_percent)
+
     if similarity_percent >= 80:
         return '#10b981'  # зеленый
     elif similarity_percent >= 60:
@@ -78,11 +92,23 @@ def rating_star_svg(rating, size=60):
     """
     Генерирует SVG звезду с рейтингом с кэшированием
     """
-    color = get_rating_color(rating)
-    rating_text = f"{float(rating):.1f}"
+    # Обрабатываем None и пустые значения
+    if rating is None:
+        rating_value = 0.0
+        rating_text = "N/A"
+        color = "#666666"  # Серый цвет для отсутствующего рейтинга
+    else:
+        try:
+            rating_value = float(rating)
+            rating_text = f"{rating_value:.1f}"
+            color = get_rating_color(rating_value)
+        except (ValueError, TypeError):
+            rating_value = 0.0
+            rating_text = "N/A"
+            color = "#666666"
 
     # Создаем ключ кэша
-    cache_key = get_svg_cache_key(rating=rating, color=color, size=size)
+    cache_key = get_svg_cache_key(rating=rating_value, color=color, size=size)
 
     # Пробуем получить из кэша
     cached_img = cache.get(cache_key)
@@ -126,8 +152,20 @@ def similarity_pattern_svg(similarity_percent, size=60):
     """
     Генерирует SVG узор с процентом схожести с кэшированием
     """
-    color = get_similarity_color(similarity_percent)
-    similarity_text = f"{float(similarity_percent):.0f}%"
+    # Обрабатываем None и пустые значения
+    if similarity_percent is None:
+        similarity_percent = 0
+        similarity_text = "N/A"
+        color = "#666666"
+    else:
+        try:
+            similarity_percent = float(similarity_percent)
+            similarity_text = f"{similarity_percent:.0f}%"
+            color = get_similarity_color(similarity_percent)
+        except (ValueError, TypeError):
+            similarity_percent = 0
+            similarity_text = "N/A"
+            color = "#666666"
 
     # Создаем ключ кэша
     cache_key = get_svg_cache_key(similarity_percent=similarity_percent, color=color, size=size)
