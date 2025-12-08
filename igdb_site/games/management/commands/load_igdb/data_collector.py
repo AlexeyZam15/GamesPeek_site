@@ -619,7 +619,12 @@ class DataCollector:
                 if debug and skipped_count > 0:
                     self.stdout.write(f'      ⏭️  Пропущено {skipped_count} существующих игр из пачки')
                     if skipped_count == len(batch_games):
-                        self.stdout.write(f'      💤 Вся пачка состоит из существующих игр')
+                        # Вся пачка состоит из существующих игр - продолжаем пагинацию
+                        current_offset += current_limit
+                        batch_number += 1
+                        if debug:
+                            self.stdout.write(f'      💤 Вся пачка состоит из существующих игр, продолжаем...')
+                        continue
 
                 batch_games = filtered_batch_games
 
@@ -629,18 +634,24 @@ class DataCollector:
             if debug:
                 self.stdout.write(f'   ✅ Пачка игр {batch_number}: загружено {batch_loaded} игр')
 
-            current_offset += batch_loaded
+            current_offset += current_limit  # Увеличиваем offset на размер запроса, а не на фактически загруженные игры
             batch_number += 1
 
-            # Если загрузили меньше, чем запрашивали, значит это последняя пачка
-            # ИЛИ если достигнут лимит
-            if batch_loaded < current_limit or (limit > 0 and len(all_games) >= limit):
+            # Если IGDB вернул пустой ответ или меньше игр, чем запрашивали, значит это конец
+            if batch_loaded == 0 or (limit > 0 and len(all_games) >= limit):
                 if debug:
                     if limit > 0 and len(all_games) >= limit:
                         self.stdout.write(f'   🏁 Достигнут лимит {limit} игр. Всего пачек: {batch_number - 1}')
                     else:
                         self.stdout.write(f'   🏁 Завершено. Всего пачек игр: {batch_number - 1}')
                 break
+
+            # Оптимизация: если в режиме skip-existing мы постоянно получаем много существующих игр,
+            # можем добавить небольшую паузу между запросами
+            if skip_existing and batch_loaded < current_limit * 0.1:  # Если загрузили менее 10% от запроса
+                if debug:
+                    self.stdout.write(f'   ⚠️  Много существующих игр, возможны дубликаты в данных IGDB')
+                # Можно добавить time.sleep(0.5) если нужно
 
         if debug:
             if limit > 0:
