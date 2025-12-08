@@ -15,53 +15,258 @@ class DataLoader:
         self.stdout = stdout
         self.stderr = stderr
         self._db_lock = threading.Lock()
-        self._api_lock = threading.Lock()  # Блокировка для контроля rate limiting
+        self._api_lock = threading.Lock()
         self._last_request_time = 0
-        self._min_request_interval = 0.25  # Минимальный интервал между запросами: 4 запроса в секунду
-        self._retry_delay = 2.0  # Задержка при 429 ошибке
+        self._min_request_interval = 0.25
+        self._retry_delay = 2.0
 
     def _rate_limited_request(self, endpoint, query, debug=False, max_retries=3):
         """Выполняет запрос к API с rate limiting и retry логикой"""
         for attempt in range(max_retries):
             try:
-                # Rate limiting: ждем между запросами
                 with self._api_lock:
                     current_time = time.time()
                     time_since_last = current_time - self._last_request_time
-
                     if time_since_last < self._min_request_interval:
                         sleep_time = self._min_request_interval - time_since_last
                         time.sleep(sleep_time)
-
                     self._last_request_time = time.time()
-
-                # Выполняем запрос
                 response = make_igdb_request(endpoint, query, debug=debug)
                 return response
-
             except Exception as e:
                 error_msg = str(e)
-
-                # Проверяем, является ли ошибка 429 (Too Many Requests)
                 if "429" in error_msg or "Too Many Requests" in error_msg:
-                    wait_time = self._retry_delay * (attempt + 1)  # Экспоненциальная задержка
+                    wait_time = self._retry_delay * (attempt + 1)
                     time.sleep(wait_time)
                     continue
                 else:
-                    # Для других ошибок не пытаемся повторно
                     raise
-
-        # Если все попытки исчерпаны
         raise Exception(f"API request failed after {max_retries} retries")
 
-    def _batch_processor(self, ids_list, process_batch_func, emoji, name, debug=False):
-        """Универсальный метод для обработки данных пачками"""
+    def _calculate_data_weight_for_keywords(self, keyword_ids, debug=False):
+        """Рассчитывает вес для ключевых слов на основе их количества"""
+        if not keyword_ids:
+            return 1.0
+
+        # Простой расчет: чем больше ключевых слов, тем больше вес
+        count = len(keyword_ids)
+
+        if count <= 5:
+            return 1.0
+        elif count <= 10:
+            return 1.5
+        elif count <= 20:
+            return 2.0
+        elif count <= 30:
+            return 2.5
+        else:
+            return 3.0
+
+    def _calculate_data_weight(self, game_data, screenshots_info):
+        """Рассчитывает 'вес' данных для игры - УПРОЩЕННЫЙ РАСЧЕТ"""
+        if not game_data:
+            return 1.0  # Минимальный вес
+
+        weight = 1.0  # Базовая стоимость игры
+
+        # Упрощенный расчет
+        if game_data.get('genres'):
+            weight += min(len(game_data['genres']) * 0.1, 1.0)
+
+        if game_data.get('platforms'):
+            weight += min(len(game_data['platforms']) * 0.1, 1.0)
+
+        if game_data.get('keywords'):
+            # Ключевые слова имеют умеренное влияние
+            weight += min(len(game_data['keywords']) * 0.15, 2.0)
+
+        # СКРИНШОТЫ - уменьшено влияние
+        game_id = game_data.get('id')
+        if game_id and screenshots_info.get(game_id, 0) > 0:
+            screenshot_count = screenshots_info[game_id]
+            if screenshot_count <= 5:
+                weight += screenshot_count * 0.3
+            elif screenshot_count <= 15:
+                weight += 1.5 + (screenshot_count - 5) * 0.2
+            elif screenshot_count <= 30:
+                weight += 3.5 + (screenshot_count - 15) * 0.1
+            else:
+                weight += 6.0 + (screenshot_count - 30) * 0.05
+
+        # Ограничиваем максимальный вес
+        return min(weight, 15.0)
+
+    def _create_weighted_batches(self, items_list, weight_calculator_func, extra_data=None,
+                                 max_batch_weight=15, min_batch_size=3, max_batch_size=10, debug=False):
+        """Создает пачки с учетом веса для ЛЮБОГО типа данных"""
+        if not items_list:
+            return []
+
+        # Рассчитываем вес для всех элементов
+        items_with_weight = []
+        for item in items_list:
+            if extra_data:
+                weight = weight_calculator_func(item, extra_data)
+            else:
+                weight = weight_calculator_func(item)
+            items_with_weight.append((item, weight))
+
+        # Сортируем по весу (от большего к меньшему)
+        items_with_weight.sort(key=lambda x: x[1], reverse=True)
+
+        all_batches = []
+        current_batch = []
+        current_weight = 0
+
+        for item, weight in items_with_weight:
+            # Пытаемся добавить в текущую пачку
+            can_add = (
+                    len(current_batch) < max_batch_size and
+                    current_weight + weight <= max_batch_weight
+            )
+
+            if can_add:
+                current_batch.append(item)
+                current_weight += weight
+            else:
+                # Если пачка не пустая, сохраняем её
+                if current_batch:
+                    all_batches.append(current_batch)
+                # Начинаем новую пачку
+                current_batch = [item]
+                current_weight = weight
+
+        # Добавляем последнюю пачку
+        if current_batch:
+            all_batches.append(current_batch)
+
+        # Объединяем очень маленькие пачки
+        if len(all_batches) > 1:
+            optimized_batches = []
+            small_batches = []
+
+            for batch in all_batches:
+                if len(batch) < min_batch_size:
+                    small_batches.extend(batch)
+                else:
+                    optimized_batches.append(batch)
+
+            # Создаем нормальные пачки из маленьких
+            if small_batches:
+                for i in range(0, len(small_batches), min_batch_size):
+                    chunk = small_batches[i:i + min_batch_size]
+                    if chunk:
+                        optimized_batches.append(chunk)
+
+            all_batches = optimized_batches
+
+        if debug and all_batches:
+            batch_sizes = [len(batch) for batch in all_batches]
+            avg_size = sum(batch_sizes) / len(batch_sizes)
+            single_batches = sum(1 for size in batch_sizes if size == 1)
+
+            self.stdout.write(f'      📊 Создано {len(all_batches)} пачек, средний размер: {avg_size:.1f}')
+            self.stdout.write(f'      🔢 Пачек по 1 элементу: {single_batches}')
+
+        return all_batches
+
+    def _calculate_weight_for_game(self, game_id, game_data_map_and_screenshots):
+        """Расчет веса для игры - получаем game_data из game_data_map"""
+        if not game_id:
+            return 1.0
+
+        # Извлекаем данные из кортежа
+        game_data_map, screenshots_info = game_data_map_and_screenshots
+
+        # Получаем game_data по game_id
+        game_data = game_data_map.get(game_id, {})
+
+        # Используем существующий метод расчета веса
+        return self._calculate_data_weight(game_data, screenshots_info)
+
+    def _calculate_weight_for_simple(self, item_id, extra_data=None):
+        """Простой расчет веса для элементов без сложных данных"""
+        return 1.0  # Все элементы имеют одинаковый вес
+
+    def _batch_processor_weighted(self, items_list, process_batch_func, emoji, name,
+                                  weight_calculator_func, extra_data=None, debug=False):
+        """Универсальный метод для обработки данных с учетом веса"""
+        if not items_list:
+            return {}
+
+        # Создаем пачки с учетом веса
+        batches = self._create_weighted_batches(
+            items_list, weight_calculator_func, extra_data, debug=debug
+        )
+        total_batches = len(batches)
+
+        if debug:
+            weights = []
+            for item in items_list:
+                if extra_data:
+                    weight = weight_calculator_func(item, extra_data)
+                else:
+                    weight = weight_calculator_func(item)
+                weights.append(weight)
+
+            total_weight = sum(weights)
+            avg_weight = total_weight / len(items_list) if items_list else 0
+
+            # Статистика размеров пачек
+            batch_sizes = [len(batch) for batch in batches]
+            avg_batch_size = sum(batch_sizes) / total_batches if total_batches > 0 else 0
+
+            single_batches = sum(1 for size in batch_sizes if size == 1)
+            multi_batches = total_batches - single_batches
+
+            self.stdout.write(f'      {emoji} Загрузка {name}: {len(items_list)} объектов, {total_batches} пачек')
+            self.stdout.write(f'      📊 Средний вес: {avg_weight:.1f}')
+            self.stdout.write(f'      📦 Средний размер пачки: {avg_batch_size:.1f}')
+            self.stdout.write(f'      🔢 Пачек по 1 элементу: {single_batches}, пачек > 1: {multi_batches}')
+
+        result_map = {}
+        lock = threading.Lock()
+
+        # Адаптивное количество воркеров
+        if total_batches <= 3:
+            max_workers = total_batches
+        elif any(len(batch) == 1 for batch in batches):
+            max_workers = min(total_batches, 8)
+        else:
+            max_workers = min(total_batches, 6)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for batch_num, batch_items in enumerate(batches, 1):
+                future = executor.submit(
+                    process_batch_func,
+                    batch_num, batch_items, result_map,
+                    lock, total_batches, name, debug
+                )
+                futures.append(future)
+
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    if debug:
+                        with lock:
+                            self.stderr.write(f'      ❌ Ошибка в потоке: {e}')
+
+        if debug:
+            loaded = len(result_map)
+            self.stdout.write(
+                f'      {emoji} Всего загружено {name}: {loaded}/{len(items_list)} (из {total_batches} пачек)')
+
+        return result_map
+
+    def _batch_processor_regular(self, ids_list, process_batch_func, emoji, name, debug=False):
+        """Универсальный метод для обработки данных без учета веса"""
         if not ids_list:
             return {}
 
         result_map = {}
         lock = threading.Lock()
-
         batches = [ids_list[i:i + 10] for i in range(0, len(ids_list), 10)]
         total_batches = len(batches)
 
@@ -129,7 +334,6 @@ class DataLoader:
                 with lock:
                     self.stdout.write(f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_ids)} объектов')
 
-            # Загружаем данные
             if get_data_func:
                 batch_data = get_data_func(batch_ids)
             else:
@@ -139,7 +343,6 @@ class DataLoader:
 
             data_by_id = {item['id']: item for item in batch_data if 'id' in item}
 
-            # Обрабатываем объекты параллельно
             batch_map = {}
             with ThreadPoolExecutor(max_workers=min(len(batch_ids), 10)) as executor:
                 futures = {executor.submit(
@@ -181,7 +384,7 @@ class DataLoader:
                 endpoint, model_class
             )
 
-        return self._batch_processor(ids_list, process_batch, emoji, name, debug)
+        return self._batch_processor_regular(ids_list, process_batch, emoji, name, debug)
 
     def _process_covers_batch(self, batch_num, batch_ids, cover_map, lock, total_batches, name, debug):
         """Обрабатывает пачку обложек"""
@@ -199,7 +402,6 @@ class DataLoader:
             def process_single_cover(cover_id):
                 if cover_id not in data_by_id:
                     return None
-
                 cover_data = data_by_id[cover_id]
                 if cover_data.get('image_id'):
                     return (cover_id,
@@ -209,7 +411,6 @@ class DataLoader:
                     return (cover_id, f"https:{url.replace('thumb', 'cover_big')}")
                 return None
 
-            # Параллельная обработка
             batch_map = {}
             with ThreadPoolExecutor(max_workers=min(len(batch_ids), 10)) as executor:
                 futures = {executor.submit(process_single_cover, cover_id): cover_id for cover_id in batch_ids}
@@ -241,15 +442,19 @@ class DataLoader:
 
     def load_covers_parallel(self, cover_ids, debug=False):
         """Параллельная загрузка обложек"""
-        return self._batch_processor(cover_ids, self._process_covers_batch, '🖼️', 'обложек', debug)
+        return self._batch_processor_regular(cover_ids, self._process_covers_batch, '🖼️', 'обложек', debug)
 
     def _process_screenshots_batch(self, batch_num, batch_game_ids, result_map, lock,
-                                   total_batches, name, debug, screenshots_info):
+                                   total_batches, name, debug, game_data_map, screenshots_info):
         """Обрабатывает пачку скриншотов"""
         try:
+            batch_weight = 0
             if debug:
+                batch_weight = sum(self._calculate_data_weight(game_data_map.get(gid, {}),
+                                                               screenshots_info) for gid in batch_game_ids)
                 with lock:
-                    self.stdout.write(f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_game_ids)} игр')
+                    self.stdout.write(f'         🔄 Пачка {name} {batch_num}/{total_batches}: '
+                                      f'{len(batch_game_ids)} игр, вес: {batch_weight:.1f}')
 
             def process_single_game(game_id):
                 try:
@@ -257,7 +462,15 @@ class DataLoader:
                     if game_screenshots_count <= 0:
                         return (game_id, 0)
 
-                    query = f'fields id,url,image_id,width,height; where game = {game_id}; limit {game_screenshots_count};'
+                    game_weight = self._calculate_data_weight(game_data_map.get(game_id, {}),
+                                                              screenshots_info)
+                    limit = game_screenshots_count
+                    if game_weight > 5:
+                        limit = min(game_screenshots_count * 2, 50)
+                    elif game_weight > 3:
+                        limit = min(game_screenshots_count + 5, 30)
+
+                    query = f'fields id,url,image_id,width,height; where game = {game_id}; limit {limit};'
                     screenshots_data = self._rate_limited_request('screenshots', query, debug=False)
 
                     if not screenshots_data:
@@ -299,9 +512,13 @@ class DataLoader:
                             self.stderr.write(f'            ❌ Ошибка загрузки скриншотов для игры {game_id}: {e}')
                     return (game_id, 0)
 
-            # Параллельная обработка игр
+            if len(batch_game_ids) == 1 or batch_weight > 15:
+                max_workers = min(len(batch_game_ids), 2)
+            else:
+                max_workers = min(len(batch_game_ids), 4)
+
             batch_map = {}
-            with ThreadPoolExecutor(max_workers=min(len(batch_game_ids), 10)) as executor:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {executor.submit(process_single_game, game_id): game_id for game_id in batch_game_ids}
 
                 for future in as_completed(futures):
@@ -330,17 +547,25 @@ class DataLoader:
                 with lock:
                     self.stderr.write(f'         ❌ Ошибка пачки {name} {batch_num}/{total_batches}: {e}')
 
-    def load_screenshots_parallel(self, game_ids, screenshots_info, debug=False):
-        """Параллельная загрузка скриншотов"""
+    def load_screenshots_parallel(self, game_ids, game_data_map, screenshots_info, debug=False):
+        """Параллельная загрузка скриншотов с учетом веса игр"""
         if not game_ids:
             return 0
 
         def process_batch(batch_num, batch_ids, result_map, lock, total_batches, name, debug):
             return self._process_screenshots_batch(
-                batch_num, batch_ids, result_map, lock, total_batches, name, debug, screenshots_info
+                batch_num, batch_ids, result_map, lock, total_batches, name, debug,
+                game_data_map, screenshots_info
             )
 
-        result_map = self._batch_processor(game_ids, process_batch, '📸', 'скриншотов', debug)
+        # Подготавливаем данные для функции расчета веса
+        game_data_and_screenshots = (game_data_map, screenshots_info)
+
+        # Используем взвешенную систему для скриншотов
+        result_map = self._batch_processor_weighted(
+            game_ids, process_batch, '📸', 'скриншотов',
+            self._calculate_weight_for_game, game_data_and_screenshots, debug
+        )
 
         total_screenshots = sum(result_map.values()) if result_map else 0
         if debug:
@@ -350,12 +575,24 @@ class DataLoader:
 
         return total_screenshots
 
-    def _process_additional_data_batch(self, batch_num, batch_game_ids, result_map, lock, total_batches, name, debug):
+    def _process_additional_data_batch(self, batch_num, batch_game_ids, result_map, lock,
+                                       total_batches, name, debug, game_data_map, screenshots_info):
         """Обрабатывает пачку дополнительных данных"""
         try:
+            batch_weight = 0
             if debug:
+                batch_weight = sum(self._calculate_data_weight(game_data_map.get(gid, {}),
+                                                               screenshots_info) for gid in batch_game_ids)
                 with lock:
-                    self.stdout.write(f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_game_ids)} игр')
+                    self.stdout.write(f'         🔄 Пачка {name} {batch_num}/{total_batches}: '
+                                      f'{len(batch_game_ids)} игр, вес: {batch_weight:.1f}')
+
+            avg_weight = batch_weight / len(batch_game_ids) if batch_game_ids else 0
+            query_limit = 500
+            if avg_weight > 6:
+                query_limit = 200
+            elif avg_weight < 2:
+                query_limit = 800
 
             id_list = ','.join(map(str, batch_game_ids))
             query = f'''
@@ -363,6 +600,7 @@ class DataLoader:
                        involved_companies.developer,involved_companies.publisher,
                        themes,player_perspectives,game_modes;
                 where id = ({id_list});
+                limit {query_limit};
             '''
             batch_data = self._rate_limited_request('games', query, debug=False)
 
@@ -373,10 +611,15 @@ class DataLoader:
                     return None
                 return (game_id, data_by_id[game_id])
 
-            # Параллельная обработка
+            if len(batch_game_ids) == 1 or avg_weight > 6:
+                max_workers = min(len(batch_game_ids), 2)
+            else:
+                max_workers = min(len(batch_game_ids), 5)
+
             batch_map = {}
-            with ThreadPoolExecutor(max_workers=min(len(batch_game_ids), 10)) as executor:
-                futures = {executor.submit(process_single_game, game_id): game_id for game_id in batch_game_ids}
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(process_single_game, game_id): game_id
+                           for game_id in batch_game_ids}
 
                 for future in as_completed(futures):
                     game_id = futures[future]
@@ -402,13 +645,29 @@ class DataLoader:
                 with lock:
                     self.stderr.write(f'         ❌ Ошибка пачки {name} {batch_num}/{total_batches}: {e}')
 
-    def load_additional_data_parallel(self, game_ids, debug=False):
+    def load_additional_data_parallel(self, game_ids, game_data_map, screenshots_info, debug=False):
         """Параллельная загрузка дополнительных данных"""
-        return self._batch_processor(game_ids, self._process_additional_data_batch, '📚', 'доп. данных', debug)
 
-    def load_and_process_additional_data(self, game_ids, debug=False):
+        def process_batch(batch_num, batch_ids, result_map, lock, total_batches, name, debug):
+            return self._process_additional_data_batch(
+                batch_num, batch_ids, result_map, lock, total_batches, name, debug,
+                game_data_map, screenshots_info
+            )
+
+        # Подготавливаем данные для функции расчета веса
+        game_data_and_screenshots = (game_data_map, screenshots_info)
+
+        # Используем взвешенную систему для доп. данных
+        return self._batch_processor_weighted(
+            game_ids, process_batch, '📚', 'доп. данных',
+            self._calculate_weight_for_game, game_data_and_screenshots, debug
+        )
+
+    def load_and_process_additional_data(self, game_ids, game_data_map, screenshots_info, debug=False):
         """Загружает и обрабатывает дополнительные данные"""
-        additional_data_map = self.load_additional_data_parallel(game_ids, debug)
+        additional_data_map = self.load_additional_data_parallel(
+            game_ids, game_data_map, screenshots_info, debug
+        )
 
         all_series_ids = set()
         all_company_ids = set()
@@ -436,104 +695,91 @@ class DataLoader:
             'all_mode_ids': list(all_mode_ids)
         }
 
+    def _process_companies_batch(self, batch_num, batch_ids, company_map, lock, total_batches, name, debug):
+        """Обрабатывает пачку компаний"""
+        try:
+            if debug:
+                with lock:
+                    self.stdout.write(
+                        f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_ids)} компаний')
+
+            id_list = ','.join(map(str, batch_ids))
+            query = f'fields id,name,logo; where id = ({id_list});'
+            batch_data = self._rate_limited_request('companies', query, debug=False)
+
+            data_by_id = {item['id']: item for item in batch_data if 'id' in item}
+
+            def process_single_company(company_id):
+                if company_id not in data_by_id:
+                    return None
+
+                company_data = data_by_id[company_id]
+                company_name = company_data.get('name', f'Company {company_id}')
+                logo_igdb_id = company_data.get('logo')
+
+                with self._db_lock:
+                    existing = Company.objects.filter(igdb_id=company_id).first()
+
+                    if existing:
+                        needs_update = False
+                        if not existing.name.strip() and company_name.strip():
+                            existing.name = company_name
+                            needs_update = True
+
+                        if logo_igdb_id and not existing.logo_igdb_id:
+                            existing.logo_igdb_id = logo_igdb_id
+                            if logo_igdb_id:
+                                existing.logo_url = f"https://images.igdb.com/igdb/image/upload/t_thumb/{logo_igdb_id}.jpg"
+                            needs_update = True
+
+                        if needs_update:
+                            existing.save()
+                        return (company_id, existing)
+                    else:
+                        company = Company(igdb_id=company_id, name=company_name)
+
+                        if logo_igdb_id:
+                            company.logo_igdb_id = logo_igdb_id
+                            company.logo_url = f"https://images.igdb.com/igdb/image/upload/t_thumb/{logo_igdb_id}.jpg"
+
+                        company.save()
+                        return (company_id, company)
+
+            batch_map = {}
+            with ThreadPoolExecutor(max_workers=min(len(batch_ids), 10)) as executor:
+                futures = {executor.submit(process_single_company, company_id): company_id for company_id in
+                           batch_ids}
+
+                for future in as_completed(futures):
+                    company_id = futures[future]
+                    try:
+                        result = future.result()
+                        if result:
+                            company_id, company = result
+                            batch_map[company_id] = company
+                    except Exception as e:
+                        if debug:
+                            with lock:
+                                self.stderr.write(f'               ❌ Ошибка future для компании {company_id}: {e}')
+
+            with lock:
+                company_map.update(batch_map)
+
+            if debug:
+                with lock:
+                    companies_with_logos = len([c for c in batch_map.values() if c.logo_igdb_id])
+                    self.stdout.write(
+                        f'         ✅ Пачка {name} {batch_num}/{total_batches}: {len(batch_map)} компаний '
+                        f'({companies_with_logos} с логотипами)')
+
+        except Exception as e:
+            if debug:
+                with lock:
+                    self.stderr.write(f'         ❌ Ошибка пачки {name} {batch_num}/{total_batches}: {e}')
+
     def load_companies_parallel(self, company_ids, debug=False):
         """Параллельная загрузка компаний с логотипами"""
-        if not company_ids:
-            if debug:
-                self.stdout.write('   ⚠️  Нет ID компаний для загрузки')
-            return {}
-
-        if debug:
-            self.stdout.write(f'   🏢 Загрузка {len(company_ids)} компаний...')
-
-        def process_companies_batch(batch_num, batch_ids, company_map, lock, total_batches, name, debug):
-            try:
-                if debug:
-                    with lock:
-                        self.stdout.write(
-                            f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_ids)} компаний')
-
-                # Загружаем данные компаний с логотипами
-                id_list = ','.join(map(str, batch_ids))
-                query = f'fields id,name,logo; where id = ({id_list});'
-                batch_data = self._rate_limited_request('companies', query, debug=False)
-
-                data_by_id = {item['id']: item for item in batch_data if 'id' in item}
-
-                def process_single_company(company_id):
-                    if company_id not in data_by_id:
-                        return None
-
-                    company_data = data_by_id[company_id]
-                    company_name = company_data.get('name', f'Company {company_id}')
-                    logo_igdb_id = company_data.get('logo')  # ID логотипа из IGDB
-
-                    with self._db_lock:
-                        existing = Company.objects.filter(igdb_id=company_id).first()
-
-                        if existing:
-                            needs_update = False
-                            if not existing.name.strip() and company_name.strip():
-                                existing.name = company_name
-                                needs_update = True
-
-                            # Обновляем логотип если есть
-                            if logo_igdb_id and not existing.logo_igdb_id:
-                                existing.logo_igdb_id = logo_igdb_id
-                                # Генерируем URL логотипа
-                                if logo_igdb_id:
-                                    existing.logo_url = f"https://images.igdb.com/igdb/image/upload/t_thumb/{logo_igdb_id}.jpg"
-                                needs_update = True
-
-                            if needs_update:
-                                existing.save()
-                            return (company_id, existing)
-                        else:
-                            # Создаем новую компанию
-                            company = Company(igdb_id=company_id, name=company_name)
-
-                            # Добавляем логотип если есть
-                            if logo_igdb_id:
-                                company.logo_igdb_id = logo_igdb_id
-                                company.logo_url = f"https://images.igdb.com/igdb/image/upload/t_thumb/{logo_igdb_id}.jpg"
-
-                            company.save()
-                            return (company_id, company)
-
-                # Параллельная обработка компаний
-                batch_map = {}
-                with ThreadPoolExecutor(max_workers=min(len(batch_ids), 10)) as executor:
-                    futures = {executor.submit(process_single_company, company_id): company_id for company_id in
-                               batch_ids}
-
-                    for future in as_completed(futures):
-                        company_id = futures[future]
-                        try:
-                            result = future.result()
-                            if result:
-                                company_id, company = result
-                                batch_map[company_id] = company
-                        except Exception as e:
-                            if debug:
-                                with lock:
-                                    self.stderr.write(f'               ❌ Ошибка future для компании {company_id}: {e}')
-
-                with lock:
-                    company_map.update(batch_map)
-
-                if debug:
-                    with lock:
-                        companies_with_logos = len([c for c in batch_map.values() if c.logo_igdb_id])
-                        self.stdout.write(
-                            f'         ✅ Пачка {name} {batch_num}/{total_batches}: {len(batch_map)} компаний '
-                            f'({companies_with_logos} с логотипами)')
-
-            except Exception as e:
-                if debug:
-                    with lock:
-                        self.stderr.write(f'         ❌ Ошибка пачки {name} {batch_num}/{total_batches}: {e}')
-
-        return self._batch_processor(company_ids, process_companies_batch, '🏢', 'компаний', debug)
+        return self._batch_processor_regular(company_ids, self._process_companies_batch, '🏢', 'компаний', debug)
 
     def create_basic_games(self, games_data_list, debug=False):
         """Создает игры с основными данными"""
@@ -551,7 +797,6 @@ class DataLoader:
                 return None
             return base_command.create_game_object(game_data, {})
 
-        # Параллельная обработка
         games_to_create = []
         with ThreadPoolExecutor(max_workers=min(len(games_data_list), 10)) as executor:
             futures = [executor.submit(process_single_game, game_data) for game_data in games_data_list]
@@ -585,7 +830,6 @@ class DataLoader:
                     return game
             return None
 
-        # Параллельная обработка
         games_to_update = []
         with ThreadPoolExecutor(max_workers=min(len(games), 10)) as executor:
             futures = [executor.submit(process_single_game, game) for game in games]
@@ -617,12 +861,13 @@ class DataLoader:
                 collected_data['all_genre_ids'], 'genres', Genre, '🎭', 'жанров', debug), 'genre_map'),
             ('🖥️  Платформы', 'platforms', lambda: self.load_data_parallel_generic(
                 collected_data['all_platform_ids'], 'platforms', Platform, '🖥️', 'платформ', debug), 'platform_map'),
-            ('🔑 Ключевые слова', 'keywords', lambda: self.load_data_parallel_generic(
-                collected_data['all_keyword_ids'], 'keywords', Keyword, '🔑', 'ключевых слов', debug), 'keyword_map'),
+            # ИЗМЕНЕНО: используем взвешенную версию для ключевых слов
+            ('🔑 Ключевые слова', 'keywords', lambda: self.load_keywords_parallel_with_weights(
+                collected_data['all_keyword_ids'], debug), 'keyword_map'),
             ('📚 Серии', 'series', lambda: self.load_data_parallel_generic(
                 collected_data['all_series_ids'], 'collections', Series, '📚', 'серий', debug), 'series_map'),
             ('🏢 Компании', 'companies', lambda: self.load_companies_parallel(
-                collected_data['all_company_ids'], debug), 'company_map'),  # Загрузка компаний с логотипами
+                collected_data['all_company_ids'], debug), 'company_map'),
             ('🎨 Темы', 'themes', lambda: self.load_data_parallel_generic(
                 collected_data['all_theme_ids'], 'themes', Theme, '🎨', 'тем', debug), 'theme_map'),
             ('👁️  Перспективы', 'perspectives', lambda: self.load_data_parallel_generic(
@@ -642,3 +887,19 @@ class DataLoader:
             step_times[key] = time.time() - start_step
 
         return data_maps, step_times
+
+    def load_keywords_parallel_with_weights(self, keyword_ids, debug=False):
+        """Параллельная загрузка ключевых слов с учетом веса - использует существующие методы"""
+
+        # Используем существующий шаблонный метод
+        def process_batch(batch_num, batch_ids, result_map, lock, total_batches, name, debug):
+            return self._process_batch_template(
+                batch_num, batch_ids, result_map, lock, total_batches, name, debug,
+                'keywords', Keyword
+            )
+
+        # Используем взвешенную систему для ключевых слов
+        return self._batch_processor_weighted(
+            keyword_ids, process_batch, '🔑', 'ключевых слов',
+            self._calculate_weight_for_simple, None, debug
+        )

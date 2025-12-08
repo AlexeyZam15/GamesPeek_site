@@ -171,6 +171,7 @@ class Statistics:
 
     def _print_complete_statistics(self, stats):
         """Выводит полную финальную статистику"""
+        # 1. Сначала вся детальная статистика (если debug=True)
         self.stdout.write('\n' + '=' * 60)
         self.stdout.write('📊 ПОЛНАЯ СТАТИСТИКА ЗАГРУЗКИ')
         self.stdout.write('=' * 60)
@@ -206,20 +207,16 @@ class Statistics:
 
         for display_name, key in data_types:
             if key == 'screenshots':
-                # Используем правильные ключи для скриншотов
                 discovered = stats.get('screenshots_discovered', 0)
                 loaded = stats.get('screenshots_loaded', 0)
 
                 if discovered > 0 or loaded > 0:
                     percentage = (loaded / discovered * 100) if discovered > 0 else 0
-
-                    # Время загрузки скриншотов
                     time_val = stats['step_times'].get('screenshots', 0)
                     time_str = f" [{time_val:.2f}с]" if time_val > 0 else ""
 
                     self.stdout.write(f'   • {display_name}: {loaded}/{discovered} ({percentage:.1f}%){time_str}')
 
-                    # Дополнительная информация о скриншотах
                     if 'collected_data' in stats and 'games_with_screenshots' in stats['collected_data']:
                         games_with = stats['collected_data']['games_with_screenshots']
                         games_total = stats['total_games_found']
@@ -233,7 +230,6 @@ class Statistics:
                 if collected > 0 or loaded > 0:
                     percentage = (loaded / collected * 100) if collected > 0 else 0
 
-                    # Получаем время для этого типа данных
                     time_key = {
                         'genres': 'genres',
                         'platforms': 'platforms',
@@ -251,7 +247,7 @@ class Statistics:
 
                     self.stdout.write(f'   • {display_name}: {loaded}/{collected} ({percentage:.1f}%){time_str}')
 
-        # Статистика связей - УДАЛЕН БЛОК "РЕЗУЛЬТАТЫ ЗАГРУЗКИ"
+        # Статистика связей
         if stats['relations'] and stats['relations_possible']:
             self.stdout.write('\n🔗 СТАТИСТИКА СВЯЗЕЙ (СОЗДАНО / ВОЗМОЖНО):')
 
@@ -319,6 +315,19 @@ class Statistics:
         if other_time > 0:
             other_percentage = (other_time / stats['total_time'] * 100) if stats['total_time'] > 0 else 0
             self.stdout.write(f'   • 📊 Сбор данных: {other_time:.2f}с ({other_percentage:.1f}%)')
+
+        # 2. В САМОМ КОНЦЕ - итоговые показатели (должны быть последними)
+        self.stdout.write('\n' + '=' * 60)
+        self.stdout.write('✅ ЗАГРУЗКА ЗАВЕРШЕНА!')
+        self.stdout.write(f'⏱️  Время: {stats["total_time"]:.2f}с')
+
+        if stats['total_time'] > 0:
+            speed = stats['total_games_found'] / stats['total_time']
+            self.stdout.write(f'🚀 СКОРОСТЬ: {speed:.1f} игр/сек')
+
+        self.stdout.write(f'🎮 Найдено: {stats["total_games_found"]}')
+        self.stdout.write(f'✅ Загружено: {stats["created_count"]}')
+        self.stdout.write(f'⏭️  Пропущено: {stats["skipped_count"]}')
 
     def debug_series_relations(self, collected_data, data_maps, all_game_relations, relations_results, debug=False):
         """Детальная диагностика M2M связей с сериями"""
