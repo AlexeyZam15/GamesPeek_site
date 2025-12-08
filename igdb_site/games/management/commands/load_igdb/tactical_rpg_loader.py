@@ -9,7 +9,7 @@ class TacticalRpgLoader:
         self.stdout = stdout
         self.stderr = stderr
 
-    def load_tactical_rpg_games(self, debug=False, limit=0, offset=0, min_rating_count=0, skip_existing=False):
+    def load_tactical_rpg_games(self, debug=False, limit=0, offset=0, min_rating_count=0, skip_existing=True):
         """Загрузка тактических RPG по жанру и ключевым словам"""
         self.stdout.write('🔍 Поиск тактических RPG...')
 
@@ -25,7 +25,7 @@ class TacticalRpgLoader:
         if debug:
             self.stdout.write('   🔎 Поиск жанра "Tactical"...')
 
-        # Ищем жанр Tactical
+        # Ищем жанр "Tactical"
         genre_query = 'fields id,name; where name = "Tactical";'
         tactical_genres = make_igdb_request('genres', genre_query, debug=False)
         tactical_genre_id = tactical_genres[0]['id'] if tactical_genres else None

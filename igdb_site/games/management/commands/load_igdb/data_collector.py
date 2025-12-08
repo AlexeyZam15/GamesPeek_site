@@ -464,7 +464,7 @@ class DataCollector:
 
         return self.load_games_by_query(where_clause, debug, limit, offset, skip_existing)
 
-    def load_games_by_query(self, where_clause, debug=False, limit=0, offset=0, skip_existing=False):
+    def load_games_by_query(self, where_clause, debug=False, limit=0, offset=0, skip_existing=True):
         """Загрузка игр по запросу с пагинацией и offset"""
         all_games = []
         current_offset = offset
@@ -480,7 +480,7 @@ class DataCollector:
             if skip_existing:
                 self.stdout.write(f'   ⏭️  Пропуск существующих игр')
 
-        # Если включен режим skip-existing, получаем ID игр, которые уже есть в базе
+        # Получаем ID игр, которые уже есть в базе (skip-existing всегда включен по умолчанию)
         existing_game_ids = set()
         if skip_existing:
             existing_game_ids = set(Game.objects.values_list('igdb_id', flat=True))
@@ -522,7 +522,7 @@ class DataCollector:
             if debug:
                 self.stdout.write(f'   ⏱️  Получено {len(batch_games)} игр за пачку')
 
-            # Фильтруем игры, которые уже есть в базе (если включен skip-existing)
+            # Фильтруем игры, которые уже есть в базе (skip-existing всегда включен по умолчанию)
             if skip_existing:
                 filtered_batch_games = []
                 skipped_count = 0
@@ -530,13 +530,12 @@ class DataCollector:
                     game_id = game.get('id')
                     if game_id in existing_game_ids:
                         skipped_count += 1
-                        if debug and skipped_count <= 5:
-                            self.stdout.write(
-                                f'      ⏭️  Пропущена существующая игра: {game.get("name")} (ID: {game_id})')
+                        # УБРАН ДЕТАЛЬНЫЙ ВЫВОД ПРОПУЩЕННЫХ ИГР
                     else:
                         filtered_batch_games.append(game)
 
                 if debug and skipped_count > 0:
+                    # Оставляем только общее количество
                     self.stdout.write(f'      ⏭️  Пропущено {skipped_count} существующих игр из пачки')
 
                 batch_games = filtered_batch_games

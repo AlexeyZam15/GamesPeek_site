@@ -22,8 +22,8 @@ class BaseIgdbCommand(BaseCommand):
                             help='Пропустить указанное количество игр (пагинация)')
         parser.add_argument('--min-rating-count', type=int, default=0,
                             help='Минимальное количество оценок для фильтрации (0 - без фильтра)')
-        parser.add_argument('--skip-existing', action='store_true',
-                            help='Пропускать игры, которые уже есть в базе данных')
+        parser.add_argument('--keywords', type=str, default='',
+                            help='Загружать игры с указанными ключевыми словами (логика И). Формат: "word1,word2,word3"')
 
     def handle(self, *args, **options):
         """Основной метод выполнения команды"""
@@ -33,7 +33,7 @@ class BaseIgdbCommand(BaseCommand):
         limit = options['limit']
         offset = options['offset']
         min_rating_count = options['min_rating_count']
-        skip_existing = options['skip_existing']
+        keywords_str = options['keywords']
 
         self.stdout.write('🎮 ЗАГРУЗКА ИГР ИЗ IGDB')
         self.stdout.write('=' * 60)
@@ -41,6 +41,10 @@ class BaseIgdbCommand(BaseCommand):
         # Определяем тип загрузки
         if tactical_rpg:
             self.stdout.write('🎯 РЕЖИМ: Тактические RPG')
+        elif keywords_str:
+            keyword_list = [k.strip() for k in keywords_str.split(',') if k.strip()]
+            self.stdout.write(
+                f'🔑 РЕЖИМ: Игры с ключевыми словами ({len(keyword_list)} слов): {", ".join(keyword_list)}')
         else:
             self.stdout.write('📊 РЕЖИМ: Все популярные игры')
 
@@ -50,8 +54,6 @@ class BaseIgdbCommand(BaseCommand):
             self.stdout.write(f'⏭️  OFFSET: пропускаем первые {offset} игр')
         if min_rating_count > 0:
             self.stdout.write(f'⭐ ФИЛЬТР: игры с не менее {min_rating_count} оценками')
-        if skip_existing:
-            self.stdout.write('⏭️  SKIP-EXISTING: пропуск игр, которые уже есть в базе')
         if overwrite:
             self.stdout.write('🔄 OVERWRITE: найденные игры будут удалены и загружены заново')
 
@@ -59,18 +61,20 @@ class BaseIgdbCommand(BaseCommand):
             self.stdout.write('🐛 РЕЖИМ ОТЛАДКИ ВКЛЮЧЕН')
             self.stdout.write('-' * 40)
 
-        # Проверяем совместимость опций
-        if overwrite and skip_existing:
-            self.stdout.write('⚠️  ВНИМАНИЕ: опция --skip-existing игнорируется, так как включен --overwrite')
-            skip_existing = False
-
         # Загружаем игры в зависимости от режима
         from .tactical_rpg_loader import TacticalRpgLoader
         tactical_loader = TacticalRpgLoader(self.stdout, self.stderr)
 
+        # skip-existing всегда True по умолчанию, кроме режима overwrite
+        skip_existing = not overwrite
+
         if tactical_rpg:
             all_games = tactical_loader.load_tactical_rpg_games(
                 debug, limit, offset, min_rating_count, skip_existing
+            )
+        elif keywords_str:
+            all_games = self.load_games_by_keywords(
+                keywords_str, debug, limit, offset, min_rating_count, skip_existing
             )
         else:
             all_games = self.load_all_popular_games(
@@ -101,6 +105,8 @@ class BaseIgdbCommand(BaseCommand):
 
             if tactical_rpg:
                 self.stdout.write('🎯 Тип: Тактические RPG')
+            elif keywords_str:
+                self.stdout.write(f'🔑 Тип: Игры с ключевыми словами')
             else:
                 self.stdout.write('📊 Тип: Все популярные игры')
 
@@ -114,6 +120,54 @@ class BaseIgdbCommand(BaseCommand):
             self.stdout.write(f'🎮 Найдено: {result_stats["total_games_found"]}')
             self.stdout.write(f'✅ Загружено: {result_stats["created_count"]}')
             self.stdout.write(f'⏭️  Пропущено: {result_stats["skipped_count"]}')
+
+    def load_games_by_keywords(self, keywords_str, debug=False, limit=0, offset=0, min_rating_count=0,
+                               skip_existing=True):
+        """Загрузка игр по ключевым словам с логикой И"""
+        from .data_collector import DataCollector
+        collector = DataCollector(self.stdout, self.stderr)
+
+        keyword_list = [k.strip() for k in keywords_str.split(',') if k.strip()]
+
+        if not keyword_list:
+            self.stdout.write('⚠️  Не указаны ключевые слова')
+            return []
+
+        if debug:
+            self.stdout.write(f'🔍 Поиск ключевых слов: {", ".join(keyword_list)}')
+
+        # Получаем ID для всех ключевых слов
+        keyword_ids = []
+        for keyword in keyword_list:
+            query = f'fields id,name; where name = "{keyword}";'
+            result = make_igdb_request('keywords', query, debug=False)
+            if result:
+                keyword_ids.append(str(result[0]['id']))
+                if debug:
+                    self.stdout.write(f'   ✅ Ключевое слово "{keyword}" найдено: ID {result[0]["id"]}')
+            else:
+                if debug:
+                    self.stdout.write(f'   ❌ Ключевое слово "{keyword}" не найдено')
+
+        if not keyword_ids:
+            self.stdout.write('❌ Не найдены указанные ключевые слова')
+            return []
+
+        if debug:
+            self.stdout.write(f'📋 Найдено ID ключевых слов: {", ".join(keyword_ids)}')
+
+        # Формируем условие для поиска игр (логика И)
+        # Формат: keywords = (id1) & keywords = (id2) & keywords = (id3)
+        keyword_conditions = [f'keywords = ({keyword_id})' for keyword_id in keyword_ids]
+        where_clause = ' & '.join(keyword_conditions)
+
+        if min_rating_count > 0:
+            where_clause = f'{where_clause} & rating_count >= {min_rating_count}'
+
+        if debug:
+            self.stdout.write(f'🎯 Условие поиска: {where_clause}')
+
+        return collector.load_games_by_query(where_clause, debug, limit, offset, skip_existing)
 
     def _handle_overwrite_mode(self, all_games, debug):
         """Обрабатывает режим перезаписи"""
@@ -158,7 +212,7 @@ class BaseIgdbCommand(BaseCommand):
         else:
             self.stdout.write('   ⚠️  Не найдено ID игр для удаления')
 
-    def load_all_popular_games(self, debug=False, limit=0, offset=0, min_rating_count=0, skip_existing=False):
+    def load_all_popular_games(self, debug=False, limit=0, offset=0, min_rating_count=0, skip_existing=True):
         """Загрузка всех игр с сортировкой по популярности (rating_count)"""
         from .data_collector import DataCollector
         collector = DataCollector(self.stdout, self.stderr)
