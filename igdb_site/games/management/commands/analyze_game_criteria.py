@@ -17,7 +17,7 @@ except ImportError:
 
 
 class Command(BaseCommand):
-    help = 'Анализирует описание игры и определяет критерии (жанры, темы, перспективы, режимы)'
+    help = 'Анализирует описание игры и определяет критерии (жанры, темы, перспективы, режимы) или ключевые слова'
 
     def add_arguments(self, parser):
         parser.add_argument('--game-id', type=int, help='ID игры в базе данных для анализа')
@@ -34,6 +34,10 @@ class Command(BaseCommand):
         parser.add_argument('--batch-size', type=int, default=1000, help='Размер батча для обработки')
         parser.add_argument('--hide-skipped', action='store_true',
                             help='Скрыть пропущенные критерии (уже существующие у игры)')
+
+        # ОПЦИЯ ДЛЯ РЕЖИМА КЛЮЧЕВЫХ СЛОВ
+        parser.add_argument('--keywords', action='store_true',
+                            help='Анализировать ТОЛЬКО ключевые слова (вместо обычных критериев)')
 
         text_source_group = parser.add_mutually_exclusive_group()
         text_source_group.add_argument('--use-storyline', action='store_true',
@@ -136,9 +140,11 @@ class Command(BaseCommand):
         actual_count = games_queryset.count()
 
         if not self.only_found:
+            mode = '🔑 КЛЮЧЕВЫЕ СЛОВА' if self.keywords else '📋 ОБЫЧНЫЕ КРИТЕРИИ'
             self.stdout.write(f"🔍 Анализируем {actual_count} игр из {total_games}...")
             self.stdout.write(f"📚 Источник: {self._get_text_source_description()}")
-            self.stdout.write(f"⚙️ Режим: {'🔄 АНАЛИЗ И ОБНОВЛЕНИЕ' if self.update_game else '📊 АНАЛИЗ'}")
+            self.stdout.write(f"⚙️ Режим: {mode}")
+            self.stdout.write(f"🔄 Обновление: {'✅ ВКЛ' if self.update_game else '❌ ВЫКЛ'}")
             self.stdout.write(f"👁️ Игнорировать существующие: {'✅ ДА' if self.ignore_existing else '❌ НЕТ'}")
             self.stdout.write(f"👁️ Скрыть пропущенные: {'✅ ДА' if self.hide_skipped else '❌ НЕТ'}")
             self.stdout.write("")
@@ -147,11 +153,11 @@ class Command(BaseCommand):
         processor = GameProcessor(self)
         stats = processor.process_games_batch(games_queryset)
 
-        # ВАЖНО: Сохраняем статистику в self.stats
-        self.stats = stats  # ← ДОБАВЬТЕ ЭТУ СТРОЧКУ
+        # Сохраняем статистику
+        self.stats = stats
 
         # Выводим статистику
-        self.print_stats("СТАТИСТИКА АНАЛИЗА")  # ← ДОБАВЬТЕ ЭТУ СТРОЧКУ
+        self.print_stats("СТАТИСТИКА АНАЛИЗА")
 
     def analyze_single_game_by_id(self, game_id: int):
         """Анализирует одну игру по ID"""
@@ -159,10 +165,12 @@ class Command(BaseCommand):
 
         try:
             game = Game.objects.get(id=game_id)
+            mode = 'ключевые слова' if self.keywords else 'критерии'
             self.stdout.write(f"🎮 Анализируем игру: {game.name}")
+            self.stdout.write(f"📊 Режим: {'🔑 КЛЮЧЕВЫЕ СЛОВА' if self.keywords else '📋 ОБЫЧНЫЕ КРИТЕРИИ'}")
 
             existing_criteria = self._get_existing_criteria_summary(game)
-            self.stdout.write(f"📋 Существующие критерии: {existing_criteria}")
+            self.stdout.write(f"📋 Существующие {mode}: {existing_criteria}")
             self.stdout.write(f"👁️ Игнорировать существующие: {'✅ ДА' if self.ignore_existing else '❌ НЕТ'}")
             self.stdout.write(f"👁️ Скрыть пропущенные: {'✅ ДА' if self.hide_skipped else '❌ НЕТ'}")
 
@@ -175,21 +183,27 @@ class Command(BaseCommand):
                 text_to_analyze,
                 game=game,
                 ignore_existing=self.ignore_existing,
-                collect_patterns=self.verbose
+                collect_patterns=self.verbose,
+                keywords_mode=self.keywords  # Передаем режим
             )
+
+            # Если режим keywords, фильтруем результаты
+            if self.keywords:
+                results = {'keywords': results.get('keywords', [])}
+                pattern_info = {'keywords': pattern_info.get('keywords', [])}
 
             criteria_count = sum(len(results[key]) for key in results)
             self._print_game_results(game, results, criteria_count, pattern_info)
 
             if self.update_game:
                 if self.update_game_criteria(game, results):
-                    mode_text = "Критерии" if self.ignore_existing else "Новые критерии"
-                    self.stdout.write(self.style.SUCCESS(f"✅ {mode_text} обновлены в базе данных"))
+                    mode_text = "ключевые слова" if self.keywords else "критерии"
+                    self.stdout.write(self.style.SUCCESS(f"✅ {mode_text.capitalize()} обновлены в базе данных"))
 
                     final_criteria = self._get_existing_criteria_summary(game)
-                    self.stdout.write(f"📋 Итоговые критерии: {final_criteria}")
+                    self.stdout.write(f"📋 Итоговые {mode_text}: {final_criteria}")
                 else:
-                    mode_text = "критериев" if self.ignore_existing else "новых критериев"
+                    mode_text = "ключевых слов" if self.keywords else "критериев"
                     self.stdout.write(f"ℹ️ Нет {mode_text} для обновления")
 
         except Game.DoesNotExist:
@@ -212,12 +226,30 @@ class Command(BaseCommand):
 
     def analyze_description(self, description: str):
         """Анализирует произвольный текст описания"""
-        self.stdout.write("🔍 Анализируем произвольный текст описания...")
+        mode = 'ключевые слова' if self.keywords else 'критерии'
+        self.stdout.write(f"🔍 Анализируем произвольный текст описания...")
+        self.stdout.write(f"📊 Режим: {'🔑 КЛЮЧЕВЫЕ СЛОВА' if self.keywords else '📋 ОБЫЧНЫЕ КРИТЕРИИ'}")
 
-        results, pattern_info = self.analyzer.analyze_text(description, ignore_existing=True)
+        results, pattern_info = self.analyzer.analyze_text(
+            description,
+            ignore_existing=True,
+            collect_patterns=self.verbose,
+            keywords_mode=self.keywords
+        )
+
+        # Если режим keywords, фильтруем результаты
+        if self.keywords:
+            results = {'keywords': results.get('keywords', [])}
+            pattern_info = {'keywords': pattern_info.get('keywords', [])}
+
         criteria_count = sum(len(results[key]) for key in results)
 
-        self.stdout.write(f"\n🎯 Найдено критериев: {criteria_count}")
+        if criteria_count == 0:
+            self.stdout.write(f"ℹ️ {mode.capitalize()} не найдены")
+            return
+
+        self.stdout.write(f"\n🎯 Найдено {mode}: {criteria_count}")
+
         for criteria_type, items in results.items():
             if items:
                 display_name = self._get_display_name(criteria_type)
@@ -241,6 +273,9 @@ class Command(BaseCommand):
         self.batch_size = options.get('batch_size', 1000)
         self.ignore_existing = options.get('ignore_existing', False)
         self.hide_skipped = options.get('hide_skipped', False)
+
+        # Ключевая опция
+        self.keywords = options.get('keywords', False)
 
         self.use_storyline = options.get('use_storyline', False)
         self.prefer_storyline = options.get('prefer_storyline', False)
@@ -316,7 +351,8 @@ class Command(BaseCommand):
             'genres': 'Жанры',
             'themes': 'Темы',
             'perspectives': 'Перспективы',
-            'game_modes': 'Режимы'
+            'game_modes': 'Режимы',
+            'keywords': 'Ключевые слова'
         }
         return names.get(criteria_type, criteria_type)
 
@@ -324,19 +360,26 @@ class Command(BaseCommand):
         """Возвращает строку с существующими критериями игры"""
         criteria_parts = []
 
-        if game.genres.exists():
-            genre_names = [genre.name for genre in game.genres.all()[:3]]
-            criteria_parts.append(f"жанры: {genre_names}" + ("..." if game.genres.count() > 3 else ""))
-        if game.themes.exists():
-            theme_names = [theme.name for theme in game.themes.all()[:3]]
-            criteria_parts.append(f"темы: {theme_names}" + ("..." if game.themes.count() > 3 else ""))
-        if game.player_perspectives.exists():
-            perspective_names = [perspective.name for perspective in game.player_perspectives.all()[:2]]
-            criteria_parts.append(
-                f"перспективы: {perspective_names}" + ("..." if game.player_perspectives.count() > 2 else ""))
-        if game.game_modes.exists():
-            mode_names = [mode.name for mode in game.game_modes.all()[:2]]
-            criteria_parts.append(f"режимы: {mode_names}" + ("..." if game.game_modes.count() > 2 else ""))
+        if self.keywords:
+            # Только ключевые слова
+            if game.keywords.exists():
+                keyword_names = [keyword.name for keyword in game.keywords.all()[:5]]
+                criteria_parts.append(f"ключевые слова: {keyword_names}" + ("..." if game.keywords.count() > 5 else ""))
+        else:
+            # Обычные критерии
+            if game.genres.exists():
+                genre_names = [genre.name for genre in game.genres.all()[:3]]
+                criteria_parts.append(f"жанры: {genre_names}" + ("..." if game.genres.count() > 3 else ""))
+            if game.themes.exists():
+                theme_names = [theme.name for theme in game.themes.all()[:3]]
+                criteria_parts.append(f"темы: {theme_names}" + ("..." if game.themes.count() > 3 else ""))
+            if game.player_perspectives.exists():
+                perspective_names = [perspective.name for perspective in game.player_perspectives.all()[:2]]
+                criteria_parts.append(
+                    f"перспективы: {perspective_names}" + ("..." if game.player_perspectives.count() > 2 else ""))
+            if game.game_modes.exists():
+                mode_names = [mode.name for mode in game.game_modes.all()[:2]]
+                criteria_parts.append(f"режимы: {mode_names}" + ("..." if game.game_modes.count() > 2 else ""))
 
         return ", ".join(criteria_parts) if criteria_parts else "нет"
 
@@ -345,31 +388,46 @@ class Command(BaseCommand):
         """Обновляет критерии игры в базе данных"""
         updated = False
 
-        field_mapping = {
-            'genres': ('genres', game.genres),
-            'themes': ('themes', game.themes),
-            'perspectives': ('player_perspectives', game.player_perspectives),
-            'game_modes': ('game_modes', game.game_modes),
-        }
+        if self.keywords:
+            # Обновляем только ключевые слова
+            if 'keywords' in results:
+                current_items = set(game.keywords.all())
+                new_items = set(results['keywords'])
 
-        for result_key, (field_name, current_manager) in field_mapping.items():
-            current_items = set(current_manager.all())
-            new_items = set(results[result_key])
+                if self.ignore_existing:
+                    items_to_add = new_items - current_items
+                else:
+                    items_to_add = new_items - current_items
 
-            if self.ignore_existing:
-                items_to_add = new_items - current_items
                 if items_to_add:
                     if self.verbose:
-                        self.stdout.write(f"   ➕ Добавлены {field_name}: {[item.name for item in items_to_add]}")
-                    getattr(game, field_name).add(*items_to_add)
+                        self.stdout.write(f"   ➕ Добавлены ключевые слова: {[item.name for item in items_to_add]}")
+                    game.keywords.add(*items_to_add)
                     updated = True
-            else:
-                items_to_add = new_items - current_items
-                if items_to_add:
-                    if self.verbose:
-                        self.stdout.write(f"   ➕ Добавлены {field_name}: {[item.name for item in items_to_add]}")
-                    getattr(game, field_name).add(*items_to_add)
-                    updated = True
+        else:
+            # Обновляем обычные критерии
+            field_mapping = {
+                'genres': ('genres', game.genres),
+                'themes': ('themes', game.themes),
+                'perspectives': ('player_perspectives', game.player_perspectives),
+                'game_modes': ('game_modes', game.game_modes),
+            }
+
+            for result_key, (field_name, current_manager) in field_mapping.items():
+                if result_key in results:
+                    current_items = set(current_manager.all())
+                    new_items = set(results[result_key])
+
+                    if self.ignore_existing:
+                        items_to_add = new_items - current_items
+                    else:
+                        items_to_add = new_items - current_items
+
+                    if items_to_add:
+                        if self.verbose:
+                            self.stdout.write(f"   ➕ Добавлены {field_name}: {[item.name for item in items_to_add]}")
+                        getattr(game, field_name).add(*items_to_add)
+                        updated = True
 
         if updated:
             game.save()
@@ -443,7 +501,9 @@ class Command(BaseCommand):
             criteria_count = actual_criteria_count
             results = filtered_results
 
-        mode_text = "Найдены критерии" if self.ignore_existing else "Найдены новые критерии"
+        mode = 'ключевые слова' if self.keywords else 'критерии'
+        mode_text = f"Найдены {mode}" if self.ignore_existing else f"Найдены новые {mode}"
+
         self.stdout.write(f"🎯 {mode_text} для '{game.name}' ({criteria_count}):")
 
         # Сначала выводим все найденные критерии
@@ -462,7 +522,8 @@ class Command(BaseCommand):
         self.stdout.write("=" * 60)
         self.stdout.write("🎮 НАСТРОЙКИ АНАЛИЗА ИГР")
         self.stdout.write("=" * 60)
-        self.stdout.write(f"📊 Режим обновления: {'✅ ВКЛ' if self.update_game else '❌ ВЫКЛ'}")
+        self.stdout.write(f"📊 Режим анализа: {'🔑 КЛЮЧЕВЫЕ СЛОВА' if self.keywords else '📋 ОБЫЧНЫЕ КРИТЕРИИ'}")
+        self.stdout.write(f"🔄 Режим обновления: {'✅ ВКЛ' if self.update_game else '❌ ВЫКЛ'}")
         self.stdout.write(f"🔍 Игнорировать существующие: {'✅ ВКЛ' if self.ignore_existing else '❌ ВЫКЛ'}")
         self.stdout.write(f"👁️ Скрыть пропущенные: {'✅ ВКЛ' if self.hide_skipped else '❌ ВЫКЛ'}")
         self.stdout.write(f"📏 Проверка текста: {'❌ ВЫКЛ'}")
@@ -478,8 +539,9 @@ class Command(BaseCommand):
         if not hasattr(self, 'stats') or not self.stats:
             return
 
+        mode = 'ключевых слов' if self.keywords else 'критериев'
         self.stdout.write("\n" + "=" * 60)
-        self.stdout.write(f"📊 {title}")
+        self.stdout.write(f"📊 {title} ({mode})")
         self.stdout.write("=" * 60)
 
         for key, value in self.stats.items():

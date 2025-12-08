@@ -55,41 +55,66 @@ class GameProcessor:
                 text_to_analyze,
                 game=game,
                 ignore_existing=self.command.ignore_existing,
-                collect_patterns=self.command.verbose
+                collect_patterns=self.command.verbose,
+                keywords_mode=self.command.keywords
             )
 
-            has_found_criteria = any(len(results[key]) > 0 for key in results)
-            criteria_count = sum(len(results[key]) for key in results)
-            stats['total_criteria_found'] += criteria_count
+            # В РЕЖИМЕ КЛЮЧЕВЫХ СЛОВ
+            if self.command.keywords:
+                keywords_results = results.get('keywords', [])
+                has_found_criteria = len(keywords_results) > 0
+                criteria_count = len(keywords_results)
+
+                # Если ignore-existing, проверяем только новые
+                if self.command.ignore_existing:
+                    existing_keywords = self.analyzer._get_existing_objects(game, 'keywords')
+                    existing_names = {kw.name for kw in existing_keywords}
+                    new_keywords = [kw for kw in keywords_results if kw.name not in existing_names]
+                    actual_found_count = len(new_keywords)
+                    actual_has_found_criteria = actual_found_count > 0
+                else:
+                    new_keywords = keywords_results
+                    actual_found_count = criteria_count
+                    actual_has_found_criteria = has_found_criteria
+
+            # В ОБЫЧНОМ РЕЖИМЕ
+            else:
+                has_found_criteria = any(
+                    len(results[key]) > 0 for key in ['genres', 'themes', 'perspectives', 'game_modes'] if
+                    key in results)
+                criteria_count = sum(
+                    len(results.get(key, [])) for key in ['genres', 'themes', 'perspectives', 'game_modes'])
+
+                if self.command.ignore_existing and has_found_criteria:
+                    actual_found_count = 0
+                    actual_has_found_criteria = False
+                    for criteria_type in ['genres', 'themes', 'perspectives', 'game_modes']:
+                        if criteria_type in results:
+                            existing_items = self.analyzer._get_existing_objects(game, criteria_type)
+                            existing_names = {item.name for item in existing_items}
+                            new_items = [item for item in results[criteria_type] if item.name not in existing_names]
+                            actual_found_count += len(new_items)
+                            if new_items:
+                                actual_has_found_criteria = True
+                else:
+                    actual_found_count = criteria_count
+                    actual_has_found_criteria = has_found_criteria
+
+            # ОБНОВЛЯЕМ СТАТИСТИКУ
+            stats['total_criteria_found'] += actual_found_count
+
+            if actual_has_found_criteria:
+                stats['found_count'] += 1
 
             # В режиме only-found пропускаем игры без найденных критериев
-            if self.command.only_found and not has_found_criteria:
+            if self.command.only_found and not actual_has_found_criteria:
                 return True
-
-            # В режиме ignore-existing + update-game проверяем, есть ли действительно новые критерии
-            actual_has_found_criteria = has_found_criteria
-            if self.command.ignore_existing and self.command.update_game and has_found_criteria:
-                has_new_criteria = False
-                for criteria_type, items in results.items():
-                    try:
-                        existing_items = self.analyzer._get_existing_objects(game, criteria_type)
-                        existing_names = {item.name for item in existing_items}
-                        new_items = [item for item in items if item.name not in existing_names]
-                        if new_items:
-                            has_new_criteria = True
-                            break
-                    except Exception as e:
-                        self.command.stdout.write(
-                            f"   ⚠️ Ошибка проверки существующих {criteria_type} для {game.name}: {e}")
-                        has_new_criteria = True
-                        break
-                actual_has_found_criteria = has_new_criteria
 
             # Пропускаем игру если нет реально новых критериев в режиме ignore-existing + update-game
             if self.command.ignore_existing and self.command.update_game and not actual_has_found_criteria:
                 return True
 
-            # ОДИН отступ перед каждой ВЫВЕДЕННОЙ игрой (кроме первой)
+            # ОДИН отступ перед каждой ВЫВЕДЕННОЙ игрой
             if stats['displayed_count'] > 0:
                 self.command.stdout.write("")
 
@@ -101,19 +126,43 @@ class GameProcessor:
                 text_length = len(text_to_analyze)
                 self.command.stdout.write(f"   📝 Используется: {text_source} ({text_length} символов)")
 
-            # Выводим результаты
+            # ВЫВОДИМ РЕЗУЛЬТАТЫ (ИСПРАВЛЕННАЯ ЧАСТЬ)
             if actual_has_found_criteria:
-                stats['found_count'] += 1
-                self.command._print_game_results(game, results, criteria_count, pattern_info)
+                # Для режима ключевых слов фильтруем результаты
+                if self.command.keywords:
+                    display_results = {'keywords': new_keywords} if self.command.ignore_existing else {
+                        'keywords': keywords_results}
+                    display_pattern_info = {'keywords': pattern_info.get('keywords', [])}
+                    self.command._print_game_results(game, display_results, actual_found_count, display_pattern_info)
+                else:
+                    # Для обычного режима
+                    if self.command.ignore_existing:
+                        # Фильтруем только новые
+                        filtered_results = {}
+                        for criteria_type in ['genres', 'themes', 'perspectives', 'game_modes']:
+                            if criteria_type in results:
+                                existing_items = self.analyzer._get_existing_objects(game, criteria_type)
+                                existing_names = {item.name for item in existing_items}
+                                new_items = [item for item in results[criteria_type] if item.name not in existing_names]
+                                if new_items:
+                                    filtered_results[criteria_type] = new_items
+                        self.command._print_game_results(game, filtered_results, actual_found_count, pattern_info)
+                    else:
+                        self.command._print_game_results(game, results, actual_found_count, pattern_info)
 
                 if self.command.update_game:
                     if self.command.update_game_criteria(game, results):
                         stats['updated'] += 1
                     elif self.command.verbose:
-                        self.command.stdout.write(f"   ℹ️ Нет новых критериев для обновления")
+                        mode = 'ключевых слов' if self.command.keywords else 'критериев'
+                        self.command.stdout.write(f"   ℹ️ Нет новых {mode} для обновления")
+
             elif not self.command.only_found:
-                mode_text = "критерии" if self.command.ignore_existing else "новые критерии"
-                self.command.stdout.write(f"   ⚠️ {mode_text} не найдены")
+                # ИСПРАВЛЕННЫЙ ВЫВОД КОГДА НЕ НАЙДЕНО
+                mode = 'ключевые слова' if self.command.keywords else 'новые критерии'
+                if self.command.ignore_existing:
+                    mode = 'новые ключевые слова' if self.command.keywords else 'новые критерии'
+                self.command.stdout.write(f"   ⚠️ {mode.capitalize()} не найдены")
 
             return True
 
