@@ -357,7 +357,7 @@
                     {% if shared_genres %}
                         <div class="shared-items-grid">
                             {% for genre in shared_genres %}
-                                <span class="shared-item item-genre">{{ genre.name }}</span>
+                                <span class="shared-item bg-purple">{{ genre.name }}</span>
                             {% endfor %}
                         </div>
                     {% else %}
@@ -377,7 +377,7 @@
                     {% if shared_themes %}
                         <div class="shared-items-grid">
                             {% for theme in shared_themes %}
-                                <span class="shared-item item-theme">{{ theme.name }}</span>
+                                <span class="shared-item bg-orange">{{ theme.name }}</span>
                             {% endfor %}
                         </div>
                     {% else %}
@@ -397,7 +397,7 @@
                     {% if shared_developers %}
                         <div class="shared-items-grid">
                             {% for developer in shared_developers %}
-                                <span class="shared-item item-developer">{{ developer.name }}</span>
+                                <span class="shared-item bg-secondary">{{ developer.name }}</span>
                             {% endfor %}
                         </div>
                     {% else %}
@@ -417,7 +417,7 @@
                     {% if shared_perspectives %}
                         <div class="shared-items-grid">
                             {% for perspective in shared_perspectives %}
-                                <span class="shared-item item-perspective">{{ perspective.name }}</span>
+                                <span class="shared-item bg-info">{{ perspective.name }}</span>
                             {% endfor %}
                         </div>
                     {% else %}
@@ -437,7 +437,7 @@
                     {% if shared_game_modes %}
                         <div class="shared-items-grid">
                             {% for game_mode in shared_game_modes %}
-                                <span class="shared-item item-game-mode">{{ game_mode.name }}</span>
+                                <span class="shared-item bg-pink">{{ game_mode.name }}</span>
                             {% endfor %}
                         </div>
                     {% else %}
@@ -449,51 +449,19 @@
             </div>
         </div>
 
-        <!-- Shared Keywords by Category -->
+        <!-- Shared Keywords (Features) - БЕЗ КАТЕГОРИЙ -->
         <div class="row mb-4">
             <div class="col-12">
                 <div class="shared-section">
-                    <h4 class="section-title">🔑 Shared Features by Category</h4>
-                    {% if shared_keywords_by_category %}
-                        {% for category_name, keywords in shared_keywords_by_category.items %}
-                            <div class="keyword-category-section mb-3">
-                                <h5 class="category-title">
-                                    {% if category_name == 'Gameplay' %}⚡ Gameplay
-                                    {% elif category_name == 'Setting' %}🌍 Setting
-                                    {% elif category_name == 'Narrative' %}📖 Narrative
-                                    {% elif category_name == 'Characters' %}👥 Characters
-                                    {% elif category_name == 'Technical' %}⚙️ Technical
-                                    {% elif category_name == 'Graphics' %}🎨 Graphics
-                                    {% elif category_name == 'Platform' %}💻 Platform
-                                    {% elif category_name == 'Multiplayer' %}👥 Multiplayer
-                                    {% elif category_name == 'Achievements' %}🏆 Achievements
-                                    {% elif category_name == 'Audio' %}🔊 Audio
-                                    {% elif category_name == 'Context' %}🌐 Context
-                                    {% elif category_name == 'Development' %}🔧 Development
-                                    {% else %}📊 {{ category_name }}{% endif %}
-                                </h5>
-                                <div class="shared-items-grid">
-                                    {% for keyword in keywords %}
-                                        <span class="shared-item
-                                {% if category_name == 'Gameplay' %}item-gameplay
-                                {% elif category_name == 'Setting' %}item-setting
-                                {% elif category_name == 'Narrative' %}item-narrative
-                                {% elif category_name == 'Characters' %}item-characters
-                                {% elif category_name == 'Technical' %}item-technical
-                                {% elif category_name == 'Graphics' %}item-graphics
-                                {% elif category_name == 'Platform' %}item-platform
-                                {% elif category_name == 'Multiplayer' %}item-multiplayer
-                                {% elif category_name == 'Achievements' %}item-achievements
-                                {% elif category_name == 'Audio' %}item-audio
-                                {% elif category_name == 'Context' %}item-context
-                                {% elif category_name == 'Development' %}item-development
-                                {% else %}item-default{% endif %}">
-                                {{ keyword.name }}
-                            </span>
-                                    {% endfor %}
-                                </div>
-                            </div>
-                        {% endfor %}
+                    <h4 class="section-title">🔑 Shared Features</h4>
+                    {% if shared_keywords %}
+                        <div class="shared-items-grid">
+                            {% for keyword in shared_keywords %}
+                                <span class="shared-item bg-success">
+                                    {{ keyword.name }}
+                                </span>
+                            {% endfor %}
+                        </div>
                     {% else %}
                         <div class="no-shared-items">
                             <span class="text-muted">No shared features</span>
@@ -533,105 +501,22 @@
         </div>
     </div>
 
+    <!-- Добавляем стиль для центрирования жанров на карточках -->
     <style>
-        .game-comparison-card {
-            background: transparent;
-            border: none;
-            padding: 0;
-            height: 100%;
+        /* Стиль для центрирования жанров на карточках сравнения */
+        .game-comparison-card .game-genres {
+            display: flex !important;
+            flex-wrap: wrap !important;
+            justify-content: center !important;
+            align-items: center !important;
+            gap: 0.5rem !important;
+            margin-top: 1rem !important;
+            text-align: center !important;
         }
 
-        .comparison-cover {
-            border-radius: 10px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-        }
-
-        .game-title {
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: #ff6b35 !important; /* Оранжевый цвет */
-            margin-bottom: 15px;
-            text-align: center;
-        }
-
-        .similarity-card {
-            padding: 20px;
-        }
-
-        .similarity-score {
-            font-size: 3.5rem;
-            font-weight: 800;
-            margin-bottom: 5px;
-        }
-
-        .similarity-score.score-high {
-            color: #28a745;
-        }
-
-        .similarity-score.score-medium {
-            color: #ffc107;
-        }
-
-        .similarity-score.score-low {
-            color: #17a2b8;
-        }
-
-        .similarity-label {
-            font-size: 1.2rem;
-            font-weight: 600;
-            color: #6c757d;
-            margin-bottom: 5px;
-        }
-
-        .keywords-container {
-            position: relative;
-        }
-
-        .keywords-collapsible {
-            transition: all 0.3s ease;
-        }
-
-        .keywords-hidden {
-            margin-top: 8px;
-        }
-
-        .badge {
-            font-size: 0.8rem;
-            font-weight: 500;
-            border-radius: 12px;
-        }
-
-        .criteria-header {
-            padding: 20px 0;
-        }
-
-        .criteria-header i {
-            opacity: 0.9;
-        }
-
-        .text-warning {
-            color: #ff6b35 !important; /* Оранжевый вместо стандартного желтого */
-        }
-
-        /* Убираем отступы у карточек */
-        .card-body.p-0 {
-            padding: 0 !important;
-        }
-
-        /* Центрируем содержимое */
-        .game-comparison-card > div {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            text-align: center;
-        }
-
-        /* Стили для Game Modes */
-        .item-game-mode {
-            background: linear-gradient(135deg, #8e44ad, #9b59b6);
-            color: white;
-            border: none;
+        .game-comparison-card .game-genres .badge {
+            margin: 0.1rem !important;
+            flex-shrink: 0 !important;
         }
     </style>
 
@@ -652,7 +537,6 @@
             }
         }
 
-        // Автоматическая настройка отображения ключевых слов
         document.addEventListener('DOMContentLoaded', function () {
             const keywordsContainer = document.querySelector('.keywords-container');
             if (keywordsContainer) {
@@ -670,6 +554,21 @@
                     }
                 }
             }
+
+            // Применяем центрирование для жанров на карточках сравнения
+            const comparisonCards = document.querySelectorAll('.game-comparison-card');
+            comparisonCards.forEach(card => {
+                const genresContainer = card.querySelector('.game-genres');
+                if (genresContainer) {
+                    genresContainer.style.display = 'flex';
+                    genresContainer.style.flexWrap = 'wrap';
+                    genresContainer.style.justifyContent = 'center';
+                    genresContainer.style.alignItems = 'center';
+                    genresContainer.style.gap = '0.5rem';
+                    genresContainer.style.marginTop = '1rem';
+                    genresContainer.style.textAlign = 'center';
+                }
+            });
         });
     </script>
 {% endblock %}
