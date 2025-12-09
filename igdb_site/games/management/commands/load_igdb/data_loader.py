@@ -1,6 +1,8 @@
+# games/management/commands/load_igdb/data_loader.py
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
+import re
 from games.igdb_api import make_igdb_request
 from games.models import (
     Game, Genre, Keyword, Platform, Series,
@@ -22,6 +24,16 @@ class DataLoader:
 
     def _rate_limited_request(self, endpoint, query, debug=False, max_retries=3):
         """Выполняет запрос к API с rate limiting и retry логикой"""
+        # Проверяем и корректируем лимит в запросе
+        limit_match = re.search(r'limit\s+(\d+)', query, re.IGNORECASE)
+        if limit_match:
+            limit_value = int(limit_match.group(1))
+            if limit_value > 500:
+                if debug:
+                    self.stdout.write(f'   ⚠️  Ограничиваю лимит запроса с {limit_value} до 500')
+                # Автоматически исправляем запрос
+                query = re.sub(r'limit\s+\d+', f'limit 500', query, flags=re.IGNORECASE)
+
         for attempt in range(max_retries):
             try:
                 with self._api_lock:
@@ -588,11 +600,15 @@ class DataLoader:
                                       f'{len(batch_game_ids)} игр, вес: {batch_weight:.1f}')
 
             avg_weight = batch_weight / len(batch_game_ids) if batch_game_ids else 0
-            query_limit = 500
+
+            # ИСПРАВЛЕНИЕ: лимит не должен превышать 500
+            query_limit = 500  # МАКСИМУМ для IGDB API
+
+            # Можно уменьшить лимит если вес большой, но не превышать 500
             if avg_weight > 6:
-                query_limit = 200
+                query_limit = min(500, 300)  # 300 максимум для тяжелых игр
             elif avg_weight < 2:
-                query_limit = 800
+                query_limit = 500  # 500 максимум для легких игр
 
             id_list = ','.join(map(str, batch_game_ids))
             query = f'''
@@ -783,8 +799,8 @@ class DataLoader:
 
     def create_basic_games(self, games_data_list, debug=False):
         """Создает игры с основными данными"""
-        from .base_command import BaseIgdbCommand
-        base_command = BaseIgdbCommand()
+        from django.utils import timezone
+        from datetime import datetime
 
         with self._db_lock:
             existing_game_ids = set(Game.objects.filter(
@@ -795,7 +811,22 @@ class DataLoader:
             game_id = game_data.get('id')
             if not game_id or game_id in existing_game_ids:
                 return None
-            return base_command.create_game_object(game_data, {})
+
+            # Создаем объект игры напрямую
+            game = Game(
+                igdb_id=game_id,
+                name=game_data.get('name', ''),
+                summary=game_data.get('summary', ''),
+                storyline=game_data.get('storyline', ''),
+                rating=game_data.get('rating'),
+                rating_count=game_data.get('rating_count', 0)
+            )
+
+            if game_data.get('first_release_date'):
+                naive_datetime = datetime.fromtimestamp(game_data['first_release_date'])
+                game.first_release_date = timezone.make_aware(naive_datetime)
+
+            return game
 
         games_to_create = []
         with ThreadPoolExecutor(max_workers=min(len(games_data_list), 10)) as executor:
@@ -861,7 +892,6 @@ class DataLoader:
                 collected_data['all_genre_ids'], 'genres', Genre, '🎭', 'жанров', debug), 'genre_map'),
             ('🖥️  Платформы', 'platforms', lambda: self.load_data_parallel_generic(
                 collected_data['all_platform_ids'], 'platforms', Platform, '🖥️', 'платформ', debug), 'platform_map'),
-            # ИЗМЕНЕНО: используем взвешенную версию для ключевых слов
             ('🔑 Ключевые слова', 'keywords', lambda: self.load_keywords_parallel_with_weights(
                 collected_data['all_keyword_ids'], debug), 'keyword_map'),
             ('📚 Серии', 'series', lambda: self.load_data_parallel_generic(
@@ -889,9 +919,8 @@ class DataLoader:
         return data_maps, step_times
 
     def load_keywords_parallel_with_weights(self, keyword_ids, debug=False):
-        """Параллельная загрузка ключевых слов с учетом веса - использует существующие методы"""
+        """Параллельная загрузка ключевых слов с учетом веса"""
 
-        # Используем существующий шаблонный метод
         def process_batch(batch_num, batch_ids, result_map, lock, total_batches, name, debug):
             return self._process_batch_template(
                 batch_num, batch_ids, result_map, lock, total_batches, name, debug,
