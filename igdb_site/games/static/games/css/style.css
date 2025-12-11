@@ -1932,25 +1932,41 @@ h1.display-5 {
 
 /* ===== ГАЛЕРЕЯ СКРИНШОТОВ ===== */
 /* Контейнер для скриншота */
-.screenshot-container { height: 200px; }
+.screenshot-container {
+    height: 220px; /* Увеличил с 200px */
+    position: relative;
+    overflow: hidden;
+    border-radius: 8px;
+    background: transparent !important; /* Убрал фон */
+    margin-bottom: 1rem;
+}
+
 /* Карточки скриншотов в сетке */
 .screenshot-card {
     background: transparent !important;
     border: none !important;
     overflow: hidden;
     transition: all 0.3s ease;
+    height: 100%;
 }
+
 .screenshot-image {
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    border: 2px solid transparent;
-    object-fit: cover;
+    border: none !important; /* Убрал рамку */
+    object-fit: cover !important;
     cursor: pointer;
+    width: 100%;
+    height: 100%;
+    display: block;
 }
+
 .screenshot-image:hover {
-    transform: scale(1.05) !important;
-    border-color: rgba(13, 202, 240, 0.3) !important;
+    transform: scale(1.08) !important;
+    border-color: transparent !important; /* Убрал рамку при hover */
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4) !important;
+    filter: brightness(1.1);
 }
+
 /* Hover оверлей для карточек */
 .hover-overlay {
     background: linear-gradient(135deg,
@@ -2316,6 +2332,83 @@ h1.display-5 {
     }
 }
 
+#screenshotModal .modal-body {
+    padding: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    min-height: 100vh !important;
+}
+
+/* Убираем стандартный backdrop Bootstrap и делаем свой */
+#screenshotModal.modal {
+    background: rgba(0, 0, 0, 0.95) !important;
+    backdrop-filter: blur(10px) !important;
+}
+
+/* Скрываем стандартный backdrop */
+#screenshotModal + .modal-backdrop { display: none !important; }
+
+/* Адаптивность для модального окна галереи */
+@media (max-width: 768px) {
+    #screenshotModal .arrow-close,
+    #screenshotModal .arrow-left,
+    #screenshotModal .arrow-right {
+        width: 60px !important;
+        height: 60px !important;
+        font-size: 1.8rem !important;
+    }
+
+    #screenshotModal .arrow-close {
+        top: 25px !important;
+        right: 25px !important;
+    }
+
+    #screenshotModal .arrow-left { left: 25px !important; }
+    #screenshotModal .arrow-right { right: 25px !important; }
+
+    #screenshotModal .screenshot-full {
+        max-width: 95vw !important;
+        max-height: 80vh !important;
+    }
+
+    #screenshotModal .screenshot-counter {
+        bottom: 25px !important;
+        padding: 10px 20px !important;
+        font-size: 1.1rem !important;
+    }
+}
+
+@media (max-width: 576px) {
+    #screenshotModal .arrow-close,
+    #screenshotModal .arrow-left,
+    #screenshotModal .arrow-right {
+        width: 50px !important;
+        height: 50px !important;
+        font-size: 1.5rem !important;
+    }
+
+    #screenshotModal .arrow-close {
+        top: 20px !important;
+        right: 20px !important;
+    }
+
+    #screenshotModal .arrow-left { left: 15px !important; }
+    #screenshotModal .arrow-right { right: 15px !important; }
+
+    #screenshotModal .screenshot-full {
+        max-width: 98vw !important;
+        max-height: 75vh !important;
+    }
+
+    #screenshotModal .screenshot-counter {
+        bottom: 20px !important;
+        padding: 6px 15px !important;
+        font-size: 0.9rem !important;
+        min-width: 80px !important;
+    }
+}
+
 /* Дополнительные исправления против скачков */
 html {
     scroll-behavior: smooth;
@@ -2329,21 +2422,16 @@ body {
     contain: layout style;
 }
 
-/* Убираем стандартные скачки при переключении табов */
-.tab-pane {
-    will-change: opacity, transform;
-    backface-visibility: hidden;
-    -webkit-backface-visibility: hidden;
-}
-
 /* ===== ИСПРАВЛЕНИЕ СКРЫТИЯ ВКЛАДОК ===== */
 
 /* Принудительно показываем все вкладки (для теста) */
+/* УДАЛИТЬ ЭТИ ТРИ СТРОКИ:
 .tab-content .tab-pane {
     display: block !important;
     opacity: 1 !important;
     visibility: visible !important;
 }
+*/
 
 /* Но скрываем неактивные */
 .tab-content .tab-pane:not(.active):not(.show) {
@@ -2361,4 +2449,240 @@ body {
 /* Убираем анимацию fade которая может мешать */
 .tab-pane.fade {
     transition: none !important;
+}
+
+/* ===== ИСПРАВЛЕНИЯ ДЛЯ РАБОТЫ ГАЛЕРЕИ ===== */
+
+/* Убедитесь, что вкладки отображаются правильно */
+/* УДАЛИТЬ ЭТИ 4 СТРОКИ:
+#screenshots {
+    display: block !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+*/
+
+/* Остальные стили оставить как есть */
+/* Стили для изображений галереи */
+img[data-image] {
+    transition: transform 0.3s ease !important;
+    object-fit: cover !important;
+    width: 100% !important;
+    height: 220px !important; /* Увеличил высоту */
+    display: block !important;
+    border: none !important; /* Убрал рамку */
+    background-color: transparent !important; /* Убрал фон */
+}
+
+img[data-image]:hover {
+    transform: scale(1.05) !important;
+    border-color: transparent !important; /* Убрал рамку */
+}
+
+/* Убедитесь, что изображения видны */
+.screenshot-image {
+    opacity: 1 !important;
+    visibility: visible !important;
+    display: block !important;
+    border: none !important; /* Убрал рамку */
+    background: transparent !important; /* Убрал фон */
+}
+
+/* Hover эффект для контейнера скриншотов */
+.screenshot-container:hover .hover-overlay {
+    opacity: 1 !important;
+}
+
+/* Убедитесь, что hover-overlay виден */
+.hover-overlay {
+    opacity: 0 !important;
+}
+
+/* Фикс для модального окна на мобильных */
+@media (max-width: 768px) {
+    .screenshot-container {
+        height: 180px !important;
+    }
+
+    .screenshot-image {
+        height: 100% !important;
+        width: 100% !important;
+    }
+}
+
+@media (max-width: 576px) {
+    .screenshot-container {
+        height: 150px !important;
+    }
+}
+
+/* Фикс для изображений в галерее */
+.gallery-img {
+    object-fit: cover !important;
+    width: 100% !important;
+    height: 100% !important;
+    display: block !important;
+}
+
+/* Убедитесь, что карточки скриншотов правильно отображаются */
+.screenshot-card .card-img-top {
+    border-radius: 8px !important;
+    overflow: hidden !important;
+}
+
+/* Hover эффект для всей карточки */
+.screenshot-card:hover {
+    transform: translateY(-5px) !important;
+    box-shadow: 0 15px 30px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Цвет hover для иконки увеличения */
+.screenshot-card:hover .hover-overlay .bi-zoom-in {
+    color: #ff6b35 !important;
+    text-shadow: 0 0 10px rgba(255, 107, 53, 0.5) !important;
+}
+
+/* Анимация появления иконки */
+.screenshot-card .hover-overlay .bi-zoom-in {
+    transition: all 0.3s ease !important;
+    transform: scale(1);
+}
+
+.screenshot-card:hover .hover-overlay .bi-zoom-in {
+    transform: scale(1.2);
+}
+
+/* ===== ФИКС ОТОБРАЖЕНИЯ ВКЛАДОК ===== */
+
+/* Скрываем все вкладки по умолчанию */
+.tab-content .tab-pane {
+    display: none;
+}
+
+/* Показываем только активные вкладки */
+.tab-content .tab-pane.active,
+.tab-content .tab-pane.show {
+    display: block;
+    animation: fadeInTab 0.2s ease-out;
+}
+
+@keyframes fadeInTab {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* Гарантируем, что галерея видна только в своей вкладке */
+#screenshots:not(.active):not(.show) {
+    display: none !important;
+}
+
+/* Исправление для Bootstrap */
+.nav-tabs .nav-link.active {
+    color: #0dcaf0 !important;
+    background-color: rgba(255, 255, 255, 0.1) !important;
+    border-bottom: 3px solid #0dcaf0 !important;
+}
+
+/* Стандартное поведение Bootstrap */
+.tab-content > .tab-pane {
+    display: none;
+}
+.tab-content > .active {
+    display: block;
+}
+
+/* ===== СТИЛИ ДЛЯ ГАЛЕРЕИ С ФИКСИРОВАННЫМИ РАЗМЕРАМИ ===== */
+
+/* Hover эффект */
+.screenshot-image-fixed:hover {
+    transform: scale(1.05);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+}
+
+.screenshot-image-fixed.very-small:hover {
+    transform: scale(1.55);
+}
+
+/* Изображения в модальном окне */
+.screenshot-modal-image {
+    max-width: 90vw !important;
+    max-height: 85vh !important;
+    object-fit: contain !important;
+    border-radius: 8px;
+}
+
+/* Маленькие изображения в модальном окне */
+.screenshot-modal-image.small-modal-image {
+    background-color: #2a2a2a !important;
+    padding: 20px !important;
+    border: 1px solid rgba(255, 107, 53, 0.5) !important;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+    .screenshot-container {
+        height: 200px !important; /* Увеличил с 180px */
+    }
+
+    .screenshot-image {
+        height: 100% !important;
+        width: 100% !important;
+    }
+}
+
+@media (max-width: 576px) {
+    .screenshot-container {
+        height: 180px !important; /* Увеличил с 150px */
+    }
+}
+
+/* АДАПТИВНЫЕ СКРИНШОТЫ */
+.screenshot-container-fixed {
+    width: 100%;
+    height: 180px;
+    overflow: hidden;
+    position: relative;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #1a1a1a;
+    margin-bottom: 1rem;
+}
+
+.screenshot-image-fixed {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: block;
+    margin: auto;
+}
+
+/* Hover эффект */
+.screenshot-image-fixed:hover {
+    transform: scale(1.05);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+}
+
+/* Для очень маленьких изображений */
+.screenshot-image-fixed.small {
+    background-color: #2a2a2a;
+    padding: 10px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 107, 53, 0.3);
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+    .screenshot-container-fixed {
+        height: 150px;
+    }
+}
+
+@media (max-width: 576px) {
+    .screenshot-container-fixed {
+        height: 120px;
+    }
 }

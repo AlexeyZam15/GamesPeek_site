@@ -1,346 +1,429 @@
-<!-- games/templates/games/game_detail_parts/gallery_script.html -->
 <script>
     console.log('🎯 GALLERY SCRIPT LOADED');
 
-    // Флаги для предотвращения множественной инициализации
     let galleryInitialized = false;
-    let modalInitialized = false;
+    let modalInstance = null;
     let galleryImages = [];
     let currentImageIndex = 0;
 
-    // Основная функция инициализации галереи (выполняется один раз)
-    window.initInlineGallery = function() {
-        if (galleryInitialized) {
-            console.log('⚠️ Gallery already initialized, skipping...');
-            return;
-        }
+    // АДАПТИВНЫЕ РАЗМЕРЫ (УВЕЛИЧИЛИ)
+    const FIXED_HEIGHT = 220;         // Увеличил с 180 до 220
+    const MIN_WIDTH = 300;            // Увеличил минимальную ширину
+    const MAX_SCALE = 1.8;           // Увеличил максимальное увеличение
+    const ASPECT_RATIO = 16/9;       // Соотношение сторон (16:9)
 
+    // Основная функция инициализации галереи
+    window.initInlineGallery = function() {
         console.log('🚀 initInlineGallery() called');
 
-        // 1. Находим таб screenshots
-        const screenshotsTab = document.getElementById('screenshots');
-        if (!screenshotsTab) {
-            console.error('❌ Screenshots tab not found');
-            return;
-        }
+        // Очищаем предыдущие данные
+        galleryImages = [];
 
-        // 2. Находим все изображения в табе и ФИЛЬТРУЕМ пустые
-        const allImages = Array.from(screenshotsTab.querySelectorAll('img'));
-        console.log(`📸 Found ${allImages.length} images in tab`);
+        // 1. Находим ВСЕ изображения галереи на странице
+        galleryImages = Array.from(document.querySelectorAll('img[data-image]'));
 
-        // ФИЛЬТР: оставляем только изображения с src ИЛИ data-image
-        galleryImages = allImages.filter(img => {
-            const src = img.src || '';
-            const dataImage = img.getAttribute('data-image') || '';
-            const hasSrc = src.trim() !== '' && src !== window.location.href;
-            const hasDataImage = dataImage.trim() !== '';
-
-            return hasSrc || hasDataImage;
-        });
-
-        console.log(`✅ After filtering: ${galleryImages.length} images`);
+        console.log(`📸 Found ${galleryImages.length} gallery images total on page`);
 
         if (galleryImages.length === 0) {
-            console.warn('⚠️ No images in gallery after filtering');
+            console.warn('⚠️ No gallery images found');
             return;
         }
+
+        // 2. УСТАНАВЛИВАЕМ РАЗМЕРЫ ДЛЯ ВСЕХ СКРИНШОТОВ (БЕЗ РАМОК)
+        setScreenshotSizesNoBorders();
 
         // 3. Устанавливаем общее количество в счетчик
         const totalCountEl = document.getElementById('totalCount');
         if (totalCountEl) {
             totalCountEl.textContent = ` / ${galleryImages.length}`;
-            console.log('📊 Counter set:', totalCountEl.textContent);
         }
 
-        // 4. Настраиваем каждое изображение
+        // 4. Настраиваем обработчики кликов
         galleryImages.forEach((img, index) => {
-            console.log(`🖼️ Setting up image ${index}:`, img.src.substring(0, 50));
+            // Удаляем старые обработчики
+            img.removeEventListener('click', handleImageClick);
 
-            // Клонируем и заменяем для сброса обработчиков
-            const newImg = img.cloneNode(true);
-            img.parentNode.replaceChild(newImg, img);
+            // Добавляем новый обработчик
+            img.addEventListener('click', handleImageClick);
 
-            // Обновляем ссылку в массиве
-            galleryImages[index] = newImg;
+            // Делаем изображение кликабельным
+            img.style.cursor = 'pointer';
+            img.style.transition = 'all 0.3s ease';
 
-            // Простой стиль
-            newImg.style.cursor = 'pointer';
-            newImg.style.transition = 'opacity 0.3s';
-
-            // Hover эффект
-            newImg.addEventListener('mouseenter', function() {
-                this.style.opacity = '0.85';
-            });
-
-            newImg.addEventListener('mouseleave', function() {
-                this.style.opacity = '1';
-            });
-
-            // Обработчик клика
-            newImg.addEventListener('click', function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                console.log(`🎯 Click on image ${index}`);
-                openGalleryModal(index);
-            });
+            // Сохраняем индекс в data-атрибуте
+            img.setAttribute('data-gallery-index', index);
         });
 
-        // Инициализируем модальное окно
+        // 5. Инициализируем модальное окно если еще не инициализировано
         initModal();
 
         galleryInitialized = true;
-        console.log(`✅ Gallery initialized: ${galleryImages.length} images`);
+        console.log(`✅ Gallery initialized with ${galleryImages.length} images`);
     };
+
+    // Функция для установки размеров БЕЗ РАМОК
+    function setScreenshotSizesNoBorders() {
+        console.log(`🎯 Setting screenshot sizes (no borders)`);
+
+        galleryImages.forEach((img, index) => {
+            // Добавляем базовый CSS класс
+            img.classList.add('screenshot-image-fixed');
+
+            // Создаем или находим контейнер
+            let container = img.closest('.screenshot-container-fixed');
+            if (!container) {
+                container = document.createElement('div');
+                container.className = 'screenshot-container-fixed';
+                img.parentNode.insertBefore(container, img);
+                container.appendChild(img);
+            }
+
+            // Настройка контейнера (БЕЗ ФОНА для рамок)
+            container.style.width = '100%';
+            container.style.height = `${FIXED_HEIGHT}px`;
+            container.style.overflow = 'hidden';
+            container.style.position = 'relative';
+            container.style.borderRadius = '8px';
+            container.style.display = 'flex';
+            container.style.alignItems = 'center';
+            container.style.justifyContent = 'center';
+            container.style.backgroundColor = 'transparent'; // Убрали фон
+
+            // Если изображение уже загружено
+            if (img.complete) {
+                calculateAndSetImageSizeNoBorder(img, container);
+            } else {
+                // Ждем загрузки изображения
+                img.addEventListener('load', function() {
+                    calculateAndSetImageSizeNoBorder(this, container);
+                });
+
+                // Если ошибка загрузки
+                img.addEventListener('error', function() {
+                    handleImageErrorNoBorder(this, container);
+                });
+            }
+        });
+    }
+
+    // Расчет и установка размера изображения БЕЗ РАМОК
+    function calculateAndSetImageSizeNoBorder(img, container) {
+        const originalWidth = img.naturalWidth;
+        const originalHeight = img.naturalHeight;
+        const originalRatio = originalWidth / originalHeight;
+
+        console.log(`📐 Image: ${originalWidth}x${originalHeight}, ratio: ${originalRatio.toFixed(2)}`);
+
+        // Проверяем, нужно ли увеличивать изображение
+        if (originalWidth < MIN_WIDTH) {
+            console.log(`📈 Small image detected, enlarging: ${originalWidth}x${originalHeight}`);
+
+            // Рассчитываем коэффициент увеличения для достижения минимальной ширины
+            const scaleFactor = Math.min(MAX_SCALE, MIN_WIDTH / originalWidth);
+            const targetWidth = originalWidth * scaleFactor;
+            const targetHeight = originalHeight * scaleFactor;
+
+            // Устанавливаем увеличенные размеры (БЕЗ РАМОК)
+            img.style.width = `${targetWidth}px`;
+            img.style.height = `${targetHeight}px`;
+            img.style.objectFit = 'scale-down';
+            // УБРАЛИ: img.style.backgroundColor = '#2a2a2a';
+            // УБРАЛИ: img.style.padding = '10px';
+            // УБРАЛИ: img.style.border = '1px solid rgba(255, 107, 53, 0.3)';
+
+            // Если изображение очень маленькое, увеличиваем больше
+            if (originalWidth < 200) {
+                const extraScale = 2.2;
+                img.style.transform = `scale(${extraScale})`;
+                img.style.transformOrigin = 'center center';
+            }
+
+        } else {
+            // Изображение нормального размера - подгоняем под контейнер
+            if (originalRatio > ASPECT_RATIO) {
+                // Широкое изображение (шире 16:9)
+                img.style.width = '100%';
+                img.style.height = 'auto';
+                img.style.objectFit = 'cover';
+            } else {
+                // Высокое или квадратное изображение
+                img.style.width = 'auto';
+                img.style.height = '100%';
+                img.style.objectFit = 'cover';
+            }
+        }
+
+        // Центрируем изображение
+        img.style.display = 'block';
+        img.style.margin = 'auto';
+
+        // УБРАЛИ информацию о размере
+        // addSizeInfo(img, container, originalWidth, originalHeight);
+    }
+
+    // Обработка ошибки загрузки изображения БЕЗ РАМОК
+    function handleImageErrorNoBorder(img, container) {
+        console.error('❌ Failed to load image');
+
+        img.style.width = '100%';
+        img.style.height = `${FIXED_HEIGHT}px`;
+        img.style.backgroundColor = '#2a2a2a'; // Оставляем только для ошибок
+        img.style.display = 'flex';
+        img.style.alignItems = 'center';
+        img.style.justifyContent = 'center';
+        img.style.color = '#dc3545';
+        img.style.fontSize = '14px';
+        img.style.fontWeight = 'bold';
+
+        img.alt = 'Failed to load screenshot';
+        img.innerHTML = '<span>❌ Failed to load</span>';
+    }
+
+    // Обработчик клика по изображению
+    function handleImageClick(e) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const img = this;
+        const index = parseInt(img.getAttribute('data-gallery-index')) || 0;
+
+        console.log(`🎯 Click on image ${index}`);
+        openGalleryModal(index);
+    }
 
     // Инициализация модального окна
     function initModal() {
-        if (modalInitialized) {
-            console.log('⚠️ Modal already initialized, skipping...');
-            return;
-        }
-
-        console.log('🔧 Initializing modal window...');
-
         const modalEl = document.getElementById('screenshotModal');
-        const closeBtn = document.querySelector('.arrow-close');
-        const prevBtn = document.getElementById('prevBtn');
-        const nextBtn = document.getElementById('nextBtn');
 
-        if (!modalEl || !closeBtn || !prevBtn || !nextBtn) {
-            console.error('❌ Modal window elements not found');
+        if (!modalEl) {
+            console.error('❌ Modal window element not found');
             return;
         }
 
         // Создаем экземпляр модального окна
-        const modal = new bootstrap.Modal(modalEl, {
+        modalInstance = new bootstrap.Modal(modalEl, {
             backdrop: true,
             keyboard: true,
             focus: true
         });
 
-        // Обработчик закрытия
-        closeBtn.addEventListener('click', function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            console.log('❌ Close button clicked');
-            modal.hide();
-        });
+        console.log('✅ Modal instance created');
+    }
 
-        // Обработчики навигации
-        prevBtn.addEventListener('click', function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            console.log('⬅️ Previous image');
-            navigateGallery('prev');
-        });
-
-        nextBtn.addEventListener('click', function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            console.log('➡️ Next image');
-            navigateGallery('next');
-        });
-
-        // Навигация с клавиатуры
-        function handleKeyboard(e) {
-            if (modalEl.classList.contains('show')) {
-                switch(e.key) {
-                    case 'ArrowLeft':
-                        e.preventDefault();
-                        navigateGallery('prev');
-                        break;
-                    case 'ArrowRight':
-                        e.preventDefault();
-                        navigateGallery('next');
-                        break;
-                    case 'Escape':
-                        // Закрытие обрабатывается Bootstrap
-                        break;
-                }
-            }
-        }
-
-        // Добавляем обработчик клавиатуры
-        document.addEventListener('keydown', handleKeyboard);
-
-        // Убираем обработчик при закрытии
-        modalEl.addEventListener('hidden.bs.modal', function() {
-            document.removeEventListener('keydown', handleKeyboard);
-            console.log('✅ Modal window closed');
-        });
-
-        modalInitialized = true;
-        console.log('✅ Modal window initialized');
-    };
-
-    // Функция открытия модального окна
+    // Открытие модального окна
     function openGalleryModal(imageIndex) {
         console.log(`📂 Opening modal for image ${imageIndex}`);
 
         // Проверяем границы
         currentImageIndex = Math.max(0, Math.min(imageIndex, galleryImages.length - 1));
-        console.log(`Set index: ${currentImageIndex} of ${galleryImages.length - 1}`);
 
-        const modalEl = document.getElementById('screenshotModal');
-
-        if (!modalEl) {
-            console.error('❌ Modal window not found');
-            return;
-        }
-
-        // Обновляем содержимое
+        // Обновляем содержимое модального окна
         updateModalContent();
 
         // Открываем модальное окно
-        const modal = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
-        modal.show();
+        if (modalInstance) {
+            modalInstance.show();
+            console.log('✅ Modal window opened');
+        }
+    }
 
-        console.log('✅ Modal window opened');
-    };
-
-    // Функция обновления содержимого модального окна
+    // Обновление содержимого модального окна (БЕЗ РАМОК)
     function updateModalContent() {
         const currentNumEl = document.getElementById('currentNum');
         const totalCountEl = document.getElementById('totalCount');
         const modalImg = document.getElementById('modalImage');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
 
-        if (!modalImg || galleryImages.length === 0) {
-            console.error('❌ No images to display');
-            return;
-        }
-
-        // Проверяем границы
-        if (currentImageIndex < 0) {
-            currentImageIndex = 0;
-            console.warn('⚠️ Index fixed to 0');
-        }
-        if (currentImageIndex >= galleryImages.length) {
-            currentImageIndex = galleryImages.length - 1;
-            console.warn(`⚠️ Index fixed to ${galleryImages.length - 1}`);
-        }
+        if (!modalImg || galleryImages.length === 0) return;
 
         // Получаем текущее изображение
         const currentImage = galleryImages[currentImageIndex];
         const imageUrl = currentImage.getAttribute('data-image') || currentImage.src;
 
-        console.log(`🖼️ Updating: index ${currentImageIndex}, URL: ${imageUrl.substring(0, 50)}`);
+        console.log(`🔄 Loading modal image ${currentImageIndex + 1}/${galleryImages.length}`);
 
-        // Обновляем изображение
+        // Очищаем предыдущие обработчики
+        modalImg.onload = null;
+        modalImg.onerror = null;
+
+        // Новый обработчик загрузки (БЕЗ РАМОК)
+        modalImg.onload = function() {
+            console.log(`✅ Modal image loaded: ${this.naturalWidth}x${this.naturalHeight}`);
+
+            // Для модального окна показываем оригинальный размер
+            if (this.naturalWidth < 1000 || this.naturalHeight < 700) {
+                // Маленькое изображение в модальном окне - масштабируем
+                const scaleFactor = Math.min(2.5, 1000 / this.naturalWidth, 700 / this.naturalHeight);
+                this.style.width = `${this.naturalWidth * scaleFactor}px`;
+                this.style.height = `${this.naturalHeight * scaleFactor}px`;
+                this.style.objectFit = 'scale-down';
+                // УБРАЛИ фон и рамки
+            } else {
+                // Нормальное изображение
+                this.style.maxWidth = '90vw';
+                this.style.maxHeight = '85vh';
+                this.style.objectFit = 'contain';
+            }
+
+            this.style.display = 'block';
+            this.style.margin = 'auto';
+        };
+
+        modalImg.onerror = function() {
+            console.error('❌ Failed to load modal image');
+            this.style.backgroundColor = '#2a2a2a';
+            this.style.display = 'flex';
+            this.style.alignItems = 'center';
+            this.style.justifyContent = 'center';
+            this.style.color = '#fff';
+            this.style.padding = '40px';
+            this.style.borderRadius = '8px';
+            this.innerHTML = '<div style="text-align: center;"><i class="bi bi-image" style="font-size: 2rem; color: #dc3545;"></i><br><span style="color: #dc3545; font-weight: bold;">Failed to load image</span></div>';
+        };
+
+        // Устанавливаем источник изображения
         modalImg.src = imageUrl;
         modalImg.alt = currentImage.alt || `Screenshot ${currentImageIndex + 1}`;
 
         // Обновляем счетчик
-        if (currentNumEl) {
-            currentNumEl.textContent = currentImageIndex + 1;
-        }
-
-        if (totalCountEl && !totalCountEl.textContent) {
+        if (currentNumEl) currentNumEl.textContent = currentImageIndex + 1;
+        if (totalCountEl && (!totalCountEl.textContent || totalCountEl.textContent === ' / 0')) {
             totalCountEl.textContent = ` / ${galleryImages.length}`;
         }
 
         // Обновляем кнопки навигации
         updateNavigationButtons();
-    };
+    }
 
-    // Функция обновления кнопок навигации
+    // Обновление кнопок навигации
     function updateNavigationButtons() {
         const prevBtn = document.getElementById('prevBtn');
         const nextBtn = document.getElementById('nextBtn');
 
         if (prevBtn) {
-            const isDisabled = currentImageIndex === 0;
-            prevBtn.disabled = isDisabled;
-            prevBtn.style.opacity = isDisabled ? '0.3' : '1';
-            prevBtn.style.cursor = isDisabled ? 'not-allowed' : 'pointer';
+            prevBtn.disabled = currentImageIndex === 0;
+            prevBtn.style.opacity = prevBtn.disabled ? '0.3' : '1';
+            prevBtn.style.cursor = prevBtn.disabled ? 'not-allowed' : 'pointer';
         }
 
         if (nextBtn) {
-            const isDisabled = currentImageIndex === galleryImages.length - 1;
-            nextBtn.disabled = isDisabled;
-            nextBtn.style.opacity = isDisabled ? '0.3' : '1';
-            nextBtn.style.cursor = isDisabled ? 'not-allowed' : 'pointer';
+            nextBtn.disabled = currentImageIndex === galleryImages.length - 1;
+            nextBtn.style.opacity = nextBtn.disabled ? '0.3' : '1';
+            nextBtn.style.cursor = nextBtn.disabled ? 'not-allowed' : 'pointer';
         }
-    };
+    }
 
-    // Функция навигации
+    // Навигация
     function navigateGallery(direction) {
-        console.log(`🧭 Navigation: ${direction} from index ${currentImageIndex}`);
-
         if (direction === 'prev' && currentImageIndex > 0) {
             currentImageIndex--;
         } else if (direction === 'next' && currentImageIndex < galleryImages.length - 1) {
             currentImageIndex++;
         } else {
-            console.log(`⚠️ Navigation ${direction} not possible`);
             return;
         }
 
-        console.log(`✅ New index: ${currentImageIndex}`);
         updateModalContent();
-    };
+    }
 
-    // Функция для отладки
-    window.debugGallery = function() {
-        console.log('=== GALLERY DEBUG ===');
-        console.log('Initialized:', galleryInitialized);
-        console.log('Images in array:', galleryImages.length);
-        console.log('Current index:', currentImageIndex);
-        console.log('All images:');
+    // Инициализация при загрузке страницы
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('🏠 Initializing gallery...');
 
-        galleryImages.forEach((img, i) => {
-            console.log(`  ${i}: ${img.src.substring(0, 60)}`);
-        });
+        // Даем время для загрузки DOM
+        setTimeout(() => {
+            // Инициализируем галерею
+            window.initInlineGallery();
 
-        console.log('====================');
-    };
+            // Настраиваем кнопки навигации модального окна
+            const prevBtn = document.getElementById('prevBtn');
+            const nextBtn = document.getElementById('nextBtn');
 
-    // Функция для ручного исправления галереи
-    window.fixGallery = function() {
-        console.log('🛠️ Manual gallery fix');
-
-        // Пересчитываем изображения
-        const screenshotsTab = document.getElementById('screenshots');
-        if (screenshotsTab) {
-            const allImages = Array.from(screenshotsTab.querySelectorAll('img'));
-            galleryImages = allImages.filter(img => {
-                const src = img.src || '';
-                const dataImage = img.getAttribute('data-image') || '';
-                return (src.trim() !== '' && src !== window.location.href) || dataImage.trim() !== '';
-            });
-
-            console.log(`🔄 Updated: ${galleryImages.length} images`);
-
-            // Обновляем счетчик
-            const totalCountEl = document.getElementById('totalCount');
-            if (totalCountEl) {
-                totalCountEl.textContent = ` / ${galleryImages.length}`;
+            if (prevBtn) {
+                prevBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    navigateGallery('prev');
+                });
             }
 
-            // Обновляем текущее отображение
-            updateModalContent();
-        }
-    };
+            if (nextBtn) {
+                nextBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    navigateGallery('next');
+                });
+            }
 
-    window.getGalleryState = function() {
-        return {
-            initialized: galleryInitialized,
-            images: galleryImages.length,
-            currentIndex: currentImageIndex
-        };
-    };
+            // Клавиатурная навигация
+            document.addEventListener('keydown', function(e) {
+                const modal = document.getElementById('screenshotModal');
+                if (modal && modal.classList.contains('show')) {
+                    if (e.key === 'ArrowLeft') {
+                        e.preventDefault();
+                        navigateGallery('prev');
+                    } else if (e.key === 'ArrowRight') {
+                        e.preventDefault();
+                        navigateGallery('next');
+                    } else if (e.key === 'Escape') {
+                        if (modalInstance) {
+                            modalInstance.hide();
+                        }
+                    }
+                }
+            });
 
-    // Автоматическая инициализация при загрузке вкладки
-    document.addEventListener('DOMContentLoaded', function() {
-        console.log('🏠 DOM loaded - gallery script ready');
-
-        // Проверяем, активна ли вкладка скриншотов при загрузке
-        const screenshotsTab = document.getElementById('screenshots-tab');
-        if (screenshotsTab && screenshotsTab.classList.contains('active')) {
-            console.log('📱 Screenshots tab is active, initializing...');
-            setTimeout(window.initInlineGallery, 300);
-        }
+        }, 1000);
     });
 
-    console.log('✅ Gallery script ready');
-    console.log('💡 Commands: initInlineGallery(), debugGallery(), fixGallery()');
+    // ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
+
+    // Увеличить все скриншоты еще больше
+    window.increaseScreenshotSize = function(newHeight = 250) {
+        console.log(`📈 Increasing screenshot height to ${newHeight}px`);
+
+        galleryImages.forEach(img => {
+            const container = img.closest('.screenshot-container-fixed');
+            if (container) {
+                container.style.height = `${newHeight}px`;
+
+                if (img.complete) {
+                    // Пересчитываем размер для нового контейнера
+                    calculateAndSetImageSizeNoBorder(img, container);
+                }
+            }
+        });
+    };
+
+    // Убрать все рамки и фоны
+    window.removeAllBorders = function() {
+        console.log('🚫 Removing all borders and backgrounds');
+
+        galleryImages.forEach(img => {
+            img.style.backgroundColor = 'transparent';
+            img.style.border = 'none';
+            img.style.padding = '0';
+
+            const container = img.closest('.screenshot-container-fixed');
+            if (container) {
+                container.style.backgroundColor = 'transparent';
+            }
+        });
+    };
+
+    // Проверка текущих настроек
+    window.checkSettings = function() {
+        console.log('⚙️ Current gallery settings:');
+        console.log(`  Fixed height: ${FIXED_HEIGHT}px`);
+        console.log(`  Min width: ${MIN_WIDTH}px`);
+        console.log(`  Max scale: ${MAX_SCALE}x`);
+        console.log(`  Images: ${galleryImages.length}`);
+    };
+
+    console.log('✅ Gallery script ready (NO BORDERS)');
+    console.log('💡 Команды:');
+    console.log('  increaseScreenshotSize(250) - увеличить высоту скриншотов');
+    console.log('  removeAllBorders() - убрать все рамки и фоны');
+    console.log('  checkSettings() - проверить текущие настройки');
 </script>
