@@ -1,69 +1,136 @@
-# games/management/commands/precalculate_similarity.py
+# management/commands/precalculate_similarity.py
 from django.core.management.base import BaseCommand
 from django.db import transaction
-from games.models import Game, GameSimilarityCache
+from games.models import Game, GameCountsCache, GameSimilarityCache
 from games.similarity import GameSimilarity
-from django.utils import timezone
+import time
+from django.db.models import Count
 
 
 class Command(BaseCommand):
-    help = 'Precalculate game similarities for faster search'
+    help = 'Предварительно рассчитывает подсчеты и схожесть игр'
 
     def add_arguments(self, parser):
-        parser.add_argument('--batch-size', type=int, default=50, help='Number of games to process per batch')
-        parser.add_argument('--top-n', type=int, default=30, help='Number of similar games to cache per game')
-        parser.add_argument('--min-similarity', type=int, default=15, help='Minimum similarity score to cache')
+        parser.add_argument('--batch-size', type=int, default=100, help='Размер батча для обработки')
+        parser.add_argument('--limit', type=int, default=None, help='Ограничить количество обрабатываемых игр')
 
     def handle(self, *args, **options):
         batch_size = options['batch_size']
-        top_n = options['top_n']
-        min_similarity = options['min_similarity']
+        limit = options['limit']
 
-        # Берем популярные игры
-        games = Game.objects.filter(rating_count__gt=5).order_by('-rating_count')[:batch_size]
-        total_games = games.count()
         similarity_engine = GameSimilarity()
 
-        self.stdout.write(f"🎮 Precalculating similarities for {total_games} popular games...")
+        # 1. Рассчитываем подсчеты для всех игр
+        print("1. Расчет подсчетов элементов для игр...")
+        games = Game.objects.all()
+        if limit:
+            games = games[:limit]
+
+        total_games = games.count()
+        print(f"Всего игр для обработки: {total_games}")
 
         processed = 0
-        for game in games:
-            try:
-                # Находим похожие игры (возвращает список словарей)
-                similar_games_data = similarity_engine.find_similar_games(
-                    game,
-                    limit=top_n,
-                    min_similarity=min_similarity
-                )
+        for i in range(0, total_games, batch_size):
+            batch_games = games[i:i + batch_size]
 
-                self.stdout.write(f"📊 {game.name}: found {len(similar_games_data)} similar games")
+            for game in batch_games:
+                processed += 1
+
+                # Получаем или создаем кэш подсчетов
+                cache, created = GameCountsCache.objects.get_or_create(game=game)
+
+                # Обновляем подсчеты
+                cache.genres_count = game.genres.count()
+                cache.keywords_count = game.keywords.count()
+                cache.themes_count = game.themes.count()
+                cache.developers_count = game.developers.count()
+                cache.perspectives_count = game.player_perspectives.count()
+                cache.game_modes_count = game.game_modes.count()
+                cache.save()
+
+                if processed % 100 == 0:
+                    print(f"Обработано подсчетов: {processed}/{total_games}")
+
+        print("Подсчеты элементов завершены!")
+
+        # 2. Рассчитываем схожесть для популярных игр
+        print("\n2. Расчет схожести для популярных игр...")
+
+        # Берем топ N популярных игр как source
+        popular_games = Game.objects.filter(rating_count__gt=100).order_by('-rating_count')[:50]
+
+        source_processed = 0
+        for source_game in popular_games:
+            source_processed += 1
+            print(f"\nОбработка исходной игры {source_processed}/{len(popular_games)}: {source_game.name}")
+
+            # Получаем данные исходной игры
+            source_data = similarity_engine._get_cached_game_data(source_game)
+
+            # Берем игры-кандидаты (исключая саму себя)
+            candidate_games = Game.objects.exclude(id=source_game.id)[:1000]
+
+            candidate_processed = 0
+            for target_game in candidate_games:
+                candidate_processed += 1
+
+                # Проверяем, есть ли уже кэш
+                if GameSimilarityCache.objects.filter(source_game=source_game, target_game=target_game).exists():
+                    continue
+
+                # Подсчитываем общие элементы
+                common_genres = len(set(source_data['genres']) & set(target_game.genres.values_list('id', flat=True)))
+                common_keywords = len(
+                    set(source_data['keywords']) & set(target_game.keywords.values_list('id', flat=True)))
+                common_themes = len(set(source_data['themes']) & set(target_game.themes.values_list('id', flat=True)))
+                common_developers = len(
+                    set(source_data['developers']) & set(target_game.developers.values_list('id', flat=True)))
+                common_perspectives = len(set(source_data['perspectives']) & set(
+                    target_game.player_perspectives.values_list('id', flat=True)))
+                common_game_modes = len(
+                    set(source_data['game_modes']) & set(target_game.game_modes.values_list('id', flat=True)))
+
+                # Получаем подсчеты target игры
+                try:
+                    target_counts = GameCountsCache.objects.get(game=target_game)
+                except GameCountsCache.DoesNotExist:
+                    # Если нет кэша, считаем на лету
+                    target_counts = GameCountsCache(
+                        game=target_game,
+                        genres_count=target_game.genres.count(),
+                        keywords_count=target_game.keywords.count(),
+                        themes_count=target_game.themes.count(),
+                        developers_count=target_game.developers.count(),
+                        perspectives_count=target_game.player_perspectives.count(),
+                        game_modes_count=target_game.game_modes.count(),
+                    )
+                    target_counts.save()
+
+                # Рассчитываем схожесть
+                similarity = similarity_engine.calculate_similarity(source_game, target_game)
 
                 # Сохраняем в кэш
-                cache_created = 0
-                with transaction.atomic():
-                    for similar_data in similar_games_data:
-                        # similar_data - это словарь с ключами: 'game', 'similarity', etc.
-                        similar_game = similar_data['game']
-                        similarity_score = similar_data['similarity']
+                GameSimilarityCache.objects.create(
+                    source_game=source_game,
+                    target_game=target_game,
+                    common_genres=common_genres,
+                    common_keywords=common_keywords,
+                    common_themes=common_themes,
+                    common_developers=common_developers,
+                    common_perspectives=common_perspectives,
+                    common_game_modes=common_game_modes,
+                    target_genres_count=target_counts.genres_count,
+                    target_keywords_count=target_counts.keywords_count,
+                    target_themes_count=target_counts.themes_count,
+                    target_developers_count=target_counts.developers_count,
+                    target_perspectives_count=target_counts.perspectives_count,
+                    target_game_modes_count=target_counts.game_modes_count,
+                    calculated_similarity=similarity
+                )
 
-                        if similarity_score >= min_similarity:
-                            GameSimilarityCache.objects.update_or_create(
-                                game1=game,
-                                game2=similar_game,
-                                defaults={'similarity_score': similarity_score}
-                            )
-                            cache_created += 1
+                if candidate_processed % 100 == 0:
+                    print(f"  Кандидатов обработано: {candidate_processed}")
 
-                processed += 1
-                self.stdout.write(f"✅ {game.name}: {cache_created} similar games cached")
+            print(f"  Игра {source_game.name} завершена, сохранено {candidate_processed} записей")
 
-            except Exception as e:
-                self.stdout.write(self.style.ERROR(f"❌ Error processing {game.name}: {e}"))
-                continue
-
-        self.stdout.write(
-            self.style.SUCCESS(f"🎉 Game similarities precalculation completed! Processed {processed} games"))
-
-        # Статистика
-        total_cached = GameSimilarityCache.objects.count()
-        self.stdout.write(f"📈 Total cached similarities: {total_cached}")
+        print("\nПредварительный расчет завершен!")

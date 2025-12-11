@@ -7,9 +7,12 @@
             </div>
             <div class="col-md-6">
                 <select name="sort" class="form-select">
-                    <option value="-similarity" {% if current_sort == "-similarity" and find_similar %}selected{% endif %}>
-                        Most Similar
-                    </option>
+                    {% if show_similarity %}
+                        <option value="-similarity"
+                                {% if current_sort == "-similarity" and find_similar %}selected{% endif %}>
+                            Most Similar
+                        </option>
+                    {% endif %}
                     <option value="-rating_count" {% if current_sort == "-rating_count" %}selected{% endif %}>
                         Most Popular
                     </option>
@@ -22,7 +25,8 @@
                     <option value="-name" {% if current_sort == "-name" %}selected{% endif %}>
                         Name Z-A
                     </option>
-                    <option value="-first_release_date" {% if current_sort == "-first_release_date" %}selected{% endif %}>
+                    <option value="-first_release_date"
+                            {% if current_sort == "-first_release_date" %}selected{% endif %}>
                         Newest First
                     </option>
                     <option value="first_release_date" {% if current_sort == "first_release_date" %}selected{% endif %}>

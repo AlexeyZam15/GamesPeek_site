@@ -1,5 +1,59 @@
-from django.db import models
+
 from django.utils import timezone
+
+# models.py
+from django.db import models
+
+
+class GameSimilarityDetail(models.Model):  # НОВОЕ ИМЯ!
+    """Детальный кэш для предварительно рассчитанной схожести игр"""
+    source_game = models.ForeignKey('Game', on_delete=models.CASCADE, related_name='similarity_details_as_source')
+    target_game = models.ForeignKey('Game', on_delete=models.CASCADE, related_name='similarity_details_as_target')
+
+    # Общие элементы
+    common_genres = models.IntegerField(default=0)
+    common_keywords = models.IntegerField(default=0)
+    common_themes = models.IntegerField(default=0)
+    common_developers = models.IntegerField(default=0)
+    common_perspectives = models.IntegerField(default=0)
+    common_game_modes = models.IntegerField(default=0)
+
+    # Расчетная схожесть
+    calculated_similarity = models.FloatField(default=0.0)
+
+    # Метаданные
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ['source_game', 'target_game']
+        indexes = [
+            models.Index(fields=['source_game', 'calculated_similarity']),
+            models.Index(fields=['calculated_similarity']),
+        ]
+        verbose_name = "Game similarity detail"
+        verbose_name_plural = "Game similarity details"
+
+    def __str__(self):
+        return f"{self.source_game.name} -> {self.target_game.name}: {self.calculated_similarity:.1f}%"
+
+class GameCountsCache(models.Model):
+    """Модель для кэширования подсчетов элементов игры"""
+    game = models.OneToOneField('Game', on_delete=models.CASCADE, related_name='counts_cache')
+
+    # Количества элементов
+    genres_count = models.IntegerField(default=0)
+    keywords_count = models.IntegerField(default=0)
+    themes_count = models.IntegerField(default=0)
+    developers_count = models.IntegerField(default=0)
+    perspectives_count = models.IntegerField(default=0)
+    game_modes_count = models.IntegerField(default=0)
+
+    # Метаданные
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Counts for {self.game.name}"
 
 
 class Company(models.Model):
@@ -161,6 +215,12 @@ class Keyword(models.Model):
     def __str__(self):
         category_name = self.category.name if self.category else "No Category"
         return f"{self.name} ({category_name})"
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['cached_usage_count']),
+            models.Index(fields=['name']),
+        ]
 
     @property
     def usage_count(self):
@@ -401,6 +461,13 @@ class Game(models.Model):
 
     class Meta:
         ordering = ['-rating_count']
+        indexes = [
+            models.Index(fields=['-rating_count']),
+            models.Index(fields=['-rating']),
+            models.Index(fields=['name']),
+            models.Index(fields=['-first_release_date']),
+            models.Index(fields=['igdb_id']),
+        ]
 
     # ИСПРАВЛЕННЫЕ PROPERTY ДЛЯ СЕРИЙ
     @property
