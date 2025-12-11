@@ -413,6 +413,14 @@ class Game(models.Model):
     igdb_id = models.IntegerField(unique=True)
     name = models.CharField(max_length=255)
     summary = models.TextField(blank=True, null=True)
+
+    rawg_description = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Описание игры, импортированное с RAWG.io",
+        verbose_name="Описание (RAWG)"
+    )
+
     storyline = models.TextField(blank=True, null=True)
     rating = models.FloatField(blank=True, null=True)
     rating_count = models.IntegerField(default=0)
