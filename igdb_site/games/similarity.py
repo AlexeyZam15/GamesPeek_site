@@ -83,6 +83,9 @@ class GameSimilarity:
     PERSPECTIVES_WEIGHT = 10.0
     GAME_MODES_WEIGHT = 5.0
 
+    # НОВАЯ КОНСТАНТА: минимальное количество общих жанров для включения в результат
+    MIN_COMMON_GENRES = 2  # Ищем игры только с 2+ общими жанрами
+
     def __init__(self):
         # Кэш для ускорения повторных расчетов
         self._similarity_cache = {}
@@ -93,6 +96,7 @@ class GameSimilarity:
         УПРОЩЕННЫЙ расчет БЕЗ ОГРАНИЧЕНИЙ
         Исходная игра включается с 100% схожести
         Минимальная схожесть: 20%
+        ТРЕБОВАНИЕ: должно быть не менее MIN_COMMON_GENRES общих жанров
         """
         import time
         from django.db import connection
@@ -112,8 +116,9 @@ class GameSimilarity:
                 'keyword_ids': sorted(source_game.keyword_ids),
                 'theme_ids': sorted(source_game.theme_ids),
                 'min_similarity': min_similarity,
+                'min_common_genres': self.MIN_COMMON_GENRES,  # Добавляем в ключ кэша
                 'limit': limit,
-                'version': 'v_min_20'
+                'version': 'v_min_20_with_genre_min_requirement'
             }
             source_game_id = -1
         else:
@@ -121,22 +126,25 @@ class GameSimilarity:
                 'type': 'game',
                 'game_id': source_game.id,
                 'min_similarity': min_similarity,
+                'min_common_genres': self.MIN_COMMON_GENRES,  # Добавляем в ключ кэша
                 'limit': limit,
-                'version': 'v_min_20'
+                'version': 'v_min_20_with_genre_min_requirement'
             }
             source_game_id = source_game.id
 
         cache_key_str = json.dumps(cache_key_data, sort_keys=True)
-        cache_key = f'game_similarity_min_20_{hashlib.md5(cache_key_str.encode()).hexdigest()}'
+        cache_key = f'game_similarity_min_20_genre_min_{self.MIN_COMMON_GENRES}_{hashlib.md5(cache_key_str.encode()).hexdigest()}'
 
         # Проверяем кэш
         cached_result = cache.get(cache_key)
         if cached_result:
-            print(f"Используем кэшированные результаты (min_similarity={min_similarity})")
+            print(
+                f"Используем кэшированные результаты (min_similarity={min_similarity}, min_common_genres={self.MIN_COMMON_GENRES})")
             return cached_result
 
         print(f"РАСЧЕТ для {getattr(source_game, 'id', 'virtual')}...")
         print(f"Минимальная схожесть: {min_similarity}%")
+        print(f"Минимальное количество общих жанров: {self.MIN_COMMON_GENRES}")
 
         start_time = time.time()
 
@@ -159,19 +167,59 @@ class GameSimilarity:
         source_game_mode_count = len(source_game_mode_ids)
 
         print(f"Данные исходной игры:")
-        print(f"  - Жанры: {source_genre_count}")
-        print(f"  - Ключевые слова: {source_keyword_count}")
-        print(f"  - Темы: {source_theme_count}")
+        print(f"  - Жанры: {source_genre_count} (ID: {source_genre_ids})")
 
-        # 1. БЕРЕМ ВСЕ ИГРЫ БЕЗ ИСКЛЮЧЕНИЙ
-        print("Этап 1: Получение всех кандидатов...")
+        # ВАЖНОЕ ИЗМЕНЕНИЕ: Если у исходной игры меньше жанров чем MIN_COMMON_GENRES
+        if source_genre_count < self.MIN_COMMON_GENRES:
+            print(
+                f"ВНИМАНИЕ: У исходной игры {source_genre_count} жанров, что меньше требуемых {self.MIN_COMMON_GENRES}!")
+            if isinstance(source_game, Game):
+                # Для реальных игр возвращаем пустой список
+                return []
+            else:
+                # Для виртуальных игр снижаем требование
+                print(f"Для виртуальной игры снижаем требование до {source_genre_count} общих жанров")
+                actual_min_common = source_genre_count
+        else:
+            actual_min_common = self.MIN_COMMON_GENRES
+
+        # 1. БЕРЕМ ТОЛЬКО ИГРЫ С НЕ МЕНЕЕ actual_min_common ОБЩИХ ЖАНРОВ
+        print("Этап 1: Получение кандидатов с общими жанрами...")
         filter_time = time.time()
 
-        candidate_games = Game.objects.all()
-        # НЕ исключаем исходную игру - она должна быть в результатах
+        # Сначала получаем ID игр, у которых есть не менее actual_min_common общих жанров
+        candidate_ids_with_genres = []
+
+        if source_genre_ids:
+            with connection.cursor() as cursor:
+                source_genre_ids_str = ','.join(map(str, source_genre_ids))
+
+                # Используем HAVING для фильтрации по количеству общих жанров
+                query = f"""
+                    SELECT game_id, COUNT(*) as common_genres_count
+                    FROM games_game_genres 
+                    WHERE genre_id IN ({source_genre_ids_str})
+                    GROUP BY game_id
+                    HAVING COUNT(*) >= {actual_min_common}
+                """
+                cursor.execute(query)
+                candidate_ids_with_genres = [row[0] for row in cursor.fetchall()]
+
+        # Если кандидатов нет, возвращаем пустой список
+        if not candidate_ids_with_genres:
+            print(f"Нет игр с хотя бы {actual_min_common} общими жанрами")
+            return []
+
+        # Получаем игры-кандидаты
+        candidate_games = Game.objects.filter(id__in=candidate_ids_with_genres)
+
+        # ВКЛЮЧАЕМ исходную игру (если она реальная, а не виртуальная)
+        if isinstance(source_game, Game):
+            candidate_games = candidate_games | Game.objects.filter(id=source_game.id)
 
         candidate_count = candidate_games.count()
-        print(f"Найдено {candidate_count} кандидатов за {time.time() - filter_time:.2f} сек")
+        print(
+            f"Найдено {candidate_count} кандидатов с не менее {actual_min_common} общими жанрами за {time.time() - filter_time:.2f} сек")
 
         # 2. ПОДГОТОВКА ДАННЫХ ДЛЯ БЫСТРОГО РАСЧЕТА
         print("Этап 2: Подготовка данных для расчета...")
@@ -189,7 +237,7 @@ class GameSimilarity:
                 'id': game.id,
                 'name': game.name,
                 'common_keywords': 0,
-                'common_genres': 0,
+                'common_genres': 0,  # МИНИМУМ actual_min_common, т.к. мы отфильтровали
                 'common_themes': 0,
                 'common_developers': 0,
                 'common_perspectives': 0,
@@ -212,7 +260,7 @@ class GameSimilarity:
             if candidate_ids:
                 candidate_ids_str = ','.join(map(str, candidate_ids))
 
-                # ПОДСЧЕТ ОБЩИХ ЖАНРОВ
+                # ПОДСЧЕТ ОБЩИХ ЖАНРОВ (уже известно, что есть минимум actual_min_common)
                 if source_genre_ids:
                     source_genre_ids_str = ','.join(map(str, source_genre_ids))
                     query = f"""
@@ -395,6 +443,11 @@ class GameSimilarity:
                 source_game_found = True
                 print(f"Исходная игра '{data['name']}' добавлена с 100% схожести")
             else:
+                # УБЕЖДАЕМСЯ, что есть не менее actual_min_common общих жанров
+                if data['common_genres'] < actual_min_common:
+                    # Пропускаем игру если недостаточно общих жанров
+                    continue
+
                 # Обычный расчет для других игр
                 similarity = self._calculate_game_similarity(
                     source_genre_count, source_keyword_count, source_theme_count,
@@ -421,7 +474,8 @@ class GameSimilarity:
 
         print(f"Расчет схожести завершен за {time.time() - calc_time:.2f} сек")
         print(f"Максимальная найденная схожесть: {max_similarity:.1f}% (игра: {max_game_name})")
-        print(f"Найдено {len(similar_games)} игр выше порога {min_similarity}%")
+        print(
+            f"Найдено {len(similar_games)} игр выше порога {min_similarity}% с не менее {actual_min_common} общими жанрами")
 
         # 5. СОРТИРОВКА: исходная игра первая, остальные по убыванию схожести
         sort_time = time.time()
