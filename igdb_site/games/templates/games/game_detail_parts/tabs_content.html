@@ -1,0 +1,45 @@
+{% load platform_icons %}
+{% load game_tags %}
+
+<!-- Навигация табов -->
+{% include 'games/game_detail_parts/tabs_navigation.html' %}
+
+<!-- Контент табов -->
+<div class="tab-content" id="gameTabsContent">
+    <!-- Вкладка Overview -->
+    {% include 'games/game_detail_parts/tab_overview.html' %}
+
+    <!-- Вкладка Details -->
+    {% include 'games/game_detail_parts/tab_details.html' %}
+
+    <!-- Вкладка Companies -->
+    {% include 'games/game_detail_parts/tab_companies.html' %}
+
+    <!-- Вкладка Keywords -->
+    {% include 'games/game_detail_parts/tab_keywords.html' %}
+
+    <!-- Вкладка Screenshots -->
+    {% include 'games/game_detail_parts/tab_screenshots.html' %}
+</div>
+
+<script>
+    // Простая функция для переключения текста
+    function toggleText(type) {
+        const element = document.getElementById(type + '-text');
+        if (!element) return;
+
+        const button = window.event.currentTarget;
+        const icon = button.querySelector('i');
+        const span = button.querySelector('span');
+
+        if (element.classList.contains('expanded')) {
+            element.classList.remove('expanded');
+            if (span) span.textContent = 'Read more';
+            if (icon) icon.className = 'bi bi-chevron-down';
+        } else {
+            element.classList.add('expanded');
+            if (span) span.textContent = 'Show less';
+            if (icon) icon.className = 'bi bi-chevron-up';
+        }
+    }
+</script>

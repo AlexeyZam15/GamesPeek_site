@@ -1,22 +1,5 @@
 // game_detail_scripts.js
 
-// Инициализация Fancybox
-Fancybox.bind("[data-fancybox]", {
-    Thumbs: {
-        type: "classic",
-    },
-    Toolbar: {
-        display: {
-            left: [],
-            middle: [],
-            right: ["close"],
-        },
-    },
-    Images: {
-        zoom: false,
-    },
-});
-
 // Глобальная функция для переключения текста
 window.toggleText = function(type) {
     const element = document.getElementById(type + '-text');
@@ -40,6 +23,8 @@ window.toggleText = function(type) {
 
 // Инициализация при загрузке документа
 document.addEventListener('DOMContentLoaded', function () {
+    console.log('Game detail scripts loaded');
+
     // Инициализация Bootstrap tooltips
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
     var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {

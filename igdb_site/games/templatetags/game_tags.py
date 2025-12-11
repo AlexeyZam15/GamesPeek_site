@@ -10,8 +10,7 @@ def get_find_similar_url(game):
     """
     Генерирует URL для поиска похожих игр с передачей ВСЕХ критериев исходной игры
     """
-    from django.urls import reverse
-    from urllib.parse import urlencode
+    # УДАЛИТЬ повторные импорты - они уже есть вверху файла
 
     # Получаем ВСЕ критерии игры
     genres = game.genres.all()
@@ -19,7 +18,7 @@ def get_find_similar_url(game):
     themes = game.themes.all()
     perspectives = game.player_perspectives.all()
     developers = game.developers.all()
-    game_modes = game.game_modes.all()  # ← ДОБАВИТЬ
+    game_modes = game.game_modes.all()
 
     params = {
         'find_similar': '1',
@@ -42,7 +41,7 @@ def get_find_similar_url(game):
     if developers:
         params['d'] = ','.join(str(d.id) for d in developers)
 
-    # ДОБАВИТЬ Game Modes (только для фильтрации)
+    # Game Modes
     if game_modes:
         params['gm'] = ','.join(str(gm.id) for gm in game_modes)
 
@@ -55,8 +54,7 @@ def get_comparison_url(source_game, target_game):
     """
     Генерирует URL для сравнения игры с передачей ВСЕХ критериев исходной игры
     """
-    from django.urls import reverse
-    from urllib.parse import urlencode
+    # УДАЛИТЬ повторные импорты
 
     # Получаем ВСЕ критерии исходной игры
     genres = source_game.genres.all()
@@ -64,7 +62,7 @@ def get_comparison_url(source_game, target_game):
     themes = source_game.themes.all()
     perspectives = source_game.player_perspectives.all()
     developers = source_game.developers.all()
-    game_modes = source_game.game_modes.all()  # ← ДОБАВИТЬ
+    game_modes = source_game.game_modes.all()
 
     params = {
         'source_game': source_game.id,
@@ -86,7 +84,7 @@ def get_comparison_url(source_game, target_game):
     if developers:
         params['d'] = ','.join(str(d.id) for d in developers)
 
-    # ДОБАВИТЬ Game Modes
+    # Game Modes
     if game_modes:
         params['gm'] = ','.join(str(gm.id) for gm in game_modes)
 
@@ -96,12 +94,12 @@ def get_comparison_url(source_game, target_game):
 
 @register.simple_tag
 def get_card_comparison_url(source_game, target_game, selected_genres=None, selected_keywords=None,
-                            selected_themes=None, selected_perspectives=None, selected_developers=None, selected_game_modes=None):  # ← ДОБАВИТЬ
+                            selected_themes=None, selected_perspectives=None, selected_developers=None,
+                            selected_game_modes=None):
     """
     Генерирует URL для сравнения из карточки игры
     """
-    from django.urls import reverse
-    from urllib.parse import urlencode
+    # УДАЛИТЬ повторные импорты
 
     params = {}
 
@@ -136,7 +134,7 @@ def get_card_comparison_url(source_game, target_game, selected_genres=None, sele
         elif hasattr(source_game, 'developers') and source_game.developers:
             params['d'] = ','.join(str(d) for d in source_game.developers)
 
-        # ДОБАВИТЬ Game Modes
+        # Game Modes
         if hasattr(source_game, 'game_modes_ids') and source_game.game_modes_ids:
             params['gm'] = ','.join(str(gm) for gm in source_game.game_modes_ids)
         elif hasattr(source_game, 'game_modes') and source_game.game_modes:
@@ -153,7 +151,7 @@ def get_card_comparison_url(source_game, target_game, selected_genres=None, sele
             params['pp'] = ','.join(str(pp) for pp in selected_perspectives)
         if selected_developers:
             params['d'] = ','.join(str(d) for d in selected_developers)
-        # ДОБАВИТЬ Game Modes
+        # Game Modes
         if selected_game_modes:
             params['gm'] = ','.join(str(gm) for gm in selected_game_modes)
 
