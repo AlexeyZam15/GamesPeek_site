@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% load static %}  <!-- ← ДОБАВЬТЕ ЭТУ СТРОКУ -->
+{% load static %}
 
 {% block title %}{{ game.name }} - GamesPeek{% endblock %}
 
@@ -20,7 +20,6 @@
 {% endblock %}
 
 {% block extra_js %}
-    <!-- Основные скрипты -->
-    <script src="{% static 'games/js/game_detail_scripts.js' %}"></script>
-
+    <!-- Основные скрипты для управления вкладками -->
+    {% include 'games/game_detail_parts/game_detail_scripts.html' %}
 {% endblock %}

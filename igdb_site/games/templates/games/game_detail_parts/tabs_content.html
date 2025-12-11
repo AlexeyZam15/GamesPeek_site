@@ -2,44 +2,69 @@
 {% load game_tags %}
 
 <!-- Навигация табов -->
-{% include 'games/game_detail_parts/tabs_navigation.html' %}
+<ul class="nav nav-tabs mb-4" id="gameTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <a class="nav-link active" id="overview-tab" data-bs-toggle="tab"
+           href="#overview" role="tab" aria-controls="overview" aria-selected="true">
+            <i class="bi bi-info-circle me-2"></i>Overview
+        </a>
+    </li>
+    <li class="nav-item" role="presentation">
+        <a class="nav-link" id="details-tab" data-bs-toggle="tab"
+           href="#details" role="tab" aria-controls="details" aria-selected="false">
+            <i class="bi bi-list-check me-2"></i>Details
+        </a>
+    </li>
+    <li class="nav-item" role="presentation">
+        <a class="nav-link" id="companies-tab" data-bs-toggle="tab"
+           href="#companies" role="tab" aria-controls="companies" aria-selected="false">
+            <i class="bi bi-building me-2"></i>Companies
+        </a>
+    </li>
+    <li class="nav-item" role="presentation">
+        <a class="nav-link" id="keywords-tab" data-bs-toggle="tab"
+           href="#keywords" role="tab" aria-controls="keywords" aria-selected="false">
+            <i class="bi bi-tags me-2"></i>Keywords
+        </a>
+    </li>
+    <li class="nav-item" role="presentation">
+        <a class="nav-link" id="screenshots-tab" data-bs-toggle="tab"
+           href="#screenshots" role="tab" aria-controls="screenshots" aria-selected="false">
+            <i class="bi bi-image me-2"></i>Screenshots
+            {% if game.screenshots.all %}
+                <span class="badge bg-secondary ms-1">{{ game.screenshots.all|length }}</span>
+            {% endif %}
+        </a>
+    </li>
+</ul>
 
 <!-- Контент табов -->
 <div class="tab-content" id="gameTabsContent">
     <!-- Вкладка Overview -->
-    {% include 'games/game_detail_parts/tab_overview.html' %}
+    <div class="tab-pane fade show active" id="overview" role="tabpanel" aria-labelledby="overview-tab">
+        {% include 'games/game_detail_parts/tab_overview.html' %}
+    </div>
 
     <!-- Вкладка Details -->
-    {% include 'games/game_detail_parts/tab_details.html' %}
+    <div class="tab-pane fade" id="details" role="tabpanel" aria-labelledby="details-tab">
+        {% include 'games/game_detail_parts/tab_details.html' %}
+    </div>
 
     <!-- Вкладка Companies -->
-    {% include 'games/game_detail_parts/tab_companies.html' %}
+    <div class="tab-pane fade" id="companies" role="tabpanel" aria-labelledby="companies-tab">
+        {% include 'games/game_detail_parts/tab_companies.html' %}
+    </div>
 
     <!-- Вкладка Keywords -->
-    {% include 'games/game_detail_parts/tab_keywords.html' %}
+    <div class="tab-pane fade" id="keywords" role="tabpanel" aria-labelledby="keywords-tab">
+        {% include 'games/game_detail_parts/tab_keywords.html' %}
+    </div>
 
     <!-- Вкладка Screenshots -->
-    {% include 'games/game_detail_parts/tab_screenshots.html' %}
+    <div class="tab-pane fade" id="screenshots" role="tabpanel" aria-labelledby="screenshots-tab">
+        {% include 'games/game_detail_parts/tab_screenshots.html' %}
+    </div>
 </div>
 
-<script>
-    // Простая функция для переключения текста
-    function toggleText(type) {
-        const element = document.getElementById(type + '-text');
-        if (!element) return;
-
-        const button = window.event.currentTarget;
-        const icon = button.querySelector('i');
-        const span = button.querySelector('span');
-
-        if (element.classList.contains('expanded')) {
-            element.classList.remove('expanded');
-            if (span) span.textContent = 'Read more';
-            if (icon) icon.className = 'bi bi-chevron-down';
-        } else {
-            element.classList.add('expanded');
-            if (span) span.textContent = 'Show less';
-            if (icon) icon.className = 'bi bi-chevron-up';
-        }
-    }
-</script>
+<!-- Основные скрипты управления табами -->
+{% include 'games/game_detail_parts/game_detail_scripts.html' %}

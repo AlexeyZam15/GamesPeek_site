@@ -4,36 +4,36 @@
 <!-- Навигация табов -->
 <ul class="nav nav-tabs mb-4" id="gameTabs" role="tablist">
     <li class="nav-item" role="presentation">
-        <button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview"
-                type="button" role="tab" aria-controls="overview" aria-selected="true">
+        <a class="nav-link active" id="overview-tab" data-bs-toggle="tab"
+           href="#overview" role="tab" aria-controls="overview" aria-selected="true">
             <i class="bi bi-info-circle me-2"></i>Overview
-        </button>
+        </a>
     </li>
     <li class="nav-item" role="presentation">
-        <button class="nav-link" id="details-tab" data-bs-toggle="tab" data-bs-target="#details"
-                type="button" role="tab" aria-controls="details" aria-selected="false">
+        <a class="nav-link" id="details-tab" data-bs-toggle="tab"
+           href="#details" role="tab" aria-controls="details" aria-selected="false">
             <i class="bi bi-list-check me-2"></i>Details
-        </button>
+        </a>
     </li>
     <li class="nav-item" role="presentation">
-        <button class="nav-link" id="companies-tab" data-bs-toggle="tab" data-bs-target="#companies"
-                type="button" role="tab" aria-controls="companies" aria-selected="false">
+        <a class="nav-link" id="companies-tab" data-bs-toggle="tab"
+           href="#companies" role="tab" aria-controls="companies" aria-selected="false">
             <i class="bi bi-building me-2"></i>Companies
-        </button>
+        </a>
     </li>
     <li class="nav-item" role="presentation">
-        <button class="nav-link" id="keywords-tab" data-bs-toggle="tab" data-bs-target="#keywords"
-                type="button" role="tab" aria-controls="keywords" aria-selected="false">
+        <a class="nav-link" id="keywords-tab" data-bs-toggle="tab"
+           href="#keywords" role="tab" aria-controls="keywords" aria-selected="false">
             <i class="bi bi-tags me-2"></i>Keywords
-        </button>
+        </a>
     </li>
     <li class="nav-item" role="presentation">
-        <button class="nav-link" id="screenshots-tab" data-bs-toggle="tab" data-bs-target="#screenshots"
-                type="button" role="tab" aria-controls="screenshots" aria-selected="false">
+        <a class="nav-link" id="screenshots-tab" data-bs-toggle="tab"
+           href="#screenshots" role="tab" aria-controls="screenshots" aria-selected="false">
             <i class="bi bi-image me-2"></i>Screenshots
             {% if game.screenshots.all %}
                 <span class="badge bg-secondary ms-1">{{ game.screenshots.all|length }}</span>
             {% endif %}
-        </button>
+        </a>
     </li>
 </ul>

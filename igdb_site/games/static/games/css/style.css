@@ -552,11 +552,13 @@ footer {
     border: 1px solid var(--border);
     margin-top: 1rem;
 }
+
 .game-tabs .nav-tabs {
     border-bottom: 1px solid var(--border);
     padding: 0.5rem 0.5rem 0;
     background: rgba(26, 26, 26, 0.8);
 }
+
 .game-tabs .nav-link {
     border: none;
     color: var(--text-dark);
@@ -568,17 +570,20 @@ footer {
     overflow: hidden;
     font-size: 0.9rem;
 }
+
 .game-tabs .nav-link:hover {
     color: var(--text-light);
     background: rgba(255, 255, 255, 0.05);
     border: none;
 }
+
 .game-tabs .nav-link.active {
     color: var(--accent-color);
     background: var(--surface);
     border: none;
     border-bottom: 3px solid var(--accent-color);
 }
+
 .game-tabs .tab-content {
     padding: 1.5rem;
     background: var(--surface);
@@ -2309,4 +2314,51 @@ h1.display-5 {
         font-size: 0.9rem !important;
         min-width: 80px !important;
     }
+}
+
+/* Дополнительные исправления против скачков */
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    overflow-x: hidden;
+}
+
+.tab-content {
+    contain: layout style;
+}
+
+/* Убираем стандартные скачки при переключении табов */
+.tab-pane {
+    will-change: opacity, transform;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+}
+
+/* ===== ИСПРАВЛЕНИЕ СКРЫТИЯ ВКЛАДОК ===== */
+
+/* Принудительно показываем все вкладки (для теста) */
+.tab-content .tab-pane {
+    display: block !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+/* Но скрываем неактивные */
+.tab-content .tab-pane:not(.active):not(.show) {
+    display: none !important;
+}
+
+/* Активные показываем */
+.tab-content .tab-pane.active,
+.tab-content .tab-pane.show {
+    display: block !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+}
+
+/* Убираем анимацию fade которая может мешать */
+.tab-pane.fade {
+    transition: none !important;
 }
