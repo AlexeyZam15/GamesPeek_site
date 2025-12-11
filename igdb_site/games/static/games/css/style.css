@@ -793,7 +793,11 @@ footer {
 .detail-section.themes h5 { color: #dc3545; border-bottom-color: rgba(220, 53, 69, 0.3); }
 .detail-section.genres h5 { color: #198754; border-bottom-color: rgba(25, 135, 84, 0.3); }
 .detail-section.perspectives h5 { color: #0d6efd; border-bottom-color: rgba(13, 110, 253, 0.3); }
-.detail-section.game-modes h5 { color: #6f42c1; border-bottom-color: rgba(111, 66, 193, 0.3); }
+.detail-section.game-modes h5 {
+    color: #8e44ad !important;
+    background: none !important;
+    -webkit-text-fill-color: #8e44ad !important;
+}
 .detail-tags {
     display: flex;
     flex-wrap: wrap;
@@ -2101,178 +2105,17 @@ h1.display-5 {
     border: none !important;
     box-shadow: none !important;
 }
-#screenshotModal .screenshot-close {
-    position: fixed !important;
-    top: 20px !important;
-    right: 20px !important;
-    left: auto !important;
-    z-index: 9999 !important;
-    background: rgba(0, 0, 0, 0.7) !important;
-    border-radius: 50% !important;
-    width: 50px !important;
-    height: 50px !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    border: 2px solid rgba(255, 255, 255, 0.3) !important;
-    opacity: 0.8 !important;
-    transition: all 0.3s ease !important;
-    margin: 0 !important;
-}
-#screenshotModal .screenshot-close:hover {
-    opacity: 1 !important;
-    background: rgba(255, 107, 53, 0.8) !important;
-    border-color: #ff6b35 !important;
-    transform: rotate(90deg) scale(1.1) !important;
-}
-#screenshotModal .screenshot-close i {
-    font-size: 1.5rem !important;
-    color: white !important;
-}
-#screenshotModal .nav-arrow {
-    position: fixed !important;
-    top: 50% !important;
-    transform: translateY(-50%) !important;
-    z-index: 9999 !important;
-    background: rgba(0, 0, 0, 0.7) !important;
-    border-radius: 50% !important;
-    width: 60px !important;
-    height: 60px !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    border: 2px solid rgba(255, 255, 255, 0.3) !important;
-    opacity: 0.7 !important;
-    transition: all 0.3s ease !important;
-    color: white !important;
-    font-size: 1.5rem !important;
-    margin: 0 !important;
-}
-#screenshotModal .nav-arrow:hover {
-    opacity: 1 !important;
-    background: rgba(255, 107, 53, 0.8) !important;
-    border-color: #ff6b35 !important;
-    transform: translateY(-50%) scale(1.1) !important;
-}
-#screenshotModal .nav-arrow:disabled {
-    opacity: 0.3 !important;
-    cursor: not-allowed !important;
-}
-#screenshotModal .arrow-left {
-    left: 20px !important;
-    right: auto !important;
-}
-#screenshotModal .arrow-right {
-    right: 20px !important;
-    left: auto !important;
-}
-#screenshotModal .screenshot-full {
-    max-width: 90vw !important;
-    max-height: 85vh !important;
-    object-fit: contain !important;
-    border-radius: 10px !important;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8) !important;
-    animation: fadeInZoom 0.4s ease !important;
-}
-@keyframes fadeInZoom {
-    from { opacity: 0; transform: scale(0.95); }
-    to { opacity: 1; transform: scale(1); }
-}
-#screenshotModal .screenshot-counter {
-    position: fixed !important;
-    bottom: 20px !important;
-    left: 50% !important;
-    transform: translateX(-50%) !important;
-    right: auto !important;
-    z-index: 9999 !important;
-    background: rgba(0, 0, 0, 0.7) !important;
-    border: 2px solid rgba(255, 255, 255, 0.3) !important;
-    border-radius: 20px !important;
-    padding: 10px 25px !important;
-    color: white !important;
-    font-weight: bold !important;
-    font-size: 1.1rem !important;
-    backdrop-filter: blur(10px) !important;
-    margin: 0 !important;
-}
-#screenshotModal .modal-body {
-    padding: 0 !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    min-height: 100vh !important;
-}
-/* Убираем стандартный backdrop Bootstrap и делаем свой */
-#screenshotModal.modal {
-    background: rgba(0, 0, 0, 0.95) !important;
-    backdrop-filter: blur(10px) !important;
-}
-/* Скрываем стандартный backdrop */
-#screenshotModal + .modal-backdrop { display: none !important; }
 
-/* Адаптивность для модального окна галереи */
-@media (max-width: 768px) {
-    #screenshotModal .nav-arrow {
-        width: 50px !important;
-        height: 50px !important;
-        font-size: 1.2rem !important;
-    }
-    #screenshotModal .screenshot-close {
-        width: 45px !important;
-        height: 45px !important;
-        top: 15px !important;
-        right: 15px !important;
-    }
-    #screenshotModal .arrow-left { left: 15px !important; }
-    #screenshotModal .arrow-right { right: 15px !important; }
-    #screenshotModal .screenshot-full {
-        max-width: 95vw !important;
-        max-height: 80vh !important;
-    }
-    #screenshotModal .screenshot-counter {
-        bottom: 15px !important;
-        padding: 8px 20px !important;
-        font-size: 1rem !important;
-    }
-}
-@media (max-width: 576px) {
-    #screenshotModal .nav-arrow {
-        width: 45px !important;
-        height: 45px !important;
-        font-size: 1rem !important;
-    }
-    #screenshotModal .screenshot-close {
-        width: 40px !important;
-        height: 40px !important;
-        top: 10px !important;
-        right: 10px !important;
-    }
-    #screenshotModal .arrow-left { left: 10px !important; }
-    #screenshotModal .arrow-right { right: 10px !important; }
-    #screenshotModal .screenshot-full {
-        max-width: 98vw !important;
-        max-height: 75vh !important;
-    }
-    #screenshotModal .screenshot-counter {
-        bottom: 10px !important;
-        padding: 6px 15px !important;
-        font-size: 0.9rem !important;
-    }
-}
-
-/* ДОПОЛНИТЕЛЬНЫЕ СТИЛИ ДЛЯ ГАЛЕРЕИ */
-/* Убираем плавание при hover на миниатюрах */
-#screenshots .screenshot-image:hover { transform: none !important; }
-/* Крестик в стиле навигационных кнопок */
+/* Крестик - ПРАВЫЙ ВЕРХНИЙ УГОЛ */
 #screenshotModal .arrow-close {
     position: fixed !important;
     top: 30px !important;
-    right: 30px !important;
+    right: 60px !important;
     z-index: 9999 !important;
     background: rgba(0, 0, 0, 0.7) !important;
     border-radius: 50% !important;
-    width: 60px !important;
-    height: 60px !important;
+    width: 70px !important;
+    height: 70px !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
@@ -2280,18 +2123,21 @@ h1.display-5 {
     opacity: 0.8 !important;
     transition: all 0.3s ease !important;
     color: white !important;
-    font-size: 1.8rem !important;
+    font-size: 2rem !important;
 }
+
 #screenshotModal .arrow-close:hover {
     opacity: 1 !important;
-    background: rgba(220, 53, 69, 0.8) !important;
-    border-color: #dc3545 !important;
-    transform: rotate(90deg) scale(1.1) !important;
+    background: rgba(255, 107, 53, 0.8) !important;
+    border-color: #ff6b35 !important;
+    /* БЕЗ ВРАЩЕНИЯ, только масштабирование */
+    transform: scale(1.1) !important;
 }
-/* Кнопки навигации - ПОДАЛЬШЕ ОТ КРАЕВ */
+
+/* Левая стрелка */
 #screenshotModal .arrow-left {
     position: fixed !important;
-    left: 40px !important;
+    left: 60px !important;
     top: 50% !important;
     transform: translateY(-50%) !important;
     z-index: 9999 !important;
@@ -2308,9 +2154,11 @@ h1.display-5 {
     color: white !important;
     font-size: 2rem !important;
 }
+
+/* Правая стрелка */
 #screenshotModal .arrow-right {
     position: fixed !important;
-    right: 40px !important;
+    right: 60px !important;
     top: 50% !important;
     transform: translateY(-50%) !important;
     z-index: 9999 !important;
@@ -2327,6 +2175,7 @@ h1.display-5 {
     color: white !important;
     font-size: 2rem !important;
 }
+
 /* Hover эффекты для навигации */
 #screenshotModal .arrow-left:hover,
 #screenshotModal .arrow-right:hover {
@@ -2335,6 +2184,7 @@ h1.display-5 {
     border-color: #ff6b35 !important;
     transform: translateY(-50%) scale(1.1) !important;
 }
+
 /* Отключенные кнопки */
 #screenshotModal .arrow-left:disabled,
 #screenshotModal .arrow-right:disabled {
@@ -2342,154 +2192,29 @@ h1.display-5 {
     cursor: not-allowed !important;
     background: rgba(0, 0, 0, 0.5) !important;
 }
+
 #screenshotModal .arrow-left:disabled:hover,
 #screenshotModal .arrow-right:disabled:hover {
     transform: translateY(-50%) !important;
     background: rgba(0, 0, 0, 0.5) !important;
     border-color: rgba(255, 255, 255, 0.3) !important;
 }
-/* Счетчик - также подальше от края */
-#screenshotModal .screenshot-counter {
-    position: fixed !important;
-    bottom: 40px !important;
-    left: 50% !important;
-    transform: translateX(-50%) !important;
-    z-index: 9999 !important;
-    background: rgba(0, 0, 0, 0.7) !important;
-    border: 2px solid rgba(255, 255, 255, 0.3) !important;
-    border-radius: 25px !important;
-    padding: 12px 30px !important;
-    color: white !important;
-    font-weight: bold !important;
-    font-size: 1.2rem !important;
-    backdrop-filter: blur(10px) !important;
-    min-width: 100px !important;
-    text-align: center !important;
+
+/* Полноэкранное изображение */
+#screenshotModal .screenshot-full {
+    max-width: 90vw !important;
+    max-height: 85vh !important;
+    object-fit: contain !important;
+    border-radius: 10px !important;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8) !important;
+    animation: fadeInZoom 0.4s ease !important;
 }
 
-/* Адаптивность */
-@media (max-width: 768px) {
-    #screenshotModal .arrow-close {
-        width: 55px !important;
-        height: 55px !important;
-        top: 25px !important;
-        right: 25px !important;
-        font-size: 1.6rem !important;
-    }
-    #screenshotModal .arrow-left,
-    #screenshotModal .arrow-right {
-        width: 60px !important;
-        height: 60px !important;
-        font-size: 1.8rem !important;
-    }
-    #screenshotModal .arrow-left { left: 25px !important; }
-    #screenshotModal .arrow-right { right: 25px !important; }
-    #screenshotModal .screenshot-counter {
-        bottom: 25px !important;
-        padding: 10px 20px !important;
-        font-size: 1.1rem !important;
-    }
-}
-@media (max-width: 576px) {
-    #screenshotModal .arrow-close {
-        width: 50px !important;
-        height: 50px !important;
-        top: 20px !important;
-        right: 20px !important;
-        font-size: 1.4rem !important;
-    }
-    #screenshotModal .arrow-left,
-    #screenshotModal .arrow-right {
-        width: 50px !important;
-        height: 50px !important;
-        font-size: 1.5rem !important;
-    }
-    #screenshotModal .arrow-left { left: 15px !important; }
-    #screenshotModal .arrow-right { right: 15px !important; }
-    #screenshotModal .screenshot-counter {
-        bottom: 20px !important;
-        padding: 8px 15px !important;
-        font-size: 1rem !important;
-        min-width: 80px !important;
-    }
+@keyframes fadeInZoom {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
 }
 
-/* ОБНОВЛЕННЫЕ СТИЛИ ДЛЯ КНОПОК ГАЛЕРЕИ */
-/* Общий стиль для ВСЕХ кнопок навигации */
-#screenshotModal .nav-arrow {
-    position: fixed !important;
-    background: rgba(0, 0, 0, 0.7) !important;
-    border-radius: 50% !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    border: 2px solid rgba(255, 255, 255, 0.3) !important;
-    opacity: 0.8 !important;
-    transition: all 0.3s ease !important;
-    color: white !important;
-    z-index: 9999 !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    cursor: pointer !important;
-}
-/* Hover для ВСЕХ кнопок одинаковый */
-#screenshotModal .nav-arrow:hover {
-    opacity: 1 !important;
-    background: rgba(255, 107, 53, 0.8) !important;
-    border-color: #ff6b35 !important;
-    /* УБРАНО ВРАЩЕНИЕ - только масштабирование */
-    transform: scale(1.1) !important;
-}
-/* Крестик (закрытие) - ПРАВЫЙ ВЕРХНИЙ УГОЛ */
-#screenshotModal .arrow-close {
-    top: 30px !important;
-    right: 30px !important;
-    width: 60px !important;
-    height: 60px !important;
-    font-size: 1.8rem !important;
-}
-/* Левая стрелка */
-#screenshotModal .arrow-left {
-    left: 40px !important;
-    top: 50% !important;
-    transform: translateY(-50%) !important;
-    width: 70px !important;
-    height: 70px !important;
-    font-size: 2rem !important;
-}
-/* Правая стрелка */
-#screenshotModal .arrow-right {
-    right: 40px !important;
-    top: 50% !important;
-    transform: translateY(-50%) !important;
-    width: 70px !important;
-    height: 70px !important;
-    font-size: 2rem !important;
-}
-/* Hover для стрелок с учетом их позиции */
-#screenshotModal .arrow-left:hover {
-    transform: translateY(-50%) scale(1.1) !important;
-}
-#screenshotModal .arrow-right:hover {
-    transform: translateY(-50%) scale(1.1) !important;
-}
-/* Отключенные кнопки */
-#screenshotModal .nav-arrow:disabled {
-    opacity: 0.3 !important;
-    cursor: not-allowed !important;
-    background: rgba(0, 0, 0, 0.5) !important;
-}
-#screenshotModal .nav-arrow:disabled:hover {
-    background: rgba(0, 0, 0, 0.5) !important;
-    border-color: rgba(255, 255, 255, 0.3) !important;
-    transform: none !important;
-}
-#screenshotModal .arrow-left:disabled:hover {
-    transform: translateY(-50%) !important;
-}
-#screenshotModal .arrow-right:disabled:hover {
-    transform: translateY(-50%) !important;
-}
 /* Счетчик */
 #screenshotModal .screenshot-counter {
     position: fixed !important;
@@ -2509,149 +2234,79 @@ h1.display-5 {
     text-align: center !important;
 }
 
-/* Адаптивность */
+#screenshotModal .modal-body {
+    padding: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    min-height: 100vh !important;
+}
+
+/* Убираем стандартный backdrop Bootstrap и делаем свой */
+#screenshotModal.modal {
+    background: rgba(0, 0, 0, 0.95) !important;
+    backdrop-filter: blur(10px) !important;
+}
+
+/* Скрываем стандартный backdrop */
+#screenshotModal + .modal-backdrop { display: none !important; }
+
+/* Адаптивность для модального окна галереи */
 @media (max-width: 768px) {
-    #screenshotModal .arrow-close {
-        width: 55px !important;
-        height: 55px !important;
-        top: 25px !important;
-        right: 25px !important;
-        font-size: 1.6rem !important;
-    }
+    #screenshotModal .arrow-close,
     #screenshotModal .arrow-left,
     #screenshotModal .arrow-right {
         width: 60px !important;
         height: 60px !important;
         font-size: 1.8rem !important;
     }
+
+    #screenshotModal .arrow-close {
+        top: 25px !important;
+        right: 25px !important;
+    }
+
     #screenshotModal .arrow-left { left: 25px !important; }
     #screenshotModal .arrow-right { right: 25px !important; }
+
+    #screenshotModal .screenshot-full {
+        max-width: 95vw !important;
+        max-height: 80vh !important;
+    }
+
     #screenshotModal .screenshot-counter {
         bottom: 25px !important;
         padding: 10px 20px !important;
         font-size: 1.1rem !important;
     }
 }
+
 @media (max-width: 576px) {
-    #screenshotModal .arrow-close {
-        width: 50px !important;
-        height: 50px !important;
-        top: 20px !important;
-        right: 20px !important;
-        font-size: 1.4rem !important;
-    }
+    #screenshotModal .arrow-close,
     #screenshotModal .arrow-left,
     #screenshotModal .arrow-right {
         width: 50px !important;
         height: 50px !important;
         font-size: 1.5rem !important;
     }
+
+    #screenshotModal .arrow-close {
+        top: 20px !important;
+        right: 20px !important;
+    }
+
     #screenshotModal .arrow-left { left: 15px !important; }
     #screenshotModal .arrow-right { right: 15px !important; }
+
+    #screenshotModal .screenshot-full {
+        max-width: 98vw !important;
+        max-height: 75vh !important;
+    }
+
     #screenshotModal .screenshot-counter {
         bottom: 20px !important;
-        padding: 8px 15px !important;
-        font-size: 1rem !important;
+        padding: 6px 15px !important;
+        font-size: 0.9rem !important;
         min-width: 80px !important;
     }
-}
-
-/* СТИЛИ ДЛЯ ВСЕХ КНОПОК ГАЛЕРЕИ */
-/* Общий стиль для ВСЕХ кнопок навигации */
-#screenshotModal .nav-arrow {
-    position: fixed !important;
-    background: rgba(0, 0, 0, 0.7) !important;
-    border-radius: 50% !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    border: 2px solid rgba(255, 255, 255, 0.3) !important;
-    opacity: 0.8 !important;
-    transition: all 0.3s ease !important;
-    color: white !important;
-    z-index: 9999 !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    cursor: pointer !important;
-}
-/* Hover для ВСЕХ кнопок */
-#screenshotModal .nav-arrow:hover {
-    opacity: 1 !important;
-    background: rgba(255, 107, 53, 0.8) !important;
-    border-color: #ff6b35 !important;
-    transform: scale(1.1) !important;
-}
-/* Крестик (закрытие) */
-#screenshotModal .arrow-close {
-    top: 30px !important;
-    right: 30px !important;
-    width: 60px !important;
-    height: 60px !important;
-    font-size: 1.8rem !important;
-}
-/* Левая стрелка */
-#screenshotModal .arrow-left {
-    left: 60px !important;
-    top: 50% !important;
-    transform: translateY(-50%) !important;
-    width: 70px !important;
-    height: 70px !important;
-    font-size: 2rem !important;
-}
-/* Правая стрелка */
-#screenshotModal .arrow-right {
-    right: 60px !important;
-    top: 50% !important;
-    transform: translateY(-50%) !important;
-    width: 70px !important;
-    height: 70px !important;
-    font-size: 2rem !important;
-}
-/* Учитываем transform при hover для стрелок */
-#screenshotModal .arrow-left:hover {
-    transform: translateY(-50%) scale(1.1) !important;
-}
-#screenshotModal .arrow-right:hover {
-    transform: translateY(-50%) scale(1.1) !important;
-}
-/* Отключенные кнопки */
-#screenshotModal .nav-arrow:disabled {
-    opacity: 0.3 !important;
-    cursor: not-allowed !important;
-    background: rgba(0, 0, 0, 0.5) !important;
-}
-#screenshotModal .nav-arrow:disabled:hover {
-    background: rgba(0, 0, 0, 0.5) !important;
-    border-color: rgba(255, 255, 255, 0.3) !important;
-    transform: none !important;
-}
-#screenshotModal .arrow-left:disabled:hover {
-    transform: translateY(-50%) !important;
-}
-#screenshotModal .arrow-right:disabled:hover {
-    transform: translateY(-50%) !important;
-}
-/* Крестик (закрытие) */
-#screenshotModal .arrow-close {
-    top: 40px !important;
-    right: 70px !important;
-    width: 60px !important;
-    height: 60px !important;
-    font-size: 1.8rem !important;
-    background: rgba(0, 0, 0, 0.7) !important;
-    border: 2px solid rgba(255, 255, 255, 0.3) !important;
-    color: white !important;
-    border-radius: 50% !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    opacity: 0.8 !important;
-    transition: all 0.3s ease !important;
-    z-index: 9999 !important;
-}
-#screenshotModal .arrow-close:hover {
-    opacity: 1 !important;
-    background: rgba(255, 107, 53, 0.8) !important;
-    border-color: #ff6b35 !important;
-    transform: scale(1.1) !important;
 }
