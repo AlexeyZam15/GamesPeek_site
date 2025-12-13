@@ -5,6 +5,28 @@ from django.utils import timezone
 from django.db import models
 
 
+class GameType(models.Model):
+    """Модель для типов игр из IGDB"""
+    igdb_id = models.IntegerField(unique=True, help_text="ID типа игры в IGDB")
+    name = models.CharField(
+        max_length=100,
+        help_text="Название типа игры (Основная игра, DLC/Дополнение и т.д.)"
+    )
+    description = models.TextField(blank=True, help_text="Описание типа")
+    is_primary = models.BooleanField(default=True, help_text="Является ли тип основной игрой")
+
+    # Метаданные
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Тип игры"
+        verbose_name_plural = "Типы игр"
+        ordering = ['igdb_id']
+
+    def __str__(self):
+        return self.name
+
 class GameSimilarityDetail(models.Model):  # НОВОЕ ИМЯ!
     """Детальный кэш для предварительно рассчитанной схожести игр"""
     source_game = models.ForeignKey('Game', on_delete=models.CASCADE, related_name='similarity_details_as_source')
@@ -414,6 +436,37 @@ class Game(models.Model):
     name = models.CharField(max_length=255)
     summary = models.TextField(blank=True, null=True)
 
+    # Связь с типом игры
+    game_type = models.ForeignKey(
+        GameType,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='games',
+        help_text="Тип игры (main_game, DLC и т.д.)"
+    )
+
+    # Связи с другими играми
+    parent_game = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='child_games',
+        help_text="Родительская игра (для DLC, расширений и т.д.)"
+    )
+
+    version_parent = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='version_children',
+        help_text="Версия-родитель (базовая версия игры)"
+    )
+
+    version_title = models.CharField(max_length=255, blank=True, null=True, help_text="Название версии")
+
     rawg_description = models.TextField(
         blank=True,
         null=True,
@@ -438,11 +491,10 @@ class Game(models.Model):
         related_name='games'
     )
 
-    # Для порядка игр в серии (если применимо)
     series_order = models.PositiveIntegerField(
         null=True,
         blank=True,
-        help_text="Порядковый номер в серии (1, 2, 3...). Если игра в нескольких сериях, это относится к основной серии."
+        help_text="Порядковый номер в серии (1, 2, 3...)"
     )
 
     # Связи с компаниями
