@@ -24,3 +24,21 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+/igdb_site/games_by_game_types/
+/igdb_site/cache/
+/igdb_site/cache/
+/igdb_site/auto_offset_log.json
+/igdb_site/logs/stats_repeat1_20251215_174852.json
+/igdb_site/logs/stats_repeat1_20251215_175342.json
+/igdb_site/logs/stats_repeat1_20251215_175358.json
+/igdb_site/logs/stats_repeat1_20251215_175457.json
+/igdb_site/logs/stats_repeat1_20251215_175534.json
+/igdb_site/logs/stats_repeat1_20251215_180326.json
+/igdb_site/logs/stats_repeat1_20251215_180336.json
+/igdb_site/logs/stats_repeat1_20251215_180349.json
+/igdb_site/logs/stats_repeat1_20251215_181835.json
+/igdb_site/logs/stats_repeat1_20251215_182051.json
+/igdb_site/logs/stats_repeat1_20251215_182238.json
+/igdb_site/logs/stats_repeat1_20251215_182647.json
+/igdb_site/logs/stats_repeat1_20251215_183205.json
+/igdb_site/stats/api_stats.db
