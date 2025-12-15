@@ -1,526 +1,135 @@
-"""
-Модуль для работы с RAWG API с кэшированием и управлением лимитами запросов.
-"""
-import time
+# games/rawg_api.py
 import requests
-import re
-import hashlib
+import time
 import sqlite3
-import threading
-from datetime import datetime
+import hashlib
+import json
+import os
 from pathlib import Path
-from collections import defaultdict
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any, List
+from urllib.parse import quote
+import concurrent.futures
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from django.conf import settings
 
 
 class RAWGClient:
-    def __init__(self, api_key=None):
-        """
-        Инициализация клиента RAWG API.
-        """
+    """Клиент для работы с RAWG API с кэшированием"""
+
+    def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or getattr(settings, 'RAWG_API_KEY', None)
+        self.base_url = "https://api.rawg.io/api"
+        self.stats = {
+            'total_requests': 0,
+            'cache_hits': 0,
+            'cache_misses': 0,
+            'search_requests': 0,
+            'detail_requests': 0,
+            'rate_limited': 0,
+            'balance_exceeded': False,
+            'balance_error': None,
+            'last_balance_check': None,
+            'requests_remaining': None
+        }
+
+        # Флаг отладки (можно установить через метод)
+        self.debug = False
+
+        # Инициализация сессии с оптимизациями
+        self.session = self._init_session()
+
+        # Инициализация кэша
+        self.cache_conn = None
+        self.init_cache()
+
         if not self.api_key:
-            raise ValueError("RAWG API key is not configured. Set RAWG_API_KEY in .env file.")
+            raise ValueError("RAWG API ключ не найден. Укажите через параметр или добавьте RAWG_API_KEY в настройки.")
 
-        self.request_timestamps = []
-        self.api_stats = defaultdict(int)
-        self.local = threading.local()
+    def set_debug(self, debug: bool):
+        """Устанавливает режим отладки"""
+        self.debug = debug
 
-        # Атрибуты для баланса
-        self.requests_remaining = None
-        self.monthly_limit = None
-        self.reset_date = None
-        self.last_balance_check = None
-        self.balance_error = None
-        self.balance_valid = True
-        self.balance_exceeded = False  # Добавляем флаг
-        self.balance_checked = False  # Флаг что баланс уже проверен
+    def _init_session(self):
+        """Инициализация HTTP сессии с оптимизациями"""
+        session = requests.Session()
 
-        # Только инициализация кэша, НЕ проверка баланса
-        self.init_cache_structure()
+        # Оптимизированная стратегия retry
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=0.3,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["GET", "HEAD"],
+            respect_retry_after_header=True
+        )
 
-    def check_balance(self, force=False):
-        """
-        Проверка баланса API ключа.
+        adapter = HTTPAdapter(
+            max_retries=retry_strategy,
+            pool_connections=20,
+            pool_maxsize=100,
+            pool_block=False
+        )
 
-        Args:
-            force (bool): Принудительная проверка, даже если уже проверяли
-        """
-        # Если уже проверяли и не force - пропускаем
-        if self.balance_checked and not force:
-            return {
-                'status': 'already_checked',
-                'balance_exceeded': self.balance_exceeded,
-                'balance_error': self.balance_error,
-                'requests_remaining': self.requests_remaining,
-                'monthly_limit': self.monthly_limit,
-                'reset_date': self.reset_date
-            }
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
 
-        try:
-            url = "https://api.rawg.io/api/games"
-            params = {
-                'key': self.api_key,
-                'page_size': 1
-            }
+        # Оптимизированные заголовки
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (compatible; RAWG-Importer/1.0)',
+            'Accept': 'application/json',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive'
+        })
 
-            response = requests.get(url, params=params, timeout=10)
-            self.last_balance_check = datetime.now()
-            self.balance_checked = True  # Отмечаем что проверили
+        return session
 
-            if response.status_code == 200:
-                headers = response.headers
-                self.requests_remaining = headers.get('X-RateLimit-Remaining')
-                self.monthly_limit = headers.get('X-RateLimit-Limit')
-                self.reset_date = headers.get('X-RateLimit-Reset')
-                self.balance_error = None
-                self.balance_valid = True
-                self.balance_exceeded = False
-
-                return {
-                    'status': 'ok',
-                    'requests_remaining': self.requests_remaining,
-                    'monthly_limit': self.monthly_limit,
-                    'reset_date': self.reset_date
-                }
-
-            elif response.status_code == 429:
-                self.balance_error = "🚫 Превышен лимит запросов (429). Лимит API ключа исчерпан."
-                self.balance_valid = False
-                self.balance_exceeded = True
-                return {'status': 'rate_limit_exceeded', 'message': self.balance_error}
-
-            elif response.status_code == 401:
-                self.balance_error = "🚫 Неверный API ключ (401)."
-                self.balance_valid = False
-                self.balance_exceeded = True
-                return {'status': 'invalid_key', 'message': self.balance_error}
-
-            elif response.status_code == 403:
-                self.balance_error = "🚫 Доступ запрещен (403). Возможно, лимит запросов исчерпан."
-                self.balance_valid = False
-                self.balance_exceeded = True
-                return {'status': 'forbidden', 'message': self.balance_error}
-
-            else:
-                self.balance_error = f"Ошибка API: {response.status_code}"
-                self.balance_valid = False
-                return {
-                    'status': 'api_error',
-                    'message': self.balance_error,
-                    'status_code': response.status_code
-                }
-
-        except requests.exceptions.Timeout:
-            self.balance_error = "Таймаут при проверке баланса API."
-            self.balance_valid = False
-            return {'status': 'timeout', 'message': self.balance_error}
-        except Exception as e:
-            self.balance_error = f"Ошибка при проверке баланса: {str(e)}"
-            self.balance_valid = False
-            return {'status': 'error', 'message': self.balance_error}
-
-    def enforce_rate_limit(self, delay=0.3):
-        """
-        Обеспечение соблюдения лимитов запросов к API.
-
-        Args:
-            delay (float): Базовая задержка между запросами.
-        """
-        # Проверяем, не исчерпан ли баланс (без вывода сообщения)
-        if self.balance_exceeded:
-            raise ValueError(f"Лимит API ключа исчерпан: {self.balance_error}")
-
-        now = time.time()
-        self.request_timestamps = [t for t in self.request_timestamps if now - t < 1.0]
-
-        if len(self.request_timestamps) >= 2:
-            sleep_time = 1.0 - (now - self.request_timestamps[0])
-            if sleep_time > 0:
-                time.sleep(sleep_time)
-
-        self.request_timestamps.append(now)
-
-        if delay > 0:
-            time.sleep(delay)
-
-    def search_game(self, game_name, delay=0.3):
-        """
-        Поиск игры в RAWG API.
-        """
-        try:
-            self.enforce_rate_limit(delay)
-
-            url = "https://api.rawg.io/api/games"
-            params = {
-                'key': self.api_key,
-                'search': game_name,
-                'page_size': 1,
-                'search_precise': True,
-                'search_exact': False
-            }
-
-            response = requests.get(url, params=params, timeout=8)
-
-            if response.status_code == 429:
-                self.api_stats['rate_limited'] += 1
-                self.balance_exceeded = True
-                error_msg = "🚫 Превышен лимит запросов (429). Лимит API ключа исчерпан."
-                self.balance_error = error_msg
-                raise ValueError(error_msg)
-
-            if response.status_code == 200:
-                data = response.json()
-                results = data.get('results', [])
-                if results:
-                    return results[0]
-
-            return None
-
-        except requests.exceptions.Timeout:
-            print(f'   ⏰ Таймаут поиска: {game_name}')
-            return None
-        except Exception as e:
-            print(f'   ⚠️ Ошибка поиска: {game_name} - {e}')
-            return None
-
-    def get_game_details(self, rawg_id, delay=0.3):
-        """
-        Получение детальной информации об игре.
-        """
-        try:
-            self.enforce_rate_limit(delay)
-
-            url = f"https://api.rawg.io/api/games/{rawg_id}"
-            params = {'key': self.api_key}
-
-            response = requests.get(url, params=params, timeout=8)
-
-            if response.status_code == 429:
-                self.api_stats['rate_limited'] += 1
-                self.balance_exceeded = True
-                error_msg = "🚫 Превышен лимит запросов (429). Лимит API ключа исчерпан."
-                self.balance_error = error_msg
-                raise ValueError(error_msg)
-
-            if response.status_code == 200:
-                return response.json()
-
-            return None
-
-        except requests.exceptions.Timeout:
-            print(f'   ⏰ Таймаут деталей: {rawg_id}')
-            return None
-        except Exception as e:
-            print(f'   ⚠️ Ошибка получения деталей: {rawg_id} - {e}')
-            return None
-
-    def get_game_description(self, game_name, min_length=1, delay=0.3,
-                             use_cache=True, cache_ttl=30):
-        """
-        Получение описания игры из RAWG с использованием кэша.
-
-        ВСЕГДА возвращает словарь с ключом 'status'
-        """
-        try:
-            # ТОЛЬКО если баланс еще не проверяли - проверяем один раз
-            if not self.balance_checked:
-                balance_info = self.check_balance(force=True)
-
-                if self.balance_exceeded:
-                    return {
-                        'status': 'balance_exceeded',
-                        'error': f"Проблема с балансом API: {self.balance_error}",
-                        'balance_info': balance_info
-                    }
-
-            # Если баланс исчерпан - сразу возвращаем ошибку
-            if self.balance_exceeded:
-                return {
-                    'status': 'balance_exceeded',
-                    'error': f"Баланс API ключа исчерпан: {self.balance_error}",
-                    'balance_exceeded': True
-                }
-
-            normalized = self.normalize_game_name(game_name)
-            game_hash = normalized['hash']
-
-            # 1. Пробуем получить из кэша
-            if use_cache:
-                cached = self.get_from_cache(game_hash, cache_ttl)
-                if cached:
-                    if cached['found'] and cached['description']:
-                        self.api_stats['cache_hits'] += 1
-                        return {
-                            'status': 'found',
-                            'description': cached['description'],
-                            'source': 'cache',
-                            'rawg_id': cached['rawg_id']
-                        }
-                    elif not cached['found']:
-                        self.api_stats['cache_hits'] += 1
-                        return {
-                            'status': 'not_found',
-                            'source': 'cache'
-                        }
-
-            self.api_stats['cache_misses'] += 1
-
-            # 2. Поиск в RAWG API
-            search_result = self.search_game(normalized['search'], delay)
-            self.api_stats['search_requests'] += 1
-
-            # Если поиск вернул None из-за проблем с балансом
-            if search_result is None and self.balance_exceeded:
-                return {
-                    'status': 'balance_exceeded',
-                    'error': f"Проблема с балансом API: {self.balance_error}"
-                }
-
-            if not search_result:
-                # Сохраняем в кэш как ненайденную игру
-                self.save_to_cache(
-                    game_name, game_hash,
-                    found=False,
-                    source='not_found_search'
-                )
-                return {'status': 'not_found', 'source': 'search'}
-
-            # 3. Проверяем описание в результатах поиска
-            description = (
-                    search_result.get('description') or
-                    search_result.get('description_raw') or
-                    ''
-            )
-
-            if description and len(description.strip()) >= min_length:
-                description = self.clean_description(description)
-                self.save_to_cache(
-                    game_name, game_hash,
-                    rawg_id=search_result.get('id'),
-                    description=description,
-                    source='search',
-                    found=True
-                )
-                return {
-                    'status': 'found',
-                    'description': description,
-                    'source': 'search',
-                    'rawg_id': search_result.get('id')
-                }
-
-            # 4. Получаем детали, если описание не найдено в поиске
-            game_id = search_result.get('id')
-            if game_id:
-                details = self.get_game_details(game_id, delay)
-                self.api_stats['detail_requests'] += 1
-
-                if details:
-                    description = (
-                            details.get('description') or
-                            details.get('description_raw') or
-                            ''
-                    )
-                    if description and len(description.strip()) >= min_length:
-                        description = self.clean_description(description)
-                        self.save_to_cache(
-                            game_name, game_hash,
-                            rawg_id=game_id,
-                            description=description,
-                            source='details',
-                            found=True
-                        )
-                        return {
-                            'status': 'found',
-                            'description': description,
-                            'source': 'details',
-                            'rawg_id': game_id
-                        }
-
-            # 5. Слишком короткое или пустое описание
-            if description:
-                description = self.clean_description(description)
-                self.save_to_cache(
-                    game_name, game_hash,
-                    rawg_id=search_result.get('id'),
-                    description=description,
-                    source='short',
-                    found=True
-                )
-                return {
-                    'status': 'found',
-                    'description': description,
-                    'source': 'short',
-                    'rawg_id': search_result.get('id')
-                }
-            else:
-                self.save_to_cache(
-                    game_name, game_hash,
-                    rawg_id=search_result.get('id'),
-                    description='',
-                    source='empty',
-                    found=True
-                )
-                return {
-                    'status': 'found',
-                    'description': '',
-                    'source': 'empty',
-                    'rawg_id': search_result.get('id')
-                }
-
-        except ValueError as e:
-            # Проверяем, не ошибка ли баланса
-            if "лимит исчерпан" in str(e) or "429" in str(e) or "баланс" in str(e).lower():
-                self.balance_exceeded = True
-                return {
-                    'status': 'balance_exceeded',
-                    'error': str(e),
-                    'balance_exceeded': True
-                }
-            else:
-                return {
-                    'status': 'error',
-                    'error': str(e),
-                    'game_name': game_name
-                }
-        except Exception as e:
-            return {
-                'status': 'error',
-                'error': str(e),
-                'game_name': game_name
-            }
-
-    def get_cache_connection(self):
-        """Получение соединения с кэшем для текущего потока."""
-        if not hasattr(self.local, 'cache_conn'):
-            try:
-                cache_dir = Path('cache')
-                cache_dir.mkdir(exist_ok=True)
-
-                self.local.cache_conn = sqlite3.connect(
-                    cache_dir / 'rawg_cache.db',
-                    timeout=10,
-                    check_same_thread=False  # Разрешаем использование в разных потоках
-                )
-                self.local.cache_conn.execute('PRAGMA journal_mode = WAL')
-                self.local.cache_conn.execute('PRAGMA synchronous = NORMAL')
-
-                # Создаем таблицы если их нет
-                cursor = self.local.cache_conn.cursor()
-                cursor.execute('''
-                               CREATE TABLE IF NOT EXISTS rawg_cache
-                               (
-                                   game_hash
-                                   TEXT
-                                   PRIMARY
-                                   KEY,
-                                   game_name
-                                   TEXT
-                                   NOT
-                                   NULL,
-                                   rawg_id
-                                   INTEGER,
-                                   description
-                                   TEXT,
-                                   description_source
-                                   TEXT,
-                                   found
-                                   BOOLEAN
-                                   DEFAULT
-                                   1,
-                                   created_at
-                                   TIMESTAMP
-                                   DEFAULT
-                                   CURRENT_TIMESTAMP,
-                                   updated_at
-                                   TIMESTAMP
-                                   DEFAULT
-                                   CURRENT_TIMESTAMP,
-                                   request_count
-                                   INTEGER
-                                   DEFAULT
-                                   1,
-                                   last_balance_check
-                                   TIMESTAMP,
-                                   balance_status
-                                   TEXT
-                                   DEFAULT
-                                   'unknown'
-                               )
-                               ''')
-
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_game_hash ON rawg_cache(game_hash)')
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_game_name ON rawg_cache(game_name)')
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_updated_at ON rawg_cache(updated_at)')
-                cursor.execute('CREATE INDEX IF NOT EXISTS idx_balance_status ON rawg_cache(balance_status)')
-
-                cursor.execute('''
-                               CREATE TABLE IF NOT EXISTS normalized_names
-                               (
-                                   original_name
-                                   TEXT
-                                   PRIMARY
-                                   KEY,
-                                   normalized_name
-                                   TEXT
-                                   NOT
-                                   NULL,
-                                   created_at
-                                   TIMESTAMP
-                                   DEFAULT
-                                   CURRENT_TIMESTAMP
-                               )
-                               ''')
-
-                # Таблица для хранения истории проверок баланса
-                cursor.execute('''
-                               CREATE TABLE IF NOT EXISTS balance_history
-                               (
-                                   id
-                                   INTEGER
-                                   PRIMARY
-                                   KEY
-                                   AUTOINCREMENT,
-                                   check_date
-                                   TIMESTAMP
-                                   DEFAULT
-                                   CURRENT_TIMESTAMP,
-                                   status_code
-                                   INTEGER,
-                                   response_text
-                                   TEXT,
-                                   balance_status
-                                   TEXT,
-                                   requests_remaining
-                                   INTEGER,
-                                   monthly_limit
-                                   INTEGER,
-                                   reset_date
-                                   TEXT
-                               )
-                               ''')
-
-                self.local.cache_conn.commit()
-
-            except Exception as e:
-                print(f'⚠️ Ошибка инициализации кэша для потока: {e}')
-                self.local.cache_conn = None
-
-        return self.local.cache_conn
-
-    def init_cache_structure(self):
-        """Инициализация структуры кэша (однократно при запуске)."""
+    def init_cache(self):
+        """Инициализация кэша SQLite с исправленной структурой"""
         try:
             cache_dir = Path('cache')
             cache_dir.mkdir(exist_ok=True)
 
-            # Создаем временное соединение для инициализации структуры
-            conn = sqlite3.connect(cache_dir / 'rawg_cache.db', timeout=10)
-            conn.execute('PRAGMA journal_mode = WAL')
-            conn.execute('PRAGMA synchronous = NORMAL')
+            cache_path = cache_dir / 'rawg_cache.db'
 
-            cursor = conn.cursor()
+            # Если файл существует и есть ошибка структуры, удаляем его
+            if cache_path.exists():
+                try:
+                    # Пробуем подключиться и проверить структуру
+                    test_conn = sqlite3.connect(str(cache_path), timeout=10)
+                    cursor = test_conn.cursor()
+                    cursor.execute(
+                        "SELECT game_hash, game_name, description, found, created_at, updated_at FROM rawg_cache LIMIT 1")
+                    test_conn.close()
+                except sqlite3.OperationalError as e:
+                    if "no such column" in str(e):
+                        # Удаляем файл с плохой структурой
+                        if self.debug:
+                            print(f'⚠️ Удален поврежденный файл кэша: {e}')
+                        os.remove(cache_path)
+                    else:
+                        # Другие ошибки
+                        if self.debug:
+                            print(f'⚠️ Ошибка проверки кэша: {e}')
+                        # Пересоздаем файл
+                        os.remove(cache_path)
 
+            # Используем более быстрые настройки SQLite
+            self.cache_conn = sqlite3.connect(
+                str(cache_path),
+                timeout=30,
+                check_same_thread=False
+            )
+
+            # Включаем оптимизации
+            self.cache_conn.execute('PRAGMA journal_mode = WAL')
+            self.cache_conn.execute('PRAGMA synchronous = NORMAL')
+            self.cache_conn.execute('PRAGMA cache_size = -10000')
+            self.cache_conn.execute('PRAGMA temp_store = MEMORY')
+
+            cursor = self.cache_conn.cursor()
+
+            # Создаем УПРОЩЕННУЮ таблицу без проблемных колонок
             cursor.execute('''
                            CREATE TABLE IF NOT EXISTS rawg_cache
                            (
@@ -532,14 +141,10 @@ class RAWGClient:
                                TEXT
                                NOT
                                NULL,
-                               rawg_id
-                               INTEGER,
                                description
                                TEXT,
-                               description_source
-                               TEXT,
                                found
-                               BOOLEAN
+                               INTEGER
                                DEFAULT
                                1,
                                created_at
@@ -549,489 +154,633 @@ class RAWGClient:
                                updated_at
                                TIMESTAMP
                                DEFAULT
-                               CURRENT_TIMESTAMP,
-                               request_count
-                               INTEGER
-                               DEFAULT
-                               1,
-                               last_balance_check
-                               TIMESTAMP,
-                               balance_status
-                               TEXT
-                               DEFAULT
-                               'unknown'
-                           )
-                           ''')
-
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_game_hash ON rawg_cache(game_hash)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_game_name ON rawg_cache(game_name)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_updated_at ON rawg_cache(updated_at)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_balance_status ON rawg_cache(balance_status)')
-
-            cursor.execute('''
-                           CREATE TABLE IF NOT EXISTS normalized_names
-                           (
-                               original_name
-                               TEXT
-                               PRIMARY
-                               KEY,
-                               normalized_name
-                               TEXT
-                               NOT
-                               NULL,
-                               created_at
-                               TIMESTAMP
-                               DEFAULT
                                CURRENT_TIMESTAMP
                            )
                            ''')
 
-            # Таблица для хранения истории проверок баланса
-            cursor.execute('''
-                           CREATE TABLE IF NOT EXISTS balance_history
-                           (
-                               id
-                               INTEGER
-                               PRIMARY
-                               KEY
-                               AUTOINCREMENT,
-                               check_date
-                               TIMESTAMP
-                               DEFAULT
-                               CURRENT_TIMESTAMP,
-                               status_code
-                               INTEGER,
-                               response_text
-                               TEXT,
-                               balance_status
-                               TEXT,
-                               requests_remaining
-                               INTEGER,
-                               monthly_limit
-                               INTEGER,
-                               reset_date
-                               TEXT
-                           )
-                           ''')
+            # Только основные индексы
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_game_name ON rawg_cache(game_name)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_found ON rawg_cache(found)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_updated_at ON rawg_cache(updated_at)')
 
-            conn.commit()
-            conn.close()
+            self.cache_conn.commit()
+
+            if self.debug:
+                print(f'✅ Кэш инициализирован: {cache_path}')
 
         except Exception as e:
-            print(f'⚠️ Ошибка инициализации структуры кэша: {e}')
+            if self.debug:
+                print(f'⚠️ Ошибка инициализации кэша: {e}')
+            self.cache_conn = None
 
-    def init_stats_db_structure(self):
-        """Инициализация структуры БД для статистики."""
+    def get_cache_connection(self):
+        """Возвращает соединение с кэшем"""
+        if not self.cache_conn:
+            self.init_cache()
+        return self.cache_conn
+
+    def get_cache_size(self):
+        """Возвращает количество записей в кэше"""
         try:
-            stats_dir = Path('stats')
-            stats_dir.mkdir(exist_ok=True)
+            if not self.cache_conn:
+                return None
 
-            # Создаем временное соединение для инициализации структуры
-            conn = sqlite3.connect(stats_dir / 'api_stats.db', timeout=10)
-            cursor = conn.cursor()
+            cursor = self.cache_conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM rawg_cache')
+            return cursor.fetchone()[0]
+        except:
+            return None
 
-            cursor.execute('''
-                           CREATE TABLE IF NOT EXISTS request_stats
-                           (
-                               date
-                               TEXT
-                               PRIMARY
-                               KEY,
-                               total_requests
-                               INTEGER
-                               DEFAULT
-                               0,
-                               cache_hits
-                               INTEGER
-                               DEFAULT
-                               0,
-                               cache_misses
-                               INTEGER
-                               DEFAULT
-                               0,
-                               search_requests
-                               INTEGER
-                               DEFAULT
-                               0,
-                               detail_requests
-                               INTEGER
-                               DEFAULT
-                               0,
-                               rate_limited
-                               INTEGER
-                               DEFAULT
-                               0,
-                               balance_exceeded
-                               INTEGER
-                               DEFAULT
-                               0,
-                               avg_response_time
-                               REAL
-                               DEFAULT
-                               0
-                           )
-                           ''')
+    def _make_request(self, endpoint: str, params: Dict[str, Any] = None,
+                      timeout: int = 10, retry_count: int = 0) -> Dict[str, Any]:
+        """Выполняет запрос к API с обработкой ошибок"""
+        if params is None:
+            params = {}
 
-            cursor.execute('''
-                           CREATE TABLE IF NOT EXISTS game_stats
-                           (
-                               game_hash
-                               TEXT
-                               PRIMARY
-                               KEY,
-                               game_name
-                               TEXT
-                               NOT
-                               NULL,
-                               found_count
-                               INTEGER
-                               DEFAULT
-                               0,
-                               not_found_count
-                               INTEGER
-                               DEFAULT
-                               0,
-                               error_count
-                               INTEGER
-                               DEFAULT
-                               0,
-                               last_checked
-                               TIMESTAMP,
-                               first_found
-                               TIMESTAMP
-                           )
-                           ''')
+        # Добавляем API ключ
+        params['key'] = self.api_key
 
-            cursor.execute('''
-                           CREATE TABLE IF NOT EXISTS efficiency_stats
-                           (
-                               timestamp
-                               TEXT
-                               PRIMARY
-                               KEY,
-                               cache_efficiency
-                               REAL,
-                               requests_saved
-                               INTEGER,
-                               avg_requests_per_game
-                               REAL,
-                               balance_status
-                               TEXT
-                           )
-                           ''')
-
-            conn.commit()
-            conn.close()
-
-        except Exception as e:
-            print(f'⚠️ Ошибка инициализации структуры статистики: {e}')
-
-    def normalize_game_name(self, game_name):
-        """
-        Нормализация названия игры для поиска и кэширования.
-
-        Args:
-            game_name (str): Оригинальное название игры.
-
-        Returns:
-            dict: Хэш и нормализованное название.
-        """
-        normalized = game_name.lower().strip()
-        normalized = re.sub(r'\s+', ' ', normalized)
-
-        # Для поиска удаляем версии и года в скобках
-        search_name = re.sub(r'\([^)]*\)', '', normalized)
-        search_name = re.sub(
-            r'\b(remastered|definitive edition|game of the year|goty|enhanced edition)\b',
-            '', search_name, flags=re.IGNORECASE
-        )
-        search_name = search_name.strip()
-
-        # Хэш для уникальности
-        name_hash = hashlib.md5(game_name.encode('utf-8')).hexdigest()
-
-        return {
-            'hash': name_hash,
-            'original': game_name,
-            'search': search_name if search_name else normalized
-        }
-
-    def _save_balance_check(self, response):
-        """Сохранение информации о проверке баланса в БД."""
-        cache_conn = self.get_cache_connection()
-        if not cache_conn:
-            return
+        url = f"{self.base_url}/{endpoint}"
 
         try:
-            cursor = cache_conn.cursor()
+            self.stats['total_requests'] += 1
 
-            # Определяем статус баланса на основе кода ответа
+            if self.debug:
+                print(f'🌐 Запрос к {endpoint} с параметрами: {params}')
+
+            # Используем keep-alive соединения
+            response = self.session.get(
+                url,
+                params=params,
+                timeout=timeout,
+                allow_redirects=True
+            )
+
             if response.status_code == 200:
-                balance_status = 'ok'
+                if self.debug:
+                    print(f'✅ Ответ получен: {response.status_code}')
+                return response.json()
+
             elif response.status_code == 429:
-                balance_status = 'rate_limit_exceeded'
-            elif response.status_code in [401, 403]:
-                balance_status = 'access_denied'
+                # Rate limit - ЛИМИТ ИСЧЕРПАН!
+                self.stats['rate_limited'] += 1
+
+                # Получаем информацию о времени ожидания
+                retry_after = response.headers.get('Retry-After')
+
+                if retry_after:
+                    wait_time = int(retry_after)
+                    error_msg = f"Превышен лимит запросов. Следующий запрос через {wait_time} секунд"
+                else:
+                    # Если нет Retry-After заголовка, скорее всего лимит на сутки
+                    wait_time = 86400  # 24 часа
+                    error_msg = f"ДНЕВНОЙ ЛИМИТ ИСЧЕРПАН! Следующий запрос через 24 часа"
+
+                # Помечаем баланс как исчерпанный
+                self.stats['balance_exceeded'] = True
+                self.stats['balance_error'] = error_msg
+
+                if self.debug:
+                    print(f'🚫 ЛИМИТ API: {error_msg}')
+
+                # Бросаем специальное исключение для остановки процесса
+                raise ValueError(f"ЛИМИТ API ИСЧЕРПАН: {error_msg}")
+
+            elif response.status_code == 401:
+                # Неверный API ключ
+                error_msg = "Неверный API ключ RAWG"
+                self.stats['balance_exceeded'] = True
+                self.stats['balance_error'] = error_msg
+
+                if self.debug:
+                    print(f'❌ Неверный API ключ')
+
+                raise ValueError(error_msg)
+
             else:
-                balance_status = 'error'
+                if self.debug:
+                    print(f'❌ Ошибка {response.status_code}: {response.text[:100]}')
+                response.raise_for_status()
 
-            # Извлекаем информацию о лимитах из заголовков
-            headers = response.headers
-            remaining = headers.get('X-RateLimit-Remaining')
-            limit = headers.get('X-RateLimit-Limit')
-            reset = headers.get('X-RateLimit-Reset')
+        except requests.exceptions.Timeout:
+            if self.debug:
+                print(f'⚠️ Таймаут запроса к {endpoint}')
 
-            # Сохраняем в историю
-            cursor.execute('''
-                           INSERT INTO balance_history
-                           (status_code, response_text, balance_status, requests_remaining, monthly_limit, reset_date)
-                           VALUES (?, ?, ?, ?, ?, ?)
-                           ''', (
-                               response.status_code,
-                               response.text[:500] if response.text else '',
-                               balance_status,
-                               remaining,
-                               limit,
-                               reset
-                           ))
+            if retry_count < 2:
+                time.sleep(1)
+                return self._make_request(endpoint, params, timeout * 1.5, retry_count + 1)
+            raise ValueError("Таймаут запроса к RAWG API")
 
-            # Обновляем статус в основной таблице кэша
-            cursor.execute('''
-                           UPDATE rawg_cache
-                           SET last_balance_check = CURRENT_TIMESTAMP,
-                               balance_status     = ?
-                           WHERE game_hash IN (SELECT game_hash FROM rawg_cache LIMIT 1)
-                           ''', (balance_status,))
+        except requests.exceptions.RequestException as e:
+            if self.debug:
+                print(f'❌ Ошибка запроса к {endpoint}: {e}')
+            raise ValueError(f"Ошибка запроса к RAWG API: {str(e)}")
 
-            cache_conn.commit()
+    def _hash_game_name(self, game_name: str) -> str:
+        """Создает хэш для имени игры"""
+        return hashlib.md5(game_name.lower().encode('utf-8')).hexdigest()
 
-        except Exception as e:
-            print(f'⚠️ Ошибка сохранения проверки баланса: {e}')
-
-    def get_from_cache(self, game_hash, cache_ttl=30):
-        """
-        Получение данных из кэша.
-
-        Args:
-            game_hash (str): Хэш названия игры.
-            cache_ttl (int): Время жизни кэша в днях.
-
-        Returns:
-            dict or None: Кэшированные данные или None.
-        """
-        cache_conn = self.get_cache_connection()
-        if not cache_conn:
+    def _get_from_cache(self, game_hash: str) -> Optional[Dict[str, Any]]:
+        """Получает данные из кэша"""
+        if not self.cache_conn:
             return None
 
         try:
-            cursor = cache_conn.cursor()
-
-            ttl_condition = ""
-            if cache_ttl > 0:
-                ttl_condition = f"AND updated_at > datetime('now', '-{cache_ttl} days')"
-
-            cursor.execute(f'''
-                SELECT rawg_id, description, description_source, found, request_count, balance_status
-                FROM rawg_cache 
-                WHERE game_hash = ? {ttl_condition}
-            ''', (game_hash,))
-
+            cursor = self.cache_conn.cursor()
+            cursor.execute(
+                'SELECT description, found, updated_at FROM rawg_cache WHERE game_hash = ?',
+                (game_hash,)
+            )
             result = cursor.fetchone()
-            if result:
-                cursor.execute('''
-                               UPDATE rawg_cache
-                               SET request_count = request_count + 1,
-                                   updated_at    = CURRENT_TIMESTAMP
-                               WHERE game_hash = ?
-                               ''', (game_hash,))
-                cache_conn.commit()
 
+            if result:
+                # Обновляем время последнего использования
+                cursor.execute(
+                    'UPDATE rawg_cache SET last_used = CURRENT_TIMESTAMP WHERE game_hash = ?',
+                    (game_hash,)
+                )
+                self.cache_conn.commit()
+
+                description, found, updated_at = result
                 return {
-                    'rawg_id': result[0],
-                    'description': result[1],
-                    'source': result[2],
-                    'found': bool(result[3]),
-                    'request_count': result[4],
-                    'balance_status': result[5]
+                    'description': description,
+                    'found': bool(found),
+                    'updated_at': updated_at,
+                    'source': 'cache'
+                }
+        except Exception as e:
+            if self.debug:
+                print(f'⚠️ Ошибка чтения из кэша: {e}')
+
+        return None
+
+    def _save_to_cache(self, game_hash: str, game_name: str,
+                       description: str = None, found: bool = True):
+        """Сохраняет данные в кэш (упрощенная версия)"""
+        if not self.cache_conn:
+            return
+
+        try:
+            cursor = self.cache_conn.cursor()
+
+            # Упрощенный INSERT без проблемных колонок
+            if description:
+                cursor.execute('''
+                    INSERT OR REPLACE INTO rawg_cache 
+                    (game_hash, game_name, description, found, updated_at) 
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ''', (game_hash, game_name, description, 1 if found else 0))
+            else:
+                cursor.execute('''
+                    INSERT OR REPLACE INTO rawg_cache 
+                    (game_hash, game_name, found, updated_at) 
+                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                ''', (game_hash, game_name, 1 if found else 0))
+
+            self.cache_conn.commit()
+
+        except Exception as e:
+            if self.debug:
+                print(f'⚠️ Ошибка сохранения в кэш: {e}')
+            # Если ошибка, пересоздаем таблицу
+            try:
+                cursor.execute('DROP TABLE IF EXISTS rawg_cache')
+                cursor.execute('''
+                               CREATE TABLE rawg_cache
+                               (
+                                   game_hash   TEXT PRIMARY KEY,
+                                   game_name   TEXT NOT NULL,
+                                   description TEXT,
+                                   found       INTEGER   DEFAULT 1,
+                                   created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                   updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                               )
+                               ''')
+                self.cache_conn.commit()
+            except:
+                pass
+
+    def _cleanup_old_cache(self, ttl_days: int = 30):
+        """Очищает старые записи из кэша"""
+        if not self.cache_conn:
+            return
+
+        try:
+            cursor = self.cache_conn.cursor()
+
+            # Удаляем записи старше ttl_days дней
+            cursor.execute('''
+                           DELETE
+                           FROM rawg_cache
+                           WHERE updated_at < datetime('now', ?)
+                           ''', (f'-{ttl_days} days',))
+
+            deleted = cursor.rowcount
+            self.cache_conn.commit()
+
+            if self.debug and deleted > 0:
+                print(f'🧹 Удалено {deleted} старых записей из кэша')
+
+        except Exception as e:
+            if self.debug:
+                print(f'⚠️ Ошибка очистки кэша: {e}')
+
+    def search_games(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """Ищет игры по названию"""
+        self.stats['search_requests'] += 1
+
+        try:
+            params = {
+                'search': query,
+                'page_size': limit,
+                'search_precise': True
+            }
+
+            data = self._make_request('games', params)
+            return data.get('results', [])
+
+        except Exception as e:
+            if self.debug:
+                print(f'⚠️ Ошибка поиска игр: {e}')
+            return []
+
+    def get_game_details(self, game_id: int) -> Optional[Dict[str, Any]]:
+        """Получает детальную информацию об игре"""
+        self.stats['detail_requests'] += 1
+
+        try:
+            data = self._make_request(f'games/{game_id}')
+            return data
+
+        except Exception as e:
+            if self.debug:
+                print(f'⚠️ Ошибка получения деталей игры {game_id}: {e}')
+            return None
+
+    def get_game_description(self, game_name: str, min_length: int = 1,
+                             delay: float = 0.5, use_cache: bool = True,
+                             cache_ttl: int = 30, timeout: int = 10) -> Dict[str, Any]:
+        """Получает описание игры с правильной обработкой пустых описаний"""
+        game_hash = self._hash_game_name(game_name)
+
+        # Проверяем кэш
+        if use_cache:
+            cached = self._get_from_cache(game_hash)
+            if cached:
+                self.stats['cache_hits'] += 1
+
+                if self.debug:
+                    print(f'💾 Кэш найден для: {game_name}')
+
+                # Проверяем TTL
+                if cache_ttl > 0 and cached.get('updated_at'):
+                    try:
+                        updated_at = datetime.fromisoformat(cached['updated_at'].replace('Z', '+00:00'))
+                        if datetime.now(updated_at.tzinfo) - updated_at > timedelta(days=cache_ttl):
+                            if self.debug:
+                                print(f'🔄 Запись устарела ({cache_ttl} дней), обновляю...')
+                        else:
+                            # Возвращаем из кэша
+                            return cached
+                    except:
+                        # Если ошибка парсинга даты, продолжаем
+                        pass
+                else:
+                    # TTL отключен, возвращаем из кэша
+                    return cached
+            else:
+                self.stats['cache_misses'] += 1
+                if self.debug:
+                    print(f'❌ Кэш не найден для: {game_name}')
+
+        # Пауза для соблюдения rate limit
+        if delay > 0:
+            time.sleep(delay)
+
+        # Ищем игру
+        if self.debug:
+            print(f'🔍 Поиск игры: {game_name}')
+
+        search_results = self.search_games(game_name)
+
+        if not search_results:
+            # Игра не найдена
+            if self.debug:
+                print(f'❌ Игра не найдена: {game_name}')
+
+            result = {
+                'status': 'not_found',
+                'description': None,
+                'source': 'search',
+                'found': False
+            }
+
+            if use_cache:
+                self._save_to_cache(game_hash, game_name, None, False)
+
+            return result
+
+        # Берем наиболее релевантный результат
+        best_match = search_results[0]
+        game_id = best_match.get('id')
+
+        if not game_id:
+            result = {
+                'status': 'not_found',
+                'description': None,
+                'source': 'search',
+                'found': False
+            }
+
+            if use_cache:
+                self._save_to_cache(game_hash, game_name, None, False)
+
+            return result
+
+        # Получаем детальную информацию
+        if self.debug:
+            print(f'📄 Получение деталей для игры ID: {game_id}')
+
+        game_details = self.get_game_details(game_id)
+
+        if not game_details:
+            result = {
+                'status': 'error',
+                'error': 'Не удалось получить детали игры',
+                'source': 'details',
+                'found': False
+            }
+            return result
+
+        # Извлекаем описание
+        description = game_details.get('description', '')
+
+        if not description or len(description.strip()) < min_length:
+            # Пробуем альтернативные источники описания
+            description = (
+                    game_details.get('description_raw') or
+                    best_match.get('description') or
+                    ''
+            )
+
+        # Определяем статус
+        if not description or len(description.strip()) == 0:
+            # ОПИСАНИЯ НЕТ ВООБЩЕ
+            status = 'empty'
+            found_in_rawg = False  # ВАЖНО: хоть игра и найдена, описания нет
+        elif len(description.strip()) < min_length:
+            # Описание есть, но слишком короткое
+            status = 'short'
+            found_in_rawg = False
+        else:
+            # Описание нормальное
+            status = 'found'
+            found_in_rawg = True
+
+        # Подготавливаем результат
+        if status == 'found':
+            result = {
+                'status': 'found',
+                'description': description.strip(),
+                'source': 'details',
+                'found': True,
+                'rawg_id': game_id,
+                'rawg_data': {
+                    'name': game_details.get('name'),
+                    'released': game_details.get('released'),
+                    'rating': game_details.get('rating'),
+                    'ratings_count': game_details.get('ratings_count')
+                }
+            }
+
+            if self.debug:
+                print(f'✅ Найдено описание длиной {len(description)} символов')
+
+            if use_cache:
+                self._save_to_cache(game_hash, game_name, description.strip(), True)
+        else:
+            # Нет описания или слишком короткое
+            result = {
+                'status': status,
+                'description': description.strip() if description else None,
+                'source': 'details',
+                'found': found_in_rawg,  # found=False если нет описания
+                'rawg_id': game_id
+            }
+
+            if self.debug:
+                print(f'⚠️ Статус: {status}')
+
+            if use_cache:
+                # Сохраняем в кэш что игра не имеет описания
+                self._save_to_cache(game_hash, game_name, None, False)
+
+        return result
+
+    def get_game_descriptions_batch(self, game_names: List[str], min_length: int = 1,
+                                    delay: float = 0.5, use_cache: bool = True,
+                                    cache_ttl: int = 30, max_workers: int = 4) -> Dict[str, Dict[str, Any]]:
+        """Получает описания для нескольких игр параллельно"""
+        results = {}
+
+        if self.debug:
+            print(f'🚀 Начинаем batch обработку {len(game_names)} игр с {max_workers} потоками')
+
+        # Сначала проверяем кэш для всех игр
+        if use_cache:
+            cached_results = {}
+            to_fetch = []
+
+            for game_name in game_names:
+                game_hash = self._hash_game_name(game_name)
+                cached = self._get_from_cache(game_hash)
+
+                if cached:
+                    # Проверяем TTL
+                    if cache_ttl > 0:
+                        updated_at = datetime.fromisoformat(cached['updated_at'].replace('Z', '+00:00'))
+                        if datetime.now(updated_at.tzinfo) - updated_at > timedelta(days=cache_ttl):
+                            to_fetch.append(game_name)
+                        else:
+                            cached_results[game_name] = cached
+                            self.stats['cache_hits'] += 1
+                    else:
+                        cached_results[game_name] = cached
+                        self.stats['cache_hits'] += 1
+                else:
+                    to_fetch.append(game_name)
+                    self.stats['cache_misses'] += 1
+
+            results.update(cached_results)
+
+            if self.debug:
+                print(f'💾 Из кэша получено: {len(cached_results)} игр')
+                print(f'🔍 Требуется запросов: {len(to_fetch)} игр')
+        else:
+            to_fetch = game_names
+            self.stats['cache_misses'] += len(game_names)
+
+        # Параллельно получаем описания для оставшихся игр
+        if to_fetch:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Создаем задачи
+                future_to_game = {}
+                for i, game_name in enumerate(to_fetch):
+                    # Добавляем задержку между запусками задач
+                    if i > 0 and delay > 0:
+                        time.sleep(delay / max_workers)
+
+                    future = executor.submit(
+                        self.get_game_description,
+                        game_name=game_name,
+                        min_length=min_length,
+                        delay=0,  # Задержка уже учтена выше
+                        use_cache=use_cache,
+                        cache_ttl=cache_ttl
+                    )
+                    future_to_game[future] = game_name
+
+                # Обрабатываем результаты
+                completed = 0
+                total = len(to_fetch)
+
+                for future in concurrent.futures.as_completed(future_to_game):
+                    game_name = future_to_game[future]
+                    try:
+                        result = future.result(timeout=30)
+                        results[game_name] = result
+
+                        completed += 1
+                        if self.debug and completed % 10 == 0:
+                            print(f'📊 Batch прогресс: {completed}/{total} ({completed / total * 100:.1f}%)')
+
+                    except Exception as e:
+                        if self.debug:
+                            print(f'⚠️ Ошибка получения описания для {game_name}: {e}')
+                        results[game_name] = {
+                            'status': 'error',
+                            'error': str(e),
+                            'source': 'batch',
+                            'found': False
+                        }
+
+        if self.debug:
+            print(f'✅ Batch обработка завершена. Всего результатов: {len(results)}')
+
+        return results
+
+    def check_balance(self, force: bool = False, quick_check: bool = False) -> Dict[str, Any]:
+        """Проверяет баланс/лимиты API"""
+        # Кэшируем проверку баланса на 5 минут
+        if not force and self.stats['last_balance_check']:
+            last_check = datetime.fromisoformat(self.stats['last_balance_check'])
+            if datetime.now() - last_check < timedelta(minutes=5):
+                if self.debug:
+                    print(f'💾 Использую кэшированную проверку баланса')
+                return {
+                    'balance_exceeded': self.stats['balance_exceeded'],
+                    'error': self.stats['balance_error'],
+                    'requests_remaining': self.stats['requests_remaining']
                 }
 
-            return None
-
-        except Exception as e:
-            print(f'   ⚠️ Ошибка получения из кэша: {e}')
-            return None
-
-    def save_to_cache(self, game_name, game_hash, rawg_id=None,
-                      description=None, source=None, found=True):
-        """
-        Сохранение данных в кэш.
-
-        Args:
-            game_name (str): Название игры.
-            game_hash (str): Хэш названия.
-            rawg_id (int): ID игры в RAWG.
-            description (str): Описание игры.
-            source (str): Источник описания.
-            found (bool): Найдена ли игра.
-        """
-        cache_conn = self.get_cache_connection()
-        if not cache_conn:
-            return
-
         try:
-            cursor = cache_conn.cursor()
+            # Быстрая проверка - просто тестовый запрос
+            if quick_check:
+                params = {'key': self.api_key, 'page_size': 1}
+                response = self.session.get(
+                    f"{self.base_url}/games",
+                    params=params,
+                    timeout=5
+                )
 
-            # Проверяем текущий статус баланса
-            balance_info = self.check_balance()
-            balance_status = balance_info.get('status', 'unknown') if balance_info else 'unknown'
+                if response.status_code == 200:
+                    self.stats['balance_exceeded'] = False
+                    self.stats['balance_error'] = None
 
-            cursor.execute('SELECT 1 FROM rawg_cache WHERE game_hash = ?', (game_hash,))
-            exists = cursor.fetchone()
+                    # Пытаемся получить информацию о лимитах из заголовков
+                    remaining = response.headers.get('X-RateLimit-Remaining')
+                    if remaining:
+                        self.stats['requests_remaining'] = int(remaining)
 
-            if exists:
-                cursor.execute('''
-                               UPDATE rawg_cache
-                               SET rawg_id            = COALESCE(?, rawg_id),
-                                   description        = COALESCE(?, description),
-                                   description_source = COALESCE(?, description_source),
-                                   found              = ?,
-                                   updated_at         = CURRENT_TIMESTAMP,
-                                   request_count      = request_count + 1,
-                                   last_balance_check = CURRENT_TIMESTAMP,
-                                   balance_status     = ?
-                               WHERE game_hash = ?
-                               ''', (rawg_id, description, source, found, balance_status, game_hash))
+                    if self.debug:
+                        print(f'✅ Баланс проверен, осталось запросов: {self.stats["requests_remaining"]}')
+
+                elif response.status_code == 429:
+                    self.stats['balance_exceeded'] = True
+                    self.stats['balance_error'] = "Превышен лимит запросов"
+                    if self.debug:
+                        print(f'❌ Превышен лимит запросов')
+                elif response.status_code == 401:
+                    self.stats['balance_exceeded'] = True
+                    self.stats['balance_error'] = "Неверный API ключ"
+                    if self.debug:
+                        print(f'❌ Неверный API ключ')
+                else:
+                    response.raise_for_status()
             else:
-                cursor.execute('''
-                               INSERT INTO rawg_cache
-                               (game_hash, game_name, rawg_id, description, description_source, found,
-                                request_count, last_balance_check, balance_status)
-                               VALUES (?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, ?)
-                               ''', (game_hash, game_name, rawg_id, description, source, found, balance_status))
+                # Полная проверка с запросом к API
+                data = self._make_request('games', {'page_size': 1})
+                self.stats['balance_exceeded'] = False
+                self.stats['balance_error'] = None
 
-            cache_conn.commit()
+            self.stats['last_balance_check'] = datetime.now().isoformat()
 
+            return {
+                'balance_exceeded': self.stats['balance_exceeded'],
+                'error': self.stats['balance_error'],
+                'requests_remaining': self.stats['requests_remaining']
+            }
+
+        except ValueError as e:
+            self.stats['balance_exceeded'] = True
+            self.stats['balance_error'] = str(e)
+            self.stats['last_balance_check'] = datetime.now().isoformat()
+
+            if self.debug:
+                print(f'❌ Ошибка проверки баланса: {e}')
+
+            return {
+                'balance_exceeded': True,
+                'error': str(e),
+                'requests_remaining': None
+            }
         except Exception as e:
-            print(f'   ⚠️ Ошибка сохранения в кэш: {e}')
+            if self.debug:
+                print(f'⚠️ Ошибка проверки баланса: {e}')
 
-    @staticmethod
-    def clean_description(text):
-        """
-        Очистка HTML-тегов и лишних пробелов из описания.
+            return {
+                'balance_exceeded': False,
+                'error': None,
+                'requests_remaining': None
+            }
 
-        Args:
-            text (str): Исходный текст.
+    def get_stats(self) -> Dict[str, Any]:
+        """Возвращает статистику использования"""
+        # Очищаем старый кэш при запросе статистики
+        self._cleanup_old_cache(30)
 
-        Returns:
-            str: Очищенный текст.
-        """
-        if not text:
-            return ''
+        return self.stats.copy()
 
-        text = re.sub(r'<[^>]+>', '', text)
-        text = re.sub(r'\s+', ' ', text).strip()
+    def close(self):
+        """Закрывает соединения"""
+        if self.cache_conn:
+            try:
+                # Оптимизируем базу данных перед закрытием
+                cursor = self.cache_conn.cursor()
+                cursor.execute('PRAGMA optimize')
+                self.cache_conn.commit()
+                self.cache_conn.close()
+                if self.debug:
+                    print('✅ Кэш закрыт и оптимизирован')
+            except Exception as e:
+                if self.debug:
+                    print(f'⚠️ Ошибка закрытия кэша: {e}')
 
-        return text[:15000]
+        if self.session:
+            self.session.close()
+            if self.debug:
+                print('✅ HTTP сессия закрыта')
 
-    def get_balance_history(self, limit=10):
-        """
-        Получение истории проверок баланса.
-
-        Args:
-            limit (int): Количество записей для получения.
-
-        Returns:
-            list: Список записей истории баланса.
-        """
-        cache_conn = self.get_cache_connection()
-        if not cache_conn:
-            return []
-
-        try:
-            cursor = cache_conn.cursor()
-            cursor.execute('''
-                           SELECT check_date, status_code, balance_status, requests_remaining, monthly_limit, reset_date
-                           FROM balance_history
-                           ORDER BY check_date DESC LIMIT ?
-                           ''', (limit,))
-
-            history = []
-            for row in cursor.fetchall():
-                history.append({
-                    'check_date': row[0],
-                    'status_code': row[1],
-                    'balance_status': row[2],
-                    'requests_remaining': row[3],
-                    'monthly_limit': row[4],
-                    'reset_date': row[5]
-                })
-
-            return history
-
-        except Exception as e:
-            print(f'⚠️ Ошибка получения истории баланса: {e}')
-            return []
-
-    def print_balance_info(self):
-        """
-        Вывод информации о текущем балансе.
-        """
-        print("\n" + "=" * 60)
-        print("📊 ИНФОРМАЦИЯ О БАЛАНСЕ API КЛЮЧА RAWG")
-        print("=" * 60)
-
-        if self.balance_error:
-            print(f"❌ {self.balance_error}")
-            print("\nРекомендации:")
-            print("1. Проверьте лимит запросов в личном кабинете RAWG")
-            print("2. Если лимит исчерпан, дождитесь сброса (обычно 1-е число месяца)")
-            print("3. Используйте другой API ключ")
-        else:
-            print(f"✅ API ключ активен")
-
-            if self.requests_remaining:
-                print(f"📈 Осталось запросов: {self.requests_remaining}")
-
-                # Преобразуем в числа для сравнения
-                try:
-                    remaining = int(self.requests_remaining)
-                    if self.monthly_limit:
-                        limit = int(self.monthly_limit)
-                        percentage = (remaining / limit) * 100
-                        print(f"📊 Загруженность: {percentage:.1f}% ({remaining}/{limit})")
-
-                        # Предупреждение при низком остатке
-                        if percentage < 10:
-                            print(f"⚠️  Внимание: осталось менее 10% лимита!")
-                        elif percentage < 30:
-                            print(f"⚠️  Осталось менее 30% лимита")
-                except (ValueError, TypeError):
-                    pass
-
-            if self.monthly_limit:
-                print(f"🎯 Месячный лимит: {self.monthly_limit}")
-            if self.reset_date:
-                print(f"🔄 Дата сброса: {self.reset_date}")
-            if self.last_balance_check:
-                print(f"🕐 Проверено: {self.last_balance_check.strftime('%Y-%m-%d %H:%M:%S')}")
-
-        print("=" * 60)
-
-    def get_stats(self):
-        """
-        Получение статистики использования API.
-        """
-        return {
-            'cache_hits': self.api_stats.get('cache_hits', 0),
-            'cache_misses': self.api_stats.get('cache_misses', 0),
-            'search_requests': self.api_stats.get('search_requests', 0),
-            'detail_requests': self.api_stats.get('detail_requests', 0),
-            'rate_limited': self.api_stats.get('rate_limited', 0),
-            'balance_valid': self.balance_valid,
-            'balance_error': self.balance_error,
-            'requests_remaining': self.requests_remaining,
-            'monthly_limit': self.monthly_limit,
-            'reset_date': self.reset_date,
-            'total_requests': self.api_stats.get('search_requests', 0) +
-                              self.api_stats.get('detail_requests', 0)
-        }
+    def __del__(self):
+        """Деструктор - закрывает соединения"""
+        self.close()
