@@ -147,6 +147,13 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 IGDB_CLIENT_ID = os.getenv('IGDB_CLIENT_ID')
 IGDB_CLIENT_SECRET = os.getenv('IGDB_CLIENT_SECRET')
 
+# RAWG API Settings
+RAWG_API_KEY = os.getenv('RAWG_API_KEY')
+
 # Проверяем, что переменные окружения загружены
 if not IGDB_CLIENT_ID or not IGDB_CLIENT_SECRET:
     raise Exception("IGDB_CLIENT_ID and IGDB_CLIENT_SECRET must be set in .env file")
+
+# Опционально: проверка RAWG API ключа
+if not RAWG_API_KEY:
+    print("⚠️ Warning: RAWG_API_KEY is not set in .env file")
