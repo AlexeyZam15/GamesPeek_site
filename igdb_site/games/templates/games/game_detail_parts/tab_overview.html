@@ -1,11 +1,47 @@
 {% load game_tags %}
 <div class="row g-4">
-    <!-- Левая колонка - Описание -->
+    <!-- Левая колонка - Все описания -->
     <div class="col-lg-8">
-        {% if game.summary %}
+        <!-- RAWG описание (если есть) -->
+        {% if game.rawg_description %}
             <div class="compact-section">
                 <div class="section-header">
-                    <h5 class="text-warning mb-3"><i class="bi bi-journal-text me-2"></i>About This Game</h5>
+                    <h5 class="text-warning mb-3">
+                        <i class="bi bi-info-circle me-2"></i>Description from RAWG
+                        <span class="badge bg-warning ms-2">RAWG</span>
+                    </h5>
+                </div>
+                <div class="game-detail-card card">
+                    <div class="card-body">
+                        <div class="collapsible-text {% if game.rawg_description|wordcount <= 100 %}expanded{% endif %}"
+                             id="rawg-text">
+                            <p class="card-text text-light mb-0">{{ game.rawg_description }}</p>
+                        </div>
+                        {% if game.rawg_description|wordcount > 100 %}
+                            <button class="toggle-text-btn mt-3" onclick="toggleText('rawg')">
+                                <span>Read more</span>
+                                <i class="bi bi-chevron-down"></i>
+                            </button>
+                        {% endif %}
+                        <div class="mt-3">
+                            <small class="text-muted">
+                                <i class="bi bi-external-link me-1"></i>
+                                Source: <a href="https://rawg.io" target="_blank" class="text-warning">RAWG.io</a>
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
+        <!-- IGDB Summary (если есть) -->
+        {% if game.summary %}
+            <div class="compact-section {% if game.rawg_description %}mt-4{% endif %}">
+                <div class="section-header">
+                    <h5 class="text-info mb-3">
+                        <i class="bi bi-journal-text me-2"></i>Description from IGDB
+                        <span class="badge bg-info ms-2">IGDB</span>
+                    </h5>
                 </div>
                 <div class="game-detail-card card">
                     <div class="card-body">
@@ -22,25 +58,16 @@
                     </div>
                 </div>
             </div>
-        {% else %}
-            <div class="compact-section">
-                <div class="section-header">
-                    <h5 class="text-warning mb-3"><i class="bi bi-journal-text me-2"></i>About This Game</h5>
-                </div>
-                <div class="game-detail-card card">
-                    <div class="card-body text-center py-4">
-                        <i class="bi bi-journal-x text-muted" style="font-size: 2rem;"></i>
-                        <p class="text-muted mt-2 mb-0">No summary available for this game.</p>
-                    </div>
-                </div>
-            </div>
         {% endif %}
 
-        <!-- Сюжет (если есть) -->
+        <!-- Сюжет из IGDB (если есть) -->
         {% if game.storyline %}
             <div class="compact-section mt-4">
                 <div class="section-header">
-                    <h5 class="text-warning mb-3"><i class="bi bi-book me-2"></i>Storyline</h5>
+                    <h5 class="text-primary mb-3">
+                        <i class="bi bi-book me-2"></i>Storyline
+                        <span class="badge bg-primary ms-2">IGDB</span>
+                    </h5>
                 </div>
                 <div class="game-detail-card card">
                     <div class="card-body">
@@ -58,9 +85,35 @@
                 </div>
             </div>
         {% endif %}
+
+        <!-- Если нет ни одного описания -->
+        {% if not game.rawg_description and not game.summary and not game.storyline %}
+            <div class="compact-section">
+                <div class="section-header">
+                    <h5 class="text-warning mb-3"><i class="bi bi-journal-text me-2"></i>About This Game</h5>
+                </div>
+                <div class="game-detail-card card">
+                    <div class="card-body text-center py-5">
+                        <div class="mb-3">
+                            <i class="bi bi-journal-x text-muted" style="font-size: 3rem;"></i>
+                        </div>
+                        <h5 class="text-muted mb-2">No Descriptions Available</h5>
+                        <p class="text-muted mb-0">Try checking the game on these platforms:</p>
+                        <div class="mt-3 d-flex justify-content-center gap-3">
+                            <a href="https://www.igdb.com" target="_blank" class="btn btn-outline-info btn-sm">
+                                <i class="bi bi-controller me-1"></i> IGDB
+                            </a>
+                            <a href="https://rawg.io" target="_blank" class="btn btn-outline-warning btn-sm">
+                                <i class="bi bi-globe me-1"></i> RAWG
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
     </div>
 
-    <!-- Правая колонка - Базовая информация -->
+    <!-- Правая колонка - Информация -->
     <div class="col-lg-4">
         <!-- Основная информация -->
         <div class="compact-section">
@@ -82,8 +135,13 @@
                         </div>
                         {% if game.rating %}
                             <div class="info-item d-flex justify-content-between py-3 border-bottom">
-                                <span class="text-muted">Rating:</span>
-                                <span class="fw-bold text-light">{{ game.rating|floatformat:1 }}/100</span>
+                                <span class="text-muted">IGDB Rating:</span>
+                                <span class="fw-bold text-light">
+                                    {{ game.rating|floatformat:1 }}/100
+                                    {% if game.rating_count %}
+                                        <small class="text-muted ms-2">({{ game.rating_count }})</small>
+                                    {% endif %}
+                                </span>
                             </div>
                         {% endif %}
                         {% if game.rating_count %}
@@ -93,7 +151,7 @@
                             </div>
                         {% endif %}
                         {% if game.igdb_id %}
-                            <div class="info-item d-flex justify-content-between py-3 border-bottom">
+                            <div class="info-item d-flex justify-content-between py-3">
                                 <span class="text-muted">IGDB ID:</span>
                                 <span class="fw-bold text-light">{{ game.igdb_id }}</span>
                             </div>
