@@ -1,38 +1,656 @@
-
+from django.db import models
+from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
 
-# models.py
-from django.db import models
+
+# ===== GAME TYPE ENUMS =====
+class GameTypeEnum:
+    """Enum for predefined game types from IGDB"""
+    # Main games
+    MAIN_GAME = 0
+    STANDALONE_EXPANSION = 4
+    SEASON = 7
+    REMAKE = 8
+    REMASTER = 9
+    EXPANDED_GAME = 10
+
+    # Non-main games
+    DLC_ADDON = 1
+    EXPANSION = 2
+    BUNDLE = 3
+    MOD = 5
+    EPISODE = 6
+    PORT = 11
+    FORK = 12
+    PACK_ADDON = 13
+    UPDATE = 14
+
+    # Django choices
+    CHOICES = [
+        # Main games
+        (MAIN_GAME, _('Main game')),
+        (STANDALONE_EXPANSION, _('Standalone expansion')),
+        (SEASON, _('Season')),
+        (REMAKE, _('Remake')),
+        (REMASTER, _('Remaster')),
+        (EXPANDED_GAME, _('Expanded game')),
+
+        # Non-main games
+        (DLC_ADDON, _('DLC/Addon')),
+        (EXPANSION, _('Expansion')),
+        (BUNDLE, _('Bundle')),
+        (MOD, _('Mod')),
+        (EPISODE, _('Episode')),
+        (PORT, _('Port')),
+        (FORK, _('Fork')),
+        (PACK_ADDON, _('Pack / Addon')),
+        (UPDATE, _('Update')),
+    ]
+
+    # Type information dictionary
+    TYPE_INFO = {
+        # Main games
+        MAIN_GAME: {
+            'name': 'main_game',
+            'is_primary': True,
+            'flag': None,
+        },
+        STANDALONE_EXPANSION: {
+            'name': 'standalone_expansion',
+            'is_primary': True,
+            'flag': 'is_standalone_expansion',
+        },
+        SEASON: {
+            'name': 'season',
+            'is_primary': True,
+            'flag': 'is_season',
+        },
+        REMAKE: {
+            'name': 'remake',
+            'is_primary': True,
+            'flag': 'is_remake',
+        },
+        REMASTER: {
+            'name': 'remaster',
+            'is_primary': True,
+            'flag': 'is_remaster',
+        },
+        EXPANDED_GAME: {
+            'name': 'expanded_game',
+            'is_primary': True,
+            'flag': 'is_expanded_game',
+        },
+
+        # Non-main games
+        DLC_ADDON: {
+            'name': 'dlc_addon',
+            'is_primary': False,
+            'flag': 'is_dlc',
+        },
+        EXPANSION: {
+            'name': 'expansion',
+            'is_primary': False,
+            'flag': 'is_expansion',
+        },
+        BUNDLE: {
+            'name': 'bundle',
+            'is_primary': False,
+            'flag': 'is_bundle_component',
+        },
+        MOD: {
+            'name': 'mod',
+            'is_primary': False,
+            'flag': 'is_mod',
+        },
+        EPISODE: {
+            'name': 'episode',
+            'is_primary': False,
+            'flag': 'is_episode',
+        },
+        PORT: {
+            'name': 'port',
+            'is_primary': False,
+            'flag': 'is_port',
+        },
+        FORK: {
+            'name': 'fork',
+            'is_primary': False,
+            'flag': 'is_fork',
+        },
+        PACK_ADDON: {
+            'name': 'pack_addon',
+            'is_primary': False,
+            'flag': 'is_pack_addon',
+        },
+        UPDATE: {
+            'name': 'update',
+            'is_primary': False,
+            'flag': 'is_update',
+        },
+    }
+
+    # Lists for convenience
+    PRIMARY_GAME_TYPES = [
+        MAIN_GAME, STANDALONE_EXPANSION, SEASON,
+        REMAKE, REMASTER, EXPANDED_GAME
+    ]
+
+    NON_PRIMARY_GAME_TYPES = [
+        DLC_ADDON, EXPANSION, BUNDLE, MOD, EPISODE,
+        PORT, FORK, PACK_ADDON, UPDATE
+    ]
+
+    # Name to ID mapping
+    NAME_TO_ID = {
+        'main_game': MAIN_GAME,
+        'standalone_expansion': STANDALONE_EXPANSION,
+        'season': SEASON,
+        'remake': REMAKE,
+        'remaster': REMASTER,
+        'expanded_game': EXPANDED_GAME,
+        'dlc_addon': DLC_ADDON,
+        'expansion': EXPANSION,
+        'bundle': BUNDLE,
+        'mod': MOD,
+        'episode': EPISODE,
+        'port': PORT,
+        'fork': FORK,
+        'pack_addon': PACK_ADDON,
+        'update': UPDATE,
+    }
+
+    @classmethod
+    def get_type_info(cls, game_type_id):
+        """Get type information by ID"""
+        if game_type_id in cls.TYPE_INFO:
+            return cls.TYPE_INFO[game_type_id]
+        return {
+            'name': f'unknown_{game_type_id}',
+            'is_primary': False,
+            'flag': None,
+        }
+
+    @classmethod
+    def get_name(cls, game_type_id):
+        """Get type name by ID"""
+        info = cls.get_type_info(game_type_id)
+        return info['name']
+
+    @classmethod
+    def is_primary(cls, game_type_id):
+        """Check if game type is primary"""
+        info = cls.get_type_info(game_type_id)
+        return info['is_primary']
+
+    @classmethod
+    def get_id_by_name(cls, type_name):
+        """Get ID by type name"""
+        return cls.NAME_TO_ID.get(type_name)
+
+    @classmethod
+    def get_all_flags(cls):
+        """Get all flag names"""
+        flags = set()
+        for config in cls.TYPE_INFO.values():
+            if config['flag']:
+                flags.add(config['flag'])
+        return list(flags)
 
 
-class GameType(models.Model):
-    """Модель для типов игр из IGDB"""
-    igdb_id = models.IntegerField(unique=True, help_text="ID типа игры в IGDB")
-    name = models.CharField(
-        max_length=100,
-        help_text="Название типа игры (Основная игра, DLC/Дополнение и т.д.)"
+# ===== GAME MANAGER =====
+class GameManager(models.Manager):
+    """Custom manager for Game model with game type filters"""
+
+    def primary(self):
+        """Get primary games"""
+        return self.filter(game_type__in=GameTypeEnum.PRIMARY_GAME_TYPES)
+
+    def non_primary(self):
+        """Get non-primary games"""
+        return self.filter(game_type__in=GameTypeEnum.NON_PRIMARY_GAME_TYPES)
+
+    def by_type(self, type_name):
+        """Get games by type name"""
+        type_id = GameTypeEnum.get_id_by_name(type_name)
+        if type_id is not None:
+            return self.filter(game_type=type_id)
+        return self.none()
+
+    def main_games(self):
+        """Get only main games"""
+        return self.filter(game_type=GameTypeEnum.MAIN_GAME)
+
+    def dlc_games(self):
+        """Get only DLC games"""
+        return self.filter(game_type=GameTypeEnum.DLC_ADDON)
+
+    def expansions(self):
+        """Get only expansions"""
+        return self.filter(game_type=GameTypeEnum.EXPANSION)
+
+    def standalone_expansions(self):
+        """Get only standalone expansions"""
+        return self.filter(game_type=GameTypeEnum.STANDALONE_EXPANSION)
+
+    def remakes(self):
+        """Get only remakes"""
+        return self.filter(game_type=GameTypeEnum.REMAKE)
+
+    def remasters(self):
+        """Get only remasters"""
+        return self.filter(game_type=GameTypeEnum.REMASTER)
+
+    def bundles(self):
+        """Get only bundles"""
+        return self.filter(game_type=GameTypeEnum.BUNDLE)
+
+    def mods(self):
+        """Get only mods"""
+        return self.filter(game_type=GameTypeEnum.MOD)
+
+    def episodes(self):
+        """Get only episodes"""
+        return self.filter(game_type=GameTypeEnum.EPISODE)
+
+    def seasons(self):
+        """Get only seasons"""
+        return self.filter(game_type=GameTypeEnum.SEASON)
+
+    def ports(self):
+        """Get only ports"""
+        return self.filter(game_type=GameTypeEnum.PORT)
+
+    def forks(self):
+        """Get only forks"""
+        return self.filter(game_type=GameTypeEnum.FORK)
+
+    def pack_addons(self):
+        """Get only pack addons"""
+        return self.filter(game_type=GameTypeEnum.PACK_ADDON)
+
+    def updates(self):
+        """Get only updates"""
+        return self.filter(game_type=GameTypeEnum.UPDATE)
+
+
+# ===== GAME MODEL =====
+class Game(models.Model):
+    igdb_id = models.IntegerField(unique=True)
+    name = models.CharField(max_length=255)
+    summary = models.TextField(blank=True, null=True)
+
+    # ТОЛЬКО ЭТО ПОЛЕ ДОЛЖНО БЫТЬ - game_type как IntegerField
+    game_type = models.IntegerField(
+        choices=GameTypeEnum.CHOICES,
+        null=True,
+        blank=True,
+        help_text="Game type from IGDB"
     )
-    description = models.TextField(blank=True, help_text="Описание типа")
-    is_primary = models.BooleanField(default=True, help_text="Является ли тип основной игрой")
 
-    # Метаданные
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    # Relationships with other games
+    parent_game = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='child_games',
+        help_text="Parent game (for DLC, expansions, etc.)"
+    )
+
+    version_parent = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='version_children',
+        help_text="Version parent (base version of the game)"
+    )
+
+    version_title = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Version title"
+    )
+
+    rawg_description = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Game description imported from RAWG.io",
+        verbose_name="Description (RAWG)"
+    )
+
+    storyline = models.TextField(blank=True, null=True)
+    rating = models.FloatField(blank=True, null=True)
+    rating_count = models.IntegerField(default=0)
+    first_release_date = models.DateTimeField(blank=True, null=True)
+
+    # Many-to-many relationships
+    genres = models.ManyToManyField('Genre', blank=True)
+    platforms = models.ManyToManyField('Platform', blank=True)
+    keywords = models.ManyToManyField('Keyword', blank=True)
+
+    # Series relationships
+    series = models.ManyToManyField(
+        'Series',
+        blank=True,
+        related_name='games'
+    )
+
+    series_order = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Order in series (1, 2, 3...)"
+    )
+
+    # Company relationships
+    developers = models.ManyToManyField(
+        'Company',
+        related_name='developed_games',
+        blank=True
+    )
+    publishers = models.ManyToManyField(
+        'Company',
+        related_name='published_games',
+        blank=True
+    )
+
+    # Additional categories
+    themes = models.ManyToManyField('Theme', blank=True)
+    player_perspectives = models.ManyToManyField('PlayerPerspective', blank=True)
+    game_modes = models.ManyToManyField('GameMode', blank=True)
+
+    cover_url = models.URLField(blank=True, null=True)
+
+    # Custom manager
+    objects = GameManager()
 
     class Meta:
-        verbose_name = "Тип игры"
-        verbose_name_plural = "Типы игр"
-        ordering = ['igdb_id']
+        ordering = ['-rating_count']
+        indexes = [
+            models.Index(fields=['-rating_count']),
+            models.Index(fields=['-rating']),
+            models.Index(fields=['name']),
+            models.Index(fields=['-first_release_date']),
+            models.Index(fields=['igdb_id']),
+            models.Index(fields=['game_type']),
+        ]
+
+    # ===== GAME TYPE PROPERTIES =====
+    @property
+    def game_type_info(self):
+        """Get complete game type information"""
+        return GameTypeEnum.get_type_info(self.game_type)
+
+    @property
+    def game_type_name(self):
+        """Get game type name"""
+        return GameTypeEnum.get_name(self.game_type)
+
+    @property
+    def is_primary_game(self):
+        """Check if this is a primary game"""
+        return GameTypeEnum.is_primary(self.game_type)
+
+    @property
+    def game_type_flag(self):
+        """Get game type flag name"""
+        info = self.game_type_info
+        return info.get('flag')
+
+    # Individual type check properties
+    @property
+    def is_main_game(self):
+        return self.game_type == GameTypeEnum.MAIN_GAME
+
+    @property
+    def is_standalone_expansion(self):
+        return self.game_type == GameTypeEnum.STANDALONE_EXPANSION
+
+    @property
+    def is_season(self):
+        return self.game_type == GameTypeEnum.SEASON
+
+    @property
+    def is_remake(self):
+        return self.game_type == GameTypeEnum.REMAKE
+
+    @property
+    def is_remaster(self):
+        return self.game_type == GameTypeEnum.REMASTER
+
+    @property
+    def is_expanded_game(self):
+        return self.game_type == GameTypeEnum.EXPANDED_GAME
+
+    @property
+    def is_dlc(self):
+        return self.game_type == GameTypeEnum.DLC_ADDON
+
+    @property
+    def is_expansion(self):
+        return self.game_type == GameTypeEnum.EXPANSION
+
+    @property
+    def is_bundle_component(self):
+        return self.game_type == GameTypeEnum.BUNDLE
+
+    @property
+    def is_mod(self):
+        return self.game_type == GameTypeEnum.MOD
+
+    @property
+    def is_episode(self):
+        return self.game_type == GameTypeEnum.EPISODE
+
+    @property
+    def is_port(self):
+        return self.game_type == GameTypeEnum.PORT
+
+    @property
+    def is_fork(self):
+        return self.game_type == GameTypeEnum.FORK
+
+    @property
+    def is_pack_addon(self):
+        return self.game_type == GameTypeEnum.PACK_ADDON
+
+    @property
+    def is_update(self):
+        return self.game_type == GameTypeEnum.UPDATE
+
+    # ===== SERIES PROPERTIES =====
+    @property
+    def is_part_of_series(self):
+        """Check if game belongs to any series"""
+        return self.series.exists()
+
+    @property
+    def main_series(self):
+        """Get first (main) series of the game"""
+        return self.series.first()
+
+    @property
+    def display_series_info(self):
+        """Display information about series"""
+        if not self.series.exists():
+            return ""
+
+        series_names = list(self.series.values_list('name', flat=True))
+        if len(series_names) == 1:
+            info = series_names[0]
+            if self.series_order:
+                info += f" (Part {self.series_order})"
+            return info
+        else:
+            info = ", ".join(series_names)
+            if self.series_order:
+                info += f" (Main series: Part {self.series_order})"
+            return f"Series: {info}"
+
+    def get_series_games(self, series=None):
+        """Get all games from the same series/series"""
+        if series:
+            # If specific series is specified
+            return series.games.exclude(id=self.id).order_by('first_release_date')
+        elif self.series.exists():
+            # If no series specified, take first (main) series
+            main_series = self.series.first()
+            return main_series.games.exclude(id=self.id).order_by('first_release_date')
+        return Game.objects.none()
+
+    def get_all_series_games(self):
+        """Get all games from all series of this game"""
+        all_games = Game.objects.none()
+        for series in self.series.all():
+            series_games = series.games.exclude(id=self.id)
+            all_games = all_games.union(series_games)
+        return all_games.distinct()
+
+    @property
+    def series_count(self):
+        """Number of series the game belongs to"""
+        return self.series.count()
+
+    # ===== COMPANY PROPERTIES =====
+    @property
+    def main_developer(self):
+        """Main developer (first in list)"""
+        return self.developers.first()
+
+    @property
+    def main_publisher(self):
+        """Main publisher (first in list)"""
+        return self.publishers.first()
+
+    @property
+    def developer_names(self):
+        """List of developer names"""
+        return list(self.developers.values_list('name', flat=True))
+
+    @property
+    def publisher_names(self):
+        """List of publisher names"""
+        return list(self.publishers.values_list('name', flat=True))
+
+    # ===== THEME & PERSPECTIVE PROPERTIES =====
+    @property
+    def theme_names(self):
+        """List of themes"""
+        return list(self.themes.values_list('name', flat=True))
+
+    @property
+    def perspective_names(self):
+        """List of perspectives"""
+        return list(self.player_perspectives.values_list('name', flat=True))
+
+    @property
+    def game_mode_names(self):
+        """List of game modes"""
+        return list(self.game_modes.values_list('name', flat=True))
+
+    # ===== KEYWORD CATEGORY PROPERTIES =====
+    @property
+    def gameplay_keywords(self):
+        return self.keywords.filter(category__name='Gameplay')
+
+    @property
+    def setting_keywords(self):
+        """Get only setting keywords"""
+        return self.keywords.filter(category__name='Setting')
+
+    @property
+    def genre_keywords(self):
+        """Get only genre keywords"""
+        return self.keywords.filter(category__name='Genre')
+
+    @property
+    def narrative_keywords(self):
+        """Get only narrative keywords"""
+        return self.keywords.filter(category__name='Narrative')
+
+    @property
+    def character_keywords(self):
+        """Get only character keywords"""
+        return self.keywords.filter(category__name='Characters')
+
+    @property
+    def technical_keywords(self):
+        """Get only technical keywords"""
+        return self.keywords.filter(category__name='Technical')
+
+    @property
+    def graphics_keywords(self):
+        """Get only graphics keywords"""
+        return self.keywords.filter(category__name='Graphics')
+
+    @property
+    def platform_keywords(self):
+        """Get only platform keywords"""
+        return self.keywords.filter(category__name='Platform')
+
+    @property
+    def multiplayer_keywords(self):
+        """Get only multiplayer keywords"""
+        return self.keywords.filter(category__name='Multiplayer')
+
+    @property
+    def achievement_keywords(self):
+        """Get only achievement keywords"""
+        return self.keywords.filter(category__name='Achievements')
+
+    @property
+    def audio_keywords(self):
+        """Get only audio keywords"""
+        return self.keywords.filter(category__name='Audio')
+
+    @property
+    def context_keywords(self):
+        """Get only context keywords"""
+        return self.keywords.filter(category__name='Context')
+
+    @property
+    def development_keywords(self):
+        """Get only development keywords"""
+        return self.keywords.filter(category__name='Development')
+
+    def get_keywords_by_category(self, category_name):
+        """Universal method to get keywords by category"""
+        return self.keywords.filter(category__name=category_name)
+
+    # ===== DISPLAY METHODS =====
+    def get_game_type_display(self):
+        """Get display name for game type"""
+        if self.game_type is None:
+            return "No game type"
+
+        # Use Django's get_FOO_display() method
+        for choice_id, choice_name in GameTypeEnum.CHOICES:
+            if choice_id == self.game_type:
+                return str(choice_name)
+        return f"Unknown ({self.game_type})"
+
+    def get_full_title(self):
+        """Get full title with version info"""
+        title = self.name
+        if self.version_title:
+            title += f" - {self.version_title}"
+        return title
 
     def __str__(self):
-        return self.name
+        type_suffix = ""
+        if self.game_type is not None:
+            type_suffix = f" [{self.get_game_type_display()}]"
+        return f"{self.name}{type_suffix}"
 
-class GameSimilarityDetail(models.Model):  # НОВОЕ ИМЯ!
-    """Детальный кэш для предварительно рассчитанной схожести игр"""
+
+# ===== REMAINING MODELS (unchanged except removal) =====
+class GameSimilarityDetail(models.Model):
+    """Detailed cache for pre-calculated game similarity"""
     source_game = models.ForeignKey('Game', on_delete=models.CASCADE, related_name='similarity_details_as_source')
     target_game = models.ForeignKey('Game', on_delete=models.CASCADE, related_name='similarity_details_as_target')
 
-    # Общие элементы
+    # Common elements
     common_genres = models.IntegerField(default=0)
     common_keywords = models.IntegerField(default=0)
     common_themes = models.IntegerField(default=0)
@@ -40,10 +658,10 @@ class GameSimilarityDetail(models.Model):  # НОВОЕ ИМЯ!
     common_perspectives = models.IntegerField(default=0)
     common_game_modes = models.IntegerField(default=0)
 
-    # Расчетная схожесть
+    # Calculated similarity
     calculated_similarity = models.FloatField(default=0.0)
 
-    # Метаданные
+    # Metadata
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -58,11 +676,12 @@ class GameSimilarityDetail(models.Model):  # НОВОЕ ИМЯ!
     def __str__(self):
         return f"{self.source_game.name} -> {self.target_game.name}: {self.calculated_similarity:.1f}%"
 
+
 class GameCountsCache(models.Model):
-    """Модель для кэширования подсчетов элементов игры"""
+    """Model for caching game element counts"""
     game = models.OneToOneField('Game', on_delete=models.CASCADE, related_name='counts_cache')
 
-    # Количества элементов
+    # Element counts
     genres_count = models.IntegerField(default=0)
     keywords_count = models.IntegerField(default=0)
     themes_count = models.IntegerField(default=0)
@@ -70,7 +689,7 @@ class GameCountsCache(models.Model):
     perspectives_count = models.IntegerField(default=0)
     game_modes_count = models.IntegerField(default=0)
 
-    # Метаданные
+    # Metadata
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -79,15 +698,14 @@ class GameCountsCache(models.Model):
 
 
 class Company(models.Model):
-    """Компания (разработчик/издатель)"""
+    """Company (developer/publisher)"""
     igdb_id = models.IntegerField(unique=True)
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     website = models.URLField(blank=True, max_length=500)
 
-    # Поле для ID логотипа из IGDB
-    logo_igdb_id = models.CharField(max_length=50, blank=True, null=True, help_text="ID логотипа в IGDB")
-    # URL логотипа (будет генерироваться из logo_igdb_id)
+    # Logo field for IGDB
+    logo_igdb_id = models.CharField(max_length=50, blank=True, null=True, help_text="Logo ID in IGDB")
     logo_url = models.URLField(blank=True, max_length=500)
     start_date = models.DateTimeField(null=True, blank=True)
     changed_at = models.DateTimeField(null=True, blank=True)
@@ -95,8 +713,8 @@ class Company(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        verbose_name = 'Компания'
-        verbose_name_plural = 'Компании'
+        verbose_name = 'Company'
+        verbose_name_plural = 'Companies'
         ordering = ['name']
 
     def __str__(self):
@@ -104,7 +722,7 @@ class Company(models.Model):
 
     @property
     def logo_image_url(self):
-        """Генерирует URL для логотипа из IGDB если есть logo_igdb_id"""
+        """Generate URL for logo from IGDB if logo_igdb_id exists"""
         if self.logo_igdb_id:
             return f"https://images.igdb.com/igdb/image/upload/t_thumb/{self.logo_igdb_id}.jpg"
         elif self.logo_url:
@@ -429,264 +1047,6 @@ class Platform(models.Model):
 
         # Для остальных оставляем оригинальное название
         return self.name
-
-
-class Game(models.Model):
-    igdb_id = models.IntegerField(unique=True)
-    name = models.CharField(max_length=255)
-    summary = models.TextField(blank=True, null=True)
-
-    # Связь с типом игры
-    game_type = models.ForeignKey(
-        GameType,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='games',
-        help_text="Тип игры (main_game, DLC и т.д.)"
-    )
-
-    # Связи с другими играми
-    parent_game = models.ForeignKey(
-        'self',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='child_games',
-        help_text="Родительская игра (для DLC, расширений и т.д.)"
-    )
-
-    version_parent = models.ForeignKey(
-        'self',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='version_children',
-        help_text="Версия-родитель (базовая версия игры)"
-    )
-
-    version_title = models.CharField(max_length=255, blank=True, null=True, help_text="Название версии")
-
-    rawg_description = models.TextField(
-        blank=True,
-        null=True,
-        help_text="Описание игры, импортированное с RAWG.io",
-        verbose_name="Описание (RAWG)"
-    )
-
-    storyline = models.TextField(blank=True, null=True)
-    rating = models.FloatField(blank=True, null=True)
-    rating_count = models.IntegerField(default=0)
-    first_release_date = models.DateTimeField(blank=True, null=True)
-
-    # Существующие связи
-    genres = models.ManyToManyField(Genre, blank=True)
-    platforms = models.ManyToManyField(Platform, blank=True)
-    keywords = models.ManyToManyField(Keyword, blank=True)
-
-    # Связи с сериями
-    series = models.ManyToManyField(
-        Series,
-        blank=True,
-        related_name='games'
-    )
-
-    series_order = models.PositiveIntegerField(
-        null=True,
-        blank=True,
-        help_text="Порядковый номер в серии (1, 2, 3...)"
-    )
-
-    # Связи с компаниями
-    developers = models.ManyToManyField(
-        Company,
-        related_name='developed_games',
-        blank=True
-    )
-    publishers = models.ManyToManyField(
-        Company,
-        related_name='published_games',
-        blank=True
-    )
-
-    # Новые категории
-    themes = models.ManyToManyField(Theme, blank=True)
-    player_perspectives = models.ManyToManyField(PlayerPerspective, blank=True)
-    game_modes = models.ManyToManyField(GameMode, blank=True)
-
-    cover_url = models.URLField(blank=True, null=True)
-
-    def __str__(self):
-        return self.name
-
-    class Meta:
-        ordering = ['-rating_count']
-        indexes = [
-            models.Index(fields=['-rating_count']),
-            models.Index(fields=['-rating']),
-            models.Index(fields=['name']),
-            models.Index(fields=['-first_release_date']),
-            models.Index(fields=['igdb_id']),
-        ]
-
-    # ИСПРАВЛЕННЫЕ PROPERTY ДЛЯ СЕРИЙ
-    @property
-    def is_part_of_series(self):
-        """Принадлежит ли игра к какой-либо серии"""
-        return self.series.exists()
-
-    @property
-    def main_series(self):
-        """Возвращает первую (основную) серию игры"""
-        return self.series.first()
-
-    @property
-    def display_series_info(self):
-        """Отображаемая информация о сериях"""
-        if not self.series.exists():
-            return ""
-
-        series_names = list(self.series.values_list('name', flat=True))
-        if len(series_names) == 1:
-            info = series_names[0]
-            if self.series_order:
-                info += f" (Part {self.series_order})"
-            return info
-        else:
-            info = ", ".join(series_names)
-            if self.series_order:
-                info += f" (Main series: Part {self.series_order})"
-            return f"Series: {info}"
-
-    def get_series_games(self, series=None):
-        """Возвращает все игры из той же серии/серий"""
-        if series:
-            # Если указана конкретная серия
-            return series.games.exclude(id=self.id).order_by('first_release_date')
-        elif self.series.exists():
-            # Если не указана серия, берем первую (основную)
-            main_series = self.series.first()
-            return main_series.games.exclude(id=self.id).order_by('first_release_date')
-        return Game.objects.none()
-
-    def get_all_series_games(self):
-        """Возвращает все игры из всех серий этой игры"""
-        all_games = Game.objects.none()
-        for series in self.series.all():
-            series_games = series.games.exclude(id=self.id)
-            all_games = all_games.union(series_games)
-        return all_games.distinct()
-
-    @property
-    def series_count(self):
-        """Количество серий, к которым принадлежит игра"""
-        return self.series.count()
-
-    # PROPERTY ДЛЯ КОМПАНИЙ
-    @property
-    def main_developer(self):
-        """Основной разработчик (первый в списке)"""
-        return self.developers.first()
-
-    @property
-    def main_publisher(self):
-        """Основной издатель (первый в списке)"""
-        return self.publishers.first()
-
-    @property
-    def developer_names(self):
-        """Список имен разработчиков"""
-        return list(self.developers.values_list('name', flat=True))
-
-    @property
-    def publisher_names(self):
-        """Список имен издателей"""
-        return list(self.publishers.values_list('name', flat=True))
-
-    # PROPERTY ДЛЯ ТЕМ И ПЕРСПЕКТИВ
-    @property
-    def theme_names(self):
-        """Список тем"""
-        return list(self.themes.values_list('name', flat=True))
-
-    @property
-    def perspective_names(self):
-        """Список перспектив"""
-        return list(self.player_perspectives.values_list('name', flat=True))
-
-    @property
-    def game_mode_names(self):
-        """Список режимов игры"""
-        return list(self.game_modes.values_list('name', flat=True))
-
-    # Существующие property для ключевых слов
-    @property
-    def gameplay_keywords(self):
-        return self.keywords.filter(category__name='Gameplay')
-
-    @property
-    def setting_keywords(self):
-        """Возвращает только ключевые слова сеттинга"""
-        return self.keywords.filter(category__name='Setting')
-
-    @property
-    def genre_keywords(self):
-        """Возвращает только ключевые слова жанров"""
-        return self.keywords.filter(category__name='Genre')
-
-    @property
-    def narrative_keywords(self):
-        """Возвращает только нарративные ключевые слова"""
-        return self.keywords.filter(category__name='Narrative')
-
-    @property
-    def character_keywords(self):
-        """Возвращает только ключевые слова персонажей"""
-        return self.keywords.filter(category__name='Characters')
-
-    @property
-    def technical_keywords(self):
-        """Возвращает только технические ключевые слова"""
-        return self.keywords.filter(category__name='Technical')
-
-    @property
-    def graphics_keywords(self):
-        """Возвращает только ключевые слова графики"""
-        return self.keywords.filter(category__name='Graphics')
-
-    @property
-    def platform_keywords(self):
-        """Возвращает только ключевые слова платформ"""
-        return self.keywords.filter(category__name='Platform')
-
-    @property
-    def multiplayer_keywords(self):
-        """Возвращает только мультиплеерные ключевые слова"""
-        return self.keywords.filter(category__name='Multiplayer')
-
-    @property
-    def achievement_keywords(self):
-        """Возвращает только ключевые слова достижений"""
-        return self.keywords.filter(category__name='Achievements')
-
-    @property
-    def audio_keywords(self):
-        """Возвращает только аудио ключевые слова"""
-        return self.keywords.filter(category__name='Audio')
-
-    @property
-    def context_keywords(self):
-        """Возвращает только контекстные ключевые слова"""
-        return self.keywords.filter(category__name='Context')
-
-    @property
-    def development_keywords(self):
-        """Возвращает только ключевые слова разработки"""
-        return self.keywords.filter(category__name='Development')
-
-    def get_keywords_by_category(self, category_name):
-        """Универсальный метод для получения ключевых слов по категории"""
-        return self.keywords.filter(category__name=category_name)
 
 
 class GameSimilarityCache(models.Model):
