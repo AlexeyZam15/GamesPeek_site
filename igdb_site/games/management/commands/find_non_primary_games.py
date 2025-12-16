@@ -3,7 +3,7 @@
 
 from django.core.management.base import BaseCommand
 from django.utils import timezone
-from games.models import Game, GameType
+from games.models import Game, GameTypeEnum  # Изменили импорт
 from games.igdb_api import make_igdb_request
 import time
 import concurrent.futures
@@ -16,13 +16,52 @@ import os
 import sys
 from collections import defaultdict
 
-# Импортируем из пакета game_types
-from games.management.commands.game_types import (
-    GAME_TYPE_CONFIG,
-    get_game_type_info,
-    get_game_type_description,
-    get_type_statistics_key
-)
+# ========== КОНФИГУРАЦИЯ ТИПОВ ИГР ==========
+# Используем GameTypeEnum из models.py
+
+# Просто реэкспортируем всё
+GAME_TYPE_CONFIG = GameTypeEnum.TYPE_INFO
+PRIMARY_GAME_TYPES = GameTypeEnum.PRIMARY_GAME_TYPES
+NON_PRIMARY_GAME_TYPES = GameTypeEnum.NON_PRIMARY_GAME_TYPES
+GAME_TYPE_BY_NAME = GameTypeEnum.NAME_TO_ID
+
+
+# Обертки для совместимости со старым кодом
+def get_game_type_info(game_type):
+    """Получает информацию о game_type из GameTypeEnum"""
+    return GameTypeEnum.get_type_info(game_type)
+
+
+def get_game_type_description(game_type):
+    """Получает описание типа игры по game_type"""
+    if game_type is None:
+        return "Game Type отсутствует"
+
+    if game_type in dict(GameTypeEnum.CHOICES):
+        return str(dict(GameTypeEnum.CHOICES)[game_type])
+    return f"Неизвестный тип ({game_type})"
+
+
+def get_all_flags():
+    """Возвращает список всех возможных флагов из конфигурации"""
+    return GameTypeEnum.get_all_flags()
+
+
+def is_primary_game_type(game_type):
+    """Проверяет, является ли тип игры основным"""
+    return GameTypeEnum.is_primary(game_type)
+
+
+def get_type_statistics_key(game_type):
+    """Возвращает ключ для статистики по типу игры"""
+    if game_type is None:
+        return 'game_type_none'
+
+    info = GameTypeEnum.get_type_info(game_type)
+    return info['name']
+
+
+# ========== КЛАССЫ КОМАНДЫ ==========
 
 
 class ProgressState:
@@ -129,12 +168,13 @@ class GameTypeCache:
         """Инициализирует кэш типов игр из конфигурации"""
         if not cls._config_loaded:
             cls._config_cache = {}
-            for igdb_id, config in GAME_TYPE_CONFIG.items():
+            for igdb_id in GAME_TYPE_CONFIG:
+                description = get_game_type_description(igdb_id)
                 cls._config_cache[igdb_id] = {
-                    'name': config['description'],
-                    'is_primary': config.get('is_primary', True),
-                    'type': config['type'],
-                    'description': config['description']
+                    'name': description,
+                    'is_primary': is_primary_game_type(igdb_id),
+                    'type': GameTypeEnum.get_type_info(igdb_id)['name'],
+                    'description': description
                 }
             cls._config_loaded = True
 
@@ -146,34 +186,15 @@ class GameTypeCache:
 
     @classmethod
     def get_game_type_obj(cls, igdb_id):
-        """Получает объект GameType из базы (с кэшированием запросов)"""
-        if igdb_id is None:
-            return None
-
-        # Инициализируем кэш объектов если нужно
-        if cls._cache is None:
-            cls._cache = {}
-
-        # Проверяем в кэше памяти
-        if igdb_id in cls._cache:
-            return cls._cache[igdb_id]
-
-        # Ищем в базе
-        game_type = GameType.objects.filter(igdb_id=igdb_id).first()
-
-        # Сохраняем в кэш памяти
-        if game_type:
-            cls._cache[igdb_id] = game_type
-
-        return game_type
+        """Устаревший метод - теперь game_type это IntegerField"""
+        return None  # Возвращаем None так как GameType модель больше не используется
 
     @classmethod
     def preload_all_game_types(cls):
         """Предзагружает все GameType объекты в память"""
         print("   📦 Предзагрузка типов игр в память...")
-        game_types = GameType.objects.all()
-        cls._cache = {gt.igdb_id: gt for gt in game_types}
-        print(f"   ✅ Загружено {len(cls._cache)} типов игр")
+        cls._cache = GAME_TYPE_CONFIG.copy()  # Используем конфигурацию вместо модели
+        print(f"   ✅ Загружено {len(cls._cache)} типов игр из конфигурации")
         return cls._cache
 
     @classmethod
@@ -309,8 +330,7 @@ class GameBatchProcessor:
 
     def preload_game_types(self):
         """Предзагружает все GameType в память"""
-        game_types = GameType.objects.all()
-        self.game_type_cache = {gt.igdb_id: gt for gt in game_types}
+        self.game_type_cache = GAME_TYPE_CONFIG.copy()  # Используем конфигурацию
         return self.game_type_cache
 
     def preload_parent_games(self, parent_ids):
@@ -366,17 +386,17 @@ class GameBatchProcessor:
 
         for game, (igdb_id, analysis) in zip(games, analyses):
             # Проверяем нужно ли обновлять
-            if not force_assign and game.game_type_id is not None:
+            if not force_assign and game.game_type is not None:  # Теперь проверяем просто game_type
                 stats['skipped'] += 1
                 continue
 
             # Получаем объекты связей
-            game_type_obj = self.game_type_cache.get(analysis['game_type'])
+            game_type_value = analysis['game_type']  # Просто значение типа игры
             parent_game_obj = self.parent_games_cache.get(analysis['parent_game'])
             version_parent_obj = self.version_parents_cache.get(analysis['version_parent'])
 
             # Обновляем поля
-            game.game_type = game_type_obj
+            game.game_type = game_type_value  # Просто присваиваем значение
             game.parent_game = parent_game_obj
             game.version_parent = version_parent_obj
             game.version_title = analysis['version_title']
@@ -500,34 +520,11 @@ class Command(BaseCommand):
         self.batch_processor = None
 
     def initialize_game_types(self):
-        """Инициализирует типы игр в базе данных"""
-        print("🛠  Инициализация типов игр в базе данных...")
-
-        created = 0
-        updated = 0
-
-        for igdb_id, config in GAME_TYPE_CONFIG.items():
-            try:
-                game_type, created_flag = GameType.objects.update_or_create(
-                    igdb_id=igdb_id,
-                    defaults={
-                        'name': config['description'],
-                        'description': f"Тип игры из IGDB: {config['type']}",
-                        'is_primary': config.get('is_primary', True),
-                    }
-                )
-
-                if created_flag:
-                    created += 1
-                else:
-                    updated += 1
-
-            except Exception as e:
-                print(f"⚠️  Ошибка при создании типа игры {igdb_id}: {e}")
-
-        print(f"✅ Типы игр инициализированы: создано {created}, обновлено {updated}")
+        """Теперь это просто инициализация конфигурации"""
+        print("🛠  Инициализация типов игр...")
         GameTypeCache.initialize()
-        return created + updated
+        print(f"✅ Типы игр загружены из конфигурации: {len(GAME_TYPE_CONFIG)} типов")
+        return len(GAME_TYPE_CONFIG)
 
     def get_game_details_from_igdb(self, batch_ids, max_retries=3):
         """Получает данные о играх из IGDB API"""
@@ -686,7 +683,7 @@ class Command(BaseCommand):
         games_query = Game.objects.filter(id__gte=start_id).order_by('id')
 
         if skip_existing and not self.force_assign:
-            games_query = games_query.filter(game_type__isnull=True)
+            games_query = games_query.filter(game_type__isnull=True)  # Теперь просто проверяем game_type
 
         if limit > 0:
             games_query = games_query[:limit]
@@ -799,14 +796,17 @@ class Command(BaseCommand):
 
         # Статистика по типам
         type_stats = {}
-        for game_type in GameType.objects.all():
-            count = Game.objects.filter(game_type=game_type).count()
+        for game_type_id, config in GAME_TYPE_CONFIG.items():  # Используем конфигурацию
+            count = Game.objects.filter(game_type=game_type_id).count()
             if count > 0:
-                type_stats[game_type.name] = count
+                # Получаем описание через get_game_type_description
+                type_stats[get_game_type_description(game_type_id)] = count
 
         # Статистика по основным/неосновным
-        primary_games = Game.objects.filter(game_type__is_primary=True).count()
-        non_primary_games = Game.objects.filter(game_type__is_primary=False).count()
+        primary_games = Game.objects.filter(
+            game_type__in=PRIMARY_GAME_TYPES).count()  # Используем PRIMARY_GAME_TYPES
+        non_primary_games = Game.objects.filter(
+            game_type__in=NON_PRIMARY_GAME_TYPES).count()  # Используем NON_PRIMARY_GAME_TYPES
 
         return {
             'total_games': total_games,
@@ -1070,7 +1070,7 @@ class Command(BaseCommand):
                 if not completed:
                     current_stats = self.get_current_stats()
                     remaining = current_stats['games_without_type'] if self.skip_existing and not self.force_assign else \
-                    current_stats['total_games']
+                        current_stats['total_games']
                     print(f"\n   🔄 ПРОДОЛЖЕНИЕ:")
                     print(f"      Осталось игр: {remaining:,}")
                     print(f"      Следующая итерация: {iteration + 1}")
