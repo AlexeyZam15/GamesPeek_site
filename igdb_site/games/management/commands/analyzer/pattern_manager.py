@@ -48,9 +48,35 @@ class PatternManager:
             r'\barcade-style\b',
         ],
         'Card & Board Game': [
-            r'\bcard\s+game\b',
-            r'\bboard\s+game\b',
-            r'\bdeck\s+building\b',
+            # Удалить или изменить слишком простой паттерн:
+            # r'\bboard\s+game\b',  # ПРОБЛЕМНЫЙ ПАТТЕРН - УДАЛИТЬ
+
+            # Добавить более специфичные и контекстные паттерны:
+
+            # 1. Паттерны, которые указывают на тип игры
+            r'\bis\s+a\s+(board|card)\s+game\b',
+            r'\bas\s+a\s+(board|card)\s+game\b',
+            r'\bthis\s+(board|card)\s+game\b',
+            r'\bdigital\s+(board|card)\s+game\b',
+            r'\belectronic\s+(board|card)\s+game\b',
+            r'\bvideo\s+(board|card)\s+game\b',
+            r'\b(board|card)\s+game\s+(simulation|simulator|adaptation)\b',
+            r'\b(board|card)\s+based\s+video\s+game\b',
+            r'\bvideo\s+game\s+adaptation\s+of\s+a\s+(board|card)\s+game\b',
+
+            # 2. Паттерны, описывающие геймплей
+            r'\bplay\s+as\s+a\s+(board|card)\s+game\b',
+            r'\bgameplay\s+resembles\s+a\s+(board|card)\s+game\b',
+            r'\bmechanics\s+of\s+a\s+(board|card)\s+game\b',
+            r'\bstyled\s+after\s+a\s+(board|card)\s+game\b',
+            r'\binspired\s+by\s+(board|card)\s+game\b',
+
+            # 3. Исключить упоминания исходного материала
+            # Паттерны, которые НЕ должны добавлять этот жанр
+            r'\bbased\s+on\s+(the\s+)?(\w+\s+)?(board|card)\s+game\b',  # Исключение!
+            r'\badapted\s+from\s+a\s+(board|card)\s+game\b',  # Исключение!
+            r'\boriginally\s+a\s+(board|card)\s+game\b',  # Исключение!
+            r'\bsource\s+material\s+is\s+a\s+(board|card)\s+game\b',  # Исключение!
         ],
         'Fighting': [
             r'\bfighting(\s+game|\s+title)\b',
@@ -142,7 +168,30 @@ class PatternManager:
             r'\b4x(\s+game|\s|$)',
             r'\bexplore.*expand.*exploit.*exterminate',
         ],
-        'Action': [r'\baction(\s+oriented|\s+packed|\s+game|\s|$)'],
+        'Action': [
+            # Удалите слишком простой паттерн:
+            # r'\baction(\s+oriented|\s+packed|\s+game|\s|$)',  # УДАЛИТЬ ЭТУ СТРОКУ
+
+            # Добавьте более специфичные паттерны:
+            r'\baction[-\s]?packed\b',
+            r'\bintense\s+action\b',
+            r'\bnon[-\s]?stop\s+action\b',
+            r'\bfast[-\s]?paced\s+action\b',
+            r'\bheart[-\s]?pounding\s+action\b',
+            r'\baction[-\s]?oriented\b',
+            r'\baction[-\s]?driven\b',
+            r'\bhigh[-\s]?octane\s+action\b',
+            r'\bexplosive\s+action\b',
+            r'\baction[-\s]?heavy\b',
+            r'\baction[-\s]?focused\b',
+            r'\baction[-\s]?centered\b',
+            r'\baction[-\s]?based\b',
+            r'\baction[-\s]?filled\b',
+            r'\baction[-\s]?laden\b',
+            r'\baction[-\s]?intensive\b',
+            r'\baction[-\s]?rich\b',
+            r'\baction[-\s]?saturated\b',
+        ],
         'Business': [
             r'\bbusiness\s+simulation\b',
             r'\bbusiness\s+game\b',
@@ -253,8 +302,44 @@ class PatternManager:
             r'\bwilderness\s+survival\b',
         ],
         'Thriller': [
-            r'\bthriller(\s+game)?\b',
-            r'\bsuspense(\s+game)?\b',
+
+            # Добавить более специфичные и контекстные паттерны для триллера:
+
+            # 1. Паттерны, которые явно указывают на жанр триллера
+            r'\bpsychological\s+thriller\b',
+            r'\btechno[-\s]?thriller\b',
+            r'\bpolitical\s+thriller\b',
+            r'\bspy\s+thriller\b',
+            r'\blegal\s+thriller\b',
+            r'\bmedical\s+thriller\b',
+            r'\bmilitary\s+thriller\b',
+            r'\bcrime\s+thriller\b',
+            r'\bconspiracy\s+thriller\b',
+
+            # 2. Словосочетания, характерные для триллеров
+            r'\bheart[-\s]?pounding\s+suspense\b',
+            r'\bedge[-\s]?of[-\s]?your[-\s]?seat\s+(suspense|thriller)\b',
+            r'\btense\s+thriller\b',
+            r'\bintense\s+thriller\b',
+            r'\bgripping\s+thriller\b',
+            r'\brelentless\s+suspense\b',
+
+            # 3. Контекстные описания, характерные для триллеров
+            r'\bcat[-\s]?and[-\s]?mouse\s+(game|chase)\b',
+            r'\bmind\s+games?\b',
+            r'\bpsychological\s+mind\s+games?\b',
+            r'\btense\s+standoff\b',
+            r'\bdeadly\s+game\s+of\s+(cat|wits)\b',
+
+            # 4. Только если "thriller" является существительным в контексте
+            r'\bin\s+(the\s+)?style\s+of\s+a\s+thriller\b',
+            r'\bas\s+a\s+thriller\b',
+            r'\bthis\s+thriller\b',
+            r'\bthe\s+thriller\s+(elements|aspects)\b',
+
+            # 5. Улучшенная версия простого паттерна (только в определенном контексте)
+            r'\b(thriller|suspense)(?:\s+(game|title|novel|film|movie|story|tale|narrative|plot))?\b',
+            # Но с проверкой, что это не часть другого слова
         ],
         'Warfare': [
             r'\bwarfare\s+simulation\b',

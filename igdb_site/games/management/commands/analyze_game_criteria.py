@@ -46,6 +46,8 @@ class Command(BaseCommand):
                                        help='Предпочитать сторилайн описанию (если оба доступны)')
         text_source_group.add_argument('--combine-texts', action='store_true',
                                        help='Объединять описание и сторилайн для анализа')
+        text_source_group.add_argument('--use-rawg', action='store_true',  # НОВАЯ ОПЦИЯ
+                                       help='Анализировать только описание из RAWG.io')
 
         parser.add_argument('--ignore-existing', action='store_true',
                             help='Игнорировать существующие критерии и искать все паттерны')
@@ -280,11 +282,14 @@ class Command(BaseCommand):
         self.use_storyline = options.get('use_storyline', False)
         self.prefer_storyline = options.get('prefer_storyline', False)
         self.combine_texts = options.get('combine_texts', False)
+        self.use_rawg = options.get('use_rawg', False)  # НОВОЕ
 
         self.text_source_mode = self._resolve_text_source_priority()
 
     def _resolve_text_source_priority(self) -> str:
         """Разрешает приоритет опций источника текста"""
+        if self.use_rawg:  # НОВОЕ
+            return 'use_rawg'
         if self.use_storyline:
             return 'use_storyline'
         elif self.prefer_storyline:
@@ -298,6 +303,10 @@ class Command(BaseCommand):
         """Возвращает текст для анализа в зависимости от настроек"""
         has_summary = bool(game.summary and game.summary.strip())
         has_storyline = bool(game.storyline and game.storyline.strip())
+        has_rawg = bool(game.rawg_description and game.rawg_description.strip())  # НОВОЕ
+
+        if self.text_source_mode == 'use_rawg':  # НОВОЕ
+            return game.rawg_description if has_rawg else ""
 
         if self.text_source_mode == 'use_storyline':
             return game.storyline if has_storyline else (game.summary if has_summary else "")
@@ -323,10 +332,11 @@ class Command(BaseCommand):
     def _get_text_source_description(self) -> str:
         """Возвращает описание источника текста для анализа"""
         descriptions = {
+            'use_rawg': 'ТОЛЬКО описание RAWG',  # НОВОЕ
             'use_storyline': "ТОЛЬКО сторилайн",
             'prefer_storyline': "ПРЕДПОЧТИТЕЛЬНО сторилайн",
             'combine_texts': "ОБЪЕДИНЕННЫЙ текст",
-            'default': "ПРЕДПОЧТИТЕЛЬНО описание"
+            'default': "ПРЕДПОЧТИТЕЛЬНО описание IGDB"
         }
         return descriptions.get(self.text_source_mode, "Неизвестно")
 
@@ -337,7 +347,9 @@ class Command(BaseCommand):
         elif text_to_analyze == game.storyline:
             return "сторилайн"
         elif text_to_analyze == game.summary:
-            return "описание"
+            return "описание IGDB"
+        elif text_to_analyze == game.rawg_description:  # НОВОЕ
+            return "описание RAWG"
         else:
             return "неизвестный источник"
 
@@ -378,7 +390,7 @@ class Command(BaseCommand):
                 criteria_parts.append(
                     f"перспективы: {perspective_names}" + ("..." if game.player_perspectives.count() > 2 else ""))
             if game.game_modes.exists():
-                mode_names = [mode.name for mode in game.game_modes.all()[:2]]
+                mode_names = [mode.name for mode in mode.game_modes.all()[:2]]
                 criteria_parts.append(f"режимы: {mode_names}" + ("..." if game.game_modes.count() > 2 else ""))
 
         return ", ".join(criteria_parts) if criteria_parts else "нет"
