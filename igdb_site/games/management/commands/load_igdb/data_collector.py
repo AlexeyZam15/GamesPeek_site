@@ -6,12 +6,1287 @@ from collections import Counter
 from games.igdb_api import make_igdb_request
 from games.models import Game
 
+try:
+    from .game_cache import GameCacheManager
+except ImportError:
+    # Fallback если файл не найден
+    class GameCacheManager:
+        @staticmethod
+        def is_game_checked(igdb_id):
+            return False
+
+        @staticmethod
+        def mark_game_checked(igdb_id):
+            pass
+
+        @staticmethod
+        def clear_cache():
+            return True
+
+        @staticmethod
+        def get_checked_count():
+            return 0
+
+        @staticmethod
+        def batch_check_games(igdb_ids):
+            return {igdb_id: False for igdb_id in igdb_ids if igdb_id}
+
+        @staticmethod
+        def batch_mark_checked(igdb_ids):
+            pass
+
+
 class DataCollector:
     """Класс для сбора и обработки данных"""
 
     def __init__(self, stdout, stderr):
         self.stdout = stdout
         self.stderr = stderr
+
+    def load_games_by_query(self, where_clause, debug=False, limit=0, offset=0,
+                            skip_existing=True, count_only=False, query_context=None):
+        """Загрузка игр по запросу с пагинацией и offset"""
+        import threading
+        import time
+        import signal
+
+        # 1. Инициализация сессии
+        self._init_loading_session(debug, limit, offset, count_only)
+        start_time = time.time()
+
+        # 2. Загрузка существующих ID игр
+        existing_game_ids = self._load_existing_ids_for_filtering(skip_existing, debug)
+
+        # 3. Основные структуры данных
+        new_games, all_found_games = [], []
+        stats = self._init_loading_stats()
+
+        # 4. Обработчик прерывания
+        interrupted = threading.Event()
+        original_sigint = signal.getsignal(signal.SIGINT)
+
+        def signal_handler(sig, frame):
+            interrupted.set()
+            self.stdout.write('\n\n⚠️  ПРЕРЫВАНИЕ (Ctrl+C) - завершаю...')
+
+        signal.signal(signal.SIGINT, signal_handler)
+
+        try:
+            # 5. Основной цикл загрузки
+            result = self._execute_loading_main_loop(
+                where_clause, limit, offset, skip_existing,
+                existing_game_ids, new_games, all_found_games,
+                stats, debug, interrupted
+            )
+
+        except KeyboardInterrupt:
+            interrupted.set()
+            self.stdout.write('\n\n⚠️  ПРЕРЫВАНИЕ ПОЛЬЗОВАТЕЛЕМ (Ctrl+C)')
+            # Получаем последний offset из stats если есть
+            last_offset = stats.get('last_checked_offset', offset)
+            result = {
+                'last_checked_offset': last_offset,
+                'interrupted': True,
+                'limit_reached': False
+            }
+        finally:
+            signal.signal(signal.SIGINT, original_sigint)
+
+        # 6. Финальная обработка и вывод результатов
+        final_result = self._finalize_and_return_results(
+            new_games, all_found_games, stats, result,
+            limit, offset, start_time, debug, interrupted.is_set()
+        )
+
+        # 7. 🔴 ИСПРАВЛЕНИЕ: Сохраняем offset при прерывании
+        # Нужно сохранять где-то выше по стеку вызовов, не здесь
+        # Но добавим информацию в результат для сохранения
+        if interrupted.is_set():
+            final_result['should_save_offset'] = True
+            final_result['interrupted'] = True
+
+        return final_result
+
+    def _save_interrupted_offset(self, final_result, query_context, where_clause, last_offset, debug):
+        """Сохраняет offset при прерывании"""
+        try:
+            from .offset_manager import OffsetManager
+
+            # Получаем параметры запроса из контекста
+            params = {
+                'genres': query_context.get('genres', ''),
+                'description_contains': query_context.get('description_contains', ''),
+                'keywords': query_context.get('keywords', ''),
+                'game_types': query_context.get('game_types', ''),
+                'min_rating_count': query_context.get('min_rating_count', 0),
+                'mode': query_context.get('loading_mode', 'popular'),
+            }
+
+            # Создаем уникальный ключ запроса
+            query_key = OffsetManager.get_query_key(where_clause, **params)
+
+            # Сохраняем offset для продолжения
+            next_offset = last_offset + 1
+            saved = OffsetManager.save_offset(query_key, next_offset)
+
+            if saved:
+                self.stdout.write(f'\n💾 Сохранен offset для продолжения: {next_offset}')
+                self.stdout.write(f'📋 Для продолжения используйте: --offset {next_offset}')
+
+                # Сохраняем также стартовый offset для диагностики
+                OffsetManager.save_offset(f"{query_key}_start", 0)
+
+                return True
+
+        except Exception as e:
+            if query_context.get('debug', False):
+                self.stderr.write(f'   ❌ Ошибка при сохранении offset: {e}')
+
+        return False
+
+    def _save_offset_for_continuation(self, final_result, query_context, where_clause,
+                                      interrupted, limit, new_games_count):
+        """Сохраняет offset для продолжения загрузки"""
+        try:
+            from .offset_manager import OffsetManager
+
+            # Проверяем условия для сохранения offset
+            should_save_offset = (
+                    interrupted or  # Прерывание пользователем
+                    (limit > 0 and new_games_count >= limit) or  # Достигнут лимит
+                    final_result.get('limit_reached', False)  # Лимит достигнут в цикле
+            )
+
+            if should_save_offset:
+                last_checked_offset = final_result.get('last_checked_offset', 0)
+                next_offset = last_checked_offset + 1
+
+                # Получаем параметры запроса из контекста
+                params = {
+                    'genres': query_context.get('genres', ''),
+                    'description_contains': query_context.get('description_contains', ''),
+                    'keywords': query_context.get('keywords', ''),
+                    'game_types': query_context.get('game_types', ''),
+                    'min_rating_count': query_context.get('min_rating_count', 0),
+                    'mode': query_context.get('loading_mode', 'popular'),
+                }
+
+                # Создаем уникальный ключ запроса
+                query_key = OffsetManager.get_query_key(where_clause, **params)
+
+                # Сохраняем offset для продолжения
+                saved = OffsetManager.save_offset(query_key, next_offset)
+
+                if saved:
+                    self.stdout.write(f'   💾 Сохранен offset для продолжения: {next_offset}')
+
+                    # Информация для пользователя
+                    if interrupted:
+                        self.stdout.write(f'   📋 Для продолжения используйте: --offset {next_offset}')
+                    elif limit > 0 and new_games_count >= limit:
+                        self.stdout.write(f'   📋 Достигнут лимит {limit}, offset сохранен для продолжения')
+
+                    return True
+
+        except Exception as e:
+            if query_context.get('debug', False):
+                self.stderr.write(f'   ❌ Ошибка при сохранении offset: {e}')
+
+        return False
+
+    def _init_loading_session(self, debug, limit, offset, count_only):
+        """Инициализирует сессию загрузки"""
+        if debug:
+            self.stdout.write('   📥 Начало загрузки игр...')
+        else:
+            self.stdout.write('   🔍 Поиск игр...')
+
+        if limit > 0:
+            if count_only:
+                self.stdout.write(f'   🎯 Цель: найти {limit} НОВЫХ игр (которых нет в базе)')
+            else:
+                self.stdout.write(f'   🎯 Цель: загрузить {limit} НОВЫХ игр')
+        if offset > 0:
+            self.stdout.write(f'   ⏭️  Начинаем с позиции: {offset}')
+
+    def _load_existing_ids_for_filtering(self, skip_existing, debug):
+        """Загружает существующие ID игр для фильтрации"""
+        from games.models import Game
+        existing_game_ids = set()
+        if skip_existing:
+            existing_game_ids = set(Game.objects.values_list('igdb_id', flat=True))
+            if debug:
+                self.stdout.write(f'   📊 Игр в базе для фильтрации: {len(existing_game_ids)}')
+        return existing_game_ids
+
+    def _init_loading_stats(self):
+        """Инициализирует статистику загрузки"""
+        return {
+            'total_checked': 0,
+            'already_in_db': 0,
+            'batches_processed': 0,
+            'empty_batches': 0,
+            'cycles': 0
+        }
+
+    def _execute_loading_main_loop(self, where_clause, limit, offset, skip_existing,
+                                   existing_game_ids, new_games, all_found_games,
+                                   stats, debug, interrupted):
+        """Выполняет основной цикл загрузки"""
+        import time
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        # Параметры загрузки
+        BATCH_SIZE = 100
+        BATCHES_PER_CYCLE = 2
+        MAX_WORKERS = 3
+        MAX_EMPTY_BATCHES = 5
+
+        current_offset = offset
+        batch_number = 1
+        empty_batches_in_a_row = 0
+        last_checked_offset = offset  # 🔴 Храним last_offset внутри метода
+        start_time = time.time()
+
+        while not interrupted.is_set():
+            # Проверка условий завершения
+            if self._check_loading_completion_conditions(
+                    limit, len(new_games), empty_batches_in_a_row,
+                    MAX_EMPTY_BATCHES, start_time, debug
+            ):
+                break
+
+            # Создание и выполнение пачек загрузки
+            batch_results = self._create_and_execute_batch_cycle(
+                where_clause, limit, len(new_games), current_offset,
+                batch_number, BATCH_SIZE, BATCHES_PER_CYCLE,
+                MAX_WORKERS, debug, interrupted
+            )
+
+            if interrupted.is_set():
+                break
+
+            # Обработка результатов пачек
+            cycle_result = self._process_batch_cycle_results(
+                batch_results, existing_game_ids, skip_existing, limit,
+                new_games, all_found_games, stats, debug
+            )
+
+            empty_batches_in_a_row = cycle_result['empty_batches']
+            last_checked_offset = cycle_result['last_offset']  # 🔴 Обновляем last_offset
+
+            # Проверка достижения лимита
+            if limit > 0 and len(new_games) >= limit:
+                if debug:
+                    self.stdout.write(f'   🎯 Достигнут лимит {limit} новых игр на offset {last_checked_offset}')
+                break
+
+            # Подготовка к следующему циклу
+            current_offset += BATCH_SIZE * BATCHES_PER_CYCLE
+            batch_number += len(batch_results)
+            stats['cycles'] += 1
+
+            # Короткая пауза для снижения нагрузки
+            time.sleep(0.3)
+
+        return {
+            'last_checked_offset': last_checked_offset,  # 🔴 Возвращаем last_offset
+            'limit_reached': limit > 0 and len(new_games) >= limit,
+            'interrupted': interrupted.is_set()
+        }
+
+    def _check_loading_completion_conditions(self, limit, new_games_count, empty_batches,
+                                             max_empty_batches, start_time, debug):
+        """Проверяет условия завершения загрузки"""
+        import time
+
+        # Лимит новых игр достигнут
+        if limit > 0 and new_games_count >= limit:
+            return True
+
+        # Слишком много пустых пачек подряд
+        if empty_batches >= max_empty_batches:
+            if debug:
+                self.stdout.write(f'   💤 {empty_batches} пустых пачек подряд - достигнут конец результатов')
+            return True
+
+        # Превышено максимальное время выполнения
+        if time.time() - start_time > 120:  # 2 минуты максимум
+            self.stdout.write(f'   ⏱️  Превышено время выполнения (2 минуты)')
+            self.stdout.write(f'   📊 Найдено за это время: {new_games_count} новых игр')
+            return True
+
+        return False
+
+    def _create_and_execute_batch_cycle(self, where_clause, limit, current_new_games, current_offset,
+                                        batch_number, batch_size, batches_per_cycle, max_workers, debug, interrupted):
+        """Создает и выполняет цикл загрузки пачек"""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        # Создание задач для пачек
+        batch_tasks = self._create_batch_tasks_for_cycle(
+            batch_number, current_offset, batch_size, batches_per_cycle,
+            limit, current_new_games
+        )
+
+        if not batch_tasks:
+            return []
+
+        if debug:
+            self.stdout.write(f'   🔄 Цикл загрузки: {len(batch_tasks)} пачек, смещение: {current_offset}')
+
+        # Параллельное выполнение загрузки пачек
+        return self._execute_batch_tasks_in_parallel(
+            batch_tasks, where_clause, max_workers, debug, interrupted
+        )
+
+    def _create_batch_tasks_for_cycle(self, batch_number, current_offset, batch_size,
+                                      batches_per_cycle, limit, current_new_games):
+        """Создает задачи для пачек в цикле"""
+        batch_tasks = []
+        batch_size_actual = batch_size
+
+        # Корректировка размера пачки если есть лимит
+        if limit > 0:
+            needed = limit - current_new_games
+            if needed <= 0:
+                return []
+            batch_size_actual = min(batch_size, needed)
+
+        # Создание задач для каждой пачки
+        for i in range(batches_per_cycle):
+            batch_offset = current_offset + (i * batch_size_actual)
+            batch_tasks.append((batch_number + i, batch_offset, batch_size_actual))
+
+        return batch_tasks
+
+    def _execute_batch_tasks_in_parallel(self, batch_tasks, where_clause, max_workers, debug, interrupted):
+        """Выполняет задачи пачек параллельно"""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        batch_results = []
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {}
+
+            # Запуск загрузки пачек
+            for batch_num, batch_offset, batch_limit in batch_tasks:
+                if interrupted.is_set():
+                    break
+
+                future = executor.submit(
+                    self._load_single_batch,
+                    batch_num, batch_offset, batch_limit, where_clause, debug
+                )
+                futures[future] = (batch_num, batch_offset, batch_limit)
+
+            # Обработка результатов
+            for future in as_completed(futures):
+                if interrupted.is_set():
+                    break
+
+                batch_num, batch_offset, batch_limit = futures[future]
+                try:
+                    batch_games = future.result()
+                    if batch_games:
+                        batch_results.append((batch_num, batch_offset, batch_games, len(batch_games), False))
+                    else:
+                        batch_results.append((batch_num, batch_offset, [], 0, True))
+                except Exception as e:
+                    if debug:
+                        self.stderr.write(f'      ❌ Ошибка пачки {batch_num}: {e}')
+                    batch_results.append((batch_num, batch_offset, [], 0, True))
+
+        return batch_results
+
+    def _process_batch_cycle_results(self, batch_results, existing_game_ids, skip_existing, limit,
+                                     new_games, all_found_games, stats, debug):
+        """Обрабатывает результаты цикла пачек"""
+        import threading
+        game_lock = threading.Lock()
+
+        empty_batches = 0
+        last_offset = 0
+
+        for batch_num, batch_offset, games, games_loaded, is_empty in batch_results:
+            if not is_empty and games_loaded > 0:
+                with game_lock:
+                    # Обработка каждой пачки игр
+                    batch_stats = self._process_individual_batch(
+                        games, batch_offset, existing_game_ids, skip_existing,
+                        limit, new_games, all_found_games
+                    )
+
+                    # Обновление статистики
+                    stats['total_checked'] += batch_stats['total']
+                    stats['already_in_db'] += batch_stats['in_db']
+                    stats['batches_processed'] += 1
+                    last_offset = batch_stats['last_offset']
+
+                    # Вывод прогресса
+                    self._display_loading_progress(
+                        limit, len(new_games), stats, last_offset, debug
+                    )
+
+                empty_batches = 0  # Сброс счетчика пустых пачек
+            else:
+                empty_batches += 1
+                last_offset = max(last_offset, batch_offset + 100)
+                stats['empty_batches'] += 1
+
+        return {
+            'empty_batches': empty_batches,
+            'last_offset': last_offset
+        }
+
+    def _process_individual_batch(self, games, batch_offset, existing_game_ids, skip_existing,
+                                  limit, new_games, all_found_games):
+        """Обрабатывает отдельную пачку игр"""
+        batch_stats = {
+            'total': 0,
+            'in_db': 0,
+            'last_offset': batch_offset
+        }
+
+        for i, game in enumerate(games):
+            game_id = game.get('id')
+            if not game_id:
+                continue
+
+            # Вычисление offset для этой игры
+            current_game_offset = batch_offset + i
+            batch_stats['last_offset'] = current_game_offset
+            batch_stats['total'] += 1
+
+            # Добавление в общий список
+            all_found_games.append(game)
+
+            # Проверка существования в базе
+            if skip_existing and game_id in existing_game_ids:
+                batch_stats['in_db'] += 1
+                continue
+
+            # Добавление новой игры
+            new_games.append(game)
+
+            # Проверка достижения лимита
+            if limit > 0 and len(new_games) >= limit:
+                break
+
+        return batch_stats
+
+    def _display_loading_progress(self, limit, new_games_count, stats, last_offset, debug):
+        """Отображает прогресс загрузки"""
+        if limit > 0 and new_games_count % 10 == 0:
+            progress_msg = f'   📊 Прогресс: {new_games_count}/{limit} новых игр (просмотрено: {stats["total_checked"]}, уже в БД: {stats["already_in_db"]}, offset: {last_offset})'
+            self.stdout.write(progress_msg)
+        elif stats['total_checked'] % 200 == 0:
+            progress_msg = f'   📊 Просмотрено: {stats["total_checked"]} игр (новых: {new_games_count}, уже в БД: {stats["already_in_db"]})'
+            self.stdout.write(progress_msg)
+
+    def _finalize_and_return_results(self, new_games, all_found_games, stats, result,
+                                     limit, offset, start_time, debug, interrupted):
+        """Завершает загрузку и возвращает результаты"""
+        import time
+
+        # Обрезка результатов если превышен лимит
+        if limit > 0 and len(new_games) > limit:
+            new_games = new_games[:limit]
+            if debug:
+                self.stdout.write(f'   ✂️  Обрезано новых игр до лимита {limit}: {len(new_games)}')
+
+        # Расчет итогового времени
+        total_time = time.time() - start_time
+
+        # Получение итоговых значений
+        last_checked_offset = result.get('last_checked_offset', offset)
+        limit_reached = result.get('limit_reached', False)
+
+        # Вывод финальной статистики
+        if debug or interrupted:
+            self._display_final_loading_stats(
+                total_time, stats, len(new_games), last_checked_offset,
+                limit_reached, interrupted
+            )
+
+        # Формирование и возврат результатов
+        return self._format_loading_results(
+            new_games, all_found_games, stats, last_checked_offset,
+            limit_reached, interrupted
+        )
+
+    def _display_final_loading_stats(self, total_time, stats, new_games_count,
+                                     last_checked_offset, limit_reached, interrupted):
+        """Отображает финальную статистику загрузки"""
+        self.stdout.write(f'\n📊 ИТОГОВАЯ СТАТИСТИКА:')
+        self.stdout.write(f'   📍 Последний проверенный offset: {last_checked_offset}')
+        self.stdout.write(f'   👀 Всего просмотрено игр: {stats["total_checked"]}')
+        self.stdout.write(f'   🗄️  Игр уже в БД: {stats["already_in_db"]}')
+        self.stdout.write(f'   🆕 Найдено новых игр: {new_games_count}')
+        self.stdout.write(f'   ⏱️  Время: {total_time:.1f}с')
+
+        if interrupted:
+            self.stdout.write(f'   ⚠️  Загрузка прервана пользователем')
+        elif limit_reached:
+            self.stdout.write(f'   🎯 Лимит достигнут на offset: {last_checked_offset}')
+
+        if total_time > 0:
+            speed = stats['total_checked'] / total_time
+            self.stdout.write(f'   🚀 Скорость: {speed:.1f} игр/сек')
+
+    def _format_loading_results(self, new_games, all_found_games, stats, last_checked_offset,
+                                limit_reached, interrupted):
+        """Форматирует результаты загрузки"""
+        return {
+            'new_games': new_games,
+            'all_found_games': all_found_games,
+            'total_games_checked': stats['total_checked'],
+            'new_games_count': len(new_games),
+            'existing_games_skipped': stats['already_in_db'],
+            'last_checked_offset': last_checked_offset,
+            'limit_reached': limit_reached,
+            'limit_reached_at_offset': last_checked_offset if limit_reached else None,
+            'interrupted': interrupted,
+        }
+
+    def _get_existing_game_ids(self, skip_existing, debug):
+        """Получает существующие ID игр"""
+        from games.models import Game
+        existing_game_ids = set()
+        if skip_existing:
+            existing_game_ids = set(Game.objects.values_list('igdb_id', flat=True))
+            if debug:
+                self.stdout.write(f'   📊 Игр в базе для фильтрации: {len(existing_game_ids)}')
+        return existing_game_ids
+
+    def _init_stats(self):
+        """Инициализирует статистику"""
+        return {
+            'total_checked': 0,
+            'already_in_db': 0,
+            'batches_processed': 0,
+            'empty_batches': 0
+        }
+
+    def _execute_loading_loop(self, where_clause, limit, offset, skip_existing,
+                              existing_game_ids, new_games, all_found_games,
+                              stats, debug, interrupted):
+        """Выполняет основной цикл загрузки"""
+        import time
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        # Параметры
+        BATCH_SIZE = 100
+        BATCHES_PER_CYCLE = 2
+        MAX_WORKERS = 3
+        MAX_EMPTY_BATCHES = 5
+
+        current_offset = offset
+        batch_number = 1
+        empty_batches_in_a_row = 0
+        last_checked_offset = offset
+        start_time = time.time()
+
+        while not interrupted[0]:
+            # Проверка условий завершения
+            if self._should_stop_loading(limit, len(new_games), empty_batches_in_a_row,
+                                         MAX_EMPTY_BATCHES, start_time, debug):
+                break
+
+            # Загрузка пачек
+            batch_results = self._load_batch_cycle(
+                where_clause, limit, len(new_games), current_offset,
+                batch_number, BATCH_SIZE, BATCHES_PER_CYCLE,
+                MAX_WORKERS, debug, interrupted
+            )
+
+            if interrupted[0]:
+                break
+
+            # Обработка результатов
+            cycle_result = self._process_batch_cycle(
+                batch_results, existing_game_ids, skip_existing, limit,
+                new_games, all_found_games, stats, debug, interrupted
+            )
+
+            empty_batches_in_a_row = cycle_result['empty_batches']
+            last_checked_offset = cycle_result['last_offset']
+
+            # Проверка лимита
+            if limit > 0 and len(new_games) >= limit:
+                if debug:
+                    self.stdout.write(f'   🎯 Достигнут лимит {limit} новых игр на offset {last_checked_offset}')
+                break
+
+            # Следующий цикл
+            current_offset += BATCH_SIZE * BATCHES_PER_CYCLE
+            batch_number += len(batch_results)
+            time.sleep(0.3)
+
+        return {
+            'last_checked_offset': last_checked_offset,
+            'limit_reached': limit > 0 and len(new_games) >= limit
+        }
+
+    def _should_stop_loading(self, limit, new_games_count, empty_batches,
+                             max_empty_batches, start_time, debug):
+        """Проверяет, нужно ли остановить загрузку"""
+        import time
+
+        # Лимит достигнут
+        if limit > 0 and new_games_count >= limit:
+            return True
+
+        # Слишком много пустых пачек
+        if empty_batches >= max_empty_batches:
+            if debug:
+                self.stdout.write(f'   💤 {empty_batches} пустых пачек подряд - достигнут конец результатов')
+            return True
+
+        # Превышено время
+        if time.time() - start_time > 120:
+            self.stdout.write(f'   ⏱️  Превышено время выполнения (2 минуты)')
+            self.stdout.write(f'   📊 Найдено за это время: {new_games_count} новых игр')
+            return True
+
+        return False
+
+    def _load_batch_cycle(self, where_clause, limit, current_new_games, current_offset,
+                          batch_number, batch_size, batches_per_cycle, max_workers, debug, interrupted):
+        """Загружает цикл пачек"""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        # Создаем задачи
+        batch_tasks = []
+        batch_size_actual = batch_size
+
+        if limit > 0:
+            needed = limit - current_new_games
+            if needed <= 0:
+                return []
+            batch_size_actual = min(batch_size, needed)
+
+        for i in range(batches_per_cycle):
+            batch_offset = current_offset + (i * batch_size_actual)
+            batch_tasks.append((batch_number + i, batch_offset, batch_size_actual))
+
+        if not batch_tasks:
+            return []
+
+        if debug:
+            self.stdout.write(f'   🔄 Цикл загрузки: {len(batch_tasks)} пачек, смещение: {current_offset}')
+
+        # Параллельная загрузка
+        batch_results = []
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {}
+
+            for batch_num, batch_offset, batch_limit in batch_tasks:
+                if interrupted[0]:
+                    break
+                future = executor.submit(self._load_single_batch, batch_num, batch_offset, batch_limit, where_clause,
+                                         debug)
+                futures[future] = (batch_num, batch_offset, batch_limit)
+
+            for future in as_completed(futures):
+                if interrupted[0]:
+                    break
+                batch_num, batch_offset, batch_limit = futures[future]
+                try:
+                    batch_games = future.result()
+                    if batch_games:
+                        batch_results.append((batch_num, batch_offset, batch_games, len(batch_games), False))
+                    else:
+                        batch_results.append((batch_num, batch_offset, [], 0, True))
+                except Exception as e:
+                    if debug:
+                        self.stderr.write(f'      ❌ Ошибка пачки {batch_num}: {e}')
+                    batch_results.append((batch_num, batch_offset, [], 0, True))
+
+        return batch_results
+
+    def _process_batch_cycle(self, batch_results, existing_game_ids, skip_existing, limit,
+                             new_games, all_found_games, stats, debug, interrupted):
+        """Обрабатывает результаты цикла пачек"""
+        import threading
+        game_lock = threading.Lock()
+
+        empty_batches = 0
+        last_offset = 0
+
+        for batch_num, batch_offset, games, games_loaded, is_empty in batch_results:
+            if interrupted[0]:
+                break
+
+            if not is_empty and games_loaded > 0:
+                with game_lock:
+                    # Обработка игр
+                    batch_stats = self._process_games_batch(
+                        games, batch_offset, existing_game_ids, skip_existing,
+                        limit, new_games, all_found_games
+                    )
+
+                    stats['total_checked'] += batch_stats['total']
+                    stats['already_in_db'] += batch_stats['in_db']
+                    stats['batches_processed'] += 1
+                    last_offset = batch_stats['last_offset']
+
+                    # Вывод прогресса
+                    if limit > 0 and len(new_games) % 10 == 0:
+                        progress_msg = f'   📊 Прогресс: {len(new_games)}/{limit} новых игр (просмотрено: {stats["total_checked"]}, уже в БД: {stats["already_in_db"]}, offset: {last_offset})'
+                        self.stdout.write(progress_msg)
+                    elif stats['total_checked'] % 200 == 0:
+                        progress_msg = f'   📊 Просмотрено: {stats["total_checked"]} игр (новых: {len(new_games)}, уже в БД: {stats["already_in_db"]})'
+                        self.stdout.write(progress_msg)
+
+                empty_batches = 0  # Сбрасываем счетчик пустых пачек
+            else:
+                empty_batches += 1
+                last_offset = max(last_offset, batch_offset + 100)
+                stats['empty_batches'] += 1
+
+        return {
+            'empty_batches': empty_batches,
+            'last_offset': last_offset
+        }
+
+    def _process_games_batch(self, games, batch_offset, existing_game_ids, skip_existing,
+                             limit, new_games, all_found_games):
+        """Обрабатывает пачку игр"""
+        batch_stats = {
+            'total': 0,
+            'in_db': 0,
+            'last_offset': batch_offset
+        }
+
+        for i, game in enumerate(games):
+            game_id = game.get('id')
+            if not game_id:
+                continue
+
+            current_offset = batch_offset + i
+            batch_stats['last_offset'] = current_offset
+            batch_stats['total'] += 1
+
+            all_found_games.append(game)
+
+            if skip_existing and game_id in existing_game_ids:
+                batch_stats['in_db'] += 1
+                continue
+
+            new_games.append(game)
+
+            if limit > 0 and len(new_games) >= limit:
+                break
+
+        return batch_stats
+
+    def _finalize_loading(self, new_games, all_found_games, stats, result,
+                          limit, offset, start_time, debug, interrupted):
+        """Завершает загрузку и возвращает результат"""
+        import time
+
+        # Обрезка если превышен лимит
+        if limit > 0 and len(new_games) > limit:
+            new_games = new_games[:limit]
+            if debug:
+                self.stdout.write(f'   ✂️  Обрезано новых игр до лимита {limit}: {len(new_games)}')
+
+        total_time = time.time() - start_time
+        last_checked_offset = result.get('last_checked_offset', offset)
+        limit_reached = result.get('limit_reached', False)
+
+        # Вывод статистики
+        if debug or interrupted:
+            self.stdout.write(f'\n📊 ИТОГОВАЯ СТАТИСТИКА:')
+            self.stdout.write(f'   📍 Последний проверенный offset: {last_checked_offset}')
+            self.stdout.write(f'   👀 Всего просмотрено игр: {stats["total_checked"]}')
+            self.stdout.write(f'   🗄️  Игр уже в БД: {stats["already_in_db"]}')
+            self.stdout.write(f'   🆕 Найдено новых игр: {len(new_games)}')
+            self.stdout.write(f'   ⏱️  Время: {total_time:.1f}с')
+
+            if interrupted:
+                self.stdout.write(f'   ⚠️  Загрузка прервана пользователем')
+            elif limit_reached:
+                self.stdout.write(f'   🎯 Лимит достигнут на offset: {last_checked_offset}')
+
+            if total_time > 0:
+                speed = stats['total_checked'] / total_time
+                self.stdout.write(f'   🚀 Скорость: {speed:.1f} игр/сек')
+
+        # Возвращаем результат
+        return {
+            'new_games': new_games,
+            'all_found_games': all_found_games,
+            'total_games_checked': stats['total_checked'],
+            'new_games_count': len(new_games),
+            'existing_games_skipped': stats['already_in_db'],
+            'last_checked_offset': last_checked_offset,
+            'limit_reached': limit_reached,
+            'limit_reached_at_offset': last_checked_offset if limit_reached else None,
+            'interrupted': interrupted,
+        }
+
+    def _display_loading_info(self, limit, offset, count_only):
+        """Отображает информацию о загрузке"""
+        if limit > 0:
+            if count_only:
+                self.stdout.write(f'   🎯 Цель: найти {limit} НОВЫХ игр (которых нет в базе)')
+            else:
+                self.stdout.write(f'   🎯 Цель: загрузить {limit} НОВЫХ игр')
+        if offset > 0:
+            self.stdout.write(f'   ⏭️  Начинаем с позиции: {offset}')
+
+    def _initialize_loading_stats(self):
+        """Инициализирует статистику загрузки"""
+        return {
+            'total_checked': 0,
+            'already_in_db': 0,
+            'batches_processed': 0,
+            'empty_batches': 0,
+            'cycles': 0
+        }
+
+    def _load_existing_game_ids(self, skip_existing, debug):
+        """Загружает существующие ID игр из базы"""
+        existing_game_ids = set()
+        if skip_existing:
+            existing_game_ids = set(Game.objects.values_list('igdb_id', flat=True))
+            if debug:
+                self.stdout.write(f'   📊 Игр в базе для фильтрации: {len(existing_game_ids)}')
+        return existing_game_ids
+
+    def _load_games_main_loop(self, where_clause, limit, offset, batch_size, batches_per_cycle,
+                              max_workers, max_empty_batches, new_games, all_found_games,
+                              existing_game_ids, skip_existing, game_lock, stats, debug):
+        """Основной цикл загрузки игр"""
+        import time
+
+        current_offset = offset
+        batch_number = 1
+        empty_batches_in_a_row = 0
+        last_checked_offset = offset
+        limit_reached = False
+        limit_reached_offset = offset
+        start_time = time.time()
+
+        while not limit_reached:
+            # Проверка условий завершения
+            should_break = self._check_exit_conditions(
+                limit, len(new_games), last_checked_offset,
+                empty_batches_in_a_row, max_empty_batches,
+                start_time, debug
+            )
+            if should_break:
+                limit_reached = True
+                break
+
+            # Создание задач для этого цикла
+            batch_tasks = self._create_batch_loading_tasks(
+                batch_number, current_offset, batch_size,
+                batches_per_cycle, limit, len(new_games)
+            )
+
+            if not batch_tasks:
+                break
+
+            # Параллельная загрузка пачек
+            batch_results = self._load_batches_in_parallel(
+                batch_tasks, where_clause, max_workers, debug
+            )
+
+            # Обработка результатов
+            cycle_result = self._process_batch_results(
+                batch_results, game_lock, new_games, all_found_games,
+                existing_game_ids, skip_existing, limit, stats, debug
+            )
+
+            # Обновление состояния
+            empty_batches_in_a_row = cycle_result['empty_batches_in_a_row']
+            last_checked_offset = cycle_result['last_checked_offset']
+
+            # Проверка лимита
+            if limit > 0 and len(new_games) >= limit:
+                limit_reached = True
+                limit_reached_offset = last_checked_offset
+                if debug:
+                    self.stdout.write(f'   🎯 Достигнут лимит {limit} новых игр на offset {last_checked_offset}')
+                break
+
+            # Переход к следующему offset
+            current_offset = batch_tasks[-1][1] + batch_size
+            batch_number += len(batch_tasks)
+            stats['cycles'] += 1
+
+            # Пауза между циклами
+            time.sleep(0.3)
+
+        return {
+            'limit_reached': limit_reached,
+            'limit_reached_offset': limit_reached_offset,
+            'last_checked_offset': last_checked_offset,
+            'empty_batches_in_a_row': empty_batches_in_a_row,
+            'stats': stats
+        }
+
+    def _check_exit_conditions(self, limit, new_games_count, last_checked_offset,
+                               empty_batches_in_a_row, max_empty_batches,
+                               start_time, debug):
+        """Проверяет условия для выхода из цикла"""
+        # Проверка лимита
+        if limit > 0 and new_games_count >= limit:
+            return True
+
+        # Проверка пустых пачек
+        if empty_batches_in_a_row >= max_empty_batches:
+            if debug:
+                self.stdout.write(f'   💤 {empty_batches_in_a_row} пустых пачек подряд - достигнут конец результатов')
+            return True
+
+        # Проверка времени выполнения
+        if time.time() - start_time > 120:  # 2 минуты максимум
+            self.stdout.write(f'   ⏱️  Превышено время выполнения (2 минуты)')
+            self.stdout.write(f'   📊 Найдено за это время: {new_games_count} новых игр')
+            return True
+
+        return False
+
+    def _create_batch_loading_tasks(self, batch_number, current_offset, batch_size,
+                                    batches_per_cycle, limit, current_new_games):
+        """Создает задачи для загрузки пачек"""
+        batch_tasks = []
+
+        # Если есть лимит, рассчитываем сколько еще нужно
+        if limit > 0:
+            needed = limit - current_new_games
+            if needed <= 0:
+                return []
+            batch_size_actual = min(batch_size, needed)
+        else:
+            batch_size_actual = batch_size
+
+        # Создаем задачи
+        for i in range(batches_per_cycle):
+            batch_offset = current_offset + (i * batch_size_actual)
+            batch_tasks.append((batch_number + i, batch_offset, batch_size_actual))
+
+        return batch_tasks
+
+    def _load_batches_in_parallel(self, batch_tasks, where_clause, max_workers, debug):
+        """Параллельная загрузка пачек"""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        if debug:
+            self.stdout.write(f'   🔄 Цикл загрузки: {len(batch_tasks)} пачек, смещение: {batch_tasks[0][1]}')
+
+        batch_results = []
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {}
+
+            # Запускаем загрузку пачек
+            for batch_num, batch_offset, batch_limit in batch_tasks:
+                future = executor.submit(
+                    self._load_single_batch,
+                    batch_num, batch_offset, batch_limit, where_clause, debug
+                )
+                futures[future] = (batch_num, batch_offset, batch_limit)
+
+            # Обрабатываем результаты
+            for future in as_completed(futures):
+                batch_num, batch_offset, batch_limit = futures[future]
+                try:
+                    batch_games = future.result()
+                    if batch_games:
+                        batch_results.append((batch_num, batch_offset, batch_games, len(batch_games), False))
+                    else:
+                        batch_results.append((batch_num, batch_offset, [], 0, True))
+                except Exception as e:
+                    if debug:
+                        self.stderr.write(f'      ❌ Ошибка пачки {batch_num}: {e}')
+                    batch_results.append((batch_num, batch_offset, [], 0, True))
+
+        return batch_results
+
+    def _load_single_batch(self, batch_num, batch_offset, batch_limit, where_clause, debug):
+        """Загружает одну пачку игр"""
+        try:
+            if debug:
+                self.stdout.write(f'      📦 Пачка {batch_num}: загрузка {batch_offset}-{batch_offset + batch_limit}...')
+
+            query = f'''
+                fields id,name,summary,storyline,genres,keywords,rating,rating_count,first_release_date,platforms,cover,game_type;
+                where {where_clause};
+                sort rating_count desc;
+                limit {batch_limit};
+                offset {batch_offset};
+            '''.strip()
+
+            return make_igdb_request('games', query, debug=False)
+
+        except Exception as e:
+            if debug:
+                self.stderr.write(f'      ❌ Ошибка пачки {batch_num}: {e}')
+            return []
+
+    def _process_batch_results(self, batch_results, game_lock, new_games, all_found_games,
+                               existing_game_ids, skip_existing, limit, stats, debug):
+        """Обрабатывает результаты пачек"""
+        empty_batches_in_a_row = 0
+        last_checked_offset = 0
+
+        for batch_num, batch_offset, games, games_loaded, is_empty in batch_results:
+            if not is_empty and games_loaded > 0:
+                with game_lock:
+                    batch_stats = self._process_single_batch(
+                        games, batch_offset, new_games, all_found_games,
+                        existing_game_ids, skip_existing, limit
+                    )
+
+                    # Обновляем статистику
+                    stats['total_checked'] += batch_stats['total_games']
+                    stats['already_in_db'] += batch_stats['already_in_db']
+                    stats['batches_processed'] += 1
+
+                    last_checked_offset = max(last_checked_offset, batch_stats['last_offset'])
+
+                    # Вывод прогресса
+                    self._display_progress(limit, len(new_games), stats, last_checked_offset, debug)
+
+                empty_batches_in_a_row = 0  # Сбрасываем счетчик пустых пачек
+            else:
+                empty_batches_in_a_row += 1
+                last_checked_offset = max(last_checked_offset, batch_offset + 100)
+                stats['empty_batches'] += 1
+
+        return {
+            'empty_batches_in_a_row': empty_batches_in_a_row,
+            'last_checked_offset': last_checked_offset
+        }
+
+    def _process_single_batch(self, games, batch_offset, new_games, all_found_games,
+                              existing_game_ids, skip_existing, limit):
+        """Обрабатывает одну пачку игр"""
+        batch_stats = {
+            'total_games': 0,
+            'already_in_db': 0,
+            'last_offset': batch_offset
+        }
+
+        for i, game in enumerate(games):
+            game_id = game.get('id')
+            if not game_id:
+                continue
+
+            # Вычисляем offset этой игры
+            current_game_offset = batch_offset + i
+            batch_stats['last_offset'] = current_game_offset
+            batch_stats['total_games'] += 1
+
+            # Добавляем в общий список
+            all_found_games.append(game)
+
+            # Проверяем есть ли игра в базе
+            if skip_existing and game_id in existing_game_ids:
+                batch_stats['already_in_db'] += 1
+                continue
+
+            # Новая игра
+            new_games.append(game)
+
+            # Проверяем лимит
+            if limit > 0 and len(new_games) >= limit:
+                break
+
+        return batch_stats
+
+    def _display_progress(self, limit, new_games_count, stats, last_offset, debug):
+        """Отображает прогресс загрузки"""
+        if limit > 0 and new_games_count % 10 == 0:
+            progress_msg = f'   📊 Прогресс: {new_games_count}/{limit} новых игр (просмотрено: {stats["total_checked"]}, уже в БД: {stats["already_in_db"]}, offset: {last_offset})'
+            self.stdout.write(progress_msg)
+        elif stats['total_checked'] % 200 == 0:
+            progress_msg = f'   📊 Просмотрено: {stats["total_checked"]} игр (новых: {new_games_count}, уже в БД: {stats["already_in_db"]})'
+            self.stdout.write(progress_msg)
+
+    def _process_final_results(self, result, new_games, all_found_games, stats,
+                               limit, offset, start_time, debug):
+        """Обрабатывает финальные результаты загрузки"""
+        # Обрезка если превышен лимит
+        if limit > 0 and len(new_games) > limit:
+            new_games = new_games[:limit]
+            if debug:
+                self.stdout.write(f'   ✂️  Обрезано новых игр до лимита {limit}: {len(new_games)}')
+
+        # Корректировка offset
+        last_checked_offset = result.get('last_checked_offset', offset)
+        if result['limit_reached']:
+            last_checked_offset = result['limit_reached_offset']
+            if debug:
+                self.stdout.write(f'   🎯 Лимит достигнут на offset: {last_checked_offset}')
+
+        total_time = time.time() - start_time
+
+        # Вывод статистики
+        self._display_final_stats(
+            debug, total_time, stats['total_checked'], stats['already_in_db'],
+            len(new_games), last_checked_offset, result['limit_reached'],
+            result['limit_reached_offset']
+        )
+
+        # Возвращаем результат
+        return {
+            'new_games': new_games,
+            'all_found_games': all_found_games,
+            'total_games_checked': stats['total_checked'],
+            'new_games_count': len(new_games),
+            'existing_games_skipped': stats['already_in_db'],
+            'last_checked_offset': last_checked_offset,
+            'limit_reached': result['limit_reached'],
+            'limit_reached_at_offset': result['limit_reached_offset'] if result['limit_reached'] else None,
+        }
+
+    def _display_final_stats(self, debug, total_time, total_checked, already_in_db,
+                             new_games_count, last_checked_offset, limit_reached,
+                             limit_reached_offset):
+        """Выводит финальную статистику"""
+        if debug:
+            self.stdout.write(f'   📊 ИТОГОВАЯ СТАТИСТИКА:')
+            self.stdout.write(f'   📍 Последний проверенный offset: {last_checked_offset}')
+            self.stdout.write(f'   👀 Всего просмотрено игр: {total_checked}')
+            self.stdout.write(f'   🗄️  Игр уже в БД: {already_in_db}')
+            self.stdout.write(f'   🆕 Найдено новых игр: {new_games_count}')
+            self.stdout.write(f'   ⏱️  Время: {total_time:.1f}с')
+
+            if limit_reached:
+                self.stdout.write(f'   🎯 Лимит достигнут на offset: {limit_reached_offset}')
+
+            if total_time > 0:
+                speed = total_checked / total_time
+                self.stdout.write(f'   🚀 Скорость: {speed:.1f} игр/сек')
+
+    # === ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ===
+
+    def _initialize_stats(self):
+        """Инициализирует статистику"""
+        return {
+            'total_checked': 0,
+            'from_cache': 0,
+            'from_db': 0,
+            'batches_processed': 0,
+            'empty_batches': 0,
+            'cycles': 0
+        }
+
+    def _load_existing_ids(self, skip_existing, debug):
+        """Не загружаем ID из базы - используем только кэш"""
+        if debug:
+            self.stdout.write('   💾 Используется только кэш для фильтрации игр')
+        return set()  # Пустое множество
+
+    def _create_batch_tasks(self, batch_number, current_offset, batch_size,
+                            batches_per_cycle, limit, current_new_games):
+        """Создает задачи для загрузки пачек"""
+        batch_tasks = []
+
+        # Если есть лимит, рассчитываем сколько еще нужно
+        if limit > 0:
+            needed = limit - current_new_games
+            if needed <= 0:
+                return []
+            batch_size_actual = min(batch_size, needed)
+        else:
+            batch_size_actual = batch_size
+
+        # Создаем задачи
+        for i in range(batches_per_cycle):
+            batch_offset = current_offset + (i * batch_size_actual)
+            batch_tasks.append((batch_number + i, batch_offset, batch_size_actual))
+
+        return batch_tasks
+
+
+    def _process_cycle_results(self, batch_results, game_lock, new_games, all_found_games,
+                               skip_existing, limit, debug):
+        """Обрабатывает результаты цикла загрузки"""
+        import threading
+
+        cycle_stats = {
+            'new_games_count': 0,
+            'total_games': 0,
+            'empty_batches': 0,
+            'last_offset': 0,
+            'from_cache': 0,
+            'from_db': 0
+        }
+
+        for batch_num, batch_offset, games, games_loaded, is_empty in batch_results:
+            with game_lock:
+                if not is_empty and games_loaded > 0:
+                    # Обрабатываем игры пачкой
+                    batch_stats = self._process_games_batch(
+                        games, batch_offset, new_games, all_found_games,
+                        skip_existing, limit
+                    )
+
+                    # Обновляем статистику цикла
+                    cycle_stats['new_games_count'] += batch_stats['new_games']
+                    cycle_stats['total_games'] += batch_stats['total_games']
+                    cycle_stats['from_cache'] += batch_stats['from_cache']
+                    cycle_stats['from_db'] += batch_stats['from_db']
+                    cycle_stats['last_offset'] = max(cycle_stats['last_offset'], batch_stats['last_offset'])
+
+                    # Вывод прогресса
+                    if limit > 0:
+                        progress_msg = f'   📊 Прогресс: {len(new_games)}/{limit} новых игр (просмотрено: {len(all_found_games)}, из кэша: {cycle_stats["from_cache"]}, текущий offset: {batch_stats["last_offset"]})'
+                        self.stdout.write(progress_msg)
+                    elif len(all_found_games) % 500 == 0:
+                        progress_msg = f'   📊 Просмотрено: {len(all_found_games)} игр (новых: {len(new_games)}, из кэша: {cycle_stats["from_cache"]})'
+                        self.stdout.write(progress_msg)
+
+                else:
+                    cycle_stats['empty_batches'] += 1
+                    cycle_stats['last_offset'] = max(cycle_stats['last_offset'],
+                                                     batch_offset + 100)  # Предполагаем размер пачки
+
+        return cycle_stats
+
+
+    def _update_stats(self, stats, cycle_stats):
+        """Обновляет общую статистику"""
+        stats['total_checked'] += cycle_stats['total_games']
+        stats['from_cache'] += cycle_stats['from_cache']
+        stats['from_db'] += cycle_stats['from_db']
+        stats['batches_processed'] += 1
+        stats['empty_batches'] += cycle_stats['empty_batches']
+        return stats
+
+    def _update_empty_batches_counter(self, current_count, new_empty_batches):
+        """Обновляет счетчик пустых пачек"""
+        if new_empty_batches > 0:
+            return current_count + 1
+        return 0  # Сбрасываем если была непустая пачка
+
+    def _print_final_stats(self, debug, total_time, total_checked, from_cache,
+                           from_db, new_games_count, last_checked_offset,
+                           limit_reached, limit_reached_offset):
+        """Выводит финальную статистику"""
+        if debug:
+            self.stdout.write(f'   📊 ИТОГОВАЯ СТАТИСТИКА:')
+            self.stdout.write(f'   📍 Последний проверенный offset: {last_checked_offset}')
+            self.stdout.write(f'   👀 Всего просмотрено игр: {total_checked}')
+            self.stdout.write(f'   💾 Игр из кэша: {from_cache}')
+            self.stdout.write(f'   🗄️  Игр уже в БД: {from_db}')
+            self.stdout.write(f'   🆕 Найдено новых игр: {new_games_count}')
+            self.stdout.write(f'   ⏱️  Время: {total_time:.1f}с')
+
+            if limit_reached:
+                self.stdout.write(f'   🎯 Лимит достигнут на offset: {limit_reached_offset}')
+
+            if total_time > 0:
+                speed = total_checked / total_time
+                self.stdout.write(f'   🚀 Скорость: {speed:.1f} игр/сек')
+
+    # ОСТАВШИЕСЯ МЕТОДЫ КЛАССА DataCollector
 
     def collect_all_data_ids(self, all_games_data, debug=False):
         """Собирает все ID для последующей загрузки"""
@@ -434,7 +1709,7 @@ class DataCollector:
         return stats
 
     def load_all_popular_games(self, debug=False, limit=0, offset=0, min_rating_count=0, skip_existing=False,
-                               count_only=False):
+                               count_only=False, game_types_str='0,1,2,4,5,8,9,10,11'):
         """Загрузка всех игр с сортировкой по популярности (rating_count)"""
         self.stdout.write('🔍 Загрузка популярных игр...')
 
@@ -449,6 +1724,20 @@ class DataCollector:
         if count_only:
             self.stdout.write(f'   🔢 РЕЖИМ COUNT-ONLY: только подсчет количества игр')
 
+        # Парсим game_types
+        game_types = []
+        if game_types_str:
+            try:
+                game_types = [int(gt.strip()) for gt in game_types_str.split(',') if gt.strip()]
+            except ValueError:
+                self.stderr.write(f'   ⚠️  Ошибка парсинга game-types: "{game_types_str}"')
+                game_types = [0, 1, 2, 4, 5, 8, 9, 10, 11]  # Значения по умолчанию
+
+        if game_types:
+            self.stdout.write(f'   🎮 Фильтр по типам игр: {game_types}')
+        else:
+            self.stdout.write(f'   🎮 Загрузка всех типов игр (фильтр отключен)')
+
         # Базовое условие - исключаем игры без названия и с нулевым rating_count
         where_conditions = ['name != null']
 
@@ -457,6 +1746,11 @@ class DataCollector:
         else:
             # Если не указан min_rating_count, все равно фильтруем игры с хотя бы одной оценкой
             where_conditions.append('rating_count > 0')
+
+        # Добавляем фильтр по game_type если указаны типы
+        if game_types:
+            game_types_str_query = ','.join(map(str, game_types))
+            where_conditions.append(f'game_type = ({game_types_str_query})')
 
         where_clause = ' & '.join(where_conditions)
 
@@ -467,274 +1761,160 @@ class DataCollector:
 
         return self.load_games_by_query(where_clause, debug, limit, offset, skip_existing, count_only)
 
-    def load_games_by_query(self, where_clause, debug=False, limit=0, offset=0, skip_existing=True, count_only=False):
-        """Загрузка игр по запросу с пагинацией и offset - ОСНОВНОЙ МЕТОД"""
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        import threading
-        import time
+    def load_games_by_genres(self, genres_str, debug=False, limit=0, offset=0, min_rating_count=0,
+                             skip_existing=True, count_only=False, game_types_str='0,1,2,4,5,8,9,10,11'):
+        """Загрузка игр по жанрам с логикой И (должны быть ВСЕ указанные жанры)"""
+        collector = DataCollector(self.stdout, self.stderr)
+
+        genre_list = [g.strip() for g in genres_str.split(',') if g.strip()]
+
+        if not genre_list:
+            self.stdout.write('⚠️  Не указаны жанры')
+            return []
 
         if debug:
-            self.stdout.write('   📥 Начало загрузки игр...')
-        else:
-            self.stdout.write('   🔍 Поиск игр...')
+            self.stdout.write(f'🔍 Поиск жанров: {", ".join(genre_list)}')
 
-        if limit > 0:
-            if count_only:
-                self.stdout.write(f'   🎯 Цель: найти {limit} НОВЫХ игр (которых нет в базе)')
+        # Получаем ID для всех жанров
+        genre_ids = []
+        for genre in genre_list:
+            query = f'fields id,name; where name = "{genre}";'
+            result = make_igdb_request('genres', query, debug=False)
+            if result:
+                genre_ids.append(str(result[0]['id']))
+                if debug:
+                    self.stdout.write(f'   ✅ Жанр "{genre}" найден: ID {result[0]["id"]}')
             else:
-                self.stdout.write(f'   🎯 Цель: загрузить {limit} НОВЫХ игр (существующие не учитываются)')
-        if offset > 0:
-            self.stdout.write(f'   ⏭️  Начинаем с позиции: {offset}')
-
-        # В режиме count-only отключаем skip-existing, но все равно фильтруем
-        # чтобы показать только новые игры
-        if count_only:
-            if debug:
-                self.stdout.write('   🔢 РЕЖИМ COUNT-ONLY: показываем только игры, которых нет в базе')
-            # В count-only мы хотим посчитать сколько можно загрузить,
-            # но не хотим пропускать игры, поэтому skip_existing = True
-            skip_existing = True
-
-        # Загружаем существующие ID игр (если нужно фильтровать)
-        existing_game_ids = set()
-        if skip_existing:
-            existing_game_ids = set(Game.objects.values_list('igdb_id', flat=True))
-            if debug:
-                self.stdout.write(f'   📊 Игр в базе для фильтрации: {len(existing_game_ids)}')
-
-        # Два списка для разных целей
-        new_games = []  # Только НОВЫЕ игры (которых нет в базе) - это то что возвращаем
-        all_found_games = []  # Все найденные игры (для статистики)
-        game_lock = threading.Lock()
-
-        # Настройки параллельной загрузки
-        max_workers = 5
-        batch_size = 200
-        start_time = time.time()
-
-        # Функция для загрузки одной пачки
-        def load_batch(batch_num, batch_offset, batch_limit):
-            try:
                 if debug:
-                    with game_lock:
-                        self.stdout.write(
-                            f'      📦 Пачка {batch_num}: загрузка {batch_offset}-{batch_offset + batch_limit}...')
+                    self.stdout.write(f'   ❌ Жанр "{genre}" не найден')
 
-                query = f'''
-                    fields name,summary,storyline,genres,keywords,rating,rating_count,first_release_date,platforms,cover;
-                    where {where_clause};
-                    sort rating_count desc;
-                    limit {batch_limit};
-                    offset {batch_offset};
-                '''.strip()
-
-                batch_games = make_igdb_request('games', query, debug=False)
-
-                if not batch_games:
-                    return batch_num, batch_offset, [], 0, True  # True - пустая пачка
-
-                return batch_num, batch_offset, batch_games, len(batch_games), False
-
-            except Exception as e:
-                if debug:
-                    with game_lock:
-                        self.stderr.write(f'      ❌ Ошибка пачки {batch_num}: {e}')
-                return batch_num, batch_offset, [], 0, True
-
-        # Основной цикл загрузки
-        current_offset = offset
-        batch_number = 1
-        empty_batches_in_a_row = 0
-        max_empty_batches = 3
-        total_games_checked = 0
-        last_checked_offset = offset  # offset последней проверенной игры
-        limit_reached = False  # Флаг достижения лимита
-        limit_reached_offset = offset  # Offset, когда достигли лимита
-
-        while True:
-            # Проверяем, достигли ли мы лимита
-            if limit > 0 and len(new_games) >= limit:
-                limit_reached = True
-                limit_reached_offset = last_checked_offset
-                if debug:
-                    self.stdout.write(f'   🎯 Достигнут лимит {limit} новых игр на offset {last_checked_offset}')
-                break
-
-            # Проверка времени выполнения (защита от бесконечного цикла)
-            if time.time() - start_time > 300:  # 5 минут
-                self.stdout.write(f'   ⏱️  Превышено время выполнения (5 минут)')
-                self.stdout.write(f'   📊 Найдено за это время: {len(new_games)} новых игр')
-                break
-
-            # Создаем пачки для параллельной загрузки
-            batch_tasks = []
-            current_batch_offset = current_offset
-
-            # Сколько пачек загружать в этом цикле
-            batches_to_create = max_workers
-
-            # Если есть лимит, рассчитываем сколько еще нужно загрузить
-            if limit > 0:
-                needed = limit - len(new_games)
-                if needed <= 0:
-                    limit_reached = True
-                    limit_reached_offset = last_checked_offset
-                    break
-                # Оцениваем сколько пачек нужно (с запасом)
-                estimated_batches_needed = (needed + batch_size - 1) // batch_size
-                batches_to_create = min(max_workers, estimated_batches_needed)
-
-            # Создаем задачи для загрузки
-            for i in range(batches_to_create):
-                current_batch_limit = batch_size
-                batch_tasks.append((batch_number, current_batch_offset, current_batch_limit))
-                current_batch_offset += current_batch_limit
-                batch_number += 1
-
-            if not batch_tasks:
-                break
-
-            if debug:
-                self.stdout.write(f'   🔄 Цикл загрузки: {len(batch_tasks)} пачек, смещение: {current_offset}')
-
-            # Параллельная загрузка текущих пачек
-            current_cycle_empty = 0
-            current_cycle_games = []
-
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = {executor.submit(load_batch, *task): task for task in batch_tasks}
-
-                for future in as_completed(futures):
-                    batch_num, batch_offset, games, games_loaded, is_empty = future.result()
-
-                    with game_lock:
-                        if not is_empty and games_loaded > 0:
-                            # Обрабатываем игры по одной
-                            games_processed_in_batch = 0
-
-                            for game in games:
-                                # Проверяем, не достигли ли лимит
-                                if limit > 0 and len(new_games) >= limit:
-                                    limit_reached = True
-                                    # ВАЖНО: last_checked_offset уже обновлен для предыдущей игры
-                                    # limit_reached_offset = last_checked_offset (уже установлен)
-                                    if debug:
-                                        self.stdout.write(
-                                            f'   🎯 Лимит достигнут, последний offset: {last_checked_offset}')
-                                    break
-
-                                # Добавляем в общий список всех найденных игр
-                                all_found_games.append(game)
-                                total_games_checked += 1
-                                games_processed_in_batch += 1
-
-                                # ВАЖНО: Вычисляем offset ЭТОЙ игры
-                                # Игра на позиции: batch_offset + (games_processed_in_batch - 1)
-                                current_game_offset = batch_offset + (games_processed_in_batch - 1)
-                                last_checked_offset = current_game_offset
-
-                                # Фильтруем новые игры
-                                game_id = game.get('id')
-                                # Если не фильтруем существующие ИЛИ игра не в базе
-                                if not skip_existing or game_id not in existing_game_ids:
-                                    new_games.append(game)
-
-                                    # Если это последняя игра для лимита, запоминаем offset
-                                    if limit > 0 and len(new_games) == limit:
-                                        limit_reached_offset = current_game_offset
-
-                            # Сбрасываем счетчик пустых пачек
-                            empty_batches_in_a_row = 0
-
-                            # Обновляем прогресс
-                            if limit > 0:
-                                progress_msg = f'   📊 Прогресс: {len(new_games)}/{limit} новых игр (просмотрено: {total_games_checked}, текущий offset: {last_checked_offset})'
-                                self.stdout.write(progress_msg)
-                            elif total_games_checked % 500 == 0:  # Показывать каждые 500 просмотренных
-                                progress_msg = f'   📊 Просмотрено игр: {total_games_checked} (новых: {len(new_games)}, текущий offset: {last_checked_offset})'
-                                self.stdout.write(progress_msg)
-
-                            # Если достигли лимита в этой пачке, выходим
-                            if limit_reached:
-                                break
-
-                        else:
-                            current_cycle_empty += 1
-                            empty_batches_in_a_row += 1
-
-                            # Для пустых пачек обновляем last_checked_offset
-                            # Предполагаем, что мы проверили весь диапазон пачки
-                            # Последняя потенциальная позиция: batch_offset + batch_size - 1
-                            current_last_offset = batch_offset + batch_size - 1
-                            if current_last_offset > last_checked_offset:
-                                last_checked_offset = current_last_offset
-
-                    # Если достигли лимита, выходим из цикла обработки future
-                    if limit_reached:
-                        break
-
-            # Если достигли лимита, выходим из основного цикла
-            if limit_reached:
-                break
-
-            # Проверяем, не достигли ли мы конца результатов
-            if empty_batches_in_a_row >= max_empty_batches:
-                if debug:
-                    self.stdout.write(
-                        f'   💤 {empty_batches_in_a_row} пустых пачек подряд - достигнут конец результатов')
-                break
-
-            # Если в этом цикле все пачки были пустые
-            if current_cycle_empty >= len(batch_tasks):
-                if debug:
-                    self.stdout.write(f'   📉 Все пачки в цикле пустые')
-
-            # Обновляем смещение для следующего цикла
-            current_offset = current_batch_offset
-
-            # Небольшая пауза между циклами чтобы не перегружать API
-            time.sleep(0.1)
-
-        # Если есть лимит, обрезаем до нужного количества НОВЫХ игр
-        if limit > 0 and len(new_games) > limit:
-            new_games = new_games[:limit]
-            if debug:
-                self.stdout.write(f'   ✂️  Обрезано новых игр до лимита {limit}: {len(new_games)}')
-
-        # ВЫВОД СТАТИСТИКИ
-        total_time = time.time() - start_time
-
-        # Корректируем last_checked_offset
-        # Если достигли лимита, используем limit_reached_offset
-        if limit_reached:
-            last_checked_offset = limit_reached_offset
-            if debug:
-                self.stdout.write(f'   🎯 Лимит достигнут на offset: {last_checked_offset}')
-                self.stdout.write(f'   📍 Последняя игра в лимите на offset: {last_checked_offset}')
-        elif last_checked_offset == offset and total_games_checked > 0:
-            # Мы проверили как минимум одну игру
-            last_checked_offset = offset + total_games_checked - 1
+        if not genre_ids:
+            self.stdout.write('❌ Не найдены указанные жанры')
+            return []
 
         if debug:
-            self.stdout.write(f'   📍 Последний проверенный offset: {last_checked_offset}')
-            self.stdout.write(f'   📊 Всего просмотрено игр: {total_games_checked}')
-            self.stdout.write(f'   📈 Найдено новых игр: {len(new_games)}')
-            self.stdout.write(f'   ⏱️  Время: {total_time:.1f}с')
+            self.stdout.write(f'📋 Найдено ID жанров: {", ".join(genre_ids)}')
 
-        # Возвращаем словарь с информацией
-        return {
-            'new_games': new_games,
-            'all_found_games': all_found_games,
-            'total_games_checked': len(all_found_games),
-            'new_games_count': len(new_games),
-            'existing_games_skipped': len(all_found_games) - len(new_games) if skip_existing else 0,
-            'last_checked_offset': last_checked_offset,
-            'limit_reached': limit_reached,
-            'limit_reached_at_offset': limit_reached_offset if limit_reached else None,
-        }
+        # Формируем условие для поиска игр (логика И - должны быть ВСЕ жанры)
+        genre_conditions = [f'genres = ({genre_id})' for genre_id in genre_ids]
+        where_clause = ' & '.join(genre_conditions)
+
+        if min_rating_count > 0:
+            where_clause = f'{where_clause} & rating_count >= {min_rating_count}'
+
+        # Добавляем фильтр по game_type если указаны типы
+        if game_types_str:
+            try:
+                game_types = [int(gt.strip()) for gt in game_types_str.split(',') if gt.strip()]
+                if game_types:
+                    game_types_str_query = ','.join(map(str, game_types))
+                    where_clause = f'{where_clause} & game_type = ({game_types_str_query})'
+            except ValueError:
+                self.stderr.write(f'   ⚠️  Ошибка парсинга game-types: "{game_types_str}"')
+
+        if debug:
+            self.stdout.write(f'🎯 Условие поиска (И): {where_clause}')
+
+        return self.load_games_by_query(where_clause, debug, limit, offset, skip_existing, count_only)
+
+    def load_games_by_genres_and_description(self, genres_str, description_text, debug=False, limit=0, offset=0,
+                                             min_rating_count=0, skip_existing=True, count_only=False,
+                                             game_types_str='0,1,2,4,5,8,9,10,11'):
+        """Загрузка игр по жанрам И тексту в описании"""
+        collector = DataCollector(self.stdout, self.stderr)
+
+        genre_list = [g.strip() for g in genres_str.split(',') if g.strip()]
+
+        if not genre_list:
+            self.stdout.write('⚠️  Не указаны жанры')
+            return []
+
+        if debug:
+            self.stdout.write(f'🔍 Поиск жанров: {", ".join(genre_list)}')
+            self.stdout.write(f'🔍 Текст для поиска: "{description_text}"')
+
+        # Получаем ID для всех жанров
+        genre_ids = []
+        for genre in genre_list:
+            query = f'fields id,name; where name = "{genre}";'
+            result = make_igdb_request('genres', query, debug=False)
+            if result:
+                genre_ids.append(str(result[0]['id']))
+                if debug:
+                    self.stdout.write(f'   ✅ Жанр "{genre}" найден: ID {result[0]["id"]}')
+            else:
+                if debug:
+                    self.stdout.write(f'   ❌ Жанр "{genre}" не найден')
+
+        if not genre_ids:
+            self.stdout.write('❌ Не найдены указанные жанры')
+            return []
+
+        if debug:
+            self.stdout.write(f'📋 Найдено ID жанров: {", ".join(genre_ids)}')
+
+        # Формируем условие для поиска игр (логика И между жанрами)
+        genre_conditions = [f'genres = ({genre_id})' for genre_id in genre_ids]
+        genres_condition = ' & '.join(genre_conditions)
+
+        # Формируем общее условие: жанры И (текст в названии ИЛИ описании)
+        text_condition = f'(name ~ *"{description_text}"* | summary ~ *"{description_text}"* | storyline ~ *"{description_text}"*)'
+        where_clause = f'{genres_condition} & {text_condition}'
+
+        if min_rating_count > 0:
+            where_clause = f'{where_clause} & rating_count >= {min_rating_count}'
+
+        # Добавляем фильтр по game_type если указаны типы
+        if game_types_str:
+            try:
+                game_types = [int(gt.strip()) for gt in game_types_str.split(',') if gt.strip()]
+                if game_types:
+                    game_types_str_query = ','.join(map(str, game_types))
+                    where_clause = f'{where_clause} & game_type = ({game_types_str_query})'
+            except ValueError:
+                self.stderr.write(f'   ⚠️  Ошибка парсинга game-types: "{game_types_str}"')
+
+        if debug:
+            self.stdout.write(f'🎯 Итоговое условие поиска: {where_clause}')
+
+        return self.load_games_by_query(where_clause, debug, limit, offset, skip_existing, count_only)
+
+    def load_games_by_description(self, description_text, debug=False, limit=0, offset=0, min_rating_count=0,
+                                  skip_existing=True, count_only=False, game_types_str='0,1,2,4,5,8,9,10,11'):
+        """Загрузка игр по тексту в описании или названии"""
+        collector = DataCollector(self.stdout, self.stderr)
+
+        if debug:
+            self.stdout.write(f'🔍 Ищу игры с текстом: "{description_text}"')
+
+        # Формируем базовое условие для поиска
+        where_conditions = [
+            f'name ~ *"{description_text}"* | summary ~ *"{description_text}"* | storyline ~ *"{description_text}"*']
+
+        if min_rating_count > 0:
+            where_conditions.append(f'rating_count >= {min_rating_count}')
+        else:
+            where_conditions.append('rating_count > 0')
+
+        # Добавляем фильтр по game_type если указаны типы
+        if game_types_str:
+            try:
+                game_types = [int(gt.strip()) for gt in game_types_str.split(',') if gt.strip()]
+                if game_types:
+                    game_types_str_query = ','.join(map(str, game_types))
+                    where_conditions.append(f'game_type = ({game_types_str_query})')
+            except ValueError:
+                self.stderr.write(f'   ⚠️  Ошибка парсинга game-types: "{game_types_str}"')
+
+        where_clause = ' & '.join(where_conditions)
+
+        if debug:
+            self.stdout.write(f'   🎯 Условие поиска: {where_clause}')
+
+        return self.load_games_by_query(where_clause, debug, limit, offset, skip_existing, count_only)
 
     def load_games_by_search(self, search_text, debug=False, limit=0, offset=0, skip_existing=True, min_rating_count=0,
-                             count_only=False):
+                             count_only=False, game_types_str='0,1,2,4,5,8,9,10,11'):
         """Загрузка игр по поисковому запросу"""
         if debug:
             self.stdout.write(f'🔍 Поиск игр по запросу: "{search_text}"')
@@ -748,6 +1928,16 @@ class DataCollector:
             where_conditions.append(f'rating_count >= {min_rating_count}')
         else:
             where_conditions.append('rating_count > 0')
+
+        # Добавляем фильтр по game_type если указаны типы
+        if game_types_str:
+            try:
+                game_types = [int(gt.strip()) for gt in game_types_str.split(',') if gt.strip()]
+                if game_types:
+                    game_types_str_query = ','.join(map(str, game_types))
+                    where_conditions.append(f'game_type = ({game_types_str_query})')
+            except ValueError:
+                self.stderr.write(f'   ⚠️  Ошибка парсинга game-types: "{game_types_str}"')
 
         where_clause = ' & '.join(where_conditions)
 

@@ -822,6 +822,11 @@ class DataLoader:
                 rating_count=game_data.get('rating_count', 0)
             )
 
+            # Сохраняем game_type из данных игры
+            game_type = game_data.get('game_type')
+            if game_type is not None:
+                game.game_type = game_type
+
             if game_data.get('first_release_date'):
                 naive_datetime = datetime.fromtimestamp(game_data['first_release_date'])
                 game.first_release_date = timezone.make_aware(naive_datetime)
