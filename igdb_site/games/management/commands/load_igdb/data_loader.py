@@ -1,14 +1,16 @@
 # games/management/commands/load_igdb/data_loader.py
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import threading
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from games.igdb_api import make_igdb_request
 from games.models import (
     Game, Genre, Keyword, Platform, Series,
     Company, Theme, PlayerPerspective, GameMode, Screenshot
 )
 
+
+# data_loader.py - исправленные методы
 
 class DataLoader:
     """Класс для загрузки данных из IGDB"""
@@ -21,6 +23,252 @@ class DataLoader:
         self._last_request_time = 0
         self._min_request_interval = 0.25
         self._retry_delay = 2.0
+        self._interrupted = threading.Event()
+
+    def set_interrupted(self):
+        """Устанавливает флаг прерывания"""
+        self._interrupted.set()
+
+    def is_interrupted(self):
+        """Проверяет прерывание"""
+        return self._interrupted.is_set()
+
+    def _batch_processor_weighted(self, items_list, process_batch_func, emoji, name,
+                                  weight_calculator_func, extra_data=None, debug=False):
+        """Универсальный метод для обработки данных с учетом веса"""
+        if not items_list or self.is_interrupted():
+            if debug and self.is_interrupted():
+                self.stdout.write(f'      ⏹️  Прерывание: пропускаем загрузку {name}')
+            return {}
+
+        # Создаем пачки с учетом веса
+        batches = self._create_weighted_batches(
+            items_list, weight_calculator_func, extra_data, debug=debug
+        )
+        total_batches = len(batches)
+
+        if debug:
+            weights = []
+            for item in items_list:
+                if extra_data:
+                    weight = weight_calculator_func(item, extra_data)
+                else:
+                    weight = weight_calculator_func(item)
+                weights.append(weight)
+
+            total_weight = sum(weights)
+            avg_weight = total_weight / len(items_list) if items_list else 0
+
+            batch_sizes = [len(batch) for batch in batches]
+            avg_batch_size = sum(batch_sizes) / total_batches if total_batches > 0 else 0
+
+            single_batches = sum(1 for size in batch_sizes if size == 1)
+            multi_batches = total_batches - single_batches
+
+            self.stdout.write(f'      {emoji} Загрузка {name}: {len(items_list)} объектов, {total_batches} пачек')
+            self.stdout.write(f'      📊 Средний вес: {avg_weight:.1f}')
+            self.stdout.write(f'      📦 Средний размер пачки: {avg_batch_size:.1f}')
+            self.stdout.write(f'      🔢 Пачек по 1 элементу: {single_batches}, пачек > 1: {multi_batches}')
+
+        result_map = {}
+        lock = threading.Lock()
+
+        # Адаптивное количество воркеров
+        if total_batches <= 3:
+            max_workers = total_batches
+        elif any(len(batch) == 1 for batch in batches):
+            max_workers = min(total_batches, 8)
+        else:
+            max_workers = min(total_batches, 6)
+
+        try:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = []
+                for batch_num, batch_items in enumerate(batches, 1):
+                    # Проверка прерывания перед созданием задачи
+                    if self.is_interrupted():
+                        if debug:
+                            self.stdout.write(f'      ⏹️  Прерывание: отменяем создание пачек {name}')
+                        break
+
+                    future = executor.submit(
+                        process_batch_func,
+                        batch_num, batch_items, result_map,
+                        lock, total_batches, name, debug
+                    )
+                    futures.append(future)
+
+                # Обработка с проверкой прерывания и таймаутом
+                for future in as_completed(futures):
+                    if self.is_interrupted():
+                        if debug:
+                            self.stdout.write(f'      ⏹️  Прерывание: прерываем выполнение {name}')
+                        # Отменяем оставшиеся фьючерсы
+                        for f in futures:
+                            if not f.done():
+                                f.cancel()
+                        break
+
+                    try:
+                        future.result(timeout=60)  # Таймаут 60 секунд
+                    except TimeoutError:
+                        if debug:
+                            with lock:
+                                self.stderr.write(f'      ⏱️  Таймаут выполнения пачки {name}')
+                    except Exception as e:
+                        if debug:
+                            with lock:
+                                self.stderr.write(f'      ❌ Ошибка в потоке: {e}')
+
+        except RuntimeError as e:
+            if "cannot schedule new futures after interpreter shutdown" in str(e):
+                if debug:
+                    self.stderr.write(f'      ⏹️  Рантайм ошибка: интерпретатор завершает работу')
+            else:
+                raise
+
+        if debug:
+            loaded = len(result_map)
+            self.stdout.write(
+                f'      {emoji} Всего загружено {name}: {loaded}/{len(items_list)} (из {total_batches} пачек)')
+
+        return result_map
+
+    def _batch_processor_regular(self, ids_list, process_batch_func, emoji, name, debug=False):
+        """Универсальный метод для обработки данных без учета веса"""
+        if not ids_list or self.is_interrupted():
+            if debug and self.is_interrupted():
+                self.stdout.write(f'      ⏹️  Прерывание: пропускаем загрузку {name}')
+            return {}
+
+        result_map = {}
+        lock = threading.Lock()
+        batches = [ids_list[i:i + 10] for i in range(0, len(ids_list), 10)]
+        total_batches = len(batches)
+
+        if debug:
+            self.stdout.write(f'      {emoji} Загрузка {name}: {len(ids_list)} объектов, {total_batches} пачек')
+
+        max_workers = min(total_batches, 5)
+
+        try:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = []
+                for batch_num, batch_ids in enumerate(batches, 1):
+                    # Проверка прерывания перед созданием задачи
+                    if self.is_interrupted():
+                        if debug:
+                            self.stdout.write(f'      ⏹️  Прерывание: отменяем создание пачек {name}')
+                        break
+
+                    future = executor.submit(
+                        process_batch_func, batch_num, batch_ids, result_map, lock, total_batches, name, debug
+                    )
+                    futures.append(future)
+
+                for future in as_completed(futures):
+                    if self.is_interrupted():
+                        if debug:
+                            self.stdout.write(f'      ⏹️  Прерывание: прерываем выполнение {name}')
+                        # Отменяем оставшиеся фьючерсы
+                        for f in futures:
+                            if not f.done():
+                                f.cancel()
+                        break
+
+                    try:
+                        future.result(timeout=60)  # Таймаут 60 секунд
+                    except TimeoutError:
+                        if debug:
+                            with lock:
+                                self.stderr.write(f'      ⏱️  Таймаут выполнения пачки {name}')
+                    except Exception as e:
+                        if debug:
+                            with lock:
+                                self.stderr.write(f'      ❌ Ошибка в потоке: {e}')
+
+        except RuntimeError as e:
+            if "cannot schedule new futures after interpreter shutdown" in str(e):
+                if debug:
+                    self.stderr.write(f'      ⏹️  Рантайм ошибка: интерпретатор завершает работу')
+            else:
+                raise
+
+        if debug:
+            loaded = len(result_map)
+            self.stdout.write(
+                f'      {emoji} Всего загружено {name}: {loaded}/{len(ids_list)} (из {total_batches} пачек)')
+
+        return result_map
+
+    def load_all_data_types_sequentially(self, collected_data, debug=False):
+        """Последовательно загружает все типы данных"""
+        if self.is_interrupted():
+            if debug:
+                self.stdout.write('⏹️  Прерывание: пропускаем загрузку всех типов данных')
+            return {}, {}
+
+        step_times = {}
+        data_maps = {}
+
+        steps = [
+            ('🖼️  Обложки', 'covers', lambda: self.load_covers_parallel(collected_data['all_cover_ids'], debug),
+             'cover_map'),
+            ('🎭 Жанры', 'genres', lambda: self.load_data_parallel_generic(
+                collected_data['all_genre_ids'], 'genres', Genre, '🎭', 'жанров', debug), 'genre_map'),
+            ('🖥️  Платформы', 'platforms', lambda: self.load_data_parallel_generic(
+                collected_data['all_platform_ids'], 'platforms', Platform, '🖥️', 'платформ', debug), 'platform_map'),
+            ('🔑 Ключевые слова', 'keywords', lambda: self.load_keywords_parallel_with_weights(
+                collected_data['all_keyword_ids'], debug), 'keyword_map'),
+        ]
+
+        # Загружаем только основные данные
+        for i, (display_name, key, load_func, map_key) in enumerate(steps, 1):
+            if self.is_interrupted():
+                if debug:
+                    self.stdout.write(f'⏹️  Прерывание: пропускаем {display_name}')
+                break
+
+            if debug:
+                self.stdout.write(f'\n{i}️⃣  {display_name}...')
+
+            start_step = time.time()
+            data_maps[map_key] = load_func()
+            step_times[key] = time.time() - start_step
+
+        # Загружаем дополнительные данные только если не было прерывания
+        if not self.is_interrupted():
+            additional_steps = [
+                ('📚 Серии', 'series', lambda: self.load_data_parallel_generic(
+                    collected_data.get('all_series_ids', []), 'collections', Series, '📚', 'серий', debug),
+                 'series_map'),
+                ('🏢 Компании', 'companies', lambda: self.load_companies_parallel(
+                    collected_data.get('all_company_ids', []), debug), 'company_map'),
+                ('🎨 Темы', 'themes', lambda: self.load_data_parallel_generic(
+                    collected_data.get('all_theme_ids', []), 'themes', Theme, '🎨', 'тем', debug), 'theme_map'),
+                ('👁️  Перспективы', 'perspectives', lambda: self.load_data_parallel_generic(
+                    collected_data.get('all_perspective_ids', []), 'player_perspectives', PlayerPerspective, '👁️',
+                    'перспектив',
+                    debug), 'perspective_map'),
+                ('🎮 Режимы', 'modes', lambda: self.load_data_parallel_generic(
+                    collected_data.get('all_mode_ids', []), 'game_modes', GameMode, '🎮', 'режимов', debug), 'mode_map'),
+            ]
+
+            start_idx = len(steps) + 1
+            for i, (display_name, key, load_func, map_key) in enumerate(additional_steps, start_idx):
+                if self.is_interrupted():
+                    if debug:
+                        self.stdout.write(f'⏹️  Прерывание: пропускаем {display_name}')
+                    break
+
+                if debug:
+                    self.stdout.write(f'\n{i}️⃣  {display_name}...')
+
+                start_step = time.time()
+                data_maps[map_key] = load_func()
+                step_times[key] = time.time() - start_step
+
+        return data_maps, step_times
 
     def _rate_limited_request(self, endpoint, query, debug=False, max_retries=3):
         """Выполняет запрос к API с rate limiting и retry логикой"""
@@ -31,7 +279,6 @@ class DataLoader:
             if limit_value > 500:
                 if debug:
                     self.stdout.write(f'   ⚠️  Ограничиваю лимит запроса с {limit_value} до 500')
-                # Автоматически исправляем запрос
                 query = re.sub(r'limit\s+\d+', f'limit 500', query, flags=re.IGNORECASE)
 
         for attempt in range(max_retries):
@@ -55,29 +302,10 @@ class DataLoader:
                     raise
         raise Exception(f"API request failed after {max_retries} retries")
 
-    def _calculate_data_weight_for_keywords(self, keyword_ids, debug=False):
-        """Рассчитывает вес для ключевых слов на основе их количества"""
-        if not keyword_ids:
-            return 1.0
-
-        # Простой расчет: чем больше ключевых слов, тем больше вес
-        count = len(keyword_ids)
-
-        if count <= 5:
-            return 1.0
-        elif count <= 10:
-            return 1.5
-        elif count <= 20:
-            return 2.0
-        elif count <= 30:
-            return 2.5
-        else:
-            return 3.0
-
     def _calculate_data_weight(self, game_data, screenshots_info):
-        """Рассчитывает 'вес' данных для игры - УПРОЩЕННЫЙ РАСЧЕТ"""
+        """Рассчитывает 'вес' данных для игры"""
         if not game_data:
-            return 1.0  # Минимальный вес
+            return 1.0
 
         weight = 1.0  # Базовая стоимость игры
 
@@ -89,7 +317,6 @@ class DataLoader:
             weight += min(len(game_data['platforms']) * 0.1, 1.0)
 
         if game_data.get('keywords'):
-            # Ключевые слова имеют умеренное влияние
             weight += min(len(game_data['keywords']) * 0.15, 2.0)
 
         # СКРИНШОТЫ - уменьшено влияние
@@ -183,7 +410,7 @@ class DataLoader:
         return all_batches
 
     def _calculate_weight_for_game(self, game_id, game_data_map_and_screenshots):
-        """Расчет веса для игры - получаем game_data из game_data_map"""
+        """Расчет веса для игры"""
         if not game_id:
             return 1.0
 
@@ -199,116 +426,6 @@ class DataLoader:
     def _calculate_weight_for_simple(self, item_id, extra_data=None):
         """Простой расчет веса для элементов без сложных данных"""
         return 1.0  # Все элементы имеют одинаковый вес
-
-    def _batch_processor_weighted(self, items_list, process_batch_func, emoji, name,
-                                  weight_calculator_func, extra_data=None, debug=False):
-        """Универсальный метод для обработки данных с учетом веса"""
-        if not items_list:
-            return {}
-
-        # Создаем пачки с учетом веса
-        batches = self._create_weighted_batches(
-            items_list, weight_calculator_func, extra_data, debug=debug
-        )
-        total_batches = len(batches)
-
-        if debug:
-            weights = []
-            for item in items_list:
-                if extra_data:
-                    weight = weight_calculator_func(item, extra_data)
-                else:
-                    weight = weight_calculator_func(item)
-                weights.append(weight)
-
-            total_weight = sum(weights)
-            avg_weight = total_weight / len(items_list) if items_list else 0
-
-            # Статистика размеров пачек
-            batch_sizes = [len(batch) for batch in batches]
-            avg_batch_size = sum(batch_sizes) / total_batches if total_batches > 0 else 0
-
-            single_batches = sum(1 for size in batch_sizes if size == 1)
-            multi_batches = total_batches - single_batches
-
-            self.stdout.write(f'      {emoji} Загрузка {name}: {len(items_list)} объектов, {total_batches} пачек')
-            self.stdout.write(f'      📊 Средний вес: {avg_weight:.1f}')
-            self.stdout.write(f'      📦 Средний размер пачки: {avg_batch_size:.1f}')
-            self.stdout.write(f'      🔢 Пачек по 1 элементу: {single_batches}, пачек > 1: {multi_batches}')
-
-        result_map = {}
-        lock = threading.Lock()
-
-        # Адаптивное количество воркеров
-        if total_batches <= 3:
-            max_workers = total_batches
-        elif any(len(batch) == 1 for batch in batches):
-            max_workers = min(total_batches, 8)
-        else:
-            max_workers = min(total_batches, 6)
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = []
-            for batch_num, batch_items in enumerate(batches, 1):
-                future = executor.submit(
-                    process_batch_func,
-                    batch_num, batch_items, result_map,
-                    lock, total_batches, name, debug
-                )
-                futures.append(future)
-
-            for future in as_completed(futures):
-                try:
-                    future.result()
-                except Exception as e:
-                    if debug:
-                        with lock:
-                            self.stderr.write(f'      ❌ Ошибка в потоке: {e}')
-
-        if debug:
-            loaded = len(result_map)
-            self.stdout.write(
-                f'      {emoji} Всего загружено {name}: {loaded}/{len(items_list)} (из {total_batches} пачек)')
-
-        return result_map
-
-    def _batch_processor_regular(self, ids_list, process_batch_func, emoji, name, debug=False):
-        """Универсальный метод для обработки данных без учета веса"""
-        if not ids_list:
-            return {}
-
-        result_map = {}
-        lock = threading.Lock()
-        batches = [ids_list[i:i + 10] for i in range(0, len(ids_list), 10)]
-        total_batches = len(batches)
-
-        if debug:
-            self.stdout.write(f'      {emoji} Загрузка {name}: {len(ids_list)} объектов, {total_batches} пачек')
-
-        max_workers = min(total_batches, 5)
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = []
-            for batch_num, batch_ids in enumerate(batches, 1):
-                future = executor.submit(
-                    process_batch_func, batch_num, batch_ids, result_map, lock, total_batches, name, debug
-                )
-                futures.append(future)
-
-            for future in as_completed(futures):
-                try:
-                    future.result()
-                except Exception as e:
-                    if debug:
-                        with lock:
-                            self.stderr.write(f'      ❌ Ошибка в потоке: {e}')
-
-        if debug:
-            loaded = len(result_map)
-            self.stdout.write(
-                f'      {emoji} Всего загружено {name}: {loaded}/{len(ids_list)} (из {total_batches} пачек)')
-
-        return result_map
 
     def _generic_process_single(self, obj_id, data_by_id, name, model_class):
         """Универсальная обработка одного объекта"""
@@ -339,26 +456,22 @@ class DataLoader:
                 return (obj_id, obj)
 
     def _process_batch_template(self, batch_num, batch_ids, result_map, lock, total_batches, name, debug,
-                                endpoint, model_class, get_data_func=None, process_single_func=None):
+                                endpoint, model_class):
         """Шаблон для обработки пачки данных"""
         try:
             if debug:
                 with lock:
                     self.stdout.write(f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_ids)} объектов')
 
-            if get_data_func:
-                batch_data = get_data_func(batch_ids)
-            else:
-                id_list = ','.join(map(str, batch_ids))
-                query = f'fields id,name; where id = ({id_list});'
-                batch_data = self._rate_limited_request(endpoint, query, debug=False)
+            id_list = ','.join(map(str, batch_ids))
+            query = f'fields id,name; where id = ({id_list});'
+            batch_data = self._rate_limited_request(endpoint, query, debug=False)
 
             data_by_id = {item['id']: item for item in batch_data if 'id' in item}
 
             batch_map = {}
             with ThreadPoolExecutor(max_workers=min(len(batch_ids), 10)) as executor:
                 futures = {executor.submit(
-                    process_single_func if process_single_func else
                     lambda obj_id: self._generic_process_single(obj_id, data_by_id, name, model_class),
                     obj_id
                 ): obj_id for obj_id in batch_ids}
@@ -884,44 +997,6 @@ class DataLoader:
                 Game.objects.bulk_update(games_to_update, ['cover_url'], batch_size=50)
 
         return len(games_to_update)
-
-    def load_all_data_types_sequentially(self, collected_data, debug=False):
-        """Последовательно загружает все типы данных"""
-        step_times = {}
-        data_maps = {}
-
-        steps = [
-            ('🖼️  Обложки', 'covers', lambda: self.load_covers_parallel(collected_data['all_cover_ids'], debug),
-             'cover_map'),
-            ('🎭 Жанры', 'genres', lambda: self.load_data_parallel_generic(
-                collected_data['all_genre_ids'], 'genres', Genre, '🎭', 'жанров', debug), 'genre_map'),
-            ('🖥️  Платформы', 'platforms', lambda: self.load_data_parallel_generic(
-                collected_data['all_platform_ids'], 'platforms', Platform, '🖥️', 'платформ', debug), 'platform_map'),
-            ('🔑 Ключевые слова', 'keywords', lambda: self.load_keywords_parallel_with_weights(
-                collected_data['all_keyword_ids'], debug), 'keyword_map'),
-            ('📚 Серии', 'series', lambda: self.load_data_parallel_generic(
-                collected_data['all_series_ids'], 'collections', Series, '📚', 'серий', debug), 'series_map'),
-            ('🏢 Компании', 'companies', lambda: self.load_companies_parallel(
-                collected_data['all_company_ids'], debug), 'company_map'),
-            ('🎨 Темы', 'themes', lambda: self.load_data_parallel_generic(
-                collected_data['all_theme_ids'], 'themes', Theme, '🎨', 'тем', debug), 'theme_map'),
-            ('👁️  Перспективы', 'perspectives', lambda: self.load_data_parallel_generic(
-                collected_data['all_perspective_ids'], 'player_perspectives', PlayerPerspective, '👁️', 'перспектив',
-                debug), 'perspective_map'),
-            ('🎮 Режимы', 'modes', lambda: self.load_data_parallel_generic(
-                collected_data['all_mode_ids'], 'game_modes', GameMode, '🎮', 'режимов', debug), 'mode_map'),
-        ]
-
-        for i, (display_name, key, load_func, map_key) in enumerate(steps, 1):
-            if debug:
-                self.stdout.write(
-                    f'\n{i}️⃣  {display_name.split()[0]} {display_name.split()[1] if len(display_name.split()) > 1 else ""}...')
-
-            start_step = time.time()
-            data_maps[map_key] = load_func()
-            step_times[key] = time.time() - start_step
-
-        return data_maps, step_times
 
     def load_keywords_parallel_with_weights(self, keyword_ids, debug=False):
         """Параллельная загрузка ключевых слов с учетом веса"""
