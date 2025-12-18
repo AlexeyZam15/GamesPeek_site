@@ -10,30 +10,31 @@ class PatternManager:
     _compiled_patterns = None
 
     @classmethod
-    def get_compiled_patterns(cls) -> Dict[str, Dict[str, List[re.Pattern]]]:
-        """Возвращает скомпилированные паттерны с кешированием"""
+    def get_all_patterns(cls) -> Dict[str, Dict[str, List[re.Pattern]]]:
+        """Возвращает ВСЕ скомпилированные паттерны"""
         if cls._compiled_patterns is not None:
             return cls._compiled_patterns
 
+        # Компилируем ВСЕ паттерны сразу
         cls._compiled_patterns = {
-            'genres': cls._compile_patterns(cls.GENRE_PATTERNS),
-            'themes': cls._compile_patterns(cls.THEME_PATTERNS),
-            'perspectives': cls._compile_patterns(cls.PERSPECTIVE_PATTERNS),
-            'game_modes': cls._compile_patterns(cls.MODE_PATTERNS),
+            'genres': cls._compile_patterns_dict(cls.GENRE_PATTERNS),
+            'themes': cls._compile_patterns_dict(cls.THEME_PATTERNS),
+            'perspectives': cls._compile_patterns_dict(cls.PERSPECTIVE_PATTERNS),
+            'game_modes': cls._compile_patterns_dict(cls.MODE_PATTERNS),
         }
         return cls._compiled_patterns
 
     @staticmethod
-    def _compile_patterns(patterns_dict: Dict[str, List[str]]) -> Dict[str, List[re.Pattern]]:
-        """Компилирует все регулярные выражения"""
+    def _compile_patterns_dict(patterns_dict: Dict[str, List[str]]) -> Dict[str, List[re.Pattern]]:
+        """Компилирует словарь паттернов"""
         compiled = {}
         for name, patterns in patterns_dict.items():
             compiled_patterns = []
-            for pattern in patterns:
+            for pattern_str in patterns:
                 try:
-                    compiled_patterns.append(re.compile(pattern, re.IGNORECASE))
+                    compiled_patterns.append(re.compile(pattern_str, re.IGNORECASE | re.UNICODE))
                 except re.error as e:
-                    print(f"⚠️ Ошибка компиляции паттерна '{pattern}': {e}")
+                    print(f"⚠️ Ошибка компиляции паттерна '{pattern_str}': {e}")
             compiled[name] = compiled_patterns
         return compiled
 
@@ -48,12 +49,6 @@ class PatternManager:
             r'\barcade-style\b',
         ],
         'Card & Board Game': [
-            # Удалить или изменить слишком простой паттерн:
-            # r'\bboard\s+game\b',  # ПРОБЛЕМНЫЙ ПАТТЕРН - УДАЛИТЬ
-
-            # Добавить более специфичные и контекстные паттерны:
-
-            # 1. Паттерны, которые указывают на тип игры
             r'\bis\s+a\s+(board|card)\s+game\b',
             r'\bas\s+a\s+(board|card)\s+game\b',
             r'\bthis\s+(board|card)\s+game\b',
@@ -63,20 +58,11 @@ class PatternManager:
             r'\b(board|card)\s+game\s+(simulation|simulator|adaptation)\b',
             r'\b(board|card)\s+based\s+video\s+game\b',
             r'\bvideo\s+game\s+adaptation\s+of\s+a\s+(board|card)\s+game\b',
-
-            # 2. Паттерны, описывающие геймплей
             r'\bplay\s+as\s+a\s+(board|card)\s+game\b',
             r'\bgameplay\s+resembles\s+a\s+(board|card)\s+game\b',
             r'\bmechanics\s+of\s+a\s+(board|card)\s+game\b',
             r'\bstyled\s+after\s+a\s+(board|card)\s+game\b',
             r'\binspired\s+by\s+(board|card)\s+game\b',
-
-            # 3. Исключить упоминания исходного материала
-            # Паттерны, которые НЕ должны добавлять этот жанр
-            r'\bbased\s+on\s+(the\s+)?(\w+\s+)?(board|card)\s+game\b',  # Исключение!
-            r'\badapted\s+from\s+a\s+(board|card)\s+game\b',  # Исключение!
-            r'\boriginally\s+a\s+(board|card)\s+game\b',  # Исключение!
-            r'\bsource\s+material\s+is\s+a\s+(board|card)\s+game\b',  # Исключение!
         ],
         'Fighting': [
             r'\bfighting(\s+game|\s+title)\b',
@@ -169,10 +155,6 @@ class PatternManager:
             r'\bexplore.*expand.*exploit.*exterminate',
         ],
         'Action': [
-            # Удалите слишком простой паттерн:
-            # r'\baction(\s+oriented|\s+packed|\s+game|\s|$)',  # УДАЛИТЬ ЭТУ СТРОКУ
-
-            # Добавьте более специфичные паттерны:
             r'\baction[-\s]?packed\b',
             r'\bintense\s+action\b',
             r'\bnon[-\s]?stop\s+action\b',
@@ -302,10 +284,6 @@ class PatternManager:
             r'\bwilderness\s+survival\b',
         ],
         'Thriller': [
-
-            # Добавить более специфичные и контекстные паттерны для триллера:
-
-            # 1. Паттерны, которые явно указывают на жанр триллера
             r'\bpsychological\s+thriller\b',
             r'\btechno[-\s]?thriller\b',
             r'\bpolitical\s+thriller\b',
@@ -315,31 +293,22 @@ class PatternManager:
             r'\bmilitary\s+thriller\b',
             r'\bcrime\s+thriller\b',
             r'\bconspiracy\s+thriller\b',
-
-            # 2. Словосочетания, характерные для триллеров
             r'\bheart[-\s]?pounding\s+suspense\b',
             r'\bedge[-\s]?of[-\s]?your[-\s]?seat\s+(suspense|thriller)\b',
             r'\btense\s+thriller\b',
             r'\bintense\s+thriller\b',
             r'\bgripping\s+thriller\b',
             r'\brelentless\s+suspense\b',
-
-            # 3. Контекстные описания, характерные для триллеров
             r'\bcat[-\s]?and[-\s]?mouse\s+(game|chase)\b',
             r'\bmind\s+games?\b',
             r'\bpsychological\s+mind\s+games?\b',
             r'\btense\s+standoff\b',
             r'\bdeadly\s+game\s+of\s+(cat|wits)\b',
-
-            # 4. Только если "thriller" является существительным в контексте
             r'\bin\s+(the\s+)?style\s+of\s+a\s+thriller\b',
             r'\bas\s+a\s+thriller\b',
             r'\bthis\s+thriller\b',
             r'\bthe\s+thriller\s+(elements|aspects)\b',
-
-            # 5. Улучшенная версия простого паттерна (только в определенном контексте)
             r'\b(thriller|suspense)(?:\s+(game|title|novel|film|movie|story|tale|narrative|plot))?\b',
-            # Но с проверкой, что это не часть другого слова
         ],
         'Warfare': [
             r'\bwarfare\s+simulation\b',
