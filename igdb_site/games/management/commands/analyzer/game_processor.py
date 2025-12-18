@@ -21,6 +21,24 @@ class GameProcessor:
         self.state_file = None
         self.processed_games = set()
 
+    def get_current_stats(self) -> Dict:
+        """Возвращает текущую статистику обработки"""
+        if hasattr(self, '_current_stats'):
+            # Создаем копию, чтобы не менять оригинал
+            return self._current_stats.copy()
+
+        # Если статистика не инициализирована, возвращаем пустой словарь
+        return {
+            'processed': 0,
+            'updated': 0,
+            'skipped_no_text': 0,
+            'errors': 0,
+            'found_count': 0,
+            'total_criteria_found': 0,
+            'displayed_count': 0,
+            'execution_time': 0,
+        }
+
     def process_games_batch(self, games_queryset: QuerySet) -> Dict:
         """Обрабатывает игры батчами для экономии памяти"""
         stats = {
@@ -32,6 +50,9 @@ class GameProcessor:
             'total_criteria_found': 0,
             'displayed_count': 0,
         }
+
+        # Сохраняем ссылку на статистику для доступа из других методов
+        self._current_stats = stats
 
         # Настраиваем отслеживание состояния
         self._setup_state_tracking()
@@ -61,6 +82,10 @@ class GameProcessor:
             original_out = self.command.original_stdout or sys.stdout
             original_out.write(f"✅ Все игры ({total_games_in_db}) уже обработаны ранее\n")
             original_out.flush()
+
+            # Обновляем статистику для случая, когда все игры уже обработаны
+            stats['processed'] = 0
+            stats['execution_time'] = 0
             return stats
 
         use_progress_bar = (
@@ -82,33 +107,46 @@ class GameProcessor:
         # Счетчик реально обработанных игр (для прогресс-бара)
         actually_processed_count = 0
 
-        for index, game in enumerate(games_iterator, 1):
-            # БЕЗ ВЫВОДА СООБЩЕНИЙ проверяем, не была ли игра уже обработана
-            if need_check_processed and game.id in self.processed_games:
-                skipped_already_processed += 1
-                continue
+        try:
+            for index, game in enumerate(games_iterator, 1):
+                # БЕЗ ВЫВОДА СООБЩЕНИЙ проверяем, не была ли игра уже обработана
+                if need_check_processed and game.id in self.processed_games:
+                    skipped_already_processed += 1
+                    continue
 
-            stats['processed'] += 1
-            actually_processed_count += 1
+                stats['processed'] += 1
+                actually_processed_count += 1
 
-            try:
-                self._process_single_game(game, index, stats)
+                try:
+                    self._process_single_game(game, index, stats)
 
-                # Добавляем игру в список обработанных
-                self.processed_games.add(game.id)
+                    # Добавляем игру в список обработанных
+                    self.processed_games.add(game.id)
 
-            except Exception as e:
-                stats['errors'] += 1
+                except Exception as e:
+                    stats['errors'] += 1
+                    if self.progress_bar:
+                        # Очищаем прогресс-бар перед выводом ошибки
+                        self.progress_bar.terminal_stderr.write("\r" + " " * 150 + "\r")
+                        self.progress_bar.terminal_stderr.flush()
+
+                    if not self.command.only_found:
+                        self.command.stderr.write(f"   ❌ Ошибка при анализе {game.name}: {str(e)}")
+
+                    # Если есть прогресс-бар, обновляем его
+                    if self.progress_bar:
+                        self.progress_bar.update_stats({
+                            'found_count': stats['found_count'],
+                            'total_criteria_found': stats['total_criteria_found'],
+                            'skipped_no_text': stats['skipped_no_text'],
+                            'errors': stats['errors'],
+                            'updated': stats['updated'],
+                        })
+                        self.progress_bar.update(0)
+
+                # Обновляем прогресс-бар (после обработки игры)
                 if self.progress_bar:
-                    # Очищаем прогресс-бар перед выводом ошибки
-                    self.progress_bar.terminal_stderr.write("\r" + " " * 150 + "\r")
-                    self.progress_bar.terminal_stderr.flush()
-
-                if not self.command.only_found:
-                    self.command.stderr.write(f"   ❌ Ошибка при анализе {game.name}: {str(e)}")
-
-                # Если есть прогресс-бар, обновляем его
-                if self.progress_bar:
+                    # Обновляем статистику в прогресс-баре
                     self.progress_bar.update_stats({
                         'found_count': stats['found_count'],
                         'total_criteria_found': stats['total_criteria_found'],
@@ -116,32 +154,49 @@ class GameProcessor:
                         'errors': stats['errors'],
                         'updated': stats['updated'],
                     })
-                    self.progress_bar.update(0)
+                    self.progress_bar.update(1)
 
-            # Обновляем прогресс-бар (после обработки игры)
+                # Периодическое сохранение состояния И ОБНОВЛЕНИЕ ФАЙЛА
+                if actually_processed_count % self.checkpoint_interval == 0:
+                    self._save_state()
+
+                    # СБРАСЫВАЕМ БУФЕР ВЫВОДА В ФАЙЛ БЕЗ ВЫВОДА СООБЩЕНИЯ
+                    if hasattr(self.command, 'output_file') and self.command.output_file:
+                        try:
+                            self.command.output_file.flush()
+                            # Убрано сообщение о сбросе буфера
+                        except Exception:
+                            # Молча игнорируем ошибки сброса буфера
+                            pass
+
+        except KeyboardInterrupt:
+            # При прерывании запоминаем сколько мы успели обработать
+            stats['processed'] = actually_processed_count
+            stats['execution_time'] = time.time() - start_time
+
+            # Сохраняем состояние
+            self._save_state()
+
+            # ЗАВЕРШАЕМ ПРОГРЕСС-БАР (если есть)
             if self.progress_bar:
-                # Обновляем статистику в прогресс-баре
-                self.progress_bar.update_stats({
-                    'found_count': stats['found_count'],
-                    'total_criteria_found': stats['total_criteria_found'],
-                    'skipped_no_text': stats['skipped_no_text'],
-                    'errors': stats['errors'],
-                    'updated': stats['updated'],
-                })
-                self.progress_bar.update(1)
+                self.progress_bar.finish()
+                self.progress_bar = None
 
-            # Периодическое сохранение состояния И ОБНОВЛЕНИЕ ФАЙЛА
-            if actually_processed_count % self.checkpoint_interval == 0:
-                self._save_state()
+            # ВОЗВРАЩАЕМ СТАТИСТИКУ ДАЖЕ ПРИ ПРЕРЫВАНИИ
+            return stats
 
-                # СБРАСЫВАЕМ БУФЕР ВЫВОДА В ФАЙЛ БЕЗ ВЫВОДА СООБЩЕНИЯ
-                if hasattr(self.command, 'output_file') and self.command.output_file:
-                    try:
-                        self.command.output_file.flush()
-                        # Убрано сообщение о сбросе буфера
-                    except Exception:
-                        # Молча игнорируем ошибки сброса буфера
-                        pass
+        except Exception as e:
+            # При других ошибках тоже сохраняем статистику
+            stats['processed'] = actually_processed_count
+            stats['execution_time'] = time.time() - start_time
+
+            # Завершаем прогресс-бар
+            if self.progress_bar:
+                self.progress_bar.finish()
+                self.progress_bar = None
+
+            self._save_state()
+            raise  # Пробрасываем исключение дальше
 
         # Завершаем прогресс-бар
         if self.progress_bar:
@@ -158,7 +213,7 @@ class GameProcessor:
             except Exception:
                 pass
 
-        # ВЫВОДИМ ФИНАЛЬНУЮ СТАТИСТИКУ
+        # ВЫВОДИМ ФИНАЛЬНУЮ СТАТИСТИКУ В ТЕРМИНАЛ (только при нормальном завершении)
         original_out = self.command.original_stdout or sys.stdout
 
         if skipped_already_processed > 0:
@@ -180,13 +235,254 @@ class GameProcessor:
         if stats['updated'] > 0:
             original_out.write(f"💾 Обновлено игр: {stats['updated']}\n")
 
-        original_out.write(f"⏱️  Время выполнения: {time.time() - start_time:.1f} секунд\n")
+        execution_time = time.time() - start_time
+        original_out.write(f"⏱️  Время выполнения: {execution_time:.1f} секунд\n")
         original_out.flush()
+
+        # ДОБАВЛЯЕМ СТАТИСТИКУ В ФАЙЛ ВЫВОДА (только при нормальном завершении)
+        if hasattr(self.command, 'output_file') and self.command.output_file:
+            try:
+                # Записываем разделитель перед статистикой
+                self.command.stdout.write("\n" + "=" * 60)
+
+                # Определяем режим анализа
+                if hasattr(self.command, 'keywords') and self.command.keywords:
+                    mode = 'КЛЮЧЕВЫЕ СЛОВА'
+                else:
+                    mode = 'КРИТЕРИИ'
+
+                self.command.stdout.write(f"📊 ИТОГОВАЯ СТАТИСТИКА АНАЛИЗА ({mode})")
+                self.stdout.write("=" * 60)
+
+                if skipped_already_processed > 0:
+                    self.stdout.write(f"⏭️  Пропущено ранее обработанных игр: {skipped_already_processed}")
+
+                self.stdout.write(f"🔄 Обработано новых игр: {stats['processed']}")
+                self.stdout.write(f"🎯 Игр с найденными критериями: {stats['found_count']}")
+                self.stdout.write(f"📈 Всего критериев найдено: {stats['total_criteria_found']}")
+                self.stdout.write(f"⏭️  Игр без текста: {stats['skipped_no_text']}")
+                self.stdout.write(f"❌ Ошибок: {stats['errors']}")
+                self.stdout.write(f"💾 Обновлено игр: {stats['updated']}")
+
+                self.stdout.write(f"⏱️  Время выполнения: {execution_time:.1f} секунд")
+
+                self.stdout.write("=" * 60)
+                self.stdout.write("✅ Анализ успешно завершен")
+                self.stdout.write("=" * 60)
+
+                # Сбрасываем буфер для файла
+                self.command.output_file.flush()
+            except Exception as e:
+                # Выводим ошибку в терминал
+                original_out.write(f"⚠️ Ошибка записи статистики в файл: {e}\n")
+                original_out.flush()
+
+        # Добавляем время выполнения
+        stats['execution_time'] = execution_time
+
+        return stats
+
+    def _init_stats(self):
+        """Инициализирует статистику"""
+        return {
+            'processed': 0,
+            'updated': 0,
+            'skipped_no_text': 0,
+            'errors': 0,
+            'found_count': 0,
+            'total_criteria_found': 0,
+            'displayed_count': 0,
+        }
+
+    def _calculate_skipped_games(self):
+        """Рассчитывает количество пропущенных игр"""
+        if self.processed_games and not getattr(self.command, 'force_restart', False):
+            return len(self.processed_games)
+        return 0
+
+    def _handle_all_games_processed(self, total_games: int):
+        """Обрабатывает случай когда все игры уже обработаны"""
+        original_out = self.command.original_stdout or sys.stdout
+        original_out.write(f"✅ Все игры ({total_games}) уже обработаны ранее\n")
+        original_out.flush()
+
+    def _init_progress_bar(self, estimated_games_to_process: int):
+        """Инициализирует прогресс-бар"""
+        use_progress_bar = (
+                estimated_games_to_process > 1 and
+                not getattr(self.command, 'no_progress', False)
+        )
+
+        if use_progress_bar:
+            self.progress_bar = ProgressBar(
+                total=estimated_games_to_process,
+                desc="Анализ игр",
+                bar_length=30,
+                update_interval=0.1
+            )
+
+    def _process_games_loop(self, games_iterator, stats: Dict, skipped_already_processed: int,
+                            start_time: float) -> Dict:
+        """Основной цикл обработки игр"""
+        actually_processed_count = 0
+        need_check_processed = bool(self.processed_games and not getattr(self.command, 'force_restart', False))
+
+        for index, game in enumerate(games_iterator, 1):
+            # Пропускаем уже обработанные игры
+            if need_check_processed and game.id in self.processed_games:
+                skipped_already_processed += 1
+                continue
+
+            stats['processed'] += 1
+            actually_processed_count += 1
+
+            try:
+                self._process_single_game(game, index, stats)
+                self.processed_games.add(game.id)
+
+            except Exception as e:
+                stats['errors'] += 1
+                self._handle_game_error(game, e, stats)
+
+            # Обновляем прогресс-бар
+            self._update_progress_bar(stats)
+
+            # Периодическое сохранение состояния
+            if actually_processed_count % self.checkpoint_interval == 0:
+                self._handle_periodic_checkpoint(actually_processed_count)
 
         # Добавляем время выполнения
         stats['execution_time'] = time.time() - start_time
-
         return stats
+
+    def _handle_game_error(self, game, error: Exception, stats: Dict):
+        """Обрабатывает ошибку при обработке игры"""
+        if self.progress_bar:
+            self.progress_bar.terminal_stderr.write("\r" + " " * 150 + "\r")
+            self.progress_bar.terminal_stderr.flush()
+
+        if not self.command.only_found:
+            self.command.stderr.write(f"   ❌ Ошибка при анализе {game.name}: {str(error)}")
+
+        # Обновляем статистику в прогресс-баре
+        if self.progress_bar:
+            self.progress_bar.update_stats({
+                'found_count': stats['found_count'],
+                'total_criteria_found': stats['total_criteria_found'],
+                'skipped_no_text': stats['skipped_no_text'],
+                'errors': stats['errors'],
+                'updated': stats['updated'],
+            })
+            self.progress_bar.update(0)
+
+    def _update_progress_bar(self, stats: Dict):
+        """Обновляет прогресс-бар"""
+        if self.progress_bar:
+            self.progress_bar.update_stats({
+                'found_count': stats['found_count'],
+                'total_criteria_found': stats['total_criteria_found'],
+                'skipped_no_text': stats['skipped_no_text'],
+                'errors': stats['errors'],
+                'updated': stats['updated'],
+            })
+            self.progress_bar.update(1)
+
+    def _handle_periodic_checkpoint(self, actually_processed_count: int):
+        """Обрабатывает периодический чекпоинт"""
+        self._save_state()
+
+        # Сбрасываем буфер вывода в файл
+        if hasattr(self.command, 'output_file') and self.command.output_file:
+            try:
+                self.command.output_file.flush()
+            except Exception:
+                pass
+
+    def _finish_progress_bar(self):
+        """Завершает прогресс-бар"""
+        if self.progress_bar:
+            self.progress_bar.finish()
+            self.progress_bar = None
+
+    def _flush_output_file(self):
+        """Сбрасывает буфер файла вывода"""
+        if hasattr(self.command, 'output_file') and self.command.output_file:
+            try:
+                self.command.output_file.flush()
+            except Exception:
+                pass
+
+    def _display_final_stats(self, stats: Dict, skipped_already_processed: int, start_time: float):
+        """Отображает финальную статистику"""
+        # В терминал
+        self._display_terminal_stats(stats, skipped_already_processed, start_time)
+
+        # В файл
+        self._display_file_stats(stats, skipped_already_processed, start_time)
+
+    def _display_terminal_stats(self, stats: Dict, skipped_already_processed: int, start_time: float):
+        """Отображает статистику в терминале"""
+        original_out = self.command.original_stdout or sys.stdout
+
+        if skipped_already_processed > 0:
+            original_out.write(f"⏭️  Пропущено {skipped_already_processed} ранее обработанных игр\n")
+
+        original_out.write(f"✅ Обработано {stats['processed']} новых игр\n")
+
+        if stats['processed'] > 0:
+            original_out.write(f"🎯 Игр с найденными критериями: {stats['found_count']}\n")
+            original_out.write(f"📈 Всего критериев найдено: {stats['total_criteria_found']}\n")
+
+        if stats['skipped_no_text'] > 0:
+            original_out.write(f"⏭️  Игр без текста: {stats['skipped_no_text']}\n")
+
+        if stats['errors'] > 0:
+            original_out.write(f"❌ Ошибок: {stats['errors']}\n")
+
+        if stats['updated'] > 0:
+            original_out.write(f"💾 Обновлено игр: {stats['updated']}\n")
+
+        exec_time = time.time() - start_time
+        original_out.write(f"⏱️  Время выполнения: {exec_time:.1f} секунд\n")
+        original_out.flush()
+
+    def _display_file_stats(self, stats: Dict, skipped_already_processed: int, start_time: float):
+        """Отображает статистику в файл вывода"""
+        if hasattr(self.command, 'output_file') and self.command.output_file:
+            try:
+                # Записываем разделитель перед статистикой
+                self.command.stdout.write("\n" + "=" * 60)
+
+                # Определяем режим анализа
+                mode = 'КЛЮЧЕВЫЕ СЛОВА' if hasattr(self.command, 'keywords') and self.command.keywords else 'КРИТЕРИИ'
+
+                self.command.stdout.write(f"📊 ИТОГОВАЯ СТАТИСТИКА АНАЛИЗА ({mode})")
+                self.command.stdout.write("=" * 60)
+
+                if skipped_already_processed > 0:
+                    self.command.stdout.write(f"⏭️  Пропущено ранее обработанных игр: {skipped_already_processed}")
+
+                self.command.stdout.write(f"🔄 Обработано новых игр: {stats['processed']}")
+                self.command.stdout.write(f"🎯 Игр с найденными критериями: {stats['found_count']}")
+                self.command.stdout.write(f"📈 Всего критериев найдено: {stats['total_criteria_found']}")
+                self.command.stdout.write(f"⏭️  Игр без текста: {stats['skipped_no_text']}")
+                self.command.stdout.write(f"❌ Ошибок: {stats['errors']}")
+                self.command.stdout.write(f"💾 Обновлено игр: {stats['updated']}")
+
+                exec_time = stats.get('execution_time', time.time() - start_time)
+                self.command.stdout.write(f"⏱️  Время выполнения: {exec_time:.1f} секунд")
+
+                self.command.stdout.write("=" * 60)
+                self.command.stdout.write("✅ Анализ успешно завершен")
+                self.command.stdout.write("=" * 60)
+
+                # Сбрасываем буфер для файла
+                self.command.output_file.flush()
+            except Exception as e:
+                # Выводим ошибку в терминал
+                original_out = self.command.original_stdout or sys.stdout
+                original_out.write(f"⚠️ Ошибка записи статистики в файл: {e}\n")
+                original_out.flush()
 
     def _setup_state_tracking(self):
         """Настраивает отслеживание состояния"""
@@ -382,163 +678,195 @@ class GameProcessor:
         # Проверяем только на полное отсутствие текста
         if not text_to_analyze or text_to_analyze.strip() == "":
             stats['skipped_no_text'] += 1
-
-            # Выводим информацию о пропуске только если не используем прогресс-бар ИЛИ verbose режим
-            if self.command.verbose and not self.command.only_found and (not self.progress_bar or self.command.verbose):
-                self.command.stdout.write(f"{index}. {game.name} - ⏭️ ПРОПУЩЕНО (текста вообще нет)")
-                # Добавляем отступ после пропущенной игры
-                if not self.progress_bar or self.command.verbose:
-                    self.command.stdout.write("")
+            self._handle_no_text_game(game, index, stats)
             return True
 
         try:
-            # Анализируем текст используя ВСЕ паттерны сразу
-            results, pattern_info = self.analyzer.analyze_all_patterns(
-                text_to_analyze,
-                game=game,
-                ignore_existing=self.command.ignore_existing,
-                collect_patterns=self.command.verbose,
-                keywords_mode=self.command.keywords
-            )
+            return self._analyze_game(game, index, stats, text_to_analyze)
+        except Exception as e:
+            return self._handle_analysis_error(game, index, stats, e, text_to_analyze)
 
-            # В РЕЖИМЕ КЛЮЧЕВЫХ СЛОВ
-            if self.command.keywords:
-                keywords_results = results.get('keywords', [])
-                has_found_criteria = len(keywords_results) > 0
-                criteria_count = len(keywords_results)
-
-                # Если ignore-existing, проверяем только новые
-                if self.command.ignore_existing:
-                    existing_keywords = self.analyzer._get_existing_objects(game, 'keywords')
-                    existing_names = {kw.name for kw in existing_keywords}
-                    new_keywords = [kw for kw in keywords_results if kw.name not in existing_names]
-                    actual_found_count = len(new_keywords)
-                    actual_has_found_criteria = actual_found_count > 0
-                else:
-                    new_keywords = keywords_results
-                    actual_found_count = criteria_count
-                    actual_has_found_criteria = has_found_criteria
-
-            # В ОБЫЧНОМ РЕЖИМЕ
-            else:
-                has_found_criteria = any(
-                    len(results[key]) > 0 for key in ['genres', 'themes', 'perspectives', 'game_modes'] if
-                    key in results)
-                criteria_count = sum(
-                    len(results.get(key, [])) for key in ['genres', 'themes', 'perspectives', 'game_modes'])
-
-                if self.command.ignore_existing and has_found_criteria:
-                    actual_found_count = 0
-                    actual_has_found_criteria = False
-                    for criteria_type in ['genres', 'themes', 'perspectives', 'game_modes']:
-                        if criteria_type in results:
-                            existing_items = self.analyzer._get_existing_objects(game, criteria_type)
-                            existing_names = {item.name for item in existing_items}
-                            new_items = [item for item in results[criteria_type] if item.name not in existing_names]
-                            actual_found_count += len(new_items)
-                            if new_items:
-                                actual_has_found_criteria = True
-                else:
-                    actual_found_count = criteria_count
-                    actual_has_found_criteria = has_found_criteria
-
-            # ОБНОВЛЯЕМ СТАТИСТИКУ
-            stats['total_criteria_found'] += actual_found_count
-
-            if actual_has_found_criteria:
-                stats['found_count'] += 1
-
-            # В режиме only-found пропускаем игры без найденных критериев
-            if self.command.only_found and not actual_has_found_criteria:
-                return True
-
-            # Пропускаем игру если нет реально новых критериев в режиме ignore-existing + update-game
-            if self.command.ignore_existing and self.command.update_game and not actual_has_found_criteria:
-                return True
-
-            # ВЫВОДИМ ДЕТАЛИ ДАЖЕ С ПРОГРЕСС-БАРОМ (но только в файл, не в терминал)
+    def _handle_no_text_game(self, game, index: int, stats: Dict):
+        """Обрабатывает игру без текста"""
+        # ВЫВОДИМ ПРОПУЩЕННЫЕ ИГРЫ ТОЛЬКО В ФАЙЛ, ЕСЛИ ЕСТЬ ВЫВОД В ФАЙЛ
+        if self.command.verbose and not self.command.only_found:
             # Проверяем, идет ли вывод в файл
-            output_is_file = self.command.stdout._out != sys.stdout and self.command.stdout._out != sys.stderr
+            if hasattr(self.command, 'output_file') and self.command.output_file:
+                self.command.stdout.write(f"{index}. {game.name} - ⏭️ ПРОПУЩЕНО (текста вообще нет)")
+                self.command.stdout.write("")
 
-            if output_is_file or not self.progress_bar:
-                # Выводим детали в файл (или в терминал если нет прогресс-бара)
-                stats['displayed_count'] += 1
+    def _analyze_game(self, game, index: int, stats: Dict, text_to_analyze: str) -> bool:
+        """Анализирует игру и обновляет статистику"""
+        # Анализируем текст используя ВСЕ паттерны сразу
+        results, pattern_info = self.analyzer.analyze_all_patterns(
+            text_to_analyze,
+            game=game,
+            ignore_existing=self.command.ignore_existing,
+            collect_patterns=self.command.verbose,
+            keywords_mode=self.command.keywords
+        )
 
-                # Добавляем пустую строку перед результатами новой игры (кроме первой)
-                if stats['displayed_count'] > 1:
-                    self.command.stdout.write("")
+        # В РЕЖИМЕ КЛЮЧЕВЫХ СЛОВ
+        if self.command.keywords:
+            return self._process_keywords_mode(game, index, stats, results, pattern_info)
+        else:
+            return self._process_normal_mode(game, index, stats, results, pattern_info)
 
-                if self.command.verbose and not self.command.only_found:
-                    self.command.stdout.write(f"{index}. 🔍 Анализируем: {game.name}")
-                    text_source = self.command._get_text_source_for_game(game, text_to_analyze)
-                    text_length = len(text_to_analyze)
-                    self.command.stdout.write(f"   📝 Используется: {text_source} ({text_length} символов)")
+    def _process_keywords_mode(self, game, index: int, stats: Dict, results, pattern_info) -> bool:
+        """Обрабатывает игру в режиме ключевых слов"""
+        keywords_results = results.get('keywords', [])
+        has_found_criteria = len(keywords_results) > 0
+        criteria_count = len(keywords_results)
 
-                # ВЫВОДИМ РЕЗУЛЬТАТЫ
-                if actual_has_found_criteria:
-                    # Для режима ключевых слов фильтруем результаты
-                    if self.command.keywords:
-                        display_results = {'keywords': new_keywords} if self.command.ignore_existing else {
-                            'keywords': keywords_results}
-                        display_pattern_info = {'keywords': pattern_info.get('keywords', [])}
-                        self.command._print_game_results(game, display_results, actual_found_count,
-                                                         display_pattern_info)
-                    else:
-                        # Для обычного режима
-                        if self.command.ignore_existing:
-                            # Фильтруем только новые
-                            filtered_results = {}
-                            for criteria_type in ['genres', 'themes', 'perspectives', 'game_modes']:
-                                if criteria_type in results:
-                                    existing_items = self.analyzer._get_existing_objects(game, criteria_type)
-                                    existing_names = {item.name for item in existing_items}
-                                    new_items = [item for item in results[criteria_type] if
-                                                 item.name not in existing_names]
-                                    if new_items:
-                                        filtered_results[criteria_type] = new_items
-                            self.command._print_game_results(game, filtered_results, actual_found_count, pattern_info)
-                        else:
-                            self.command._print_game_results(game, results, actual_found_count, pattern_info)
+        # Если ignore-existing, проверяем только новые
+        if self.command.ignore_existing:
+            existing_keywords = self.analyzer._get_existing_objects(game, 'keywords')
+            existing_names = {kw.name for kw in existing_keywords}
+            new_keywords = [kw for kw in keywords_results if kw.name not in existing_names]
+            actual_found_count = len(new_keywords)
+            actual_has_found_criteria = actual_found_count > 0
+        else:
+            new_keywords = keywords_results
+            actual_found_count = criteria_count
+            actual_has_found_criteria = has_found_criteria
 
-                    if self.command.update_game:
-                        if self.command.update_game_criteria(game, results):
-                            stats['updated'] += 1
-                        elif self.command.verbose:
-                            mode = 'ключевых слов' if self.command.keywords else 'критериев'
-                            self.command.stdout.write(f"   ℹ️ Нет новых {mode} для обновления")
+        return self._update_and_display_results(
+            game, index, stats, results, pattern_info,
+            actual_found_count, actual_has_found_criteria,
+            keywords_mode=True,
+            new_keywords=new_keywords if self.command.ignore_existing else None
+        )
 
-                elif not self.command.only_found:
-                    # ИСПРАВЛЕННЫЙ ВЫВОД КОГДА НЕ НАЙДЕНО
-                    mode = 'ключевые слова' if self.command.keywords else 'новые критерии'
-                    if self.command.ignore_existing:
-                        mode = 'новые ключевые слова' if self.command.keywords else 'новые критерии'
-                    self.command.stdout.write(f"   ⚠️ {mode.capitalize()} не найдены")
+    def _process_normal_mode(self, game, index: int, stats: Dict, results, pattern_info) -> bool:
+        """Обрабатывает игру в обычном режиме"""
+        has_found_criteria = any(
+            len(results[key]) > 0 for key in ['genres', 'themes', 'perspectives', 'game_modes'] if key in results)
+        criteria_count = sum(
+            len(results.get(key, [])) for key in ['genres', 'themes', 'perspectives', 'game_modes'])
 
+        if self.command.ignore_existing and has_found_criteria:
+            actual_found_count = 0
+            actual_has_found_criteria = False
+            for criteria_type in ['genres', 'themes', 'perspectives', 'game_modes']:
+                if criteria_type in results:
+                    existing_items = self.analyzer._get_existing_objects(game, criteria_type)
+                    existing_names = {item.name for item in existing_items}
+                    new_items = [item for item in results[criteria_type] if item.name not in existing_names]
+                    actual_found_count += len(new_items)
+                    if new_items:
+                        actual_has_found_criteria = True
+        else:
+            actual_found_count = criteria_count
+            actual_has_found_criteria = has_found_criteria
+
+        return self._update_and_display_results(
+            game, index, stats, results, pattern_info,
+            actual_found_count, actual_has_found_criteria,
+            keywords_mode=False
+        )
+
+    def _update_and_display_results(self, game, index: int, stats: Dict, results, pattern_info,
+                                    actual_found_count: int, actual_has_found_criteria: bool,
+                                    keywords_mode: bool, new_keywords=None) -> bool:
+        """Обновляет статистику и отображает результаты"""
+        # ОБНОВЛЯЕМ СТАТИСТИКУ
+        stats['total_criteria_found'] += actual_found_count
+
+        if actual_has_found_criteria:
+            stats['found_count'] += 1
+
+        # В режиме only-found пропускаем игры без найденных критериев
+        if self.command.only_found and not actual_has_found_criteria:
             return True
 
-        except Exception as e:
-            stats['errors'] += 1
-            # Если используется прогресс-бар, очищаем его строку перед выводом ошибки
-            if self.progress_bar:
-                sys.stderr.write(f"\r{' ' * 150}\r")  # Очищаем строку прогресс-бара
-                sys.stderr.flush()
+        # Пропускаем игру если нет реально новых критериев в режиме ignore-existing + update-game
+        if self.command.ignore_existing and self.command.update_game and not actual_has_found_criteria:
+            return True
 
-            # Выводим ошибки даже при использовании прогресс-бара
+        # ВЫВОДИМ ДЕТАЛИ
+        output_is_file = self.command.stdout._out != sys.stdout and self.command.stdout._out != sys.stderr
+
+        if output_is_file or not self.progress_bar:
+            # Выводим детали в файл (или в терминал если нет прогресс-бара)
+            stats['displayed_count'] += 1
+
+            # Добавляем пустую строку перед результатами новой игры (кроме первой)
+            if stats['displayed_count'] > 1:
+                self.command.stdout.write("")
+
+            if self.command.verbose and not self.command.only_found:
+                self.command.stdout.write(f"{index}. 🔍 Анализируем: {game.name}")
+                text_source = self.command._get_text_source_for_game(game, self.command.get_text_to_analyze(game))
+                text_length = len(self.command.get_text_to_analyze(game))
+                self.command.stdout.write(f"   📝 Используется: {text_source} ({text_length} символов)")
+
+            # ВЫВОДИМ РЕЗУЛЬТАТЫ
+            if actual_has_found_criteria:
+                self._display_found_results(game, results, pattern_info, actual_found_count, keywords_mode,
+                                            new_keywords)
+
+                if self.command.update_game:
+                    if self.command.update_game_criteria(game, results):
+                        stats['updated'] += 1
+                    elif self.command.verbose:
+                        mode = 'ключевых слов' if keywords_mode else 'критериев'
+                        self.command.stdout.write(f"   ℹ️ Нет новых {mode} для обновления")
+
+            elif not self.command.only_found:
+                # ИСПРАВЛЕННЫЙ ВЫВОД КОГДА НЕ НАЙДЕНО
+                mode = 'ключевые слова' if keywords_mode else 'новые критерии'
+                if self.command.ignore_existing:
+                    mode = 'новые ключевые слова' if keywords_mode else 'новые критерии'
+                self.command.stdout.write(f"   ⚠️ {mode.capitalize()} не найдены")
+
+        return True
+
+    def _display_found_results(self, game, results, pattern_info, actual_found_count: int,
+                               keywords_mode: bool, new_keywords=None):
+        """Отображает найденные результаты"""
+        if keywords_mode:
+            display_results = {'keywords': new_keywords} if self.command.ignore_existing else {
+                'keywords': results.get('keywords', [])}
+            display_pattern_info = {'keywords': pattern_info.get('keywords', [])}
+            self.command._print_game_results(game, display_results, actual_found_count, display_pattern_info)
+        else:
+            # Для обычного режима
+            if self.command.ignore_existing:
+                # Фильтруем только новые
+                filtered_results = {}
+                for criteria_type in ['genres', 'themes', 'perspectives', 'game_modes']:
+                    if criteria_type in results:
+                        existing_items = self.analyzer._get_existing_objects(game, criteria_type)
+                        existing_names = {item.name for item in existing_items}
+                        new_items = [item for item in results[criteria_type] if item.name not in existing_names]
+                        if new_items:
+                            filtered_results[criteria_type] = new_items
+                self.command._print_game_results(game, filtered_results, actual_found_count, pattern_info)
+            else:
+                self.command._print_game_results(game, results, actual_found_count, pattern_info)
+
+    def _handle_analysis_error(self, game, index: int, stats: Dict, error: Exception, text_to_analyze: str) -> bool:
+        """Обрабатывает ошибку при анализе"""
+        stats['errors'] += 1
+
+        # Если используется прогресс-бар, очищаем его строку перед выводом ошибки
+        if self.progress_bar:
+            sys.stderr.write(f"\r{' ' * 150}\r")
+            sys.stderr.flush()
+
+        # ВЫВОДИМ ОШИБКИ ТОЛЬКО В ФАЙЛ, ЕСЛИ ЕСТЬ ВЫВОД В ФАЙЛ
+        if not self.command.only_found:
             # Проверяем, идет ли вывод в файл
-            output_is_file = self.command.stdout._out != sys.stdout and self.command.stdout._out != sys.stderr
-
-            if not self.command.only_found and (output_is_file or not self.progress_bar):
+            if hasattr(self.command, 'output_file') and self.command.output_file:
                 # Добавляем пустую строку перед ошибкой (кроме первой)
                 if stats['errors'] > 1:
                     self.command.stdout.write("")
 
-                if self.progress_bar:
-                    self.command.stdout.write(f"❌ ОШИБКА при анализе {game.name} (ID: {game.id}):")
-                else:
-                    self.command.stdout.write(f"❌ ОШИБКА при анализе {game.name} (ID: {game.id}):")
+                self.command.stdout.write(f"❌ ОШИБКА при анализе {game.name} (ID: {game.id}):")
                 self.command.stdout.write(f"   📝 Текст: {text_to_analyze[:100]}...")
-                self.command.stdout.write(f"   🔍 Ошибка: {str(e)}")
+                self.command.stdout.write(f"   🔍 Ошибка: {str(error)}")
                 import traceback
                 self.command.stdout.write(f"   🕵️ Трассировка: {traceback.format_exc()}")
                 self.command.stdout.write("")
-            return True
+
+        return True
