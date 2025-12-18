@@ -83,14 +83,19 @@ class ProgressBar:
         else:
             time_str = f"{elapsed_time:.0f}s"
 
-        # Более короткий формат без пробелов между эмодзи и цифрами
+        # ИСПРАВЛЕННОЕ ФОРМАТИРОВАНИЕ: используем f-string с явной шириной поля
         message = f"\r{self.desc}: {percentage:3.0f}% [{self.current}/{self.total}] [{bar}] "
-        message += f"🎯{self.stats['found_count']:3} 📈{self.stats['total_criteria_found']:3} "
-        message += f"⏭️{self.stats['skipped_no_text']:3} ❌{self.stats['errors']:3} 💾{self.stats['updated']:3} "
+
+        # Форматируем каждую статистику с фиксированной шириной в 4 символа
+        message += f"🎯{self.stats['found_count']:4d} "
+        message += f"📈{self.stats['total_criteria_found']:4d} "
+        message += f"⏭️{self.stats['skipped_no_text']:4d} "
+        message += f"❌{self.stats['errors']:4d} "
+        message += f"💾{self.stats['updated']:4d} "
         message += f"({time_str})"
 
         # Добавляем много пробелов для очистки
-        message += " " * 50
+        message += " " * 30  # Уменьшено с 50 до 30, так как теперь у нас фиксированная ширина
 
         self.terminal_stderr.write(message)
         self.terminal_stderr.flush()

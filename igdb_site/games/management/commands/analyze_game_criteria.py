@@ -1,10 +1,11 @@
 # games/management/commands/analyze_game_criteria.py
+from typing import Dict, List, Optional, Any
 from games.models import Game
 import os
+import sys
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models import QuerySet
-from games.models import Game
 
 try:
     from .analyzer import AnalyzerCommandBase, GameAnalyzer, GameProcessor
@@ -12,8 +13,6 @@ try:
     BaseCommand = AnalyzerCommandBase
 except ImportError:
     from django.core.management.base import BaseCommand
-
-    BaseCommand = BaseCommand
 
 
 class Command(BaseCommand):
@@ -60,6 +59,142 @@ class Command(BaseCommand):
         parser.add_argument('--clear-cache', action='store_true',
                             help='Очистить кеш перед началом обработки')
 
+    def analyze_all_games(self):
+        """Анализирует все игры в базе данных с батчингом"""
+        from games.models import Game
+
+        base_query = self._get_base_query()
+        total_games = base_query.count()
+
+        games_queryset = base_query[self.offset:]
+        if self.limit:
+            games_queryset = games_queryset[:self.limit]
+
+        actual_count = games_queryset.count()
+
+        if not self.only_found:
+            mode = '🔑 КЛЮЧЕВЫЕ СЛОВА' if self.keywords else '📋 ОБЫЧНЫЕ КРИТЕРИИ'
+            self.stdout.write(f"🔍 Анализируем {actual_count} игр из {total_games}...\n")
+            self.stdout.write(f"📚 Источник: {self._get_text_source_description()}\n")
+            self.stdout.write(f"⚙️ Режим: {mode}\n")
+            self.stdout.write(f"🔄 Обновление: {'✅ ВКЛ' if self.update_game else '❌ ВЫКЛ'}\n")
+            self.stdout.write(f"👁️ Игнорировать существующие: {'✅ ДА' if self.ignore_existing else '❌ НЕТ'}\n")
+            self.stdout.write(f"👁️ Скрыть пропущенные: {'✅ ДА' if self.hide_skipped else '❌ НЕТ'}\n")
+            self.stdout.write(f"⚡ Стратегия: ВСЕ паттерны сразу\n")
+            self.stdout.write(f"📊 Прогресс-бар: {'✅ ВКЛ' if not self.no_progress else '❌ ВЫКЛ'}\n")
+            self.stdout.write("\n")
+
+        # ИНИЦИАЛИЗИРУЕМ СТАТИСТИКУ ПЕРЕД НАЧАЛОМ
+        self._init_stats_before_processing()
+
+        # Создаем процессор и обрабатываем игры
+        processor = GameProcessor(self)
+        self.processor = processor  # Сохраняем ссылку на процессор для доступа к статистике
+
+        stats = processor.process_games_batch(games_queryset)
+
+        # ОБНОВЛЯЕМ СТАТИСТИКУ В КОМАНДЕ
+        self._update_stats_from_processor(stats)
+
+        # Выводим статистику в терминал
+        self._print_final_terminal_stats(stats)
+
+        # ВЫВОДИМ СТАТИСТИКУ В ФАЙЛ
+        self._print_final_stats_to_file()
+
+    def _init_stats_before_processing(self):
+        """Инициализирует статистику перед началом обработки"""
+        self.stats = {
+            'processed': 0,
+            'updated': 0,
+            'skipped_no_text': 0,
+            'errors': 0,
+            'found_count': 0,
+            'total_criteria_found': 0,
+            'displayed_count': 0,
+            'execution_time': 0,
+        }
+
+    def _update_stats_from_processor(self, processor_stats):
+        """Обновляет статистику команды из статистики процессора"""
+        if not processor_stats:
+            return
+
+        for key in self.stats.keys():
+            if key in processor_stats:
+                self.stats[key] = processor_stats[key]
+
+    def _print_final_terminal_stats(self, stats):
+        """Выводит финальную статистику в терминал"""
+        if not stats:
+            return
+
+        original_out = self.original_stdout or sys.stdout
+
+        original_out.write("\n" + "=" * 60 + "\n")
+        original_out.write("📊 ФИНАЛЬНАЯ СТАТИСТИКА АНАЛИЗА\n")
+        original_out.write("=" * 60 + "\n")
+
+        mode = 'ключевых слов' if self.keywords else 'критериев'
+        original_out.write(f"Режим анализа: {'🔑 КЛЮЧЕВЫЕ СЛОВА' if self.keywords else '📋 ОБЫЧНЫЕ КРИТЕРИИ'}\n")
+        original_out.write(f"Источник текста: {self._get_text_source_description()}\n")
+        original_out.write("-" * 60 + "\n")
+
+        original_out.write(f"🔄 Обработано игр: {stats.get('processed', 0)}\n")
+        original_out.write(f"🎯 Игр с найденными критериями: {stats.get('found_count', 0)}\n")
+        original_out.write(f"📈 Всего {mode} найдено: {stats.get('total_criteria_found', 0)}\n")
+        original_out.write(f"⏭️ Игр без текста: {stats.get('skipped_no_text', 0)}\n")
+        original_out.write(f"❌ Ошибок: {stats.get('errors', 0)}\n")
+        original_out.write(f"💾 Обновлено игр: {stats.get('updated', 0)}\n")
+
+        if 'execution_time' in stats and stats['execution_time'] > 0:
+            original_out.write(f"⏱️ Общее время выполнения: {stats['execution_time']:.1f} секунд\n")
+
+        original_out.write("=" * 60 + "\n")
+        original_out.flush()
+
+    def _print_final_stats_to_file(self):
+        """Выводит финальную статистику в файл вывода"""
+        if hasattr(self, 'output_file') and self.output_file and hasattr(self, 'stats') and self.stats:
+            try:
+                # Проверяем, что файл еще открыт
+                if not self.output_file.closed:
+                    # Используем self.stdout, так как он уже перенаправлен в файл
+                    self.stdout.write("\n" + "=" * 60 + "\n")
+
+                    mode = 'КЛЮЧЕВЫЕ СЛОВА' if self.keywords else 'КРИТЕРИИ'
+                    self.stdout.write(f"📊 ИТОГОВАЯ СТАТИСТИКА АНАЛИЗА ({mode})\n")
+                    self.stdout.write("=" * 60 + "\n")
+
+                    # Выводим статистику
+                    stats_to_show = {
+                        'processed': '🔄 Обработано игр',
+                        'found_count': '🎯 Игр с найденными критериями',
+                        'total_criteria_found': '📈 Всего критериев найдено',
+                        'skipped_no_text': '⏭️ Игр без текста',
+                        'errors': '❌ Ошибок',
+                        'updated': '💾 Обновлено игр'
+                    }
+
+                    for key, display_name in stats_to_show.items():
+                        if key in self.stats:
+                            self.stdout.write(f"{display_name}: {self.stats[key]}\n")
+
+                    if 'execution_time' in self.stats and self.stats['execution_time'] > 0:
+                        self.stdout.write(f"⏱️ Общее время выполнения: {self.stats['execution_time']:.1f} секунд\n")
+
+                    self.stdout.write("=" * 60 + "\n")
+                    self.stdout.write("✅ Анализ успешно завершен\n")
+                    self.stdout.write("=" * 60 + "\n")
+
+                    # Сбрасываем буфер
+                    self.output_file.flush()
+            except Exception as e:
+                # Игнорируем ошибки при выводе статистики, но пишем в терминал
+                original_out = self.original_stdout or sys.stdout
+                original_out.write(f"⚠️ Ошибка записи статистики в файл: {e}\n")
+                original_out.flush()
+
     def handle(self, *args, **options):
         """Основной обработчик команды"""
         # Сохраняем оригинальные stdout/stderr
@@ -76,10 +211,10 @@ class Command(BaseCommand):
                 self.output_file = open(output_path, 'w', encoding='utf-8')
                 self.stdout._out = self.output_file
                 self.stderr._out = self.output_file
-                self.stdout.write(f"📁 Вывод будет сохранен в: {output_path}")
-                self.stdout.write("-" * 60)
+                self.stdout.write(f"📁 Вывод будет сохранен в: {output_path}\n")
+                self.stdout.write("-" * 60 + "\n")
             except Exception as e:
-                self.stderr.write(f"❌ Ошибка открытия файла: {e}")
+                self.stderr.write(f"❌ Ошибка открытия файла: {e}\n")
                 # Восстанавливаем потоки при ошибке
                 self.stdout._out = self.original_stdout
                 self.stderr._out = self.original_stderr
@@ -91,7 +226,7 @@ class Command(BaseCommand):
             if options.get('clear_cache'):
                 cache.clear()
                 if self.output_file:
-                    self.stdout.write("✅ Кеш очищен")
+                    self.stdout.write("✅ Кеш очищен\n")
                 else:
                     self.original_stdout.write("✅ Кеш очищен\n")
 
@@ -106,25 +241,38 @@ class Command(BaseCommand):
 
         except ValueError as e:
             if self.output_file:
-                self.stderr.write(f"❌ Ошибка в опциях: {e}")
+                self.stderr.write(f"❌ Ошибка в опциях: {e}\n")
             else:
                 self.original_stderr.write(f"❌ Ошибка в опциях: {e}\n")
         except KeyboardInterrupt:
-            if self.output_file:
-                self.stdout.write("\n⏹️ Обработка прервана пользователем")
-            else:
-                self.original_stdout.write("\n⏹️ Обработка прервана пользователем\n")
+            # ВЫВОДИМ СООБЩЕНИЕ О ПРЕРЫВАНИИ В ТЕРМИНАЛ
+            original_out = self.original_stdout or sys.stdout
+            original_out.write("\n⏹️ Обработка прервана пользователем\n")
+
+            # ВЫВОДИМ СТАТИСТИКУ В ТЕРМИНАЛ
+            if hasattr(self, 'stats'):
+                self._display_interruption_stats_terminal(original_out)
+
+            # ВЫВОДИМ СТАТИСТИКУ В ФАЙЛ (ОЧЕНЬ ВАЖНО!)
+            if hasattr(self, 'output_file') and self.output_file and not self.output_file.closed:
+                try:
+                    # Сначала выводим сообщение о прерывании в файл
+                    self.stdout.write("\n⏹️ Обработка прервана пользователем\n")
+
+                    # Затем выводим статистику прерывания
+                    self._write_interruption_stats_to_file()
+
+                    # Сбрасываем буфер
+                    self.output_file.flush()
+                except Exception as e:
+                    original_out.write(f"⚠️ Ошибка записи статистики в файл: {e}\n")
 
             # Сохраняем состояние при прерывании
             if hasattr(self, 'analyzer') and hasattr(self.analyzer, 'clear_caches'):
                 self.analyzer.clear_caches()
-
-            # Выводим статистику если она есть
-            if hasattr(self, 'stats'):
-                self.print_stats("ПРЕРВАНО - ЧАСТИЧНАЯ СТАТИСТИКА")
         except Exception as e:
             if self.output_file:
-                self.stderr.write(f"❌ Неожиданная ошибка: {e}")
+                self.stderr.write(f"❌ Неожиданная ошибка: {e}\n")
                 import traceback
                 traceback.print_exc()
             else:
@@ -133,6 +281,253 @@ class Command(BaseCommand):
                 traceback.print_exc(file=self.original_stderr)
         finally:
             self.cleanup()
+            # Выводим финальную статистику в файл (для нормального завершения)
+            if not isinstance(sys.exc_info()[0], KeyboardInterrupt):
+                self._print_final_stats_to_file()
+
+    def _init_output_streams(self, options):
+        """Инициализирует выходные потоки"""
+        self.original_stdout = self.stdout._out
+        self.original_stderr = self.stderr._out
+        self.output_file = None
+        self.output_path = None
+
+        # Настраиваем вывод в файл если указан
+        if options.get('output'):
+            self._setup_file_output(options['output'])
+
+    def _setup_file_output(self, output_path):
+        """Настраивает вывод в файл"""
+        try:
+            self.output_path = output_path
+            self.output_file = open(output_path, 'w', encoding='utf-8')
+            self.stdout._out = self.output_file
+            self.stderr._out = self.output_file
+            self.stdout.write(f"📁 Вывод будет сохранен в: {output_path}")
+            self.stdout.write("-" * 60)
+        except Exception as e:
+            self.stderr.write(f"❌ Ошибка открытия файла: {e}")
+            # Восстанавливаем потоки при ошибке
+            self.stdout._out = self.original_stdout
+            self.stderr._out = self.original_stderr
+
+    def _setup_and_run_analysis(self, options):
+        """Настраивает и запускает анализ"""
+        from .analyzer import GameAnalyzer
+
+        self.analyzer = GameAnalyzer(self)
+
+        # ИНИЦИАЛИЗИРУЕМ СТАТИСТИКУ ПЕРЕД НАЧАЛОМ
+        self.stats = {
+            'processed': 0,
+            'updated': 0,
+            'skipped_no_text': 0,
+            'errors': 0,
+            'found_count': 0,
+            'total_criteria_found': 0,
+            'displayed_count': 0,
+            'execution_time': 0,
+        }
+
+        if options.get('clear_cache'):
+            cache.clear()
+            self._write_to_output("✅ Кеш очищен\n")
+
+        # Сохраняем опции
+        self._store_options(options)
+
+        if self.verbose:
+            self._print_options_summary()
+
+        # Обрабатываем команду
+        self.process_command()
+
+    def _init_stats(self, keys: list):
+        """Инициализирует статистику"""
+        self.stats = {key: 0 for key in keys}
+
+    def _write_to_output(self, message):
+        """Записывает сообщение в соответствующий вывод"""
+        if self.output_file:
+            self.stdout.write(message)
+        else:
+            self.original_stdout.write(f"{message}\n")
+
+    def _handle_value_error(self, error):
+        """Обрабатывает ошибку в опциях"""
+        if self.output_file:
+            self.stderr.write(f"❌ Ошибка в опциях: {error}")
+        else:
+            self.original_stderr.write(f"❌ Ошибка в опциях: {error}\n")
+
+    def _handle_keyboard_interrupt(self):
+        """Обрабатывает прерывание пользователем"""
+        # Только одна строка - сообщение о прерывании
+        if hasattr(self, 'original_stdout') and self.original_stdout:
+            original_out = self.original_stdout
+            original_out.write("\n⏹️ Обработка прервана пользователем\n")
+            original_out.flush()
+
+        # ВЫВОДИМ СТАТИСТИКУ ПРЕРЫВАНИЯ В ФАЙЛ
+        if hasattr(self, 'output_file') and self.output_file and not self.output_file.closed:
+            try:
+                # Выводим статистику прерывания
+                self._write_interruption_stats_to_file()
+                self.output_file.flush()
+            except Exception:
+                # Игнорируем ошибки записи в файл
+                pass
+
+        # Сохраняем состояние при прерывании
+        if hasattr(self, 'analyzer') and hasattr(self.analyzer, 'clear_caches'):
+            self.analyzer.clear_caches()
+
+    def _write_interruption_stats_to_file(self):
+        """Записывает статистику прерывания в файл"""
+        if not hasattr(self, 'stats') or not self.stats:
+            # Если статистики нет, создаем пустую
+            self.stats = {
+                'processed': 0,
+                'updated': 0,
+                'skipped_no_text': 0,
+                'errors': 0,
+                'found_count': 0,
+                'total_criteria_found': 0,
+                'displayed_count': 0,
+                'execution_time': 0,
+            }
+            return
+
+        try:
+            self.stdout.write("\n" + "=" * 60 + "\n")
+            self.stdout.write("📊 ЧАСТИЧНАЯ СТАТИСТИКА (ПРЕРВАНО)\n")
+
+            # Определяем режим анализа
+            mode = 'КЛЮЧЕВЫЕ СЛОВА' if hasattr(self, 'keywords') and self.keywords else 'КРИТЕРИИ'
+            self.stdout.write(f"⚡ Режим анализа: {mode}\n")
+            self.stdout.write("=" * 60 + "\n")
+
+            # Используем self.stats
+            processed = self.stats.get('processed', 0)
+
+            if processed > 0:
+                self.stdout.write(f"🔄 Обработано игр: {processed}\n")
+                self.stdout.write(f"🎯 Игр с найденными критериями: {self.stats.get('found_count', 0)}\n")
+                self.stdout.write(f"📈 Всего критериев найдено: {self.stats.get('total_criteria_found', 0)}\n")
+                self.stdout.write(f"⏭️ Игр без текста: {self.stats.get('skipped_no_text', 0)}\n")
+                self.stdout.write(f"❌ Ошибок: {self.stats.get('errors', 0)}\n")
+                self.stdout.write(f"💾 Обновлено игр: {self.stats.get('updated', 0)}\n")
+            else:
+                self.stdout.write("ℹ️  Игры не были обработаны (прервано до начала анализа)\n")
+
+            if 'execution_time' in self.stats and self.stats['execution_time'] > 0:
+                self.stdout.write(f"⏱️  Время выполнения до прерывания: {self.stats['execution_time']:.1f} секунд\n")
+
+            self.stdout.write("=" * 60 + "\n")
+            self.stdout.write("ℹ️  Обработка была прервана пользователем (Ctrl+C)\n")
+            self.stdout.write(
+                "ℹ️  Для продолжения используйте: python manage.py analyze_game_criteria --force-restart\n")
+            self.stdout.write("=" * 60 + "\n")
+
+        except Exception as e:
+            # Выводим ошибку в терминал
+            original_out = self.original_stdout or sys.stdout
+            original_out.write(f"⚠️ Ошибка записи статистики в файл: {e}\n")
+
+    def _display_interruption_stats_terminal(self, output_stream):
+        """Отображает статистику прерывания в терминале"""
+        if hasattr(self, 'stats') and self.stats:
+            output_stream.write("📊 Частичная статистика (прервано):\n")
+
+            # Только ключевые статистики
+            key_stats = ['processed', 'found_count', 'total_criteria_found',
+                         'skipped_no_text', 'errors', 'updated']
+
+            for key in key_stats:
+                if key in self.stats:
+                    display_name = self._format_stat_key(key)
+                    output_stream.write(f"{display_name}: {self.stats[key]}\n")
+
+            if 'execution_time' in self.stats and self.stats['execution_time'] > 0:
+                output_stream.write(f"⏱️ Время выполнения до прерывания: {self.stats['execution_time']:.1f} секунд\n")
+
+    def _handle_unexpected_error(self, error):
+        """Обрабатывает неожиданную ошибку"""
+        if self.output_file:
+            self.stderr.write(f"❌ Неожиданная ошибка: {error}")
+            import traceback
+            traceback.print_exc()
+        else:
+            self.original_stderr.write(f"❌ Неожиданная ошибка: {error}\n")
+            import traceback
+            traceback.print_exc(file=self.original_stderr)
+
+    def _cleanup_and_finalize(self):
+        """Завершает работу и выводит финальную статистику"""
+        self.cleanup()
+
+        # Выводим финальную статистику в файл (для нормального завершения)
+        if not isinstance(sys.exc_info()[0], KeyboardInterrupt):
+            self._print_final_stats_to_file()
+
+    def _write_stats_to_file(self, stats):
+        """Записывает статистику в файл"""
+        stats_to_show = {
+            'processed': '🔄 Обработано игр',
+            'found_count': '🎯 Игр с найденными критериями',
+            'total_criteria_found': '📈 Всего критериев найдено',
+            'skipped_no_text': '⏭️ Игр без текста',
+            'errors': '❌ Ошибок',
+            'updated': '💾 Обновлено игр'
+        }
+
+        for key, display_name in stats_to_show.items():
+            if key in stats:
+                self.stdout.write(f"{display_name}: {stats[key]}")
+
+    def _print_interruption_stats_to_file(self):
+        """Выводит статистику при прерывании в файл вывода"""
+        if hasattr(self, 'output_file') and self.output_file and hasattr(self, 'stats') and self.stats:
+            try:
+                # Проверяем, что файл еще открыт
+                if not self.output_file.closed:
+                    # Используем self.stdout, так как он уже перенаправлен в файл
+                    self.stdout.write("\n" + "=" * 60)
+                    mode = 'ключевых слов' if self.keywords else 'критериев'
+                    self.stdout.write(f"📊 ЧАСТИЧНАЯ СТАТИСТИКА (ПРЕРВАНО)")
+                    self.stdout.write(f"⚡ Режим анализа: {'КЛЮЧЕВЫЕ СЛОВА' if self.keywords else 'КРИТЕРИИ'}")
+                    self.stdout.write("=" * 60)
+
+                    # Выводим статистику
+                    stats_to_show = {
+                        'processed': '🔄 Обработано игр',
+                        'found_count': '🎯 Игр с найденными критериями',
+                        'total_criteria_found': '📈 Всего критериев найдено',
+                        'skipped_no_text': '⏭️ Игр без текста',
+                        'errors': '❌ Ошибок',
+                        'updated': '💾 Обновлено игр',
+                    }
+
+                    for key, display_name in stats_to_show.items():
+                        if key in self.stats:
+                            self.stdout.write(f"{display_name}: {self.stats[key]}")
+
+                    if 'execution_time' in self.stats:
+                        self.stdout.write(
+                            f"⏱️  Время выполнения до прерывания: {self.stats['execution_time']:.1f} секунд")
+
+                    self.stdout.write("=" * 60)
+                    self.stdout.write("ℹ️  Обработка была прервана пользователем (Ctrl+C)")
+                    self.stdout.write(
+                        "ℹ️  Для продолжения используйте: python manage.py analyze_game_criteria --force-restart")
+                    self.stdout.write("=" * 60)
+
+                    # Сбрасываем буфер
+                    self.output_file.flush()
+            except Exception:
+                # Игнорируем ошибки при выводе статистики
+                pass
+
 
     def cleanup(self):
         """Очистка ресурсов"""
@@ -142,6 +537,10 @@ class Command(BaseCommand):
         # Восстанавливаем оригинальные потоки и закрываем файл
         if hasattr(self, 'output_file') and self.output_file:
             try:
+                # Сбрасываем буфер перед закрытием
+                self.output_file.flush()
+
+                # Закрываем файл
                 self.output_file.close()
                 self.stdout._out = self.original_stdout
                 self.stderr._out = self.original_stderr
@@ -170,40 +569,6 @@ class Command(BaseCommand):
         else:
             self.analyze_all_games()
 
-    def analyze_all_games(self):
-        """Анализирует все игры в базе данных с батчингом"""
-        from games.models import Game
-
-        base_query = self._get_base_query()
-        total_games = base_query.count()
-
-        games_queryset = base_query[self.offset:]
-        if self.limit:
-            games_queryset = games_queryset[:self.limit]
-
-        actual_count = games_queryset.count()
-
-        if not self.only_found:
-            mode = '🔑 КЛЮЧЕВЫЕ СЛОВА' if self.keywords else '📋 ОБЫЧНЫЕ КРИТЕРИИ'
-            self.stdout.write(f"🔍 Анализируем {actual_count} игр из {total_games}...")
-            self.stdout.write(f"📚 Источник: {self._get_text_source_description()}")
-            self.stdout.write(f"⚙️ Режим: {mode}")
-            self.stdout.write(f"🔄 Обновление: {'✅ ВКЛ' if self.update_game else '❌ ВЫКЛ'}")
-            self.stdout.write(f"👁️ Игнорировать существующие: {'✅ ДА' if self.ignore_existing else '❌ НЕТ'}")
-            self.stdout.write(f"👁️ Скрыть пропущенные: {'✅ ДА' if self.hide_skipped else '❌ НЕТ'}")
-            self.stdout.write(f"⚡ Стратегия: ВСЕ паттерны сразу")
-            self.stdout.write(f"📊 Прогресс-бар: {'✅ ВКЛ' if not self.no_progress else '❌ ВЫКЛ'}")
-            self.stdout.write("")
-
-        # Создаем процессор и обрабатываем игры
-        processor = GameProcessor(self)
-        stats = processor.process_games_batch(games_queryset)
-
-        # Сохраняем статистику
-        self.stats = stats
-
-        # Выводим статистику
-        self.print_stats("СТАТИСТИКА АНАЛИЗА")
 
     def analyze_single_game_by_id(self, game_id: int):
         """Анализирует одну игру по ID"""
