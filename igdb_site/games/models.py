@@ -374,6 +374,9 @@ class Game(models.Model):
             models.Index(fields=['-first_release_date']),
             models.Index(fields=['igdb_id']),
             models.Index(fields=['game_type']),
+            # Добавляем новые индексы:
+            models.Index(fields=['id', 'name']),
+            models.Index(fields=['summary', 'storyline', 'rawg_description']),
         ]
 
     # ===== GAME TYPE PROPERTIES =====
