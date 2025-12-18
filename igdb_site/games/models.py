@@ -851,9 +851,32 @@ class Keyword(models.Model):
         related_name='keywords'
     )
 
-    # Добавляем реальное поле для хранения счетчика
     cached_usage_count = models.IntegerField(default=0)
     last_count_update = models.DateTimeField(null=True, blank=True)
+
+    # ... существующие методы ...
+
+    def update_cached_count(self):
+        """Обновляет кэшированное значение"""
+        from .models import Game
+        actual_count = Game.objects.filter(keywords=self).count()
+        self.cached_usage_count = actual_count
+        self.last_count_update = timezone.now()
+        self.save(update_fields=['cached_usage_count', 'last_count_update'])
+
+    @property
+    def usage_count(self):
+        """Возвращает кэшированное или вычисленное значение"""
+        # Если кэш устарел (старше 1 дня) или отсутствует - обновляем
+        if (not self.last_count_update or
+                (timezone.now() - self.last_count_update).days > 1):
+            self.update_cached_count()
+        return self.cached_usage_count
+
+    def get_fresh_usage_count(self):
+        """Всегда получает свежее значение"""
+        from .models import Game
+        return Game.objects.filter(keywords=self).count()
 
     def __str__(self):
         category_name = self.category.name if self.category else "No Category"
@@ -864,11 +887,6 @@ class Keyword(models.Model):
             models.Index(fields=['cached_usage_count']),
             models.Index(fields=['name']),
         ]
-
-    @property
-    def usage_count(self):
-        """Вычисляет сколько игр используют это ключевое слово"""
-        return self.game_set.count()
 
     @property
     def popularity_score(self):
@@ -882,17 +900,6 @@ class Keyword(models.Model):
             self.update_cached_count()
         else:
             super().save(*args, **kwargs)
-
-    def update_cached_count(self):
-        """Обновляет кэшированное значение"""
-        from .models import Game
-
-        # Получаем актуальное количество
-        actual_count = Game.objects.filter(keywords=self).count()
-
-        self.cached_usage_count = actual_count
-        self.last_count_update = timezone.now()
-        self.save(update_fields=['cached_usage_count', 'last_count_update'])
 
 
 class Genre(models.Model):
