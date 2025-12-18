@@ -12,7 +12,7 @@
                     {{ keyword.name }}
                     <small class="ms-2">
                         <i class="bi bi-bar-chart me-1"></i>
-                        {% firstof keyword.cached_usage_count keyword.usage_count %}
+                        {{ keyword.cached_usage_count }}
                     </small>
                     </span>
                 {% endfor %}
