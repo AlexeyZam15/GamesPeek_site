@@ -30,6 +30,23 @@ class AnalyzerCommandBase(BaseCommand):
         self.stats = {}
         self.analyzer = None
 
+    def _format_stat_key(self, key: str) -> str:
+        """Форматирует ключ статистики для вывода"""
+        formats = {
+            'processed': '🔄 Обработано игр',
+            'updated': '💾 Обновлено игр',
+            'skipped_no_text': '⏭️ Пропущено (нет текста)',
+            'errors': '❌ Ошибок',
+            'found_count': '🎯 Игр с найденными критериями',
+            'total_criteria_found': '📈 Всего критериев найдено',
+            'displayed_count': '👁️ Показано игр',
+            # Новые ключи для ключевых слов
+            'keywords_processed': '🔄 Обработано игр (ключ. слова)',
+            'keywords_found': '🎯 Игр с найденными ключ. словами',
+            'keywords_count': '📈 Всего ключевых слов найдено',
+        }
+        return formats.get(key, key.capitalize())
+
     # ========== МЕТОДЫ ДЛЯ РАБОТЫ С ФАЙЛАМИ ==========
 
     def setup_file_output(self, output_path: str):
@@ -91,19 +108,6 @@ class AnalyzerCommandBase(BaseCommand):
         for key, value in self.stats.items():
             if isinstance(value, (int, float)):
                 self.stdout.write(f"{self._format_stat_key(key)}: {value}")
-
-    def _format_stat_key(self, key: str) -> str:
-        """Форматирует ключ статистики для вывода"""
-        formats = {
-            'processed': '🔄 Обработано игр',
-            'updated': '💾 Обновлено игр',
-            'skipped_no_text': '⏭️ Пропущено (нет текста)',
-            'errors': '❌ Ошибок',
-            'found_count': '🎯 Игр с найденными критериями',
-            'total_criteria_found': '📈 Всего критериев найдено',
-            'displayed_count': '👁️ Показано игр',
-        }
-        return formats.get(key, key.capitalize())
 
     # ========== МЕТОДЫ ДЛЯ АНАЛИЗА ИГР ==========
 
