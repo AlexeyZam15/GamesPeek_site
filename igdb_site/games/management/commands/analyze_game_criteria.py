@@ -1,6 +1,6 @@
 # games/management/commands/analyze_game_criteria.py
+from games.models import Game
 import os
-import sys
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models import QuerySet
@@ -34,6 +34,12 @@ class Command(BaseCommand):
         parser.add_argument('--batch-size', type=int, default=1000, help='Размер батча для обработки')
         parser.add_argument('--hide-skipped', action='store_true',
                             help='Скрыть пропущенные критерии (уже существующие у игры)')
+        parser.add_argument('--no-progress', action='store_true',
+                            help='Отключить прогресс-бар')
+
+        # НОВАЯ ОПЦИЯ: принудительный перезапуск
+        parser.add_argument('--force-restart', action='store_true',
+                            help='Начать обработку заново, игнорируя ранее обработанные игры')
 
         # ОПЦИЯ ДЛЯ РЕЖИМА КЛЮЧЕВЫХ СЛОВ
         parser.add_argument('--keywords', action='store_true',
@@ -46,7 +52,7 @@ class Command(BaseCommand):
                                        help='Предпочитать сторилайн описанию (если оба доступны)')
         text_source_group.add_argument('--combine-texts', action='store_true',
                                        help='Объединять описание и сторилайн для анализа')
-        text_source_group.add_argument('--use-rawg', action='store_true',  # НОВАЯ ОПЦИЯ
+        text_source_group.add_argument('--use-rawg', action='store_true',
                                        help='Анализировать только описание из RAWG.io')
 
         parser.add_argument('--ignore-existing', action='store_true',
@@ -60,11 +66,13 @@ class Command(BaseCommand):
         self.original_stdout = self.stdout._out
         self.original_stderr = self.stderr._out
         self.output_file = None
+        self.output_path = None  # Инициализируем путь к файлу
 
         # Настраиваем вывод в файл если указан
         if options.get('output'):
             try:
                 output_path = options['output']
+                self.output_path = output_path  # Сохраняем путь как атрибут
                 self.output_file = open(output_path, 'w', encoding='utf-8')
                 self.stdout._out = self.output_file
                 self.stderr._out = self.output_file
@@ -72,6 +80,9 @@ class Command(BaseCommand):
                 self.stdout.write("-" * 60)
             except Exception as e:
                 self.stderr.write(f"❌ Ошибка открытия файла: {e}")
+                # Восстанавливаем потоки при ошибке
+                self.stdout._out = self.original_stdout
+                self.stderr._out = self.original_stderr
 
         try:
             # Инициализируем анализатор
@@ -79,7 +90,10 @@ class Command(BaseCommand):
 
             if options.get('clear_cache'):
                 cache.clear()
-                self.stdout.write("✅ Кеш очищен")
+                if self.output_file:
+                    self.stdout.write("✅ Кеш очищен")
+                else:
+                    self.original_stdout.write("✅ Кеш очищен\n")
 
             # Сохраняем опции
             self._store_options(options)
@@ -91,13 +105,32 @@ class Command(BaseCommand):
             self.process_command()
 
         except ValueError as e:
-            self.stderr.write(f"❌ Ошибка в опциях: {e}")
+            if self.output_file:
+                self.stderr.write(f"❌ Ошибка в опциях: {e}")
+            else:
+                self.original_stderr.write(f"❌ Ошибка в опциях: {e}\n")
         except KeyboardInterrupt:
-            self.stdout.write("\n⏹️ Обработка прервана пользователем")
+            if self.output_file:
+                self.stdout.write("\n⏹️ Обработка прервана пользователем")
+            else:
+                self.original_stdout.write("\n⏹️ Обработка прервана пользователем\n")
+
+            # Сохраняем состояние при прерывании
+            if hasattr(self, 'analyzer') and hasattr(self.analyzer, 'clear_caches'):
+                self.analyzer.clear_caches()
+
+            # Выводим статистику если она есть
+            if hasattr(self, 'stats'):
+                self.print_stats("ПРЕРВАНО - ЧАСТИЧНАЯ СТАТИСТИКА")
         except Exception as e:
-            self.stderr.write(f"❌ Неожиданная ошибка: {e}")
-            import traceback
-            traceback.print_exc()
+            if self.output_file:
+                self.stderr.write(f"❌ Неожиданная ошибка: {e}")
+                import traceback
+                traceback.print_exc()
+            else:
+                self.original_stderr.write(f"❌ Неожиданная ошибка: {e}\n")
+                import traceback
+                traceback.print_exc(file=self.original_stderr)
         finally:
             self.cleanup()
 
@@ -112,10 +145,19 @@ class Command(BaseCommand):
                 self.output_file.close()
                 self.stdout._out = self.original_stdout
                 self.stderr._out = self.original_stderr
-                self.stdout.write(f"✅ Результаты экспортированы в: {self.output_file.name}")
+
+                # Выводим сообщение в терминал о завершении
+                if self.output_path:
+                    self.original_stdout.write(f"\n✅ Результаты экспортированы в: {self.output_path}\n")
+
+                    # Сообщаем о файле состояния
+                    state_file = os.path.splitext(self.output_path)[0] + '_state.json'
+                    if os.path.exists(state_file):
+                        self.original_stdout.write(f"📝 Состояние сохранено в: {state_file}\n")
+
             except Exception as e:
                 if hasattr(self, 'original_stderr'):
-                    self.original_stderr.write(f"⚠️ Ошибка закрытия файла: {e}")
+                    self.original_stderr.write(f"⚠️ Ошибка закрытия файла: {e}\n")
 
     def process_command(self):
         """Обрабатывает команду в зависимости от аргументов"""
@@ -149,6 +191,8 @@ class Command(BaseCommand):
             self.stdout.write(f"🔄 Обновление: {'✅ ВКЛ' if self.update_game else '❌ ВЫКЛ'}")
             self.stdout.write(f"👁️ Игнорировать существующие: {'✅ ДА' if self.ignore_existing else '❌ НЕТ'}")
             self.stdout.write(f"👁️ Скрыть пропущенные: {'✅ ДА' if self.hide_skipped else '❌ НЕТ'}")
+            self.stdout.write(f"⚡ Стратегия: ВСЕ паттерны сразу")
+            self.stdout.write(f"📊 Прогресс-бар: {'✅ ВКЛ' if not self.no_progress else '❌ ВЫКЛ'}")
             self.stdout.write("")
 
         # Создаем процессор и обрабатываем игры
@@ -170,6 +214,7 @@ class Command(BaseCommand):
             mode = 'ключевые слова' if self.keywords else 'критерии'
             self.stdout.write(f"🎮 Анализируем игру: {game.name}")
             self.stdout.write(f"📊 Режим: {'🔑 КЛЮЧЕВЫЕ СЛОВА' if self.keywords else '📋 ОБЫЧНЫЕ КРИТЕРИИ'}")
+            self.stdout.write(f"⚡ Стратегия: ВСЕ паттерны сразу")
 
             existing_criteria = self._get_existing_criteria_summary(game)
             self.stdout.write(f"📋 Существующие {mode}: {existing_criteria}")
@@ -181,12 +226,13 @@ class Command(BaseCommand):
                 self.stderr.write("❌ У игры нет текста для анализа")
                 return
 
-            results, pattern_info = self.analyzer.analyze_text(
+            # Используем ВСЕ паттерны сразу
+            results, pattern_info = self.analyzer.analyze_all_patterns(
                 text_to_analyze,
                 game=game,
                 ignore_existing=self.ignore_existing,
                 collect_patterns=self.verbose,
-                keywords_mode=self.keywords  # Передаем режим
+                keywords_mode=self.keywords
             )
 
             # Если режим keywords, фильтруем результаты
@@ -231,8 +277,10 @@ class Command(BaseCommand):
         mode = 'ключевые слова' if self.keywords else 'критерии'
         self.stdout.write(f"🔍 Анализируем произвольный текст описания...")
         self.stdout.write(f"📊 Режим: {'🔑 КЛЮЧЕВЫЕ СЛОВА' if self.keywords else '📋 ОБЫЧНЫЕ КРИТЕРИИ'}")
+        self.stdout.write(f"⚡ Стратегия: ВСЕ паттерны сразу")
 
-        results, pattern_info = self.analyzer.analyze_text(
+        # Используем ВСЕ паттерны сразу
+        results, pattern_info = self.analyzer.analyze_all_patterns(
             description,
             ignore_existing=True,
             collect_patterns=self.verbose,
@@ -269,26 +317,30 @@ class Command(BaseCommand):
         self.limit = options.get('limit')
         self.offset = options.get('offset')
         self.update_game = options.get('update_game', False)
-        self.min_text_length = 0
+        self.min_text_length = 0  # Оставляем 0, так как проверка в другом месте
         self.verbose = options.get('verbose', False)
         self.only_found = options.get('only_found', False)
         self.batch_size = options.get('batch_size', 1000)
         self.ignore_existing = options.get('ignore_existing', False)
         self.hide_skipped = options.get('hide_skipped', False)
+        self.no_progress = options.get('no_progress', False)
+        self.force_restart = options.get('force_restart', False)  # Новая опция
 
         # Ключевая опция
         self.keywords = options.get('keywords', False)
 
+        # Опции источников текста
         self.use_storyline = options.get('use_storyline', False)
         self.prefer_storyline = options.get('prefer_storyline', False)
         self.combine_texts = options.get('combine_texts', False)
-        self.use_rawg = options.get('use_rawg', False)  # НОВОЕ
+        self.use_rawg = options.get('use_rawg', False)
 
+        # Разрешаем приоритет источников текста
         self.text_source_mode = self._resolve_text_source_priority()
 
     def _resolve_text_source_priority(self) -> str:
         """Разрешает приоритет опций источника текста"""
-        if self.use_rawg:  # НОВОЕ
+        if self.use_rawg:
             return 'use_rawg'
         if self.use_storyline:
             return 'use_storyline'
@@ -303,9 +355,9 @@ class Command(BaseCommand):
         """Возвращает текст для анализа в зависимости от настроек"""
         has_summary = bool(game.summary and game.summary.strip())
         has_storyline = bool(game.storyline and game.storyline.strip())
-        has_rawg = bool(game.rawg_description and game.rawg_description.strip())  # НОВОЕ
+        has_rawg = bool(game.rawg_description and game.rawg_description.strip())
 
-        if self.text_source_mode == 'use_rawg':  # НОВОЕ
+        if self.text_source_mode == 'use_rawg':
             return game.rawg_description if has_rawg else ""
 
         if self.text_source_mode == 'use_storyline':
@@ -332,7 +384,7 @@ class Command(BaseCommand):
     def _get_text_source_description(self) -> str:
         """Возвращает описание источника текста для анализа"""
         descriptions = {
-            'use_rawg': 'ТОЛЬКО описание RAWG',  # НОВОЕ
+            'use_rawg': 'ТОЛЬКО описание RAWG',
             'use_storyline': "ТОЛЬКО сторилайн",
             'prefer_storyline': "ПРЕДПОЧТИТЕЛЬНО сторилайн",
             'combine_texts': "ОБЪЕДИНЕННЫЙ текст",
@@ -348,7 +400,7 @@ class Command(BaseCommand):
             return "сторилайн"
         elif text_to_analyze == game.summary:
             return "описание IGDB"
-        elif text_to_analyze == game.rawg_description:  # НОВОЕ
+        elif text_to_analyze == game.rawg_description:
             return "описание RAWG"
         else:
             return "неизвестный источник"
@@ -543,6 +595,8 @@ class Command(BaseCommand):
         self.stdout.write(f"🎯 Только с найденными: {'✅ ВКЛ' if self.only_found else '❌ ВЫКЛ'}")
         self.stdout.write(f"📚 Источник текста: {self._get_text_source_description()}")
         self.stdout.write(f"📦 Размер батча: {self.batch_size}")
+        self.stdout.write(f"⚡ Стратегия: ВСЕ паттерны сразу")
+        self.stdout.write(f"📊 Прогресс-бар: {'✅ ВКЛ' if not self.no_progress else '❌ ВЫКЛ'}")
         self.stdout.write("=" * 60)
         self.stdout.write("")
 
@@ -556,8 +610,13 @@ class Command(BaseCommand):
         self.stdout.write(f"📊 {title} ({mode})")
         self.stdout.write("=" * 60)
 
+        # Добавляем время выполнения если есть
+        if 'execution_time' in self.stats:
+            self.stdout.write(f"⏱️  Время выполнения: {self.stats['execution_time']:.2f} секунд")
+            self.stdout.write("-" * 60)
+
         for key, value in self.stats.items():
-            if isinstance(value, (int, float)):
+            if isinstance(value, (int, float)) and key != 'execution_time':
                 display_key = self._format_stat_key(key)
                 self.stdout.write(f"{display_key}: {value}")
 
