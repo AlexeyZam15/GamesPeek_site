@@ -134,18 +134,14 @@ class GameProcessor:
             if actually_processed_count % self.checkpoint_interval == 0:
                 self._save_state()
 
-                # СБРАСЫВАЕМ БУФЕР ВЫВОДА В ФАЙЛ
+                # СБРАСЫВАЕМ БУФЕР ВЫВОДА В ФАЙЛ БЕЗ ВЫВОДА СООБЩЕНИЯ
                 if hasattr(self.command, 'output_file') and self.command.output_file:
                     try:
                         self.command.output_file.flush()
-                        # Выводим сообщение о сбросе буфера
-                        original_out = self.command.original_stdout or sys.stdout
-                        original_out.write(f"\n💾 Сброс буфера файла (обработано {actually_processed_count} игр)\n")
-                        original_out.flush()
-                    except Exception as e:
-                        original_out = self.command.original_stdout or sys.stdout
-                        original_out.write(f"\n⚠️ Ошибка сброса буфера файла: {e}\n")
-                        original_out.flush()
+                        # Убрано сообщение о сбросе буфера
+                    except Exception:
+                        # Молча игнорируем ошибки сброса буфера
+                        pass
 
         # Завершаем прогресс-бар
         if self.progress_bar:
@@ -267,11 +263,9 @@ class GameProcessor:
                 with open(self.state_file, 'w', encoding='utf-8') as f:
                     json.dump(state_data, f, ensure_ascii=False, indent=2)
 
-                # Выводим сообщение о сохранении состояния
-                if len(self.processed_games) % 10000 == 0:  # Каждые 10k игр
-                    original_out = self.command.original_stdout or sys.stdout
-                    original_out.write(f"💾 Сохранено состояние: {len(self.processed_games)} игр\n")
-                    original_out.flush()
+                # УБРАНО: сообщение о сохранении состояния каждые 10k игр
+                # Молча сохраняем состояние без вывода сообщений
+
             except Exception as e:
                 original_out = self.command.original_stdout or sys.stdout
                 original_out.write(f"⚠️ Ошибка сохранения состояния: {e}\n")
