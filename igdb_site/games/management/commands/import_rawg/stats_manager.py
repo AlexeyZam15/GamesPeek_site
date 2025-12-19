@@ -20,11 +20,13 @@ class StatsManager:
                 ~Q(rawg_description__exact='')
             ).count()
 
+            # ИСПРАВЛЕНО: game_type__in вместо game_type__igdb_id__in
             games_filtered = Game.objects.filter(
-                game_type__igdb_id__in=[0, 1, 2, 4, 5, 8, 9, 10, 11]
+                game_type__in=[0, 1, 2, 4, 5, 8, 9, 10, 11]
             ).count()
+
             games_filtered_with_rawg = Game.objects.filter(
-                Q(game_type__igdb_id__in=[0, 1, 2, 4, 5, 8, 9, 10, 11]) &
+                Q(game_type__in=[0, 1, 2, 4, 5, 8, 9, 10, 11]) &
                 ~Q(rawg_description__isnull=True) &
                 ~Q(rawg_description__exact='')
             ).count()
@@ -44,8 +46,9 @@ class StatsManager:
                 Q(rawg_description__isnull=True) |
                 Q(rawg_description__exact='')
             ).count()
+
             games_filtered_without_rawg = Game.objects.filter(
-                Q(game_type__igdb_id__in=[0, 1, 2, 4, 5, 8, 9, 10, 11]) &
+                Q(game_type__in=[0, 1, 2, 4, 5, 8, 9, 10, 11]) &
                 (Q(rawg_description__isnull=True) | Q(rawg_description__exact=''))
             ).count()
 

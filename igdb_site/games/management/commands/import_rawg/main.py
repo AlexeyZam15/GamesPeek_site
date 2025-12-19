@@ -42,6 +42,74 @@ class Command(ImportRawgBaseCommand):
             traceback.print_exc()
             sys.exit(1)
 
+    def debug_game_status(self, game_ids_str):
+        """Показывает детальную информацию о статусе игры"""
+        if not game_ids_str:
+            return
+
+        game_ids = [int(id.strip()) for id in game_ids_str.split(',')]
+
+        self.stdout.write(f'\n🔍 ДИАГНОСТИКА ИГРЫ:')
+        self.stdout.write('=' * 60)
+
+        for igdb_id in game_ids:
+            try:
+                game = Game.objects.filter(igdb_id=igdb_id).first()
+
+                if not game:
+                    self.stdout.write(self.style.ERROR(f'❌ Игра с igdb_id={igdb_id} не найдена в базе данных'))
+                    continue
+
+                self.stdout.write(f'📋 Игра: {game.name} (igdb_id={igdb_id})')
+                self.stdout.write(f'   • ID в базе: {game.id}')
+                self.stdout.write(
+                    f'   • rawg_description: {self.style.SUCCESS("ЕСТЬ") if game.rawg_description else self.style.ERROR("ОТСУТСТВУЕТ")}')
+                if game.rawg_description:
+                    self.stdout.write(f'   • Длина описания: {len(game.rawg_description)} символов')
+                self.stdout.write(f'   • game_type: {game.game_type} ({game.get_game_type_display()})')
+                self.stdout.write(
+                    f'   • В not_found_ids: {self.style.WARNING("ДА") if igdb_id in self.not_found_ids else "нет"}')
+                self.stdout.write(f'   • overwrite режим: {self.original_options.get("overwrite", False)}')
+                self.stdout.write(f'   • auto_offset режим: {self.original_options.get("auto_offset", True)}')
+                self.stdout.write(f'   • ignore_auto_offset: {self.original_options.get("ignore_auto_offset", False)}')
+
+                # Проверяем условия фильтрации
+                should_process = True
+                reasons = []
+
+                # 1. Проверка описания
+                if not self.original_options.get('overwrite', False) and game.rawg_description:
+                    reasons.append("Уже есть rawg_description (overwrite=False)")
+                    should_process = False
+
+                # 2. Проверка auto_offset
+                if self.original_options.get('auto_offset', True) and \
+                        igdb_id in self.not_found_ids and \
+                        not self.original_options.get('ignore_auto_offset', False):
+                    reasons.append("В not_found_ids (auto_offset=True, ignore_auto_offset=False)")
+                    should_process = False
+
+                # 3. Проверка game_type
+                main_types = [0, 1, 2, 4, 5, 8, 9, 10, 11]
+                if not self.original_options.get('include_all_gametypes', False) and \
+                        game.game_type not in main_types:
+                    reasons.append(f"game_type {game.game_type} не в основном списке (include_all_gametypes=False)")
+                    should_process = False
+
+                if should_process:
+                    self.stdout.write(self.style.SUCCESS(f'   ✅ ДОЛЖНА БЫТЬ обработана'))
+                else:
+                    self.stdout.write(self.style.ERROR(f'   ❌ НЕ БУДЕТ обработана:'))
+                    for reason in reasons:
+                        self.stdout.write(f'      - {reason}')
+
+                self.stdout.write('')
+
+            except Exception as e:
+                self.stdout.write(self.style.ERROR(f'   💥 Ошибка получения информации об игре {igdb_id}: {e}'))
+
+        self.stdout.write('=' * 60)
+
     def _handle_with_interrupt(self, *args, **options):
         """Основной обработчик команды (внутренний метод)"""
         self.start_time = time.time()
@@ -120,6 +188,10 @@ class Command(ImportRawgBaseCommand):
         # Показываем информацию о кэше
         self.show_cache_info(options)
 
+        # Если переданы конкретные ID игр, показываем их статус
+        if options.get('debug') and options.get('game_ids'):
+            self.debug_game_status(options.get('game_ids'))
+
         # Создаем процессор
         self.import_processor = ImportProcessor(
             self.rawg_client,
@@ -145,6 +217,16 @@ class Command(ImportRawgBaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f'⚡ ОПТИМИЗИРОВАННЫЙ ИМПОРТ: batch_size={batch_size}, workers={options.get("workers", 4)}'
         ))
+
+        # Если переданы конкретные ID игр, принудительно обрабатываем их
+        if options.get('game_ids'):
+            self.stdout.write(self.style.WARNING(
+                f'🎯 ОБРАБОТКА КОНКРЕТНЫХ ИГР: {options["game_ids"]}'
+            ))
+            self.stdout.write(self.style.WARNING(
+                f'   Режим: {"overwrite" if options.get("overwrite") else "normal"}, '
+                f'ignore-auto-offset: {options.get("ignore_auto_offset", False)}'
+            ))
 
         try:
             if limit == 0 and repeat_times == 0:
@@ -195,6 +277,8 @@ class Command(ImportRawgBaseCommand):
 
     def execute_single_batch_mode(self, auto_offset, batch_size, options):
         """Запускает импорт в батчевом режиме (один проход)"""
+        game_ids_str = options.get('game_ids')  # ← Сохраняем game_ids
+
         offset = options.get('offset', 0)
         limit = options.get('limit', 0)
         processed_total = 0
@@ -207,14 +291,19 @@ class Command(ImportRawgBaseCommand):
                 self.stdout.write("⚠️  Прерывание запрошено")
                 break
 
-            # Получаем батч игр
-            games = game_fetcher.get_games_batch(offset, batch_size, auto_offset)
+            # Получаем батч игр - ПЕРЕДАЕМ game_ids_str!
+            games = game_fetcher.get_games_batch(offset, batch_size, auto_offset, game_ids_str)
 
             if not games:
                 self.stdout.write("✅ Все игры обработаны!")
                 break
 
             self.stdout.write(f'🔄 Батч {offset // batch_size + 1}: {len(games)} игр')
+
+            if options.get('debug'):
+                self.stdout.write(f'[DEBUG execute_single_batch_mode] Будут обработаны игры:')
+                for game in games[:5]:  # Показываем первые 5 для отладки
+                    self.stdout.write(f'  - {game.igdb_id}: {game.name}')
 
             # Обрабатываем батч
             stats = self.import_processor.run_single_import_batch(1, auto_offset, games)
@@ -233,12 +322,13 @@ class Command(ImportRawgBaseCommand):
                 break
 
             # Уменьшенная пауза между батчами
-            time.sleep(0.05)  # Уменьшили паузу до 0.05 секунд
+            time.sleep(0.05)
 
     def execute_infinite_batch_mode(self, auto_offset, batch_size, options):
         """Выполняет бесконечные повторения - каждый повтор как отдельный запуск команды"""
         repeat_num = 1
         repeat_delay = options.get('repeat_delay', 10.0)
+        game_ids_str = options.get('game_ids')  # ← Сохраняем game_ids
 
         # Статистика сессии
         games_processed_this_session = 0
@@ -257,9 +347,19 @@ class Command(ImportRawgBaseCommand):
                 self.stdout.write(f'🔄 ПОВТОРЕНИЕ {repeat_num}')
                 self.stdout.write(f'📊 Обработано в этой сессии: {games_processed_this_session:,} игр')
 
+                if game_ids_str:
+                    self.stdout.write(f'🎯 Режим конкретных игр: {game_ids_str}')
+
                 # 3. Проверяем доступные игры
                 game_fetcher = GameFetcher(options, self.not_found_ids)
-                available_games = game_fetcher.get_total_games_to_process(auto_offset)
+
+                # ПЕРЕДАЕМ game_ids_str В get_games_to_process!
+                available_games = len(game_fetcher.get_games_to_process(game_ids_str, auto_offset))
+
+                # Для отладки:
+                if options.get('debug'):
+                    print(f"[DEBUG execute_infinite_batch_mode] available_games: {available_games}")
+                    print(f"[DEBUG execute_infinite_batch_mode] game_ids_str: {game_ids_str}")
 
                 if available_games == 0:
                     if games_processed_this_session > 0:
@@ -335,11 +435,14 @@ class Command(ImportRawgBaseCommand):
                 current_options['offset'] = 0
 
                 game_fetcher = GameFetcher(current_options, self.not_found_ids)
-                games = game_fetcher.get_games_to_process(None, auto_offset)
+
+                # КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: передаем game_ids_str!
+                games = game_fetcher.get_games_to_process(game_ids_str, auto_offset)
 
                 # Отладочный вывод
                 if not games and options.get('debug'):
-                    self.stdout.write(f'[DEBUG] Пустой батч с параметрами:')
+                    self.stdout.write(f'[DEBUG execute_infinite_batch_mode] Пустой батч с параметрами:')
+                    self.stdout.write(f'  - game_ids_str: {game_ids_str}')
                     self.stdout.write(f'  - limit: {current_options["limit"]}')
                     self.stdout.write(f'  - offset: 0')
                     self.stdout.write(f'  - available_games: {available_games}')
@@ -363,6 +466,11 @@ class Command(ImportRawgBaseCommand):
                 consecutive_empty_results = 0
 
                 self.stdout.write(f'🔄 Начинаем обработку {len(games)} игр...')
+
+                if options.get('debug'):
+                    self.stdout.write(f'[DEBUG execute_infinite_batch_mode] Будут обработаны игры:')
+                    for game in games[:5]:  # Показываем первые 5 для отладки
+                        self.stdout.write(f'  - {game.igdb_id}: {game.name}')
 
                 # 6. Запускаем обработку
                 processing_result = self._process_games_batch(repeat_num, auto_offset, games)
@@ -395,14 +503,9 @@ class Command(ImportRawgBaseCommand):
                     self.stdout.write('⚠️  Игры были, но не обработаны (games_processed = 0)')
                     # Показываем отладку
                     if options.get('debug'):
-                        self.stdout.write(f'[DEBUG] processing_result:')
+                        self.stdout.write(f'[DEBUG execute_infinite_batch_mode] processing_result:')
                         for key, value in processing_result.items():
                             self.stdout.write(f'  {key}: {value}')
-
-                    # Если есть новые ненайденные игры, покажем их
-                    new_not_found = processing_result.get('new_not_found', 0)
-                    if new_not_found > 0:
-                        self.stdout.write(f'   🔍 Новых ненайденных игр: {new_not_found}')
 
                     # Небольшая пауза чтобы не зациклиться
                     time.sleep(1)
@@ -784,7 +887,7 @@ class Command(ImportRawgBaseCommand):
             for i in range(0, len(not_found_names), batch_size):
                 batch_names = not_found_names[i:i + batch_size]
 
-                # Ищем игры батчем
+                # Ищем игры батчем - БЕЗ select_related('game_type')
                 games = Game.objects.filter(name__in=batch_names).only('id', 'igdb_id', 'name')
                 self.not_found_ids.update(game.igdb_id for game in games)
 
@@ -805,6 +908,9 @@ class Command(ImportRawgBaseCommand):
 
         except Exception as e:
             self.stdout.write(f'⚠️ Ошибка загрузки из кэша RAWG: {e}')
+            if self.options.get('debug'):
+                import traceback
+                traceback.print_exc()
             self.not_found_ids = set()
 
     def load_not_found_ids_from_file(self, filename):
@@ -838,7 +944,7 @@ class Command(ImportRawgBaseCommand):
         return file_ids
 
     def save_not_found_ids_to_file(self, filename):
-        """Сохраняет список не найденных игр в файл (оптимизированная версия)"""
+        """Сохраняет список не найденных игр в файл (исправленная версия)"""
         try:
             if not self.not_found_ids:
                 return
@@ -855,19 +961,20 @@ class Command(ImportRawgBaseCommand):
             for i in range(0, total_ids, batch_size):
                 batch_ids = igdb_ids[i:i + batch_size]
 
+                # ИСПРАВЛЕНО: убрали select_related('game_type') так как game_type - не ForeignKey
                 games = Game.objects.filter(
                     igdb_id__in=batch_ids
-                ).select_related('game_type').only(
-                    'id', 'igdb_id', 'name', 'game_type_id',
-                    'first_release_date', 'rating', 'rating_count'
+                ).only(
+                    'id', 'igdb_id', 'name',
+                    'first_release_date', 'rating', 'rating_count', 'game_type'
                 )
 
                 for game in games:
                     not_found_details.append({
                         'igdb_id': game.igdb_id,
                         'name': game.name,
-                        'game_type': game.game_type_id,
-                        'game_type_name': game.game_type.name if game.game_type else None,
+                        'game_type': game.game_type,
+                        'game_type_name': game.get_game_type_display() if game.game_type is not None else None,
                         'first_release_date': game.first_release_date.isoformat() if game.first_release_date else None,
                         'rating': game.rating,
                         'rating_count': game.rating_count
@@ -903,6 +1010,10 @@ class Command(ImportRawgBaseCommand):
 
         except Exception as e:
             self.stdout.write(f'   ⚠️ Ошибка сохранения в файл: {e}')
+            if self.options.get('debug'):
+                import traceback
+                traceback.print_exc()
+
             # Сохраняем упрощенную версию
             try:
                 data = {
@@ -915,8 +1026,8 @@ class Command(ImportRawgBaseCommand):
                 with open(filename, 'w', encoding='utf-8') as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)
                 self.stdout.write(f'   💾 Сохранены только ID (без названий)')
-            except:
-                self.stdout.write(f'   💥 Критическая ошибка сохранения файла')
+            except Exception as e2:
+                self.stdout.write(f'   💥 Критическая ошибка сохранения файла: {e2}')
 
     def show_cache_info(self, options):
         """Показывает информацию о кэше"""

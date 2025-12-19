@@ -43,7 +43,7 @@ class ImportRawgBaseCommand(BaseCommand):
         parser.add_argument(
             '--delay',
             type=float,
-            default=0.1,  # Уменьшили с 0.5 до 0.1 секунды
+            default=0.1,
             help='Задержка между запросами (секунды)'
         )
         parser.add_argument(
@@ -100,7 +100,7 @@ class ImportRawgBaseCommand(BaseCommand):
         parser.add_argument(
             '--repeat-delay',
             type=float,
-            default=10.0,  # Уменьшили с 60.0 до 10.0 секунд
+            default=10.0,
             help='Пауза между повторами в секундах'
         )
         parser.add_argument(
@@ -159,6 +159,11 @@ class ImportRawgBaseCommand(BaseCommand):
             action='store_false',
             dest='save_on_interrupt',
             help='Выключить сохранение прогресса при прерывании'
+        )
+        parser.add_argument(
+            '--ignore-auto-offset',
+            action='store_true',
+            help='Игнорировать auto-offset для конкретных игр (принудительная обработка)'
         )
 
     def init_import_settings(self, options):
