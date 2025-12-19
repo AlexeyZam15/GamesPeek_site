@@ -1,155 +1,135 @@
+# FILE: admin.py
+# PATH: P:\Users\Alexey\Desktop\igdb_site\igdb_site\games\admin.py
+
 from django.contrib import admin
-from django.db.models import Count
-from .models import Game, Genre, Platform, Keyword, KeywordCategory
+from .models import (
+    Game, GameSimilarityDetail, GameCountsCache, Company, Series,
+    Theme, PlayerPerspective, GameMode, KeywordCategory, Keyword,
+    Genre, Platform, GameSimilarityCache, Screenshot
+)
 
 
-@admin.register(KeywordCategory)
-class KeywordCategoryAdmin(admin.ModelAdmin):
-    list_display = ['name', 'keywords_count', 'description']
-    search_fields = ['name']
+# ===== BASIC ADMIN CONFIGURATIONS =====
 
-    def keywords_count(self, obj):
-        return obj.keywords.count()
+@admin.register(Game)
+class GameAdmin(admin.ModelAdmin):
+    list_display = ['id', 'name', 'game_type', 'rating', 'first_release_date']
+    list_filter = ['game_type', 'genres', 'platforms']
+    search_fields = ['name', 'summary']
+    filter_horizontal = ['genres', 'platforms', 'keywords', 'developers', 'publishers']
+    raw_id_fields = ['parent_game', 'version_parent']
 
-    keywords_count.short_description = 'Кол-во ключевых слов'
+    fieldsets = (
+        ('Основная информация', {
+            'fields': ('name', 'igdb_id', 'summary', 'game_type', 'rating', 'rating_count', 'first_release_date')
+        }),
+        ('Связи', {
+            'fields': ('parent_game', 'version_parent', 'version_title')
+        }),
+        ('Многие ко многим', {
+            'fields': ('genres', 'platforms', 'keywords', 'developers', 'publishers', 'themes')
+        }),
+        ('Дополнительно', {
+            'fields': ('storyline', 'rawg_description', 'cover_url')
+        }),
+    )
 
 
-@admin.register(Keyword)
-class KeywordAdmin(admin.ModelAdmin):
-    list_display = ['name', 'category', 'usage_count_display', 'popularity_level_display', 'igdb_id']
-    list_filter = ['category']  # Убрал usage_count из фильтров
-    search_fields = ['name']
-    list_editable = ['category']
-    list_per_page = 50
-    ordering = ['name']  # Временно убрал сортировку по usage_count
+@admin.register(Company)
+class CompanyAdmin(admin.ModelAdmin):
+    list_display = ['name', 'igdb_id', 'website']
+    search_fields = ['name', 'description']
+    list_filter = []
 
-    def get_queryset(self, request):
-        # Аннотируем queryset с реальным count через базу
-        queryset = super().get_queryset(request)
-        return queryset.annotate(
-            _game_count=Count('game', distinct=True)
-        )
 
-    def usage_count_display(self, obj):
-        # Используем аннотированное поле или вычисляем
-        if hasattr(obj, '_game_count'):
-            return obj._game_count
-        return obj.game_set.count()
-
-    usage_count_display.short_description = 'Usage Count'
-    usage_count_display.admin_order_field = '_game_count'  # Позволяет сортировать
-
-    def popularity_level_display(self, obj):
-        # Вычисляем уровень популярности
-        count = self.usage_count_display(obj)
-        if count == 0:
-            return "Unused"
-        elif count <= 5:
-            return "Low"
-        elif count <= 20:
-            return "Medium"
-        elif count <= 100:
-            return "High"
-        else:
-            return "Very High"
-
-    popularity_level_display.short_description = 'Popularity'
-
-    # Обновляем ordering для использования аннотированного поля
-    def get_ordering(self, request):
-        return ['-_game_count', 'name']
+@admin.register(Series)
+class SeriesAdmin(admin.ModelAdmin):
+    list_display = ['name', 'igdb_id', 'game_count', 'is_main_series']
+    search_fields = ['name', 'description']
+    filter_horizontal = []
+    raw_id_fields = ['parent_series']
 
 
 @admin.register(Genre)
 class GenreAdmin(admin.ModelAdmin):
-    list_display = ['name', 'igdb_id', 'games_count']
+    list_display = ['name', 'igdb_id']
     search_fields = ['name']
-
-    def games_count(self, obj):
-        return obj.game_set.count()
-
-    games_count.short_description = 'Кол-во игр'
 
 
 @admin.register(Platform)
 class PlatformAdmin(admin.ModelAdmin):
-    list_display = ['name', 'igdb_id', 'games_count']
+    list_display = ['name', 'igdb_id', 'game_count']
     search_fields = ['name']
 
-    def games_count(self, obj):
-        return obj.game_set.count()
 
-    games_count.short_description = 'Кол-во игр'
-
-
-@admin.register(Game)
-class GameAdmin(admin.ModelAdmin):
-    list_display = ['name', 'rating', 'rating_count', 'first_release_date', 'get_genres', 'get_platforms',
-                    'get_keywords_count']
-    list_filter = ['genres', 'platforms', 'first_release_date',
-                   'keywords__category']  # Добавил фильтр по категориям ключевых слов
+@admin.register(Keyword)
+class KeywordAdmin(admin.ModelAdmin):
+    list_display = ['name', 'category', 'igdb_id', 'cached_usage_count']
+    list_filter = ['category']
     search_fields = ['name']
-    readonly_fields = ['igdb_id', 'display_genres', 'display_platforms', 'display_keywords_by_category']
+    list_editable = ['category']
 
-    fieldsets = (
-        ('Основная информация', {
-            'fields': (
-                'name', 'igdb_id', 'summary', 'storyline', 'rating', 'rating_count', 'first_release_date', 'cover_url')
-        }),
-        ('Связи (только просмотр)', {
-            'fields': ('display_genres', 'display_platforms', 'display_keywords_by_category'),
-            'classes': ('collapse',)
-        }),
-    )
 
-    def display_genres(self, obj):
-        return ", ".join([genre.name for genre in obj.genres.all()])
+@admin.register(KeywordCategory)
+class KeywordCategoryAdmin(admin.ModelAdmin):
+    list_display = ['name', 'description']
+    search_fields = ['name']
 
-    display_genres.short_description = 'Жанры'
 
-    def display_platforms(self, obj):
-        return ", ".join([platform.name for platform in obj.platforms.all()])
+@admin.register(Theme)
+class ThemeAdmin(admin.ModelAdmin):
+    list_display = ['name', 'igdb_id']
+    search_fields = ['name']
 
-    display_platforms.short_description = 'Платформы'
 
-    def display_keywords_by_category(self, obj):
-        """Показывает ключевые слова сгруппированные по категориям"""
-        categories = {}
-        for keyword in obj.keywords.select_related('category').all():
-            category_name = keyword.category.name if keyword.category else "Без категории"
-            if category_name not in categories:
-                categories[category_name] = []
-            categories[category_name].append(keyword.name)
+@admin.register(PlayerPerspective)
+class PlayerPerspectiveAdmin(admin.ModelAdmin):
+    list_display = ['name', 'igdb_id']
+    search_fields = ['name']
 
-        result = []
-        for category_name, keywords in sorted(categories.items()):
-            result.append(f"<strong>{category_name}:</strong> {', '.join(keywords)}")
 
-        return "<br>".join(result)
+@admin.register(GameMode)
+class GameModeAdmin(admin.ModelAdmin):
+    list_display = ['name', 'igdb_id']
+    search_fields = ['name']
 
-    display_keywords_by_category.short_description = 'Ключевые слова по категориям'
-    display_keywords_by_category.allow_tags = True
 
-    def get_genres(self, obj):
-        return ", ".join([genre.name for genre in obj.genres.all()[:3]])
+@admin.register(Screenshot)
+class ScreenshotAdmin(admin.ModelAdmin):
+    list_display = ['igdb_id', 'game', 'is_primary', 'width', 'height']
+    list_filter = ['is_primary']
+    search_fields = ['game__name', 'caption']
+    raw_id_fields = ['game']
 
-    get_genres.short_description = 'Жанры'
 
-    def get_platforms(self, obj):
-        return ", ".join([platform.name for platform in obj.platforms.all()[:3]])
+# ===== SIMILARITY/CACHE MODELS =====
+# Эти модели редко редактируются вручную
 
-    get_platforms.short_description = 'Платформы'
+@admin.register(GameSimilarityDetail)
+class GameSimilarityDetailAdmin(admin.ModelAdmin):
+    list_display = ['source_game', 'target_game', 'calculated_similarity', 'updated_at']
+    search_fields = ['source_game__name', 'target_game__name']
+    raw_id_fields = ['source_game', 'target_game']
+    readonly_fields = ['updated_at']
 
-    def get_keywords_count(self, obj):
-        return obj.keywords.count()
 
-    get_keywords_count.short_description = 'Ключевых слов'
+@admin.register(GameSimilarityCache)
+class GameSimilarityCacheAdmin(admin.ModelAdmin):
+    list_display = ['game1', 'game2', 'similarity_score', 'calculated_at']
+    search_fields = ['game1__name', 'game2__name']
+    raw_id_fields = ['game1', 'game2']
+    readonly_fields = ['calculated_at']
 
-    # Оптимизируем запросы
-    def get_queryset(self, request):
-        return super().get_queryset(request).prefetch_related(
-            'genres',
-            'platforms',
-            'keywords',
-            'keywords__category'  # Добавил оптимизацию для категорий
-        )
+
+@admin.register(GameCountsCache)
+class GameCountsCacheAdmin(admin.ModelAdmin):
+    list_display = ['game', 'genres_count', 'keywords_count', 'updated_at']
+    search_fields = ['game__name']
+    raw_id_fields = ['game']
+    readonly_fields = ['created_at', 'updated_at']
+
+
+# ===== ADMIN SITE CONFIGURATION =====
+admin.site.site_header = "GamesPeek Site Administration"
+admin.site.site_title = "GamesPeek Admin"
+admin.site.index_title = "Welcome to GamesPeek Admin"

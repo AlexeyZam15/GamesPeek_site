@@ -65,3 +65,5 @@ Thumbs.db
 /igdb_site/last_offset.json
 /igdb_site/games/migrations/0013_alter_company_options_alter_company_logo_igdb_id_and_more.py
 /igdb_site/результаты_state.json
+/igdb_site/результаты_state_criteria.json
+/igdb_site/результаты_state_keywords.json
