@@ -67,3 +67,7 @@ Thumbs.db
 /igdb_site/результаты_state.json
 /igdb_site/результаты_state_criteria.json
 /igdb_site/результаты_state_keywords.json
+/igdb_site/logs/failed_wiki_import_20251219_163432.csv
+/igdb_site/logs/failed_wiki_import_20251219_164811.csv
+/igdb_site/games/migrations/0014_game_wiki_description.py
+/igdb_site/games/migrations/0015_remove_game_games_game_summary_2725bc_idx_and_more.py

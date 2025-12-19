@@ -15,7 +15,7 @@
                     <div class="card-body">
                         <div class="collapsible-text {% if game.rawg_description|wordcount <= 100 %}expanded{% endif %}"
                              id="rawg-text">
-                            <p class="card-text text-light mb-0">{{ game.rawg_description }}</p>
+                            <p class="card-text text-light mb-0">{{ game.rawg_description|safe }}</p>
                         </div>
                         {% if game.rawg_description|wordcount > 100 %}
                             <button class="toggle-text-btn mt-3" onclick="toggleText('rawg')">
