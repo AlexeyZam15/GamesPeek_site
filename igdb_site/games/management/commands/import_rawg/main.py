@@ -68,7 +68,6 @@ class Command(ImportRawgBaseCommand):
 
     def _update_progress_stats_from_result(self, result):
         """Обновляет статистику прогресс-бара из результатов обработки батча"""
-        # result уже содержит статистику батча
         stats = result
 
         if hasattr(self, 'original_options') and self.original_options.get('debug'):
@@ -83,10 +82,15 @@ class Command(ImportRawgBaseCommand):
         # Обновляем ГЛОБАЛЬНУЮ статистику
         self.update_global_stats_from_batch(stats)
 
-        # Обновляем прогресс текущей сессии
-        games_in_batch = stats.get('total_processed', 0)
-        if games_in_batch > 0:
-            self.progress_data['processed_games'] += games_in_batch
+        # ОБНОВЛЯЕМ ПРОГРЕСС ТЕКУЩЕЙ СЕССИИ
+        # games_in_batch уже отображается в current_batch
+        # processed_games должно обновляться через current_batch, а не напрямую
+
+        # ВАЖНО: processed_games должен равняться текущему значению current_batch
+        # если current_batch обновляется в реальном времени в процессе обработки
+        if hasattr(self, 'original_options') and self.original_options.get('debug'):
+            print(f"  ДО обновления processed_games: {self.progress_data.get('processed_games', 0)}")
+            print(f"  current_batch: {self.progress_data.get('current_batch', 0)}")
 
         # Обновляем прогресс-бар
         self.update_single_progress_line()
@@ -98,6 +102,7 @@ class Command(ImportRawgBaseCommand):
             print(f"      Найдено: {self.global_stats['found']}")
             print(f"      Не найдено: {self.global_stats['not_found']}")
             print(f"      Ошибок: {self.global_stats['errors']}")
+            print(f"    processed_games: {self.progress_data.get('processed_games', 0)}")
 
     def handle(self, *args, **options):
         """Основной обработчик команды с graceful shutdown"""
@@ -209,44 +214,54 @@ class Command(ImportRawgBaseCommand):
                 )
 
                 if response.status_code == 200:
-                    self.stdout.write(self.style.SUCCESS('✅ RAWG клиент инициализирован'))
+                    # Очищаем прогресс-бар и выводим информацию с новой строки
+                    self.clear_progress_line()
+                    self.stdout.write(self.style.SUCCESS('✅ RAWG клиент инициализирован\n'))
 
                     # Показываем информацию о балансе
                     balance = self.rawg_client.check_balance()
-                    self.stdout.write(f'   📊 Лимит API: {balance["limit"]:,}')
-                    self.stdout.write(f'   📊 Использовано: {balance["used"]:,}')
+                    self.stdout.write(f'   📊 Лимит API: {balance["limit"]:,}\n')
+                    self.stdout.write(f'   📊 Использовано: {balance["used"]:,}\n')
 
                     # ЕСЛИ УКАЗАН НОВЫЙ ЛИМИТ, СООБЩАЕМ О СБРОСЕ
                     if api_limit is not None:
-                        self.stdout.write(self.style.SUCCESS(f'   🔄 Счетчик запросов сброшен (указан новый лимит)'))
+                        self.stdout.write(self.style.SUCCESS(f'   🔄 Счетчик запросов сброшен (указан новый лимит)\n'))
 
-                    self.stdout.write(f'   📊 Осталось: {balance["remaining"]:,} ({balance["percentage"]:.1f}%)')
+                    self.stdout.write(f'   📊 Осталось: {balance["remaining"]:,} ({balance["percentage"]:.1f}%)\n')
 
                     if balance['is_low']:
                         self.stdout.write(
-                            self.style.WARNING(f'   ⚠️  Мало запросов: осталось {balance["remaining"]:,}'))
+                            self.style.WARNING(f'   ⚠️  Мало запросов: осталось {balance["remaining"]:,}\n'))
 
+                    # Показываем прогресс-бар снова (если есть игры для обработки)
+                    if hasattr(self, 'progress_data') and self.progress_data.get('total_games', 0) > 0:
+                        self.update_single_progress_line()
                     return True
                 elif response.status_code == 401:
-                    self.stdout.write(self.style.ERROR('❌ Неверный API ключ RAWG'))
+                    self.clear_progress_line()
+                    self.stdout.write(self.style.ERROR('❌ Неверный API ключ RAWG\n'))
                     return False
                 else:
+                    self.clear_progress_line()
                     self.stdout.write(
-                        self.style.WARNING(f'⚠️  API ответил с кодом {response.status_code}, продолжаем...'))
+                        self.style.WARNING(f'⚠️  API ответил с кодом {response.status_code}, продолжаем...\n'))
                     return True
 
             except Exception as e:
-                self.stdout.write(self.style.WARNING(f'⚠️  Ошибка проверки API: {e}, продолжаем...'))
+                self.clear_progress_line()
+                self.stdout.write(self.style.WARNING(f'⚠️  Ошибка проверки API: {e}, продолжаем...\n'))
                 return True
 
         except ValueError as e:
-            self.stdout.write(self.style.ERROR(f'❌ {e}'))
+            self.clear_progress_line()
+            self.stdout.write(self.style.ERROR(f'❌ {e}\n'))
             self.stdout.write(self.style.WARNING(
-                '💡 Укажите ключ через --api-key или добавьте RAWG_API_KEY в .env'
+                '💡 Укажите ключ через --api-key или добавьте RAWG_API_KEY в .env\n'
             ))
             return False
         except Exception as e:
-            self.stdout.write(self.style.ERROR(f'❌ Ошибка инициализации RAWG клиента: {e}'))
+            self.clear_progress_line()
+            self.stdout.write(self.style.ERROR(f'❌ Ошибка инициализации RAWG клиента: {e}\n'))
             return False
 
     def run_main_import_process(self, options):
