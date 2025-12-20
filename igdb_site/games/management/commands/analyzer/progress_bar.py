@@ -3,11 +3,13 @@ import sys
 import time
 from typing import Optional, Dict
 
+
 class ProgressBar:
     """Класс для отображения прогресс-бара в терминале (stderr)"""
 
     def __init__(self, total: int, desc: str = "Анализ игр",
-                 bar_length: int = 30, update_interval: float = 0.1):
+                 bar_length: int = 30, update_interval: float = 0.1,
+                 stat_width: int = 5):  # <-- НОВЫЙ ПАРАМЕТР: ширина поля статистики
         """
         Инициализация прогресс-бара
 
@@ -16,11 +18,13 @@ class ProgressBar:
             desc: Описание процесса
             bar_length: Длина полоски прогресса в символах
             update_interval: Минимальный интервал обновления в секундах
+            stat_width: Ширина поля для каждой статистики (рекомендуется 5 для 4-значных чисел)
         """
         self.total = total
         self.desc = desc
         self.bar_length = bar_length
         self.update_interval = update_interval
+        self.stat_width = stat_width  # <-- Сохраняем ширину для статистики
 
         self.current = 0
         self.start_time = time.time()
@@ -83,19 +87,20 @@ class ProgressBar:
         else:
             time_str = f"{elapsed_time:.0f}s"
 
-        # ИСПРАВЛЕННОЕ ФОРМАТИРОВАНИЕ: используем f-string с явной шириной поля
+        # ИСПРАВЛЕННОЕ ФОРМАТИРОВАНИЕ: используем фиксированную ширину для статистики
         message = f"\r{self.desc}: {percentage:3.0f}% [{self.current}/{self.total}] [{bar}] "
 
-        # Форматируем каждую статистику с фиксированной шириной в 4 символа
-        message += f"🎯{self.stats['found_count']:4d} "
-        message += f"📈{self.stats['total_criteria_found']:4d} "
-        message += f"⏭️{self.stats['skipped_no_text']:4d} "
-        message += f"❌{self.stats['errors']:4d} "
-        message += f"💾{self.stats['updated']:4d} "
+        # Форматируем каждую статистику с фиксированной шириной в self.stat_width символов
+        # ">{width}" - выравнивание по правому краю, чтобы числа были ровными
+        message += f"🎯{self.stats['found_count']:>{self.stat_width}} "
+        message += f"📈{self.stats['total_criteria_found']:>{self.stat_width}} "
+        message += f"⏭️{self.stats['skipped_no_text']:>{self.stat_width}} "
+        message += f"❌{self.stats['errors']:>{self.stat_width}} "
+        message += f"💾{self.stats['updated']:>{self.stat_width}} "
         message += f"({time_str})"
 
-        # Добавляем много пробелов для очистки
-        message += " " * 30  # Уменьшено с 50 до 30, так как теперь у нас фиксированная ширина
+        # Добавляем пробелы для очистки остатков предыдущей строки
+        message += " " * 30
 
         self.terminal_stderr.write(message)
         self.terminal_stderr.flush()
