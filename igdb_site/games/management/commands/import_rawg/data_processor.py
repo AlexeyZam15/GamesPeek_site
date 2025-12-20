@@ -407,7 +407,7 @@ class DataProcessor:
         # Инициализируем результаты и статистику
         results = self._empty_results()
         batch_stats = self._empty_stats()
-        batch_stats['total_processed'] = len(games)
+        batch_stats['total_processed'] = len(games)  # ← ЗДЕСЬ ПРАВИЛЬНО
 
         workers = min(self.options.get('workers', 4), len(games))
 
@@ -444,7 +444,7 @@ class DataProcessor:
 
                         # УВЕЛИЧИВАЕМ счетчик обработанных игр
                         completed += 1
-                        batch_stats['completed'] = completed
+                        batch_stats['completed'] = completed  # ← ЭТО ПРОСТО ДЛЯ ОТСЛЕЖИВАНИЯ
 
                         # ПРОВЕРЯЕМ, НУЖНО ЛИ ОСТАНОВИТЬСЯ ИЗ-ЗА ЛИМИТА API
                         if result and result.get('should_stop'):
@@ -465,26 +465,9 @@ class DataProcessor:
                                     f.cancel()
                             break
 
-                        if result and result.get('status') == 'balance_exceeded':
-                            should_stop = True
-                            results['balance_exceeded'] = True
-                            batch_stats['errors'] += 1
-                            results['errors'].append(game.id)
-
-                            error_msg = result.get('error', 'Лимит API исчерпан')
-                            self.log_error(f'🚫 {error_msg}', game, 'api_limit_exceeded', result)
-
-                            if self.options.get('debug'):
-                                self.log_debug(f'🚫 Лимит API исчерпан: {error_msg}')
-
-                            # ОСТАНАВЛИВАЕМ ВСЕ ЗАДАЧИ НЕМЕДЛЕННО
-                            for f in future_to_game.keys():
-                                if not f.done():
-                                    f.cancel()
-                            break
-
                         # Обрабатываем результат одной игры
-                        self._process_single_game_result(game, result, results, batch_stats)
+                        self._process_single_game_result(game, result, results,
+                                                         batch_stats)  # ← ЗДЕСЬ ДОБАВЛЯЕТСЯ В СТАТИСТИКУ
 
                     except concurrent.futures.TimeoutError:
                         error_msg = f'Таймаут обработки: {game.name}'
@@ -549,28 +532,22 @@ class DataProcessor:
                 if self.options.get('debug'):
                     self.log_debug(error_msg)
 
+        # В КОНЦЕ СРАЗУ ВЫВОДИМ ДЕБАГ
+        if self.options.get('debug'):
+            print(f"\n[DEBUG] ФИНАЛЬНАЯ СТАТИСТИКА БАТЧА:")
+            print(f"  Исходно в батче: {len(games)} игр")
+            print(f"  Обработано: {completed} игр")
+            print(f"  batch_stats['total_processed']: {batch_stats['total_processed']}")
+            print(f"  batch_stats['found']: {batch_stats['found']}")
+            print(f"  batch_stats['not_found_count']: {batch_stats['not_found_count']}")
+            print(f"  batch_stats['errors']: {batch_stats['errors']}")
+            print(f"  Сумма категорий: {batch_stats['found'] + batch_stats['not_found_count'] + batch_stats['errors']}")
+
         # Финализируем логи ошибок для этого батча
         self.finalize_error_logs()
 
         # Добавляем флаг в статистику
         batch_stats['should_stop'] = should_stop
-
-        if self.options.get('debug'):
-            print(f"\n[DEBUG] ФИНАЛЬНАЯ СТАТИСТИКА БАТЧА:")
-            print(f"  Всего игр в батче: {batch_stats['total_processed']}")
-            print(f"  Завершено обработок: {batch_stats['completed']}")
-            print(f"  Найдено описаний: {batch_stats['found']}")
-            print(f"  Не найдено описаний: {batch_stats['not_found_count']}")
-            print(f"  Ошибок обработки: {batch_stats['errors']}")
-            print(f"  Остановка из-за лимита: {'ДА' if should_stop else 'НЕТ'}")
-
-            # Сумма категорий должна равняться total_processed
-            sum_categories = batch_stats['found'] + batch_stats['not_found_count'] + batch_stats['errors']
-            print(f"  Сумма категорий: {sum_categories}")
-
-            if sum_categories != batch_stats['total_processed']:
-                print(f"  ⚠️  НЕСООТВЕТСТВИЕ! Разница: {abs(sum_categories - batch_stats['total_processed'])}")
-                batch_stats['total_processed'] = sum_categories
 
         return {
             'results': results,
@@ -609,7 +586,9 @@ class DataProcessor:
         if self.options.get('debug'):
             print(f"[DEBUG] Игра: {game.name}, статус: {status}")
 
-        # ИЗМЕНЯЕМ: НЕ НАЙДЕННЫЕ ИГРЫ - ТОЛЬКО В ОСНОВНОЙ ЛОГ, НЕ В ФАЙЛЫ ОШИБОК
+        # ВАЖНО: УБЕДИТЕСЬ, ЧТО ИГРА УЧИТЫВАЕТСЯ ТОЛЬКО ОДИН РАЗ
+        # Текущая игра уже учтена в completed, но нам нужно классифицировать ее
+
         if status in ['found', 'short']:
             # Найдено описание (даже если короткое)
             if description and len(description.strip()) > 0:
@@ -618,43 +597,22 @@ class DataProcessor:
 
                 if status == 'short':
                     stats['short_descriptions'] += 1
-                    # Короткие описания - только в основной лог
-                    if self.options.get('debug'):
-                        self.log_debug(f"Короткое описание ({len(description)} символов) для {game.name}")
 
                 if self.options.get('debug'):
-                    if status == 'found':
-                        print(f"  ✅ Найдено описание длиной {len(description)}")
-                    else:
-                        print(f"  📏 Короткое описание длиной {len(description)}")
+                    print(f"  ✅ Найдено описание ({len(description)} символов)")
             else:
                 # Статус 'found' или 'short', но описание пустое -> считаем как не найдено
                 stats['not_found_count'] += 1
                 if hasattr(game, 'igdb_id'):
                     results['not_found'].append(game.igdb_id)
-                # Пустое описание - только в основной лог для отладки
-                if self.options.get('debug'):
-                    self.log_debug(f"Статус '{status}' но описание пустое для {game.name}")
                 if self.options.get('debug'):
                     print(f"  ⚠️  Статус '{status}' но описание пустое -> не найдено")
 
         elif status in ['empty', 'not_found']:
-            # Не найдено описание - ЭТО НЕ ОШИБКА
+            # Не найдено описание
             stats['not_found_count'] += 1
             if hasattr(game, 'igdb_id'):
                 results['not_found'].append(game.igdb_id)
-
-            # ИЗМЕНЯЕМ: только в основной лог для информации, не в файлы ошибок
-            log_msg = f"Игра не найдена в RAWG" if status == 'not_found' else "Пустое описание в RAWG"
-
-            # Для не найденных игр - только информационное сообщение в основном логе
-            if self.options.get('debug'):
-                self.log_info(f"{log_msg}: {game.name}")
-            else:
-                # В не-отладочном режиме можно логировать реже
-                if stats['not_found_count'] % 100 == 0:
-                    self.log_info(f"Ненайденных игр: {stats['not_found_count']} (последняя: {game.name})")
-
             if self.options.get('debug'):
                 if status == 'empty':
                     print(f"  🚫 Пустое описание")
@@ -662,17 +620,9 @@ class DataProcessor:
                     print(f"  ❓ Игра не найдена в RAWG")
 
         elif status in ['error', 'balance_exceeded']:
-            # Техническая ошибка - ЭТО РЕАЛЬНЫЕ ОШИБКИ
+            # Техническая ошибка
             results['errors'].append(game.id)
             stats['errors'] += 1
-
-            error_msg = result.get('error', 'Неизвестная ошибка')
-            error_type = 'api_limit_exceeded' if status == 'balance_exceeded' else 'api_error'
-
-            # РЕАЛЬНЫЕ ОШИБКИ - в файлы ошибок
-            self.log_error(
-                f"{'Лимит API исчерпан' if status == 'balance_exceeded' else 'Ошибка обработки'}: {game.name} - {error_msg}",
-                game, error_type, result)
 
             if status == 'balance_exceeded':
                 results['balance_exceeded'] = True
@@ -685,7 +635,6 @@ class DataProcessor:
                 print(f"  ❓ Неизвестный статус: {status}")
             stats['errors'] += 1
             results['errors'].append(game.id)
-            self.log_error(f"Неизвестный статус '{status}' для игры {game.name}", game, 'unknown_status', result)
 
         # Статистика источников
         source = result.get('source')
@@ -699,6 +648,11 @@ class DataProcessor:
             stats['cache_misses'] += 1
         elif source == 'rate_limited':
             stats['rate_limited'] += 1
+
+        # В КОНЦЕ ДЕБАГ СТАТИСТИКИ
+        if self.options.get('debug'):
+            print(
+                f"  [Промежуточная статистика] found: {stats['found']}, not_found: {stats['not_found_count']}, errors: {stats['errors']}")
 
     def save_descriptions(self, descriptions):
         """Сохраняет описания в базу данных"""

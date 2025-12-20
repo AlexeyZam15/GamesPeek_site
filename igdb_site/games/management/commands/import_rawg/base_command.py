@@ -43,64 +43,33 @@ class ImportRawgBaseCommand(BaseCommand):
             'current_batch_total': 0  # Всего в текущем батче
         }
 
-    def update_api_balance_in_progress(self):
-        """Обновляет информацию о балансе API для прогресс-бара"""
-        if hasattr(self, 'rawg_client') and self.rawg_client:
-            try:
-                balance = self.rawg_client.check_balance()
+    def update_global_stats_from_batch(self, batch_stats):
+        """Обновляет глобальную статистику из статистики батча"""
+        if not batch_stats:
+            return
 
-                # Сохраняем в прогресс-данных
-                self.progress_data['api_remaining'] = balance['remaining']
-                self.progress_data['api_percentage'] = balance['percentage']
-                self.progress_data['api_exceeded'] = balance['exceeded']
-                self.progress_data['api_is_low'] = balance['is_low']
+        # ДЕБАГ
+        if hasattr(self, 'original_options') and self.original_options.get('debug'):
+            print(f"\n[DEBUG update_global_stats_from_batch]")
+            print(f"  До обновления: total_processed={self.global_stats['total_processed']}")
+            print(f"  batch_stats: total_processed={batch_stats.get('total_processed', 0)}")
+            print(f"  batch_stats: found={batch_stats.get('found', 0)}")
+            print(f"  batch_stats: not_found_count={batch_stats.get('not_found_count', 0)}")
+            print(f"  batch_stats: errors={batch_stats.get('errors', 0)}")
 
-                # Если лимит исчерпан
-                if balance['exceeded']:
-                    self.progress_data['current_status'] = "🚫 Лимит исчерпан"
-                    self.clear_progress_line()
-                    self.stdout.write(f"\n🚫 ЛИМИТ API ИСЧЕРПАН: {balance['used']:,}/{balance['limit']:,}")
-                    self.stdout.write(f"\n   Остановка обработки...\n")
-                    return balance
+        # Важно: batch_stats должен содержать статистику только для одного батча
+        old_total = self.global_stats['total_processed']
 
-                # Предупреждения при низком балансе
-                remaining = balance['remaining']
+        self.global_stats['total_processed'] += batch_stats.get('total_processed', 0)
+        self.global_stats['found'] += batch_stats.get('found', 0)
+        self.global_stats['not_found'] += batch_stats.get('not_found_count', 0)
+        self.global_stats['errors'] += batch_stats.get('errors', 0)
+        self.global_stats['cache_hits'] += batch_stats.get('cache_hits', 0)
+        self.global_stats['cache_misses'] += batch_stats.get('cache_misses', 0)
 
-                if remaining < 50 and not self.progress_data.get('warning_50_shown'):
-                    self.clear_progress_line()
-                    self.stdout.write(f"\n🔴 КРИТИЧЕСКИ МАЛО ЗАПРОСОВ: {remaining:,}")
-                    self.stdout.write(f"\n   Следующий батч может не завершиться!")
-                    self.update_single_progress_line()
-                    self.progress_data['warning_50_shown'] = True
-
-                elif remaining < 100 and not self.progress_data.get('warning_100_shown'):
-                    self.clear_progress_line()
-                    self.stdout.write(f"\n🟠 МАЛО ЗАПРОСОВ: {remaining:,}")
-                    self.stdout.write(f"\n   Рекомендуется остановиться после этого батча.")
-                    self.update_single_progress_line()
-                    self.progress_data['warning_100_shown'] = True
-
-                elif remaining < 500 and not self.progress_data.get('warning_500_shown'):
-                    self.clear_progress_line()
-                    self.stdout.write(f"\n🟡 ВНИМАНИЕ: Осталось {remaining:,} запросов")
-                    self.update_single_progress_line()
-                    self.progress_data['warning_500_shown'] = True
-
-                elif remaining < 1000 and not self.progress_data.get('warning_1000_shown'):
-                    self.clear_progress_line()
-                    self.stdout.write(f"\n🟡 Осталось менее 1,000 запросов: {remaining:,}")
-                    self.update_single_progress_line()
-                    self.progress_data['warning_1000_shown'] = True
-
-                # Обновляем прогресс-бар
-                self.update_single_progress_line()
-
-                return balance
-
-            except Exception as e:
-                if hasattr(self, 'original_options') and self.original_options.get('debug'):
-                    print(f"[DEBUG] Ошибка обновления баланса API: {e}")
-                return None
+        if hasattr(self, 'original_options') and self.original_options.get('debug'):
+            print(f"  После обновления: total_processed={self.global_stats['total_processed']}")
+            print(f"  Разница: {self.global_stats['total_processed'] - old_total}")
 
     def show_progress_summary(self):
         """Показывает сводную статистику из прогресс-бара"""
@@ -142,18 +111,6 @@ class ImportRawgBaseCommand(BaseCommand):
 
         print("=" * 60)
 
-    def update_global_stats_from_batch(self, batch_stats):
-        """Обновляет глобальную статистику из статистики батча"""
-        if not batch_stats:
-            return
-
-        # Важно: batch_stats должен содержать статистику только для одного батча
-        self.global_stats['total_processed'] += batch_stats.get('total_processed', 0)
-        self.global_stats['found'] += batch_stats.get('found', 0)
-        self.global_stats['not_found'] += batch_stats.get('not_found_count', 0)
-        self.global_stats['errors'] += batch_stats.get('errors', 0)
-        self.global_stats['cache_hits'] += batch_stats.get('cache_hits', 0)
-        self.global_stats['cache_misses'] += batch_stats.get('cache_misses', 0)
 
     def update_progress_from_stats(self, stats):
         """Обновляет прогресс-бар из статистики обработки"""
@@ -187,32 +144,44 @@ class ImportRawgBaseCommand(BaseCommand):
     def update_single_progress_line(self, message=None):
         """Обновляет единую строку прогресса с улучшенным форматированием"""
         if message:
-            # Обрезаем слишком длинные сообщения
             if len(message) > 15:
                 message = message[:12] + "..."
             self.progress_data['current_status'] = message
 
-        processed = self.progress_data.get('processed_games', 0)
-        total = self.progress_data.get('total_games', 0)
+        # Получаем значения из progress_data
+        current_batch = self.progress_data.get('current_batch', 0)
+        current_batch_total = self.progress_data.get('current_batch_total', 0)
 
-        if total == 0:
+        # Общее количество обработанных игр - берем из глобальной статистики
+        total_processed = self.global_stats['total_processed']
+        total_games = self.progress_data.get('total_games', 0)
+
+        # Если total_games еще не установлено (инициализация), показываем только статус
+        if total_games == 0:
             status_msg = self.progress_data.get('current_status', '')
+            # Укорачиваем слишком длинные сообщения
+            if len(status_msg) > 40:
+                status_msg = status_msg[:37] + "..."
+
             progress_str = f'\r{status_msg}'
             self.stdout.write(progress_str, ending='')
             self.stdout.flush()
             self.progress_data['last_progress_length'] = len(progress_str) - 1
             return
 
-        # Процент выполнения текущей сессии
-        progress = (processed / total * 100) if total > 0 else 0
+        # Процент выполнения на основе ГЛОБАЛЬНОЙ статистики
+        progress = (total_processed / total_games * 100) if total_games > 0 else 0
+        # Ограничиваем 100%
+        if progress > 100:
+            progress = 100
 
         # Время текущей сессии
         elapsed = time.time() - self.progress_data.get('session_start_time', time.time())
-        games_per_sec = processed / elapsed if elapsed > 0 else 0
+        games_per_sec = total_processed / elapsed if elapsed > 0 else 0
 
-        # Оставшееся время в текущей сессии
-        remaining = total - processed
-        eta_seconds = (elapsed / processed * remaining) if processed > 0 else 0
+        # Оставшееся время
+        remaining = total_games - total_processed
+        eta_seconds = (elapsed / total_processed * remaining) if total_processed > 0 else 0
 
         # Форматирование времени ETA
         if eta_seconds < 60:
@@ -222,13 +191,11 @@ class ImportRawgBaseCommand(BaseCommand):
         else:
             eta_str = f"{eta_seconds / 3600:.1f}ч"
 
-        # Используем ГЛОБАЛЬНУЮ статистику за всё время
-        total_processed = self.global_stats['total_processed']
+        # Глобальная статистика
         total_found = self.global_stats['found']
         total_not_found = self.global_stats['not_found']
         total_errors = self.global_stats['errors']
 
-        # Рассчитываем проценты от общего количества
         if total_processed > 0:
             found_pct = (total_found / total_processed * 100)
             not_found_pct = (total_not_found / total_processed * 100)
@@ -236,36 +203,31 @@ class ImportRawgBaseCommand(BaseCommand):
         else:
             found_pct = not_found_pct = errors_pct = 0
 
-        # Компактная статистика с иконками
         stats_compact = (
             f"✅{total_found:>5d}({found_pct:>3.0f}%) "
             f"❌{total_not_found:>5d}({not_found_pct:>3.0f}%) "
             f"💥{total_errors:>5d}({errors_pct:>3.0f}%)"
         )
 
-        # Информация о батче
-        current_batch = self.progress_data.get('current_batch', 0)
-        current_batch_total = self.progress_data.get('current_batch_total', 0)
+        # Информация о текущем батче
         status_msg = self.progress_data.get('current_status', '')
 
         if current_batch_total > 0:
-            batch_progress = (current_batch / current_batch_total * 100) if current_batch_total > 0 else 0
             batch_info = f"[Батч:{current_batch:>3d}/{current_batch_total:>3d}] {status_msg}"
         else:
             batch_info = status_msg
 
-        # Ограничиваем длину
         if len(batch_info) > 25:
             batch_info = batch_info[:22] + "..."
 
-        # Прогресс-бар текущей сессии
+        # Прогресс-бар
         bar_length = 20
         filled = int(bar_length * progress / 100)
         bar = "[" + "█" * filled + "░" * (bar_length - filled) + "]"
 
-        # ПОЛУЧАЕМ И ОФОРМЛЯЕМ БАЛАНС API
-        api_display = "∞"  # Значение по умолчанию
-        api_color = "🟢"  # Цвет по умолчанию
+        # Баланс API
+        api_display = "∞"
+        api_color = "🟢"
 
         if hasattr(self, 'rawg_client') and self.rawg_client:
             try:
@@ -273,7 +235,6 @@ class ImportRawgBaseCommand(BaseCommand):
                 api_remaining = balance['remaining']
                 api_percentage = balance['percentage']
 
-                # ФОРМАТИРОВАНИЕ ЧИСЛА ДЛЯ ОТОБРАЖЕНИЯ
                 if api_remaining >= 1000000:
                     api_display = f"{api_remaining / 1000000:.1f}M"
                 elif api_remaining >= 100000:
@@ -283,29 +244,26 @@ class ImportRawgBaseCommand(BaseCommand):
                 elif api_remaining >= 1000:
                     api_display = f"{api_remaining / 1000:.1f}K"
                 else:
-                    # ДЛЯ ЧИСЕЛ МЕНЬШЕ 1000 - ПОКАЗЫВАЕМ ПОЛНОЕ ЧИСЛО
                     api_display = f"{api_remaining}"
 
-                # ЦВЕТОВАЯ ИНДИКАЦИЯ
+                # Цветовая индикация
                 if api_percentage >= 90 or api_remaining < 100:
-                    api_color = "🔴"  # Красный - критически мало
+                    api_color = "🔴"
                 elif api_percentage >= 80 or api_remaining < 500:
-                    api_color = "🟠"  # Оранжевый - очень мало
+                    api_color = "🟠"
                 elif api_percentage >= 70 or api_remaining < 1000:
-                    api_color = "🟡"  # Желтый - мало
+                    api_color = "🟡"
                 elif api_percentage >= 50:
-                    api_color = "🟢"  # Зеленый - нормально
+                    api_color = "🟢"
                 else:
-                    api_color = "🟢"  # Зеленый - много
+                    api_color = "🟢"
 
             except Exception:
                 api_display = "?"
                 api_color = "⚫"
 
-        # Форматируем API информацию с выравниванием
         api_info = f"{api_color}{api_display:>6s}"
 
-        # Если осталось меньше 100 запросов, добавляем восклицательный знак
         if hasattr(self, 'rawg_client') and self.rawg_client:
             try:
                 balance = self.rawg_client.check_balance()
@@ -314,14 +272,14 @@ class ImportRawgBaseCommand(BaseCommand):
             except:
                 pass
 
-        # Формируем итоговую строку прогресса
+        # Формируем строку прогресса
         progress_str = (
             f'\r{bar} {progress:>3.0f}% | '
-            f'{processed:>5d}/{total:>5d} | '
+            f'{total_processed:>5d}/{total_games:>5d} | '
             f'{games_per_sec:>4.1f} и/с | '
             f'ETA:{eta_str:>4s} | '
             f'{stats_compact} | '
-            f'{api_info} | '  # БАЛАНС API
+            f'{api_info} | '
             f'{batch_info}'
         )
 
