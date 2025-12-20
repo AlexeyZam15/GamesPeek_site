@@ -1,4 +1,4 @@
-# games/management/commands/import_rawg/stats_manager.py
+# FILE: stats_manager.py
 import time
 from games.models import Game
 from django.db.models import Q
@@ -20,7 +20,6 @@ class StatsManager:
                 ~Q(rawg_description__exact='')
             ).count()
 
-            # ИСПРАВЛЕНО: game_type__in вместо game_type__igdb_id__in
             games_filtered = Game.objects.filter(
                 game_type__in=[0, 1, 2, 4, 5, 8, 9, 10, 11]
             ).count()
@@ -41,19 +40,6 @@ class StatsManager:
 
             self.stdout.write(f'\n   🎮 Игр с типами 0,1,2,4,5,8,9,10,11: {games_filtered:,}')
             self.stdout.write(f'   ✅ С RAWG описанием: {games_filtered_with_rawg:,} ({filtered_percentage:.1f}%)')
-
-            games_without_rawg = Game.objects.filter(
-                Q(rawg_description__isnull=True) |
-                Q(rawg_description__exact='')
-            ).count()
-
-            games_filtered_without_rawg = Game.objects.filter(
-                Q(game_type__in=[0, 1, 2, 4, 5, 8, 9, 10, 11]) &
-                (Q(rawg_description__isnull=True) | Q(rawg_description__exact=''))
-            ).count()
-
-            self.stdout.write(f'\n   ⏳ Без RAWG описания: {games_without_rawg:,}')
-            self.stdout.write(f'   ⏳ Из них с типами 0,1,2,4,5,8,9,10,11: {games_filtered_without_rawg:,}')
 
             if games_filtered > 0:
                 bar_length = 30

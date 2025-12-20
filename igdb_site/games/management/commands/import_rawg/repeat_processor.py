@@ -1,4 +1,4 @@
-# games/management/commands/import_rawg/repeat_processor.py
+# FILE: repeat_processor.py
 import time
 from .game_fetcher import GameFetcher
 
@@ -26,7 +26,6 @@ class RepeatProcessor:
         repeat_num = 1
         total_processed_games = 0
 
-        # Получаем общее количество игр
         game_fetcher = GameFetcher(self.options, self.import_processor.not_found_ids)
         total_to_process = game_fetcher.get_total_games_to_process(auto_offset)
 
@@ -38,7 +37,6 @@ class RepeatProcessor:
         print(f'📦 Батч: {batch_size} игр за повтор')
 
         while True:
-            # Проверяем флаг прерывания
             if self.import_processor.data_processor.stats.get('balance_exceeded', False):
                 print("\n🚫 Превышен лимит API - остановка")
                 break
@@ -47,23 +45,19 @@ class RepeatProcessor:
             print(f'🚀 ПОВТОРЕНИЕ {repeat_num} (бесконечный режим)')
             print(f'📦 Батч: {batch_size} игр, offset: {offset}')
 
-            # Обновляем опции для текущего батча
             current_options = self.options.copy()
             current_options['limit'] = batch_size
             current_options['offset'] = offset
             self.import_processor.options = current_options
 
-            # Запускаем импорт
             repeat_stats = self.import_processor.run_single_import(repeat_num, auto_offset)
 
-            # Обновляем глобальную статистику
             self.update_global_stats(repeat_stats)
 
             games_processed_in_batch = repeat_stats.get('total', 0)
             total_processed_games += games_processed_in_batch
             offset += games_processed_in_batch
 
-            # Показываем прогресс
             progress = (total_processed_games / total_to_process * 100) if total_to_process > 0 else 0
             print(f'📊 ПРОГРЕСС: {total_processed_games:,}/{total_to_process:,} игр ({progress:.1f}%)')
 
@@ -75,7 +69,6 @@ class RepeatProcessor:
                 print('\n🎉 Все запланированные игры обработаны!')
                 break
 
-            # Пауза между повторами
             repeat_delay = self.options.get('repeat_delay', 60.0)
             print(f'\n⏳ Пауза {repeat_delay} секунд...')
             time.sleep(repeat_delay)
@@ -92,10 +85,8 @@ class RepeatProcessor:
             print(f'\n{"=" * 50}')
             print(f'🚀 ПОВТОРЕНИЕ {repeat_num}/{repeat_times}')
 
-            # Запускаем импорт
             repeat_stats = self.import_processor.run_single_import(repeat_num, auto_offset)
 
-            # Обновляем глобальную статистику
             self.update_global_stats(repeat_stats)
 
             if repeat_num < repeat_times:
