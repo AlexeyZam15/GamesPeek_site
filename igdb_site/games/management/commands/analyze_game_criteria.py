@@ -925,7 +925,7 @@ class Command(BaseCommand):
                 criteria_parts.append(
                     f"перспективы: {perspective_names}" + ("..." if game.player_perspectives.count() > 2 else ""))
             if game.game_modes.exists():
-                mode_names = [mode.name for mode in mode.game_modes.all()[:2]]
+                mode_names = [mode.name for mode in game.game_modes.all()[:2]]  # ← Исправить здесь
                 criteria_parts.append(f"режимы: {mode_names}" + ("..." if game.game_modes.count() > 2 else ""))
 
         return ", ".join(criteria_parts) if criteria_parts else "нет"
