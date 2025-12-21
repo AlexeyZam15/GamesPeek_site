@@ -1,0 +1,232 @@
+/* ===== TABS COMPONENT ===== */
+
+/* Основные стили вкладок */
+.game-tabs {
+    background: var(--surface);
+    border-radius: var(--border-radius);
+    border: 1px solid var(--border);
+    margin-top: 1rem;
+}
+
+.game-tabs .nav-tabs {
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 0.5rem 0;
+    background: rgba(26, 26, 26, 0.8);
+}
+
+.game-tabs .nav-link {
+    border: none;
+    color: var(--text-dark);
+    font-weight: 600;
+    padding: 0.75rem 1.25rem;
+    border-radius: var(--border-radius) var(--border-radius) 0 0;
+    transition: var(--transition);
+    position: relative;
+    overflow: hidden;
+    font-size: 0.9rem;
+}
+
+.game-tabs .nav-link:hover {
+    color: var(--text-light);
+    background: rgba(255, 255, 255, 0.05);
+    border: none;
+}
+
+.game-tabs .nav-link.active {
+    color: var(--accent-color);
+    background: var(--surface);
+    border: none;
+    border-bottom: 3px solid var(--accent-color);
+}
+
+.game-tabs .tab-content {
+    padding: 1.5rem;
+    background: var(--surface);
+}
+
+/* Исправление отображения вкладок */
+.tab-content .tab-pane {
+    display: none;
+    animation: fadeInTab 0.2s ease-out;
+}
+
+.tab-content .tab-pane.active,
+.tab-content .tab-pane.show {
+    display: block;
+}
+
+@keyframes fadeInTab {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* Иконки во вкладках */
+.game-tabs .nav-link i {
+    font-size: 1.1rem;
+    margin-right: 0.5rem;
+}
+
+/* Бейджи во вкладках */
+.game-tabs .nav-link .badge {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.5rem;
+    margin-left: 0.5rem;
+    vertical-align: middle;
+}
+
+/* Анимация переключения вкладок */
+.game-tabs .nav-link::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+    transition: left 0.5s ease;
+}
+
+.game-tabs .nav-link:hover::before {
+    left: 100%;
+}
+
+/* Секции внутри вкладок */
+.compact-section {
+    margin-bottom: 1.5rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--border-radius);
+    padding: 1.5rem;
+}
+
+.compact-section:last-child {
+    margin-bottom: 0;
+}
+
+.section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.section-header h5, .section-header h6 {
+    margin: 0;
+    color: var(--text-light);
+    font-weight: 600;
+}
+
+/* Сворачиваемый текст */
+.collapsible-text {
+    max-height: 150px;
+    overflow: hidden;
+    transition: max-height 0.3s ease-out;
+    position: relative;
+}
+
+.collapsible-text.expanded {
+    max-height: none;
+}
+
+.collapsible-text::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 40px;
+    background: linear-gradient(transparent, var(--surface));
+    opacity: 1;
+    transition: opacity 0.3s ease;
+}
+
+.collapsible-text.expanded::after {
+    opacity: 0;
+}
+
+.toggle-text-btn {
+    background: none;
+    border: none;
+    color: var(--accent-color);
+    font-size: 0.875rem;
+    padding: 0.5rem 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    transition: var(--transition);
+    font-weight: 600;
+}
+
+.toggle-text-btn:hover {
+    color: var(--secondary-color);
+}
+
+/* Адаптивность */
+@media (max-width: 992px) {
+    .game-tabs .nav-link {
+        padding: 0.6rem 1rem;
+        font-size: 0.85rem;
+    }
+
+    .game-tabs .tab-content {
+        padding: 1.25rem;
+    }
+
+    .compact-section {
+        padding: 1.25rem;
+    }
+}
+
+@media (max-width: 768px) {
+    .game-tabs .nav-link {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.8rem;
+    }
+
+    .game-tabs .nav-link i {
+        font-size: 1rem;
+        margin-right: 0.3rem;
+    }
+
+    .game-tabs .tab-content {
+        padding: 1rem;
+    }
+
+    .compact-section {
+        padding: 1rem;
+    }
+
+    .section-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .game-tabs .nav {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        padding-bottom: 0.5rem;
+    }
+
+    .game-tabs .nav-link {
+        white-space: nowrap;
+        font-size: 0.75rem;
+        padding: 0.4rem 0.6rem;
+    }
+
+    .game-tabs .nav-link i {
+        font-size: 0.9rem;
+        margin-right: 0.2rem;
+    }
+
+    .game-tabs .nav-link .badge {
+        font-size: 0.6rem;
+        padding: 0.1rem 0.3rem;
+        margin-left: 0.3rem;
+    }
+}

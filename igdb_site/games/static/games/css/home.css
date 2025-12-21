@@ -1,0 +1,377 @@
+/* ===== HOME PAGE ===== */
+
+/* Hero секция */
+.home-hero {
+    text-align: center;
+    padding: 3rem 0 4rem;
+    margin-bottom: 3rem;
+}
+
+.home-hero h1 {
+    font-size: 3.5rem;
+    margin-bottom: 1.5rem;
+    line-height: 1.2;
+}
+
+.home-hero .lead {
+    font-size: 1.3rem;
+    color: var(--text-dark);
+    margin-bottom: 2.5rem;
+    max-width: 800px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* Быстрые действия */
+.quick-actions {
+    margin-bottom: 2.5rem;
+}
+
+.quick-actions .btn {
+    padding: 1rem 2rem;
+    font-size: 1.1rem;
+    margin: 0 0.5rem 1rem;
+}
+
+/* Быстрые фильтры */
+.quick-filters {
+    max-width: 800px;
+    margin: 2rem auto;
+}
+
+.quick-filters h6 {
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+    font-weight: 600;
+}
+
+.quick-filters .btn {
+    margin: 0.25rem;
+    font-size: 0.9rem;
+}
+
+/* Секция возможностей */
+.features-section {
+    margin-bottom: 4rem;
+}
+
+.feature-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--border-radius);
+    padding: 2rem;
+    height: 100%;
+    transition: var(--transition);
+    text-align: center;
+}
+
+.feature-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 15px 30px rgba(255, 107, 53, 0.2);
+    border-color: var(--secondary-color);
+}
+
+.feature-icon {
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 1.5rem;
+}
+
+.feature-icon i {
+    font-size: 3rem;
+    color: var(--secondary-color);
+}
+
+.feature-card h5 {
+    margin-bottom: 1rem;
+    color: var(--text-light);
+}
+
+.feature-card p {
+    color: var(--text-dark);
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
+/* Популярные и недавние игры */
+.popular-games-section,
+.recent-games-section {
+    margin-bottom: 4rem;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.section-header h2 {
+    margin: 0;
+    font-size: 2rem;
+}
+
+/* Поиск по критериям */
+.criteria-search-section {
+    margin-bottom: 4rem;
+}
+
+.criteria-search-section h2 {
+    text-align: center;
+    margin-bottom: 3rem;
+    font-size: 2rem;
+}
+
+.criteria-card {
+    border: 1px solid var(--border);
+    border-radius: var(--border-radius);
+    padding: 2rem 1.5rem;
+    height: 100%;
+    transition: var(--transition);
+    text-align: center;
+    background: var(--surface);
+}
+
+.criteria-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+    border-color: var(--secondary-color);
+}
+
+.criteria-icon {
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 1.5rem;
+}
+
+.criteria-icon i {
+    font-size: 2.5rem;
+}
+
+.criteria-card h5 {
+    margin-bottom: 1rem;
+    color: var(--text-light);
+}
+
+.criteria-card p {
+    color: var(--text-dark);
+    margin-bottom: 1.5rem;
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+/* Популярные особенности */
+.popular-features-section {
+    margin-bottom: 4rem;
+}
+
+.popular-features-section h2 {
+    margin-bottom: 2rem;
+    font-size: 2rem;
+}
+
+.features-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    justify-content: center;
+}
+
+.features-grid .btn {
+    position: relative;
+    padding-right: 2.5rem;
+}
+
+.features-grid .badge {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    font-size: 0.6rem;
+    padding: 0.2rem 0.4rem;
+    min-width: 24px;
+}
+
+/* Как это работает */
+.how-it-works {
+    margin-bottom: 4rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--border-radius);
+    padding: 3rem 2rem;
+    text-align: center;
+}
+
+.how-it-works h3 {
+    margin-bottom: 3rem;
+    color: var(--text-light);
+    font-size: 2rem;
+}
+
+.step-number {
+    width: 50px;
+    height: 50px;
+    background: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    font-weight: bold;
+    margin: 0 auto 15px;
+    color: var(--text-light);
+}
+
+.how-it-works h5 {
+    margin-bottom: 0.75rem;
+    color: var(--text-light);
+    font-size: 1.1rem;
+}
+
+.how-it-works p {
+    color: var(--text-dark);
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+/* Адаптивность */
+@media (max-width: 1200px) {
+    .home-hero h1 {
+        font-size: 3rem;
+    }
+}
+
+@media (max-width: 992px) {
+    .home-hero h1 {
+        font-size: 2.5rem;
+    }
+
+    .home-hero .lead {
+        font-size: 1.1rem;
+    }
+
+    .feature-card {
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .criteria-card {
+        margin-bottom: 1.5rem;
+    }
+
+    .section-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+
+    .section-header h2 {
+        font-size: 1.8rem;
+    }
+
+    .how-it-works h3 {
+        font-size: 1.8rem;
+    }
+}
+
+@media (max-width: 768px) {
+    .home-hero {
+        padding: 2rem 0 3rem;
+    }
+
+    .home-hero h1 {
+        font-size: 2.2rem;
+    }
+
+    .home-hero .lead {
+        font-size: 1rem;
+    }
+
+    .quick-actions .btn {
+        width: 100%;
+        margin: 0 0 0.75rem;
+    }
+
+    .quick-filters .btn {
+        margin: 0.15rem;
+        font-size: 0.8rem;
+    }
+
+    .feature-icon {
+        height: 60px;
+    }
+
+    .feature-icon i {
+        font-size: 2.5rem;
+    }
+
+    .criteria-icon i {
+        font-size: 2rem;
+    }
+
+    .how-it-works {
+        padding: 2rem 1rem;
+    }
+
+    .how-it-works h3 {
+        font-size: 1.6rem;
+    }
+
+    .step-number {
+        width: 40px;
+        height: 40px;
+        font-size: 1.2rem;
+    }
+
+    .how-it-works h5 {
+        font-size: 1rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .home-hero h1 {
+        font-size: 1.8rem;
+    }
+
+    .home-hero .lead {
+        font-size: 0.95rem;
+    }
+
+    .feature-card {
+        padding: 1.25rem;
+    }
+
+    .criteria-card {
+        padding: 1.5rem 1rem;
+    }
+
+    .section-header h2 {
+        font-size: 1.5rem;
+        text-align: center;
+        width: 100%;
+    }
+
+    .features-grid {
+        justify-content: flex-start;
+    }
+
+    .features-grid .btn {
+        font-size: 0.8rem;
+        padding: 0.5rem 0.75rem;
+    }
+
+    .how-it-works h3 {
+        font-size: 1.4rem;
+    }
+
+    .step-number {
+        width: 35px;
+        height: 35px;
+        font-size: 1rem;
+    }
+}

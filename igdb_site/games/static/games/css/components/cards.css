@@ -1,0 +1,306 @@
+/* ===== GAME CARDS ===== */
+
+/* Основная карточка игры */
+.game-card {
+    min-height: 480px;
+    border: none;
+    border-radius: var(--border-radius);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    overflow: hidden;
+    position: relative;
+    height: 100%;
+    transition: var(--transition);
+}
+
+.game-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--secondary-color), var(--accent-color));
+    transform: scaleX(0);
+    transition: transform 0.4s ease;
+    z-index: 2;
+}
+
+.game-card:hover::before {
+    transform: scaleX(1);
+}
+
+.game-card:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 20px 40px rgba(255, 107, 53, 0.25);
+    border-color: var(--secondary-color);
+}
+
+/* Контейнер для обложки */
+.card-img-top-container {
+    height: 250px;
+    overflow: hidden;
+    position: relative;
+}
+
+.game-card .card-img-top {
+    transition: var(--transition);
+    border-radius: 0;
+    filter: grayscale(0.2);
+    height: 110%;
+    object-fit: cover;
+    width: 100%;
+    object-position: center 20%;
+}
+
+.game-card:hover .card-img-top {
+    transform: scale(1.08);
+    filter: grayscale(0);
+    object-position: center 35%;
+}
+
+/* Рейтинг на обложке */
+.game-card .position-absolute.top-0.start-0 {
+    z-index: 10;
+}
+
+/* Платформы на обложке */
+.game-card .platforms-overlay {
+    z-index: 10;
+    padding: 0.5rem;
+}
+
+.game-card .platforms-overlay .platform-icon {
+    filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.8));
+    font-size: 1.5rem;
+}
+
+/* Заголовок игры */
+.game-card .card-title {
+    font-weight: 700;
+    color: var(--text-light);
+    margin-bottom: 0.75rem;
+    line-height: 1.4;
+    letter-spacing: -0.01em;
+    font-size: 1.15rem;
+    min-height: 2.8em;
+}
+
+.game-card .card-text {
+    color: #b0b0b0;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    flex-grow: 1;
+    margin-bottom: 0.75rem;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* Жанры в карточке */
+.game-card .game-genres {
+    margin-bottom: 0.75rem;
+    min-height: 50px;
+}
+
+.game-card .game-genres .badge {
+    margin-bottom: 0.25rem;
+    font-size: 0.85rem !important;
+    padding: 0.4rem 0.8rem !important;
+    border-radius: 12px !important;
+}
+
+/* Кнопки в карточке */
+.game-card .card-footer {
+    background: var(--surface-dark);
+    border-top: 1px solid var(--border);
+    padding: 1rem;
+}
+
+.game-card .card-footer .d-grid {
+    gap: 0.5rem;
+}
+
+/* Карточка сравнения */
+.game-comparison-card {
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--border-radius);
+    padding: 1.5rem;
+    transition: var(--transition);
+    text-align: center;
+}
+
+.game-comparison-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--secondary-color), var(--accent-color));
+    transform: scaleX(1);
+    transition: transform 0.4s ease;
+    z-index: 2;
+}
+
+.game-comparison-card:hover::before {
+    transform: scaleX(1.1);
+}
+
+.game-comparison-card:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 20px 50px rgba(255, 107, 53, 0.25);
+    border-color: var(--secondary-color);
+}
+
+.comparison-cover {
+    height: 220px;
+    border-radius: var(--border-radius) var(--border-radius) 0 0;
+    object-fit: cover;
+    width: 100%;
+    transition: var(--transition);
+}
+
+.game-comparison-card:hover .comparison-cover {
+    transform: scale(1.03);
+}
+
+.no-cover-placeholder {
+    background: var(--surface-dark);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-weight: 600;
+    position: relative;
+}
+
+/* Название игры в сравнении */
+.game-comparison-card .game-title {
+    font-size: 1.8rem;
+    margin-bottom: 1.5rem;
+    text-align: center;
+    color: #ffc107;
+    font-weight: 700;
+}
+
+/* Жанры в сравнении */
+.game-comparison-card .game-genres {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+    align-items: center !important;
+    gap: 0.5rem !important;
+    margin-top: 1rem !important;
+    text-align: center !important;
+}
+
+.game-comparison-card .game-genres .badge {
+    margin: 0.1rem !important;
+    flex-shrink: 0 !important;
+    font-size: 0.9rem !important;
+}
+
+/* Детали в сравнении */
+.game-comparison-card .game-rating,
+.game-comparison-card .game-developers,
+.game-comparison-card .game-modes,
+.game-comparison-card .release-date {
+    margin-bottom: 1rem;
+}
+
+/* Карточка для деталей игры */
+.game-detail-card {
+    background: rgba(30, 30, 46, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    transition: transform 0.2s ease;
+}
+
+.game-detail-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Адаптивность */
+@media (max-width: 992px) {
+    .game-card {
+        min-height: 420px;
+        margin-bottom: 1.5rem;
+    }
+
+    .card-img-top-container {
+        height: 200px;
+    }
+
+    .game-card .card-title {
+        font-size: 1.1rem;
+        min-height: 2.4em;
+    }
+
+    .game-comparison-card .game-title {
+        font-size: 1.5rem;
+    }
+
+    .comparison-cover {
+        height: 180px;
+    }
+}
+
+@media (max-width: 768px) {
+    .game-card {
+        min-height: 380px;
+    }
+
+    .card-img-top-container {
+        height: 180px;
+    }
+
+    .game-card .card-title {
+        font-size: 1rem;
+        min-height: 2.2em;
+    }
+
+    .game-card .game-genres .badge {
+        font-size: 0.8rem !important;
+        padding: 0.35rem 0.7rem !important;
+    }
+
+    .game-comparison-card {
+        padding: 1rem;
+    }
+
+    .game-comparison-card .game-title {
+        font-size: 1.3rem;
+    }
+
+    .comparison-cover {
+        height: 150px;
+    }
+}
+
+@media (max-width: 576px) {
+    .game-card {
+        min-height: 350px;
+    }
+
+    .card-img-top-container {
+        height: 160px;
+    }
+
+    .game-card .card-title {
+        font-size: 0.95rem;
+        min-height: 2em;
+    }
+
+    .game-comparison-card .game-title {
+        font-size: 1.2rem;
+    }
+
+    .comparison-cover {
+        height: 120px;
+    }
+}
