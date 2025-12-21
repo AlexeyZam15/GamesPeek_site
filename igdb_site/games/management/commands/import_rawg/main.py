@@ -1,17 +1,16 @@
-# games/management/commands/import_rawg/main.py
+# FILE: main.py
 import sys
 import time
 import json
 import os
-import signal
 from datetime import datetime
-from django.core.management.base import BaseCommand
-from games.rawg_api import RAWGClient
+from pathlib import Path
+from .rawg_api import RAWGClient
 from games.models import Game
+from django.db.models import Q
 from .base_command import ImportRawgBaseCommand
 from .cache_manager import CacheManager
 from .import_processor import ImportProcessor
-from .repeat_processor import RepeatProcessor
 from .signal_handler import SignalHandler
 from .stats_manager import StatsManager
 from .game_fetcher import GameFetcher
@@ -22,21 +21,126 @@ class Command(ImportRawgBaseCommand):
 
     def __init__(self):
         super().__init__()
-        self.signal_handler = SignalHandler(self)
+        self.signal_handler = None
         self.cache_manager = None
         self.stats_manager = None
         self.original_options = None
         self.import_processor = None
-        self.total_games_processed = 0
         self.start_time = None
+        self.current_batch_num = 0
+
+    def update_api_balance_in_progress(self):
+        """Обновляет информацию о балансе API для прогресс-бара"""
+        if hasattr(self, 'rawg_client') and self.rawg_client:
+            try:
+                balance = self.rawg_client.check_balance()
+
+                # Сохраняем в прогресс-данных для использования в update_single_progress_line
+                self.progress_data['api_remaining'] = balance['remaining']
+                self.progress_data['api_percentage'] = balance['percentage']
+                self.progress_data['api_exceeded'] = balance['exceeded']
+                self.progress_data['api_is_low'] = balance['is_low']
+
+                # Если лимит исчерпан, обновляем статус
+                if balance['exceeded']:
+                    self.progress_data['current_status'] = "🚫 Лимит API исчерпан"
+
+                # Обновляем прогресс-бар
+                self.update_single_progress_line()
+
+                # Если баланс критически низкий, показываем предупреждение
+                if balance['remaining'] < 100 and not self.progress_data.get('low_balance_warning_shown'):
+                    self.clear_progress_line()
+                    self.stdout.write(f"\n⚠️  ВНИМАНИЕ: Мало запросов API - осталось {balance['remaining']:,}")
+                    self.stdout.write(f"\n   Следующий батч может не успеть завершиться.")
+                    self.stdout.write(f"\n   Рекомендуется остановиться и пополнить баланс.\n")
+
+                    # Показываем прогресс-бар снова
+                    self.update_single_progress_line()
+                    self.progress_data['low_balance_warning_shown'] = True
+
+                return balance
+
+            except Exception as e:
+                if hasattr(self, 'original_options') and self.original_options.get('debug'):
+                    print(f"[DEBUG] Ошибка обновления баланса API: {e}")
+                return None
+
+    def _update_progress_stats_from_result(self, result):
+        """Обновляет статистику прогресс-бара из результатов обработки батча"""
+        stats = result
+
+        if hasattr(self, 'original_options') and self.original_options.get('debug'):
+            print(f"\n[DEBUG] Получена статистика батча:")
+            print(f"  total_processed: {stats.get('total_processed', 0)}")
+            print(f"  found: {stats.get('found', 0)}")
+            print(f"  not_found_count: {stats.get('not_found_count', 0)}")
+            print(f"  errors: {stats.get('errors', 0)}")
+            print(f"  cache_hits: {stats.get('cache_hits', 0)}")
+            print(f"  cache_misses: {stats.get('cache_misses', 0)}")
+
+        # Обновляем ГЛОБАЛЬНУЮ статистику
+        self.update_global_stats_from_batch(stats)
+
+        # ОБНОВЛЯЕМ ПРОГРЕСС ТЕКУЩЕЙ СЕССИИ
+        # games_in_batch уже отображается в current_batch
+        # processed_games должно обновляться через current_batch, а не напрямую
+
+        # ВАЖНО: processed_games должен равняться текущему значению current_batch
+        # если current_batch обновляется в реальном времени в процессе обработки
+        if hasattr(self, 'original_options') and self.original_options.get('debug'):
+            print(f"  ДО обновления processed_games: {self.progress_data.get('processed_games', 0)}")
+            print(f"  current_batch: {self.progress_data.get('current_batch', 0)}")
+
+        # Обновляем прогресс-бар
+        self.update_single_progress_line()
+
+        if hasattr(self, 'original_options') and self.original_options.get('debug'):
+            print(f"  ПОСЛЕ обновления:")
+            print(f"    Глобальная статистика:")
+            print(f"      Всего обработано: {self.global_stats['total_processed']}")
+            print(f"      Найдено: {self.global_stats['found']}")
+            print(f"      Не найдено: {self.global_stats['not_found']}")
+            print(f"      Ошибок: {self.global_stats['errors']}")
+            print(f"    processed_games: {self.progress_data.get('processed_games', 0)}")
 
     def handle(self, *args, **options):
         """Основной обработчик команды с graceful shutdown"""
         try:
+            self.start_time = time.time()
+            self.signal_handler = SignalHandler(self)
+
+            # Инициализируем глобальную статистику
+            self.global_stats = {
+                'total_processed': 0,
+                'found': 0,
+                'not_found': 0,
+                'errors': 0,
+                'cache_hits': 0,
+                'cache_misses': 0,
+                'start_time': time.time(),
+                'sessions_processed': 0
+            }
+
+            # Инициализируем прогресс текущей сессии
+            self.progress_data = {
+                'total_games': 0,
+                'processed_games': 0,
+                'session_start_time': time.time(),
+                'last_progress_length': 0,
+                'current_status': '',
+                'current_batch': 0,
+                'current_batch_total': 0
+            }
+
+            self.progress_data['current_status'] = "🚀 Инициализация..."
+            self.update_single_progress_line()
+
             return self._handle_with_interrupt(*args, **options)
         except SystemExit:
             raise
         except Exception as e:
+            self.clear_progress_line()
             self.stdout.write(self.style.ERROR(f'❌ Необработанная ошибка: {e}'))
             import traceback
             traceback.print_exc()
@@ -44,20 +148,16 @@ class Command(ImportRawgBaseCommand):
 
     def _handle_with_interrupt(self, *args, **options):
         """Основной обработчик команды (внутренний метод)"""
-        self.start_time = time.time()
-
-        # Сброс кэша и ненайденных игр если нужно
         if options.get('reset'):
+            self.clear_progress_line()
             self.stdout.write('=' * 60)
             self.stdout.write('🧹 ПОЛНЫЙ СБРОС: удаление кэша и списка ненайденных игр')
 
-            # 1. Удаление кэша RAWG
             self.stdout.write('   🔹 Удаление кэша RAWG API...')
             cache_manager = CacheManager(debug=options.get('debug', False))
             deleted_count = cache_manager.reset_cache()
             self.stdout.write(f'   ✅ Удалено {deleted_count} файлов кэша')
 
-            # 2. Удаление файла с ненайденными играми
             auto_offset_file = options.get('auto_offset_file', 'auto_offset_log.json')
             if os.path.exists(auto_offset_file):
                 os.remove(auto_offset_file)
@@ -65,107 +165,257 @@ class Command(ImportRawgBaseCommand):
             else:
                 self.stdout.write(f'   ℹ️  Файл не найден: {auto_offset_file}')
 
-            # 3. Сброс статистики БД если она есть
-            if cache_manager.stats_db:
-                try:
-                    cursor = cache_manager.stats_db.cursor()
-                    cursor.execute('DELETE FROM interruption_logs')
-                    cursor.execute('DELETE FROM efficiency_stats')
-                    cache_manager.stats_db.commit()
-                    self.stdout.write('   📊 Очищена статистика прерываний')
-                except:
-                    pass
-
             self.stdout.write('=' * 60)
             self.stdout.write(self.style.SUCCESS('✅ ПОЛНЫЙ СБРОС ВЫПОЛНЕН'))
 
-            # Если только reset без других параметров - выходим
             if len([k for k, v in options.items()
                     if v and k not in ['reset', 'verbosity', 'debug']]) == 0:
                 return
 
-        # Инициализация клиента RAWG
+        self.progress_data['current_status'] = "🔗 Подключение к RAWG API..."
+        self.update_single_progress_line()
+
         if not self.init_rawg_client(options):
+            self.clear_progress_line()
             return
 
-        # Инициализация менеджеров
+        self.progress_data['current_status'] = "⚙️ Настройка менеджеров..."
+        self.update_single_progress_line()
+
         self.cache_manager = CacheManager(debug=options.get('debug', False))
         self.stats_manager = StatsManager(self.stdout, self.style)
         self.original_options = options.copy()
 
-        # Запуск основного процесса
+        self.progress_data['current_status'] = "🚀 Запуск импорта..."
+        self.update_single_progress_line()
+
         return self.run_main_import_process(options)
 
+    def init_rawg_client(self, options):
+        """Инициализация клиента RAWG"""
+        try:
+            # ПЕРЕДАЕМ api_limit В КОНСТРУКТОР - ОН САМ СБРОСИТ СЧЕТЧИК
+            api_limit = options.get('api_limit')
+            self.rawg_client = RAWGClient(
+                api_key=options.get('api_key'),
+                api_limit=api_limit  # Передаем явно, даже если None
+            )
+
+            if options.get('debug'):
+                self.rawg_client.set_debug(True)
+
+            # Простая проверка подключения
+            try:
+                test_params = {'key': self.rawg_client.api_key, 'page_size': 1}
+                response = self.rawg_client.session.get(
+                    f"{self.rawg_client.base_url}/games",
+                    params=test_params,
+                    timeout=5
+                )
+
+                if response.status_code == 200:
+                    # Очищаем прогресс-бар и выводим информацию с новой строки
+                    self.clear_progress_line()
+                    self.stdout.write(self.style.SUCCESS('✅ RAWG клиент инициализирован\n'))
+
+                    # Показываем информацию о балансе
+                    balance = self.rawg_client.check_balance()
+                    self.stdout.write(f'   📊 Лимит API: {balance["limit"]:,}\n')
+                    self.stdout.write(f'   📊 Использовано: {balance["used"]:,}\n')
+
+                    # ЕСЛИ УКАЗАН НОВЫЙ ЛИМИТ, СООБЩАЕМ О СБРОСЕ
+                    if api_limit is not None:
+                        self.stdout.write(self.style.SUCCESS(f'   🔄 Счетчик запросов сброшен (указан новый лимит)\n'))
+
+                    self.stdout.write(f'   📊 Осталось: {balance["remaining"]:,} ({balance["percentage"]:.1f}%)\n')
+
+                    if balance['is_low']:
+                        self.stdout.write(
+                            self.style.WARNING(f'   ⚠️  Мало запросов: осталось {balance["remaining"]:,}\n'))
+
+                    # Показываем прогресс-бар снова (если есть игры для обработки)
+                    if hasattr(self, 'progress_data') and self.progress_data.get('total_games', 0) > 0:
+                        self.update_single_progress_line()
+                    return True
+                elif response.status_code == 401:
+                    self.clear_progress_line()
+                    self.stdout.write(self.style.ERROR('❌ Неверный API ключ RAWG\n'))
+                    return False
+                else:
+                    self.clear_progress_line()
+                    self.stdout.write(
+                        self.style.WARNING(f'⚠️  API ответил с кодом {response.status_code}, продолжаем...\n'))
+                    return True
+
+            except Exception as e:
+                self.clear_progress_line()
+                self.stdout.write(self.style.WARNING(f'⚠️  Ошибка проверки API: {e}, продолжаем...\n'))
+                return True
+
+        except ValueError as e:
+            self.clear_progress_line()
+            self.stdout.write(self.style.ERROR(f'❌ {e}\n'))
+            self.stdout.write(self.style.WARNING(
+                '💡 Укажите ключ через --api-key или добавьте RAWG_API_KEY в .env\n'
+            ))
+            return False
+        except Exception as e:
+            self.clear_progress_line()
+            self.stdout.write(self.style.ERROR(f'❌ Ошибка инициализации RAWG клиента: {e}\n'))
+            return False
+
     def run_main_import_process(self, options):
-        """Основной процесс импорта с оптимизацией"""
-        # Загружаем ненайденные игры ИЗ КЭША RAWG
+        """Основной процесс импорта с единым прогресс-баром"""
+        # Сбрасываем статистику текущей сессии
+        self.progress_data = {
+            'total_games': 0,
+            'processed_games': 0,
+            'session_start_time': time.time(),
+            'last_progress_length': 0,
+            'current_status': '',
+            'current_batch': 0,
+            'current_batch_total': 0,
+            'api_remaining': 0,  # ДОБАВЛЯЕМ для хранения баланса API
+            'api_percentage': 0,  # ДОБАВЛЯЕМ для процентного соотношения
+            'api_exceeded': False,  # ДОБАВЛЯЕМ флаг превышения лимита
+            'api_is_low': False  # ДОБАВЛЯЕМ флаг низкого баланса
+        }
+
+        self.progress_data['current_status'] = "📥 Загрузка данных из кэша..."
+        self.update_single_progress_line()
+
         auto_offset = options.get('auto_offset', True)
 
         if auto_offset:
-            # Основной источник - кэш RAWG
+            self.progress_data['current_status'] = "📂 Загрузка из кэша RAWG..."
+            self.update_single_progress_line()
             self.load_not_found_from_rawg_cache_batch()
 
-            # Дополнительно: загружаем из файла (если есть) и объединяем
-            # НО ТОЛЬКО ЕСЛИ НЕ БЫЛ СБРОС
             if not options.get('reset'):
                 auto_offset_file = options.get('auto_offset_file', 'auto_offset_log.json')
                 file_ids = self.load_not_found_ids_from_file(auto_offset_file)
 
                 if file_ids:
                     self.not_found_ids.update(file_ids)
-                    self.stdout.write(f'📄 Дополнительно из файла: {len(file_ids)} игр')
-            else:
-                self.stdout.write('ℹ️  Файл ненайденных игр был удален при сбросе')
 
-        # Показываем информацию о кэше
-        self.show_cache_info(options)
+        self.progress_data['current_status'] = "⚙️ Настройка процессора..."
+        self.update_single_progress_line()
 
-        # Создаем процессор
         self.import_processor = ImportProcessor(
             self.rawg_client,
             options,
             self.cache_manager,
-            self.signal_handler
+            self.signal_handler,
+            self
         )
         self.import_processor.not_found_ids = self.not_found_ids
 
-        # Проверяем прерывание перед началом
         if self.signal_handler.is_shutdown():
-            self.stdout.write("⚠️  Прерывание запрошено до начала обработки")
+            self.progress_data['current_status'] = "⚠️ Прерывание запрошено"
+            self.update_single_progress_line()
+            self.log_to_file("⚠️ Прерывание запрошено до начала обработки")
+            self.show_final_summary()
             return
 
-        # Определяем режим работы
+        self.progress_data['current_status'] = "📊 Рассчет параметров..."
+        self.update_single_progress_line()
+
         repeat_times = options['repeat']
         limit = options['limit']
 
-        # Определяем оптимальный размер батча
         batch_size = self.calculate_optimal_batch_size(options)
         options['batch_size'] = batch_size
 
-        self.stdout.write(self.style.SUCCESS(
-            f'⚡ ОПТИМИЗИРОВАННЫЙ ИМПОРТ: batch_size={batch_size}, workers={options.get("workers", 4)}'
-        ))
+        # ОБНОВЛЯЕМ БАЛАНС API ПРИ СТАРТЕ
+        if self.rawg_client:
+            try:
+                balance = self.rawg_client.check_balance()
+                self.progress_data['api_remaining'] = balance['remaining']
+                self.progress_data['api_percentage'] = balance['percentage']
+                self.progress_data['api_exceeded'] = balance['exceeded']
+                self.progress_data['api_is_low'] = balance['is_low']
+
+                if balance['exceeded']:
+                    self.clear_progress_line()
+                    self.stdout.write("\n" + "🚫" * 30)
+                    self.stdout.write("\n🚫 ЛИМИТ API УЖЕ ИСЧЕРПАН ПРИ СТАРТЕ!")
+                    self.stdout.write(f"\n🚫 Использовано: {balance['used']:,}/{balance['limit']:,}")
+                    self.stdout.write("\n" + "🚫" * 30)
+                    self.stdout.write("\n\n💡 Рекомендации:")
+                    self.stdout.write("\n   1. Подождите сутки для сброса лимита")
+                    self.stdout.write("\n   2. Купите больше запросов на сайте RAWG")
+                    self.stdout.write("\n   3. Используйте другой API ключ")
+                    self.stdout.write("\n   4. Используйте --api-limit с новым значением")
+                    self.stdout.write("\n")
+                    self.show_final_summary()
+                    return
+
+            except Exception as e:
+                if options.get('debug'):
+                    self.stdout.write(f'\n⚠️ Ошибка получения баланса при старте: {e}')
+
+        self.progress_data['current_status'] = f"⚡ Батч: {batch_size}, Потоков: {options.get('workers', 4)}"
+        self.update_single_progress_line()
 
         try:
+            # Получаем общее количество игр для обработки
+            game_fetcher = GameFetcher(options, self.not_found_ids)
+            total_to_process = game_fetcher.get_total_games_to_process(auto_offset)
+
+            # Устанавливаем общее количество для прогресс-бара
+            self.progress_data['total_games'] = total_to_process
+
+            if total_to_process == 0:
+                self.clear_progress_line()
+                self.stdout.write("✅ Нет игр для обработки\n")
+                self.show_final_summary()
+                return
+
+            # Показываем стартовую информацию
+            self.clear_progress_line()
+            self.stdout.write(f"\n🎯 ЦЕЛЬ: Обработать {total_to_process:,} игр")
+            self.stdout.write(f"\n📦 Стратегия: Батчи по {batch_size} игр")
+            self.stdout.write(f"\n👷 Рабочих потоков: {options.get('workers', 4)}")
+            self.stdout.write(f"\n⏱️  Задержка: {options.get('delay', 0.1)} сек")
+
+            # Показываем стартовый баланс
+            if self.progress_data['api_remaining'] > 0:
+                self.stdout.write(f"\n💳 Стартовый баланс API: {self.progress_data['api_remaining']:,} запросов")
+
+                # Оцениваем сколько игр можно обработать
+                estimated_games = int(self.progress_data['api_remaining'] * 0.67)  # Примерно 1.5 запроса на игру
+                if estimated_games < total_to_process:
+                    self.stdout.write(self.style.WARNING(
+                        f"\n⚠️  ВНИМАНИЕ: Запросов хватит на ~{estimated_games:,} игр из {total_to_process:,}"))
+                else:
+                    self.stdout.write(f"\n✅ Запросов хватит на все {total_to_process:,} игр")
+
+            self.stdout.write("\n" + "-" * 70 + "\n")
+
+            # Очищаем прогресс-бар и запускаем обработку
+            time.sleep(1)  # Даем время прочитать стартовую информацию
+
             if limit == 0 and repeat_times == 0:
-                # Бесконечный режим с батчами
-                self.execute_infinite_batch_mode(auto_offset, batch_size, options)
+                self.execute_infinite_batch_mode_with_progress(auto_offset, batch_size, options)
             elif repeat_times > 0:
-                # Ограниченное количество повторов с батчами
-                self.execute_limited_repeats_batch(repeat_times, auto_offset, batch_size, options)
+                self.execute_limited_repeats_with_progress(repeat_times, auto_offset, batch_size, options)
             else:
-                # Одиночный запуск с батчами
-                self.execute_single_batch_mode(auto_offset, batch_size, options)
+                self.execute_single_batch_mode_with_progress(auto_offset, batch_size, options)
 
         except KeyboardInterrupt:
-            # Обрабатываем KeyboardInterrupt в основном потоке
-            self.stdout.write("\n\n⚠️  Получен KeyboardInterrupt в основном потоке")
-            self.signal_handler.signal_handler(signal.SIGINT, None)
+            self.clear_progress_line()
+            self.stdout.write("\n⚠️ Получен KeyboardInterrupt\n")
+            self.log_to_file("\n⚠️ Получен KeyboardInterrupt в основном потоке")
+        except Exception as e:
+            self.clear_progress_line()
+            self.stdout.write(f"\n❌ Ошибка: {str(e)[:50]}\n")
+            self.log_to_file(f'\n❌ Неожиданная ошибка: {e}')
+            import traceback
+            traceback.print_exc()
         finally:
             # Всегда показываем финальную статистику
-            self.show_final_statistics_comprehensive()
+            self.show_final_summary()
 
-            # Сохраняем ненайденные игры в файл (если есть)
             if auto_offset and self.not_found_ids and not options.get('dry_run'):
                 auto_offset_file = options.get('auto_offset_file', 'auto_offset_log.json')
                 self.save_not_found_ids_to_file(auto_offset_file)
@@ -173,297 +423,256 @@ class Command(ImportRawgBaseCommand):
     def calculate_optimal_batch_size(self, options):
         """Рассчитывает оптимальный размер батча на основе настроек"""
         workers = options.get('workers', 4)
-        delay = options.get('delay', 0.1)  # Уменьшили delay по умолчанию до 0.1 секунды
+        delay = options.get('delay', 0.1)
 
-        # Формула для расчета оптимального батча:
-        # Чем больше воркеров и меньше задержка, тем больше может быть батч
-        base_batch = workers * 25  # Базовый размер
+        base_batch = workers * 25
 
-        # Корректируем на основе задержки
         if delay < 0.05:
-            # Быстрые запросы - можно большие батчи
             batch_size = base_batch * 2
         elif delay < 0.1:
             batch_size = base_batch
         else:
-            # Медленные запросы - уменьшаем батч
             batch_size = max(10, base_batch // 2)
 
-        # Ограничиваем максимальный размер
         max_batch = options.get('batch_size', 100)
         return min(batch_size, max_batch)
 
-    def execute_single_batch_mode(self, auto_offset, batch_size, options):
-        """Запускает импорт в батчевом режиме (один проход)"""
-        offset = options.get('offset', 0)
-        limit = options.get('limit', 0)
-        processed_total = 0
+    def execute_infinite_batch_mode_with_progress(self, auto_offset, batch_size, options):
+        """Бесконечный режим с единым прогресс-баром и остановкой при лимите"""
+        repeat_num = 1
+        repeat_delay = options.get('repeat_delay', 2.0)
+        game_ids_str = options.get('game_ids')
 
         game_fetcher = GameFetcher(options, self.not_found_ids)
+        total_to_process = game_fetcher.get_total_games_to_process(auto_offset)
 
-        while True:
-            # Проверяем прерывание
-            if self.signal_handler.is_shutdown():
-                self.stdout.write("⚠️  Прерывание запрошено")
-                break
+        # Устанавливаем счетчики для текущей сессии
+        self.progress_data['total_games'] = total_to_process
+        self.progress_data['processed_games'] = 0
+        self.progress_data['current_batch'] = 0
+        self.progress_data['current_batch_total'] = 0
+        self.progress_data['current_status'] = "Начинаем..."
+        self.progress_data['session_start_time'] = time.time()
 
-            # Получаем батч игр
-            games = game_fetcher.get_games_batch(offset, batch_size, auto_offset)
-
-            if not games:
-                self.stdout.write("✅ Все игры обработаны!")
-                break
-
-            self.stdout.write(f'🔄 Батч {offset // batch_size + 1}: {len(games)} игр')
-
-            # Обрабатываем батч
-            stats = self.import_processor.run_single_import_batch(1, auto_offset, games)
-            processed_total += len(games)
-
-            # Обновляем статистику
-            self.total_games_processed += stats.get('total', 0)
-            self.not_found_ids.update(self.import_processor.not_found_ids)
-
-            # Сдвигаем offset
-            offset += len(games)
-
-            # Проверяем лимит
-            if limit > 0 and processed_total >= limit:
-                self.stdout.write(f"✅ Достигнут лимит: {limit} игр")
-                break
-
-            # Уменьшенная пауза между батчами
-            time.sleep(0.05)  # Уменьшили паузу до 0.05 секунд
-
-    def execute_infinite_batch_mode(self, auto_offset, batch_size, options):
-        """Выполняет бесконечные повторения - каждый повтор как отдельный запуск команды"""
-        repeat_num = 1
-        repeat_delay = options.get('repeat_delay', 10.0)
-
-        # Статистика сессии
-        games_processed_this_session = 0
-        consecutive_empty_results = 0
-        max_consecutive_empty = 3
+        # Очищаем и показываем прогресс-бар
+        self.clear_progress_line()
+        self.update_single_progress_line()
 
         try:
             while True:
-                # 1. Проверка прерывания
                 if self.signal_handler.is_shutdown():
-                    self.stdout.write("\n⚠️  Прерывание запрошено, завершаю бесконечный цикл...")
+                    self.clear_progress_line()
+                    self.stdout.write("\n⚠️ Прерывание\n")
                     break
 
-                # 2. Получаем актуальный статус
-                self.stdout.write(f'\n{"=" * 60}')
-                self.stdout.write(f'🔄 ПОВТОРЕНИЕ {repeat_num}')
-                self.stdout.write(f'📊 Обработано в этой сессии: {games_processed_this_session:,} игр')
-
-                # 3. Проверяем доступные игры
-                game_fetcher = GameFetcher(options, self.not_found_ids)
-                available_games = game_fetcher.get_total_games_to_process(auto_offset)
-
-                if available_games == 0:
-                    if games_processed_this_session > 0:
-                        self.stdout.write(self.style.SUCCESS('🎉 ВСЕ ДОСТУПНЫЕ ИГРЫ ОБРАБОТАНЫ!'))
-                        self.stdout.write(f'   ✅ В этой сессии обработано: {games_processed_this_session:,} игр')
-                    else:
-                        self.stdout.write('🎉 Нет игр для обработки!')
-                    break
-
-                self.stdout.write(f'📈 Доступно для обработки: {available_games:,} игр')
-
-                # 4. Проверяем баланс API
-                self.stdout.write(f'🔍 Проверка баланса API...')
-
-                balance_check = self.rawg_client.check_balance(force=True)
-                if balance_check.get('balance_exceeded', False):
-                    error_msg = balance_check.get('error', 'Неизвестная ошибка баланса')
-                    self.stdout.write(self.style.ERROR(f'🚫 ОШИБКА БАЛАНСА: {error_msg}'))
-
-                    # Проверяем, это временный лимит или окончательный
-                    if "секунд" in error_msg or "минут" in error_msg or "час" in error_msg:
-                        import re
-                        match = re.search(r'(\d+)\s*(секунд|минут|час|часов)', error_msg)
-                        wait_time = 300  # По умолчанию 5 минут
-
-                        if match:
-                            wait_time = int(match.group(1))
-                            unit = match.group(2)
-                            if "минут" in unit:
-                                wait_time *= 60
-                            elif "час" in unit:
-                                wait_time *= 3600
-
-                        self.stdout.write(f'⏳ Временный лимит. Ожидание {wait_time} секунд...')
-
-                        # Ждем с возможностью прерывания
-                        start_wait = time.time()
-                        while time.time() - start_wait < wait_time:
-                            if self.signal_handler.is_shutdown():
-                                break
-
-                            elapsed = time.time() - start_wait
-                            remaining = wait_time - elapsed
-
-                            # Показываем прогресс каждые 10 секунд
-                            if int(elapsed) % 10 == 0:
-                                mins = int(remaining // 60)
-                                secs = int(remaining % 60)
-                                self.stdout.write(f'\r   ⏳ Осталось: {mins:02d}:{secs:02d}', ending='')
-                                self.stdout.flush()
-
-                            time.sleep(1)
-
-                        self.stdout.write('\r' + ' ' * 25 + '\r')
-                        self.stdout.write('✅ Ожидание завершено, продолжаем...')
-                        continue
-                    else:
-                        # Это окончательный лимит
-                        self.stdout.write(self.style.ERROR('🚫 КРИТИЧЕСКАЯ ОШИБКА БАЛАНСА!'))
-                        self.stdout.write('💡 Подождите сутки или обновите API ключ')
-                        break
-
-                # Показываем информацию о балансе
-                requests_remaining = balance_check.get('requests_remaining')
-                if requests_remaining:
-                    self.stdout.write(f'📊 Осталось запросов: {requests_remaining:,}')
-                    if requests_remaining < 50:
-                        self.stdout.write(self.style.WARNING('⚠️  ОЧЕНЬ МАЛО ЗАПРОСОВ! Подумайте о паузе'))
-
-                # 5. Получаем батч игр
-                current_options = options.copy()
-                current_options['limit'] = min(batch_size, available_games)
-                current_options['offset'] = 0
-
-                game_fetcher = GameFetcher(current_options, self.not_found_ids)
-                games = game_fetcher.get_games_to_process(None, auto_offset)
-
-                # Отладочный вывод
-                if not games and options.get('debug'):
-                    self.stdout.write(f'[DEBUG] Пустой батч с параметрами:')
-                    self.stdout.write(f'  - limit: {current_options["limit"]}')
-                    self.stdout.write(f'  - offset: 0')
-                    self.stdout.write(f'  - available_games: {available_games}')
+                # Получаем игры для батча
+                games = self._get_games_batch(options, batch_size, auto_offset, game_ids_str)
 
                 if not games:
-                    consecutive_empty_results += 1
-                    self.stdout.write(f'⚠️  Пустой батч #{consecutive_empty_results}')
+                    self.clear_progress_line()
+                    self.stdout.write("\n✅ Все игры обработаны!\n")
+                    break
 
-                    if consecutive_empty_results >= max_consecutive_empty:
-                        if games_processed_this_session > 0:
-                            self.stdout.write(
-                                self.style.SUCCESS(f'🎉 Завершаю. Обработано: {games_processed_this_session:,} игр'))
-                        else:
-                            self.stdout.write('ℹ️  Не найдено игр для обработки')
-                        break
+                # Устанавливаем счетчик для текущего батча
+                self.progress_data['current_batch'] = 0
+                self.progress_data['current_batch_total'] = len(games)
+                self.progress_data['current_status'] = f"Батч {repeat_num}"
+                self.update_single_progress_line()
 
-                    time.sleep(2)
-                    continue
-
-                # Сбрасываем счетчик пустых батчей
-                consecutive_empty_results = 0
-
-                self.stdout.write(f'🔄 Начинаем обработку {len(games)} игр...')
-
-                # 6. Запускаем обработку
+                # Обрабатываем батч
                 processing_result = self._process_games_batch(repeat_num, auto_offset, games)
 
                 if processing_result.get('interrupted'):
+                    self.clear_progress_line()
+                    self.stdout.write("\n⚠️ Прервано\n")
+                    break
+
+                # ПРОВЕРЯЕМ, НУЖНО ЛИ ОСТАНОВИТЬСЯ ИЗ-ЗА ЛИМИТА API
+                should_stop = processing_result.get('should_stop', False)
+                if should_stop:
+                    self.clear_progress_line()
+                    self.stdout.write("\n" + "🚫" * 30)
+                    self.stdout.write("\n🚫 ЛИМИТ API ИСЧЕРПАН!")
+                    self.stdout.write("\n🚫 ОБРАБОТКА ОСТАНОВЛЕНА")
+                    self.stdout.write("\n" + "🚫" * 30)
+
+                    # Показываем баланс
+                    if self.rawg_client:
+                        try:
+                            balance = self.rawg_client.check_balance()
+                            self.stdout.write(f"\n📊 Использовано запросов: {balance['used']:,}/{balance['limit']:,}")
+                            self.stdout.write(f"\n📊 Осталось: {balance['remaining']:,}")
+                        except:
+                            pass
+
+                    self.stdout.write(f"\n\n💡 Рекомендации:")
+                    self.stdout.write(f"\n   1. Подождите сутки для сброса лимита")
+                    self.stdout.write(f"\n   2. Купите больше запросов на сайте RAWG")
+                    self.stdout.write(f"\n   3. Используйте другой API ключ")
+                    self.stdout.write(f"\n   4. При следующем запуске будет продолжено с места остановки")
                     break
 
                 if processing_result.get('balance_exceeded'):
-                    self.stdout.write(self.style.ERROR('\n🚫 ЛИМИТ API ПРЕВЫШЕН ВО ВРЕМЯ ОБРАБОТКИ!'))
-                    break
+                    self.handle_balance_exceeded_during_processing_with_progress()
+                    continue
 
-                # 7. Обновляем статистику
-                games_processed = processing_result.get('total', 0)
-                if games_processed > 0:
-                    games_processed_this_session += games_processed
-                    self.total_games_processed += games_processed
-
-                    # Обновляем список не найденных игр
+                # Обновляем общую статистику
+                if self.import_processor:
                     self.not_found_ids.update(self.import_processor.not_found_ids)
 
-                    # Показываем результат
-                    self._show_batch_result(processing_result)
+                # Обновляем прогресс-бар
+                self._update_progress_stats_from_result(processing_result)
 
-                    # 8. Пауза между повторами
-                    if repeat_delay > 0:
-                        self._pause_between_repeats(repeat_delay)
-                        if self.signal_handler.is_shutdown():
-                            break
-                else:
-                    self.stdout.write('⚠️  Игры были, но не обработаны (games_processed = 0)')
-                    # Показываем отладку
-                    if options.get('debug'):
-                        self.stdout.write(f'[DEBUG] processing_result:')
-                        for key, value in processing_result.items():
-                            self.stdout.write(f'  {key}: {value}')
-
-                    # Если есть новые ненайденные игры, покажем их
-                    new_not_found = processing_result.get('new_not_found', 0)
-                    if new_not_found > 0:
-                        self.stdout.write(f'   🔍 Новых ненайденных игр: {new_not_found}')
-
-                    # Небольшая пауза чтобы не зациклиться
-                    time.sleep(1)
+                # Пауза между итерациями
+                if repeat_delay > 0:
+                    time.sleep(repeat_delay)
+                    if self.signal_handler.is_shutdown():
+                        break
 
                 repeat_num += 1
 
         except KeyboardInterrupt:
-            self.stdout.write("\n\n⚠️  Получен KeyboardInterrupt")
+            self.clear_progress_line()
+            self.stdout.write("\n⚠️ Прервано\n")
         except Exception as e:
-            self.stdout.write(self.style.ERROR(f'\n❌ Неожиданная ошибка: {e}'))
+            self.clear_progress_line()
+            self.stdout.write(f"\n❌ Ошибка: {str(e)[:100]}\n")
             import traceback
             traceback.print_exc()
-        finally:
-            self._show_session_summary(repeat_num, games_processed_this_session)
 
-    def _pause_between_repeats(self, repeat_delay):
-        """Выполняет паузу между повторами"""
-        self.stdout.write(f'\n⏳ Пауза {repeat_delay} секунд...')
+    def execute_single_batch_mode_with_progress(self, auto_offset, batch_size, options):
+        """Одиночный запуск с единым прогресс-баром"""
+        game_ids_str = options.get('game_ids')
+        offset = options.get('offset', 0)
+        limit = options.get('limit', 0)
 
-        start_sleep = time.time()
+        game_fetcher = GameFetcher(options, self.not_found_ids)
 
-        while time.time() - start_sleep < repeat_delay:
+        # Получаем общее количество игр для обработки
+        total_to_process = game_fetcher.get_total_games_to_process(auto_offset)
+        if limit > 0:
+            total_to_process = min(total_to_process, limit)
+
+        # Устанавливаем общее количество для прогресс-бара
+        self.progress_data['total_games'] = total_to_process
+        self.progress_data['processed_games'] = 0
+        self.progress_data['session_start_time'] = time.time()
+
+        self.stdout.write(f"\n📊 Всего игр для обработки: {total_to_process:,}")
+        self.stdout.write(f"📦 Размер батча: {batch_size} игр\n")
+
+        batch_num = 1
+
+        try:
+            while True:
+                # Проверяем прерывание
+                if self.signal_handler and self.signal_handler.is_shutdown():
+                    self.stdout.write("\n⚠️ Прерывание запрошено\n")
+                    break
+
+                # Получаем батч игр
+                games = game_fetcher.get_games_batch(offset, batch_size, auto_offset, game_ids_str)
+
+                if not games:
+                    self.stdout.write("\n✅ Все игры обработаны!\n")
+                    break
+
+                self.stdout.write(f"\n🔄 Батч {batch_num}: {len(games)} игр... ")
+
+                # Обрабатываем батч
+                stats = self.import_processor.run_single_import_batch(batch_num, auto_offset, games)
+
+                offset += len(games)
+
+                # Обновляем статистику
+                self.not_found_ids.update(self.import_processor.not_found_ids)
+
+                # Обновляем статистику прогресс-бара
+                self._update_progress_stats_from_result(stats)
+
+                batch_num += 1
+
+                # Проверяем лимит
+                if limit > 0 and self.progress_data['processed_games'] >= limit:
+                    self.stdout.write(f"\n✅ Достигнут лимит: {limit} игр\n")
+                    break
+
+        except KeyboardInterrupt:
+            self.stdout.write("\n⚠️ Получен KeyboardInterrupt\n")
+        except Exception as e:
+            self.stdout.write(f"\n❌ Ошибка: {str(e)[:100]}\n")
+            import traceback
+            traceback.print_exc()
+
+    def execute_limited_repeats_with_progress(self, repeat_times, auto_offset, batch_size, options):
+        """Ограниченные повторы с единым прогресс-баром"""
+        offset = options.get('offset', 0)
+        game_ids_str = options.get('game_ids')
+
+        game_fetcher = GameFetcher(options, self.not_found_ids)
+        total_to_process = game_fetcher.get_total_games_to_process(auto_offset)
+        if total_to_process == 0:
+            self.update_single_progress_line("✅ Нет игр для обработки")
+            self.log_to_file("✅ Нет игр для обработки")
+            return
+
+        self.progress_data['total_games'] = total_to_process
+        self.progress_data['processed_games'] = 0
+        self.progress_data['session_start_time'] = time.time()
+
+        for repeat_num in range(1, repeat_times + 1):
             if self.signal_handler.is_shutdown():
-                self.stdout.write("\n⚠️  Прерывание во время паузы...")
+                self.update_single_progress_line("⚠️ Прерывание запрошено, завершаю...")
+                self.log_to_file("⚠️ Прерывание запрошено, завершаю...")
                 break
 
-            elapsed = time.time() - start_sleep
+            self.log_to_file(f'\n{"=" * 50}')
+            self.log_to_file(f'🚀 ПОВТОРЕНИЕ {repeat_num}/{repeat_times}')
+
+            current_options = options.copy()
+            current_options['limit'] = batch_size
+            current_options['offset'] = offset
+            self.import_processor.options = current_options
+
+            self.update_single_progress_line(f"🔄 Повтор {repeat_num}/{repeat_times}...")
+
+            stats = self.import_processor.run_single_import(repeat_num, auto_offset)
+
+            self.not_found_ids.update(self.import_processor.not_found_ids)
+
+            games_processed = stats.get('total_processed', 0)
+            offset += games_processed
+
+            self._update_progress_stats_from_result(stats)
+
+            self.progress_data['processed_games'] = offset
+
+            self.log_batch_result(stats, games_processed)
+
+            if repeat_num < repeat_times:
+                repeat_delay = options.get('repeat_delay', 10.0)
+                if repeat_delay > 0:
+                    self.pause_between_repeats_with_progress(repeat_delay)
+                    if self.signal_handler.is_shutdown():
+                        break
+
+    def pause_between_repeats_with_progress(self, repeat_delay):
+        """Пауза с обновлением прогресс-бара"""
+        start_time = time.time()
+
+        for i in range(int(repeat_delay)):
+            if self.signal_handler.is_shutdown():
+                break
+
+            elapsed = i + 1
             remaining = repeat_delay - elapsed
 
-            # Показываем таймер каждые 5 секунд
-            if int(elapsed) % 5 == 0:
-                mins = int(remaining // 60)
-                secs = int(remaining % 60)
-                self.stdout.write(f'\r   ⏳ Пауза: {mins:02d}:{secs:02d}', ending='')
-                self.stdout.flush()
+            if elapsed % 5 == 0 or remaining <= 3:
+                self.update_single_progress_line(f"⏳ Пауза {int(remaining)}с...")
 
-            time.sleep(0.5)
+            time.sleep(1)
 
-        # Очищаем строку таймера
-        self.stdout.write('\r' + ' ' * 25 + '\r')
-
-    def _show_session_summary(self, repeat_num, games_processed_this_session):
-        """Показывает итоги сессии"""
-        self.stdout.write(f'\n{"=" * 60}')
-        self.stdout.write(self.style.SUCCESS('🏁 СЕССИЯ ЗАВЕРШЕНА'))
-
-        if games_processed_this_session > 0:
-            self.stdout.write(f'📊 ИТОГИ СЕССИИ:')
-            self.stdout.write(f'   🔁 Выполнено повторов: {repeat_num - 1}')
-            self.stdout.write(f'   🎮 Обработано игр: {games_processed_this_session:,}')
-            self.stdout.write(f'   📈 Всего обработано в системе: {self.total_games_processed:,}')
-
-            if self.not_found_ids:
-                self.stdout.write(f'   ❓ Ненайденных игр в кэше: {len(self.not_found_ids)}')
-
-            # Рассчитываем эффективность
-            if repeat_num - 1 > 0:
-                avg_games_per_repeat = games_processed_this_session / (repeat_num - 1)
-                self.stdout.write(f'   ⚡ В среднем за повтор: {avg_games_per_repeat:.1f} игр')
-        else:
-            self.stdout.write('ℹ️  Игры не обрабатывались в этой сессии')
+        self.update_single_progress_line()
 
     def _process_games_batch(self, repeat_num, auto_offset, games_batch):
         """Обрабатывает батч игр и возвращает результат"""
@@ -479,277 +688,244 @@ class Command(ImportRawgBaseCommand):
         }
 
         # Запускаем импорт для батча
-        return self.import_processor.run_single_import_batch(repeat_num, auto_offset, games_batch)
+        result = self.import_processor.run_single_import_batch(repeat_num, auto_offset, games_batch)
 
-    def _show_repeat_header(self, repeat_num, games_processed):
-        """Показывает заголовок повтора"""
-        self.stdout.write(f'\n{"=" * 60}')
-        self.stdout.write(f'🔄 ПОВТОРЕНИЕ {repeat_num}')
-        self.stdout.write(f'📊 Обработано в этой сессии: {games_processed:,} игр')
+        # Отладка
+        if self.original_options.get('debug'):
+            print(f"\n[DEBUG] Получен result для батча из {len(games_batch)} игр:")
 
-    def _get_available_games_count(self, options, auto_offset):
-        """Получает количество доступных для обработки игр"""
-        game_fetcher = GameFetcher(options, self.not_found_ids)
-        return game_fetcher.get_total_games_to_process(auto_offset)
+        return result
 
-    def _handle_no_games(self, games_processed):
-        """Обрабатывает ситуацию, когда нет игр для обработки"""
-        if games_processed > 0:
-            self.stdout.write(self.style.SUCCESS('🎉 ВСЕ ДОСТУПНЫЕ ИГРЫ ОБРАБОТАНЫ!'))
-            self.stdout.write(f'   ✅ В этой сессии обработано: {games_processed:,} игр')
-        else:
-            self.stdout.write('🎉 Нет игр для обработки!')
-
-    def _check_api_balance(self):
-        """Проверяет баланс API"""
-        self.stdout.write(f'🔍 Проверка баланса API...')
-
-        balance_check = self.rawg_client.check_balance(force=True)
-        if balance_check.get('balance_exceeded', False):
-            error_msg = balance_check.get('error', 'Неизвестная ошибка баланса')
-            self.stdout.write(self.style.ERROR(f'🚫 ОШИБКА БАЛАНСА: {error_msg}'))
-
-            # Проверяем, это временный лимит или окончательный
-            if "секунд" in error_msg or "минут" in error_msg or "час" in error_msg:
-                # Это временный лимит - пробуем подождать
-                import re
-                match = re.search(r'(\d+)\s*(секунд|минут|час|часов)', error_msg)
-                wait_time = 300  # По умолчанию 5 минут
-
-                if match:
-                    wait_time = int(match.group(1))
-                    unit = match.group(2)
-                    if "минут" in unit:
-                        wait_time *= 60
-                    elif "час" in unit:
-                        wait_time *= 3600
-
-                self.stdout.write(f'⏳ Временный лимит. Ожидание {wait_time} секунд...')
-
-                # Ждем с возможностью прерывания
-                start_wait = time.time()
-                while time.time() - start_wait < wait_time:
-                    if self.signal_handler.is_shutdown():
-                        return False
-
-                    elapsed = time.time() - start_wait
-                    remaining = wait_time - elapsed
-
-                    # Показываем прогресс каждые 10 секунд
-                    if int(elapsed) % 10 == 0:
-                        mins = int(remaining // 60)
-                        secs = int(remaining % 60)
-                        self.stdout.write(f'\r   ⏳ Осталось: {mins:02d}:{secs:02d}', ending='')
-                        self.stdout.flush()
-
-                    time.sleep(1)
-
-                self.stdout.write('\r' + ' ' * 25 + '\r')
-                self.stdout.write('✅ Ожидание завершено, продолжаем...')
-                return True  # Продолжаем после ожидания
-            else:
-                # Это окончательный лимит
-                self.stdout.write(self.style.ERROR('🚫 КРИТИЧЕСКАЯ ОШИБКА БАЛАНСА!'))
-                self.stdout.write('💡 Подождите сутки или обновите API ключ')
-                return False
-
-        # Показываем информацию о балансе
-        requests_remaining = balance_check.get('requests_remaining')
-        if requests_remaining:
-            self.stdout.write(f'📊 Осталось запросов: {requests_remaining:,}')
-            if requests_remaining < 50:
-                self.stdout.write(self.style.WARNING('⚠️  ОЧЕНЬ МАЛО ЗАПРОСОВ! Подумайте о паузе'))
-
-        return True
-
-    def _get_games_batch(self, options, auto_offset, batch_size, available_games):
+    def _get_games_batch(self, options, batch_size, auto_offset, game_ids_str):
         """Получает батч игр для обработки"""
         current_options = options.copy()
-        current_options['limit'] = min(batch_size, available_games)
+        current_options['limit'] = batch_size
         current_options['offset'] = 0
 
         game_fetcher = GameFetcher(current_options, self.not_found_ids)
-        return game_fetcher.get_games_to_process(None, auto_offset)
+        return game_fetcher.get_games_to_process(game_ids_str, auto_offset)
 
-    def _handle_consecutive_empty_batches(self, games_processed):
-        """Обрабатывает несколько пустых батчей подряд"""
-        if games_processed > 0:
-            self.stdout.write(self.style.SUCCESS(f'🎉 Завершаю. Обработано: {games_processed:,} игр'))
-        else:
-            self.stdout.write('ℹ️  Не найдено игр для обработки')
+    def handle_balance_exceeded_during_processing_with_progress(self):
+        """Обрабатывает превышение лимита во время обработки"""
+        self.safe_print("\n🚫 Превышен лимит API во время обработки!")
+        self.safe_print("⏳ Делаю паузу 30 секунд...")
+        time.sleep(30)
 
-    def _show_batch_result(self, processing_result):
-        """Показывает детальный результат обработки батча"""
-        games_processed = processing_result.get('total', 0)
+    def log_batch_result(self, processing_result, games_processed):
+        """Логирует результат батча"""
         found = processing_result.get('found', 0)
         not_found = processing_result.get('not_found_count', 0)
         errors = processing_result.get('errors', 0)
         updated = processing_result.get('updated', 0)
-        short = processing_result.get('short', 0)
-        empty = processing_result.get('empty', 0)
-        new_not_found = processing_result.get('new_not_found', 0)
+        cache_hits = processing_result.get('cache_hits', 0)
+        cache_misses = processing_result.get('cache_misses', 0)
+
+        self.log_to_file(f'📊 РЕЗУЛЬТАТ БАТЧА:')
+        self.log_to_file(f'   🎮 Обработано: {games_processed} игр')
 
         if games_processed > 0:
-            # Основные метрики
-            success_rate = (found / games_processed * 100) if games_processed > 0 else 0
+            found_pct = (found / games_processed * 100)
+            not_found_pct = (not_found / games_processed * 100)
+            errors_pct = (errors / games_processed * 100)
 
-            self.stdout.write(f'📊 РЕЗУЛЬТАТ БАТЧА:')
-            self.stdout.write(f'   🎮 Обработано игр: {games_processed}')
-            self.stdout.write(f'   ✅ Найдено с описаниями: {found} ({success_rate:.1f}%)')
+            self.log_to_file(f'   ✅ Найдено: {found} ({found_pct:.1f}%)')
+            self.log_to_file(f'   ❌ Не найдено: {not_found} ({not_found_pct:.1f}%)')
+            self.log_to_file(f'   💥 Ошибок: {errors} ({errors_pct:.1f}%)')
 
-            if not_found > 0:
-                self.stdout.write(f'   ❓ Не найдено в RAWG: {not_found}')
+        if updated > 0:
+            self.log_to_file(f'   💾 Сохранено: {updated}')
 
-            if new_not_found > 0:
-                self.stdout.write(f'   🔍 Новых ненайденных: {new_not_found}')
+        if cache_hits + cache_misses > 0:
+            cache_total = cache_hits + cache_misses
+            cache_efficiency = (cache_hits / cache_total * 100) if cache_total > 0 else 0
+            self.log_to_file(f'   💾 Кэш: {cache_hits}/{cache_total} ({cache_efficiency:.1f}%)')
 
-            if short > 0:
-                self.stdout.write(f'   📏 Слишком короткие описания: {short}')
+    def show_final_summary(self):
+        """Показывает финальную сводку с глобальной статистикой"""
+        # Очищаем прогресс-бар
+        time.sleep(0.5)
+        self.clear_progress_line()
+        self.stdout.write("\n")
 
-            if empty > 0:
-                self.stdout.write(f'   🚫 Пустые описания: {empty}')
+        self.stdout.write("=" * 70)
+        self.stdout.write("\n🏁 ФИНАЛЬНАЯ СВОДКА ИМПОРТА")
+        self.stdout.write("\n" + "=" * 70)
 
-            if errors > 0:
-                self.stdout.write(f'   💥 Ошибок: {errors}')
+        # Показываем ГЛОБАЛЬНУЮ статистику за всё время работы
+        if self.global_stats['total_processed'] > 0:
+            total_time = time.time() - self.global_stats['start_time']
 
-            if updated > 0:
-                self.stdout.write(f'   💾 Сохранено в БД: {updated}')
+            self.stdout.write(f"\n📊 ГЛОБАЛЬНАЯ СТАТИСТИКА (за всё время работы):")
+            self.stdout.write(f"\n   🎮 Всего обработано игр: {self.global_stats['total_processed']:,}")
+            self.stdout.write(f"\n   ⏱️  Общее время работы: {total_time:.1f} сек")
 
-            # Статистика API и кэша
-            cache_hits = processing_result.get('cache_hits', 0)
-            cache_misses = processing_result.get('cache_misses', 0)
-            search_requests = processing_result.get('search_requests', 0)
-            detail_requests = processing_result.get('detail_requests', 0)
+            if total_time > 0:
+                games_per_sec = self.global_stats['total_processed'] / total_time
+                self.stdout.write(f"\n   ⚡ Средняя скорость: {games_per_sec:.1f} игр/сек")
 
-            if cache_hits + cache_misses > 0:
-                cache_efficiency = (cache_hits / (cache_hits + cache_misses) * 100)
-                self.stdout.write(f'   💾 КЭШ: {cache_hits}/{cache_hits + cache_misses} ({cache_efficiency:.1f}%)')
+            # Расчет процентов
+            if self.global_stats['total_processed'] > 0:
+                found_pct = (self.global_stats['found'] / self.global_stats['total_processed'] * 100)
+                not_found_pct = (self.global_stats['not_found'] / self.global_stats['total_processed'] * 100)
+                errors_pct = (self.global_stats['errors'] / self.global_stats['total_processed'] * 100)
 
-            if search_requests > 0 or detail_requests > 0:
-                self.stdout.write(f'   🌐 API запросов: {search_requests} поиск, {detail_requests} детали')
+                self.stdout.write(f"\n   📈 РАСПРЕДЕЛЕНИЕ РЕЗУЛЬТАТОВ:")
+                self.stdout.write(f"\n   ✅ Найдено описаний: {self.global_stats['found']:,} ({found_pct:.1f}%)")
+                self.stdout.write(f"\n   ❌ Не найдено игр: {self.global_stats['not_found']:,} ({not_found_pct:.1f}%)")
+                self.stdout.write(f"\n   💥 Ошибок обработки: {self.global_stats['errors']:,} ({errors_pct:.1f}%)")
 
-            # Время обработки
-            processing_time = processing_result.get('processing_time', 0)
-            if processing_time > 0:
-                games_per_sec = games_processed / processing_time
-                self.stdout.write(f'   ⏱️  Время: {processing_time:.1f} сек ({games_per_sec:.1f} игр/сек)')
+            # Проверка суммы
+            if self.global_stats['total_processed'] > 0:
+                sum_categories = self.global_stats['found'] + self.global_stats['not_found'] + self.global_stats[
+                    'errors']
+                if sum_categories != self.global_stats['total_processed']:
+                    self.stdout.write(
+                        f"\n   ⚠️  ВНИМАНИЕ: сумма категорий ({sum_categories}) не равна общему количеству ({self.global_stats['total_processed']})")
 
-            # Дополнительная информация при отладке
-            if self.original_options.get('debug'):
-                balance_exceeded = processing_result.get('balance_exceeded_during_processing', False)
-                interrupted = processing_result.get('interrupted', False)
+            # Статистика кэша
+            if self.global_stats['cache_hits'] + self.global_stats['cache_misses'] > 0:
+                cache_total = self.global_stats['cache_hits'] + self.global_stats['cache_misses']
+                cache_efficiency = (self.global_stats['cache_hits'] / cache_total * 100)
+                self.stdout.write(f"\n   💾 ЭФФЕКТИВНОСТЬ КЭША:")
+                self.stdout.write(f"\n   ✅ Попаданий в кэш: {self.global_stats['cache_hits']:,}")
+                self.stdout.write(f"\n   ❌ Промахов кэша: {self.global_stats['cache_misses']:,}")
+                self.stdout.write(f"\n   📊 Эффективность: {cache_efficiency:.1f}%")
 
-                if balance_exceeded:
-                    self.stdout.write('   🚫 ФЛАГ: Превышен лимит API во время обработки')
-                if interrupted:
-                    self.stdout.write('   ⚠️  ФЛАГ: Обработка была прервана')
+            self.stdout.write("-" * 70)
+        else:
+            self.stdout.write(f"\nℹ️ Игры не обрабатывались или статистика недоступна")
 
-                # Показываем все ключи для отладки
-                debug_keys = [k for k in processing_result.keys() if k not in
-                              ['total', 'found', 'not_found_count', 'errors', 'updated',
-                               'short', 'empty', 'new_not_found', 'cache_hits', 'cache_misses',
-                               'search_requests', 'detail_requests', 'processing_time',
-                               'balance_exceeded_during_processing', 'interrupted']]
-                if debug_keys:
-                    self.stdout.write(f'   [DEBUG] Другие ключи: {debug_keys}')
+        # Показываем статистику текущей сессии
+        if self.progress_data.get('processed_games', 0) > 0:
+            session_time = time.time() - self.progress_data.get('session_start_time', time.time())
 
-        elif games_processed == 0 and self.original_options.get('debug'):
-            # Отладка когда games_processed = 0
-            self.stdout.write(f'[DEBUG] games_processed = 0, но processing_result:')
-            for key, value in processing_result.items():
-                self.stdout.write(f'   {key}: {value}')
+            self.stdout.write(f"\n📊 СТАТИСТИКА ТЕКУЩЕЙ СЕССИИ:")
+            self.stdout.write(f"\n   🎮 Обработано игр: {self.progress_data['processed_games']:,}")
+            self.stdout.write(f"\n   ⏱️  Время сессии: {session_time:.1f} сек")
 
-    def execute_limited_repeats_batch(self, repeat_times, auto_offset, batch_size, options):
-        """Выполняет ограниченное количество повторений с батчами"""
-        offset = options.get('offset', 0)
+            if session_time > 0:
+                session_speed = self.progress_data['processed_games'] / session_time
+                self.stdout.write(f"\n   ⚡ Скорость сессии: {session_speed:.1f} игр/сек")
 
-        for repeat_num in range(1, repeat_times + 1):
-            # Проверяем прерывание
-            if self.signal_handler.is_shutdown():
-                self.stdout.write("⚠️  Прерывание запрошено, завершаю...")
-                break
-
-            self.stdout.write(f'\n{"=" * 50}')
-            self.stdout.write(f'🚀 ПОВТОРЕНИЕ {repeat_num}/{repeat_times}')
-
-            # Обновляем опции для текущего повторения
-            current_options = options.copy()
-            current_options['limit'] = batch_size
-            current_options['offset'] = offset
-            self.import_processor.options = current_options
-
-            # Запускаем импорт
-            stats = self.import_processor.run_single_import(repeat_num, auto_offset)
-
-            # Обновляем список не найденных игр
-            self.not_found_ids.update(self.import_processor.not_found_ids)
-
-            # Обновляем offset
-            games_processed = stats.get('total', 0)
-            offset += games_processed
-            self.total_games_processed += games_processed
-
-            if repeat_num < repeat_times:
-                repeat_delay = options.get('repeat_delay', 10.0)  # Уменьшили паузу между повторами до 10 секунд
-                if repeat_delay > 0:
-                    self.stdout.write(f'\n⏳ Пауза {repeat_delay} секунд...')
-
-                    # Пауза с проверкой прерывания
-                    start_sleep = time.time()
-                    while time.time() - start_sleep < repeat_delay:
-                        if self.signal_handler.is_shutdown():
-                            break
-                        time.sleep(0.1)
-
-                    if self.signal_handler.is_shutdown():
-                        break
-
-    def init_rawg_client(self, options):
-        """Инициализация клиента RAWG с оптимизациями"""
+        # Показываем итоговую статистику базы данных
         try:
-            # Убрали параметр debug из конструктора, так как его нет в RAWGClient
-            self.rawg_client = RAWGClient(
-                api_key=options.get('api_key')
-            )
+            from django.db.models import Q
+            from games.models import Game
 
-            # Устанавливаем debug режим если нужно
-            if options.get('debug'):
-                self.rawg_client.set_debug(True)
+            total_games_db = Game.objects.count()
+            games_with_rawg = Game.objects.filter(
+                ~Q(rawg_description__isnull=True) &
+                ~Q(rawg_description__exact='')
+            ).count()
 
-            # Быстрая проверка баланса
-            balance_check = self.rawg_client.check_balance(force=True, quick_check=True)
+            percentage = (games_with_rawg / total_games_db * 100) if total_games_db > 0 else 0
 
-            if balance_check.get('balance_exceeded', False):
-                self.stdout.write(
-                    self.style.ERROR(f'❌ Проблема с API ключом: {balance_check.get("error", "Неизвестная ошибка")}'))
-                return False
-            else:
-                self.stdout.write(self.style.SUCCESS('✅ RAWG клиент инициализирован'))
+            self.stdout.write(f"\n\n📊 СТАТИСТИКА БАЗЫ ДАННЫХ:")
+            self.stdout.write(f"\n   📁 Всего игр в БД: {total_games_db:,}")
+            self.stdout.write(f"\n   ✅ С RAWG описанием: {games_with_rawg:,} ({percentage:.1f}%)")
 
-                # Показываем информацию о балансе
-                if balance_check.get('requests_remaining'):
-                    self.stdout.write(f'   📊 Осталось запросов: {balance_check["requests_remaining"]:,}')
+            # Показываем прогресс-бар заполнения БД
+            bar_length = 30
+            filled = int(bar_length * percentage / 100)
+            bar = "[" + "█" * filled + "░" * (bar_length - filled) + "]"
+            self.stdout.write(f"\n   {bar} {percentage:.1f}% заполнено")
 
-                return True
-
-        except ValueError as e:
-            self.stdout.write(self.style.ERROR(f'❌ {e}'))
-            self.stdout.write(self.style.WARNING(
-                '💡 Укажите ключ через --api-key или добавьте RAWG_API_KEY в .env'
-            ))
-            return False
         except Exception as e:
-            self.stdout.write(self.style.ERROR(f'❌ Ошибка инициализации RAWG клиента: {e}'))
-            return False
+            if hasattr(self, 'original_options') and self.original_options.get('debug'):
+                self.stdout.write(f"\n   ⚠️ Ошибка получения статистики БД: {e}")
+
+        # Показываем информацию о балансе API
+        if self.rawg_client:
+            try:
+                balance = self.rawg_client.check_balance()
+                self.stdout.write(f"\n\n💳 БАЛАНС API:")
+                self.stdout.write(f"\n   📊 Лимит: {balance['limit']:,}")
+                self.stdout.write(f"\n   📊 Использовано: {balance['used']:,} ({balance['percentage']:.1f}%)")
+                self.stdout.write(f"\n   📊 Осталось: {balance['remaining']:,}")
+
+                if balance['is_low']:
+                    self.stdout.write(
+                        self.style.WARNING(f"\n   ⚠️  Внимание: мало запросов ({balance['remaining']:,})"))
+                if balance['exceeded']:
+                    self.stdout.write(self.style.ERROR(f"\n   🚫 Лимит превышен! Нужно обновить баланс"))
+
+            except Exception as e:
+                if hasattr(self, 'original_options') and self.original_options.get('debug'):
+                    self.stdout.write(f"\n   ⚠️ Ошибка получения баланса: {e}")
+
+        # Показываем информацию о файлах логов только если есть ошибки
+        log_dir = Path(self.original_options.get('log_dir', 'logs')) if hasattr(self, 'original_options') else Path(
+            'logs')
+
+        if log_dir.exists() and self.global_stats['errors'] > 0:
+            log_files = list(log_dir.glob('error_details_*.json'))
+            if log_files:
+                # Берем последний файл ошибок
+                latest_error_file = max(log_files, key=lambda f: f.stat().st_mtime)
+                try:
+                    with open(latest_error_file, 'r', encoding='utf-8') as f:
+                        error_data = json.load(f)
+
+                    total_errors = error_data.get('statistics', {}).get('total_errors', 0)
+                    if total_errors > 0:
+                        self.stdout.write(f"\n\n📄 ФАЙЛЫ ОШИБОК:")
+                        self.stdout.write(f"\n   🔴 Обнаружено {total_errors} ошибок")
+                        self.stdout.write(f"\n   📁 Подробности в: {latest_error_file}")
+
+                        # Показываем топ ошибок
+                        errors_by_type = error_data.get('statistics', {}).get('errors_by_type', {})
+                        if errors_by_type:
+                            top_errors = sorted(errors_by_type.items(), key=lambda x: x[1], reverse=True)[:3]
+                            self.stdout.write(f"\n   📊 Топ ошибок:")
+                            for err_type, count in top_errors:
+                                self.stdout.write(f"\n     • {err_type}: {count}")
+                except Exception as e:
+                    pass  # Не показываем, если не удалось прочитать
+
+        # Рекомендации на основе статистики
+        if self.global_stats['total_processed'] > 0:
+            self.stdout.write(f"\n\n💡 РЕКОМЕНДАЦИИ:")
+
+            # Рекомендации на основе процента ошибок
+            error_rate = (self.global_stats['errors'] / self.global_stats['total_processed'] * 100)
+            if error_rate > 20:
+                self.stdout.write(self.style.ERROR(
+                    f"\n   🔴 Высокий уровень ошибок ({error_rate:.1f}%)"))
+            elif error_rate > 5:
+                self.stdout.write(self.style.WARNING(
+                    f"\n   🟡 Умеренный уровень ошибок ({error_rate:.1f}%)"))
+
+            # Рекомендации на основе процента не найденных игр
+            not_found_rate = (self.global_stats['not_found'] / self.global_stats['total_processed'] * 100)
+            if not_found_rate > 40:
+                self.stdout.write(f"\n   🟡 Много ненайденных игр ({not_found_rate:.1f}%)")
+
+        # Финальное сообщение
+        self.stdout.write("\n" + "=" * 70)
+
+        if self.global_stats['errors'] > 0:
+            self.stdout.write(self.style.WARNING(f"\n⚠️  ВНИМАНИЕ: Было {self.global_stats['errors']} ошибок!"))
+
+        self.stdout.write(self.style.SUCCESS("\n✅ ИМПОРТ ЗАВЕРШЕН"))
+
+        if self.global_stats['total_processed'] > 0:
+            self.stdout.write(f" (обработано {self.global_stats['total_processed']:,} игр)")
+
+            if self.global_stats['found'] > 0:
+                self.stdout.write(self.style.SUCCESS(
+                    f", найдено {self.global_stats['found']:,} описаний"))
+
+        self.stdout.write("\n" + "=" * 70)
+        self.stdout.write("\n")
+        self.stdout.flush()
 
     def load_not_found_from_rawg_cache_batch(self):
-        """Загружает ненайденные игры из кэша RAWG (оптимизированная версия)"""
+        """Загружает ненайденные игры из кэша RAWG"""
         if not self.rawg_client:
             self.stdout.write('⚠️ RAWG клиент не инициализирован')
             return
 
         try:
-            # Получаем соединение с кэшем RAWG
             cache_conn = self.rawg_client.get_cache_connection()
             if not cache_conn:
                 self.stdout.write('⚠️ Не удалось получить соединение с кэшем RAWG')
@@ -757,7 +933,6 @@ class Command(ImportRawgBaseCommand):
 
             cursor = cache_conn.cursor()
 
-            # Оптимизированный запрос: получаем только нужные данные
             cursor.execute('''
                            SELECT DISTINCT game_name
                            FROM rawg_cache
@@ -765,7 +940,7 @@ class Command(ImportRawgBaseCommand):
                              AND updated_at
                                > datetime('now'
                                , '-30 days')
-                               LIMIT 5000 -- Ограничиваем количество для производительности
+                               LIMIT 5000
                            ''')
 
             not_found_names = [row[0] for row in cursor.fetchall()]
@@ -777,60 +952,36 @@ class Command(ImportRawgBaseCommand):
 
             self.stdout.write(f'📂 Загружаю {len(not_found_names)} ненайденных игр из кэша RAWG...')
 
-            # Используем батчевый поиск в базе данных
             batch_size = 100
             self.not_found_ids = set()
 
             for i in range(0, len(not_found_names), batch_size):
                 batch_names = not_found_names[i:i + batch_size]
 
-                # Ищем игры батчем
                 games = Game.objects.filter(name__in=batch_names).only('id', 'igdb_id', 'name')
                 self.not_found_ids.update(game.igdb_id for game in games)
 
-                # Прогресс
-                if i % 1000 == 0:
-                    self.stdout.write(
-                        f'   ⏳ Обработано {min(i + batch_size, len(not_found_names))}/{len(not_found_names)}')
-
             self.stdout.write(f'✅ Загружено {len(self.not_found_ids)} не найденных игр из кэша RAWG')
-
-            if self.not_found_ids:
-                sample_ids = list(self.not_found_ids)[:3]
-                self.stdout.write(f'   📋 Примеры из кэша:')
-                for igdb_id in sample_ids:
-                    game = Game.objects.filter(igdb_id=igdb_id).first()
-                    if game:
-                        self.stdout.write(f'      • {igdb_id}: {game.name}')
 
         except Exception as e:
             self.stdout.write(f'⚠️ Ошибка загрузки из кэша RAWG: {e}')
             self.not_found_ids = set()
 
     def load_not_found_ids_from_file(self, filename):
-        """Загружает список не найденных игр из файла (оптимизированная версия)"""
+        """Загружает список не найденных игр из файла"""
         file_ids = set()
         try:
             if os.path.exists(filename):
                 with open(filename, 'r', encoding='utf-8') as f:
                     data = json.load(f)
 
-                # Обрабатываем разные форматы файлов
                 if 'not_found_games' in data:
-                    # Новый формат с деталями игр
                     not_found_games = data['not_found_games']
                     file_ids = {game['igdb_id'] for game in not_found_games if 'igdb_id' in game}
-
-                    summary = data.get('summary', {})
-                    self.stdout.write(f'📄 Загружено из файла: {len(file_ids)} ненайденных игр')
-
-                    if 'last_updated' in summary:
-                        self.stdout.write(f'   📅 Последнее обновление файла: {summary["last_updated"]}')
-
                 elif 'not_found_ids' in data:
-                    # Старый формат только с ID
                     file_ids = set(data.get('not_found_ids', []))
-                    self.stdout.write(f'📄 Загружено из файла (старый формат): {len(file_ids)} игр')
+
+                self.stdout.write(f'📄 Загружено из файла: {len(file_ids)} игр')
 
         except Exception as e:
             self.stdout.write(f'   ⚠️ Ошибка загрузки из файла: {e}')
@@ -838,14 +989,13 @@ class Command(ImportRawgBaseCommand):
         return file_ids
 
     def save_not_found_ids_to_file(self, filename):
-        """Сохраняет список не найденных игр в файл (оптимизированная версия)"""
+        """Сохраняет список не найденных игр в файл"""
         try:
             if not self.not_found_ids:
                 return
 
             self.stdout.write(f'\n💾 Сохраняю {len(self.not_found_ids)} ненайденных игр в файл...')
 
-            # Получаем детали игр батчами для производительности
             not_found_details = []
             batch_size = 200
 
@@ -857,26 +1007,20 @@ class Command(ImportRawgBaseCommand):
 
                 games = Game.objects.filter(
                     igdb_id__in=batch_ids
-                ).select_related('game_type').only(
-                    'id', 'igdb_id', 'name', 'game_type_id',
-                    'first_release_date', 'rating', 'rating_count'
+                ).only(
+                    'id', 'igdb_id', 'name',
+                    'first_release_date', 'rating', 'rating_count', 'game_type'
                 )
 
                 for game in games:
                     not_found_details.append({
                         'igdb_id': game.igdb_id,
                         'name': game.name,
-                        'game_type': game.game_type_id,
-                        'game_type_name': game.game_type.name if game.game_type else None,
+                        'game_type': game.game_type,
                         'first_release_date': game.first_release_date.isoformat() if game.first_release_date else None,
                         'rating': game.rating,
                         'rating_count': game.rating_count
                     })
-
-                # Прогресс - показываем каждый батч или каждые 5 батчей
-                processed = min(i + batch_size, total_ids)
-                if i % (batch_size * 5) == 0 or processed == total_ids:
-                    self.stdout.write(f'   ⏳ Подготовлено {processed}/{total_ids} игр')
 
             data = {
                 'not_found_games': not_found_details,
@@ -884,14 +1028,7 @@ class Command(ImportRawgBaseCommand):
                     'total_count': len(self.not_found_ids),
                     'last_updated': datetime.now().isoformat(),
                     'cache_enabled': not self.original_options.get('skip_cache', False),
-                    'total_games_processed': self.total_games_processed,
-                    'processing_time_seconds': time.time() - self.start_time
-                },
-                'meta': {
-                    'source': 'rawg_cache_and_file_backup',
-                    'primary_source': 'rawg_cache.db',
-                    'file_is_backup': True,
-                    'important': 'Основные данные хранятся в кэше RAWG, этот файл - резервная копия'
+                    'global_stats': self.global_stats.copy()  # Сохраняем глобальную статистику
                 }
             }
 
@@ -899,114 +1036,48 @@ class Command(ImportRawgBaseCommand):
                 json.dump(data, f, ensure_ascii=False, indent=2)
 
             self.stdout.write(f'✅ Файл не найденных игр сохранен: {filename}')
-            self.stdout.write(f'   📊 Всего ненайденных игр: {len(self.not_found_ids)}')
 
         except Exception as e:
             self.stdout.write(f'   ⚠️ Ошибка сохранения в файл: {e}')
-            # Сохраняем упрощенную версию
+
             try:
                 data = {
                     'not_found_ids': list(self.not_found_ids),
                     'last_updated': datetime.now().isoformat(),
-                    'count': len(self.not_found_ids),
-                    'error': str(e),
-                    'note': 'Упрощенный формат из-за ошибки'
+                    'count': len(self.not_found_ids)
                 }
                 with open(filename, 'w', encoding='utf-8') as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)
-                self.stdout.write(f'   💾 Сохранены только ID (без названий)')
+                self.stdout.write(f'   💾 Сохранены только ID')
             except:
                 self.stdout.write(f'   💥 Критическая ошибка сохранения файла')
 
-    def show_cache_info(self, options):
-        """Показывает информацию о кэше"""
-        if not options.get('skip_cache'):
-            self.stdout.write('💾 Кэширование: ВКЛЮЧЕНО')
-            self.stdout.write(f'   📦 Не найденных игр в кэше RAWG: {len(self.not_found_ids)}')
+    def safe_print(self, message, newline=True):
+        """Безопасный вывод поверх строки прогресса"""
+        self.clear_progress_line()
 
-            # Информация о размере кэша
-            if self.rawg_client:
-                cache_size = self.rawg_client.get_cache_size()
-                if cache_size:
-                    self.stdout.write(f'   📊 Размер кэша: {cache_size} записей')
+        if newline:
+            self.stdout.write(message + '\n')
         else:
-            self.stdout.write('💾 Кэширование: ВЫКЛЮЧЕНО')
+            self.stdout.write(message)
 
-        auto_offset = options.get('auto_offset', True)
-        if auto_offset:
-            self.stdout.write(f'⚡ Auto-offset: пропуск {len(self.not_found_ids)} не найденных игр')
-            self.stdout.write(f'   📄 Файл резервной копии: {options.get("auto_offset_file", "auto_offset_log.json")}')
+        self.stdout.flush()
 
-    def show_final_statistics_comprehensive(self):
-        """Показывает всеобъемлющую финальную статистику"""
-        total_time = time.time() - self.start_time
+        if hasattr(self, 'progress_data') and self.progress_data.get('total_games', 0) > 0:
+            self.update_single_progress_line()
 
-        self.stdout.write('\n' + '📊' * 20)
-        self.stdout.write('🏁 ИТОГОВАЯ СТАТИСТИКА')
-        self.stdout.write('=' * 50)
+    def log_to_file(self, message, level="INFO"):
+        """Записывает сообщение в лог-файл (без вывода в консоль)"""
+        log_dir = Path(self.original_options.get('log_dir', 'logs'))
+        log_dir.mkdir(exist_ok=True)
 
-        # Общая статистика
-        self.stdout.write(f'⏱️  Общее время выполнения: {total_time:.1f} сек')
-        self.stdout.write(f'🎮 Всего обработано игр: {self.total_games_processed:,}')
+        log_file = log_dir / f'import_rawg_{time.strftime("%Y%m%d")}.log'
 
-        if self.total_games_processed > 0:
-            games_per_sec = self.total_games_processed / total_time
-            self.stdout.write(f'⚡ Средняя скорость: {games_per_sec:.1f} игр/сек')
+        timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+        log_entry = f"[{timestamp}] [{level}] {message}\n"
 
-        # Статистика базы данных
-        self.stats_manager.show_rawg_stats()
-
-        # Статистика API
-        if hasattr(self, 'rawg_client') and self.rawg_client:
-            self.stats_manager.show_api_statistics(self.rawg_client)
-
-        # Статистика кэша
-        if self.not_found_ids:
-            self.stdout.write(f'\n📋 Не найденных игр в системе: {len(self.not_found_ids)}')
-            self.stdout.write(f'   💾 Основное хранилище: кэш RAWG')
-            self.stdout.write(f'   📄 Резервная копия: файл auto_offset_log.json')
-            self.stdout.write('💡 Эти игры будут пропускаться при следующих запусках')
-
-        self.stdout.write('\n' + '🎉' * 20)
-        self.stdout.write('✅ ИМПОРТ ЗАВЕРШЕН УСПЕШНО!')
-
-    def show_final_statistics(self):
-        """Показывает финальную статистику (обратная совместимость)"""
-        self.show_final_statistics_comprehensive()
-
-    def check_and_wait_for_balance(self):
-        """Проверяет баланс и ждет если нужно"""
-        if not self.rawg_client:
-            return True
-
-        balance_check = self.rawg_client.check_balance(force=True)
-
-        if balance_check.get('balance_exceeded', False):
-            error_msg = balance_check.get('error', 'Неизвестная ошибка баланса')
-            self.stdout.write(self.style.ERROR(f'\n🚫 ЛИМИТ API ИСЧЕРПАН: {error_msg}'))
-
-            # Если это временный лимит (429), ждем
-            if "секунд" in error_msg or "минут" in error_msg:
-                # Пытаемся извлечь время ожидания
-                import re
-                match = re.search(r'(\d+)\s*(секунд|минут|час)', error_msg)
-                if match:
-                    wait_time = int(match.group(1))
-                    if "минут" in error_msg:
-                        wait_time *= 60
-                    elif "час" in error_msg:
-                        wait_time *= 3600
-
-                    self.stdout.write(f'⏳ Ожидание {wait_time} секунд...')
-                    time.sleep(wait_time)
-                    return True
-                else:
-                    # Ждем по умолчанию 5 минут
-                    self.stdout.write(f'⏳ Ожидание 300 секунд (5 минут)...')
-                    time.sleep(300)
-                    return True
-            else:
-                # Если это окончательный лимит (например, суточный)
-                return False
-
-        return True
+        try:
+            with open(log_file, 'a', encoding='utf-8') as f:
+                f.write(log_entry)
+        except Exception:
+            pass

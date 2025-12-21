@@ -3,6 +3,14 @@
 
 {% block title %}{{ game.name }} - GamesPeek{% endblock %}
 
+{% block extra_css %}
+    <!-- Подключаем стили для конкретной страницы -->
+    <link rel="stylesheet" href="{% static 'games/css/game_detail.css' %}">
+    <!-- Подключаем компоненты -->
+    <link rel="stylesheet" href="{% static 'games/css/game_detail/gallery.css' %}">
+        <link rel="stylesheet" href="{% static 'games/css/game_detail/tabs.css' %}">
+{% endblock %}
+
 {% block content %}
     <div class="container-fluid py-4">
         <!-- Хедер с основной информацией -->

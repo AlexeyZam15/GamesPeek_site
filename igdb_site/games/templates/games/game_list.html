@@ -3,6 +3,11 @@
 
 {% block title %}Browse Games - GamesPeek{% endblock %}
 
+{% block extra_css %}
+    <link rel="stylesheet" href="{% static 'games/css/game_list.css' %}">
+    <link rel="stylesheet" href="{% static 'games/components/cards.css' %}">
+{% endblock %}
+
 {% block content %}
 <div class="container">
     <!-- ЗАГОЛОВОК -->
@@ -13,11 +18,11 @@
     </div>
 
     <!-- Форма фильтров -->
-    {% include 'games/partials/_filters_form.html' %}
+    {% include 'games/game_list/_filters_form.html' %}
 
     <!-- Результаты -->
-    {% include 'games/partials/_games_results.html' %}
+    {% include 'games/game_list/_games_results.html' %}
 </div>
 
-{% include 'games/partials/_game_list_script.html' %}
+{% include 'games/game_list/_game_list_script.html' %}
 {% endblock %}

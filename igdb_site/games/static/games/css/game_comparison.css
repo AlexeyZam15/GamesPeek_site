@@ -1,0 +1,450 @@
+/* ===== GAME COMPARISON PAGE ===== */
+
+/* Хедер сравнения */
+.comparison-hero {
+    background: linear-gradient(135deg,
+        rgba(255, 107, 53, 0.1) 0%,
+        rgba(255, 140, 0, 0.05) 50%,
+        rgba(52, 152, 219, 0.1) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--border-radius);
+    padding: 2rem;
+    margin-bottom: 2rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.comparison-hero::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle, rgba(255, 107, 53, 0.1) 0%, transparent 70%);
+    animation: pulse 8s ease-in-out infinite;
+}
+
+/* Карточка сходства */
+.similarity-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--border-radius);
+    text-align: center;
+    transition: var(--transition);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+    padding: 2rem 1rem;
+    position: relative;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+
+.similarity-card::before {
+    content: '';
+    position: absolute;
+    top: -2px;
+    left: -2px;
+    right: -2px;
+    bottom: -2px;
+    background: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
+    border-radius: var(--border-radius);
+    z-index: -1;
+    opacity: 0.3;
+}
+
+.similarity-score {
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1;
+    margin-bottom: 0.75rem;
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.similarity-label {
+    font-weight: 600;
+    color: var(--text-light);
+    margin-bottom: 0.5rem;
+    font-size: 1.2rem;
+}
+
+.similarity-description {
+    font-size: 0.9rem;
+    color: var(--text-dark);
+    font-weight: 600;
+}
+
+/* Статистические карточки */
+.stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--border-radius);
+    text-align: center;
+    transition: var(--transition);
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+}
+
+.stat-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 5px 15px rgba(255, 107, 53, 0.2);
+    border-color: var(--secondary-color);
+}
+
+.stat-number {
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1;
+    margin-bottom: 0.75rem;
+    font-size: 2.5rem;
+}
+
+.stat-label {
+    font-weight: 600;
+    color: var(--text-light);
+    margin-bottom: 0.5rem;
+    font-size: 1.1rem;
+}
+
+.stat-description {
+    font-size: 0.9rem;
+    color: var(--text-dark);
+}
+
+/* Разбивка алгоритма */
+.algorithm-breakdown {
+    margin-bottom: 2rem;
+}
+
+.breakdown-section {
+    padding: 1rem;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.05);
+    margin-bottom: 1rem;
+}
+
+.breakdown-item {
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.breakdown-item:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+}
+
+.breakdown-label {
+    font-weight: 500;
+    color: var(--text-dark);
+}
+
+.breakdown-value {
+    font-weight: bold;
+    color: var(--text-light);
+}
+
+.breakdown-total {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 2px solid rgba(255,255,255,0.2);
+}
+
+.calculation-formula {
+    font-size: 1.1rem;
+    padding: 1rem;
+    background: rgba(0,0,0,0.3);
+    border-radius: 6px;
+    color: var(--text-light);
+    font-family: monospace;
+}
+
+.final-calculation {
+    border: 2px solid #ffc107 !important;
+    background: rgba(255, 193, 7, 0.05);
+}
+
+/* Общие элементы */
+.shared-section {
+    margin-bottom: 2rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--border-radius);
+    padding: 1.5rem;
+}
+
+.shared-section .section-title {
+    font-size: 1.3rem;
+    margin-bottom: 1.5rem;
+    text-align: left;
+    color: var(--text-light);
+}
+
+.shared-items-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.shared-item {
+    padding: 0.75rem 1.25rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    transition: all 0.2s ease;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+}
+
+.shared-item:hover {
+    transform: translateY(-2px) scale(1.05);
+    box-shadow: 0 6px 15px rgba(0, 0, 0, 0.3);
+}
+
+.no-shared-items {
+    padding: 1rem;
+    text-align: center;
+    color: var(--text-dark);
+    font-style: italic;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 6px;
+    border: 1px dashed var(--border);
+}
+
+/* Кнопки действий */
+.action-buttons {
+    display: flex;
+    gap: 1.5rem;
+    justify-content: center;
+    flex-wrap: wrap;
+    padding: 3rem 0;
+}
+
+.action-buttons .btn {
+    padding: 1rem 2rem;
+    font-size: 1.1rem;
+    font-weight: 700;
+    border-radius: 12px;
+    min-width: 200px;
+}
+
+/* Категории сходства */
+.similarity-category {
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    transition: var(--transition);
+}
+
+.similarity-category:hover {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.similarity-category:last-child {
+    border-bottom: none;
+}
+
+.category-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+    gap: 1.5rem;
+}
+
+.category-info {
+    flex: 1;
+}
+
+.category-name {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-light);
+    margin-bottom: 0.5rem;
+}
+
+.category-meta {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.weight-badge, .impact-badge {
+    font-size: 0.8rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-weight: 600;
+}
+
+.weight-badge {
+    background: rgba(255, 107, 53, 0.1);
+    color: var(--secondary-color);
+    border: 1px solid rgba(255, 107, 53, 0.3);
+}
+
+.impact-badge {
+    background: rgba(52, 152, 219, 0.1);
+    color: var(--info-color);
+    border: 1px solid rgba(52, 152, 219, 0.3);
+}
+
+/* Прогресс-бар */
+.category-progress {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    min-width: 200px;
+}
+
+.progress-wrapper {
+    flex: 1;
+}
+
+.progress {
+    height: 30px;
+    background: var(--surface-dark);
+    border-radius: 15px;
+    overflow: hidden;
+    position: relative;
+}
+
+.progress-bar {
+    height: 100%;
+    border-radius: 15px;
+    transition: width 1s ease-in-out;
+    position: relative;
+}
+
+.progress-high .progress-bar {
+    background: linear-gradient(90deg, var(--success-color), #2ecc71);
+}
+
+.progress-medium .progress-bar {
+    background: linear-gradient(90deg, var(--warning-color), #f1c40f);
+}
+
+.progress-low .progress-bar {
+    background: linear-gradient(90deg, var(--info-color), #3498db);
+}
+
+.progress-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    font-weight: 700;
+    font-size: 0.85rem;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* Адаптивность */
+@media (max-width: 1200px) {
+    .similarity-score {
+        font-size: 2.5rem;
+    }
+
+    .stat-number {
+        font-size: 2rem;
+    }
+}
+
+@media (max-width: 992px) {
+    .comparison-hero {
+        padding: 1.5rem;
+    }
+
+    .category-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+
+    .category-progress {
+        width: 100%;
+        min-width: auto;
+    }
+
+    .action-buttons .btn {
+        min-width: 150px;
+    }
+}
+
+@media (max-width: 768px) {
+    .similarity-score {
+        font-size: 2rem;
+    }
+
+    .stat-card {
+        padding: 1rem;
+    }
+
+    .stat-number {
+        font-size: 1.8rem;
+    }
+
+    .shared-section {
+        padding: 1rem;
+    }
+
+    .shared-section .section-title {
+        font-size: 1.1rem;
+    }
+
+    .shared-item {
+        padding: 0.5rem 1rem;
+        font-size: 0.85rem;
+    }
+
+    .action-buttons {
+        flex-direction: column;
+        align-items: center;
+        padding: 2rem 0;
+    }
+
+    .action-buttons .btn {
+        width: 100%;
+        max-width: 300px;
+        text-align: center;
+    }
+}
+
+@media (max-width: 576px) {
+    .comparison-hero {
+        padding: 1rem;
+    }
+
+    .similarity-card {
+        padding: 1.5rem 0.5rem;
+    }
+
+    .similarity-score {
+        font-size: 1.8rem;
+    }
+
+    .similarity-label {
+        font-size: 1rem;
+    }
+
+    .category-meta {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .shared-items-grid {
+        justify-content: center;
+    }
+
+    .progress {
+        height: 25px;
+    }
+
+    .progress-text {
+        font-size: 0.8rem;
+    }
+}

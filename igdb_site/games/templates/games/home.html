@@ -3,6 +3,11 @@
 
 {% block title %}GamesPeek - Discover Your Next Favorite Game{% endblock %}
 
+{% block extra_css %}
+    <link rel="stylesheet" href="{% static 'games/css/home.css' %}">
+    <link rel="stylesheet" href="{% static 'games/components/cards.css' %}">
+{% endblock %}
+
 {% block content %}
 <!-- Hero Section -->
 <div class="row mb-5">

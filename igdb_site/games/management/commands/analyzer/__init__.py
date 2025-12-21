@@ -4,11 +4,13 @@ from .game_analyzer import GameAnalyzer
 from .game_processor import GameProcessor
 from .pattern_manager import PatternManager
 from .criteria_finder import CriteriaFinder
+from .keyword_finder import KeywordFinder
 
 __all__ = [
     'AnalyzerCommandBase',
     'GameAnalyzer',
     'GameProcessor',
     'PatternManager',
-    'CriteriaFinder'
+    'CriteriaFinder',
+    'KeywordFinder'
 ]

@@ -1,6 +1,5 @@
 # games/analyzer/game_analyzer.py
 from typing import Dict, List, Set, Tuple
-from django.db.models import QuerySet
 from games.models import Game, Genre, Theme, PlayerPerspective, GameMode, Keyword
 from .pattern_manager import PatternManager
 from .criteria_finder import CriteriaFinder
@@ -8,130 +7,86 @@ from .keyword_finder import KeywordFinder
 
 
 class GameAnalyzer:
-    """Класс для анализа игр с оптимизацией производительности"""
+    """Класс для анализа игр с использованием ВСЕХ паттернов сразу"""
 
     def __init__(self, command_instance=None):
         self.command = command_instance
-        self.finders = self._create_finders()
+
+        # Загружаем ВСЕ паттерны сразу
+        all_patterns = PatternManager.get_all_patterns()
+
+        # Создаем finders со ВСЕМИ паттернами
+        self.finders = {
+            'genres': CriteriaFinder(Genre, all_patterns['genres']),
+            'themes': CriteriaFinder(Theme, all_patterns['themes']),
+            'perspectives': CriteriaFinder(PlayerPerspective, all_patterns['perspectives']),
+            'game_modes': CriteriaFinder(GameMode, all_patterns['game_modes']),
+        }
+
         self.keyword_finder = KeywordFinder()
-        self.stats = {
-            'total_matches': 0,
-            'pattern_checks': 0,
-            'cache_hits': 0
-        }
 
-    def _create_finders(self) -> Dict[str, CriteriaFinder]:
-        """Создает экземпляры CriteriaFinder для всех типов критериев"""
-        compiled_patterns = PatternManager.get_compiled_patterns()
-        return {
-            'genres': CriteriaFinder(Genre, compiled_patterns['genres']),
-            'themes': CriteriaFinder(Theme, compiled_patterns['themes']),
-            'perspectives': CriteriaFinder(PlayerPerspective, compiled_patterns['perspectives']),
-            'game_modes': CriteriaFinder(GameMode, compiled_patterns['game_modes']),
-        }
-
-    def analyze_text(self, text: str, game: Game = None, ignore_existing: bool = False,
-                     collect_patterns: bool = False, keywords_mode: bool = False) -> Tuple[
-        Dict[str, List], Dict[str, List[Dict]]]:
-        """Анализирует текст и возвращает найденные критерии"""
+    def analyze_all_patterns(self, text: str, game: Game = None,
+                             ignore_existing: bool = False,
+                             collect_patterns: bool = False,
+                             keywords_mode: bool = False) -> Tuple[Dict[str, List], Dict[str, List[Dict]]]:
+        """Анализирует текст используя ВСЕ паттерны сразу"""
         if not text:
             return self._empty_results(), {}
 
-        try:
-            results = {}
-            all_pattern_info = {}
+        results = {}
+        all_pattern_info = {}
 
-            if keywords_mode:
-                # РЕЖИМ КЛЮЧЕВЫХ СЛОВ
-                try:
-                    existing_keywords = set()
-                    if game and not ignore_existing:
-                        existing_keywords = set(game.keywords.all())
+        if keywords_mode:
+            # Ищем ВСЕ ключевые слова
+            try:
+                existing_keywords = set()
+                if game and not ignore_existing:
+                    existing_keywords = set(game.keywords.all())
 
-                    keywords_results, keywords_pattern_info = self.keyword_finder.find(
-                        text,
-                        existing_objects=existing_keywords,
-                        pattern_collection_mode=collect_patterns
-                    )
+                keywords_results, keywords_pattern_info = self.keyword_finder.find_all_keywords(
+                    text,
+                    existing_objects=existing_keywords,
+                    pattern_collection_mode=collect_patterns
+                )
 
-                    results['keywords'] = keywords_results
+                results['keywords'] = keywords_results
+                all_pattern_info['keywords'] = keywords_pattern_info
 
-                    # Убираем дубликаты из pattern_info для ключевых слов
-                    unique_keywords_pattern_info = []
-                    seen_keywords_patterns = set()
-                    for match in keywords_pattern_info:
-                        match_key = (match.get('pattern', ''), match.get('matched_text', ''), match.get('name', ''))
-                        if match_key not in seen_keywords_patterns:
-                            seen_keywords_patterns.add(match_key)
-                            unique_keywords_pattern_info.append(match)
-
-                    all_pattern_info['keywords'] = unique_keywords_pattern_info
-
-                except Exception as e:
-                    if self.command:
-                        self.command.stdout.write(
-                            f"   ⚠️ Ошибка анализа ключевых слов для {game.name if game else 'текста'}: {e}")
-                    results['keywords'] = []
-                    all_pattern_info['keywords'] = []
-
-                # Возвращаем ТОЛЬКО ключевые слова
-                return results, all_pattern_info
-
-            else:
-                # РЕЖИМ ОБЫЧНЫХ КРИТЕРИЕВ
-                for criteria_type, finder in self.finders.items():
-                    # Определяем существующие критерии для этого типа
-                    existing_objects = set()
-                    if game and not ignore_existing:
-                        try:
-                            existing_objects = self._get_existing_objects(game, criteria_type)
-                        except Exception as e:
-                            if self.command:
-                                self.command.stdout.write(
-                                    f"   ⚠️ Ошибка получения существующих {criteria_type} для {game.name}: {e}")
-                            existing_objects = set()
-
-                    # Анализируем и получаем как объекты, так и информацию о паттернах
-                    try:
-                        results[criteria_type], pattern_info = finder.find(
-                            text,
-                            existing_objects=existing_objects,
-                            pattern_collection_mode=collect_patterns
-                        )
-
-                        # Убираем дубликаты из pattern_info
-                        unique_pattern_info = []
-                        seen_patterns = set()
-                        for match in pattern_info:
-                            match_key = (match.get('pattern', ''), match.get('matched_text', ''), match.get('name', ''))
-                            if match_key not in seen_patterns:
-                                seen_patterns.add(match_key)
-                                unique_pattern_info.append(match)
-
-                        all_pattern_info[criteria_type] = unique_pattern_info
-
-                    except Exception as e:
-                        if self.command:
-                            self.command.stdout.write(f"   ⚠️ Ошибка анализа {criteria_type} для {game.name}: {e}")
-                        results[criteria_type] = []
-                        all_pattern_info[criteria_type] = []
-
-                # Не возвращаем ключевые слова в обычном режиме
+            except Exception as e:
+                if self.command:
+                    self.command.stdout.write(f"⚠️ Ошибка поиска ключевых слов: {e}")
                 results['keywords'] = []
                 all_pattern_info['keywords'] = []
 
-                return results, all_pattern_info
+        else:
+            # Ищем ВСЕ критерии
+            for criteria_type, finder in self.finders.items():
+                try:
+                    existing_objects = set()
+                    if game and not ignore_existing:
+                        existing_objects = self._get_existing_objects(game, criteria_type)
 
-        except Exception as e:
-            game_name = game.name if game else "неизвестная игра"
-            if self.command:
-                self.command.stdout.write(f"❌ Критическая ошибка анализа для {game_name}: {str(e)}")
-                import traceback
-                self.command.stdout.write(f"🔍 Трассировка: {traceback.format_exc()}")
-            return self._empty_results(), {}
+                    criteria_results, pattern_info = finder.find_all_patterns(
+                        text,
+                        existing_objects=existing_objects,
+                        pattern_collection_mode=collect_patterns
+                    )
+
+                    results[criteria_type] = criteria_results
+                    all_pattern_info[criteria_type] = pattern_info
+
+                except Exception as e:
+                    if self.command:
+                        self.command.stdout.write(f"⚠️ Ошибка анализа {criteria_type}: {e}")
+                    results[criteria_type] = []
+                    all_pattern_info[criteria_type] = []
+
+            results['keywords'] = []
+
+        return results, all_pattern_info
 
     def _get_existing_objects(self, game: Game, criteria_type: str) -> Set:
-        """Возвращает существующие объекты для указанного типа критерия"""
+        """Получает существующие объекты"""
         mapping = {
             'genres': game.genres.all(),
             'themes': game.themes.all(),
@@ -142,13 +97,15 @@ class GameAnalyzer:
         return set(mapping.get(criteria_type, []))
 
     def _empty_results(self) -> Dict[str, List]:
-        """Возвращает пустые результаты"""
-        empty_results = {key: [] for key in self.finders.keys()}
-        empty_results['keywords'] = []
-        return empty_results
+        """Пустые результаты"""
+        return {
+            'genres': [], 'themes': [],
+            'perspectives': [], 'game_modes': [],
+            'keywords': []
+        }
 
     def clear_caches(self):
-        """Очищает кеши всех finders для экономии памяти"""
+        """Очищает кеши"""
         for finder in self.finders.values():
             finder.clear_cache()
         self.keyword_finder.clear_cache()
