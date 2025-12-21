@@ -3,6 +3,11 @@
 
 {% block title %}Browse Games - GamesPeek{% endblock %}
 
+{% block extra_css %}
+    <link rel="stylesheet" href="{% static 'games/css/game_list.css' %}">
+    <link rel="stylesheet" href="{% static 'games/components/cards.css' %}">
+{% endblock %}
+
 {% block content %}
 <div class="container">
     <!-- ЗАГОЛОВОК -->
