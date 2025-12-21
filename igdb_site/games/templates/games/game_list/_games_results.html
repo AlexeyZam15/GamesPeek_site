@@ -9,11 +9,11 @@
         </div>
 
         {% if show_similarity and games_with_similarity %}
-            {% include 'games/partials/_games_grid.html' with games=games_with_similarity show_similarity=show_similarity source_game=source_game %}
+            {% include 'games/game_list/_games_grid.html' with games=games_with_similarity show_similarity=show_similarity source_game=source_game %}
         {% elif games %}
-            {% include 'games/partials/_games_grid.html' with games=games %}
+            {% include 'games/game_list/_games_grid.html' with games=games %}
         {% else %}
-            {% include 'games/partials/_no_games_found.html' %}
+            {% include 'games/game_list/_no_games_found.html' %}
         {% endif %}
 
         <!-- ПАГИНАЦИЯ -->
