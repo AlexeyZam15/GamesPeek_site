@@ -5,34 +5,32 @@ from django.core.cache import cache
 
 
 class CriteriaFinder:
-    """Универсальный класс для поиска критериев по паттернам с оптимизацией"""
+    """Универсальный класс для поиска критериев по паттернам"""
 
     def __init__(self, model, patterns: Dict[str, List[re.Pattern]]):
         self.model = model
-        self.patterns = patterns
-        self._cache = {}  # Кеш для объектов модели
-        self._name_cache = {}  # Кеш для имен объектов
+        self.patterns = patterns  # ВСЕ паттерны сразу
+        self._cache = {}
+        self._name_cache = {}
 
-    def find(self, text: str, existing_objects: Set = None,
-             pattern_collection_mode: bool = False,
-             collected_patterns: Optional[List] = None) -> Tuple[List, List[Dict]]:
-        """Находит критерии в тексте, исключая уже существующие"""
+    def find_all_patterns(self, text: str, existing_objects: Set = None,
+                          pattern_collection_mode: bool = False) -> Tuple[List, List[Dict]]:
+        """Ищет критерии используя ВСЕ паттерны сразу"""
         if not text:
             return [], []
 
         found_names = set()
-        pattern_matches = []  # Детальная информация о совпадениях
-        skipped_criteria = set()
+        pattern_matches = []
 
-        # Предварительно проверяем существующие объекты ТОЛЬКО если они переданы
+        # Существующие объекты для пропуска
         existing_names = {obj.name.lower() for obj in existing_objects} if existing_objects else set()
 
-        for name, patterns in self.patterns.items():
+        # Используем ВСЕ паттерны для каждого критерия
+        for name, patterns_list in self.patterns.items():
             name_lower = name.lower()
 
-            # Пропускаем критерии, которые уже есть у игры (ТОЛЬКО если переданы existing_objects)
+            # Пропускаем если уже есть
             if existing_objects and name_lower in existing_names:
-                skipped_criteria.add(name)
                 if pattern_collection_mode:
                     pattern_matches.append({
                         'name': name,
@@ -42,8 +40,8 @@ class CriteriaFinder:
                     })
                 continue
 
-            # Проверяем паттерны
-            for pattern in patterns:
+            # Проверяем ВСЕ паттерны для этого критерия
+            for pattern in patterns_list:
                 try:
                     match = pattern.search(text)
                     if match:
@@ -56,58 +54,63 @@ class CriteriaFinder:
                             'matched_text': matched_text,
                             'status': 'found',
                             'start_pos': match.start(),
-                            'end_pos': match.end()
+                            'end_pos': match.end(),
+                            'confidence': self._calculate_simple_confidence(match, text)
                         }
 
-                        if pattern_collection_mode:
-                            pattern_matches.append(match_info)
-
-                        # Сохраняем информацию о совпадении даже если не в режиме сбора
                         pattern_matches.append(match_info)
-                        break  # Прерываем после первого совпадения
+                        break  # Достаточно одного совпадения из всех паттернов
 
-                except Exception as e:
-                    error_info = {
-                        'name': name,
-                        'pattern': pattern.pattern if hasattr(pattern, 'pattern') else str(pattern),
-                        'matched_text': f'ERROR: {str(e)}',
-                        'status': 'error'
-                    }
-                    if pattern_collection_mode:
-                        pattern_matches.append(error_info)
+                except Exception:
+                    continue
 
         return self.get_actual_objects(list(found_names)), pattern_matches
 
+    def _calculate_simple_confidence(self, match, text: str) -> float:
+        """Простая оценка уверенности"""
+        # Базовое значение
+        confidence = 0.5
+
+        # 1. Длина совпадения
+        match_len = match.end() - match.start()
+        if match_len > 15:
+            confidence += 0.2
+        elif match_len > 8:
+            confidence += 0.1
+
+        # 2. Позиция в тексте (ранние упоминания важнее)
+        text_len = len(text)
+        if text_len > 0:
+            position_ratio = match.start() / text_len
+            if position_ratio < 0.3:  # В первой трети текста
+                confidence += 0.1
+
+        return min(1.0, confidence)
+
     def get_actual_objects(self, names: List[str]) -> List:
-        """Получает объекты из базы данных с кешированием"""
+        """Получает объекты из базы данных"""
         if not names:
             return []
 
-        # Фильтруем уникальные имена
         unique_names = set(names)
         objects = []
-        missing_names = []
 
         for name in unique_names:
             if name not in self._cache:
                 try:
-                    # Используем точное совпадение без учета регистра
                     obj = self.model.objects.get(name__iexact=name)
                     self._cache[name] = obj
                     self._name_cache[name.lower()] = obj
                 except self.model.DoesNotExist:
                     self._cache[name] = None
-                    missing_names.append(name)
+                    print(f"⚠️ Критерий '{name}' не найден в базе данных")
 
             if self._cache[name]:
                 objects.append(self._cache[name])
 
-        if missing_names and self.model._meta.verbose_name_plural == 'genres':
-            print(f"⚠️ Следующие критерии не найдены в базе данных: {missing_names}")
-
         return objects
 
     def clear_cache(self):
-        """Очищает кеш для экономии памяти"""
+        """Очищает кеш"""
         self._cache.clear()
         self._name_cache.clear()

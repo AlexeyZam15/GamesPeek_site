@@ -1,4 +1,4 @@
-# games/management/commands/import_rawg/cache_manager.py
+# FILE: cache_manager.py
 import sqlite3
 import json
 import os
@@ -147,19 +147,19 @@ class CacheManager:
             exists = cursor.fetchone()
 
             updates = {
-                'cache_hit': ('cache_hits', 'cache_hits + ?'),
-                'cache_miss': ('cache_misses', 'cache_misses + ?'),
-                'search_request': ('search_requests', 'search_requests + ?'),
-                'detail_request': ('detail_requests', 'detail_requests + ?'),
-                'rate_limited': ('rate_limited', 'rate_limited + ?')
+                'cache_hit': 'cache_hits',
+                'cache_miss': 'cache_misses',
+                'search_request': 'search_requests',
+                'detail_request': 'detail_requests',
+                'rate_limited': 'rate_limited'
             }
 
             if exists:
                 if stat_type in updates:
-                    column, increment = updates[stat_type]
+                    column = updates[stat_type]
                     cursor.execute(f'''
                         UPDATE request_stats 
-                        SET {column} = {increment}
+                        SET {column} = {column} + ?
                         WHERE date = ?
                     ''', (value, today))
 
@@ -179,19 +179,12 @@ class CacheManager:
                 }
 
                 cursor.execute('''
-                               INSERT INTO request_stats
-                               (date, cache_hits, cache_misses, search_requests,
-                                detail_requests, rate_limited, total_requests)
+                               INSERT INTO request_stats (date, cache_hits, cache_misses, search_requests,
+                                                          detail_requests, rate_limited, total_requests)
                                VALUES (?, ?, ?, ?, ?, ?, ?)
-                               ''', (
-                                   today,
-                                   initial_values['cache_hits'],
-                                   initial_values['cache_misses'],
-                                   initial_values['search_requests'],
-                                   initial_values['detail_requests'],
-                                   initial_values['rate_limited'],
-                                   initial_values['total_requests']
-                               ))
+                               ''', (today, initial_values['cache_hits'], initial_values['cache_misses'],
+                                     initial_values['search_requests'], initial_values['detail_requests'],
+                                     initial_values['rate_limited'], initial_values['total_requests']))
 
             self.stats_db.commit()
 
@@ -217,15 +210,11 @@ class CacheManager:
 
             cursor = self.stats_db.cursor()
             cursor.execute('''
-                           INSERT INTO efficiency_stats
-                               (timestamp, cache_efficiency, requests_saved, avg_requests_per_game)
+                           INSERT INTO efficiency_stats (timestamp, cache_efficiency, requests_saved,
+                                                         avg_requests_per_game)
                            VALUES (?, ?, ?, ?)
-                           ''', (
-                               timestamp,
-                               cache_efficiency,
-                               requests_saved,
-                               requests_with_cache / total_processed if total_processed > 0 else 0
-                           ))
+                           ''', (timestamp, cache_efficiency, requests_saved,
+                                 requests_with_cache / total_processed if total_processed > 0 else 0))
 
             self.stats_db.commit()
 
@@ -243,17 +232,11 @@ class CacheManager:
             timestamp = datetime.now().isoformat()
 
             cursor.execute('''
-                           INSERT INTO interruption_logs
-                           (timestamp, repeat_num, games_processed, games_saved, reason, interrupted_at)
+                           INSERT INTO interruption_logs (timestamp, repeat_num, games_processed, games_saved, reason,
+                                                          interrupted_at)
                            VALUES (?, ?, ?, ?, ?, ?)
-                           ''', (
-                               timestamp,
-                               repeat_num,
-                               stats.get('total', 0),
-                               stats.get('updated', 0),
-                               reason,
-                               datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                           ))
+                           ''', (timestamp, repeat_num, stats.get('total', 0),
+                                 stats.get('updated', 0), reason, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
 
             self.stats_db.commit()
         except Exception as e:
@@ -279,3 +262,11 @@ class CacheManager:
                     print(f'   ⚠️ Не удалось удалить {cache_path}: {e}')
 
         return deleted_count
+
+    def close(self):
+        """Закрывает соединение с БД"""
+        if self.stats_db:
+            try:
+                self.stats_db.close()
+            except:
+                pass

@@ -1,0 +1,232 @@
+/* ===== ГАЛЕРЕЯ СКРИНШОТОВ ===== */
+
+/* Контейнер для скриншота */
+.screenshot-container {
+    height: 220px;
+    position: relative;
+    overflow: hidden;
+    border-radius: 8px;
+    background: transparent !important;
+    margin-bottom: 1rem;
+}
+
+/* Карточки скриншотов в сетке */
+.screenshot-card {
+    background: transparent !important;
+    border: none !important;
+    overflow: hidden;
+    transition: all 0.3s ease;
+    height: 100%;
+}
+
+.screenshot-image {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    border: none !important;
+    object-fit: cover !important;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.screenshot-image:hover {
+    transform: scale(1.08) !important;
+    border-color: transparent !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4) !important;
+    filter: brightness(1.1);
+}
+
+/* Hover оверлей для карточек */
+.hover-overlay {
+    background: linear-gradient(135deg,
+        rgba(0, 0, 0, 0.7),
+        rgba(255, 107, 53, 0.3)) !important;
+    pointer-events: none;
+    transition: opacity 0.3s ease !important;
+}
+
+/* Фон модального окна с размытием */
+#screenshotModal .modal-content {
+    background: radial-gradient(circle at center,
+        rgba(17, 24, 28, 0.85) 0%,
+        rgba(0, 0, 0, 0.95) 100%) !important;
+    backdrop-filter: blur(20px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Анимация появления модального окна */
+#screenshotModal.fade .modal-dialog {
+    transform: scale(0.9);
+    transition: transform 0.3s ease-out;
+}
+#screenshotModal.show .modal-dialog {
+    transform: scale(1);
+}
+
+/* Стрелки навигации */
+.nav-arrow {
+    opacity: 0.7;
+    transition: all 0.3s ease !important;
+    backdrop-filter: blur(10px);
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.5) !important;
+    border: 2px solid rgba(255, 255, 255, 0.3) !important;
+    width: 60px;
+    height: 60px;
+    border-radius: 50% !important;
+    color: white !important;
+    font-size: 1.5rem;
+}
+.nav-arrow:hover:not(:disabled) {
+    opacity: 1;
+    transform: scale(1.1) !important;
+    background: linear-gradient(135deg,
+        rgba(255, 107, 53, 0.8),
+        rgba(255, 140, 0, 0.8)) !important;
+    border-color: rgba(255, 107, 53, 0.9) !important;
+    box-shadow: 0 0 20px rgba(255, 107, 53, 0.5);
+}
+.nav-arrow:disabled {
+    cursor: not-allowed;
+    opacity: 0.2;
+}
+
+/* Полноэкранное изображение */
+.screenshot-full {
+    animation: fadeInZoom 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    max-height: 85vh;
+    max-width: 85vw;
+    object-fit: contain;
+    border-radius: 8px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+/* Индикатор текущего скриншота */
+.screenshot-counter {
+    background: linear-gradient(135deg,
+        rgba(255, 107, 53, 0.3),
+        rgba(255, 140, 0, 0.2)) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+    border-radius: 20px;
+    padding: 10px 20px;
+    z-index: 1000;
+}
+
+/* Кнопка закрытия */
+.screenshot-close {
+    background: none !important;
+    border: none !important;
+    opacity: 0.9 !important;
+    transition: all 0.3s ease !important;
+    z-index: 1000 !important;
+    font-size: 2rem;
+    color: white !important;
+    text-shadow: 0 0 10px rgba(0,0,0,0.8) !important;
+}
+.screenshot-close:hover {
+    opacity: 1 !important;
+    transform: rotate(90deg) scale(1.2) !important;
+    color: #ff6b35 !important;
+}
+
+/* Фикс для модального окна */
+#screenshotModal .modal-body {
+    padding: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    min-height: 100vh !important;
+}
+
+#screenshotModal.modal {
+    background: rgba(0, 0, 0, 0.95) !important;
+    backdrop-filter: blur(10px) !important;
+}
+
+#screenshotModal + .modal-backdrop { display: none !important; }
+
+/* АДАПТИВНЫЕ СКРИНШОТЫ */
+.screenshot-container-fixed {
+    width: 100%;
+    height: 180px;
+    overflow: hidden;
+    position: relative;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #1a1a1a;
+    margin-bottom: 1rem;
+}
+
+.screenshot-image-fixed {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: block;
+    margin: auto;
+}
+
+/* Hover эффект */
+.screenshot-image-fixed:hover {
+    transform: scale(1.05);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+}
+
+/* Для очень маленьких изображений */
+.screenshot-image-fixed.small {
+    background-color: #2a2a2a;
+    padding: 10px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 107, 53, 0.3);
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+    .screenshot-container-fixed,
+    .screenshot-container {
+        height: 150px;
+    }
+
+    .nav-arrow {
+        width: 50px;
+        height: 50px;
+        font-size: 1.2rem;
+    }
+
+    .screenshot-full {
+        max-height: 70vh;
+        max-width: 90vw;
+    }
+
+    .screenshot-close {
+        font-size: 1.5rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .screenshot-container-fixed,
+    .screenshot-container {
+        height: 120px;
+    }
+
+    .nav-arrow {
+        width: 40px;
+        height: 40px;
+        font-size: 1rem;
+    }
+
+    .screenshot-full {
+        max-height: 60vh;
+        max-width: 95vw;
+    }
+
+    .screenshot-counter {
+        font-size: 0.9rem;
+        padding: 6px 15px;
+    }
+}
