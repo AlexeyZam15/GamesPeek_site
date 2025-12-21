@@ -201,6 +201,114 @@ class GameTypeEnum:
 class GameManager(models.Manager):
     """Custom manager for Game model with game type filters"""
 
+    def bulk_update_wiki_descriptions(self, descriptions_dict, batch_size=1000):
+        """
+        Массовое обновление wiki описаний
+        descriptions_dict: {game_id: description}
+        """
+        from django.db import transaction
+        from django.db.models import Case, When, Value
+
+        if not descriptions_dict:
+            return 0
+
+        game_ids = list(descriptions_dict.keys())
+        updated_count = 0
+
+        # Разбиваем на батчи
+        for i in range(0, len(game_ids), batch_size):
+            batch_ids = game_ids[i:i + batch_size]
+
+            # Создаем CASE выражения
+            whens = []
+            for game_id in batch_ids:
+                description = descriptions_dict.get(game_id)
+                if description is not None:  # Может быть пустой строкой
+                    whens.append(When(id=game_id, then=Value(description)))
+
+            if whens:
+                with transaction.atomic():
+                    result = self.filter(id__in=batch_ids).update(
+                        wiki_description=Case(*whens, default='wiki_description')
+                    )
+                    updated_count += result
+
+            # Небольшая пауза между батчами
+            import time
+            if i + batch_size < len(game_ids):
+                time.sleep(0.1)
+
+        return updated_count
+
+    def get_games_for_wiki_import(self, filters=None, limit=None, offset=0):
+        """
+        Получить игры для импорта с фильтрами
+        filters: dict с фильтрами
+        """
+        queryset = self.all()
+
+        if filters:
+            # Применяем фильтры
+            if filters.get('empty_wiki'):
+                queryset = queryset.filter(wiki_description__isnull=True)
+            if filters.get('empty_all'):
+                queryset = queryset.filter(
+                    wiki_description__isnull=True,
+                    rawg_description__isnull=True,
+                    summary__isnull=True
+                )
+            if filters.get('has_summary'):
+                queryset = queryset.filter(summary__isnull=False)
+
+        # Сортировка для предсказуемого порядка
+        queryset = queryset.order_by('id')
+
+        # Применяем лимит и offset
+        if limit:
+            queryset = queryset[offset:offset + limit]
+
+        return queryset.values('id', 'name')
+
+    def count_games_without_wiki(self):
+        """Количество игр без wiki описания"""
+        return self.filter(wiki_description__isnull=True).count()
+
+    def get_chunked_games(self, chunk_size=100, filters=None):
+        """Генератор для получения игр порциями"""
+        offset = 0
+        total_processed = 0
+
+        while True:
+            games_chunk = list(self.get_games_for_wiki_import(
+                filters=filters,
+                limit=chunk_size,
+                offset=offset
+            ))
+
+            if not games_chunk:
+                break
+
+            yield games_chunk
+            offset += chunk_size
+            total_processed += len(games_chunk)
+
+            # Для отладки
+            if total_processed % 1000 == 0:
+                print(f"Подготовлено {total_processed} игр...")
+
+    def get_games_without_wiki(self, limit=None):
+        """Получить игры без wiki описания"""
+        queryset = self.filter(wiki_description__isnull=True)
+        if limit:
+            queryset = queryset[:limit]
+        return queryset
+
+    def get_all_for_wiki_import(self, chunk_size=100):
+        """Генератор для получения игр порциями"""
+        games = self.all().order_by('id').values('id', 'name')
+        for i in range(0, games.count(), chunk_size):
+            yield games[i:i + chunk_size]
+
     def primary(self):
         """Get primary games"""
         return self.filter(game_type__in=GameTypeEnum.PRIMARY_GAME_TYPES)
@@ -362,6 +470,19 @@ class Game(models.Model):
 
     cover_url = models.URLField(blank=True, null=True)
 
+    # В классе Game (в конце полей, перед objects = GameManager())
+    # В классе Game, после rawg_description добавьте:
+    wiki_description = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Game description from Wikipedia (Gameplay section)",
+        verbose_name="Description (Wikipedia)"
+    )
+
+    # Также обновим индекс для поиска по описаниям:
+    # В class Meta в indexes измените последний индекс:
+    models.Index(fields=['summary', 'storyline', 'rawg_description', 'wiki_description']),
+
     # Custom manager
     objects = GameManager()
 
@@ -374,9 +495,9 @@ class Game(models.Model):
             models.Index(fields=['-first_release_date']),
             models.Index(fields=['igdb_id']),
             models.Index(fields=['game_type']),
-            # Добавляем новые индексы:
             models.Index(fields=['id', 'name']),
-            models.Index(fields=['summary', 'storyline', 'rawg_description']),
+            # Обновленный индекс включая wiki_description:
+            models.Index(fields=['summary', 'storyline', 'rawg_description', 'wiki_description']),
         ]
 
     # ===== GAME TYPE PROPERTIES =====
