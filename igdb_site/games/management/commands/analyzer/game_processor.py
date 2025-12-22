@@ -219,10 +219,9 @@ class GameProcessor:
 
     def _setup_state_tracking(self):
         """Настраивает отслеживание состояния"""
-        if hasattr(self.command, 'output_path') and self.command.output_path:
-            state_suffix = "_keywords" if hasattr(self.command, 'keywords') and self.command.keywords else "_criteria"
-            state_path = os.path.splitext(self.command.output_path)[0] + f'_state{state_suffix}.json'
-            self.state_file = state_path
+        # Используем путь к файлу состояния из команды
+        if hasattr(self.command, 'state_file_path') and self.command.state_file_path:
+            state_path = self.command.state_file_path
 
             # Если force-restart, очищаем состояние
             if getattr(self.command, 'force_restart', False):
@@ -238,6 +237,7 @@ class GameProcessor:
                         original_out.flush()
                 self.processed_games = set()
                 self.already_processed_count = 0
+                self.state_file = state_path
                 return
 
             # Загружаем ранее обработанные игры
@@ -276,9 +276,29 @@ class GameProcessor:
             else:
                 self.processed_games = set()
                 self.already_processed_count = 0
+
+            self.state_file = state_path  # Сохраняем путь для использования в _save_state()
         else:
-            self.processed_games = set()
-            self.already_processed_count = 0
+            # Fallback на старую логику (если state_file_path не установлен)
+            if hasattr(self.command, 'output_path') and self.command.output_path:
+                state_suffix = "_keywords" if hasattr(self.command,
+                                                      'keywords') and self.command.keywords else "_criteria"
+                state_path = os.path.splitext(self.command.output_path)[0] + f'_state{state_suffix}.json'
+                self.state_file = state_path
+
+                # Загружаем состояние из старого файла если есть
+                if not getattr(self.command, 'force_restart', False) and os.path.exists(state_path):
+                    try:
+                        with open(state_path, 'r', encoding='utf-8') as f:
+                            state_data = json.load(f)
+                        self.processed_games = set(state_data.get('processed_games', []))
+                        self.already_processed_count = len(self.processed_games)
+                    except Exception:
+                        self.processed_games = set()
+                        self.already_processed_count = 0
+            else:
+                self.processed_games = set()
+                self.already_processed_count = 0
 
     def _handle_all_games_processed(self, total_games_in_db: int):
         """Обрабатывает случай когда все игры уже обработаны"""
