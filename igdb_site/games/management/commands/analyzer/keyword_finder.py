@@ -1,7 +1,6 @@
-# games/analyzer/keyword_finder.py
+# games/management/commands/analyzer/keyword_finder.py
 import re
 from typing import Dict, List, Set, Optional, Tuple
-from django.core.cache import cache
 from games.models import Keyword
 
 
@@ -12,7 +11,7 @@ class KeywordFinder:
         self.model = Keyword
         self._cache = {}
         self._name_cache = {}
-        self._all_keywords = None  # Кеш всех ключевых слов
+        self._all_keywords = None
 
     def find_all_keywords(self, text: str, existing_objects: Set = None,
                           pattern_collection_mode: bool = False) -> Tuple[List, List[Dict]]:
@@ -24,18 +23,13 @@ class KeywordFinder:
         found_objects = []
         pattern_matches = []
 
-        # Получаем ВСЕ ключевые слова из базы
         all_keywords = self._get_all_keywords()
-
-        # ID существующих ключевых слов для пропуска
         existing_ids = {obj.id for obj in existing_objects} if existing_objects else set()
 
-        # Ищем ВСЕ ключевые слова
         for keyword in all_keywords:
             keyword_name = keyword.name
             keyword_lower = keyword.name.lower()
 
-            # Пропускаем если уже есть
             if keyword.id in existing_ids:
                 if pattern_collection_mode:
                     pattern_matches.append({
@@ -46,7 +40,6 @@ class KeywordFinder:
                     })
                 continue
 
-            # Для многословных ключевых слов
             if ' ' in keyword_lower:
                 if keyword_lower in text_lower:
                     found_objects.append(keyword)
@@ -59,10 +52,7 @@ class KeywordFinder:
                         'start_pos': start_pos,
                         'end_pos': start_pos + len(keyword_lower)
                     })
-
-            # Для однословных ключевых слов
             else:
-                # Используем границы слова
                 pattern = rf'\b{re.escape(keyword_lower)}\b'
                 match = re.search(pattern, text_lower)
                 if match:
@@ -109,7 +99,6 @@ class KeywordFinder:
                 if not keyword_name:
                     continue
 
-                # Проверяем, существует ли уже такое ключевое слово
                 if not Keyword.objects.filter(name__iexact=keyword_name).exists():
                     Keyword.objects.create(name=keyword_name)
                     created_count += 1

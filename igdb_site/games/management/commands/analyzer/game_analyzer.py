@@ -1,4 +1,4 @@
-# games/analyzer/game_analyzer.py
+# games/management/commands/analyzer/game_analyzer.py
 from typing import Dict, List, Set, Tuple
 from games.models import Game, Genre, Theme, PlayerPerspective, GameMode, Keyword
 from .pattern_manager import PatternManager
@@ -12,10 +12,8 @@ class GameAnalyzer:
     def __init__(self, command_instance=None):
         self.command = command_instance
 
-        # Загружаем ВСЕ паттерны сразу
         all_patterns = PatternManager.get_all_patterns()
 
-        # Создаем finders со ВСЕМИ паттернами
         self.finders = {
             'genres': CriteriaFinder(Genre, all_patterns['genres']),
             'themes': CriteriaFinder(Theme, all_patterns['themes']),
@@ -37,7 +35,6 @@ class GameAnalyzer:
         all_pattern_info = {}
 
         if keywords_mode:
-            # Ищем ВСЕ ключевые слова
             try:
                 existing_keywords = set()
                 if game and not ignore_existing:
@@ -57,9 +54,7 @@ class GameAnalyzer:
                     self.command.stdout.write(f"⚠️ Ошибка поиска ключевых слов: {e}")
                 results['keywords'] = []
                 all_pattern_info['keywords'] = []
-
         else:
-            # Ищем ВСЕ критерии
             for criteria_type, finder in self.finders.items():
                 try:
                     existing_objects = set()

@@ -1,4 +1,4 @@
-# games/analyzer/criteria_finder.py
+# games/management/commands/analyzer/criteria_finder.py
 import re
 from typing import Dict, List, Set, Optional, Tuple
 from django.core.cache import cache
@@ -9,7 +9,7 @@ class CriteriaFinder:
 
     def __init__(self, model, patterns: Dict[str, List[re.Pattern]]):
         self.model = model
-        self.patterns = patterns  # ВСЕ паттерны сразу
+        self.patterns = patterns
         self._cache = {}
         self._name_cache = {}
 
@@ -22,14 +22,11 @@ class CriteriaFinder:
         found_names = set()
         pattern_matches = []
 
-        # Существующие объекты для пропуска
         existing_names = {obj.name.lower() for obj in existing_objects} if existing_objects else set()
 
-        # Используем ВСЕ паттерны для каждого критерия
         for name, patterns_list in self.patterns.items():
             name_lower = name.lower()
 
-            # Пропускаем если уже есть
             if existing_objects and name_lower in existing_names:
                 if pattern_collection_mode:
                     pattern_matches.append({
@@ -40,7 +37,6 @@ class CriteriaFinder:
                     })
                 continue
 
-            # Проверяем ВСЕ паттерны для этого критерия
             for pattern in patterns_list:
                 try:
                     match = pattern.search(text)
@@ -59,8 +55,7 @@ class CriteriaFinder:
                         }
 
                         pattern_matches.append(match_info)
-                        break  # Достаточно одного совпадения из всех паттернов
-
+                        break
                 except Exception:
                     continue
 
@@ -68,21 +63,18 @@ class CriteriaFinder:
 
     def _calculate_simple_confidence(self, match, text: str) -> float:
         """Простая оценка уверенности"""
-        # Базовое значение
         confidence = 0.5
 
-        # 1. Длина совпадения
         match_len = match.end() - match.start()
         if match_len > 15:
             confidence += 0.2
         elif match_len > 8:
             confidence += 0.1
 
-        # 2. Позиция в тексте (ранние упоминания важнее)
         text_len = len(text)
         if text_len > 0:
             position_ratio = match.start() / text_len
-            if position_ratio < 0.3:  # В первой трети текста
+            if position_ratio < 0.3:
                 confidence += 0.1
 
         return min(1.0, confidence)
