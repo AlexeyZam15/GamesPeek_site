@@ -1,11 +1,9 @@
 # games/management/commands/analyze_game_criteria.py
-from typing import Dict, List, Optional, Any, Tuple
 from games.models import Game
 import os
 import sys
+from games.models import Game
 from django.core.cache import cache
-from django.db import transaction
-from django.db.models import QuerySet
 
 try:
     from .analyzer import AnalyzerCommandBase, GameAnalyzer, GameProcessor
@@ -69,25 +67,15 @@ class Command(BaseCommand):
         if hasattr(self, 'analyzer'):
             self.analyzer.clear_caches()
 
-        if hasattr(self, 'output_file') and self.output_file:
-            try:
-                self.output_file.flush()
-                self.output_file.close()
-                self.stdout._out = self.original_stdout
-                self.stderr._out = self.original_stderr
+        # Закрываем файл вывода (метод из базового класса)
+        self.close_file_output()
 
-                if hasattr(self, 'output_path') and self.output_path:
-                    self.original_stdout.write(f"\n✅ Результаты экспортированы в: {self.output_path}\n")
-
-                    if not getattr(self, 'force_restart', False):
-                        state_suffix = "_keywords" if hasattr(self, 'keywords') and self.keywords else "_criteria"
-                        state_file = os.path.splitext(self.output_path)[0] + f'_state{state_suffix}.json'
-                        if os.path.exists(state_file):
-                            self.original_stdout.write(f"📝 Состояние сохранено в: {state_file}\n")
-
-            except Exception as e:
-                if hasattr(self, 'original_stderr'):
-                    self.original_stderr.write(f"⚠️ Ошибка закрытия файла: {e}\n")
+        # Выводим информацию о файле состояния (если не force-restart)
+        if hasattr(self, 'original_stdout') and self.original_stdout:
+            if hasattr(self, 'state_file_path') and self.state_file_path and not getattr(self, 'force_restart', False):
+                if os.path.exists(self.state_file_path):
+                    # Показываем только путь к файлу состояния
+                    self.original_stdout.write(f"📝 Файл состояния сохранен: {self.state_file_path}\n")
 
     def _init_stats_before_processing(self):
         """Инициализирует статистику перед началом обработки"""
@@ -107,40 +95,62 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         """Основной обработчик команды"""
+        # Инициализируем оригинальные потоки
         self.original_stdout = self.stdout._out
         self.original_stderr = self.stderr._out
-        self.output_file = None
-        self.output_path = None
 
+        # Настраиваем вывод в файл если указан output
         if options.get('output'):
             try:
-                output_path = options['output']
-                self.output_path = output_path
-                self.setup_file_output(output_path)
+                base_name = options['output']
+
+                # Получаем режим keywords из опций
+                keywords_mode = options.get('keywords', False)
+
+                # Генерируем пути для файла результатов и файла состояния
+                output_file_path, state_file_path = self._generate_output_paths(base_name, keywords_mode)
+
+                # Сохраняем путь к файлу состояния для использования в GameProcessor
+                self.state_file_path = state_file_path
+
+                # setup_file_output создаст папку и файл результатов
+                if not self.setup_file_output(output_file_path):
+                    # Если не удалось настроить вывод в файл, продолжаем с консольным выводом
+                    self.stderr.write(f"⚠️ Не удалось настроить вывод в файл, продолжаем с консольным выводом\n")
+                else:
+                    # Выводим сообщение о создании файлов в терминал
+                    self.original_stdout.write(f"📁 Создан файл результатов: {output_file_path}\n")
+                    self.original_stdout.write(f"📝 Файл состояния: {state_file_path}\n")
+                    self.original_stdout.write("=" * 60 + "\n")
+
             except Exception as e:
-                self.stderr.write(f"❌ Ошибка открытия файла: {e}\n")
+                self.stderr.write(f"❌ Ошибка настройки вывода в файл: {e}\n")
+                # Восстанавливаем потоки при ошибке
                 self.stdout._out = self.original_stdout
                 self.stderr._out = self.original_stderr
 
         try:
+            # Инициализируем анализатор
             self.analyzer = GameAnalyzer(self)
 
             if options.get('clear_cache'):
                 cache.clear()
-                if self.output_file:
+                if hasattr(self, 'output_file') and self.output_file:
                     self.stdout.write("✅ Кеш очищен\n")
                 else:
                     self.original_stdout.write("✅ Кеш очищен\n")
 
+            # Сохраняем опции (после установки файлов)
             self._store_options(options)
 
             if self.verbose:
                 self._print_options_summary()
 
+            # Обрабатываем команду
             self.process_command()
 
         except ValueError as e:
-            if self.output_file:
+            if hasattr(self, 'output_file') and self.output_file:
                 self.stderr.write(f"❌ Ошибка в опциях: {e}\n")
             else:
                 self.original_stderr.write(f"❌ Ошибка в опциях: {e}\n")
@@ -166,7 +176,7 @@ class Command(BaseCommand):
             if hasattr(self, 'analyzer') and hasattr(self.analyzer, 'clear_caches'):
                 self.analyzer.clear_caches()
         except Exception as e:
-            if self.output_file:
+            if hasattr(self, 'output_file') and self.output_file:
                 self.stderr.write(f"❌ Неожиданная ошибка: {e}\n")
                 import traceback
                 traceback.print_exc()
@@ -205,15 +215,16 @@ class Command(BaseCommand):
 
         if not self.only_found:
             mode = '🔑 КЛЮЧЕВЫЕ СЛОВА' if self.keywords else '📋 ОБЫЧНЫЕ КРИТЕРИИ'
-            self.stdout.write(f"🔍 Анализируем {actual_count} игр из {total_games}...\n")
-            self.stdout.write(f"📚 Источник: {self._get_text_source_description()}\n")
-            self.stdout.write(f"⚙️ Режим: {mode}\n")
+            # Выводим заголовок ДО создания прогресс-бара
+            self.stdout.write(f"🔍 Анализируем {actual_count} игр из {total_games}...")
+            self.stdout.write(f"📚 Источник: {self._get_text_source_description()}")
+            self.stdout.write(f"⚙️ Режим: {mode}")
             self.stdout.write(f"🔄 Обновление: {'✅ ВКЛ' if self.update_game else '❌ ВЫКЛ'}")
             self.stdout.write(f"👁️ Игнорировать существующие: {'✅ ДА' if self.ignore_existing else '❌ НЕТ'}")
             self.stdout.write(f"👁️ Скрыть пропущенные: {'✅ ДА' if self.hide_skipped else '❌ НЕТ'}")
             self.stdout.write(f"⚡ Стратегия: ВСЕ паттерны сразу")
             self.stdout.write(f"📊 Прогресс-бар: {'✅ ВКЛ' if not self.no_progress else '❌ ВЫКЛ'}")
-            self.stdout.write("\n")
+            self.stdout.write("")  # Пустая строка
 
         self._init_stats_before_processing()
 

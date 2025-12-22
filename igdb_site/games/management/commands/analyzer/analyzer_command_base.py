@@ -19,12 +19,90 @@ class AnalyzerCommandBase(BaseCommand):
 
     def __init__(self, stdout: Optional[TextIO] = None, stderr: Optional[TextIO] = None, **kwargs):
         super().__init__(stdout, stderr, **kwargs)
+        self.output_path = None  # <-- ДОБАВИТЬ эту строку
         self.output_file = None
         self.file_output = None
         self.original_stdout = None
         self.original_stderr = None
         self.stats = {}
         self.analyzer = None
+
+    def _generate_output_paths(self, base_name: str, keywords_mode: bool = False) -> Tuple[str, str]:
+        """
+        Генерирует пути для файла результатов и файла состояния.
+
+        Args:
+            base_name: Базовое название папки (например "keywords", "результаты")
+            keywords_mode: True если режим ключевых слов
+
+        Returns:
+            Tuple[str, str]: (output_file_path, state_file_path)
+
+        Примеры:
+            "results", True -> ("results/keywords_20250115_143022.txt", "results/state_keywords.json")
+            "results", False -> ("results/criteria_20250115_143022.txt", "results/state_criteria.json")
+        """
+        import os
+        from datetime import datetime
+
+        # Определяем режим анализа из параметра
+        mode = 'keywords' if keywords_mode else 'criteria'
+
+        # Создаем папку если нужно
+        output_dir = base_name
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+
+        # Генерируем имя файла результатов с временной меткой
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_filename = f"{mode}_{timestamp}.txt"
+        output_file_path = os.path.join(output_dir, output_filename) if output_dir else output_filename
+
+        # Файл состояния всегда один для папки
+        state_filename = f"state_{mode}.json"
+        state_file_path = os.path.join(output_dir, state_filename) if output_dir else state_filename
+
+        return output_file_path, state_file_path
+
+    def _generate_unique_output_path(self, base_path: str) -> str:
+        """
+        Создает папку и генерирует уникальное имя файла.
+
+        Примеры:
+        - "результаты" -> "результаты/keywords_YYYYMMDD_HHMMSS.txt"
+        - "результаты/анализ" -> "результаты/анализ/keywords_YYYYMMDD_HHMMSS.txt"
+        """
+        import os
+        from datetime import datetime
+
+        # Если base_path - это просто имя папки без расширения
+        if '.' not in os.path.basename(base_path):
+            # Создаем имя файла на основе режима и времени
+            mode = 'keywords' if hasattr(self, 'keywords') and self.keywords else 'criteria'
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{mode}_{timestamp}.txt"
+
+            # Создаем полный путь
+            unique_path = os.path.join(base_path, filename)
+        else:
+            # Если указано конкретное имя файла
+            directory = os.path.dirname(base_path)
+            filename = os.path.basename(base_path)
+
+            # Разделяем имя и расширение
+            if '.' in filename:
+                name_part, ext_part = filename.rsplit('.', 1)
+                ext = '.' + ext_part
+            else:
+                name_part = filename
+                ext = ''
+
+            # Добавляем временную метку
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            unique_filename = f"{name_part}_{timestamp}{ext}"
+            unique_path = os.path.join(directory, unique_filename) if directory else unique_filename
+
+        return unique_path
 
     @transaction.atomic
     def update_game_criteria(self, games_results: List[Tuple['Game', Dict[str, List]]]) -> int:
@@ -200,17 +278,29 @@ class AnalyzerCommandBase(BaseCommand):
         """Настраивает вывод в файл"""
         if output_path:
             try:
-                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                # Создаем директорию если нужно
+                directory = os.path.dirname(output_path)
+                if directory:  # если путь содержит директорию
+                    os.makedirs(directory, exist_ok=True)
+
+                self.output_path = output_path  # Сохраняем путь
                 self.output_file = open(output_path, 'w', encoding='utf-8')
+                self.file_output = self.output_file  # Для обратной совместимости
+
                 self.original_stdout = self.stdout._out
                 self.original_stderr = self.stderr._out
                 self.stdout._out = self.output_file
                 self.stderr._out = self.output_file
+
                 self.stdout.write(f"📁 Вывод будет сохранен в: {output_path}")
                 self.stdout.write("-" * 60)
                 return True
             except Exception as e:
-                self.stderr.write(f"❌ Ошибка открытия файла {output_path}: {e}")
+                # Используем оригинальный stderr для вывода ошибки
+                if self.original_stderr:
+                    self.original_stderr.write(f"❌ Ошибка открытия файла {output_path}: {e}\n")
+                else:
+                    sys.stderr.write(f"❌ Ошибка открытия файла {output_path}: {e}\n")
                 return False
         return False
 
@@ -223,7 +313,9 @@ class AnalyzerCommandBase(BaseCommand):
                     self.stdout._out = self.original_stdout
                 if self.original_stderr:
                     self.stderr._out = self.original_stderr
-                self.stdout.write(f"\n✅ Результаты экспортированы в: {self.output_path}")
+                # Проверить что output_path существует
+                if hasattr(self, 'output_path') and self.output_path:
+                    self.stdout.write(f"\n✅ Результаты экспортированы в: {self.output_path}")
             except Exception as e:
                 self.stderr.write(f"⚠️ Ошибка закрытия файла: {e}")
 
@@ -413,6 +505,7 @@ class AnalyzerCommandBase(BaseCommand):
 
     def _print_options_summary(self):
         """Выводит сводку по опциям"""
+        # Выводим в stdout (в файл)
         self.stdout.write("=" * 60)
         self.stdout.write("🎮 НАСТРОЙКИ АНАЛИЗА ИГР")
         self.stdout.write("=" * 60)
@@ -429,3 +522,11 @@ class AnalyzerCommandBase(BaseCommand):
         self.stdout.write(f"📊 Прогресс-бар: {'✅ ВКЛ' if not self.no_progress else '❌ ВЫКЛ'}")
         self.stdout.write("=" * 60)
         self.stdout.write("")
+
+        # Также выводим в терминал если не идет вывод в файл
+        if not hasattr(self, 'output_file') or not self.output_file:
+            original_out = self.original_stdout or sys.stdout
+            original_out.write("=" * 60 + "\n")
+            original_out.write("🎮 НАСТРОЙКИ АНАЛИЗА ИГР\n")
+            original_out.write("=" * 60 + "\n")
+            # ... остальные опции
