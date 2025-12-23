@@ -27,6 +27,111 @@ from .helpers import (
 )
 
 
+def convert_params_to_lists(params):
+    """Конвертирует строковые параметры в списки чисел"""
+
+    def to_int_list(param_str):
+        if not param_str:
+            return []
+        try:
+            # Удаляем пробелы и разбиваем по запятым
+            return [int(x.strip()) for x in param_str.split(',') if x.strip()]
+        except (ValueError, TypeError) as e:
+            print(f"Error converting param string '{param_str}' to int list: {e}")
+            return []
+
+    result = {
+        'genres': to_int_list(params.get('g', '')),
+        'keywords': to_int_list(params.get('k', '')),
+        'platforms': to_int_list(params.get('p', '')),
+        'themes': to_int_list(params.get('t', '')),
+        'perspectives': to_int_list(params.get('pp', '')),
+        'developers': to_int_list(params.get('d', '')),
+        'game_modes': to_int_list(params.get('gm', '')),
+    }
+
+    print(f"Converted params to lists: {result}")
+    return result
+
+def get_filter_data():
+    """Получает данные для фильтров с кэшированием"""
+    cache_key = 'game_list_filters_data_v2'  # Изменил ключ, чтобы сбросить кэш
+    filter_data = cache.get(cache_key)
+
+    if not filter_data:
+        print("Fetching fresh filter data from DB...")
+        filter_data = fetch_filter_data_from_db()
+        cache.set(cache_key, filter_data, 600)
+        print(f"Filter data cached. Keys: {list(filter_data.keys())}")
+    else:
+        print("Using cached filter data")
+
+    return filter_data
+
+
+def fetch_filter_data_from_db():
+    """Получает данные фильтров из базы"""
+    print("Fetching filter data from database...")
+
+    try:
+        # Platforms
+        platforms = Platform.objects.annotate(
+            game_count=Count('game')
+        ).filter(game_count__gt=0).order_by('-game_count', 'name')[:50]
+        print(f"Fetched {platforms.count()} platforms")
+
+        # Keywords
+        popular_keywords = Keyword.objects.filter(
+            cached_usage_count__gt=0
+        ).select_related('category').order_by('-cached_usage_count')[:50]
+        print(f"Fetched {popular_keywords.count()} keywords")
+
+        # Game Modes
+        game_modes = GameMode.objects.annotate(
+            game_count=Count('game')
+        ).filter(game_count__gt=0).order_by('name')[:30]
+        print(f"Fetched {game_modes.count()} game modes")
+
+        # Themes
+        themes = Theme.objects.annotate(
+            game_count=Count('game')
+        ).filter(game_count__gt=0).order_by('name')[:30]
+        print(f"Fetched {themes.count()} themes")
+
+        # Perspectives
+        perspectives = PlayerPerspective.objects.annotate(
+            game_count=Count('game')
+        ).filter(game_count__gt=0).order_by('name')[:20]
+        print(f"Fetched {perspectives.count()} perspectives")
+
+        # Developers
+        developers = Company.objects.annotate(
+            developed_game_count=Count('developed_games')
+        ).filter(developed_game_count__gt=0).order_by('name')[:30]
+        print(f"Fetched {developers.count()} developers")
+
+        return {
+            'platforms': list(platforms),
+            'popular_keywords': list(popular_keywords),
+            'game_modes': list(game_modes),
+            'themes': list(themes),
+            'perspectives': list(perspectives),
+            'developers': list(developers),
+        }
+
+    except Exception as e:
+        print(f"Error fetching filter data: {e}")
+        # Возвращаем пустые структуры в случае ошибки
+        return {
+            'platforms': [],
+            'popular_keywords': [],
+            'game_modes': [],
+            'themes': [],
+            'perspectives': [],
+            'developers': [],
+        }
+
+
 def precalculate_similar_games():
     """Фоновая задача для предварительного расчета похожих игр"""
     from .models import Game
@@ -381,70 +486,6 @@ def generate_cache_key(params):
     return f'game_list_full_page_{hashlib.md5(cache_key_str.encode()).hexdigest()}'
 
 
-def get_filter_data():
-    """Получает данные для фильтров с кэшированием"""
-    cache_key = 'game_list_filters_data'
-    filter_data = cache.get(cache_key)
-
-    if not filter_data:
-        filter_data = fetch_filter_data_from_db()
-        cache.set(cache_key, filter_data, 600)
-
-    return filter_data
-
-
-def fetch_filter_data_from_db():
-    """Получает данные фильтров из базы"""
-    platforms = Platform.objects.annotate(
-        game_count=Count('game')
-    ).filter(game_count__gt=0).order_by('-game_count', 'name')[:50]
-
-    popular_keywords = Keyword.objects.filter(
-        cached_usage_count__gt=0
-    ).select_related('category').order_by('-cached_usage_count')[:50]
-
-    game_modes = GameMode.objects.annotate(
-        game_count=Count('game')
-    ).filter(game_count__gt=0).order_by('name')[:30]
-
-    themes = Theme.objects.annotate(
-        game_count=Count('game')
-    ).filter(game_count__gt=0).order_by('name')[:30]
-
-    perspectives = PlayerPerspective.objects.annotate(
-        game_count=Count('game')
-    ).filter(game_count__gt=0).order_by('name')[:20]
-
-    developers = Company.objects.annotate(
-        developed_game_count=Count('developed_games')
-    ).filter(developed_game_count__gt=0).order_by('name')[:30]
-
-    return {
-        'platforms': list(platforms),
-        'popular_keywords': list(popular_keywords),
-        'game_modes': list(game_modes),
-        'themes': list(themes),
-        'perspectives': list(perspectives),
-        'developers': list(developers),
-    }
-
-
-def convert_params_to_lists(params):
-    """Конвертирует строковые параметры в списки чисел"""
-
-    def to_int_list(param_str):
-        return [int(x) for x in param_str.split(',') if x.strip()] if param_str else []
-
-    return {
-        'genres': to_int_list(params.get('g', '')),
-        'keywords': to_int_list(params.get('k', '')),
-        'platforms': to_int_list(params.get('p', '')),
-        'themes': to_int_list(params.get('t', '')),
-        'perspectives': to_int_list(params.get('pp', '')),
-        'developers': to_int_list(params.get('d', '')),
-        'game_modes': to_int_list(params.get('gm', '')),
-    }
-
 
 def should_find_similar(params, selected_criteria):
     """Определяет, нужно ли искать похожие игры"""
@@ -518,7 +559,7 @@ def handle_similar_games_mode(request, params, selected_criteria, source_game_ob
         is_paginated=is_paginated,
         total_count=total_count,
         selected_criteria=selected_criteria,
-        filter_data=filter_data,
+        filter_data=filter_data,  # КРИТИЧЕСКО ВАЖНО: передаем filter_data
         params=params,
         source_game=source_game,
         source_game_obj=source_game_obj,
@@ -568,7 +609,7 @@ def handle_regular_mode(request, params, selected_criteria, filter_data):
         is_paginated=is_paginated,
         total_count=total_count,
         selected_criteria=selected_criteria,
-        filter_data=filter_data,
+        filter_data=filter_data,  # КРИТИЧЕСКО ВАЖНО: передаем filter_data
         params=params,
         source_game=None,
         source_game_obj=None,
@@ -712,28 +753,82 @@ def build_context(mode, **kwargs):
         sort=kwargs.get('current_sort', '')
     )
 
+    # Получаем данные фильтров
+    filter_data = kwargs.get('filter_data', {})
+
     base_context = {
         'genres': genres_list,
         'keyword_categories': KeywordCategory.objects.all().only('id', 'name'),
         'current_sort': kwargs.get('current_sort', ''),
         'find_similar': kwargs.get('find_similar', False),
         'compact_url_params': compact_url_params,
-        **kwargs
+
+        # Выбранные критерии
+        'selected_genres': kwargs['selected_criteria']['genres'],
+        'selected_keywords': kwargs['selected_criteria']['keywords'],
+        'selected_platforms': kwargs['selected_criteria']['platforms'],
+        'selected_themes': kwargs['selected_criteria']['themes'],
+        'selected_perspectives': kwargs['selected_criteria']['perspectives'],
+        'selected_developers': kwargs['selected_criteria']['developers'],
+        'selected_game_modes': kwargs['selected_criteria']['game_modes'],
+
+        # Данные для фильтров (с проверкой на существование)
+        'popular_keywords': filter_data.get('popular_keywords', []),
+        'platforms': filter_data.get('platforms', []),
+        'themes': filter_data.get('themes', []),
+        'perspectives': filter_data.get('perspectives', []),
+        'developers': filter_data.get('developers', []),
+        'game_modes': filter_data.get('game_modes', []),
+
+        # Передаем основные параметры
+        'page_obj': kwargs.get('page_obj'),
+        'paginator': kwargs.get('paginator'),
+        'is_paginated': kwargs.get('is_paginated', False),
+        'total_count': kwargs.get('total_count', 0),
+        'source_game': kwargs.get('source_game'),
+        'source_game_obj': kwargs.get('source_game_obj'),
+        'params': kwargs.get('params', {}),
+        'selected_criteria': kwargs.get('selected_criteria', {}),
     }
 
     # Добавляем специфичные для режима поля
     if mode == 'similar':
         base_context.update({
-            'games_with_similarity': kwargs['page_obj'].object_list,
+            'games_with_similarity': kwargs.get('page_obj').object_list if kwargs.get('page_obj') else [],
             'games': [],
             'show_similarity': True,
         })
     else:
         base_context.update({
-            'games': kwargs['page_obj'].object_list,
+            'games': kwargs.get('page_obj').object_list if kwargs.get('page_obj') else [],
             'games_with_similarity': [],
             'show_similarity': False,
         })
+
+    # Проверяем наличие данных фильтров
+    if not filter_data:
+        print("WARNING: filter_data is empty in build_context")
+
+    # Для отладки
+    debug_info = {
+        'mode': mode,
+        'genres_count': len(base_context['genres']),
+        'platforms_count': len(base_context['platforms']),
+        'themes_count': len(base_context['themes']),
+        'perspectives_count': len(base_context['perspectives']),
+        'developers_count': len(base_context['developers']),
+        'game_modes_count': len(base_context['game_modes']),
+        'selected_criteria_counts': {
+            'genres': len(base_context['selected_genres']),
+            'keywords': len(base_context['selected_keywords']),
+            'platforms': len(base_context['selected_platforms']),
+            'themes': len(base_context['selected_themes']),
+            'perspectives': len(base_context['selected_perspectives']),
+            'developers': len(base_context['selected_developers']),
+            'game_modes': len(base_context['selected_game_modes']),
+        }
+    }
+    print(f"DEBUG build_context: {debug_info}")
 
     return base_context
 
@@ -778,6 +873,17 @@ def game_list(request):
 
     # Добавляем время выполнения
     result['execution_time'] = round(time.time() - start_time, 3)
+
+    # Обновляем: добавляем выбранные критерии в контекст
+    result.update({
+        'selected_genres': selected_criteria['genres'],
+        'selected_keywords': selected_criteria['keywords'],
+        'selected_platforms': selected_criteria['platforms'],
+        'selected_themes': selected_criteria['themes'],
+        'selected_perspectives': selected_criteria['perspectives'],
+        'selected_developers': selected_criteria['developers'],
+        'selected_game_modes': selected_criteria['game_modes'],
+    })
 
     # Рендерим и кэшируем
     response = render(request, 'games/game_list.html', result)
