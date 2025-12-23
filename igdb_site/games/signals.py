@@ -1,25 +1,28 @@
-from django.db.models.signals import m2m_changed
+"""
+Сигналы Django для оптимизации отдельных соединений.
+"""
+
+from django.db.backends.signals import connection_created
 from django.dispatch import receiver
 
 
-@receiver(m2m_changed, sender=Game.keywords.through)
-def update_keyword_count(sender, instance, action, **kwargs):
+@receiver(connection_created)
+def optimize_sqlite_connection(sender, connection, **kwargs):
     """
-    Автоматически обновляет счетчик использования при изменении связи
+    Легкая оптимизация каждого нового SQLite соединения.
+    Не создает индексы, только настраивает параметры.
     """
-    if action in ['post_add', 'post_remove', 'post_clear']:
-        # Получаем все затронутые ключевые слова
-        if action == 'post_clear':
-            # При полной очистке получаем старые ключевые слова
-            if hasattr(instance, '_prefetched_objects_cache'):
-                keywords = instance._prefetched_objects_cache.get('keywords', [])
-            else:
-                keywords = list(instance.keywords.all())
-        else:
-            # При добавлении/удалении получаем PK из kwargs
-            keyword_ids = kwargs.get('pk_set', set())
-            keywords = Keyword.objects.filter(id__in=keyword_ids)
+    if connection.vendor == 'sqlite':
+        try:
+            cursor = connection.cursor()
 
-        # Обновляем счетчики для каждого ключевого слова
-        for keyword in keywords:
-            keyword.update_cached_count()
+            # Быстрые оптимизации без создания индексов
+            cursor.execute("PRAGMA cache_size=-2000000;")
+            cursor.execute("PRAGMA synchronous=NORMAL;")
+            cursor.execute("PRAGMA temp_store=MEMORY;")
+            cursor.execute("PRAGMA busy_timeout=30000;")
+
+            cursor.close()
+        except Exception:
+            # Игнорируем ошибки - не критично
+            pass
