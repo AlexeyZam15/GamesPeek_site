@@ -24,26 +24,53 @@
         }
     };
 
-    // Отключаем обработчик Bootstrap и делаем свой
+    // Полностью заменяем обработчик Bootstrap
     function setupTabListeners() {
-        console.log('🔔 Setting up custom tab listeners');
+        console.log('🔔 Setting up tab listeners');
 
         const tabElements = document.querySelectorAll('#gameTabs a[data-bs-toggle="tab"]');
 
         tabElements.forEach(tabElement => {
-            // Отключаем стандартный Bootstrap обработчик
+            // Полностью заменяем обработчик Bootstrap
             tabElement.addEventListener('click', function(event) {
                 event.preventDefault();
                 event.stopPropagation();
 
                 const targetId = this.getAttribute('href').substring(1);
-                console.log(`👆 Tab clicked: ${targetId}`);
+                console.log(`👆 Switching to tab: ${targetId}`);
 
-                // Активируем таб через Bootstrap
-                const tab = new bootstrap.Tab(this);
-                tab.show();
+                // 1. Скрываем ВСЕ вкладки
+                document.querySelectorAll('.tab-pane').forEach(pane => {
+                    pane.classList.remove('show', 'active');
+                    pane.style.display = 'none';
+                });
 
-                // Сохраняем в URL
+                // 2. Убираем активные классы у всех кнопок
+                document.querySelectorAll('#gameTabs .nav-link').forEach(link => {
+                    link.classList.remove('active');
+                });
+
+                // 3. Активируем нужную кнопку
+                this.classList.add('active');
+
+                // 4. Показываем нужную вкладку
+                const targetPane = document.getElementById(targetId);
+                if (targetPane) {
+                    targetPane.classList.add('show', 'active');
+                    targetPane.style.display = 'block';
+                    targetPane.style.opacity = '1';
+
+                    // Инициализируем галерею если переключились на скриншоты
+                    if (targetId === 'screenshots') {
+                        setTimeout(() => {
+                            if (window.initInlineGallery) {
+                                window.initInlineGallery();
+                            }
+                        }, 100);
+                    }
+                }
+
+                // 5. Сохраняем в URL и localStorage
                 saveActiveTabToUrl(targetId);
 
                 return false;
@@ -61,17 +88,8 @@
 
             if (tabLink) {
                 console.log(`🔗 Activating tab from hash: ${tabId}`);
-
-                // Используем Bootstrap для активации таба
-                const tab = new bootstrap.Tab(tabLink);
-                tab.show();
-
-                // Сохраняем в localStorage
-                try {
-                    localStorage.setItem('game_detail_active_tab', tabId);
-                } catch (e) {
-                    console.log('LocalStorage not available:', e);
-                }
+                // Кликаем программно
+                tabLink.click();
             }
         }
     }
@@ -96,30 +114,6 @@
                 console.log('LocalStorage not available:', e);
             }
         }
-    }
-
-    // Отслеживаем показ табов от Bootstrap
-    function monitorTabEvents() {
-        const tabElements = document.querySelectorAll('#gameTabs a[data-bs-toggle="tab"]');
-
-        tabElements.forEach(tabElement => {
-            tabElement.addEventListener('shown.bs.tab', function(event) {
-                const targetId = this.getAttribute('href').substring(1);
-                console.log(`📋 Bootstrap показал вкладку: ${targetId}`);
-                saveActiveTabToUrl(targetId);
-
-                // Принудительно показываем содержимое
-                setTimeout(() => {
-                    const tabPane = document.getElementById(targetId);
-                    if (tabPane) {
-                        console.log(`🔄 Принудительно обновляю отображение: ${targetId}`);
-                        tabPane.style.display = 'block';
-                        tabPane.style.opacity = '1';
-                        tabPane.classList.add('show', 'active');
-                    }
-                }, 50);
-            });
-        });
     }
 
     // ===== ФУНКЦИИ ДЛЯ АДАПТИВНОЙ ВЕРСТКИ =====
@@ -191,7 +185,6 @@
         // 4. Настройка вкладок
         setTimeout(() => {
             setupTabListeners();
-            monitorTabEvents();
 
             // Проверяем хэш в URL при загрузке
             activateTabFromHash();
@@ -203,8 +196,7 @@
                     if (savedTab) {
                         const tabLink = document.querySelector(`#gameTabs a[href="#${savedTab}"]`);
                         if (tabLink) {
-                            const tab = new bootstrap.Tab(tabLink);
-                            tab.show();
+                            tabLink.click();
                         }
                     }
                 } catch (e) {
@@ -417,25 +409,7 @@
     window.forceShowTab = function(tabId) {
         const tabLink = document.querySelector(`#gameTabs a[href="#${tabId}"]`);
         if (tabLink) {
-            // Убираем активные классы
-            document.querySelectorAll('#gameTabs a.nav-link').forEach(btn => {
-                btn.classList.remove('active');
-            });
-
-            document.querySelectorAll('.tab-pane').forEach(pane => {
-                pane.classList.remove('show', 'active');
-                pane.style.display = 'none';
-            });
-
-            // Активируем нужную вкладку
-            tabLink.classList.add('active');
-            const tabPane = document.getElementById(tabId);
-            if (tabPane) {
-                tabPane.classList.add('show', 'active');
-                tabPane.style.display = 'block';
-            }
-
-            saveActiveTabToUrl(tabId);
+            tabLink.click();
         }
     };
 
@@ -475,5 +449,4 @@
     console.log('  forceShowTab("screenshots") - принудительно показать вкладку скриншотов');
     console.log('  forceInitGallery() - принудительно инициализировать галерею');
     console.log('  checkGalleryState() - проверить состояние галереи');
-    console.log('  initGalleryFallback() - запустить резервную инициализацию галереи');
 </script>

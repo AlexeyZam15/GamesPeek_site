@@ -6,11 +6,11 @@
     let galleryImages = [];
     let currentImageIndex = 0;
 
-    // АДАПТИВНЫЕ РАЗМЕРЫ (УВЕЛИЧИЛИ)
-    const FIXED_HEIGHT = 220;         // Увеличил с 180 до 220
-    const MIN_WIDTH = 300;            // Увеличил минимальную ширину
-    const MAX_SCALE = 1.8;           // Увеличил максимальное увеличение
-    const ASPECT_RATIO = 16/9;       // Соотношение сторон (16:9)
+    // АДАПТИВНЫЕ РАЗМЕРЫ
+    const FIXED_HEIGHT = 220;
+    const MIN_WIDTH = 300;
+    const MAX_SCALE = 1.8;
+    const ASPECT_RATIO = 16/9;
 
     // Основная функция инициализации галереи
     window.initInlineGallery = function() {
@@ -20,7 +20,8 @@
         galleryImages = [];
 
         // 1. Находим ВСЕ изображения галереи на странице
-        galleryImages = Array.from(document.querySelectorAll('img[data-image]'));
+        // Ищем как по классу gallery-img, так и по атрибуту data-image
+        galleryImages = Array.from(document.querySelectorAll('img.gallery-img, img[data-image]'));
 
         console.log(`📸 Found ${galleryImages.length} gallery images total on page`);
 
@@ -29,7 +30,7 @@
             return;
         }
 
-        // 2. УСТАНАВЛИВАЕМ РАЗМЕРЫ ДЛЯ ВСЕХ СКРИНШОТОВ (БЕЗ РАМОК)
+        // 2. УСТАНАВЛИВАЕМ РАЗМЕРЫ ДЛЯ ВСЕХ СКРИНШОТОВ
         setScreenshotSizesNoBorders();
 
         // 3. Устанавливаем общее количество в счетчик
@@ -40,8 +41,13 @@
 
         // 4. Настраиваем обработчики кликов
         galleryImages.forEach((img, index) => {
+            // Проверяем, что изображение существует
+            if (!img) return;
+
             // Удаляем старые обработчики
-            img.removeEventListener('click', handleImageClick);
+            const newImg = img.cloneNode(true);
+            img.parentNode.replaceChild(newImg, img);
+            img = newImg;
 
             // Добавляем новый обработчик
             img.addEventListener('click', handleImageClick);
@@ -61,24 +67,36 @@
         console.log(`✅ Gallery initialized with ${galleryImages.length} images`);
     };
 
-    // Функция для установки размеров БЕЗ РАМОК
+    // Функция для установки размеров
     function setScreenshotSizesNoBorders() {
-        console.log(`🎯 Setting screenshot sizes (no borders)`);
+        console.log(`🎯 Setting screenshot sizes`);
 
         galleryImages.forEach((img, index) => {
+            if (!img) return;
+
             // Добавляем базовый CSS класс
             img.classList.add('screenshot-image-fixed');
 
-            // Создаем или находим контейнер
+            // Ищем существующий контейнер
             let container = img.closest('.screenshot-container-fixed');
             if (!container) {
+                container = img.closest('.screenshot-container');
+            }
+            if (!container) {
+                container = img.closest('.position-relative');
+            }
+            if (!container) {
+                // Создаем новый контейнер, если нет
                 container = document.createElement('div');
                 container.className = 'screenshot-container-fixed';
-                img.parentNode.insertBefore(container, img);
+
+                // Обертываем изображение
+                const parent = img.parentNode;
+                parent.insertBefore(container, img);
                 container.appendChild(img);
             }
 
-            // Настройка контейнера (БЕЗ ФОНА для рамок)
+            // Настройка контейнера
             container.style.width = '100%';
             container.style.height = `${FIXED_HEIGHT}px`;
             container.style.overflow = 'hidden';
@@ -87,7 +105,7 @@
             container.style.display = 'flex';
             container.style.alignItems = 'center';
             container.style.justifyContent = 'center';
-            container.style.backgroundColor = 'transparent'; // Убрали фон
+            container.style.backgroundColor = 'transparent';
 
             // Если изображение уже загружено
             if (img.complete) {
@@ -106,30 +124,38 @@
         });
     }
 
-    // Расчет и установка размера изображения БЕЗ РАМОК
+    // Расчет и установка размера изображения
     function calculateAndSetImageSizeNoBorder(img, container) {
+        if (!img || !img.naturalWidth) return;
+
         const originalWidth = img.naturalWidth;
         const originalHeight = img.naturalHeight;
         const originalRatio = originalWidth / originalHeight;
 
-        console.log(`📐 Image: ${originalWidth}x${originalHeight}, ratio: ${originalRatio.toFixed(2)}`);
+        console.log(`📐 Image ${originalWidth}x${originalHeight}, ratio: ${originalRatio.toFixed(2)}`);
+
+        // Сбрасываем предыдущие стили
+        img.style.width = '';
+        img.style.height = '';
+        img.style.transform = '';
+        img.style.objectFit = '';
+        img.style.backgroundColor = 'transparent';
+        img.style.border = 'none';
+        img.style.padding = '0';
 
         // Проверяем, нужно ли увеличивать изображение
         if (originalWidth < MIN_WIDTH) {
-            console.log(`📈 Small image detected, enlarging: ${originalWidth}x${originalHeight}`);
+            console.log(`📈 Small image detected, enlarging`);
 
-            // Рассчитываем коэффициент увеличения для достижения минимальной ширины
+            // Рассчитываем коэффициент увеличения
             const scaleFactor = Math.min(MAX_SCALE, MIN_WIDTH / originalWidth);
             const targetWidth = originalWidth * scaleFactor;
             const targetHeight = originalHeight * scaleFactor;
 
-            // Устанавливаем увеличенные размеры (БЕЗ РАМОК)
+            // Устанавливаем увеличенные размеры
             img.style.width = `${targetWidth}px`;
             img.style.height = `${targetHeight}px`;
             img.style.objectFit = 'scale-down';
-            // УБРАЛИ: img.style.backgroundColor = '#2a2a2a';
-            // УБРАЛИ: img.style.padding = '10px';
-            // УБРАЛИ: img.style.border = '1px solid rgba(255, 107, 53, 0.3)';
 
             // Если изображение очень маленькое, увеличиваем больше
             if (originalWidth < 200) {
@@ -141,7 +167,7 @@
         } else {
             // Изображение нормального размера - подгоняем под контейнер
             if (originalRatio > ASPECT_RATIO) {
-                // Широкое изображение (шире 16:9)
+                // Широкое изображение
                 img.style.width = '100%';
                 img.style.height = 'auto';
                 img.style.objectFit = 'cover';
@@ -156,24 +182,22 @@
         // Центрируем изображение
         img.style.display = 'block';
         img.style.margin = 'auto';
-
-        // УБРАЛИ информацию о размере
-        // addSizeInfo(img, container, originalWidth, originalHeight);
     }
 
-    // Обработка ошибки загрузки изображения БЕЗ РАМОК
+    // Обработка ошибки загрузки изображения
     function handleImageErrorNoBorder(img, container) {
         console.error('❌ Failed to load image');
 
         img.style.width = '100%';
         img.style.height = `${FIXED_HEIGHT}px`;
-        img.style.backgroundColor = '#2a2a2a'; // Оставляем только для ошибок
+        img.style.backgroundColor = '#2a2a2a';
         img.style.display = 'flex';
         img.style.alignItems = 'center';
         img.style.justifyContent = 'center';
         img.style.color = '#dc3545';
         img.style.fontSize = '14px';
         img.style.fontWeight = 'bold';
+        img.style.borderRadius = '8px';
 
         img.alt = 'Failed to load screenshot';
         img.innerHTML = '<span>❌ Failed to load</span>';
@@ -214,6 +238,11 @@
     function openGalleryModal(imageIndex) {
         console.log(`📂 Opening modal for image ${imageIndex}`);
 
+        if (galleryImages.length === 0) {
+            console.error('❌ No gallery images available');
+            return;
+        }
+
         // Проверяем границы
         currentImageIndex = Math.max(0, Math.min(imageIndex, galleryImages.length - 1));
 
@@ -227,7 +256,7 @@
         }
     }
 
-    // Обновление содержимого модального окна (БЕЗ РАМОК)
+    // Обновление содержимого модального окна
     function updateModalContent() {
         const currentNumEl = document.getElementById('currentNum');
         const totalCountEl = document.getElementById('totalCount');
@@ -239,6 +268,8 @@
 
         // Получаем текущее изображение
         const currentImage = galleryImages[currentImageIndex];
+        if (!currentImage) return;
+
         const imageUrl = currentImage.getAttribute('data-image') || currentImage.src;
 
         console.log(`🔄 Loading modal image ${currentImageIndex + 1}/${galleryImages.length}`);
@@ -247,9 +278,17 @@
         modalImg.onload = null;
         modalImg.onerror = null;
 
-        // Новый обработчик загрузки (БЕЗ РАМОК)
+        // Новый обработчик загрузки
         modalImg.onload = function() {
             console.log(`✅ Modal image loaded: ${this.naturalWidth}x${this.naturalHeight}`);
+
+            // Сбрасываем стили
+            this.style.width = '';
+            this.style.height = '';
+            this.style.objectFit = '';
+            this.style.backgroundColor = 'transparent';
+            this.style.border = 'none';
+            this.style.padding = '0';
 
             // Для модального окна показываем оригинальный размер
             if (this.naturalWidth < 1000 || this.naturalHeight < 700) {
@@ -258,7 +297,6 @@
                 this.style.width = `${this.naturalWidth * scaleFactor}px`;
                 this.style.height = `${this.naturalHeight * scaleFactor}px`;
                 this.style.objectFit = 'scale-down';
-                // УБРАЛИ фон и рамки
             } else {
                 // Нормальное изображение
                 this.style.maxWidth = '90vw';
@@ -276,6 +314,8 @@
             this.style.display = 'flex';
             this.style.alignItems = 'center';
             this.style.justifyContent = 'center';
+            this.style.width = '500px';
+            this.style.height = '300px';
             this.style.color = '#fff';
             this.style.padding = '40px';
             this.style.borderRadius = '8px';
@@ -296,7 +336,7 @@
         updateNavigationButtons();
     }
 
-    // Обновление кнопок навигации
+    // Обновление кнопок навигации - исправленная версия
     function updateNavigationButtons() {
         const prevBtn = document.getElementById('prevBtn');
         const nextBtn = document.getElementById('nextBtn');
@@ -305,16 +345,18 @@
             prevBtn.disabled = currentImageIndex === 0;
             prevBtn.style.opacity = prevBtn.disabled ? '0.3' : '1';
             prevBtn.style.cursor = prevBtn.disabled ? 'not-allowed' : 'pointer';
+            prevBtn.style.pointerEvents = prevBtn.disabled ? 'none' : 'auto';
         }
 
         if (nextBtn) {
             nextBtn.disabled = currentImageIndex === galleryImages.length - 1;
             nextBtn.style.opacity = nextBtn.disabled ? '0.3' : '1';
             nextBtn.style.cursor = nextBtn.disabled ? 'not-allowed' : 'pointer';
+            nextBtn.style.pointerEvents = nextBtn.disabled ? 'none' : 'auto';
         }
     }
 
-    // Навигация
+    // Навигация - исправленная версия
     function navigateGallery(direction) {
         if (direction === 'prev' && currentImageIndex > 0) {
             currentImageIndex--;
@@ -329,10 +371,12 @@
 
     // Инициализация при загрузке страницы
     document.addEventListener('DOMContentLoaded', function() {
-        console.log('🏠 Initializing gallery...');
+        console.log('🏠 GALLERY: DOM Content Loaded - initializing gallery...');
 
-        // Даем время для загрузки DOM
+        // Даем время для загрузки всех изображений
         setTimeout(() => {
+            console.log('⏰ GALLERY: Timeout finished - initializing gallery');
+
             // Инициализируем галерею
             window.initInlineGallery();
 
@@ -374,56 +418,22 @@
                 }
             });
 
-        }, 1000);
+        }, 1500); // Увеличил время ожидания до 1.5 секунд
+
+        // Также инициализируем при полной загрузке страницы
+        window.addEventListener('load', function() {
+            console.log('🔄 GALLERY: Window loaded - reinitializing gallery');
+            setTimeout(() => {
+                window.initInlineGallery();
+            }, 500);
+        });
     });
 
-    // ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
-
-    // Увеличить все скриншоты еще больше
-    window.increaseScreenshotSize = function(newHeight = 250) {
-        console.log(`📈 Increasing screenshot height to ${newHeight}px`);
-
-        galleryImages.forEach(img => {
-            const container = img.closest('.screenshot-container-fixed');
-            if (container) {
-                container.style.height = `${newHeight}px`;
-
-                if (img.complete) {
-                    // Пересчитываем размер для нового контейнера
-                    calculateAndSetImageSizeNoBorder(img, container);
-                }
-            }
-        });
+    // Делаем функцию доступной глобально для вызова извне
+    window.reinitGallery = function() {
+        console.log('🔄 Manual gallery reinitialization');
+        window.initInlineGallery();
     };
 
-    // Убрать все рамки и фоны
-    window.removeAllBorders = function() {
-        console.log('🚫 Removing all borders and backgrounds');
-
-        galleryImages.forEach(img => {
-            img.style.backgroundColor = 'transparent';
-            img.style.border = 'none';
-            img.style.padding = '0';
-
-            const container = img.closest('.screenshot-container-fixed');
-            if (container) {
-                container.style.backgroundColor = 'transparent';
-            }
-        });
-    };
-
-    // Проверка текущих настроек
-    window.checkSettings = function() {
-        console.log('⚙️ Current gallery settings:');
-        console.log(`  Fixed height: ${FIXED_HEIGHT}px`);
-        console.log(`  Min width: ${MIN_WIDTH}px`);
-        console.log(`  Max scale: ${MAX_SCALE}x`);
-        console.log(`  Images: ${galleryImages.length}`);
-    };
-
-    console.log('✅ Gallery script ready (NO BORDERS)');
-    console.log('💡 Команды:');
-    console.log('  increaseScreenshotSize(250) - увеличить высоту скриншотов');
-    console.log('  removeAllBorders() - убрать все рамки и фоны');
-    console.log('  checkSettings() - проверить текущие настройки');
+    console.log('✅ Gallery script ready');
 </script>
