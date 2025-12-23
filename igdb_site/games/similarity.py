@@ -76,9 +76,9 @@ class GameSimilarity:
     GENRES_TOTAL_WEIGHT = 30.0
     GENRES_EXACT_MATCH_WEIGHT = 10.0
     GENRES_PARTIAL_MATCH_WEIGHT = 20.0
-    KEYWORDS_WEIGHT = 40.0
-    KEYWORDS_ADD_PER_MATCH = 1.0  # 1% за каждое совпадающее ключевое слово
-    THEMES_WEIGHT = 20.0
+    KEYWORDS_WEIGHT = 30.0
+    KEYWORDS_ADD_PER_MATCH = 0.5  # 1% за каждое совпадающее ключевое слово
+    THEMES_WEIGHT = 30.0
     DEVELOPERS_WEIGHT = 5.0
     PERSPECTIVES_WEIGHT = 10.0
     GAME_MODES_WEIGHT = 5.0
