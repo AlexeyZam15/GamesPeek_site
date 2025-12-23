@@ -11,8 +11,8 @@
             <!-- НОВЫЕ СКРЫТЫЕ ПОЛЯ -->
             <input type="hidden" name="t" id="themes-field" value="{{ selected_themes|join:',' }}">
             <input type="hidden" name="pp" id="perspectives-field" value="{{ selected_perspectives|join:',' }}">
-            <input type="hidden" name="d" id="developers-field" value="{{ selected_developers|join:',' }}">
-            <input type="hidden" name="gm" id="game-modes-field" value="{{ selected_game_modes|join:',' }}"> <!-
+            <!-- УДАЛИЛ ПОЛЕ РАЗРАБОТЧИКОВ -->
+            <input type="hidden" name="gm" id="game-modes-field" value="{{ selected_game_modes|join:',' }}">
 
             <div class="row g-3">
                 <!-- Встроенная сортировка -->
@@ -404,78 +404,6 @@
                                 </div>
                             </div>
 
-                            <!-- Developers -->
-                            <div class="filter-subsection mt-3">
-                                <label class="form-label toggle-subsection" data-target="developers-content"
-                                       style="cursor: pointer;">
-                                    <i class="bi bi-chevron-down me-1"></i>🏢 Developers:
-                                </label>
-                                <div id="developers-content">
-                                    <input type="text" class="form-control mb-2" id="developer-search"
-                                           placeholder="Search developers..." autocomplete="off">
-
-                                    <!-- Активные разработчики -->
-                                    <div id="active-developers" class="mb-2">
-                                        {% if selected_developers %}
-                                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                                <div class="d-flex align-items-center gap-2">
-                                                    <button type="button"
-                                                            class="btn btn-sm clear-developers-btn btn-outline-dark"
-                                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;">
-                                                        <i class="bi bi-x-circle me-1"></i>Clear All
-                                                    </button>
-                                                    <small class="text-muted" style="font-weight: 500;">
-                                                        Selected developers ({{ selected_developers|length }})
-                                                    </small>
-                                                </div>
-                                            </div>
-                                        {% endif %}
-
-                                        {% for developer in developers %}
-                                            {% if developer.id in selected_developers %}
-                                                <span class="badge bg-dark me-1 mb-1 active-developer-tag"
-                                                      data-developer-id="{{ developer.id }}"
-                                                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
-                                                    {{ developer.name }} <i class="bi bi-x ms-1"
-                                                                            style="font-size: 0.9rem;"></i>
-                                                </span>
-                                            {% endif %}
-                                        {% endfor %}
-                                    </div>
-
-                                    <!-- Список разработчиков -->
-                                    <div class="developer-list border rounded p-2"
-                                         style="max-height: 200px; overflow-y: auto;">
-                                        <div class="developer-grid"
-                                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
-                                            {% for developer in developers %}
-                                                <div class="developer-item"
-                                                     data-developer-name="{{ developer.name|lower }}">
-                                                    <div class="form-check">
-                                                        <input class="form-check-input developer-checkbox"
-                                                               type="checkbox"
-                                                               value="{{ developer.id }}"
-                                                               id="developer_{{ developer.id }}"
-                                                               {% if developer.id in selected_developers %}checked{% endif %}>
-                                                        <label class="form-check-label small"
-                                                               for="developer_{{ developer.id }}">
-                                                            {{ developer.name }}</label>
-                                                    </div>
-                                                </div>
-                                            {% endfor %}
-                                        </div>
-                                    </div>
-
-                                    <!-- Кнопка "Show all developers" -->
-                                    <div class="text-center mt-2">
-                                        <button type="button"
-                                                class="btn btn-outline-secondary btn-sm show-all-developers-btn">
-                                            <span class="show-text">Show all developers</span>
-                                            <span class="hide-text" style="display: none;">Show less</span>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
                             <!-- Game Modes -->
                             <div class="filter-subsection mt-3">
                                 <label class="form-label toggle-subsection" data-target="game-modes-content"
@@ -508,8 +436,9 @@
                                                 <span class="badge bg-purple me-1 mb-1 active-game-mode-tag"
                                                       data-game-mode-id="{{ game_mode.id }}"
                                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
-                        {{ game_mode.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
-                    </span>
+                                                    {{ game_mode.name }} <i class="bi bi-x ms-1"
+                                                                            style="font-size: 0.9rem;"></i>
+                                                </span>
                                             {% endif %}
                                         {% endfor %}
                                     </div>
