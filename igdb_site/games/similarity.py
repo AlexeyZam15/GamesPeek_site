@@ -102,28 +102,126 @@ class GameSimilarity:
         from django.core.cache import cache
         import json
         import hashlib
-        from .models import Game
+        from .models import Game, GameMode
 
         if limit is None:
             limit = 1000
 
-        # Получаем данные исходной игры
+        # 1. Подготовка данных исходной игры и проверка Single player
+        source_data, single_player_info = self._prepare_source_data(source_game)
+
+        # 2. Генерация ключа кэша
+        cache_key = self._generate_cache_key(source_game, min_similarity, limit,
+                                             source_data, single_player_info)
+
+        # Проверяем кэш
+        cached_result = cache.get(cache_key)
+        if cached_result:
+            return cached_result
+
+        print(f"РАСЧЕТ для {getattr(source_game, 'id', 'virtual')}...")
+        start_time = time.time()
+
+        # 3. Получение кандидатов по жанрам и Single player
+        candidate_ids = self._get_candidate_ids(source_data, single_player_info)
+
+        if not candidate_ids:
+            print("Нет подходящих кандидатов")
+            return []
+
+        # 4. Подготовка данных кандидатов
+        games_data = self._prepare_candidate_data(candidate_ids)
+
+        # 5. Подсчет общих элементов
+        games_data = self._calculate_common_elements(games_data, source_data, candidate_ids)
+
+        # 6. Расчет схожести и фильтрация
+        similar_games = self._calculate_and_filter_similarity(
+            games_data, source_game, source_data, min_similarity, single_player_info
+        )
+
+        # 7. Сортировка и ограничение
+        similar_games = self._sort_and_limit_results(similar_games, source_game, limit)
+
+        # 8. Загрузка полных объектов
+        final_results = self._load_full_objects(similar_games)
+
+        print(f"Всего найдено {len(final_results)} похожих игр за {time.time() - start_time:.2f} сек")
+
+        # 9. Кэшируем результат
+        cache.set(cache_key, final_results, 86400)
+
+        return final_results
+
+    def _prepare_source_data(self, source_game):
+        """Подготовка данных исходной игры и проверка Single player"""
+        from .models import GameMode
+
         source_data = self._get_cached_game_data(source_game)
         source_genre_ids = list(source_data['genres'])
         source_genre_count = len(source_genre_ids)
 
+        # Проверяем, есть ли у исходной игры режим Single player
+        source_game_mode_ids = list(source_data['game_modes'])
+        has_single_player_in_source = False
+        single_player_mode_id = None
+
+        # Получаем ID режима "Single player" из базы данных
+        single_player_mode = GameMode.objects.filter(name__iexact='single player').first()
+        if single_player_mode:
+            has_single_player_in_source = single_player_mode.id in source_game_mode_ids
+            single_player_mode_id = single_player_mode.id
+        else:
+            # Если режим не найден, ищем альтернативные варианты
+            alternative_names = ['single', 'singleplayer', 'single-player', '1 player']
+            for alt_name in alternative_names:
+                alt_mode = GameMode.objects.filter(name__iexact=alt_name).first()
+                if alt_mode:
+                    has_single_player_in_source = alt_mode.id in source_game_mode_ids
+                    single_player_mode_id = alt_mode.id
+                    break
+
         # Определяем динамическое минимальное требование по жанрам
         if source_genre_count >= 2:
-            # Если у исходной игры 2+ жанра, требуем минимум 2 общих
             dynamic_min_common_genres = 2
         elif source_genre_count == 1:
-            # Если у исходной игры 1 жанр, требуем минимум 1 общий
             dynamic_min_common_genres = 1
         else:
-            # Если у исходной игры нет жанров, не требуем общих жанров
             dynamic_min_common_genres = 0
 
-        # Ключ кэша с динамическим требованием
+        source_data.update({
+            'genre_ids': source_genre_ids,
+            'genre_count': source_genre_count,
+            'keyword_ids': list(source_data['keywords']),
+            'theme_ids': list(source_data['themes']),
+            'developer_ids': list(source_data['developers']),
+            'perspective_ids': list(source_data['perspectives']),
+            'game_mode_ids': source_game_mode_ids,
+            'keyword_count': len(source_data['keywords']),
+            'theme_count': len(source_data['themes']),
+            'developer_count': len(source_data['developers']),
+            'perspective_count': len(source_data['perspectives']),
+            'game_mode_count': len(source_game_mode_ids),
+        })
+
+        single_player_info = {
+            'has_single_player': has_single_player_in_source,
+            'single_player_mode_id': single_player_mode_id,
+            'dynamic_min_common_genres': dynamic_min_common_genres
+        }
+
+        print(f"Данные исходной игры:")
+        print(f"  - Жанры: {source_genre_count}")
+        print(f"  - Требуется общих жанров: {dynamic_min_common_genres}")
+        print(f"  - Имеет режим Single player: {has_single_player_in_source}")
+
+        return source_data, single_player_info
+
+    def _generate_cache_key(self, source_game, min_similarity, limit, source_data, single_player_info):
+        """Генерация ключа кэша"""
+        import json
+        import hashlib
+
         if isinstance(source_game, VirtualGame):
             cache_key_data = {
                 'type': 'virtual',
@@ -131,68 +229,44 @@ class GameSimilarity:
                 'keyword_ids': sorted(source_game.keyword_ids),
                 'theme_ids': sorted(source_game.theme_ids),
                 'min_similarity': min_similarity,
-                'dynamic_min_common_genres': dynamic_min_common_genres,  # Динамическое требование
+                'dynamic_min_common_genres': single_player_info['dynamic_min_common_genres'],
+                'has_single_player': single_player_info['has_single_player'],
                 'limit': limit,
-                'version': 'v_dynamic_genre_requirement'
+                'version': 'v_single_player_check'
             }
-            source_game_id = -1
         else:
             cache_key_data = {
                 'type': 'game',
                 'game_id': source_game.id,
                 'min_similarity': min_similarity,
-                'dynamic_min_common_genres': dynamic_min_common_genres,  # Динамическое требование
+                'dynamic_min_common_genres': single_player_info['dynamic_min_common_genres'],
+                'has_single_player': single_player_info['has_single_player'],
                 'limit': limit,
-                'version': 'v_dynamic_genre_requirement'
+                'version': 'v_single_player_check'
             }
-            source_game_id = source_game.id
 
         cache_key_str = json.dumps(cache_key_data, sort_keys=True)
-        cache_key = f'game_similarity_{hashlib.md5(cache_key_str.encode()).hexdigest()}'
+        return f'game_similarity_{hashlib.md5(cache_key_str.encode()).hexdigest()}'
 
-        # Проверяем кэш
-        cached_result = cache.get(cache_key)
-        if cached_result:
-            print(
-                f"Используем кэшированные результаты (min_similarity={min_similarity}, dynamic_min_common_genres={dynamic_min_common_genres})")
-            return cached_result
+    def _get_candidate_ids(self, source_data, single_player_info):
+        """Получение ID кандидатов по жанрам и Single player"""
+        import time
+        from django.db import connection
+        from .models import Game
 
-        print(f"РАСЧЕТ для {getattr(source_game, 'id', 'virtual')}...")
-        print(f"Минимальная схожесть: {min_similarity}%")
-        print(
-            f"Динамическое требование по жанрам: {dynamic_min_common_genres} общих жанров (исходная игра имеет {source_genre_count} жанров)")
-
-        start_time = time.time()
-
-        # Подготавливаем остальные данные исходной игры
-        source_keyword_ids = list(source_data['keywords'])
-        source_theme_ids = list(source_data['themes'])
-        source_developer_ids = list(source_data['developers'])
-        source_perspective_ids = list(source_data['perspectives'])
-        source_game_mode_ids = list(source_data['game_modes'])
-
-        source_keyword_count = len(source_keyword_ids)
-        source_theme_count = len(source_theme_ids)
-        source_developer_count = len(source_developer_ids)
-        source_perspective_count = len(source_perspective_ids)
-        source_game_mode_count = len(source_game_mode_ids)
-
-        print(f"Данные исходной игры:")
-        print(f"  - Жанры: {source_genre_count} (ID: {source_genre_ids})")
-        print(f"  - Требуется общих жанров: {dynamic_min_common_genres}")
-
-        # 1. БЕРЕМ ТОЛЬКО ИГРЫ С НЕ МЕНЕЕ dynamic_min_common_genres ОБЩИХ ЖАНРОВ
         print("Этап 1: Получение кандидатов с общими жанрами...")
         filter_time = time.time()
 
-        # Сначала получаем ID игр, у которых есть не менее dynamic_min_common_genres общих жанров
-        candidate_ids_with_genres = []
+        candidate_ids = []
+        dynamic_min_common_genres = single_player_info['dynamic_min_common_genres']
+        has_single_player = single_player_info['has_single_player']
+        single_player_mode_id = single_player_info['single_player_mode_id']
+        source_genre_ids = source_data['genre_ids']
 
+        # Получаем ID игр с общими жанрами
         if source_genre_ids:
             with connection.cursor() as cursor:
                 source_genre_ids_str = ','.join(map(str, source_genre_ids))
-
-                # Используем HAVING для фильтрации по количеству общих жанров
                 query = f"""
                     SELECT game_id, COUNT(*) as common_genres_count
                     FROM games_game_genres 
@@ -201,44 +275,58 @@ class GameSimilarity:
                     HAVING COUNT(*) >= {dynamic_min_common_genres}
                 """
                 cursor.execute(query)
-                candidate_ids_with_genres = [row[0] for row in cursor.fetchall()]
+                candidate_ids = [row[0] for row in cursor.fetchall()]
         elif dynamic_min_common_genres == 0:
             # Если не требуется общих жанров, берем все игры
-            candidate_ids_with_genres = list(Game.objects.values_list('id', flat=True))
+            candidate_ids = list(Game.objects.values_list('id', flat=True))
 
-        # Если кандидатов нет, возвращаем пустой список
-        if not candidate_ids_with_genres:
-            print(f"Нет игр с хотя бы {dynamic_min_common_genres} общими жанрами")
-            return []
+        # Фильтруем по Single player если требуется
+        if has_single_player and single_player_mode_id and candidate_ids:
+            with connection.cursor() as cursor:
+                # Создаем строку с ID кандидатов
+                candidate_ids_str = ','.join(map(str, candidate_ids))
 
-        # Получаем игры-кандидаты
-        candidate_games = Game.objects.filter(id__in=candidate_ids_with_genres)
+                # Получаем игры, которые имеют режим Single player
+                query = f"""
+                    SELECT DISTINCT game_id
+                    FROM games_game_game_modes 
+                    WHERE gamemode_id = {single_player_mode_id}
+                    AND game_id IN ({candidate_ids_str})
+                """
+                cursor.execute(query)
+                games_with_single_player = set([row[0] for row in cursor.fetchall()])
 
-        # ВКЛЮЧАЕМ исходную игру (если она реальная, а не виртуальная)
-        if isinstance(source_game, Game):
-            candidate_games = candidate_games | Game.objects.filter(id=source_game.id)
+                # Фильтруем кандидатов
+                candidate_ids = [game_id for game_id in candidate_ids
+                                 if game_id in games_with_single_player]
 
-        candidate_count = candidate_games.count()
-        print(
-            f"Найдено {candidate_count} кандидатов с не менее {dynamic_min_common_genres} общими жанрами за {time.time() - filter_time:.2f} сек")
+            print(f"Отфильтровано по режиму Single player: осталось {len(candidate_ids)} кандидатов")
 
-        # 2. ПОДГОТОВКА ДАННЫХ ДЛЯ БЫСТРОГО РАСЧЕТА
+        print(f"Найдено {len(candidate_ids)} кандидатов за {time.time() - filter_time:.2f} сек")
+        return candidate_ids
+
+    def _prepare_candidate_data(self, candidate_ids):
+        """Подготовка данных кандидатов"""
+        import time
+        from .models import Game
+
         print("Этап 2: Подготовка данных для расчета...")
         prep_time = time.time()
 
-        # Получаем ID всех кандидатов
-        candidate_ids = list(candidate_games.values_list('id', flat=True))
-
-        # Создаем словарь для данных игр
         games_data = {}
 
-        # Получаем все необходимые данные одним запросом
-        for game in candidate_games.only('id', 'name'):
+        if not candidate_ids:
+            return games_data
+
+        # Получаем игры-кандидаты
+        candidate_games = Game.objects.filter(id__in=candidate_ids).only('id', 'name')
+
+        for game in candidate_games:
             games_data[game.id] = {
                 'id': game.id,
                 'name': game.name,
                 'common_keywords': 0,
-                'common_genres': 0,  # МИНИМУМ dynamic_min_common_genres, т.к. мы отфильтровали
+                'common_genres': 0,
                 'common_themes': 0,
                 'common_developers': 0,
                 'common_perspectives': 0,
@@ -249,219 +337,138 @@ class GameSimilarity:
                 'total_developers': 0,
                 'total_perspectives': 0,
                 'total_game_modes': 0,
+                'has_single_player': False,
             }
 
         print(f"Подготовлено {len(games_data)} игр за {time.time() - prep_time:.2f} сек")
+        return games_data
 
-        # 3. БЫСТРЫЙ ПОДСЧЕТ ОБЩИХ ЭЛЕМЕНТОВ
+    def _calculate_common_elements(self, games_data, source_data, candidate_ids):
+        """Подсчет общих элементов между исходной игрой и кандидатами"""
+        import time
+        from django.db import connection
+
         print("Этап 3: Подсчет общих элементов...")
         count_time = time.time()
 
+        if not candidate_ids:
+            return games_data
+
+        candidate_ids_str = ','.join(map(str, candidate_ids))
+
         with connection.cursor() as cursor:
-            if candidate_ids:
-                candidate_ids_str = ','.join(map(str, candidate_ids))
-
-                # ПОДСЧЕТ ОБЩИХ ЖАНРОВ
-                if source_genre_ids:
-                    source_genre_ids_str = ','.join(map(str, source_genre_ids))
-                    query = f"""
-                        SELECT game_id, COUNT(*) as common_count
-                        FROM games_game_genres 
-                        WHERE game_id IN ({candidate_ids_str}) 
-                        AND genre_id IN ({source_genre_ids_str})
-                        GROUP BY game_id
-                    """
-                    cursor.execute(query)
-                    for game_id, common_count in cursor.fetchall():
-                        if game_id in games_data:
-                            games_data[game_id]['common_genres'] = common_count
-
-                # ПОДСЧЕТ ОБЩИХ КЛЮЧЕВЫХ СЛОВ
-                if source_keyword_ids:
-                    source_keyword_ids_str = ','.join(map(str, source_keyword_ids))
-                    query = f"""
-                        SELECT game_id, COUNT(*) as common_count
-                        FROM games_game_keywords 
-                        WHERE game_id IN ({candidate_ids_str}) 
-                        AND keyword_id IN ({source_keyword_ids_str})
-                        GROUP BY game_id
-                    """
-                    cursor.execute(query)
-                    for game_id, common_count in cursor.fetchall():
-                        if game_id in games_data:
-                            games_data[game_id]['common_keywords'] = common_count
-
-                # ПОДСЧЕТ ОБЩИХ ТЕМ
-                if source_theme_ids:
-                    source_theme_ids_str = ','.join(map(str, source_theme_ids))
-                    query = f"""
-                        SELECT game_id, COUNT(*) as common_count
-                        FROM games_game_themes 
-                        WHERE game_id IN ({candidate_ids_str}) 
-                        AND theme_id IN ({source_theme_ids_str})
-                        GROUP BY game_id
-                    """
-                    cursor.execute(query)
-                    for game_id, common_count in cursor.fetchall():
-                        if game_id in games_data:
-                            games_data[game_id]['common_themes'] = common_count
-
-                # ПОДСЧЕТ ОБЩИХ РАЗРАБОТЧИКОВ
-                if source_developer_ids:
-                    source_developer_ids_str = ','.join(map(str, source_developer_ids))
-                    query = f"""
-                        SELECT game_id, COUNT(*) as common_count
-                        FROM games_game_developers 
-                        WHERE game_id IN ({candidate_ids_str}) 
-                        AND company_id IN ({source_developer_ids_str})
-                        GROUP BY game_id
-                    """
-                    cursor.execute(query)
-                    for game_id, common_count in cursor.fetchall():
-                        if game_id in games_data:
-                            games_data[game_id]['common_developers'] = common_count
-
-                # ПОДСЧЕТ ОБЩИХ ПЕРСПЕКТИВ
-                if source_perspective_ids:
-                    source_perspective_ids_str = ','.join(map(str, source_perspective_ids))
-                    query = f"""
-                        SELECT game_id, COUNT(*) as common_count
-                        FROM games_game_player_perspectives 
-                        WHERE game_id IN ({candidate_ids_str}) 
-                        AND playerperspective_id IN ({source_perspective_ids_str})
-                        GROUP BY game_id
-                    """
-                    cursor.execute(query)
-                    for game_id, common_count in cursor.fetchall():
-                        if game_id in games_data:
-                            games_data[game_id]['common_perspectives'] = common_count
-
-                # ПОДСЧЕТ ОБЩИХ РЕЖИМОВ ИГРЫ
-                if source_game_mode_ids:
-                    source_game_mode_ids_str = ','.join(map(str, source_game_mode_ids))
-                    query = f"""
-                        SELECT game_id, COUNT(*) as common_count
-                        FROM games_game_game_modes 
-                        WHERE game_id IN ({candidate_ids_str}) 
-                        AND gamemode_id IN ({source_game_mode_ids_str})
-                        GROUP BY game_id
-                    """
-                    cursor.execute(query)
-                    for game_id, common_count in cursor.fetchall():
-                        if game_id in games_data:
-                            games_data[game_id]['common_game_modes'] = common_count
-
-                # ПОДСЧЕТ ОБЩЕГО КОЛИЧЕСТВА ЭЛЕМЕНТОВ
-                # Жанры
+            # Проверяем наличие режима Single player у кандидатов
+            single_player_mode_id = self._get_single_player_mode_id()
+            if single_player_mode_id:
                 query = f"""
-                    SELECT game_id, COUNT(*) as total_count
-                    FROM games_game_genres 
-                    WHERE game_id IN ({candidate_ids_str})
-                    GROUP BY game_id
-                """
-                cursor.execute(query)
-                for game_id, total_count in cursor.fetchall():
-                    if game_id in games_data:
-                        games_data[game_id]['total_genres'] = total_count
-
-                # Ключевые слова
-                query = f"""
-                    SELECT game_id, COUNT(*) as total_count
-                    FROM games_game_keywords 
-                    WHERE game_id IN ({candidate_ids_str})
-                    GROUP BY game_id
-                """
-                cursor.execute(query)
-                for game_id, total_count in cursor.fetchall():
-                    if game_id in games_data:
-                        games_data[game_id]['total_keywords'] = total_count
-
-                # Темы
-                query = f"""
-                    SELECT game_id, COUNT(*) as total_count
-                    FROM games_game_themes 
-                    WHERE game_id IN ({candidate_ids_str})
-                    GROUP BY game_id
-                """
-                cursor.execute(query)
-                for game_id, total_count in cursor.fetchall():
-                    if game_id in games_data:
-                        games_data[game_id]['total_themes'] = total_count
-
-                # Разработчики
-                query = f"""
-                    SELECT game_id, COUNT(*) as total_count
-                    FROM games_game_developers 
-                    WHERE game_id IN ({candidate_ids_str})
-                    GROUP BY game_id
-                """
-                cursor.execute(query)
-                for game_id, total_count in cursor.fetchall():
-                    if game_id in games_data:
-                        games_data[game_id]['total_developers'] = total_count
-
-                # Перспективы
-                query = f"""
-                    SELECT game_id, COUNT(*) as total_count
-                    FROM games_game_player_perspectives 
-                    WHERE game_id IN ({candidate_ids_str})
-                    GROUP BY game_id
-                """
-                cursor.execute(query)
-                for game_id, total_count in cursor.fetchall():
-                    if game_id in games_data:
-                        games_data[game_id]['total_perspectives'] = total_count
-
-                # Режимы игры
-                query = f"""
-                    SELECT game_id, COUNT(*) as total_count
+                    SELECT game_id
                     FROM games_game_game_modes 
+                    WHERE game_id IN ({candidate_ids_str}) 
+                    AND gamemode_id = {single_player_mode_id}
+                """
+                cursor.execute(query)
+                for row in cursor.fetchall():
+                    game_id = row[0]
+                    if game_id in games_data:
+                        games_data[game_id]['has_single_player'] = True
+
+            # Подсчет общих элементов для каждой категории
+            categories = [
+                ('genres', source_data['genre_ids'], 'games_game_genres', 'genre_id'),
+                ('keywords', source_data['keyword_ids'], 'games_game_keywords', 'keyword_id'),
+                ('themes', source_data['theme_ids'], 'games_game_themes', 'theme_id'),
+                ('developers', source_data['developer_ids'], 'games_game_developers', 'company_id'),
+                ('perspectives', source_data['perspective_ids'], 'games_game_player_perspectives',
+                 'playerperspective_id'),
+                ('game_modes', source_data['game_mode_ids'], 'games_game_game_modes', 'gamemode_id'),
+            ]
+
+            for category, source_ids, table, field in categories:
+                if source_ids:
+                    source_ids_str = ','.join(map(str, source_ids))
+                    query = f"""
+                        SELECT game_id, COUNT(*) as common_count
+                        FROM {table} 
+                        WHERE game_id IN ({candidate_ids_str}) 
+                        AND {field} IN ({source_ids_str})
+                        GROUP BY game_id
+                    """
+                    cursor.execute(query)
+                    for game_id, common_count in cursor.fetchall():
+                        if game_id in games_data:
+                            games_data[game_id][f'common_{category}'] = common_count
+
+            # Подсчет общего количества элементов
+            tables = [
+                ('genres', 'games_game_genres', 'genre_id'),
+                ('keywords', 'games_game_keywords', 'keyword_id'),
+                ('themes', 'games_game_themes', 'theme_id'),
+                ('developers', 'games_game_developers', 'company_id'),
+                ('perspectives', 'games_game_player_perspectives', 'playerperspective_id'),
+                ('game_modes', 'games_game_game_modes', 'gamemode_id'),
+            ]
+
+            for category, table, field in tables:
+                query = f"""
+                    SELECT game_id, COUNT(*) as total_count
+                    FROM {table} 
                     WHERE game_id IN ({candidate_ids_str})
                     GROUP BY game_id
                 """
                 cursor.execute(query)
                 for game_id, total_count in cursor.fetchall():
                     if game_id in games_data:
-                        games_data[game_id]['total_game_modes'] = total_count
+                        games_data[game_id][f'total_{category}'] = total_count
 
         print(f"Подсчет элементов завершен за {time.time() - count_time:.2f} сек")
+        return games_data
 
-        # 4. РАСЧЕТ СХОЖЕСТИ
+    def _calculate_and_filter_similarity(self, games_data, source_game, source_data, min_similarity,
+                                         single_player_info):
+        """Расчет схожести и фильтрация по минимальному порогу"""
+        import time
+
         print("Этап 4: Расчет схожести...")
         calc_time = time.time()
 
         similar_games = []
         max_similarity = 0
         max_game_name = ""
-        source_game_found = False
 
         for game_id, data in games_data.items():
             similarity = 0.0
 
-            # ЕСЛИ ЭТО ИСХОДНАЯ ИГРА (для реальных игр, не виртуальных)
+            # Если это исходная игра (для реальных игр)
             if isinstance(source_game, Game) and game_id == source_game.id:
-                similarity = 100.0  # 100% для исходной игры
-                source_game_found = True
+                similarity = 100.0
                 print(f"Исходная игра '{data['name']}' добавлена с 100% схожести")
             else:
-                # УБЕЖДАЕМСЯ, что есть не менее dynamic_min_common_genres общих жанров
+                # Проверяем требование по общим жанрам
+                dynamic_min_common_genres = single_player_info['dynamic_min_common_genres']
                 if data['common_genres'] < dynamic_min_common_genres:
-                    # Пропускаем игру если недостаточно общих жанров
                     continue
 
-                # Обычный расчет для других игр
+                # Проверяем требование по Single player
+                if single_player_info['has_single_player'] and not data['has_single_player']:
+                    continue
+
+                # Расчет схожести
                 similarity = self._calculate_game_similarity(
-                    source_genre_count, source_keyword_count, source_theme_count,
-                    source_developer_count, source_perspective_count, source_game_mode_count,
+                    source_data['genre_count'],
+                    source_data['keyword_count'],
+                    source_data['theme_count'],
+                    source_data['developer_count'],
+                    source_data['perspective_count'],
+                    source_data['game_mode_count'],
                     data
                 )
 
-            # Отслеживаем максимальную схожесть (кроме исходной игры)
+            # Отслеживаем максимальную схожесть
             if game_id != getattr(source_game, 'id', None) and similarity > max_similarity:
                 max_similarity = similarity
                 max_game_name = data['name']
 
-            # Добавляем в результат если превышает порог 20%
+            # Добавляем если превышает порог
             if similarity >= min_similarity:
                 similar_games.append({
                     'game_id': game_id,
@@ -470,15 +477,21 @@ class GameSimilarity:
                     'common_keywords': data['common_keywords'],
                     'common_genres': data['common_genres'],
                     'common_themes': data['common_themes'],
+                    'has_single_player': data['has_single_player'],
                     'is_source_game': (isinstance(source_game, Game) and game_id == source_game.id)
                 })
 
         print(f"Расчет схожести завершен за {time.time() - calc_time:.2f} сек")
         print(f"Максимальная найденная схожесть: {max_similarity:.1f}% (игра: {max_game_name})")
-        print(
-            f"Найдено {len(similar_games)} игр выше порога {min_similarity}% с не менее {dynamic_min_common_genres} общими жанрами")
+        print(f"Найдено {len(similar_games)} игр выше порога {min_similarity}%")
 
-        # 5. СОРТИРОВКА: исходная игра первая, остальные по убыванию схожести
+        return similar_games
+
+    def _sort_and_limit_results(self, similar_games, source_game, limit):
+        """Сортировка результатов и ограничение по лимиту"""
+        import time
+
+        print("Этап 5: Сортировка результатов...")
         sort_time = time.time()
 
         # Разделяем исходную игру и остальные
@@ -493,56 +506,79 @@ class GameSimilarity:
         similar_games = similar_games[:limit]
 
         print(f"Сортировка завершена за {time.time() - sort_time:.2f} сек")
+        return similar_games
 
-        # 6. ЗАГРУЗКА ПОЛНЫХ ОБЪЕКТОВ
+    def _load_full_objects(self, similar_games):
+        """Загрузка полных объектов игр"""
+        import time
+        from .models import Game
+
+        print("Этап 6: Загрузка полных объектов...")
         load_time = time.time()
+
         final_results = []
 
-        if similar_games:
-            try:
-                game_ids = [item['game_id'] for item in similar_games]
+        if not similar_games:
+            return final_results
 
-                games = Game.objects.filter(id__in=game_ids).prefetch_related(
-                    'genres', 'keywords', 'themes'
-                )
+        try:
+            game_ids = [item['game_id'] for item in similar_games]
 
-                games_dict = {game.id: game for game in games}
+            games = Game.objects.filter(id__in=game_ids).prefetch_related(
+                'genres', 'keywords', 'themes', 'game_modes'
+            )
 
-                for item in similar_games:
-                    game_id = item['game_id']
-                    if game_id in games_dict:
-                        final_results.append({
-                            'game': games_dict[game_id],
-                            'similarity': item['similarity'],
-                            'common_keywords_count': item['common_keywords'],
-                            'common_genres_count': item['common_genres'],
-                            'common_themes_count': item['common_themes'],
-                            'is_source_game': item.get('is_source_game', False)
-                        })
-                    else:
-                        game = Game(
-                            id=game_id,
-                            name=item['game_name']
-                        )
-                        final_results.append({
-                            'game': game,
-                            'similarity': item['similarity'],
-                            'common_keywords_count': item['common_keywords'],
-                            'common_genres_count': item['common_genres'],
-                            'common_themes_count': item['common_themes'],
-                            'is_source_game': item.get('is_source_game', False)
-                        })
-            except Exception as e:
-                print(f"Ошибка при загрузке объектов: {e}")
-                return []
+            games_dict = {game.id: game for game in games}
+
+            for item in similar_games:
+                game_id = item['game_id']
+                if game_id in games_dict:
+                    final_results.append({
+                        'game': games_dict[game_id],
+                        'similarity': item['similarity'],
+                        'common_keywords_count': item['common_keywords'],
+                        'common_genres_count': item['common_genres'],
+                        'common_themes_count': item['common_themes'],
+                        'has_single_player': item['has_single_player'],
+                        'is_source_game': item.get('is_source_game', False)
+                    })
+                else:
+                    game = Game(
+                        id=game_id,
+                        name=item['game_name']
+                    )
+                    final_results.append({
+                        'game': game,
+                        'similarity': item['similarity'],
+                        'common_keywords_count': item['common_keywords'],
+                        'common_genres_count': item['common_genres'],
+                        'common_themes_count': item['common_themes'],
+                        'has_single_player': item['has_single_player'],
+                        'is_source_game': item.get('is_source_game', False)
+                    })
+        except Exception as e:
+            print(f"Ошибка при загрузке объектов: {e}")
+            return []
 
         print(f"Загрузка объектов завершена за {time.time() - load_time:.2f} сек")
-        print(f"Всего найдено {len(final_results)} похожих игр за {time.time() - start_time:.2f} сек")
-
-        # 7. КЭШИРУЕМ В DJANGO CACHE
-        cache.set(cache_key, final_results, 86400)
-
         return final_results
+
+    def _get_single_player_mode_id(self):
+        """Получение ID режима Single player"""
+        from .models import GameMode
+
+        single_player_mode = GameMode.objects.filter(name__iexact='single player').first()
+        if single_player_mode:
+            return single_player_mode.id
+
+        # Поиск альтернативных названий
+        alternative_names = ['single', 'singleplayer', 'single-player', '1 player']
+        for alt_name in alternative_names:
+            alt_mode = GameMode.objects.filter(name__iexact=alt_name).first()
+            if alt_mode:
+                return alt_mode.id
+
+        return None
 
     def _calculate_game_similarity(self, source_genre_count, source_keyword_count, source_theme_count,
                                    source_developer_count, source_perspective_count, source_game_mode_count,
