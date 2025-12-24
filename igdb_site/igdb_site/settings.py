@@ -87,15 +87,25 @@ TEMPLATES = [
 WSGI_APPLICATION = 'igdb_site.wsgi.application'
 
 # ============================================
-# ОПТИМИЗАЦИЯ БАЗЫ ДАННЫХ ДЛЯ SQLite
+# POSTGRESQL НАСТРОЙКИ БАЗЫ ДАННЫХ
 # ============================================
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.getenv('DB_NAME', 'gamespeek'),
+        'USER': os.getenv('DB_USER', 'django_user'),
+        'PASSWORD': os.getenv('DB_PASSWORD', 'django_user'),
+        'HOST': os.getenv('DB_HOST', 'localhost'),
+        'PORT': os.getenv('DB_PORT', '5432'),
+        'CONN_MAX_AGE': 600,  # Долговременные соединения для скорости
         'OPTIONS': {
-            'timeout': 30,  # Увеличенный таймаут для конкурентных запросов
+            'connect_timeout': 10,
+            'client_encoding': 'UTF8',
+            'sslmode': 'prefer',
+        },
+        'TEST': {
+            'NAME': 'test_gamespeek',
         }
     }
 }
@@ -338,27 +348,26 @@ if DEBUG:
     STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.StaticFilesStorage'
 
 # ============================================
-# НАСТРОЙКИ ОПТИМИЗАЦИИ БАЗЫ ДАННЫХ
+# НАСТРОЙКИ ОПТИМИЗАЦИИ БАЗЫ ДАННЫХ (POSTGRESQL)
 # ============================================
 
 # Автоматически оптимизировать базу данных при первом запросе в DEBUG режиме
-DATABASE_AUTO_OPTIMIZE = DEBUG
+DATABASE_AUTO_OPTIMIZE = False  # Отключаем для PostgreSQL
 
 # Создавать дополнительные индексы
 CREATE_EXTENDED_INDEXES = True
 
-# Выполнять VACUUM при оптимизации (может быть медленно для больших баз)
-RUN_VACUUM_ON_OPTIMIZATION = False
-
-# Настройки SQLite оптимизации
-SQLITE_OPTIMIZATIONS = {
-    'WAL_MODE': True,
-    'CACHE_SIZE_MB': 2000,  # 2GB
-    'MMAP_SIZE_GB': 30,
-    'BUSY_TIMEOUT_MS': 30000,
-    'SYNCHRONOUS': 'NORMAL',
-    'TEMP_STORE': 'MEMORY',
+# PostgreSQL специфичные настройки
+POSTGRESQL_OPTIMIZATIONS = {
+    'ENABLE_SEQSCAN': True,  # Разрешить последовательное сканирование
+    'ENABLE_HASHJOIN': True,
+    'WORK_MEM': '64MB',  # Память для операций
+    'MAINTENANCE_WORK_MEM': '512MB',  # Для создания индексов
 }
+
+# Настройки для PostgreSQL расширений
+USE_POSTGRES_TRGM = True  # Использовать pg_trgm для похожести строк
+USE_POSTGRES_GIN = True  # Использовать GIN индексы
 
 # ============================================
 # НАСТРОЙКИ ПРИЛОЖЕНИЯ GAMES
@@ -382,16 +391,38 @@ CACHE_TIMES = {
 # ФИНАЛЬНЫЕ СООБЩЕНИЯ ПРИ ЗАПУСКЕ
 # ============================================
 
-print(f"✅ Настройки Django загружены")
-print(f"📁 Режим: {'DEBUG' if DEBUG else 'PRODUCTION'}")
-print(f"🔧 База данных: SQLite с авто-оптимизацией")
-print(f"⚡ Кэширование: LocMemCache (3 уровня)")
-print(f"📊 Debug Toolbar: {'Включен' if DEBUG else 'Выключен'}")
+# Проверка подключения к PostgreSQL
+import sys
 
-if DATABASE_AUTO_OPTIMIZE:
-    print(f"🔧 Оптимизация БД: будет выполнена при первом запросе")
-else:
-    print(f"🔧 Оптимизация БД: отключена")
+try:
+    from django.db import connections
+
+    conn = connections['default']
+    conn.ensure_connection()
+
+    db_info = f"""
+✅ Настройки Django загружены
+📁 Режим: {'DEBUG' if DEBUG else 'PRODUCTION'}
+🔧 База данных: PostgreSQL (gamespeek)
+⚡ Кэширование: LocMemCache (3 уровня)
+📊 Debug Toolbar: {'Включен' if DEBUG else 'Выключен'}
+🔗 Подключение к PostgreSQL: УСПЕШНО
+📊 Драйвер: {conn.vendor} {conn.pg_version if hasattr(conn, 'pg_version') else ''}
+"""
+except Exception as e:
+    db_info = f"""
+❌ Ошибка подключения к PostgreSQL: {e}
+⚠️  Проверьте:
+  1. Запущена ли служба PostgreSQL
+  2. Корректны ли настройки в .env файле
+  3. Существует ли база 'gamespeek' и пользователь 'django_user'
+"""
+    print(db_info, file=sys.stderr)
+    # В режиме DEBUG можно продолжить, в production - нет
+    if not DEBUG:
+        raise
+
+print(db_info)
 
 # Проверка обязательных настроек
 required_settings = ['IGDB_CLIENT_ID', 'IGDB_CLIENT_SECRET']
