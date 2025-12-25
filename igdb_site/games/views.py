@@ -4,6 +4,7 @@
 import time
 import json
 import hashlib
+import logging  # ДОБАВЛЯЕМ ЭТОТ ИМПОРТ
 from functools import lru_cache
 from typing import Dict, List, Tuple, Any, Optional, Union
 from urllib.parse import urlencode
@@ -15,12 +16,14 @@ from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse, HttpResponseServerError
 from django.db import models
+from django.utils import timezone
 
 # ===== ЛОКАЛЬНЫЕ ИМПОРТЫ =====
 from .similarity import GameSimilarity, VirtualGame
 from .models import (
     Game, Genre, Keyword, KeywordCategory, Platform,
-    Theme, PlayerPerspective, Company, Series, GameMode
+    Theme, PlayerPerspective, Company, Series, GameMode,
+    GameTypeEnum
 )
 from .helpers import generate_compact_url_params, get_compact_game_list_url
 
@@ -195,11 +198,11 @@ def _fetch_filter_data_from_db() -> Dict[str, List]:
 
 
 def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int]) -> Tuple[List, int]:
-    """Получает похожие игры для конкретной игры БЕЗ ОГРАНИЧЕНИЙ."""
+    """Получает похожие игры для конкретной игры БЕЗ ОГРАНИЧЕНИЙ с prefetch."""
     cache_key_data = {
         'game_id': game_obj.id,
         'platforms': sorted(selected_platforms) if selected_platforms else [],
-        'version': 'v_no_limits',
+        'version': 'v_no_limits_prefetch',
         'game_cached_counts': {
             'genres': game_obj.cached_genre_count,
             'keywords': game_obj.cached_keyword_count,
@@ -233,6 +236,48 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int]) ->
     if selected_platforms:
         similar_games = _filter_by_platforms(similar_games, selected_platforms)
         total_count = len(similar_games)
+
+    # После фильтрации, prefetch для оставшихся игр
+    if similar_games:
+        # Извлекаем ID игр
+        game_ids = []
+        for item in similar_games:
+            game = item.get('game') if isinstance(item, dict) else item
+            if hasattr(game, 'id'):
+                game_ids.append(game.id)
+
+        if game_ids:
+            # Batch prefetch
+            games_dict = {}
+            games_with_prefetch = Game.objects.filter(id__in=game_ids).prefetch_related(
+                Prefetch('genres', queryset=Genre.objects.only('id', 'name')),
+                Prefetch('platforms', queryset=Platform.objects.only('id', 'name', 'slug')),
+                Prefetch('player_perspectives', queryset=PlayerPerspective.objects.only('id', 'name')),
+                Prefetch('keywords', queryset=Keyword.objects.select_related('category').only(
+                    'id', 'name', 'category__id', 'category__name'
+                )),
+            ).only(
+                'id', 'name', 'rating', 'rating_count',
+                'first_release_date', 'cover_url', 'game_type'
+            )
+
+            for game in games_with_prefetch:
+                games_dict[game.id] = game
+
+            # Заменяем игры в результатах на prefetched версии
+            updated_games = []
+            for item in similar_games:
+                if isinstance(item, dict):
+                    game = item.get('game')
+                    if hasattr(game, 'id') and game.id in games_dict:
+                        item['game'] = games_dict[game.id]
+                    updated_games.append(item)
+                elif hasattr(item, 'id') and item.id in games_dict:
+                    updated_games.append(games_dict[item.id])
+                else:
+                    updated_games.append(item)
+
+            similar_games = updated_games
 
     return similar_games, total_count
 
@@ -636,7 +681,7 @@ def handle_regular_mode(
 
 
 def _get_filtered_games(selected_criteria: Dict[str, List[int]], sort_field: str) -> Tuple[models.QuerySet, int]:
-    """Получает отфильтрованные игры с улучшенным кэшированием."""
+    """Получает отфильтрованные игры с улучшенным кэшированием и prefetch."""
     cache_key = _create_filter_cache_key(selected_criteria, sort_field)
     cached_data = cache.get(cache_key)
 
@@ -645,16 +690,57 @@ def _get_filtered_games(selected_criteria: Dict[str, List[int]], sort_field: str
         game_ids = cached_data['game_ids']
         total_count = cached_data['count']
 
-        # Используем bulk_prefetch для оптимизации
-        games = Game.objects.bulk_prefetch_for_list(game_ids)
+        # Используем bulk_prefetch для оптимизации с prefetch_related
+        games = Game.objects.filter(id__in=game_ids).prefetch_related(
+            Prefetch('genres', queryset=Genre.objects.only('id', 'name')),
+            Prefetch('platforms', queryset=Platform.objects.only('id', 'name', 'slug')),
+            Prefetch('player_perspectives', queryset=PlayerPerspective.objects.only('id', 'name')),
+            Prefetch('keywords', queryset=Keyword.objects.select_related('category').only(
+                'id', 'name', 'category__id', 'category__name'
+            )),
+            Prefetch('themes', queryset=Theme.objects.only('id', 'name')),
+            Prefetch('developers', queryset=Company.objects.only('id', 'name')),
+            Prefetch('game_modes', queryset=GameMode.objects.only('id', 'name')),
+        ).only(
+            'id', 'name', 'rating', 'rating_count',
+            'first_release_date', 'cover_url', 'game_type',
+            '_cached_genre_count', '_cached_keyword_count',
+            '_cached_platform_count', '_cached_developer_count'
+        )
 
         # Применяем сортировку в Python для кэшированных данных
         if cached_data.get('sort_data'):
-            # Используем предварительно отсортированные данные
-            pass
+            # Сортируем уже загруженные игры
+            if sort_field == '-rating_count':
+                games = sorted(games, key=lambda x: x.rating_count or 0, reverse=True)
+            elif sort_field == '-rating':
+                games = sorted(games, key=lambda x: x.rating or 0, reverse=True)
+            elif sort_field == '-first_release_date':
+                games = sorted(games, key=lambda x: x.first_release_date or '', reverse=True)
+            elif sort_field == 'name':
+                games = sorted(games, key=lambda x: x.name.lower())
+            elif sort_field == '-name':
+                games = sorted(games, key=lambda x: x.name.lower(), reverse=True)
     else:
-        # Новый запрос
-        games = Game.objects.all()
+        # Новый запрос с prefetch_related
+        games = Game.objects.all().prefetch_related(
+            Prefetch('genres', queryset=Genre.objects.only('id', 'name')),
+            Prefetch('platforms', queryset=Platform.objects.only('id', 'name', 'slug')),
+            Prefetch('player_perspectives', queryset=PlayerPerspective.objects.only('id', 'name')),
+            Prefetch('keywords', queryset=Keyword.objects.select_related('category').only(
+                'id', 'name', 'category__id', 'category__name'
+            )),
+            Prefetch('themes', queryset=Theme.objects.only('id', 'name')),
+            Prefetch('developers', queryset=Company.objects.only('id', 'name')),
+            Prefetch('game_modes', queryset=GameMode.objects.only('id', 'name')),
+        ).only(
+            'id', 'name', 'rating', 'rating_count',
+            'first_release_date', 'cover_url', 'game_type',
+            '_cached_genre_count', '_cached_keyword_count',
+            '_cached_platform_count', '_cached_developer_count'
+        )
+
+        # Применяем фильтры
         games = _apply_filters(games, selected_criteria)
 
         # Оптимизированная сортировка
@@ -674,6 +760,8 @@ def _get_filtered_games(selected_criteria: Dict[str, List[int]], sort_field: str
             sort_data = dict(games.values_list('id', 'rating_count')[:200])
         elif sort_field == '-rating':
             sort_data = dict(games.values_list('id', 'rating')[:200])
+        elif sort_field == '-first_release_date':
+            sort_data = dict(games.values_list('id', 'first_release_date')[:200])
 
         cache.set(cache_key, {
             'game_ids': game_ids,
@@ -682,6 +770,32 @@ def _get_filtered_games(selected_criteria: Dict[str, List[int]], sort_field: str
             'sort_field': sort_field,
             'timestamp': time.time()
         }, CACHE_TIMES['filtered_games'])
+
+        # Если нужно ограничить для пагинации
+        if len(game_ids) < total_count:
+            games = Game.objects.filter(id__in=game_ids).prefetch_related(
+                Prefetch('genres', queryset=Genre.objects.only('id', 'name')),
+                Prefetch('platforms', queryset=Platform.objects.only('id', 'name', 'slug')),
+                Prefetch('player_perspectives', queryset=PlayerPerspective.objects.only('id', 'name')),
+                Prefetch('keywords', queryset=Keyword.objects.select_related('category').only(
+                    'id', 'name', 'category__id', 'category__name'
+                )),
+            ).only(
+                'id', 'name', 'rating', 'rating_count',
+                'first_release_date', 'cover_url', 'game_type'
+            )
+
+            # Применяем сортировку к ограниченному набору
+            if sort_field == '-rating_count':
+                games = sorted(games, key=lambda x: x.rating_count or 0, reverse=True)
+            elif sort_field == '-rating':
+                games = sorted(games, key=lambda x: x.rating or 0, reverse=True)
+            elif sort_field == '-first_release_date':
+                games = sorted(games, key=lambda x: x.first_release_date or '', reverse=True)
+            elif sort_field == 'name':
+                games = sorted(games, key=lambda x: x.name.lower())
+            elif sort_field == '-name':
+                games = sorted(games, key=lambda x: x.name.lower(), reverse=True)
 
     return games, total_count
 
@@ -719,15 +833,51 @@ def _apply_filters(queryset: models.QuerySet, selected_criteria: Dict[str, List[
 
 
 def _format_similar_games_data(similar_games_data: List) -> List[Dict[str, Any]]:
-    """Форматирует данные похожих игр."""
+    """Форматирует данные похожих игр с предварительной загрузкой связей."""
+    if not similar_games_data:
+        return []
+
+    # Извлекаем ID игр для batch prefetch
+    game_ids = []
+    for item in similar_games_data:
+        game = item.get('game') if isinstance(item, dict) else item
+        if hasattr(game, 'id'):
+            game_ids.append(game.id)
+
+    # Batch prefetch для всех игр сразу
+    if game_ids:
+        games_dict = {}
+        games_with_prefetch = Game.objects.filter(id__in=game_ids).prefetch_related(
+            Prefetch('genres', queryset=Genre.objects.only('id', 'name')),
+            Prefetch('platforms', queryset=Platform.objects.only('id', 'name', 'slug')),
+            Prefetch('player_perspectives', queryset=PlayerPerspective.objects.only('id', 'name')),
+            Prefetch('keywords', queryset=Keyword.objects.select_related('category').only(
+                'id', 'name', 'category__id', 'category__name'
+            )),
+            Prefetch('themes', queryset=Theme.objects.only('id', 'name')),
+            Prefetch('developers', queryset=Company.objects.only('id', 'name')),
+            Prefetch('game_modes', queryset=GameMode.objects.only('id', 'name')),
+        ).only(
+            'id', 'name', 'rating', 'rating_count',
+            'first_release_date', 'cover_url', 'game_type',
+            '_cached_genre_count', '_cached_keyword_count',
+            '_cached_platform_count', '_cached_developer_count'
+        )
+
+        for game in games_with_prefetch:
+            games_dict[game.id] = game
+
     formatted = []
     for item in similar_games_data:
         game = item.get('game') if isinstance(item, dict) else item
         similarity = item.get('similarity', 0) if isinstance(item, dict) else 0
 
+        # Используем prefetched игру если доступна
+        if hasattr(game, 'id') and game_ids and game.id in games_dict:
+            game = games_dict[game.id]
+
         # Используем кэшированные свойства если доступны
         if hasattr(game, 'cached_genre_count'):
-            # Добавляем дополнительную информацию для сортировки
             formatted.append({
                 'game': game,
                 'similarity': similarity,
@@ -944,43 +1094,122 @@ def game_list(request: HttpRequest) -> HttpResponse:
 
 
 def home(request: HttpRequest) -> HttpResponse:
-    """Главная страница с популярными играми."""
-    # Используем only() для оптимизации запросов
-    popular_games = Game.objects.filter(
-        rating_count__gt=10
-    ).prefetch_related(
-        Prefetch('genres', queryset=Genre.objects.only('id', 'name')),
-        Prefetch('platforms', queryset=Platform.objects.only('id', 'name', 'slug')),
-        Prefetch('themes', queryset=Theme.objects.only('id', 'name')),
-        Prefetch('developers', queryset=Company.objects.only('id', 'name')),
-    ).only(
-        'id', 'name', 'rating', 'rating_count',
-        'first_release_date', 'cover_url', 'game_type'
-    ).order_by('-rating_count')[:12]
+    """Оптимизированная главная страница с минимальными запросами."""
 
-    recent_games = Game.objects.filter(
-        first_release_date__isnull=False
-    ).prefetch_related(
-        Prefetch('genres', queryset=Genre.objects.only('id', 'name')),
-        Prefetch('platforms', queryset=Platform.objects.only('id', 'name', 'slug')),
-        Prefetch('themes', queryset=Theme.objects.only('id', 'name')),
-    ).only(
-        'id', 'name', 'rating', 'rating_count',
-        'first_release_date', 'cover_url', 'game_type'
-    ).order_by('-first_release_date')[:12]
+    cache_key = 'optimized_home_final_v8'
+    cached_context = cache.get(cache_key)
 
-    # Популярные теги - используем cached_usage_count
-    popular_keywords = Keyword.objects.filter(
-        cached_usage_count__gt=0
-    ).select_related('category').only(
-        'id', 'name', 'cached_usage_count', 'category__id', 'category__name'
-    ).order_by('-cached_usage_count')[:30]
+    if cached_context:
+        response = render(request, 'games/home.html', cached_context)
+        response['X-Cache-Hit'] = 'True'
+        return response
 
-    return render(request, 'games/home.html', {
-        'popular_games': list(popular_games),
-        'recent_games': list(recent_games),
-        'popular_keywords': list(popular_keywords),
-    })
+    start_time = time.time()
+
+    try:
+        from django.db.models import Prefetch
+        from django.utils import timezone
+        from datetime import timedelta
+
+        # ===== МИНИМАЛЬНЫЕ PREFETCH ДЛЯ КАРТОЧЕК ИГР =====
+        # Карточка в _game_card.html использует только:
+        # 1. game.genres.all() - жанры
+        # 2. game.platforms.all() - платформы
+        # 3. game.player_perspectives.all() - перспективы
+        # 4. game.keywords.all() - НЕ используется на главной в карточках!
+
+        # Используем только необходимые prefetch
+        genre_prefetch = Prefetch('genres', queryset=Genre.objects.only('id', 'name'))
+        platform_prefetch = Prefetch('platforms', queryset=Platform.objects.only('id', 'name', 'slug'))
+        perspective_prefetch = Prefetch('player_perspectives',
+                                        queryset=PlayerPerspective.objects.only('id', 'name'))
+
+        # ===== ПОЛУЧАЕМ ID ИГР =====
+        # Популярные игры - с высоким рейтингом и количеством оценок
+        popular_ids = list(Game.objects.filter(
+            rating_count__gt=10,
+            rating__gte=3.0  # Добавляем минимальный рейтинг
+        ).order_by('-rating_count', '-rating').values_list('id', flat=True)[:12])
+
+        # Недавние игры - за последние 2 года
+        two_years_ago = timezone.now() - timedelta(days=730)
+        recent_ids = list(Game.objects.filter(
+            first_release_date__gte=two_years_ago,
+            first_release_date__lte=timezone.now()
+        ).order_by('-first_release_date').values_list('id', flat=True)[:12])
+
+        # Объединяем ID
+        all_game_ids = list(set(popular_ids + recent_ids))
+
+        if all_game_ids:
+            # МИНИМАЛЬНЫЙ ЗАПРОС - только необходимые поля и prefetch
+            all_games = Game.objects.filter(id__in=all_game_ids).prefetch_related(
+                genre_prefetch,  # только для карточек
+                platform_prefetch,  # только для карточек
+                perspective_prefetch  # только для карточек
+            ).only(
+                'id', 'name', 'rating', 'rating_count',
+                'first_release_date', 'cover_url'
+            )  # Убираем game_type - не используется на главной
+
+            # Создаем словарь для быстрого доступа
+            games_dict = {game.id: game for game in all_games}
+
+            # Формируем списки в правильном порядке
+            popular_games = [games_dict[game_id] for game_id in popular_ids
+                             if game_id in games_dict]
+            recent_games = [games_dict[game_id] for game_id in recent_ids
+                            if game_id in games_dict]
+
+            # Сохраняем порядок сортировки
+            popular_games.sort(key=lambda x: popular_ids.index(x.id))
+            recent_games.sort(key=lambda x: recent_ids.index(x.id))
+        else:
+            popular_games = []
+            recent_games = []
+
+        # ===== КЛЮЧЕВЫЕ СЛОВА - МИНИМАЛЬНЫЙ ЗАПРОС =====
+        # Только кэшированные значения, без обновления
+        popular_keywords = list(Keyword.objects.filter(
+            cached_usage_count__gt=0
+        ).only(
+            'id', 'name', 'cached_usage_count'
+        ).order_by('-cached_usage_count')[:20])
+
+        # ===== ПОДСЧЕТ И КЭШИРОВАНИЕ =====
+        from django.db import connection
+        query_count = len(connection.queries)
+
+        context = {
+            'popular_games': popular_games,
+            'recent_games': recent_games,
+            'popular_keywords': popular_keywords,
+            'execution_time': round(time.time() - start_time, 3),
+            'query_count': query_count,
+        }
+
+        # Кэшируем на 5 минут
+        cache.set(cache_key, context, 300)
+
+        response = render(request, 'games/home.html', context)
+        response['X-Cache-Hit'] = 'False'
+        response['X-DB-Queries'] = str(query_count)
+        response['X-Response-Time'] = f"{context['execution_time']:.3f}s"
+
+        return response
+
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Home page error: {str(e)}")
+
+        # Fallback с минимальными данными
+        context = {
+            'popular_games': [],
+            'recent_games': [],
+            'popular_keywords': [],
+        }
+        return render(request, 'games/home.html', context)
 
 
 def keyword_category_view(request: HttpRequest, category_id: int) -> HttpResponse:
@@ -1054,7 +1283,7 @@ def platform_list(request: HttpRequest) -> HttpResponse:
 
 
 def platform_games(request: HttpRequest, platform_id: int) -> HttpResponse:
-    """Список игр для конкретной платформы."""
+    """Список игр для конкретной платформы с оптимизированными запросами."""
     platform = get_object_or_404(Platform.objects.only('id', 'name', 'slug'), id=platform_id)
 
     games = Game.objects.filter(platforms=platform).prefetch_related(
@@ -1062,6 +1291,7 @@ def platform_games(request: HttpRequest, platform_id: int) -> HttpResponse:
         Prefetch('keywords', queryset=Keyword.objects.select_related('category')),
         Prefetch('themes', queryset=Theme.objects.only('id', 'name')),
         Prefetch('developers', queryset=Company.objects.only('id', 'name')),
+        Prefetch('player_perspectives', queryset=PlayerPerspective.objects.only('id', 'name')),
     ).only(
         'id', 'name', 'rating', 'rating_count',
         'first_release_date', 'cover_url', 'game_type'

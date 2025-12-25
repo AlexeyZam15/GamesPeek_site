@@ -15,29 +15,27 @@ class PerformanceMiddleware(MiddlewareMixin):
 
     def process_request(self, request):
         request.start_time = time.time()
-
-        # Игнорируем статику и медиа
-        if request.path.startswith(('/static/', '/media/', '/favicon.ico')):
-            return None
-
         return None
 
     def process_response(self, request, response):
         if hasattr(request, 'start_time'):
             duration = time.time() - request.start_time
 
-            # Логируем медленные запросы
-            if duration > 1.0:  # Больше 1 секунды
+            # Логируем медленные запросы к главной странице
+            if request.path == '/' and duration > 0.5:
                 logger.warning(
-                    f"Slow request: {request.method} {request.path} - "
-                    f"{duration:.3f}s, User: {request.user}, "
-                    f"Params: {dict(request.GET)}"
+                    f"Slow home page: {duration:.3f}s"
                 )
 
             # Добавляем заголовок для отладки
             if response.status_code == 200:
                 response['X-Response-Time'] = f"{duration:.3f}s"
-                response['X-Cache-Hit'] = 'True' if getattr(request, 'cache_hit', False) else 'False'
+
+                # Для главной страницы добавляем дополнительные заголовки
+                if request.path == '/':
+                    from django.db import connection
+                    query_count = len(connection.queries)
+                    response['X-DB-Queries'] = str(query_count)
 
         return response
 

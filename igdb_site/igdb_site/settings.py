@@ -21,6 +21,11 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'dev-secret-key-change-in-production
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
+# Оптимизации производительности
+DISABLE_AUTO_CACHE_UPDATES = DEBUG  # True в DEBUG, False в production
+CACHE_UPDATE_BATCH_SIZE = 100  # Размер батча для массовых обновлений
+CACHE_UPDATE_TIMEOUT_HOURS = 24  # Часы между автообновлениями
+
 ALLOWED_HOSTS = ['*'] if DEBUG else ['yourdomain.com', 'localhost']
 
 # ============================================
@@ -34,22 +39,13 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-
-    # Сторонние приложения
-    'debug_toolbar',  # Django Debug Toolbar
-
-    # Наши приложения
-    'games',  # Наше приложение с играми
+    'debug_toolbar',
+    'games',
 ]
 
 # ОПТИМИЗИРОВАННЫЙ ПОРЯДОК MIDDLEWARE
 MIDDLEWARE = [
-    # Для отладки - первый
     'debug_toolbar.middleware.DebugToolbarMiddleware',
-
-    # Наш middleware для оптимизации БД при первом запросе
-    'games.middleware.DatabaseOptimizationMiddleware',
-
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -214,10 +210,7 @@ SESSION_COOKIE_AGE = 1209600  # 2 недели
 # ============================================
 
 # Для работы Debug Toolbar на localhost
-INTERNAL_IPS = [
-    '127.0.0.1',
-    'localhost',
-]
+INTERNAL_IPS = ['127.0.0.1', 'localhost']
 
 # Оптимизированные панели Debug Toolbar
 DEBUG_TOOLBAR_PANELS = [

@@ -6,7 +6,8 @@
         <div class="card-img-top-container position-relative" style="height: 250px; overflow: hidden;">
             {% if game.cover_url %}
                 <img src="{{ game.cover_url }}" class="card-img-top w-100" alt="{{ game.name }}"
-                     style="object-fit: cover; object-position: center 20%; height: 110%;">
+                     style="object-fit: cover; object-position: center 20%; height: 110%;"
+                     loading="lazy">  <!-- Добавляем lazy loading -->
             {% else %}
                 <div class="card-img-top bg-light w-100 h-100 d-flex align-items-center justify-content-center">
                     <span class="text-muted">No Cover</span>
@@ -20,24 +21,20 @@
                 </div>
             {% endif %}
 
-            <!-- Процент схожести как SVG изображение -->
-            {% if similarity_percent %}
-                <div class="position-absolute top-0 end-0 p-1">
-                    {% similarity_pattern_svg similarity_percent 60 %}
-                </div>
-            {% endif %}
-
-            <!-- Платформы -->
+            <!-- Платформы - используем prefetched данные -->
             {% if game.platforms.all %}
                 <div class="position-absolute bottom-0 start-0 p-1 platforms-overlay">
                     <div class="d-flex flex-wrap gap-1">
-                        {% for platform in game.platforms.all %}
+                        {% for platform in game.platforms.all|slice:":3" %}  <!-- Ограничиваем 3 платформами -->
                             <span class="platform-icon text-white"
                                   title="{{ platform.name }}"
                                   style="filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.8));">
                                 {% platform_icon platform.name %}
                             </span>
                         {% endfor %}
+                        {% if game.platforms.all|length > 3 %}
+                            <span class="badge bg-secondary small">+{{ game.platforms.all|length|add:"-3" }}</span>
+                        {% endif %}
                     </div>
                 </div>
             {% endif %}
@@ -50,25 +47,31 @@
                 <h6 class="card-title">{{ game.name }}</h6>
             </div>
 
-            <!-- ЖАНРЫ -->
+            <!-- Жанры - используем prefetched данные -->
             {% if game.genres.all %}
                 <div class="mb-2 genres-container" style="min-height: 50px;">
                     <div class="game-genres">
-                        {% for genre in game.genres.all %}
+                        {% for genre in game.genres.all|slice:":3" %}  <!-- Ограничиваем 3 жанрами -->
                             <span class="badge bg-primary mb-1 small">{{ genre.name }}</span>
                         {% endfor %}
+                        {% if game.genres.all|length > 3 %}
+                            <span class="badge bg-secondary mb-1 small">+{{ game.genres.all|length|add:"-3" }}</span>
+                        {% endif %}
                     </div>
                 </div>
             {% else %}
                 <div class="mb-2 genres-container" style="min-height: 50px;"></div>
             {% endif %}
 
-            <!-- Перспективы -->
+            <!-- Перспективы - используем prefetched данные -->
             {% if game.player_perspectives.all %}
                 <div class="mb-2">
-                    {% for perspective in game.player_perspectives.all %}
+                    {% for perspective in game.player_perspectives.all|slice:":2" %}  <!-- Ограничиваем 2 -->
                         <span class="badge bg-info mb-1 small">{{ perspective.name }}</span>
                     {% endfor %}
+                    {% if game.player_perspectives.all|length > 2 %}
+                        <span class="badge bg-secondary mb-1 small">+{{ game.player_perspectives.all|length|add:"-2" }}</span>
+                    {% endif %}
                 </div>
             {% endif %}
 
@@ -93,14 +96,6 @@
                 <a href="{% get_find_similar_url game %}" class="btn btn-sm btn-outline-info">
                     <i class="bi bi-search-heart"></i> Find Similar
                 </a>
-
-                <!-- Compare Button -->
-                {% if show_similarity and source_game %}
-                    <a href="{% get_card_comparison_url source_game game selected_genres selected_keywords selected_themes selected_perspectives selected_developers %}"
-                       class="btn btn-sm btn-outline-warning">
-                        <i class="bi bi-arrow-left-right"></i> Compare
-                    </a>
-                {% endif %}
             </div>
         </div>
     </div>
