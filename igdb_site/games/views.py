@@ -1093,10 +1093,11 @@ def game_list(request: HttpRequest) -> HttpResponse:
     return response
 
 
-def home(request: HttpRequest) -> HttpResponse:
-    """Оптимизированная главная страница с минимальными запросами."""
 
-    cache_key = 'optimized_home_final_v8'
+def home(request: HttpRequest) -> HttpResponse:
+    """Оптимизированная главная страница со всеми необходимыми prefetch."""
+
+    cache_key = 'optimized_home_final_v9'
     cached_context = cache.get(cache_key)
 
     if cached_context:
@@ -1111,70 +1112,69 @@ def home(request: HttpRequest) -> HttpResponse:
         from django.utils import timezone
         from datetime import timedelta
 
-        # ===== МИНИМАЛЬНЫЕ PREFETCH ДЛЯ КАРТОЧЕК ИГР =====
-        # Карточка в _game_card.html использует только:
-        # 1. game.genres.all() - жанры
-        # 2. game.platforms.all() - платформы
-        # 3. game.player_perspectives.all() - перспективы
-        # 4. game.keywords.all() - НЕ используется на главной в карточках!
+        # ===== ВСЕ НЕОБХОДИМЫЕ PREFETCH ДЛЯ ШАБЛОНА =====
+        # Шаблон _game_card.html и теги используют:
+        # 1. game.genres.all() - prefetch ✓
+        # 2. game.platforms.all() - prefetch ✓
+        # 3. game.player_perspectives.all() - prefetch ✓
+        # Тег get_find_similar_url использует:
+        # 4. game.keywords.all() - ДОБАВЛЯЕМ prefetch ✓
+        # 5. game.themes.all() - ДОБАВЛЯЕМ prefetch ✓
 
-        # Используем только необходимые prefetch
         genre_prefetch = Prefetch('genres', queryset=Genre.objects.only('id', 'name'))
         platform_prefetch = Prefetch('platforms', queryset=Platform.objects.only('id', 'name', 'slug'))
         perspective_prefetch = Prefetch('player_perspectives',
                                         queryset=PlayerPerspective.objects.only('id', 'name'))
+        keyword_prefetch = Prefetch('keywords',
+                                    queryset=Keyword.objects.only('id', 'name'))  # ⬅ ДОБАВЛЯЕМ
+        theme_prefetch = Prefetch('themes',
+                                  queryset=Theme.objects.only('id', 'name'))  # ⬅ ДОБАВЛЯЕМ
 
         # ===== ПОЛУЧАЕМ ID ИГР =====
-        # Популярные игры - с высоким рейтингом и количеством оценок
         popular_ids = list(Game.objects.filter(
             rating_count__gt=10,
-            rating__gte=3.0  # Добавляем минимальный рейтинг
+            rating__gte=3.0
         ).order_by('-rating_count', '-rating').values_list('id', flat=True)[:12])
 
-        # Недавние игры - за последние 2 года
         two_years_ago = timezone.now() - timedelta(days=730)
         recent_ids = list(Game.objects.filter(
             first_release_date__gte=two_years_ago,
             first_release_date__lte=timezone.now()
         ).order_by('-first_release_date').values_list('id', flat=True)[:12])
 
-        # Объединяем ID
         all_game_ids = list(set(popular_ids + recent_ids))
 
         if all_game_ids:
-            # МИНИМАЛЬНЫЙ ЗАПРОС - только необходимые поля и prefetch
+            # ОДИН ЗАПРОС СО ВСЕМИ PREFETCH
             all_games = Game.objects.filter(id__in=all_game_ids).prefetch_related(
-                genre_prefetch,  # только для карточек
-                platform_prefetch,  # только для карточек
-                perspective_prefetch  # только для карточек
+                genre_prefetch,
+                platform_prefetch,
+                perspective_prefetch,
+                keyword_prefetch,  # ⬅ ДОБАВЛЯЕМ
+                theme_prefetch  # ⬅ ДОБАВЛЯЕМ
             ).only(
                 'id', 'name', 'rating', 'rating_count',
                 'first_release_date', 'cover_url'
-            )  # Убираем game_type - не используется на главной
+            )
 
-            # Создаем словарь для быстрого доступа
             games_dict = {game.id: game for game in all_games}
 
-            # Формируем списки в правильном порядке
             popular_games = [games_dict[game_id] for game_id in popular_ids
                              if game_id in games_dict]
             recent_games = [games_dict[game_id] for game_id in recent_ids
                             if game_id in games_dict]
 
-            # Сохраняем порядок сортировки
             popular_games.sort(key=lambda x: popular_ids.index(x.id))
             recent_games.sort(key=lambda x: recent_ids.index(x.id))
         else:
             popular_games = []
             recent_games = []
 
-        # ===== КЛЮЧЕВЫЕ СЛОВА - МИНИМАЛЬНЫЙ ЗАПРОС =====
-        # Только кэшированные значения, без обновления
+        # ===== КЛЮЧЕВЫЕ СЛОВА (без обновления кэша) =====
         popular_keywords = list(Keyword.objects.filter(
             cached_usage_count__gt=0
-        ).only(
-            'id', 'name', 'cached_usage_count'
-        ).order_by('-cached_usage_count')[:20])
+        ).only('id', 'name', 'cached_usage_count')
+                                .order_by('-cached_usage_count')[:20])
 
         # ===== ПОДСЧЕТ И КЭШИРОВАНИЕ =====
         from django.db import connection
@@ -1188,7 +1188,6 @@ def home(request: HttpRequest) -> HttpResponse:
             'query_count': query_count,
         }
 
-        # Кэшируем на 5 минут
         cache.set(cache_key, context, 300)
 
         response = render(request, 'games/home.html', context)
@@ -1203,7 +1202,6 @@ def home(request: HttpRequest) -> HttpResponse:
         logger = logging.getLogger(__name__)
         logger.error(f"Home page error: {str(e)}")
 
-        # Fallback с минимальными данными
         context = {
             'popular_games': [],
             'recent_games': [],
