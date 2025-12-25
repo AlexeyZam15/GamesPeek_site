@@ -131,6 +131,81 @@ class GameTypeEnum:
 class GameManager(models.Manager):
     """Optimized custom manager for Game model."""
 
+    def get_home_page_games_optimized(self, limit=12):
+        """Оптимизированный метод для получения игр главной страницы."""
+        from django.db.models import Prefetch
+
+        # Создаем prefetch объекты
+        genre_prefetch = Prefetch('genres', queryset=Genre.objects.only('id', 'name'))
+        platform_prefetch = Prefetch('platforms', queryset=Platform.objects.only('id', 'name', 'slug'))
+        perspective_prefetch = Prefetch('player_perspectives',
+                                        queryset=PlayerPerspective.objects.only('id', 'name'))
+
+        return self.prefetch_related(
+            genre_prefetch,
+            platform_prefetch,
+            perspective_prefetch
+        ).only(
+            'id', 'name', 'rating', 'rating_count',
+            'first_release_date', 'cover_url', 'game_type'
+        )
+
+    def get_home_page_data(self, limit: int = 12):
+        """Оптимизированный запрос для данных главной страницы."""
+        # Создаем базовый prefetch для игр
+        game_prefetch = Prefetch('genres', queryset=Genre.objects.only('id', 'name'))
+        platform_prefetch = Prefetch('platforms', queryset=Platform.objects.only('id', 'name', 'slug'))
+        perspective_prefetch = Prefetch('player_perspectives',
+                                        queryset=PlayerPerspective.objects.only('id', 'name'))
+
+        # Популярные игры - кэшируем ID
+        popular_game_ids = cache.get('home_popular_game_ids')
+        if not popular_game_ids:
+            popular_game_ids = list(self.filter(
+                rating_count__gt=20,
+                rating__gte=3.0,
+                game_type__in=GameTypeEnum._PRIMARY_GAME_TYPES
+            ).order_by('-rating_count', '-rating').values_list('id', flat=True)[:limit])
+            cache.set('home_popular_game_ids', popular_game_ids, 3600)  # 1 час
+
+        # Недавние игры - кэшируем ID
+        recent_game_ids = cache.get('home_recent_game_ids')
+        if not recent_game_ids:
+            two_years_ago = timezone.now() - timezone.timedelta(days=730)
+            recent_game_ids = list(self.filter(
+                first_release_date__gte=two_years_ago,
+                game_type__in=GameTypeEnum._PRIMARY_GAME_TYPES
+            ).order_by('-first_release_date').values_list('id', flat=True)[:limit])
+            cache.set('home_recent_game_ids', recent_game_ids, 1800)  # 30 минут
+
+        # Загружаем игры с prefetch
+        all_game_ids = set(popular_game_ids + recent_game_ids)
+        games_dict = {}
+
+        if all_game_ids:
+            games_with_prefetch = self.filter(id__in=all_game_ids).prefetch_related(
+                game_prefetch,
+                platform_prefetch,
+                perspective_prefetch
+            ).only(
+                'id', 'name', 'rating', 'rating_count',
+                'first_release_date', 'cover_url', 'game_type'
+            )
+
+            for game in games_with_prefetch:
+                games_dict[game.id] = game
+
+        # Собираем результаты в правильном порядке
+        popular_games = [games_dict.get(game_id) for game_id in popular_game_ids
+                         if games_dict.get(game_id)]
+        recent_games = [games_dict.get(game_id) for game_id in recent_game_ids
+                        if games_dict.get(game_id)]
+
+        return {
+            'popular_games': popular_games,
+            'recent_games': recent_games,
+        }
+
     def bulk_prefetch_for_list(self, game_ids: List[int]) -> models.QuerySet:
         """Батчинговый prefetch для списка игр."""
         return self.filter(id__in=game_ids).prefetch_related(
@@ -455,6 +530,7 @@ class Game(models.Model):
     class Meta:
         ordering = ['-rating_count']
         indexes = [
+            # Существующие индексы...
             models.Index(fields=['-rating_count']),
             models.Index(fields=['-rating']),
             models.Index(fields=['name']),
@@ -467,7 +543,201 @@ class Game(models.Model):
             models.Index(fields=['_cached_keyword_count']),
             models.Index(fields=['_cached_platform_count']),
             models.Index(fields=['_cached_developer_count']),
+
+            # НОВЫЕ ИНДЕКСЫ ДЛЯ ГЛАВНОЙ СТРАНИЦЫ:
+
+            # Для популярных игр (фильтрация и сортировка)
+            models.Index(fields=['rating_count', 'rating']),
+            models.Index(fields=['rating_count', '-rating']),
+            models.Index(fields=['rating', '-rating_count']),
+
+            # Для недавних игр (фильтрация по дате и типу)
+            models.Index(fields=['-first_release_date', 'game_type']),
+            models.Index(fields=['game_type', '-first_release_date']),
+
+            # Составные индексы для оптимизации фильтров главной страницы
+            models.Index(fields=['rating_count', 'game_type', '-rating']),
+            models.Index(fields=['first_release_date', 'game_type']),
+
+            # Индекс для быстрого подсчета
+            models.Index(fields=['game_type', 'rating_count']),
         ]
+
+    def update_cached_counts(self, force: bool = False, async_update: bool = False) -> None:
+        """
+        Update all cached counts at once.
+
+        Args:
+            force: Принудительное обновление
+            async_update: Обновление в фоне
+        """
+        from django.conf import settings
+
+        # Отключаем автоматическое обновление в DEBUG режиме
+        if getattr(settings, 'DISABLE_AUTO_CACHE_UPDATES', False) and not force:
+            return
+
+        # Если асинхронное обновление
+        if async_update and hasattr(settings, 'CELERY_BROKER_URL'):
+            from .tasks import update_game_cache_async
+            update_game_cache_async.delay(self.id)
+            return
+
+        try:
+            # Используем select_related/prefetch для быстрого подсчета
+            game = Game.objects.filter(id=self.id).prefetch_related(
+                'genres', 'keywords', 'platforms', 'developers'
+            ).first()
+
+            if not game:
+                return
+
+            # Подсчитываем через базу для скорости
+            counts = {
+                'genres': game.genres.count(),
+                'keywords': game.keywords.count(),
+                'platforms': game.platforms.count(),
+                'developers': game.developers.count(),
+            }
+
+            # Проверяем, нужно ли обновлять
+            needs_update = (
+                    self._cached_genre_count != counts['genres'] or
+                    self._cached_keyword_count != counts['keywords'] or
+                    self._cached_platform_count != counts['platforms'] or
+                    self._cached_developer_count != counts['developers']
+            )
+
+            if needs_update or force:
+                self._cached_genre_count = counts['genres']
+                self._cached_keyword_count = counts['keywords']
+                self._cached_platform_count = counts['platforms']
+                self._cached_developer_count = counts['developers']
+                self._cache_updated_at = timezone.now()
+
+                # Быстрое обновление через update()
+                Game.objects.filter(id=self.id).update(
+                    _cached_genre_count=counts['genres'],
+                    _cached_keyword_count=counts['keywords'],
+                    _cached_platform_count=counts['platforms'],
+                    _cached_developer_count=counts['developers'],
+                    _cache_updated_at=self._cache_updated_at
+                )
+
+                # Обновляем локальный объект
+                self.refresh_from_db(fields=[
+                    '_cached_genre_count', '_cached_keyword_count',
+                    '_cached_platform_count', '_cached_developer_count',
+                    '_cache_updated_at'
+                ])
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error updating game cache for {self.id}: {str(e)}")
+
+    @classmethod
+    def bulk_update_cache_counts(cls, game_ids: List[int] = None, batch_size: int = 50) -> int:
+        """
+        Массовое обновление счетчиков для игр.
+
+        Returns:
+            Количество обновленных игр
+        """
+        from django.db.models import Count
+
+        queryset = cls.objects.all()
+        if game_ids:
+            queryset = queryset.filter(id__in=game_ids)
+
+        updated_count = 0
+
+        for i in range(0, queryset.count(), batch_size):
+            batch = queryset[i:i + batch_size]
+
+            # Получаем все связанные счетчики одним запросом
+            game_counts = {}
+
+            # Считаем через агрегацию для скорости
+            for game in batch:
+                counts = {
+                    'genres': game.genres.count(),
+                    'keywords': game.keywords.count(),
+                    'platforms': game.platforms.count(),
+                    'developers': game.developers.count(),
+                }
+                game_counts[game.id] = counts
+
+            # Определяем какие нужно обновить
+            to_update = []
+            for game in batch:
+                counts = game_counts.get(game.id, {})
+
+                if (game._cached_genre_count != counts.get('genres') or
+                        game._cached_keyword_count != counts.get('keywords') or
+                        game._cached_platform_count != counts.get('platforms') or
+                        game._cached_developer_count != counts.get('developers')):
+                    game._cached_genre_count = counts.get('genres', 0)
+                    game._cached_keyword_count = counts.get('keywords', 0)
+                    game._cached_platform_count = counts.get('platforms', 0)
+                    game._cached_developer_count = counts.get('developers', 0)
+                    game._cache_updated_at = timezone.now()
+                    to_update.append(game)
+
+            # Массовое обновление
+            if to_update:
+                cls.objects.bulk_update(
+                    to_update,
+                    [
+                        '_cached_genre_count', '_cached_keyword_count',
+                        '_cached_platform_count', '_cached_developer_count',
+                        '_cache_updated_at'
+                    ],
+                    batch_size=batch_size
+                )
+                updated_count += len(to_update)
+
+        return updated_count
+
+    # Свойства для быстрого доступа с ленивым обновлением
+    @property
+    def cached_genre_count(self) -> int:
+        """Get cached genre count with lazy update."""
+        if self._cached_genre_count is None or (
+                self._cache_updated_at and
+                (timezone.now() - self._cache_updated_at).days > 7
+        ):
+            self.update_cached_counts()
+        return self._cached_genre_count or 0
+
+    @property
+    def cached_keyword_count(self) -> int:
+        """Get cached keyword count with lazy update."""
+        if self._cached_keyword_count is None or (
+                self._cache_updated_at and
+                (timezone.now() - self._cache_updated_at).days > 7
+        ):
+            self.update_cached_counts()
+        return self._cached_keyword_count or 0
+
+    @property
+    def cached_platform_count(self) -> int:
+        """Get cached platform count with lazy update."""
+        if self._cached_platform_count is None or (
+                self._cache_updated_at and
+                (timezone.now() - self._cache_updated_at).days > 7
+        ):
+            self.update_cached_counts()
+        return self._cached_platform_count or 0
+
+    @property
+    def cached_developer_count(self) -> int:
+        """Get cached developer count with lazy update."""
+        if self._cached_developer_count is None or (
+                self._cache_updated_at and
+                (timezone.now() - self._cache_updated_at).days > 7
+        ):
+            self.update_cached_counts()
+        return self._cached_developer_count or 0
 
     # ===== CACHED GAME TYPE PROPERTIES =====
     @property
@@ -750,60 +1020,6 @@ class Game(models.Model):
         """Universal method to get keywords by category with caching."""
         return self.keywords.filter(category__name=category_name)
 
-    # ===== CACHED COUNT METHODS =====
-    def update_cached_counts(self) -> None:
-        """Update all cached counts at once."""
-        self._cached_genre_count = self.genres.count()
-        self._cached_keyword_count = self.keywords.count()
-        self._cached_platform_count = self.platforms.count()
-        self._cached_developer_count = self.developers.count()
-        self._cache_updated_at = timezone.now()
-        self.save(update_fields=[
-            '_cached_genre_count', '_cached_keyword_count',
-            '_cached_platform_count', '_cached_developer_count',
-            '_cache_updated_at'
-        ])
-
-    @property
-    def cached_genre_count(self) -> int:
-        """Get cached genre count."""
-        if self._cached_genre_count is None or (
-                self._cache_updated_at and
-                (timezone.now() - self._cache_updated_at).days > 1
-        ):
-            self.update_cached_counts()
-        return self._cached_genre_count or 0
-
-    @property
-    def cached_keyword_count(self) -> int:
-        """Get cached keyword count."""
-        if self._cached_keyword_count is None or (
-                self._cache_updated_at and
-                (timezone.now() - self._cache_updated_at).days > 1
-        ):
-            self.update_cached_counts()
-        return self._cached_keyword_count or 0
-
-    @property
-    def cached_platform_count(self) -> int:
-        """Get cached platform count."""
-        if self._cached_platform_count is None or (
-                self._cache_updated_at and
-                (timezone.now() - self._cache_updated_at).days > 1
-        ):
-            self.update_cached_counts()
-        return self._cached_platform_count or 0
-
-    @property
-    def cached_developer_count(self) -> int:
-        """Get cached developer count."""
-        if self._cached_developer_count is None or (
-                self._cache_updated_at and
-                (timezone.now() - self._cache_updated_at).days > 1
-        ):
-            self.update_cached_counts()
-        return self._cached_developer_count or 0
-
     # ===== OPTIMIZED DISPLAY METHODS =====
     @property
     def get_game_type_display(self) -> str:
@@ -1055,31 +1271,107 @@ class Keyword(models.Model):
         category_name = self.category.name if self.category else "No Category"
         return f"{self.name} ({category_name})"
 
-    def update_cached_count(self, force: bool = False) -> None:
-        """Обновляет кэшированное значение с оптимизацией."""
+
+    def update_cached_count(self, force: bool = False, async_update: bool = False) -> None:
+        """
+        Обновляет кэшированное значение с оптимизацией.
+        """
+        from django.conf import settings
+
+        # ⬇⬇⬇ ДОБАВЛЯЕМ ЭТОТ КОД В САМОЕ НАЧАЛО МЕТОДА ⬇⬇⬇
+        # Отключаем автоматическое обновление в DEBUG режиме
+        if settings.DEBUG and not force:
+            return
+        # ⬆⬆⬆ ДОБАВЛЯЕМ ЭТОТ КОД В САМОЕ НАЧАЛО МЕТОДА ⬆⬆⬆
+
+        # Оригинальный код продолжается...
         # Проверяем, нужно ли обновлять
         if not force and self.last_count_update:
             age_hours = (timezone.now() - self.last_count_update).total_seconds() / 3600
             if age_hours < 24:  # Обновляем раз в сутки
                 return
 
-        # Получаем актуальное значение
-        actual_count = self.game_set.count()
+        try:
+            # Используем быстрый подсчет через базу данных
+            actual_count = self.game_set.count()
 
-        # Обновляем только если значение изменилось
-        if self.cached_usage_count != actual_count:
-            self.cached_usage_count = actual_count
-            self.last_count_update = timezone.now()
-            self.save(update_fields=['cached_usage_count', 'last_count_update'])
+            # Обновляем только если значение изменилось
+            if self.cached_usage_count != actual_count:
+                self.cached_usage_count = actual_count
+                self.last_count_update = timezone.now()
+
+                # Используем update() вместо save() для скорости
+                Keyword.objects.filter(id=self.id).update(
+                    cached_usage_count=actual_count,
+                    last_count_update=self.last_count_update
+                )
+
+                # Обновляем локальный объект
+                self.refresh_from_db(fields=['cached_usage_count', 'last_count_update'])
+        except Exception as e:
+            # Логируем ошибку, но не падаем
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error updating keyword cache for {self.id}: {str(e)}")
+
+    @classmethod
+    def bulk_update_cache_counts(cls, keyword_ids: List[int] = None, batch_size: int = 100) -> int:
+        """
+        Массовое обновление счетчиков для списка ключевых слов.
+
+        Returns:
+            Количество обновленных записей
+        """
+        from django.db.models import Count
+
+        queryset = cls.objects.all()
+        if keyword_ids:
+            queryset = queryset.filter(id__in=keyword_ids)
+
+        updated_count = 0
+
+        # Разбиваем на батчи
+        for i in range(0, queryset.count(), batch_size):
+            batch = queryset[i:i + batch_size]
+
+            # Аннотируем актуальные счетчики
+            annotated = batch.annotate(
+                actual_count=Count('game')
+            )
+
+            # Фильтруем те, что нужно обновить
+            to_update = []
+            for keyword in annotated:
+                if keyword.cached_usage_count != keyword.actual_count:
+                    keyword.cached_usage_count = keyword.actual_count
+                    keyword.last_count_update = timezone.now()
+                    to_update.append(keyword)
+
+            # Массовое обновление
+            if to_update:
+                cls.objects.bulk_update(
+                    to_update,
+                    ['cached_usage_count', 'last_count_update'],
+                    batch_size=batch_size
+                )
+                updated_count += len(to_update)
+
+        return updated_count
 
     @property
     def usage_count(self) -> int:
         """Возвращает кэшированное или вычисленное значение."""
-        self.update_cached_count()
-        return self.cached_usage_count
+        # Если кэш пустой или устаревший, обновляем
+        if self.cached_usage_count is None or (
+                self.last_count_update and
+                (timezone.now() - self.last_count_update).days > 7  # Раз в неделю проверяем
+        ):
+            self.update_cached_count()
+
+        return self.cached_usage_count or 0
 
     def get_fresh_usage_count(self) -> int:
-        """Всегда получает свежее значение."""
+        """Всегда получает свежее значение (дорогая операция)."""
         return self.game_set.count()
 
     @property

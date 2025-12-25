@@ -5,12 +5,34 @@
     text-align: center;
     padding: 3rem 0 4rem;
     margin-bottom: 3rem;
+    background: linear-gradient(135deg, rgba(0, 0, 0, 0.9) 0%, rgba(26, 26, 26, 0.95) 100%);
+    border-radius: var(--border-radius);
+    border: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+}
+
+.home-hero::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: radial-gradient(circle at 20% 50%, rgba(255, 107, 53, 0.1) 0%, transparent 50%);
+    pointer-events: none;
 }
 
 .home-hero h1 {
     font-size: 3.5rem;
     margin-bottom: 1.5rem;
     line-height: 1.2;
+    background: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    position: relative;
+    z-index: 1;
 }
 
 .home-hero .lead {
@@ -20,11 +42,15 @@
     max-width: 800px;
     margin-left: auto;
     margin-right: auto;
+    position: relative;
+    z-index: 1;
 }
 
 /* Быстрые действия */
 .quick-actions {
     margin-bottom: 2.5rem;
+    position: relative;
+    z-index: 1;
 }
 
 .quick-actions .btn {
@@ -37,6 +63,8 @@
 .quick-filters {
     max-width: 800px;
     margin: 2rem auto;
+    position: relative;
+    z-index: 1;
 }
 
 .quick-filters h6 {
@@ -48,6 +76,11 @@
 .quick-filters .btn {
     margin: 0.25rem;
     font-size: 0.9rem;
+    transition: var(--transition);
+}
+
+.quick-filters .btn:hover {
+    transform: translateY(-2px);
 }
 
 /* Секция возможностей */
@@ -63,6 +96,25 @@
     height: 100%;
     transition: var(--transition);
     text-align: center;
+    position: relative;
+    overflow: hidden;
+}
+
+.feature-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--secondary-color), var(--accent-color));
+    transform: scaleX(0);
+    transition: transform 0.4s ease;
+    z-index: 1;
+}
+
+.feature-card:hover::before {
+    transform: scaleX(1);
 }
 
 .feature-card:hover {
@@ -77,22 +129,33 @@
     align-items: center;
     justify-content: center;
     margin-bottom: 1.5rem;
+    position: relative;
+    z-index: 1;
 }
 
 .feature-icon i {
     font-size: 3rem;
     color: var(--secondary-color);
+    transition: var(--transition);
+}
+
+.feature-card:hover .feature-icon i {
+    transform: scale(1.1);
 }
 
 .feature-card h5 {
     margin-bottom: 1rem;
     color: var(--text-light);
+    position: relative;
+    z-index: 1;
 }
 
 .feature-card p {
     color: var(--text-dark);
     font-size: 0.95rem;
     line-height: 1.5;
+    position: relative;
+    z-index: 1;
 }
 
 /* Популярные и недавние игры */
@@ -108,11 +171,31 @@
     margin-bottom: 2rem;
     padding-bottom: 1rem;
     border-bottom: 1px solid var(--border);
+    position: relative;
+}
+
+.section-header::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    width: 100px;
+    height: 2px;
+    background: linear-gradient(90deg, var(--secondary-color), var(--accent-color));
 }
 
 .section-header h2 {
     margin: 0;
     font-size: 2rem;
+    color: var(--text-light);
+}
+
+.section-header .btn {
+    transition: var(--transition);
+}
+
+.section-header .btn:hover {
+    transform: translateX(5px);
 }
 
 /* Поиск по критериям */
@@ -124,6 +207,21 @@
     text-align: center;
     margin-bottom: 3rem;
     font-size: 2rem;
+    color: var(--text-light);
+    position: relative;
+    padding-bottom: 1rem;
+}
+
+.criteria-search-section h2::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100px;
+    height: 3px;
+    background: linear-gradient(90deg, var(--secondary-color), var(--accent-color));
+    border-radius: 3px;
 }
 
 .criteria-card {
@@ -134,11 +232,29 @@
     transition: var(--transition);
     text-align: center;
     background: var(--surface);
+    position: relative;
+    overflow: hidden;
+}
+
+.criteria-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--secondary-color), var(--accent-color));
+    transform: scaleX(0);
+    transition: transform 0.4s ease;
+}
+
+.criteria-card:hover::before {
+    transform: scaleX(1);
 }
 
 .criteria-card:hover {
     transform: translateY(-3px);
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 10px 25px rgba(255, 107, 53, 0.15);
     border-color: var(--secondary-color);
 }
 
@@ -152,6 +268,11 @@
 
 .criteria-icon i {
     font-size: 2.5rem;
+    transition: var(--transition);
+}
+
+.criteria-card:hover .criteria-icon i {
+    transform: scale(1.1);
 }
 
 .criteria-card h5 {
@@ -166,6 +287,14 @@
     line-height: 1.5;
 }
 
+.criteria-card .btn {
+    transition: var(--transition);
+}
+
+.criteria-card:hover .btn {
+    transform: translateY(-2px);
+}
+
 /* Популярные особенности */
 .popular-features-section {
     margin-bottom: 4rem;
@@ -174,6 +303,20 @@
 .popular-features-section h2 {
     margin-bottom: 2rem;
     font-size: 2rem;
+    color: var(--text-light);
+    position: relative;
+    padding-bottom: 1rem;
+}
+
+.popular-features-section h2::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100px;
+    height: 3px;
+    background: linear-gradient(90deg, var(--success-color), #1fd654);
+    border-radius: 3px;
 }
 
 .features-grid {
@@ -186,6 +329,17 @@
 .features-grid .btn {
     position: relative;
     padding-right: 2.5rem;
+    transition: var(--transition);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-dark);
+}
+
+.features-grid .btn:hover {
+    transform: translateY(-2px);
+    border-color: var(--secondary-color);
+    color: var(--secondary-color);
+    box-shadow: 0 5px 15px rgba(255, 107, 53, 0.1);
 }
 
 .features-grid .badge {
@@ -195,6 +349,8 @@
     font-size: 0.6rem;
     padding: 0.2rem 0.4rem;
     min-width: 24px;
+    background: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
+    color: var(--text-light);
 }
 
 /* Как это работает */
@@ -205,12 +361,26 @@
     border-radius: var(--border-radius);
     padding: 3rem 2rem;
     text-align: center;
+    position: relative;
+    overflow: hidden;
+}
+
+.how-it-works::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--secondary-color), var(--accent-color));
 }
 
 .how-it-works h3 {
     margin-bottom: 3rem;
     color: var(--text-light);
     font-size: 2rem;
+    position: relative;
+    z-index: 1;
 }
 
 .step-number {
@@ -225,24 +395,136 @@
     font-weight: bold;
     margin: 0 auto 15px;
     color: var(--text-light);
+    transition: var(--transition);
+    position: relative;
+    z-index: 1;
+}
+
+.how-it-works .col-md-3:hover .step-number {
+    transform: scale(1.1);
+    box-shadow: 0 0 20px rgba(255, 107, 53, 0.3);
 }
 
 .how-it-works h5 {
     margin-bottom: 0.75rem;
     color: var(--text-light);
     font-size: 1.1rem;
+    position: relative;
+    z-index: 1;
 }
 
 .how-it-works p {
     color: var(--text-dark);
     font-size: 0.9rem;
     line-height: 1.5;
+    position: relative;
+    z-index: 1;
+}
+
+.how-it-works .btn {
+    position: relative;
+    z-index: 1;
+    transition: var(--transition);
+}
+
+.how-it-works .btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 25px rgba(255, 107, 53, 0.2);
+}
+
+/* Оптимизации для ленивой загрузки */
+.lazy-load {
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.lazy-load.loaded {
+    opacity: 1;
+}
+
+/* Класс для текста градиента */
+.text-gradient {
+    background: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* Кнопка с градиентом */
+.btn-gradient {
+    background: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
+    border: none;
+    color: var(--text-light);
+    position: relative;
+    overflow: hidden;
+}
+
+.btn-gradient::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+    transition: left 0.6s;
+}
+
+.btn-gradient:hover::before {
+    left: 100%;
+}
+
+.btn-gradient:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(255, 107, 53, 0.3);
+}
+
+/* Стили для кнопок с обводкой и градиентом */
+.btn-outline-gradient {
+    border: 2px solid transparent;
+    background: linear-gradient(var(--surface), var(--surface)) padding-box,
+                linear-gradient(135deg, var(--secondary-color), var(--accent-color)) border-box;
+    color: var(--secondary-color);
+    transition: var(--transition);
+}
+
+.btn-outline-gradient:hover {
+    background: linear-gradient(var(--surface-dark), var(--surface-dark)) padding-box,
+                linear-gradient(135deg, var(--accent-color), var(--secondary-color)) border-box;
+    color: var(--text-light);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(255, 107, 53, 0.2);
+}
+
+/* Анимация появления секций */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.section-animate {
+    animation: fadeInUp 0.6s ease forwards;
 }
 
 /* Адаптивность */
 @media (max-width: 1200px) {
     .home-hero h1 {
         font-size: 3rem;
+    }
+
+    .section-header h2 {
+        font-size: 1.8rem;
+    }
+
+    .criteria-search-section h2,
+    .popular-features-section h2 {
+        font-size: 1.8rem;
     }
 }
 
@@ -271,11 +553,19 @@
     }
 
     .section-header h2 {
-        font-size: 1.8rem;
+        font-size: 1.6rem;
     }
 
     .how-it-works h3 {
         font-size: 1.8rem;
+    }
+
+    .feature-icon {
+        height: 70px;
+    }
+
+    .feature-icon i {
+        font-size: 2.5rem;
     }
 }
 
@@ -307,7 +597,7 @@
     }
 
     .feature-icon i {
-        font-size: 2.5rem;
+        font-size: 2.2rem;
     }
 
     .criteria-icon i {
@@ -331,6 +621,11 @@
     .how-it-works h5 {
         font-size: 1rem;
     }
+
+    .features-grid .btn {
+        font-size: 0.8rem;
+        padding: 0.4rem 0.8rem;
+    }
 }
 
 @media (max-width: 576px) {
@@ -351,7 +646,7 @@
     }
 
     .section-header h2 {
-        font-size: 1.5rem;
+        font-size: 1.4rem;
         text-align: center;
         width: 100%;
     }
@@ -361,8 +656,8 @@
     }
 
     .features-grid .btn {
-        font-size: 0.8rem;
-        padding: 0.5rem 0.75rem;
+        font-size: 0.75rem;
+        padding: 0.35rem 0.7rem;
     }
 
     .how-it-works h3 {
@@ -373,5 +668,10 @@
         width: 35px;
         height: 35px;
         font-size: 1rem;
+    }
+
+    .criteria-search-section h2,
+    .popular-features-section h2 {
+        font-size: 1.4rem;
     }
 }
