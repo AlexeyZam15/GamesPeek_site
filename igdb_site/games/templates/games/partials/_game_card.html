@@ -25,16 +25,13 @@
             {% if game.platforms.all %}
                 <div class="position-absolute bottom-0 start-0 p-1 platforms-overlay">
                     <div class="d-flex flex-wrap gap-1">
-                        {% for platform in game.platforms.all|slice:":3" %}  <!-- Ограничиваем 3 платформами -->
+                        {% for platform in game.platforms.all %}
                             <span class="platform-icon text-white"
                                   title="{{ platform.name }}"
                                   style="filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.8));">
                                 {% platform_icon platform.name %}
                             </span>
                         {% endfor %}
-                        {% if game.platforms.all|length > 3 %}
-                            <span class="badge bg-secondary small">+{{ game.platforms.all|length|add:"-3" }}</span>
-                        {% endif %}
                     </div>
                 </div>
             {% endif %}
@@ -51,12 +48,9 @@
             {% if game.genres.all %}
                 <div class="mb-2 genres-container" style="min-height: 50px;">
                     <div class="game-genres">
-                        {% for genre in game.genres.all|slice:":3" %}  <!-- Ограничиваем 3 жанрами -->
+                        {% for genre in game.genres.all %}
                             <span class="badge bg-primary mb-1 small">{{ genre.name }}</span>
                         {% endfor %}
-                        {% if game.genres.all|length > 3 %}
-                            <span class="badge bg-secondary mb-1 small">+{{ game.genres.all|length|add:"-3" }}</span>
-                        {% endif %}
                     </div>
                 </div>
             {% else %}
@@ -66,12 +60,9 @@
             <!-- Перспективы - используем prefetched данные -->
             {% if game.player_perspectives.all %}
                 <div class="mb-2">
-                    {% for perspective in game.player_perspectives.all|slice:":2" %}  <!-- Ограничиваем 2 -->
+                    {% for perspective in game.player_perspectives.all %}
                         <span class="badge bg-info mb-1 small">{{ perspective.name }}</span>
                     {% endfor %}
-                    {% if game.player_perspectives.all|length > 2 %}
-                        <span class="badge bg-secondary mb-1 small">+{{ game.player_perspectives.all|length|add:"-2" }}</span>
-                    {% endif %}
                 </div>
             {% endif %}
 

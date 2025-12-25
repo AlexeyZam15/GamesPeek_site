@@ -94,3 +94,4 @@ Thumbs.db
 /igdb_site/db.sqlite3.backup_migration
 /igdb_site/backup.json[citation
 /igdb_site/backup.json[citation
+/igdb_site/optimize_similarity.sql
