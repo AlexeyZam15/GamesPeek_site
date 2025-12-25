@@ -29,32 +29,6 @@
                 </div>
             </div>
 
-            <!-- Quick Filter Tags -->
-            <div class="quick-filters mb-4">
-                <h6 class="text-muted mb-3">Quick Search by Popular Criteria:</h6>
-                <div class="d-flex flex-wrap gap-2 justify-content-center">
-                    <!-- Popular Genres -->
-                    <a href="{% url 'game_list' %}?g=1,2&find_similar=1" class="btn btn-outline-danger btn-sm">
-                        🎯 Action + Adventure
-                    </a>
-                    <a href="{% url 'game_list' %}?g=5,12&find_similar=1" class="btn btn-outline-danger btn-sm">
-                        🧩 RPG + Strategy
-                    </a>
-
-                    <!-- Popular Themes -->
-                    <a href="{% url 'game_list' %}?t=1,2&find_similar=1" class="btn btn-outline-warning btn-sm">
-                        🎭 Fantasy + Sci-Fi
-                    </a>
-
-                    <!-- Popular Perspectives -->
-                    <a href="{% url 'game_list' %}?pp=1,2&find_similar=1" class="btn btn-outline-info btn-sm">
-                        👁️ First-person
-                    </a>
-                    <a href="{% url 'game_list' %}?pp=3&find_similar=1" class="btn btn-outline-info btn-sm">
-                        👁️ Third-person
-                    </a>
-                </div>
-            </div>
         </div>
     </div>
 
