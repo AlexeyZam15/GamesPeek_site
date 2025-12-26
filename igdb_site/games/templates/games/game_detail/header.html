@@ -6,38 +6,53 @@
             <!-- Обложка с наложенными элементами -->
             <div class="col-md-5 col-lg-4 col-xl-4">
                 <div class="position-relative h-100" style="min-height: 400px;">
-                    {% if game.cover_url %}
-                        <div class="game-cover-wrapper w-100 h-100">
-                            <img src="{{ game.cover_url }}"
-                                 class="game-cover-main w-100 h-100"
-                                 alt="{{ game.name }}"
-                                 loading="lazy"
-                                 onload="this.style.opacity='1'"
-                                 style="opacity: 0; transition: opacity 0.5s ease; object-fit: cover; object-position: center 20%;">
-                        </div>
-                    {% else %}
-                        <div class="no-cover-placeholder w-100 h-100 d-flex align-items-center justify-content-center">
-                            <span class="text-muted fs-3">No Cover</span>
-                        </div>
-                    {% endif %}
+                    <!-- Основной контейнер обложки -->
+                    <div class="game-cover-container w-100 h-100">
+                        {% if game.cover_url %}
+                            <div class="game-cover-wrapper w-100 h-100">
+                                <img src="{{ game.cover_url }}"
+                                     class="game-cover-main w-100 h-100"
+                                     alt="{{ game.name }}"
+                                     loading="lazy"
+                                     onload="this.style.opacity='1'"
+                                     style="opacity: 0; transition: opacity 0.5s ease; object-fit: cover; object-position: center 20%;">
+                            </div>
+                        {% else %}
+                            <div class="no-cover-placeholder w-100 h-100 d-flex align-items-center justify-content-center">
+                                <span class="text-muted fs-3">No Cover</span>
+                            </div>
+                        {% endif %}
+                    </div>
 
                     <!-- Рейтинг как SVG изображение (верхний левый угол) -->
-                    {% if game.rating %}
-                        <div class="position-absolute top-0 start-0 p-3">
+                    <div class="position-absolute top-0 start-0 rating-overlay">
+                        {% if game.rating %}
                             {% rating_star_svg game.rating 80 %}
-                        </div>
-                    {% endif %}
+                        {% else %}
+                            <!-- Звезда с N/A для игр без рейтинга -->
+                            <div class="no-rating-container"
+                                 data-bs-toggle="tooltip"
+                                 data-bs-placement="right"
+                                 data-bs-title="No Rating">
+                                <svg viewBox="0 0 80 80">
+                                    <!-- Внешняя звезда -->
+                                    <path d="M40,10 L48.6,30.2 L70,30.2 L52.7,42.8 L61.3,63 L40,50.4 L18.7,63 L27.3,42.8 L10,30.2 L31.4,30.2 Z"/>
+                                    <!-- Текст N/A внутри -->
+                                    <text x="40" y="45" text-anchor="middle">N/A</text>
+                                </svg>
+                            </div>
+                        {% endif %}
+                    </div>
 
                     <!-- Платформы (нижний левый угол) -->
                     {% if game.platforms.all %}
-                        <div class="position-absolute bottom-0 start-0 p-3 platforms-overlay">
+                        <div class="position-absolute bottom-0 start-0 platforms-overlay">
                             <div class="d-flex flex-wrap gap-2">
                                 {% for platform in game.platforms.all %}
                                     <span class="platform-icon text-white"
                                           title="{{ platform.display_name }}"
                                           data-bs-toggle="tooltip"
-                                          data-bs-placement="top"
-                                          style="filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.8)); font-size: 2.2rem;">
+                                          data-bs-placement="top">
                                         {% platform_icon platform.name %}
                                     </span>
                                 {% endfor %}
@@ -165,5 +180,15 @@
         var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
             return new bootstrap.Tooltip(tooltipTriggerEl);
         });
+
+        // Дополнительно инициализируем тултипы для элементов без рейтинга
+        setTimeout(function() {
+            var noRatingElements = document.querySelectorAll('.no-rating-container');
+            noRatingElements.forEach(function(el) {
+                if (!el._tooltip) {
+                    new bootstrap.Tooltip(el);
+                }
+            });
+        }, 500);
     });
 </script>
