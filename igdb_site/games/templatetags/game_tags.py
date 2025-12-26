@@ -7,19 +7,41 @@ register = template.Library()
 
 @register.simple_tag
 def get_find_similar_url(game):
-    """Генерирует URL без запросов к БД."""
-    # Получаем ID связанных объектов из prefetched данных
-    genre_ids = [str(g.id) for g in game.genres.all()]
-    keyword_ids = [str(k.id) for k in game.keywords.all()]
-    theme_ids = [str(t.id) for t in game.themes.all()]
-
+    """Генерирует URL для поиска похожих игр со всеми критериями."""
     params = {
         'find_similar': '1',
         'source_game': game.id,
     }
 
+    # Жанры - ВСЕ (для алгоритма похожести)
+    genre_ids = [str(g.id) for g in game.genres.all()]
     if genre_ids:
-        params['g'] = ','.join(genre_ids)  # Ограничиваем
+        params['g'] = ','.join(genre_ids)
+
+    # Темы - ВСЕ (для алгоритма похожести)
+    theme_ids = [str(t.id) for t in game.themes.all()]
+    if theme_ids:
+        params['t'] = ','.join(theme_ids)
+
+    # Перспективы - ВСЕ (для алгоритма похожести)
+    perspective_ids = [str(p.id) for p in game.player_perspectives.all()]
+    if perspective_ids:
+        params['pp'] = ','.join(perspective_ids)
+
+    # Режимы игры - ВСЕ (для алгоритма похожести)
+    game_mode_ids = [str(gm.id) for gm in game.game_modes.all()]
+    if game_mode_ids:
+        params['gm'] = ','.join(game_mode_ids)
+
+    # Ключевые слова - ВСЕ (для алгоритма похожести)
+    keyword_ids = [str(k.id) for k in game.keywords.all()]
+    if keyword_ids:
+        params['k'] = ','.join(keyword_ids)
+
+    # Разработчики - ВСЕ (для алгоритма похожести)
+    developer_ids = [str(d.id) for d in game.developers.all()]
+    if developer_ids:
+        params['d'] = ','.join(developer_ids)
 
     base_url = reverse('game_list')
     return f"{base_url}?{urlencode(params)}"
