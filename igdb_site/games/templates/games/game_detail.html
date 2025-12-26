@@ -16,13 +16,13 @@
         <!-- Хедер с основной информацией -->
         <div class="row mb-4">
             <div class="col-12">
-                {% include 'games/game_detail_parts/header.html' %}
+                {% include 'games/game_detail/header.html' %}
             </div>
         </div>
 
         <!-- Табы для основного контента -->
         <div class="game-tabs">
-            {% include 'games/game_detail_parts/tabs_content.html' %}
+            {% include 'games/game_detail/tabs_content.html' %}
         </div>
     </div>
 
@@ -61,5 +61,5 @@
 
 {% block extra_js %}
     <!-- Основные скрипты для управления вкладками -->
-    {% include 'games/game_detail_parts/game_detail_scripts.html' %}
+    {% include 'games/game_detail/game_detail_scripts.html' %}
 {% endblock %}

@@ -15,6 +15,14 @@
     height: 100%;
 }
 
+/* Контейнер обложки */
+.game-cover-container {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    isolation: isolate;
+}
+
 /* Обложка на всю высоту */
 .game-cover-wrapper {
     width: 100%;
@@ -40,7 +48,7 @@
     transition: all 0.3s ease !important;
     background: #0a0a0a;
     position: relative;
-    z-index: 5;
+    z-index: 1 !important;
 }
 
 .game-cover-main:hover {
@@ -69,6 +77,70 @@
     z-index: 2;
 }
 
+/* Стили для рейтинга поверх обложки */
+.rating-overlay {
+    z-index: 20 !important;
+    pointer-events: auto !important;
+    padding: 0.5rem !important;
+}
+
+.rating-overlay > div {
+    filter: drop-shadow(2px 2px 4px rgba(0, 0, 0, 0.8));
+}
+
+/* Стиль для контейнера без рейтинга */
+.no-rating-container {
+    cursor: help;
+    transition: all 0.3s ease;
+    width: 80px;
+    height: 80px;
+    position: relative;
+    background: rgba(0, 0, 0, 0.6);
+    border-radius: 50%;
+}
+
+.no-rating-container:hover {
+    background: rgba(0, 0, 0, 0.8) !important;
+}
+
+.no-rating-container svg {
+    width: 80px;
+    height: 80px;
+}
+
+.no-rating-container path {
+    fill: none;
+    stroke: #6c757d;
+    stroke-width: 2;
+}
+
+.no-rating-container text {
+    text-anchor: middle;
+    fill: #6c757d;
+    font-size: 16px;
+    font-weight: bold;
+}
+
+/* Платформы в хедере */
+.platforms-overlay {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    z-index: 20 !important;
+    pointer-events: auto !important;
+    padding: 1rem !important;
+}
+
+.platforms-overlay .platform-icon {
+    filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.8));
+    font-size: 3rem !important;
+}
+
+/* Убеждаемся, что наложенные элементы поверх обложки */
+.position-relative[style*="min-height: 400px"] > .position-absolute {
+    z-index: 20 !important;
+}
+
 /* Информационная колонка */
 .game-info-column {
     display: flex;
@@ -79,18 +151,6 @@
 
 .game-info-column h1 {
     margin-bottom: 1.5rem;
-}
-
-/* Платформы в хедере */
-.platforms-overlay {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-}
-
-.platforms-overlay .platform-icon {
-    filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.8));
-    font-size: 2.2rem;
 }
 
 /* ===== ТАБЫ ===== */
@@ -479,6 +539,11 @@
         min-width: 120px;
         padding: 0.875rem;
     }
+
+    /* Платформы на мобильных */
+    .platforms-overlay .platform-icon {
+        font-size: 2.5rem !important;
+    }
 }
 
 @media (max-width: 768px) {
@@ -507,6 +572,11 @@
 
     .section-header h6 {
         font-size: 0.9rem;
+    }
+
+    /* Платформы на планшетах */
+    .platforms-overlay .platform-icon {
+        font-size: 2.2rem !important;
     }
 }
 
@@ -547,5 +617,29 @@
 
     .platform-name {
         font-size: 0.85rem;
+    }
+
+    /* Платформы на телефонах */
+    .platforms-overlay .platform-icon {
+        font-size: 1.8rem !important;
+    }
+
+    /* Рейтинг на телефонах */
+    .rating-overlay {
+        padding: 0.25rem !important;
+    }
+
+    .no-rating-container {
+        width: 60px;
+        height: 60px;
+    }
+
+    .no-rating-container svg {
+        width: 60px;
+        height: 60px;
+    }
+
+    .no-rating-container text {
+        font-size: 14px;
     }
 }
