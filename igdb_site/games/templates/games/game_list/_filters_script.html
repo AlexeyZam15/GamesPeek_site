@@ -568,7 +568,7 @@ function setupShowAllToggles() {
         showAllKeywordsBtn.addEventListener('click', function () {
             const keywordList = document.querySelector('.keyword-list');
             const showText = this.querySelector('.show-text');
-            const hideText = this.querySelector('.hide-text');
+            const hideText = this.querySelector('.hideText');
 
             if (keywordList.style.maxHeight === '200px' || keywordList.style.maxHeight === '') {
                 keywordList.style.maxHeight = 'none';
@@ -742,6 +742,137 @@ function setupSectionToggles() {
     });
 }
 
+// Функции для показа/скрытия дополнительных бейджей
+function setupShowMoreButtons() {
+    console.log('Setting up show more/less buttons...');
+
+    // Platforms
+    window.toggleMorePlatforms = function(button) {
+        const hiddenSection = document.getElementById('hidden-platforms-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleLessPlatforms = function(button) {
+        const hiddenSection = document.getElementById('hidden-platforms-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
+    // Genres
+    window.toggleMoreGenres = function(button) {
+        const hiddenSection = document.getElementById('hidden-genres-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleLessGenres = function(button) {
+        const hiddenSection = document.getElementById('hidden-genres-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
+    // Keywords
+    window.toggleMoreKeywords = function(button) {
+        const hiddenSection = document.getElementById('hidden-keywords-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleLessKeywords = function(button) {
+        const hiddenSection = document.getElementById('hidden-keywords-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
+    // Themes
+    window.toggleMoreThemes = function(button) {
+        const hiddenSection = document.getElementById('hidden-themes-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleLessThemes = function(button) {
+        const hiddenSection = document.getElementById('hidden-themes-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
+    // Perspectives
+    window.toggleMorePerspectives = function(button) {
+        const hiddenSection = document.getElementById('hidden-perspectives-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleLessPerspectives = function(button) {
+        const hiddenSection = document.getElementById('hidden-perspectives-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
+    // Game Modes
+    window.toggleMoreGameModes = function(button) {
+        const hiddenSection = document.getElementById('hidden-game-modes-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleLessGameModes = function(button) {
+        const hiddenSection = document.getElementById('hidden-game-modes-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+}
+
 // Инициализация всех функций с задержкой
 function initializeAll() {
     console.log('Initializing all functions...');
@@ -754,6 +885,7 @@ function initializeAll() {
     setupActiveTagRemoval();
     setupCheckboxListeners();
     setupSectionToggles();
+    setupShowMoreButtons(); // Добавляем инициализацию кнопок show more/less
 
     console.log('All functions initialized');
 }

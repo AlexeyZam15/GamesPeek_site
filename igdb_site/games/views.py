@@ -78,6 +78,19 @@ class SimpleSourceGame:
 
 # ===== CORE UTILITY FUNCTIONS =====
 
+def get_objects_by_ids(model_class, ids: List[int], only_fields: List[str] = None) -> List:
+    """Get model objects by their IDs efficiently."""
+    if not ids:
+        return []
+
+    queryset = model_class.objects.filter(id__in=ids)
+    if only_fields:
+        queryset = queryset.only(*only_fields)
+
+    # Сохраняем порядок как в списке IDs
+    id_to_obj = {obj.id: obj for obj in queryset}
+    return [id_to_obj[id] for id in ids if id in id_to_obj]
+
 @lru_cache(maxsize=1024)
 def _cached_string_to_int_list(param_str: str) -> List[int]:
     """Cached conversion of parameter strings to integer lists."""
@@ -648,6 +661,9 @@ def _build_context(mode: str, **kwargs) -> Dict[str, Any]:
     # Get filter data
     filter_data = kwargs.get('filter_data', {})
 
+    # Get selected criteria objects if available
+    selected_criteria_objects = kwargs.get('selected_criteria_objects', {})
+
     # Build context
     context = {
         'genres': genres_list,
@@ -656,7 +672,7 @@ def _build_context(mode: str, **kwargs) -> Dict[str, Any]:
         'find_similar': kwargs.get('find_similar', False),
         'compact_url_params': compact_url_params,
 
-        # Selected criteria
+        # Selected criteria IDs
         'selected_genres': selected_criteria['genres'],
         'selected_keywords': selected_criteria['keywords'],
         'selected_platforms': selected_criteria['platforms'],
@@ -664,6 +680,15 @@ def _build_context(mode: str, **kwargs) -> Dict[str, Any]:
         'selected_perspectives': selected_criteria['perspectives'],
         'selected_developers': selected_criteria['developers'],
         'selected_game_modes': selected_criteria['game_modes'],
+
+        # Selected criteria OBJECTS (для отображения бейджей)
+        'selected_genres_objects': selected_criteria_objects.get('genres', []),
+        'selected_keywords_objects': selected_criteria_objects.get('keywords', []),
+        'selected_platforms_objects': selected_criteria_objects.get('platforms', []),
+        'selected_themes_objects': selected_criteria_objects.get('themes', []),
+        'selected_perspectives_objects': selected_criteria_objects.get('perspectives', []),
+        'selected_developers_objects': selected_criteria_objects.get('developers', []),
+        'selected_game_modes_objects': selected_criteria_objects.get('game_modes', []),
 
         # Filter data
         'popular_keywords': filter_data.get('popular_keywords', []),
@@ -740,6 +765,45 @@ def handle_similar_games_mode(
     # Create source game object
     source_game = SimpleSourceGame(source_game_obj, selected_criteria, source_display)
 
+    # Получаем объекты для отображения активных бейджей
+    selected_criteria_objects = {}
+
+    # Жанры
+    if selected_criteria['genres']:
+        selected_criteria_objects['genres'] = get_objects_by_ids(
+            Genre, selected_criteria['genres'], ['id', 'name']
+        )
+
+    # Ключевые слова
+    if selected_criteria['keywords']:
+        selected_criteria_objects['keywords'] = get_objects_by_ids(
+            Keyword, selected_criteria['keywords'], ['id', 'name']
+        )
+
+    # Платформы
+    if selected_criteria['platforms']:
+        selected_criteria_objects['platforms'] = get_objects_by_ids(
+            Platform, selected_criteria['platforms'], ['id', 'name', 'display_name']
+        )
+
+    # Темы
+    if selected_criteria['themes']:
+        selected_criteria_objects['themes'] = get_objects_by_ids(
+            Theme, selected_criteria['themes'], ['id', 'name']
+        )
+
+    # Перспективы
+    if selected_criteria['perspectives']:
+        selected_criteria_objects['perspectives'] = get_objects_by_ids(
+            PlayerPerspective, selected_criteria['perspectives'], ['id', 'name']
+        )
+
+    # Режимы игры
+    if selected_criteria['game_modes']:
+        selected_criteria_objects['game_modes'] = get_objects_by_ids(
+            GameMode, selected_criteria['game_modes'], ['id', 'name']
+        )
+
     # Build context using _build_context
     context = _build_context(
         mode='similar',
@@ -753,7 +817,8 @@ def handle_similar_games_mode(
         source_game=source_game,
         source_game_obj=source_game_obj,
         current_sort=current_sort,
-        find_similar=True
+        find_similar=True,
+        selected_criteria_objects=selected_criteria_objects  # Добавляем объекты
     )
 
     return context
@@ -777,6 +842,45 @@ def handle_regular_mode(
         list(games), page_number, ITEMS_PER_PAGE['regular']
     )
 
+    # Получаем объекты для отображения активных бейджей и чекбоксов
+    selected_criteria_objects = {}
+
+    # Жанры
+    if selected_criteria['genres']:
+        selected_criteria_objects['genres'] = get_objects_by_ids(
+            Genre, selected_criteria['genres'], ['id', 'name']
+        )
+
+    # Ключевые слова
+    if selected_criteria['keywords']:
+        selected_criteria_objects['keywords'] = get_objects_by_ids(
+            Keyword, selected_criteria['keywords'], ['id', 'name']
+        )
+
+    # Платформы
+    if selected_criteria['platforms']:
+        selected_criteria_objects['platforms'] = get_objects_by_ids(
+            Platform, selected_criteria['platforms'], ['id', 'name', 'display_name']
+        )
+
+    # Темы
+    if selected_criteria['themes']:
+        selected_criteria_objects['themes'] = get_objects_by_ids(
+            Theme, selected_criteria['themes'], ['id', 'name']
+        )
+
+    # Перспективы
+    if selected_criteria['perspectives']:
+        selected_criteria_objects['perspectives'] = get_objects_by_ids(
+            PlayerPerspective, selected_criteria['perspectives'], ['id', 'name']
+        )
+
+    # Режимы игры
+    if selected_criteria['game_modes']:
+        selected_criteria_objects['game_modes'] = get_objects_by_ids(
+            GameMode, selected_criteria['game_modes'], ['id', 'name']
+        )
+
     # Build context
     return _build_context(
         mode='regular',
@@ -790,7 +894,8 @@ def handle_regular_mode(
         source_game=None,
         source_game_obj=None,
         current_sort=current_sort,
-        find_similar=False
+        find_similar=False,
+        selected_criteria_objects=selected_criteria_objects  # Добавляем объекты
     )
 
 
