@@ -393,10 +393,20 @@ def _format_similar_games_data(similar_games_data: List) -> List[Dict[str, Any]]
         return []
 
     game_ids = []
+    similarity_map = {}
+
+    # Собираем ID игр и соответствие с процентом схожести
     for item in similar_games_data:
-        game = item.get('game') if isinstance(item, dict) else item
+        if isinstance(item, dict):
+            game = item.get('game')
+            similarity = item.get('similarity', 0)
+        else:
+            game = item
+            similarity = 0
+
         if hasattr(game, 'id'):
             game_ids.append(game.id)
+            similarity_map[game.id] = similarity
 
     games_dict = {}
     if game_ids:
@@ -417,8 +427,12 @@ def _format_similar_games_data(similar_games_data: List) -> List[Dict[str, Any]]
 
     formatted = []
     for item in similar_games_data:
-        game = item.get('game') if isinstance(item, dict) else item
-        similarity = item.get('similarity', 0) if isinstance(item, dict) else 0
+        if isinstance(item, dict):
+            game = item.get('game')
+            similarity = item.get('similarity', 0)
+        else:
+            game = item
+            similarity = similarity_map.get(getattr(game, 'id', None), 0)
 
         if hasattr(game, 'id') and game.id in games_dict:
             game = games_dict[game.id]
@@ -689,8 +703,8 @@ def handle_similar_games_mode(
     # Create source game object
     source_game = SimpleSourceGame(source_game_obj, selected_criteria, source_display)
 
-    # Build context
-    return _build_context(
+    # Build context using _build_context
+    context = _build_context(
         mode='similar',
         page_obj=page_obj,
         paginator=paginator,
@@ -704,6 +718,8 @@ def handle_similar_games_mode(
         current_sort=current_sort,
         find_similar=True
     )
+
+    return context
 
 
 def handle_regular_mode(

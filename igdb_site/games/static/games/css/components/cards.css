@@ -59,9 +59,31 @@
     object-position: center 35%;
 }
 
+/* Позиционирование наложенных элементов на обложке */
+.card-img-top-container .position-absolute {
+    z-index: 10;
+}
+
+/* Процент схожести (справа сверху) */
+.card-img-top-container .top-0.end-0 {
+    z-index: 11;
+}
+
 /* Рейтинг на обложке */
 .game-card .position-absolute.top-0.start-0 {
     z-index: 10;
+}
+
+/* SVG иконки на обложке */
+.rating-svg, .similarity-svg {
+    transition: all 0.3s ease;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
+}
+
+.card:hover .rating-svg,
+.card:hover .similarity-svg {
+    transform: scale(1.1);
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.7));
 }
 
 /* Платформы на обложке */
@@ -120,6 +142,23 @@
 
 .game-card .card-footer .d-grid {
     gap: 0.5rem;
+}
+
+/* Стили для кнопки Compare */
+.btn-outline-warning {
+    border: 2px solid var(--warning-color);
+    color: var(--warning-color);
+    background: transparent;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.btn-outline-warning:hover {
+    background: linear-gradient(135deg, var(--warning-color), #e67e22);
+    color: var(--primary-color);
+    border-color: var(--warning-color);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(231, 126, 34, 0.3);
 }
 
 /* Карточка сравнения */
