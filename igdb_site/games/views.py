@@ -891,7 +891,7 @@ def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
         source_game_id = request.GET.get('source_game')
         game1 = None
 
-        if source_game_id and source_game_id.strip() and source_game_id.isdigit():
+        if source_game_id and source_game_id.strip() and source_game_id.strip().lower() != 'none':
             try:
                 game1 = Game.objects.only(
                     'id', 'name', 'game_type'
@@ -905,31 +905,36 @@ def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
         # Convert parameters
         selected_criteria = convert_params_to_lists(request.GET)
 
+        # Получаем объекты для отображения критериев на карточке
+        criteria_genres_objs = Genre.objects.filter(id__in=selected_criteria['genres']).only('id', 'name') if \
+        selected_criteria['genres'] else []
+        criteria_keywords_objs = Keyword.objects.filter(id__in=selected_criteria['keywords']).only('id', 'name') if \
+        selected_criteria['keywords'] else []
+        criteria_themes_objs = Theme.objects.filter(id__in=selected_criteria['themes']).only('id', 'name') if \
+        selected_criteria['themes'] else []
+        criteria_perspectives_objs = PlayerPerspective.objects.filter(id__in=selected_criteria['perspectives']).only(
+            'id', 'name') if selected_criteria['perspectives'] else []
+        criteria_developers_objs = Company.objects.filter(id__in=selected_criteria['developers']).only('id', 'name') if \
+        selected_criteria['developers'] else []
+        criteria_game_modes_objs = GameMode.objects.filter(id__in=selected_criteria['game_modes']).only('id', 'name') if \
+        selected_criteria['game_modes'] else []
+
         # Determine comparison type
         if game1:
             # Game-game comparison
             is_criteria_comparison = False
             source = game1
         else:
-            # Check for criteria
-            has_criteria = any(selected_criteria.values())
-            if has_criteria:
-                # Criteria-game comparison
-                is_criteria_comparison = True
-                source = VirtualGame(
-                    genre_ids=selected_criteria['genres'],
-                    keyword_ids=selected_criteria['keywords'],
-                    theme_ids=selected_criteria['themes'],
-                    perspective_ids=selected_criteria['perspectives'],
-                    developer_ids=selected_criteria['developers'],
-                    game_mode_ids=selected_criteria['game_modes']
-                )
-            else:
-                # Show game without comparison
-                return render(request, 'games/game_comparison_simple.html', {
-                    'game2': game2,
-                    'no_comparison': True,
-                })
+            # Always criteria comparison if no source game
+            is_criteria_comparison = True
+            source = VirtualGame(
+                genre_ids=selected_criteria['genres'],
+                keyword_ids=selected_criteria['keywords'],
+                theme_ids=selected_criteria['themes'],
+                perspective_ids=selected_criteria['perspectives'],
+                developer_ids=selected_criteria['developers'],
+                game_mode_ids=selected_criteria['game_modes']
+            )
 
         # Calculate similarity
         similarity_engine = GameSimilarity()
@@ -986,6 +991,14 @@ def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
             'breakdown': breakdown,
             'selected_criteria': selected_criteria,
             'selected_criteria_count': sum(len(v) for v in selected_criteria.values()),
+
+            # Критерии для отображения на карточке
+            'criteria_genres': list(criteria_genres_objs),
+            'criteria_keywords': list(criteria_keywords_objs),
+            'criteria_themes': list(criteria_themes_objs),
+            'criteria_perspectives': list(criteria_perspectives_objs),
+            'criteria_developers': list(criteria_developers_objs),
+            'criteria_game_modes': list(criteria_game_modes_objs),
 
             # Algorithm weights
             'genres_weight': int(similarity_engine.GENRES_TOTAL_WEIGHT),

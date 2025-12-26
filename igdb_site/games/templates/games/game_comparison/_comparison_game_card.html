@@ -184,26 +184,17 @@
                     </div>
                 </div>
             {% endif %}
+
+            <!-- Platforms для критериев -->
+            {% if criteria_platforms %}
+                <div class="game-platforms mb-3">
+                    <div class="d-flex flex-wrap gap-1 justify-content-center">
+                        {% for platform in criteria_platforms %}
+                            <span class="badge bg-info px-2 py-1">{{ platform.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
         </div>
     {% endif %}
 </div>
-
-<script>
-    function toggleKeywords() {
-        const hiddenKeywords = document.getElementById('hidden-keywords');
-        const toggleText = document.getElementById('keywords-toggle-text');
-        const toggleIcon = document.getElementById('keywords-toggle-icon');
-
-        if (hiddenKeywords.style.display === 'none') {
-            hiddenKeywords.style.display = 'block';
-            toggleText.textContent = 'Show less';
-            toggleIcon.classList.remove('bi-chevron-down');
-            toggleIcon.classList.add('bi-chevron-up');
-        } else {
-            hiddenKeywords.style.display = 'none';
-            toggleText.textContent = 'Show more';
-            toggleIcon.classList.remove('bi-chevron-up');
-            toggleIcon.classList.add('bi-chevron-down');
-        }
-    }
-</script>
