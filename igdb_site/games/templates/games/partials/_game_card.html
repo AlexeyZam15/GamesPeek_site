@@ -7,7 +7,7 @@
             {% if game.cover_url %}
                 <img src="{{ game.cover_url }}" class="card-img-top w-100" alt="{{ game.name }}"
                      style="object-fit: cover; object-position: center 20%; height: 110%;"
-                     loading="lazy">  <!-- Добавляем lazy loading -->
+                     loading="lazy">
             {% else %}
                 <div class="card-img-top bg-light w-100 h-100 d-flex align-items-center justify-content-center">
                     <span class="text-muted">No Cover</span>
@@ -18,6 +18,13 @@
             {% if game.rating %}
                 <div class="position-absolute top-0 start-0 p-1">
                     {% rating_star_svg game.rating 60 %}
+                </div>
+            {% endif %}
+
+            <!-- Процент похожести (только в режиме show_similarity) -->
+            {% if show_similarity and similarity_percent %}
+                <div class="position-absolute top-0 end-0 p-1">
+                    {% similarity_pattern_svg similarity_percent 60 %}
                 </div>
             {% endif %}
 
@@ -87,6 +94,14 @@
                 <a href="{% get_find_similar_url game %}" class="btn btn-sm btn-outline-info">
                     <i class="bi bi-search-heart"></i> Find Similar
                 </a>
+
+                <!-- Кнопка Compare (только в режиме show_similarity) -->
+                {% if show_similarity and source_game %}
+                    <a href="{% get_card_comparison_url source_game game selected_genres selected_keywords selected_themes selected_perspectives selected_developers selected_game_modes %}"
+                       class="btn btn-sm btn-outline-warning">
+                        <i class="bi bi-arrow-left-right"></i> Compare
+                    </a>
+                {% endif %}
             </div>
         </div>
     </div>
