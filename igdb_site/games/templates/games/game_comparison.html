@@ -15,6 +15,7 @@
 {% endblock %}
 
 {% block content %}
+
     <div class="container-fluid py-4">
         <!-- Хедер с основной информацией -->
         <div class="row mb-4">
@@ -25,9 +26,11 @@
                             <!-- ЛЕВАЯ СТОРОНА: Игра или Критерии -->
                             <div class="col-md-5 text-center">
                                 {% if is_criteria_comparison %}
-                                    {% include 'games/partials/_comparison_game_card.html' with criteria_genres=criteria_genres criteria_keywords=criteria_keywords criteria_themes=criteria_themes criteria_perspectives=criteria_perspectives criteria_developers=criteria_developers criteria_game_modes=criteria_game_modes %}
+                                    {% with criteria_genres=criteria_genres criteria_keywords=criteria_keywords criteria_themes=criteria_themes criteria_perspectives=criteria_perspectives criteria_developers=criteria_developers criteria_game_modes=criteria_game_modes %}
+                                        {% include 'games/game_comparison/_comparison_game_card.html' %}
+                                    {% endwith %}
                                 {% else %}
-                                    {% include 'games/partials/_comparison_game_card.html' with game=game1 %}
+                                    {% include 'games/game_comparison/_comparison_game_card.html' with game=game1 %}
                                 {% endif %}
                             </div>
 
@@ -49,7 +52,7 @@
 
                             <!-- ПРАВАЯ СТОРОНА: Игра 2 -->
                             <div class="col-md-5 text-center">
-                                {% include 'games/partials/_comparison_game_card.html' with game=game2 %}
+                                {% include 'games/game_comparison/_comparison_game_card.html' with game=game2 %}
                             </div>
                         </div>
                     </div>
@@ -291,75 +294,4 @@
             </div>
         </div>
     </div>
-
-    <!-- Добавляем стиль для центрирования жанров на карточках -->
-    <style>
-        /* Стиль для центрирования жанров на карточках сравнения */
-        .game-comparison-card .game-genres {
-            display: flex !important;
-            flex-wrap: wrap !important;
-            justify-content: center !important;
-            align-items: center !important;
-            gap: 0.5rem !important;
-            margin-top: 1rem !important;
-            text-align: center !important;
-        }
-
-        .game-comparison-card .game-genres .badge {
-            margin: 0.1rem !important;
-            flex-shrink: 0 !important;
-        }
-    </style>
-
-    <script>
-        function toggleKeywords() {
-            const hiddenKeywords = document.getElementById('hidden-keywords');
-            const toggleText = document.getElementById('keywords-toggle-text');
-            const toggleIcon = document.getElementById('keywords-toggle-icon');
-
-            if (hiddenKeywords.style.display === 'none') {
-                hiddenKeywords.style.display = 'block';
-                toggleText.textContent = 'Show less';
-                toggleIcon.className = 'bi bi-chevron-up';
-            } else {
-                hiddenKeywords.style.display = 'none';
-                toggleText.textContent = 'Show more';
-                toggleIcon.className = 'bi bi-chevron-down';
-            }
-        }
-
-        document.addEventListener('DOMContentLoaded', function () {
-            const keywordsContainer = document.querySelector('.keywords-container');
-            if (keywordsContainer) {
-                const allKeywords = keywordsContainer.querySelectorAll('.badge');
-                if (allKeywords.length > 10) {
-                    const visibleKeywords = keywordsContainer.querySelectorAll('.keywords-collapsible .badge');
-                    if (visibleKeywords.length > 6) {
-                        const hiddenSection = document.getElementById('hidden-keywords');
-                        if (hiddenSection) {
-                            const keywordsArray = Array.from(visibleKeywords);
-                            keywordsArray.slice(6).forEach(keyword => {
-                                hiddenSection.appendChild(keyword);
-                            });
-                        }
-                    }
-                }
-            }
-
-            // Применяем центрирование для жанров на карточках сравнения
-            const comparisonCards = document.querySelectorAll('.game-comparison-card');
-            comparisonCards.forEach(card => {
-                const genresContainer = card.querySelector('.game-genres');
-                if (genresContainer) {
-                    genresContainer.style.display = 'flex';
-                    genresContainer.style.flexWrap = 'wrap';
-                    genresContainer.style.justifyContent = 'center';
-                    genresContainer.style.alignItems = 'center';
-                    genresContainer.style.gap = '0.5rem';
-                    genresContainer.style.marginTop = '1rem';
-                    genresContainer.style.textAlign = 'center';
-                }
-            });
-        });
-    </script>
 {% endblock %}
