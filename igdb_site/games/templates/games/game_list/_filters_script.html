@@ -205,26 +205,10 @@ function sortFilterLists() {
             return checkbox && !checkbox.checked;
         });
 
-        // Сортируем невыбранные по алфавиту
-        unselectedItems.sort((a, b) => {
-            const aName = a.getAttribute('data-genre-name') ||
-                         a.getAttribute('data-keyword-name') ||
-                         a.getAttribute('data-platform-name') ||
-                         a.getAttribute('data-theme-name') ||
-                         a.getAttribute('data-perspective-name') ||
-                         a.getAttribute('data-game-mode-name');
+        // НИКАКОЙ СОРТИРОВКИ ПО АЛФАВИТУ
+        // Оставляем невыбранные в исходном порядке (по популярности с сервера)
 
-            const bName = b.getAttribute('data-genre-name') ||
-                         b.getAttribute('data-keyword-name') ||
-                         b.getAttribute('data-platform-name') ||
-                         b.getAttribute('data-theme-name') ||
-                         b.getAttribute('data-perspective-name') ||
-                         b.getAttribute('data-game-mode-name');
-
-            return aName.localeCompare(bName);
-        });
-
-        // Объединяем: сначала выбранные, потом отсортированные невыбранные
+        // Объединяем: сначала выбранные, потом невыбранные в исходном порядке
         const sortedItems = [...selectedItems, ...unselectedItems];
 
         // Очищаем контейнер и добавляем отсортированные элементы
@@ -233,7 +217,7 @@ function sortFilterLists() {
             container.appendChild(item);
         });
 
-        console.log(`Sorted ${filterType.container}: ${selectedItems.length} selected + ${unselectedItems.length} unselected`);
+        console.log(`Sorted ${filterType.container}: ${selectedItems.length} selected + ${unselectedItems.length} unselected (kept original order)`);
     });
 }
 
@@ -297,6 +281,7 @@ function setupCheckboxListeners() {
             console.log('Checkbox changed:', this.value, this.checked);
             updateHiddenFields();
             sortFilterLists();
+            // НЕ вызываем updatePlatformBadges() - бейджи обновятся только после Apply Filters
         });
     });
 }
@@ -338,6 +323,7 @@ function setupClearButtons() {
             });
             updateHiddenFields();
             sortFilterLists();
+            // НЕ вызываем updatePlatformBadges()
         });
     }
 
@@ -684,16 +670,21 @@ function setupAutoSubmit() {
     // Для всех критериев похожести - включаем режим похожих игр
     document.querySelectorAll('.genre-checkbox, .keyword-checkbox, .theme-checkbox, .perspective-checkbox, .game-mode-checkbox').forEach(checkbox => {
         checkbox.addEventListener('change', function () {
+            // ТОЛЬКО обновляем скрытое поле, НЕ отправляем форму
             document.getElementById('find_similar_field').value = '1';
-            document.getElementById('main-search-form').submit();
+            updateHiddenFields();
+            sortFilterLists();
+            // НЕ вызываем form.submit() - форма отправится только по кнопке Apply Filters
         });
     });
 
-    // Для платформ - НЕ включаем режим похожих игр, просто фильтруем
+    // Для платформ - НЕ включаем режим похожих игр и НЕ отправляем форму автоматически
     document.querySelectorAll('.platform-checkbox').forEach(checkbox => {
         checkbox.addEventListener('change', function () {
-            // Не меняем find_similar_field, оставляем текущее значение
-            document.getElementById('main-search-form').submit();
+            // ТОЛЬКО обновляем скрытые поля и сортируем списки
+            updateHiddenFields();
+            sortFilterLists();
+            // НЕ вызываем form.submit() - форма отправится только по кнопке Apply Filters
         });
     });
 

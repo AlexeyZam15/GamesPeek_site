@@ -158,28 +158,28 @@ def get_filter_data() -> Dict[str, List]:
 def _fetch_filter_data_from_db() -> Dict[str, List]:
     """Fetch filter data from database with optimized queries."""
     platforms = Platform.objects.annotate(
-        game_count=Count('game')
-    ).filter(game_count__gt=0).order_by('-game_count', 'name')[:50]
+        game_count=Count('game', distinct=True)  # ← добавил distinct=True
+    ).filter(game_count__gt=0).order_by('-game_count', 'name')
 
     popular_keywords = Keyword.objects.filter(
         cached_usage_count__gt=0
-    ).select_related('category').order_by('-cached_usage_count')[:50]
+    ).select_related('category').order_by('-cached_usage_count')
 
     game_modes = GameMode.objects.annotate(
-        game_count=Count('game')
-    ).filter(game_count__gt=0).order_by('name')[:30]
+        game_count=Count('game', distinct=True)  # ← добавил distinct=True
+    ).filter(game_count__gt=0).order_by('name')
 
     themes = Theme.objects.annotate(
-        game_count=Count('game')
-    ).filter(game_count__gt=0).order_by('name')[:30]
+        game_count=Count('game', distinct=True)  # ← добавил distinct=True
+    ).filter(game_count__gt=0).order_by('name')
 
     perspectives = PlayerPerspective.objects.annotate(
-        game_count=Count('game')
-    ).filter(game_count__gt=0).order_by('name')[:20]
+        game_count=Count('game', distinct=True)  # ← добавил distinct=True
+    ).filter(game_count__gt=0).order_by('name')
 
     developers = Company.objects.annotate(
-        developed_game_count=Count('developed_games')
-    ).filter(developed_game_count__gt=0).order_by('name')[:30]
+        developed_game_count=Count('developed_games', distinct=True)  # ← добавил distinct=True
+    ).filter(developed_game_count__gt=0).order_by('name')
 
     return {
         'platforms': list(platforms),
@@ -365,7 +365,33 @@ def should_find_similar(params: Dict[str, str], selected_criteria: Dict[str, Lis
     """Determine if similar games search should be performed."""
     if params.get('find_similar') == '1':
         return True
-    return any(selected_criteria.values())
+
+    # Проверяем только критерии похожести, исключая платформы и разработчиков
+    similarity_criteria = [
+        selected_criteria['genres'],
+        selected_criteria['keywords'],
+        selected_criteria['themes'],
+        selected_criteria['perspectives'],
+        selected_criteria['game_modes']
+    ]
+
+    # Если есть хотя бы один критерий похожести
+    return any(similarity_criteria)
+
+
+def has_similarity_criteria(selected_criteria: Dict[str, List[int]]) -> bool:
+    """Check if there are criteria for similarity search."""
+    # Исключаем платформы и разработчиков из критериев похожести
+    similarity_criteria = [
+        selected_criteria['genres'],
+        selected_criteria['keywords'],
+        selected_criteria['themes'],
+        selected_criteria['perspectives'],
+        selected_criteria['game_modes']
+    ]
+
+    return any(similarity_criteria)
+
 
 
 def get_source_game(source_game_id: Optional[str]) -> Optional[Game]:
@@ -380,11 +406,6 @@ def get_source_game(source_game_id: Optional[str]) -> Optional[Game]:
         ).get(pk=int(source_game_id))
     except (Game.DoesNotExist, ValueError):
         return None
-
-
-def has_similarity_criteria(selected_criteria: Dict[str, List[int]]) -> bool:
-    """Check if there are criteria for similarity search."""
-    return any(selected_criteria.values())
 
 
 def _format_similar_games_data(similar_games_data: List) -> List[Dict[str, Any]]:
@@ -493,31 +514,47 @@ def _create_filter_cache_key(selected_criteria: Dict[str, List[int]], sort_field
 
 
 def _apply_filters(queryset: models.QuerySet, selected_criteria: Dict[str, List[int]]) -> models.QuerySet:
-    """Apply filters to queryset."""
-    filters = []
+    """Apply filters to queryset with OR logic for platforms."""
+    # Основной фильтр для всех полей кроме платформ
+    main_filters = Q()
+    has_main_filters = False
 
-    field_mapping = [
+    # Фильтр для платформ (OR логика)
+    platform_filter = Q()
+    has_platform_filter = False
+
+    # Обрабатываем платформы отдельно
+    if selected_criteria['platforms']:
+        platform_filter = Q(platforms__id__in=selected_criteria['platforms'])
+        has_platform_filter = True
+
+    # Обрабатываем остальные поля (AND логика)
+    other_fields = [
         ('genres', 'genres__id__in'),
         ('keywords', 'keywords__id__in'),
-        ('platforms', 'platforms__id__in'),
         ('themes', 'themes__id__in'),
         ('perspectives', 'player_perspectives__id__in'),
         ('developers', 'developers__id__in'),
         ('game_modes', 'game_modes__id__in')
     ]
 
-    for field, model_field in field_mapping:
+    for field, model_field in other_fields:
         if selected_criteria[field]:
-            filters.append(Q(**{model_field: selected_criteria[field]}))
+            main_filters &= Q(**{model_field: selected_criteria[field]})
+            has_main_filters = True
 
-    if filters:
-        combined_filter = filters[0]
-        for q in filters[1:]:
-            combined_filter &= q
-        queryset = queryset.filter(combined_filter).distinct()
+    # Применяем фильтры
+    if has_platform_filter and has_main_filters:
+        # Платформы OR + остальные AND
+        queryset = queryset.filter(platform_filter & main_filters).distinct()
+    elif has_platform_filter:
+        # Только платформы (OR)
+        queryset = queryset.filter(platform_filter).distinct()
+    elif has_main_filters:
+        # Только остальные фильтры (AND)
+        queryset = queryset.filter(main_filters).distinct()
 
     return queryset
-
 
 def _get_filtered_games(selected_criteria: Dict[str, List[int]], sort_field: str) -> Tuple[List, int]:
     """Get filtered games with caching."""
@@ -1047,11 +1084,11 @@ def home(request: HttpRequest) -> HttpResponse:
             popular_games = []
             recent_games = []
 
-        # Keywords
+        # Keywords - УДАЛИЛ ограничение [:20]
         popular_keywords = list(Keyword.objects.filter(
             cached_usage_count__gt=0
         ).only('id', 'name', 'cached_usage_count')
-                                .order_by('-cached_usage_count')[:20])
+                                .order_by('-cached_usage_count'))
 
         # Query count
         from django.db import connection
@@ -1106,7 +1143,7 @@ def keyword_category_view(request: HttpRequest, category_id: int) -> HttpRespons
         game__isnull=False
     ).annotate(game_count=Count('game')).only(
         'id', 'name', 'category__id'
-    ).order_by('-game_count')[:20]
+    ).order_by('-game_count')  # УДАЛИЛ ограничение [:20]
 
     return render(request, 'games/keyword_category.html', {
         'category': category,

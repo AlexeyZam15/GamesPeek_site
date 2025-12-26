@@ -58,9 +58,9 @@
                                                 <span class="badge bg-info me-1 mb-1 active-platform-tag"
                                                       data-platform-id="{{ platform.id }}"
                                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
-                                                    {{ platform.display_name }}
-                                                    <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
-                                                </span>
+                        {{ platform.display_name }} ({{ platform.game_count }})
+                        <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                    </span>
                                             {% endif %}
                                         {% endfor %}
                                     </div>
@@ -72,7 +72,8 @@
                                              style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
                                             {% for platform in platforms %}
                                                 <div class="platform-item"
-                                                     data-platform-name="{{ platform.name|lower }}">
+                                                     data-platform-name="{{ platform.name|lower }}"
+                                                     data-game-count="{{ platform.game_count }}">
                                                     <div class="form-check">
                                                         <input class="form-check-input platform-checkbox"
                                                                type="checkbox"
@@ -81,6 +82,7 @@
                                                         <label class="form-check-label small"
                                                                for="platform_{{ platform.id }}">
                                                             {{ platform.display_name }}
+                                                            <span class="text-muted ms-1">({{ platform.game_count }})</span>
                                                         </label>
                                                     </div>
                                                 </div>
