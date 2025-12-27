@@ -1,4 +1,4 @@
-{% load game_tags platform_icons color_tags %}
+{% load game_tags platform_icons color_tags game_type_tags %}
 
 <div class="col-xl-3 col-lg-4 col-md-6 mb-4">
     <div class="card h-100 game-card d-flex flex-column">
@@ -47,20 +47,27 @@
 
             <!-- Платформы - используем prefetched данные -->
             {% if game.platforms.all %}
-                <div class="position-absolute bottom-0 start-0 p-1 platforms-overlay">
-                    <div class="d-flex flex-wrap gap-1">
-                        {% for platform in game.platforms.all %}
-                            <span class="platform-icon text-white"
-                                  data-bs-toggle="tooltip"
-                                  data-bs-placement="top"
-                                  data-bs-title="{{ platform.name }}"
-                                  style="filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.8));">
-                    {% platform_icon platform.name %}
-                </span>
-                        {% endfor %}
-                    </div>
-                </div>
+                {% with platforms=game.platforms.all %}
+                    {% with platforms_count=platforms|length %}
+                        <div class="position-absolute bottom-0 start-0 p-1 platforms-overlay w-100">
+                            <div class="platforms-container">
+                                <!-- Разделяем платформы на ряды по 8 штук -->
+                                {% for platform_row in platforms|split_platforms:8 %}
+                                    <div class="d-flex flex-wrap gap-1 {% if not forloop.first %}mt-1{% endif %}">
+                                        {% for platform in platform_row %}
+                                            {% platform_badge platform.name %}
+                                        {% endfor %}
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endwith %}
+                {% endwith %}
             {% endif %}
+
+            <!-- Тип игры (справа снизу) -->
+            {% game_type_badge game.game_type %}
+
         </div>
 
         <!-- Card body -->
