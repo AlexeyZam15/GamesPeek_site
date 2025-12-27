@@ -1,21 +1,22 @@
-# games/management/commands/analyzer/progress_bar.py
 import sys
 import time
 from typing import Optional, Dict
 
 
 class ProgressBar:
-    """Класс для отображения прогресс-бара в терминале (stderr)"""
+    """Класс для отображения прогресс-бара в терминале"""
 
     def __init__(self, total: int, desc: str = "Анализ игр",
                  bar_length: int = 30, update_interval: float = 0.1,
-                 stat_width: int = 5, emoji_spacing: int = 1):  # Добавляем параметр для отступа
+                 stat_width: int = 5, emoji_spacing: int = 1,
+                 terminal_stream=None):
+
         self.total = total
         self.desc = desc
         self.bar_length = bar_length
         self.update_interval = update_interval
         self.stat_width = stat_width
-        self.emoji_spacing = emoji_spacing  # Отступ между эмодзи и цифрами
+        self.emoji_spacing = emoji_spacing
 
         self.current = 0
         self.start_time = time.time()
@@ -32,7 +33,13 @@ class ProgressBar:
 
         self.filled_char = '█'
         self.empty_char = '░'
-        self.terminal_stderr = sys.stderr
+
+        # Используем переданный поток или sys.stderr
+        if terminal_stream is not None:
+            self.terminal_stream = terminal_stream
+        else:
+            import sys
+            self.terminal_stream = sys.stderr
 
     def set_enabled(self, enabled: bool):
         """Включить/выключить прогресс-бар"""
@@ -86,7 +93,6 @@ class ProgressBar:
         message = f"\r{self.desc}: {percentage:3.0f}% [{self.current}/{self.total}] [{bar}] "
 
         # Добавляем отступы между эмодзи и цифрами
-        # self.emoji_spacing пробелов после каждого эмодзи
         spacing = " " * self.emoji_spacing
 
         message += f"🎯{spacing}{self.stats['found_count']:>{self.stat_width}} "
@@ -99,13 +105,14 @@ class ProgressBar:
         # Добавляем пробелы для очистки остатков предыдущей строки
         message += " " * 30
 
-        self.terminal_stderr.write(message)
-        self.terminal_stderr.flush()
+        # ИСПРАВЛЕНО: используем terminal_stream вместо terminal_stderr
+        self.terminal_stream.write(message)
+        self.terminal_stream.flush()
 
         # Если завершено, переходим на новую строку
         if self.current >= self.total:
-            self.terminal_stderr.write("\n")
-            self.terminal_stderr.flush()
+            self.terminal_stream.write("\n")
+            self.terminal_stream.flush()
 
     def finish(self):
         """Завершить прогресс-бар"""
@@ -143,16 +150,16 @@ class ProgressBar:
 
             message += " " * 30
 
-            self.terminal_stderr.write(message)
-            self.terminal_stderr.flush()
+            self.terminal_stream.write(message)
+            self.terminal_stream.flush()
 
             # Переходим на новую строку
-            self.terminal_stderr.write("\n")
-            self.terminal_stderr.flush()
+            self.terminal_stream.write("\n")
+            self.terminal_stream.flush()
         else:
             # Если уже на 100%, просто очищаем строку
-            self.terminal_stderr.write("\r" + " " * 150 + "\r")
-            self.terminal_stderr.flush()
+            self.terminal_stream.write("\r" + " " * 150 + "\r")
+            self.terminal_stream.flush()
 
     def __enter__(self):
         return self
