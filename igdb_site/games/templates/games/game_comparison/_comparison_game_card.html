@@ -26,7 +26,8 @@
         <div class="card-body p-0 mt-3">
             <!-- Название игры -->
             <a href="{% url 'game_detail' game.pk %}" class="text-decoration-none">
-                <h3 class="game-title text-warning mb-3">{{ game.name }}</h3>
+                <h3 class="game-title text-light mb-3">{{ game.name }}</h3>
+                <!-- ИЗМЕНЕНО: text-light вместо text-warning -->
             </a>
 
             <!-- Рейтинг (текстовый дубль) -->
@@ -50,7 +51,8 @@
                 <div class="game-genres mb-3">
                     <div class="d-flex flex-wrap gap-1 justify-content-center">
                         {% for genre in game.genres.all %}
-                            <span class="badge item-genre px-2 py-1">{{ genre.name }}</span>
+                            <span class="badge bg-primary px-2 py-1">{{ genre.name }}</span>
+                            <!-- ИЗМЕНЕНО: bg-primary -->
                         {% endfor %}
                     </div>
                 </div>
@@ -72,7 +74,7 @@
                 <div class="game-developers mb-3">
                     <div class="d-flex flex-wrap gap-1 justify-content-center">
                         {% for developer in game.developers.all|slice:":3" %}
-                            <span class="badge item-development px-2 py-1">{{ developer.name }}</span>
+                            <span class="badge bg-info px-2 py-1">{{ developer.name }}</span> <!-- ИЗМЕНЕНО: bg-info -->
                         {% endfor %}
                         {% if game.developers.all|length > 3 %}
                             <span class="badge bg-secondary px-2 py-1">+{{ game.developers.all|length|add:"-3" }}</span>
@@ -106,7 +108,7 @@
 
             <div class="d-flex flex-column align-items-center">
                 <i class="bi bi-search text-warning" style="font-size: 4rem;"></i>
-                <h3 class="game-title mt-3 text-warning">Search Criteria</h3>
+                <h3 class="game-title mt-3 text-light">Search Criteria</h3> <!-- ИЗМЕНЕНО: text-light -->
             </div>
         </div>
         <div class="card-body p-0">
@@ -114,7 +116,8 @@
                 <div class="game-genres mb-3">
                     <div class="d-flex flex-wrap gap-1 justify-content-center">
                         {% for genre in criteria_genres %}
-                            <span class="badge item-genre px-2 py-1">{{ genre.name }}</span>
+                            <span class="badge bg-primary px-2 py-1">{{ genre.name }}</span>
+                            <!-- ИЗМЕНЕНО: bg-primary -->
                         {% endfor %}
                     </div>
                 </div>
@@ -125,12 +128,14 @@
                     <div class="keywords-container">
                         <div class="keywords-collapsible" id="criteria-keywords">
                             {% for keyword in criteria_keywords|slice:":6" %}
-                                <span class="badge item-keyword mb-1">{{ keyword.name }}</span>
+                                <span class="badge bg-success px-2 py-1">{{ keyword.name }}</span>
+                                <!-- ИЗМЕНЕНО: bg-success -->
                             {% endfor %}
                             {% if criteria_keywords|length > 6 %}
                                 <div class="keywords-hidden" id="hidden-keywords" style="display: none;">
                                     {% for keyword in criteria_keywords|slice:"6:" %}
-                                        <span class="badge item-keyword mb-1">{{ keyword.name }}</span>
+                                        <span class="badge bg-success px-2 py-1">{{ keyword.name }}</span>
+                                        <!-- ИЗМЕНЕНО: bg-success -->
                                     {% endfor %}
                                 </div>
                                 <button type="button" class="btn btn-link btn-sm p-0 mt-1 text-decoration-none"
@@ -158,7 +163,8 @@
                 <div class="game-perspectives mb-3">
                     <div class="d-flex flex-wrap gap-1 justify-content-center">
                         {% for perspective in criteria_perspectives %}
-                            <span class="badge item-setting px-2 py-1">{{ perspective.name }}</span>
+                            <span class="badge bg-info px-2 py-1">{{ perspective.name }}</span>
+                            <!-- ИЗМЕНЕНО: bg-info -->
                         {% endfor %}
                     </div>
                 </div>
@@ -168,7 +174,7 @@
                 <div class="game-developers mb-3">
                     <div class="d-flex flex-wrap gap-1 justify-content-center">
                         {% for developer in criteria_developers %}
-                            <span class="badge item-development px-2 py-1">{{ developer.name }}</span>
+                            <span class="badge bg-info px-2 py-1">{{ developer.name }}</span> <!-- ИЗМЕНЕНО: bg-info -->
                         {% endfor %}
                     </div>
                 </div>
@@ -190,7 +196,11 @@
                 <div class="game-platforms mb-3">
                     <div class="d-flex flex-wrap gap-1 justify-content-center">
                         {% for platform in criteria_platforms %}
-                            <span class="badge bg-info px-2 py-1">{{ platform.name }}</span>
+                            <span class="badge bg-secondary px-2 py-1"
+                                  data-bs-toggle="tooltip"
+                                  data-bs-title="{{ platform.name }}">
+                                {{ platform.name }}
+                            </span>
                         {% endfor %}
                     </div>
                 </div>
