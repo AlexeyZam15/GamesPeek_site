@@ -590,3 +590,63 @@
     font-size: 14px;
   }
 }
+
+/* ===== PLATFORM BADGES IN GAME DETAIL ===== */
+
+/* Бейджи платформ в хедере */
+.game-header-card .platforms-overlay {
+    z-index: 20 !important;
+    pointer-events: auto !important;
+    padding: 0.5rem !important;
+    max-width: calc(100% - 80px);
+    bottom: 8px !important;
+}
+
+.game-header-card .platforms-overlay .d-flex.flex-wrap {
+    gap: 3px !important;
+}
+
+/* Бейджи платформ во вкладке Details */
+.vertical-detail-card.platforms .detail-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.platform-badge-wrapper {
+    text-align: center;
+}
+
+/* Адаптивность для бейджей на детальной странице */
+@media (max-width: 992px) {
+    .game-header-card .platforms-overlay {
+        max-width: calc(100% - 70px);
+        padding: 0.4rem !important;
+    }
+}
+
+@media (max-width: 768px) {
+    .game-header-card .platforms-overlay {
+        max-width: calc(100% - 60px);
+        padding: 0.3rem !important;
+    }
+
+    .vertical-detail-card.platforms .detail-tags {
+        gap: 6px;
+    }
+}
+
+@media (max-width: 576px) {
+    .game-header-card .platforms-overlay {
+        max-width: calc(100% - 50px);
+        padding: 0.2rem !important;
+    }
+
+    .game-header-card .platforms-overlay .d-flex.flex-wrap {
+        gap: 2px !important;
+    }
+
+    .vertical-detail-card.platforms .detail-tags {
+        gap: 4px;
+    }
+}
