@@ -71,13 +71,10 @@
                 </h5>
                 <div class="detail-tags">
                     {% for platform in game.platforms.all %}
-                        <div class="platform-with-icon"
+                        <div class="platform-badge-wrapper mb-2"
                              data-bs-toggle="tooltip"
                              data-bs-title="{{ platform.display_name|default:platform.name }}">
-                            <div class="platform-icon-wrapper">
-                                {% platform_icon platform.name %}
-                            </div>
-                            <span class="platform-name">{{ platform.display_name|default:platform.name }}</span>
+                            {% platform_badge platform.name %}
                         </div>
                     {% endfor %}
                 </div>

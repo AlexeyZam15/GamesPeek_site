@@ -47,14 +47,9 @@
                     <!-- Платформы (нижний левый угол) -->
                     {% if game.platforms.all %}
                         <div class="position-absolute bottom-0 start-0 platforms-overlay">
-                            <div class="d-flex flex-wrap gap-2">
+                            <div class="d-flex flex-wrap gap-1">
                                 {% for platform in game.platforms.all %}
-                                    <span class="platform-icon text-white"
-                                          data-bs-toggle="tooltip"
-                                          data-bs-placement="top"
-                                          data-bs-title="{{ platform.display_name|default:platform.name }}">
-                    {% platform_icon platform.name %}
-                </span>
+                                    {% platform_badge platform.name %}
                                 {% endfor %}
                             </div>
                         </div>
