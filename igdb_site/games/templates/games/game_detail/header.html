@@ -50,11 +50,11 @@
                             <div class="d-flex flex-wrap gap-2">
                                 {% for platform in game.platforms.all %}
                                     <span class="platform-icon text-white"
-                                          title="{{ platform.display_name }}"
                                           data-bs-toggle="tooltip"
-                                          data-bs-placement="top">
-                                        {% platform_icon platform.name %}
-                                    </span>
+                                          data-bs-placement="top"
+                                          data-bs-title="{{ platform.display_name|default:platform.name }}">
+                    {% platform_icon platform.name %}
+                </span>
                                 {% endfor %}
                             </div>
                         </div>

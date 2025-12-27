@@ -300,11 +300,11 @@ h2, h3, h4, h5, h6 {
     transition: var(--transition);
     font-size: 0.9rem;
     background: var(--surface-dark);
-    color: var(--text-light); /* ИЗМЕНЕНО: с var(--text-dark) на var(--text-light) */
+    color: var(--text-light);
 }
 
 .form-control::placeholder {
-    color: #aaa; /* ИЗМЕНЕНО: с #666 на #aaa */
+    color: #aaa;
     opacity: 0.8;
 }
 
@@ -313,10 +313,9 @@ h2, h3, h4, h5, h6 {
     box-shadow: 0 0 0 2px rgba(255, 107, 53, 0.1);
     outline: none;
     background: var(--surface);
-    color: var(--text-light); /* Добавлено для ясности */
+    color: var(--text-light);
 }
 
-/* Стили для автозаполнения */
 .form-control:-webkit-autofill {
     -webkit-text-fill-color: var(--text-light) !important;
     -webkit-box-shadow: 0 0 0px 1000px var(--surface-dark) inset !important;

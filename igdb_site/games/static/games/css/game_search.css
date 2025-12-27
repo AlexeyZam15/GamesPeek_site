@@ -1,294 +1,352 @@
+/* ===== CSS VARIABLES ===== */
+:root {
+  /* Размеры заголовков */
+  --search-header-size: 2.5rem;
+  --search-header-size-md: 2rem;
+  --search-header-size-sm: 1.8rem;
+  --search-header-size-xs: 1.6rem;
+
+  /* Размеры текста */
+  --search-lead-size: 1.1rem;
+  --search-lead-size-md: 1rem;
+  --search-lead-size-sm: 0.95rem;
+
+  /* Отступы */
+  --search-input-padding: 1rem 1.25rem;
+  --search-input-padding-md: 0.875rem 1rem;
+
+  --message-padding: 1rem 1.5rem;
+  --message-padding-sm: 0.75rem 1rem;
+
+  --popular-padding: 3rem 2rem;
+  --popular-padding-md: 2rem 1rem;
+
+  --empty-padding: 4rem 2rem;
+  --empty-padding-md: 3rem 1rem;
+
+  --suggestion-padding: 0.75rem 1rem;
+  --suggestion-padding-sm: 0.5rem 0.75rem;
+
+  /* Сетка */
+  --grid-gap-lg: 1.5rem;
+  --grid-gap-md: 1rem;
+  --grid-gap-sm: 1rem;
+
+  /* Цвета */
+  --search-input-border: 2px solid var(--border);
+  --search-input-focus-border: 2px solid var(--secondary-color);
+  --search-input-shadow: 0 0 0 3px rgba(255, 107, 53, 0.1);
+
+  --message-bg: rgba(52, 152, 219, 0.1);
+  --message-border: rgba(52, 152, 219, 0.3);
+
+  /* Подсказки */
+  --suggestion-bg: var(--surface);
+  --suggestion-border: var(--border);
+  --suggestion-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  --suggestion-hover-bg: rgba(255, 107, 53, 0.1);
+
+  /* Кнопки популярного поиска */
+  --popular-btn-padding: 0.5rem 1rem;
+  --popular-btn-padding-sm: 0.4rem 0.75rem;
+}
+
 /* ===== GAME SEARCH PAGE ===== */
 
 /* Заголовок страницы */
 .search-header {
-    margin-bottom: 2rem;
-    text-align: center;
+  margin-bottom: 2rem;
+  text-align: center;
 }
 
 .search-header h1 {
-    margin-bottom: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-size: var(--search-header-size);
 }
 
 .search-header p {
-    color: var(--text-muted);
-    font-size: 1.1rem;
+  color: var(--text-muted);
+  font-size: var(--search-lead-size);
 }
 
 /* Форма поиска */
 .search-form-card {
-    margin-bottom: 2.5rem;
+  margin-bottom: 2.5rem;
 }
 
 .search-form-card .form-label {
-    font-weight: 600;
-    color: var(--text-light);
-    margin-bottom: 0.75rem;
+  font-weight: 600;
+  color: var(--text-light);
+  margin-bottom: 0.75rem;
 }
 
 .search-form-card input[type="text"] {
-    background: var(--surface);
-    border: 2px solid var(--border);
-    color: var(--text-light);
-    font-size: 1.1rem;
-    padding: 1rem 1.25rem;
-    height: auto;
+  background: var(--surface);
+  border: var(--search-input-border);
+  color: var(--text-light);
+  font-size: var(--search-lead-size);
+  padding: var(--search-input-padding);
+  height: auto;
 }
 
 .search-form-card input[type="text"]:focus {
-    border-color: var(--secondary-color);
-    box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.1);
-    background: var(--surface-dark);
+  border-color: var(--secondary-color);
+  box-shadow: var(--search-input-shadow);
+  background: var(--surface-dark);
 }
 
 /* Результаты поиска */
 .search-results-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1.5rem;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
 }
 
 .search-results-header h5 {
-    margin: 0;
-    color: var(--text-light);
-    font-weight: 700;
+  margin: 0;
+  color: var(--text-light);
+  font-weight: 700;
 }
 
 .search-results-header .badge {
-    font-size: 0.9rem;
-    padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  padding: 0.5rem 1rem;
 }
 
 /* Сообщение о поиске */
 .search-query-message {
-    background: rgba(52, 152, 219, 0.1);
-    border: 1px solid rgba(52, 152, 219, 0.3);
-    border-radius: var(--border-radius);
-    padding: 1rem 1.5rem;
-    margin-bottom: 2rem;
-    color: var(--text-light);
+  background: var(--message-bg);
+  border: 1px solid var(--message-border);
+  border-radius: var(--border-radius);
+  padding: var(--message-padding);
+  margin-bottom: 2rem;
+  color: var(--text-light);
 }
 
 .search-query-message h5 {
-    margin-bottom: 0.5rem;
-    color: var(--info-color);
+  margin-bottom: 0.5rem;
+  color: var(--info-color);
 }
 
 /* Популярные поиски */
 .popular-searches {
-    text-align: center;
-    padding: 3rem 2rem;
-    background: var(--surface);
-    border-radius: var(--border-radius);
-    border: 1px solid var(--border);
-    margin-top: 2rem;
+  text-align: center;
+  padding: var(--popular-padding);
+  background: var(--surface);
+  border-radius: var(--border-radius);
+  border: 1px solid var(--border);
+  margin-top: 2rem;
 }
 
 .popular-searches h5 {
-    color: var(--text-light);
-    margin-bottom: 1rem;
+  color: var(--text-light);
+  margin-bottom: 1rem;
 }
 
 .popular-searches p {
-    color: var(--text-dark);
-    margin-bottom: 2rem;
-    max-width: 500px;
-    margin-left: auto;
-    margin-right: auto;
+  color: var(--text-dark);
+  margin-bottom: 2rem;
+  max-width: 500px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .popular-searches-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-    justify-content: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: center;
 }
 
 .popular-searches-grid .btn {
-    font-size: 0.9rem;
-    padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  padding: var(--popular-btn-padding);
 }
 
 /* Когда нет результатов */
 .no-results-container {
-    text-align: center;
-    padding: 4rem 2rem;
-    background: var(--surface);
-    border-radius: var(--border-radius);
-    border: 1px solid var(--border);
+  text-align: center;
+  padding: var(--empty-padding);
+  background: var(--surface);
+  border-radius: var(--border-radius);
+  border: 1px solid var(--border);
 }
 
 .no-results-container h5 {
-    color: var(--text-light);
-    margin-bottom: 1rem;
+  color: var(--text-light);
+  margin-bottom: 1rem;
 }
 
 .no-results-container p {
-    color: var(--text-dark);
-    margin-bottom: 2rem;
+  color: var(--text-dark);
+  margin-bottom: 2rem;
 }
 
 /* Сетка результатов */
 .search-results-grid {
-    display: grid;
-    gap: 1.5rem;
+  display: grid;
+  gap: var(--grid-gap-lg);
 }
 
 /* Индикатор загрузки */
 .search-loading {
-    text-align: center;
-    padding: 3rem;
-    color: var(--text-muted);
+  text-align: center;
+  padding: 3rem;
+  color: var(--text-muted);
 }
 
 .search-loading i {
-    font-size: 2rem;
-    margin-bottom: 1rem;
-    color: var(--secondary-color);
-    animation: pulse 1.5s infinite;
+  font-size: 2rem;
+  margin-bottom: 1rem;
+  color: var(--secondary-color);
+  animation: pulse 1.5s infinite;
 }
 
 /* Подсказки при поиске */
 .search-suggestions {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 0 0 var(--border-radius) var(--border-radius);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-    z-index: 1000;
-    max-height: 300px;
-    overflow-y: auto;
-    display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--suggestion-bg);
+  border: 1px solid var(--suggestion-border);
+  border-radius: 0 0 var(--border-radius) var(--border-radius);
+  box-shadow: var(--suggestion-shadow);
+  z-index: 1000;
+  max-height: 300px;
+  overflow-y: auto;
+  display: none;
 }
 
 .search-suggestions.active {
-    display: block;
+  display: block;
 }
 
 .suggestion-item {
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid var(--border);
-    cursor: pointer;
-    transition: var(--transition);
-    color: var(--text-dark);
+  padding: var(--suggestion-padding);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: var(--transition);
+  color: var(--text-dark);
 }
 
 .suggestion-item:hover {
-    background: rgba(255, 107, 53, 0.1);
-    color: var(--text-light);
+  background: var(--suggestion-hover-bg);
+  color: var(--text-light);
 }
 
 .suggestion-item:last-child {
-    border-bottom: none;
+  border-bottom: none;
 }
 
 .suggestion-item .game-name {
-    font-weight: 600;
-    margin-bottom: 0.25rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
 }
 
 .suggestion-item .game-meta {
-    font-size: 0.8rem;
-    color: var(--text-muted);
+  font-size: 0.8rem;
+  color: var(--text-muted);
 }
 
-/* Адаптивность */
+/* ===== АДАПТИВНОСТЬ ===== */
 @media (max-width: 1200px) {
-    .search-results-grid {
-        grid-template-columns: repeat(3, 1fr);
-    }
+  .search-results-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }
 
 @media (max-width: 992px) {
-    .search-results-grid {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 1rem;
-    }
+  .search-results-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--grid-gap-md);
+  }
 
-    .search-results-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 1rem;
-    }
+  .search-results-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
 
-    .search-form-card .col-md-8 {
-        width: 100%;
-        margin-bottom: 1rem;
-    }
+  .search-form-card .col-md-8 {
+    width: 100%;
+    margin-bottom: 1rem;
+  }
 
-    .search-form-card .col-md-4 {
-        width: 100%;
-    }
+  .search-form-card .col-md-4 {
+    width: 100%;
+  }
 }
 
 @media (max-width: 768px) {
-    .search-results-grid {
-        grid-template-columns: 1fr;
-        gap: 1rem;
-    }
+  .search-results-grid {
+    grid-template-columns: 1fr;
+    gap: var(--grid-gap-sm);
+  }
 
-    .search-header h1 {
-        font-size: 2rem;
-    }
+  .search-header h1 {
+    font-size: var(--search-header-size-md);
+  }
 
-    .search-header p {
-        font-size: 1rem;
-    }
+  .search-header p {
+    font-size: var(--search-lead-size-md);
+  }
 
-    .search-form-card input[type="text"] {
-        font-size: 1rem;
-        padding: 0.875rem 1rem;
-    }
+  .search-form-card input[type="text"] {
+    font-size: var(--search-lead-size-md);
+    padding: var(--search-input-padding-md);
+  }
 
-    .popular-searches {
-        padding: 2rem 1rem;
-    }
+  .popular-searches {
+    padding: var(--popular-padding-md);
+  }
 
-    .popular-searches-grid .btn {
-        font-size: 0.85rem;
-        padding: 0.4rem 0.75rem;
-    }
+  .popular-searches-grid .btn {
+    font-size: 0.85rem;
+    padding: var(--popular-btn-padding-sm);
+  }
 
-    .no-results-container {
-        padding: 3rem 1rem;
-    }
+  .no-results-container {
+    padding: var(--empty-padding-md);
+  }
 }
 
 @media (max-width: 576px) {
-    .search-header h1 {
-        font-size: 1.8rem;
-    }
+  .search-header h1 {
+    font-size: var(--search-header-size-xs);
+  }
 
-    .search-results-header h5 {
-        font-size: 1rem;
-    }
+  .search-results-header h5 {
+    font-size: 1rem;
+  }
 
-    .search-results-header .badge {
-        font-size: 0.8rem;
-        padding: 0.4rem 0.75rem;
-    }
+  .search-results-header .badge {
+    font-size: 0.8rem;
+    padding: 0.4rem 0.75rem;
+  }
 
-    .search-query-message {
-        padding: 0.75rem 1rem;
-        font-size: 0.9rem;
-    }
+  .search-query-message {
+    padding: var(--message-padding-sm);
+    font-size: 0.9rem;
+  }
 
-    .popular-searches h5 {
-        font-size: 1rem;
-    }
+  .popular-searches h5 {
+    font-size: 1rem;
+  }
 
-    .popular-searches p {
-        font-size: 0.9rem;
-    }
+  .popular-searches p {
+    font-size: 0.9rem;
+  }
 
-    .suggestion-item {
-        padding: 0.5rem 0.75rem;
-        font-size: 0.9rem;
-    }
+  .suggestion-item {
+    padding: var(--suggestion-padding-sm);
+    font-size: 0.9rem;
+  }
+
+  .search-header p {
+    font-size: var(--search-lead-size-sm);
+  }
 }

@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 
 {% load static %}
+{% load game_tags %}  <!-- Добавляем загрузку game_tags -->
 
 {% block title %}
     {% if is_criteria_comparison %}
@@ -19,44 +20,19 @@
     <div class="container-fluid py-4">
         <!-- Хедер с основной информацией -->
         <div class="row mb-4">
-            <div class="col-12">
-                <div class="game-header-card card border-0">
-                    <div class="card-body p-4">
-                        <div class="row align-items-center">
-                            <!-- ЛЕВАЯ СТОРОНА: Игра или Критерии -->
-                            <div class="col-md-5 text-center">
-                                {% if is_criteria_comparison %}
-                                    {% with criteria_genres=criteria_genres criteria_keywords=criteria_keywords criteria_themes=criteria_themes criteria_perspectives=criteria_perspectives criteria_developers=criteria_developers criteria_game_modes=criteria_game_modes %}
-                                        {% include 'games/game_comparison/_comparison_game_card.html' %}
-                                    {% endwith %}
-                                {% else %}
-                                    {% include 'games/game_comparison/_comparison_game_card.html' with game=game1 %}
-                                {% endif %}
-                            </div>
+            <div class="col-md-6">
+                {% if is_criteria_comparison %}
+                    <!-- Виртуальная карточка критериев -->
+                    {% include 'games/game_comparison/_comparison_game_card.html' with game=None criteria_genres=criteria_genres criteria_keywords=criteria_keywords criteria_themes=criteria_themes criteria_perspectives=criteria_perspectives criteria_virtual_game=criteria_virtual_game %}
+                {% else %}
+                    <!-- Карточка реальной игры -->
+                    {% include 'games/game_comparison/_comparison_game_card.html' with game=game1 is_comparison_mode=True source_game=game1 %}
+                {% endif %}
+            </div>
 
-                            <!-- Similarity Score -->
-                            <div class="col-md-2 text-center">
-                                <div class="similarity-card">
-                                    <div class="similarity-score
-                                {% if similarity_score > 70 %}score-high
-                                {% elif similarity_score > 40 %}score-medium
-                                {% else %}score-low{% endif %}">
-                                        {{ similarity_score|floatformat:0 }}%
-                                    </div>
-                                    <div class="similarity-label">Match</div>
-                                    <div class="similarity-description">
-                                        <small class="text-muted">Overall Similarity</small>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- ПРАВАЯ СТОРОНА: Игра 2 -->
-                            <div class="col-md-5 text-center">
-                                {% include 'games/game_comparison/_comparison_game_card.html' with game=game2 %}
-                            </div>
-                        </div>
-                    </div>
-                </div>
+            <div class="col-md-6">
+                <!-- Карточка второй игры -->
+                {% include 'games/game_comparison/_comparison_game_card.html' with game=game2 is_comparison_mode=True source_game=game1 similarity_percent=similarity_score %}
             </div>
         </div>
 
@@ -270,11 +246,8 @@
             <div class="col-12">
                 <div class="action-buttons">
                     {% if is_criteria_comparison %}
-                        <a href="{% url 'game_list' %}?find_similar=1&g={{ selected_genres|join:',' }}&k=
-                                {{ selected_keywords|join:',' }}&t={{ selected_themes|join:',' }}&pp=
-                                {{ selected_perspectives|join:',' }}&d={{ selected_developers|join:',' }}&gm=
-                                {{ selected_game_modes|join:',' }}"
-                           class="btn btn-outline-primary btn-lg">
+                        {% get_find_similar_url criteria_virtual_game as back_url %}
+                        <a href="{{ back_url }}" class="btn btn-outline-primary btn-lg">
                             <i class="bi bi-arrow-left"></i> Back to Similar Games
                         </a>
                     {% else %}
@@ -287,11 +260,29 @@
                         Back to {{ game2.name }} <i class="bi bi-arrow-right"></i>
                     </a>
 
-                    <a href="{% url 'game_list' %}" class="btn btn-primary-gradient btn-lg">
-                        <i class="bi bi-search"></i> Find More Games
-                    </a>
+                    {% if not is_criteria_comparison %}
+                        {% get_find_similar_url game1 as find_similar_url %}
+                        <a href="{{ find_similar_url }}" class="btn btn-primary-gradient btn-lg">
+                            <i class="bi bi-search"></i> Find Similar Games
+                        </a>
+                    {% else %}
+                        <a href="{% url 'game_list' %}" class="btn btn-primary-gradient btn-lg">
+                            <i class="bi bi-search"></i> Find More Games
+                        </a>
+                    {% endif %}
                 </div>
             </div>
         </div>
     </div>
+{% endblock %}
+{% block extra_js %}
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Инициализация тултипов для платформ
+            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+        });
+    </script>
 {% endblock %}

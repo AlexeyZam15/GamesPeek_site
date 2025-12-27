@@ -1087,6 +1087,59 @@ def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
 
                 shared_items[field] = list(field1 & field2)
 
+        # Создаем виртуальную игру для тегов
+        class CriteriaVirtualGame:
+            """Обертка для критериев поиска, чтобы использовать с тегами."""
+
+            def __init__(self, criteria_dict):
+                self.id = None  # Нет реального ID
+                self.genres = criteria_dict['genres']
+                self.keywords = criteria_dict['keywords']
+                self.themes = criteria_dict['themes']
+                self.player_perspectives = criteria_dict['perspectives']
+                self.developers = criteria_dict['developers']
+                self.game_modes = criteria_dict['game_modes']
+
+            # Методы для совместимости с тегами
+            @property
+            def all(self):
+                return []
+
+            def get(self, *args, **kwargs):
+                return None
+
+            # Методы, которые могут вызываться в тегах
+            def genres_list(self):
+                """Возвращает список ID жанров для тегов."""
+                return self.genres
+
+            def keywords_list(self):
+                """Возвращает список ID ключевых слов для тегов."""
+                return self.keywords
+
+            def themes_list(self):
+                """Возвращает список ID тем для тегов."""
+                return self.themes
+
+            def perspectives_list(self):
+                """Возвращает список ID перспектив для тегов."""
+                return self.player_perspectives
+
+            def developers_list(self):
+                """Возвращает список ID разработчиков для тегов."""
+                return self.developers
+
+            def game_modes_list(self):
+                """Возвращает список ID режимов игры для тегов."""
+                return self.game_modes
+
+        # Создаем виртуальную игру для контекста
+        if is_criteria_comparison:
+            criteria_virtual_game = CriteriaVirtualGame(selected_criteria)
+        else:
+            # Для сравнения игра-игра используем game1
+            criteria_virtual_game = game1
+
         # Prepare context
         context = {
             'game1': game1,
@@ -1105,6 +1158,17 @@ def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
             'criteria_developers': list(criteria_developers_objs),
             'criteria_game_modes': list(criteria_game_modes_objs),
 
+            # Виртуальная игра для тегов
+            'criteria_virtual_game': criteria_virtual_game,
+
+            # ID критериев для ссылок (альтернатива)
+            'criteria_genres_ids': selected_criteria['genres'],
+            'criteria_keywords_ids': selected_criteria['keywords'],
+            'criteria_themes_ids': selected_criteria['themes'],
+            'criteria_perspectives_ids': selected_criteria['perspectives'],
+            'criteria_developers_ids': selected_criteria['developers'],
+            'criteria_game_modes_ids': selected_criteria['game_modes'],
+
             # Algorithm weights
             'genres_weight': int(similarity_engine.GENRES_TOTAL_WEIGHT),
             'keywords_weight': int(similarity_engine.KEYWORDS_WEIGHT),
@@ -1121,7 +1185,7 @@ def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
             context[f'shared_{field}'] = items
             context[f'shared_{field}_count'] = len(items)
 
-        # Backward compatibility
+        # Для совместимости с шаблоном
         context.update({
             'selected_genres': selected_criteria['genres'],
             'selected_keywords': selected_criteria['keywords'],
@@ -1129,7 +1193,23 @@ def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
             'selected_perspectives': selected_criteria['perspectives'],
             'selected_developers': selected_criteria['developers'],
             'selected_game_modes': selected_criteria['game_modes'],
+
+            # Объекты для выбранных критериев
+            'selected_genres_objects': list(criteria_genres_objs),
+            'selected_keywords_objects': list(criteria_keywords_objs),
+            'selected_themes_objects': list(criteria_themes_objs),
+            'selected_perspectives_objects': list(criteria_perspectives_objs),
+            'selected_developers_objects': list(criteria_developers_objs),
+            'selected_game_modes_objects': list(criteria_game_modes_objs),
         })
+
+        # Рассчитываем среднюю схожесть для виртуальной карточки
+        if is_criteria_comparison:
+            # Для критериев можно использовать общую схожесть
+            context['average_similarity'] = similarity_score
+        else:
+            # Для игры можно оставить None или рассчитать как-то иначе
+            context['average_similarity'] = None
 
         return render(request, 'games/game_comparison.html', context)
 
