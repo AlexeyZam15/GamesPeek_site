@@ -19,6 +19,23 @@
                 <div class="position-absolute top-0 start-0 p-1">
                     {% rating_star_svg game.rating 60 %}
                 </div>
+            {% else %}
+                <!-- Звезда с N/A для игр без рейтинга (как в хедере) -->
+                <div class="position-absolute top-0 start-0 p-1 no-rating-container"
+                     data-bs-toggle="tooltip"
+                     data-bs-placement="right"
+                     title="No Rating">
+                    <svg viewBox="0 0 60 60" width="60" height="60">
+                        <!-- Внешняя звезда -->
+                        <path d="M30,7.5 L36.45,22.65 L52.5,22.65 L39.525,31.1 L45.975,46.25 L30,37.8 L14.025,46.25 L20.475,31.1 L7.5,22.65 L23.55,22.65 Z"
+                              fill="none"
+                              stroke="#6c757d"
+                              stroke-width="2"/>
+                        <!-- Текст N/A внутри -->
+                        <text x="30" y="34" text-anchor="middle" fill="#6c757d" font-size="14" font-weight="bold">N/A
+                        </text>
+                    </svg>
+                </div>
             {% endif %}
 
             <!-- Процент похожести (только в режиме show_similarity) -->
