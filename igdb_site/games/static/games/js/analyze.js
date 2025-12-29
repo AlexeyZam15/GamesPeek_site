@@ -10,7 +10,7 @@ class GameAnalyzerUI {
 
         this.elements = {};
         this.currentTab = '';
-        this.currentMode = '';
+        this.currentMode = 'combined'; // Всегда combined
         this.init();
     }
 
@@ -27,19 +27,24 @@ class GameAnalyzerUI {
         this.loadUrlParams();
         this.forceTextAlignmentFix();
 
-        // Проверяем параметр cleared в URL
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('cleared') === '1') {
             console.log('Results were cleared, refreshing UI...');
             this.showMessage('✅ Несохранённые результаты успешно очищены.', 'success');
 
-            // Убираем параметр из URL без перезагрузки
             setTimeout(() => {
                 this.removeUrlParam('cleared');
             }, 3000);
         }
 
-        console.log('Game Analyzer UI initialized');
+        if (urlParams.get('keyword_added') === '1') {
+            this.showMessage('✅ Keyword added successfully!', 'success');
+            setTimeout(() => {
+                this.removeUrlParam('keyword_added');
+            }, 3000);
+        }
+
+        console.log('Game Analyzer UI initialized in COMBINED mode');
     }
 
     removeUrlParam(param) {
@@ -54,50 +59,36 @@ class GameAnalyzerUI {
 
     cacheElements() {
         this.elements = {
-            // Основные элементы
             modeButtons: document.querySelectorAll('.mode-btn'),
             analyzeForm: document.getElementById('analyze-form'),
             tabSelect: document.getElementById('analyze-tab-select'),
-
-            // Переключатель подсветки
+            newKeywordInput: document.getElementById('new-keyword-input'),
+            addKeywordButton: document.getElementById('add-keyword-button'),
             highlightToggle: document.getElementById('highlight-toggle'),
-
-            // Bootstrap табы
             analyzeTabs: document.getElementById('analyzeTabs'),
             analyzeTabLinks: document.querySelectorAll('#analyzeTabs .nav-link'),
             analyzeTabPanes: document.querySelectorAll('.tab-pane'),
-
-            // Кнопки действий
             copyTextBtn: document.getElementById('copy-text-btn'),
             findHighlightsBtn: document.getElementById('find-highlights-btn'),
             scrollToTopBtn: document.querySelector('.scroll-to-top'),
-
-            // Информационные элементы
             statusBar: document.querySelector('.status-bar'),
             currentModeDisplay: document.getElementById('current-mode-display'),
             currentTabDisplay: document.getElementById('current-tab-display'),
             currentTabChars: document.getElementById('current-tab-chars'),
-
-            // Скрытые поля формы
             tabInput: document.getElementById('analyze-tab-input'),
             modeInput: document.getElementById('analyze-mode-input'),
-
-            // Кнопки формы
             analyzeButton: document.getElementById('analyze-button'),
             saveButton: document.getElementById('save-button'),
             clearResultsBtn: document.getElementById('clear-results-btn'),
             backToGameBtn: document.getElementById('back-to-game-btn')
         };
 
-        console.log('Elements cached:');
+        console.log('Elements cached for COMBINED mode');
         console.log('- Form:', this.elements.analyzeForm ? 'found' : 'NOT FOUND');
         console.log('- Analyze button:', this.elements.analyzeButton ? 'found' : 'NOT FOUND');
-        console.log('- Tab select:', this.elements.tabSelect ? 'found' : 'NOT FOUND');
-        console.log('- Mode buttons:', this.elements.modeButtons.length);
     }
 
     getCurrentState() {
-        // Получаем текущую активную вкладку
         const activeTabLink = document.querySelector('#analyzeTabs .nav-link.active');
         if (activeTabLink) {
             const href = activeTabLink.getAttribute('href');
@@ -108,291 +99,25 @@ class GameAnalyzerUI {
             this.currentTab = href ? href.substring(1) : '';
         }
 
-        // Получаем текущий режим
-        const activeModeButton = document.querySelector('.mode-btn.active');
-        if (activeModeButton) {
-            this.currentMode = activeModeButton.dataset.mode;
-        } else {
-            this.currentMode = 'criteria';
-        }
+        this.currentMode = 'combined'; // Всегда combined
     }
 
     /* ============================================
        EVENT HANDLING METHODS
        ============================================ */
 
-    forceFormSubmit(buttonName) {
-        console.log(`forceFormSubmit called for button: ${buttonName}`);
-
-        if (!this.elements.analyzeForm) {
-            console.error('Cannot submit: form not found');
-            return false;
-        }
-
-        // Создаем скрытое поле с именем кнопки
-        const hiddenInput = document.createElement('input');
-        hiddenInput.type = 'hidden';
-        hiddenInput.name = buttonName;
-        hiddenInput.value = '1';
-        this.elements.analyzeForm.appendChild(hiddenInput);
-
-        console.log('Submitting form with hidden input:', hiddenInput.name);
-
-        // Отправляем форму
-        try {
-            this.elements.analyzeForm.submit();
-            return true;
-        } catch (error) {
-            console.error('Error submitting form:', error);
-            return false;
-        }
-    }
-
-    debugFormState() {
-        console.log('=== DEBUG FORM STATE ===');
-
-        if (!this.elements.analyzeForm) {
-            console.error('Form not found');
-            return;
-        }
-
-        // Выводим все поля формы
-        const formData = new FormData(this.elements.analyzeForm);
-        console.log('Form fields:');
-        for (let [name, value] of formData.entries()) {
-            console.log(`  ${name}: ${value}`);
-        }
-
-        // Проверяем типы кнопок
-        const buttons = this.elements.analyzeForm.querySelectorAll('button');
-        console.log(`Found ${buttons.length} buttons in form:`);
-        buttons.forEach((btn, index) => {
-            console.log(`  Button ${index}: name="${btn.name}", type="${btn.type}", text="${btn.textContent.trim()}"`);
-        });
-
-        console.log('=== END FORM DEBUG ===');
-    }
-
-    debugFormState() {
-        console.log('=== DEBUG FORM STATE ===');
-
-        if (!this.elements.analyzeForm) {
-            console.error('Form not found');
-            return;
-        }
-
-        // Выводим все поля формы
-        const formData = new FormData(this.elements.analyzeForm);
-        console.log('Form fields:');
-        for (let [name, value] of formData.entries()) {
-            console.log(`  ${name}: ${value}`);
-        }
-
-        // Проверяем типы кнопок
-        const buttons = this.elements.analyzeForm.querySelectorAll('button');
-        console.log(`Found ${buttons.length} buttons in form:`);
-        buttons.forEach((btn, index) => {
-            console.log(`  Button ${index}: name="${btn.name}", type="${btn.type}", text="${btn.textContent.trim()}"`);
-        });
-
-        console.log('=== END FORM DEBUG ===');
-    }
-
-    updateHiddenFields() {
-        console.log('=== UPDATING HIDDEN FIELDS ===');
-
-        // Обновляем поле вкладки из селекта
-        if (this.elements.tabSelect && this.elements.tabInput) {
-            const selectedTab = this.elements.tabSelect.value;
-            this.elements.tabInput.value = selectedTab;
-            console.log(`Tab input updated: ${selectedTab} → ${this.elements.tabInput.value}`);
-        } else {
-            console.error('Tab select or input not found');
-            if (!this.elements.tabSelect) console.error('- Tab select missing');
-            if (!this.elements.tabInput) console.error('- Tab input missing');
-        }
-
-        // Обновляем поле режима из активной кнопки
-        const activeModeBtn = document.querySelector('.mode-btn.active');
-        if (activeModeBtn && this.elements.modeInput) {
-            const mode = activeModeBtn.dataset.mode || 'criteria';
-            this.elements.modeInput.value = mode;
-            console.log(`Mode input updated: ${mode} → ${this.elements.modeInput.value}`);
-        } else {
-            console.warn('Active mode button or mode input not found');
-            console.log('- Active button:', activeModeBtn);
-            console.log('- Mode input:', this.elements.modeInput);
-
-            // Устанавливаем значение по умолчанию
-            if (this.elements.modeInput) {
-                this.elements.modeInput.value = 'criteria';
-                console.log('Mode set to default: criteria');
-            }
-        }
-
-        // Убедимся, что все обязательные поля формы присутствуют
-        const requiredNames = ['csrfmiddlewaretoken', 'analyze_tab', 'analyze_mode'];
-        requiredNames.forEach(name => {
-            const field = this.elements.analyzeForm.querySelector(`[name="${name}"]`);
-            if (!field) {
-                console.error(`Missing required field: ${name}`);
-            } else {
-                console.log(`Field ${name} found with value: ${field.value}`);
-            }
-        });
-
-        console.log('Hidden fields update complete');
-    }
-
     bindEvents() {
-        console.log('=== BINDING EVENTS ===');
+        console.log('=== BINDING EVENTS FOR COMBINED MODE ===');
 
-        // 1. Переключатели режимов
-        this.bindModeButtons();
-
-        // 2. Селект вкладок
         this.bindTabSelect();
-
-        // 3. Переключатель подсветки
         this.bindHighlightToggle();
-
-        // 4. Кнопка анализа - САМАЯ ВАЖНАЯ!
         this.bindAnalyzeButton();
-
-        // 5. Кнопка сохранения
         this.bindSaveButton();
-
-        // 6. Прочие кнопки
+        this.bindAddKeywordButton();
         this.bindOtherButtons();
-
-        // 7. Табы Bootstrap
         this.bindBootstrapTabs();
 
-        // 8. Добавляем обработчик на саму форму для отладки
-        if (this.elements.analyzeForm) {
-            this.elements.analyzeForm.addEventListener('submit', (e) => {
-                console.log('=== FORM SUBMIT EVENT FIRED ===');
-                console.log('Submit triggered by:', e.submitter ? e.submitter.name : 'unknown');
-                console.log('Form data:');
-                const formData = new FormData(this.elements.analyzeForm);
-                for (let [name, value] of formData.entries()) {
-                    console.log(`  ${name}: ${value}`);
-                }
-            });
-        }
-
         console.log('=== ALL EVENTS BOUND ===');
-    }
-
-    bindClearResultsButton() {
-        const clearButton = document.getElementById('clear-results-btn');
-        if (!clearButton) {
-            console.log('Clear results button not found');
-            return;
-        }
-
-        console.log('Found clear results button:', clearButton);
-
-        // Клонируем кнопку для чистого состояния
-        const originalButton = clearButton;
-        const newButton = originalButton.cloneNode(true);
-        originalButton.parentNode.replaceChild(newButton, originalButton);
-        const clearBtn = newButton;
-
-        clearBtn.addEventListener('click', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-
-            if (!confirm('Вы уверены, что хотите очистить несохранённые результаты анализа?\n\nЭто действие нельзя отменить.')) {
-                console.log('Clear cancelled by user');
-                return;
-            }
-
-            // Показываем спиннер
-            const originalHTML = clearBtn.innerHTML;
-            clearBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Clearing...';
-            clearBtn.disabled = true;
-
-            console.log('Clearing analysis results...');
-
-            // Получаем URL из href атрибута
-            const clearUrl = clearBtn.getAttribute('href');
-
-            if (!clearUrl) {
-                console.error('Clear URL not found');
-                this.showMessage('Error: Clear URL not found', 'error');
-                this.resetClearButton(clearBtn, originalHTML);
-                return;
-            }
-
-            console.log('Clear URL:', clearUrl);
-
-            try {
-                // Используем Fetch API для очистки результатов
-                const response = await fetch(clearUrl, {
-                    method: 'GET',
-                    headers: {
-                        'X-Requested-With': 'XMLHttpRequest',
-                        'Accept': 'application/json',
-                    },
-                    credentials: 'same-origin'
-                });
-
-                console.log('Clear response status:', response.status);
-
-                if (response.ok) {
-                    const data = await response.json();
-                    console.log('Clear response data:', data);
-
-                    if (data.success) {
-                        this.showMessage('✅ ' + data.message, 'success');
-
-                        // Если есть redirect_url, используем его
-                        if (data.redirect_url) {
-                            setTimeout(() => {
-                                window.location.href = data.redirect_url;
-                            }, 1500);
-                        } else {
-                            // Иначе просто перезагружаем страницу
-                            setTimeout(() => {
-                                window.location.reload();
-                            }, 1500);
-                        }
-                    } else {
-                        throw new Error(data.message || 'Ошибка очистки');
-                    }
-                } else {
-                    throw new Error(`Ошибка HTTP: ${response.status}`);
-                }
-            } catch (error) {
-                console.error('Error clearing results:', error);
-                this.showMessage(`❌ Ошибка при очистке: ${error.message}`, 'error');
-                this.resetClearButton(clearBtn, originalHTML);
-            }
-        });
-
-        console.log('Clear results button bound successfully');
-    }
-
-    resetClearButton(button, originalHTML) {
-        if (button) {
-            button.innerHTML = originalHTML;
-            button.disabled = false;
-        }
-    }
-
-    bindModeButtons() {
-        if (!this.elements.modeButtons || this.elements.modeButtons.length === 0) {
-            console.error('Mode buttons not found');
-            return;
-        }
-
-        this.elements.modeButtons.forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                console.log(`Mode button clicked: ${btn.dataset.mode}`);
-                this.switchMode(e);
-            });
-        });
     }
 
     bindTabSelect() {
@@ -405,12 +130,10 @@ class GameAnalyzerUI {
             const tabName = e.target.value;
             console.log(`Tab select changed to: ${tabName}`);
 
-            // Обновляем скрытое поле
             if (this.elements.tabInput) {
                 this.elements.tabInput.value = tabName;
             }
 
-            // Переключаем вкладку
             this.switchTabByName(tabName);
         });
     }
@@ -431,47 +154,31 @@ class GameAnalyzerUI {
         console.log('=== BINDING ANALYZE BUTTON ===');
 
         if (!this.elements.analyzeButton) {
-            console.error('ANALYZE BUTTON NOT FOUND! This is critical.');
+            console.error('ANALYZE BUTTON NOT FOUND!');
             this.showMessage('Error: Analyze button not found. Please refresh page.', 'error');
             return;
         }
 
         console.log('Found analyze button:', this.elements.analyzeButton);
 
-        // Создаем клон кнопки для чистого состояния
         const originalButton = this.elements.analyzeButton;
         const newButton = originalButton.cloneNode(true);
-
-        // Заменяем старую кнопку новой
         originalButton.parentNode.replaceChild(newButton, originalButton);
         this.elements.analyzeButton = newButton;
 
-        console.log('Button cloned and replaced');
-
-        // Добавляем обработчик на новую кнопку
         this.elements.analyzeButton.addEventListener('click', (e) => {
-            console.log('=== ANALYZE BUTTON CLICKED ===');
-            console.log('Event details:', e);
-            console.log('Button name:', this.elements.analyzeButton.name);
-            console.log('Button type:', this.elements.analyzeButton.type);
-
-            // ПРЕДОТВРАЩАЕМ СТАНДАРТНОЕ ПОВЕДЕНИЕ
+            console.log('=== ANALYZE BUTTON CLICKED (COMBINED MODE) ===');
             e.preventDefault();
             e.stopPropagation();
 
-            // Проверяем наличие формы
             if (!this.elements.analyzeForm) {
                 console.error('Form element not found');
                 this.showMessage('Error: Form not found', 'error');
                 return;
             }
 
-            console.log('Form found:', this.elements.analyzeForm);
-
-            // Обновляем скрытые поля
             this.updateHiddenFields();
 
-            // Проверяем CSRF токен
             const csrfToken = document.querySelector('[name="csrfmiddlewaretoken"]');
             if (!csrfToken) {
                 console.error('CSRF token not found');
@@ -479,9 +186,6 @@ class GameAnalyzerUI {
                 return;
             }
 
-            console.log('CSRF token found');
-
-            // Убедимся, что в форме есть поле analyze
             let analyzeField = this.elements.analyzeForm.querySelector('input[name="analyze"]');
             if (!analyzeField) {
                 console.log('Creating hidden analyze field');
@@ -492,29 +196,21 @@ class GameAnalyzerUI {
                 this.elements.analyzeForm.appendChild(analyzeField);
             }
 
-            // Показываем спиннер
             const originalHTML = this.elements.analyzeButton.innerHTML;
             this.elements.analyzeButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Analyzing...';
             this.elements.analyzeButton.disabled = true;
 
-            console.log('=== SUBMITTING FORM ===');
-            console.log('- Form action:', this.elements.analyzeForm.action);
-            console.log('- Form method:', this.elements.analyzeForm.method);
-            console.log('- Tab value:', this.elements.tabInput ? this.elements.tabInput.value : 'N/A');
-            console.log('- Mode value:', this.elements.modeInput ? this.elements.modeInput.value : 'N/A');
-            console.log('- Has CSRF:', !!csrfToken);
+            console.log('=== SUBMITTING FORM FOR COMBINED ANALYSIS ===');
+            console.log('- Mode: combined (always)');
 
-            // Даем небольшую задержку для отображения спиннера
             setTimeout(() => {
                 try {
-                    // Отправляем форму
                     console.log('Attempting form submission...');
                     this.elements.analyzeForm.submit();
                 } catch (error) {
                     console.error('Error submitting form:', error);
                     this.showMessage('Error submitting form: ' + error.message, 'error');
 
-                    // Восстанавливаем кнопку
                     this.elements.analyzeButton.innerHTML = originalHTML;
                     this.elements.analyzeButton.disabled = false;
                 }
@@ -540,33 +236,145 @@ class GameAnalyzerUI {
         });
     }
 
+    bindAddKeywordButton() {
+        const addButton = document.getElementById('add-keyword-button');
+        const keywordInput = document.getElementById('new-keyword-input');
+
+        if (!addButton || !keywordInput) {
+            console.log('Add keyword button or input not found');
+            return;
+        }
+
+        console.log('Found add keyword button and input');
+
+        keywordInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                this.handleAddKeyword();
+            }
+        });
+
+        addButton.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.handleAddKeyword();
+        });
+
+        console.log('Add keyword button bound successfully');
+    }
+
     bindOtherButtons() {
-        // Копирование текста
         if (this.elements.copyTextBtn) {
             this.elements.copyTextBtn.addEventListener('click', () => this.copyText());
         }
 
-        // Поиск подсветки
         if (this.elements.findHighlightsBtn) {
             this.elements.findHighlightsBtn.addEventListener('click', () => this.scrollToFirstHighlight());
         }
 
-        // Прокрутка к верху
         if (this.elements.scrollToTopBtn) {
             this.elements.scrollToTopBtn.addEventListener('click', () => this.scrollToTop());
             window.addEventListener('scroll', () => this.handleScroll());
         }
 
-        // Кнопка очистки результатов
-        this.bindClearResultsButton(); // ДОБАВЬТЕ ЭТУ СТРОЧКУ
+        this.bindClearResultsButton();
 
-        // Клик по найденным элементам
         document.addEventListener('click', (e) => {
             if (e.target.classList.contains('found-item-badge')) {
                 e.preventDefault();
                 this.scrollToHighlight(e.target.dataset.name);
             }
         });
+    }
+
+    bindClearResultsButton() {
+        const clearButton = document.getElementById('clear-results-btn');
+        if (!clearButton) {
+            console.log('Clear results button not found');
+            return;
+        }
+
+        console.log('Found clear results button:', clearButton);
+
+        const originalButton = clearButton;
+        const newButton = originalButton.cloneNode(true);
+        originalButton.parentNode.replaceChild(newButton, originalButton);
+        const clearBtn = newButton;
+
+        clearBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (!confirm('Are you sure you want to clear unsaved analysis results?\n\nThis action cannot be undone.')) {
+                console.log('Clear cancelled by user');
+                return;
+            }
+
+            const originalHTML = clearBtn.innerHTML;
+            clearBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Clearing...';
+            clearBtn.disabled = true;
+
+            console.log('Clearing analysis results...');
+
+            const clearUrl = clearBtn.getAttribute('href');
+
+            if (!clearUrl) {
+                console.error('Clear URL not found');
+                this.showMessage('Error: Clear URL not found', 'error');
+                this.resetClearButton(clearBtn, originalHTML);
+                return;
+            }
+
+            console.log('Clear URL:', clearUrl);
+
+            try {
+                const response = await fetch(clearUrl, {
+                    method: 'GET',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'application/json',
+                    },
+                    credentials: 'same-origin'
+                });
+
+                console.log('Clear response status:', response.status);
+
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('Clear response data:', data);
+
+                    if (data.success) {
+                        this.showMessage('✅ ' + data.message, 'success');
+
+                        if (data.redirect_url) {
+                            setTimeout(() => {
+                                window.location.href = data.redirect_url;
+                            }, 1500);
+                        } else {
+                            setTimeout(() => {
+                                window.location.reload();
+                            }, 1500);
+                        }
+                    } else {
+                        throw new Error(data.message || 'Clear error');
+                    }
+                } else {
+                    throw new Error(`HTTP error: ${response.status}`);
+                }
+            } catch (error) {
+                console.error('Error clearing results:', error);
+                this.showMessage(`❌ Error clearing results: ${error.message}`, 'error');
+                this.resetClearButton(clearBtn, originalHTML);
+            }
+        });
+
+        console.log('Clear results button bound successfully');
+    }
+
+    resetClearButton(button, originalHTML) {
+        if (button) {
+            button.innerHTML = originalHTML;
+            button.disabled = false;
+        }
     }
 
     bindBootstrapTabs() {
@@ -585,25 +393,21 @@ class GameAnalyzerUI {
         });
     }
 
-    resetAnalyzeButton(originalHTML) {
-        if (this.elements.analyzeButton) {
-            this.elements.analyzeButton.innerHTML = originalHTML;
-            this.elements.analyzeButton.disabled = false;
-        }
-    }
+    updateHiddenFields() {
+        console.log('=== UPDATING HIDDEN FIELDS ===');
 
-    validateElements() {
-        const requiredElements = [
-            { name: 'analyzeForm', element: this.elements.analyzeForm },
-            { name: 'modeInput', element: this.elements.modeInput },
-            { name: 'tabInput', element: this.elements.tabInput },
-        ];
-
-        const missing = requiredElements.filter(item => !item.element);
-        if (missing.length > 0) {
-            console.error('Missing required elements:', missing.map(item => item.name));
-            this.showMessage(`Missing elements: ${missing.map(item => item.name).join(', ')}`, 'error');
+        if (this.elements.tabSelect && this.elements.tabInput) {
+            const selectedTab = this.elements.tabSelect.value;
+            this.elements.tabInput.value = selectedTab;
+            console.log(`Tab input updated: ${selectedTab} → ${this.elements.tabInput.value}`);
         }
+
+        if (this.elements.modeInput) {
+            this.elements.modeInput.value = 'combined';
+            console.log(`Mode input set to: combined (always)`);
+        }
+
+        console.log('Hidden fields update complete');
     }
 
     handleHighlightToggle(e) {
@@ -614,11 +418,9 @@ class GameAnalyzerUI {
 
         const isEnabled = e.target.checked;
 
-        // Показываем сообщение
         this.showMessage(isEnabled ? 'Highlighting enabled...' : 'Highlighting disabled...', 'info');
 
         if (this.elements.analyzeForm) {
-            // Создаем скрытое поле для отслеживания изменения переключателя
             let toggleInput = this.elements.analyzeForm.querySelector('input[name="highlight_toggle_only"]');
             if (!toggleInput) {
                 toggleInput = document.createElement('input');
@@ -628,7 +430,6 @@ class GameAnalyzerUI {
             }
             toggleInput.value = '1';
 
-            // Устанавливаем значение переключателя
             let highlightInput = this.elements.analyzeForm.querySelector('input[name="highlight_toggle"]');
             if (!highlightInput) {
                 highlightInput = document.createElement('input');
@@ -640,12 +441,181 @@ class GameAnalyzerUI {
 
             console.log('Toggle fields added to form');
 
-            // Не отправляем форму автоматически - пусть пользователь нажмет "Analyze"
-            // Вместо этого обновляем сессию через AJAX или просто сохраняем состояние
             this.showMessage('Now click "Analyze Text" to apply highlighting changes', 'info');
         } else {
             console.error('Cannot handle highlight toggle: form not found');
             this.showMessage('Error: Cannot toggle highlighting. Form not found.', 'error');
+        }
+    }
+
+    handleAddKeyword() {
+        const keywordInput = document.getElementById('new-keyword-input');
+        const addButton = document.getElementById('add-keyword-button');
+
+        if (!keywordInput || !addButton) {
+            console.error('Add keyword elements not found');
+            return;
+        }
+
+        const keyword = keywordInput.value.trim();
+        const gameId = document.getElementById('game-id').value;
+
+        if (!keyword) {
+            this.showMessage('Please enter a keyword', 'warning');
+            keywordInput.focus();
+            return;
+        }
+
+        if (!gameId) {
+            this.showMessage('Error: Game ID not found', 'error');
+            return;
+        }
+
+        console.log(`Adding keyword "${keyword}" to game ${gameId}`);
+
+        const originalButtonText = addButton.innerHTML;
+        const originalButtonState = addButton.disabled;
+
+        addButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Adding...';
+        addButton.disabled = true;
+
+        const formData = new FormData();
+        formData.append('add_keyword', 'true');
+        formData.append('new_keyword', keyword);
+
+        const csrfToken = this.getCSRFToken();
+        if (csrfToken) {
+            formData.append('csrfmiddlewaretoken', csrfToken);
+        }
+
+        fetch(this.elements.analyzeForm ? this.elements.analyzeForm.action : window.location.href, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+        .then(response => {
+            if (response.redirected) {
+                window.location.href = response.url;
+                return null;
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (!data) return; // Redirect handled
+
+            if (data.success) {
+                this.showMessage(`✅ Keyword "${keyword}" added successfully!`, 'success');
+
+                keywordInput.value = '';
+
+                this.updateCurrentKeywordsList(data.keyword_id, data.keyword_name);
+
+                this.refreshFoundElementsList('keywords', {
+                    id: data.keyword_id,
+                    name: data.keyword_name,
+                    is_new: true
+                });
+
+                keywordInput.focus();
+            } else {
+                throw new Error(data.error || 'Failed to add keyword');
+            }
+        })
+        .catch(error => {
+            console.error('Error adding keyword:', error);
+            this.showMessage(`❌ Error adding keyword: ${error.message}`, 'error');
+        })
+        .finally(() => {
+            addButton.innerHTML = originalButtonText;
+            addButton.disabled = originalButtonState;
+        });
+    }
+
+    getCSRFToken() {
+        const csrfInput = document.querySelector('[name="csrfmiddlewaretoken"]');
+        return csrfInput ? csrfInput.value : null;
+    }
+
+    updateCurrentKeywordsList(keywordId, keywordName) {
+        const currentKeywordsContainer = document.querySelector('#current-items-container .current-items-list');
+
+        if (!currentKeywordsContainer) {
+            console.log('Current keywords container not found');
+            return;
+        }
+
+        const newKeywordElement = document.createElement('span');
+        newKeywordElement.className = 'current-item';
+        newKeywordElement.textContent = keywordName;
+
+        currentKeywordsContainer.prepend(newKeywordElement);
+
+        this.updateKeywordCount('current');
+    }
+
+    refreshFoundElementsList(category, item) {
+        const foundItemsContainer = document.getElementById('found-items-container');
+        if (!foundItemsContainer) return;
+
+        let categoryElement = foundItemsContainer.querySelector(`.found-items-category[data-category="${category}"]`);
+
+        if (!categoryElement) {
+            categoryElement = document.createElement('div');
+            categoryElement.className = 'found-items-category';
+            categoryElement.dataset.category = category;
+
+            const categoryTitle = document.createElement('h6');
+            categoryTitle.innerHTML = `${this.capitalizeFirstLetter(category)} (1)`;
+            categoryElement.appendChild(categoryTitle);
+
+            const itemsList = document.createElement('div');
+            itemsList.className = 'found-items-list';
+            categoryElement.appendChild(itemsList);
+
+            foundItemsContainer.prepend(categoryElement);
+        }
+
+        const categoryTitle = categoryElement.querySelector('h6');
+        const currentCount = categoryElement.querySelectorAll('.found-item-badge').length + 1;
+        categoryTitle.innerHTML = `${this.capitalizeFirstLetter(category)} (${currentCount})`;
+
+        const itemsList = categoryElement.querySelector('.found-items-list');
+        const newBadge = document.createElement('span');
+
+        let badgeClass = 'bg-secondary';
+        if (category === 'keywords') badgeClass = 'bg-warning text-dark';
+        else if (category === 'genres') badgeClass = 'bg-success';
+        else if (category === 'themes') badgeClass = 'bg-danger';
+        else if (category === 'perspectives') badgeClass = 'bg-primary';
+        else if (category === 'game_modes') badgeClass = 'bg-purple';
+
+        newBadge.className = `badge ${badgeClass} found-item-badge`;
+        newBadge.dataset.name = item.name;
+        newBadge.dataset.category = category;
+        newBadge.setAttribute('data-bs-toggle', 'tooltip');
+        newBadge.setAttribute('title', `New ${category} (added manually) - Click to scroll to highlight`);
+        newBadge.innerHTML = `${item.name} <i class="bi bi-plus-circle ms-1"></i>`;
+
+        itemsList.appendChild(newBadge);
+
+        if (window.bootstrap) {
+            new bootstrap.Tooltip(newBadge);
+        }
+    }
+
+    capitalizeFirstLetter(string) {
+        return string.charAt(0).toUpperCase() + string.slice(1);
+    }
+
+    updateKeywordCount(type) {
+        if (type === 'current') {
+            const categoryHeader = document.querySelector('#current-items-container .current-data-category h6');
+            if (categoryHeader) {
+                const currentCount = categoryHeader.parentElement.querySelectorAll('.current-item').length;
+                categoryHeader.innerHTML = `Keywords (${currentCount})`;
+            }
         }
     }
 
@@ -656,55 +626,12 @@ class GameAnalyzerUI {
     loadUrlParams() {
         const urlParams = new URLSearchParams(window.location.search);
         const tab = urlParams.get('tab');
-        const mode = urlParams.get('mode');
 
         if (tab) {
             this.switchTabByName(tab);
         }
 
-        if (mode) {
-            const modeButton = document.querySelector(`.mode-btn[data-mode="${mode}"]`);
-            if (modeButton) {
-                modeButton.click();
-            }
-        }
-    }
-
-    switchMode(e) {
-        const button = e.currentTarget;
-        const mode = button.dataset.mode;
-
-        if (this.currentMode === mode) return;
-
-        console.log(`Switching to mode: ${mode}`);
-
-        // Обновляем активную кнопку
-        this.elements.modeButtons.forEach(btn => {
-            btn.classList.remove('active');
-            btn.setAttribute('aria-pressed', 'false');
-        });
-        button.classList.add('active');
-        button.setAttribute('aria-pressed', 'true');
-
-        // Обновляем скрытое поле
-        if (this.elements.modeInput) {
-            this.elements.modeInput.value = mode;
-            console.log(`Mode input set to: ${this.elements.modeInput.value}`);
-        }
-
-        // Обновляем отображение
-        if (this.elements.currentModeDisplay) {
-            this.elements.currentModeDisplay.textContent =
-                mode === 'criteria' ? 'Criteria Analysis' : 'Keyword Analysis';
-        }
-
-        this.currentMode = mode;
-
-        // Обновляем URL
-        this.updateUrlParam('mode', mode);
-
-        // Показываем сообщение
-        this.showMessage(`Switched to ${mode} analysis mode. Click "Analyze Text" to analyze.`, 'info');
+        // Mode всегда 'combined', игнорируем параметр mode
     }
 
     switchTabByName(tabName) {
@@ -714,14 +641,16 @@ class GameAnalyzerUI {
         if (tabLink) {
             console.log(`Found tab link for: ${tabName}`);
 
-            // Используем Bootstrap Tab API
             try {
-                const tab = new bootstrap.Tab(tabLink);
-                tab.show();
-                console.log(`Tab ${tabName} shown successfully`);
+                if (window.bootstrap) {
+                    const tab = new bootstrap.Tab(tabLink);
+                    tab.show();
+                    console.log(`Tab ${tabName} shown successfully`);
+                } else {
+                    this.manualTabSwitch(tabName);
+                }
             } catch (error) {
                 console.error('Error showing tab:', error);
-                // Fallback: переключаем вручную
                 this.manualTabSwitch(tabName);
             }
         } else {
@@ -730,31 +659,50 @@ class GameAnalyzerUI {
         }
     }
 
+    manualTabSwitch(tabName) {
+        const tabLinks = document.querySelectorAll('#analyzeTabs .nav-link');
+        const tabPanes = document.querySelectorAll('.tab-pane');
+
+        tabLinks.forEach(link => {
+            link.classList.remove('active');
+            link.setAttribute('aria-selected', 'false');
+        });
+
+        tabPanes.forEach(pane => {
+            pane.classList.remove('show', 'active');
+        });
+
+        const targetLink = document.querySelector(`#analyzeTabs a[href="#${tabName}"]`);
+        const targetPane = document.getElementById(tabName);
+
+        if (targetLink && targetPane) {
+            targetLink.classList.add('active');
+            targetLink.setAttribute('aria-selected', 'true');
+            targetPane.classList.add('show', 'active');
+            this.onTabSwitch(tabName);
+        }
+    }
+
     onTabSwitch(tabName) {
         if (this.currentTab === tabName) return;
 
-        // Синхронизируем выпадающий список
         if (this.elements.tabSelect) {
             this.elements.tabSelect.value = tabName;
         }
 
-        // Обновляем скрытое поле
         if (this.elements.tabInput) {
             this.elements.tabInput.value = tabName;
         }
 
-        // Обновляем отображение
         this.updateTabDisplay(tabName);
 
         this.currentTab = tabName;
 
-        // Исправляем выравнивание
         setTimeout(() => {
             this.forceTextAlignmentFix();
             this.setupTooltips();
         }, 10);
 
-        // Обновляем URL
         this.updateUrlParam('tab', tabName);
     }
 
@@ -782,7 +730,6 @@ class GameAnalyzerUI {
         const textContent = activePane.querySelector('.text-content');
         if (!textContent) return;
 
-        // Сбрасываем все стили
         textContent.style.cssText = `
             text-align: left !important;
             margin: 0 !important;
@@ -793,7 +740,6 @@ class GameAnalyzerUI {
             vertical-align: top !important;
         `;
 
-        // Исправляем параграфы
         const paragraphs = textContent.querySelectorAll('p');
         paragraphs.forEach(p => {
             p.style.cssText = `
@@ -803,13 +749,11 @@ class GameAnalyzerUI {
             `;
         });
 
-        // Убираем центрирование у всех заголовков
         const headings = textContent.querySelectorAll('h1, h2, h3, h4, h5, h6');
         headings.forEach(h => {
             h.style.cssText = 'text-align: left !important;';
         });
 
-        // Убираем центрирование у всех div элементов
         const divs = textContent.querySelectorAll('div');
         divs.forEach(div => {
             if (div.classList.contains('text-center') ||
@@ -842,13 +786,10 @@ class GameAnalyzerUI {
             return;
         }
 
-        // Клонируем и очищаем HTML
         const clone = textContent.cloneNode(true);
 
-        // Удаляем информацию о подсветке
         clone.querySelectorAll('.highlight-info').forEach(el => el.remove());
 
-        // Удаляем подсветку
         clone.querySelectorAll('mark').forEach(mark => {
             mark.replaceWith(mark.textContent);
         });
@@ -876,7 +817,6 @@ class GameAnalyzerUI {
 
         const highlights = activePane.querySelectorAll(`[data-element-name="${elementName}"]`);
         if (highlights.length > 0) {
-            // Находим первое видимое выделение
             let targetHighlight = highlights[0];
             for (let i = 0; i < highlights.length; i++) {
                 const rect = highlights[i].getBoundingClientRect();
@@ -926,7 +866,7 @@ class GameAnalyzerUI {
     }
 
     handleSaveResults(e) {
-        console.log('handleSaveResults called');
+        console.log('handleSaveResults called for COMBINED mode');
         e.preventDefault();
 
         if (!confirm('Are you sure you want to save the analysis results to the game database?\n\nThis will add new elements (genres, themes, keywords, etc.) to the game.')) {
@@ -942,7 +882,6 @@ class GameAnalyzerUI {
 
         console.log('Starting save process...');
 
-        // Показываем спиннер на кнопке сохранения
         const saveButton = this.elements.analyzeForm.querySelector('button[name="save_results"]');
         if (saveButton) {
             const originalHTML = saveButton.innerHTML;
@@ -953,10 +892,6 @@ class GameAnalyzerUI {
 
         this.showMessage('Saving results to database...', 'info');
 
-        // Используем простую отправку формы
-        console.log('Creating hidden input for save_results...');
-
-        // Создаем скрытое поле для save_results
         const saveInput = document.createElement('input');
         saveInput.type = 'hidden';
         saveInput.name = 'save_results';
@@ -965,7 +900,6 @@ class GameAnalyzerUI {
 
         console.log('Submitting form for save...');
 
-        // Отправляем форму
         setTimeout(() => {
             try {
                 this.elements.analyzeForm.submit();
@@ -974,7 +908,6 @@ class GameAnalyzerUI {
                 console.error('Error submitting form for save:', error);
                 this.showMessage('❌ Error submitting form: ' + error.message, 'error');
 
-                // Восстанавливаем кнопку
                 if (saveButton && saveButton.dataset.originalHTML) {
                     saveButton.innerHTML = saveButton.dataset.originalHTML;
                     saveButton.disabled = false;
@@ -988,21 +921,19 @@ class GameAnalyzerUI {
        ============================================ */
 
     setupTooltips() {
-        // Инициализируем тултипы Bootstrap
         const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
         tooltipTriggerList.map(tooltipTriggerEl => {
-            // Удаляем существующие тултипы
-            const existingTooltip = bootstrap.Tooltip.getInstance(tooltipTriggerEl);
+            const existingTooltip = window.bootstrap && bootstrap.Tooltip.getInstance(tooltipTriggerEl);
             if (existingTooltip) {
                 existingTooltip.dispose();
             }
-            // Создаем новые тултипы
-            return new bootstrap.Tooltip(tooltipTriggerEl, {
-                trigger: 'hover focus'
-            });
+            if (window.bootstrap) {
+                return new bootstrap.Tooltip(tooltipTriggerEl, {
+                    trigger: 'hover focus'
+                });
+            }
         });
 
-        // Добавляем тултипы для подсвеченных элементов
         const activePane = document.querySelector(`#${this.currentTab}.tab-pane.active`);
         if (activePane) {
             const highlights = activePane.querySelectorAll('mark');
@@ -1013,15 +944,16 @@ class GameAnalyzerUI {
                     highlight.setAttribute('data-bs-title', elementName);
                     highlight.setAttribute('data-bs-placement', 'top');
 
-                    // Удаляем существующий тултип, если есть
-                    const existingTooltip = bootstrap.Tooltip.getInstance(highlight);
-                    if (existingTooltip) {
-                        existingTooltip.dispose();
+                    if (window.bootstrap) {
+                        const existingTooltip = bootstrap.Tooltip.getInstance(highlight);
+                        if (existingTooltip) {
+                            existingTooltip.dispose();
+                        }
+                        new bootstrap.Tooltip(highlight, {
+                            trigger: 'hover focus',
+                            placement: 'top'
+                        });
                     }
-                    new bootstrap.Tooltip(highlight, {
-                        trigger: 'hover focus',
-                        placement: 'top'
-                    });
                 }
             });
         }
@@ -1055,70 +987,6 @@ class GameAnalyzerUI {
         }
     }
 
-    disableFormButtons() {
-        console.log('Disabling form buttons...');
-
-        // Отключаем все кнопки submit в форме
-        if (this.elements.analyzeForm) {
-            const formButtons = this.elements.analyzeForm.querySelectorAll('button[type="submit"]');
-            console.log(`Found ${formButtons.length} submit buttons`);
-
-            formButtons.forEach((button, index) => {
-                console.log(`Button ${index + 1}: name="${button.name}", text="${button.textContent.trim()}"`);
-
-                // Сохраняем оригинальный текст и состояние
-                if (!button.dataset.originalText) {
-                    button.dataset.originalText = button.innerHTML;
-                }
-                if (!button.dataset.wasDisabled) {
-                    button.dataset.wasDisabled = button.disabled;
-                }
-
-                // Отключаем кнопку и показываем спиннер
-                button.disabled = true;
-
-                if (button.name === 'analyze') {
-                    button.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Analyzing...';
-                    console.log('Analyze button disabled and showing spinner');
-                } else if (button.name === 'save_results') {
-                    button.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Processing...';
-                    console.log('Save results button disabled and showing spinner');
-                }
-            });
-
-            // Включаем кнопки через 30 секунд (на случай если что-то пошло не так)
-            setTimeout(() => {
-                this.enableFormButtons();
-            }, 30000);
-        } else {
-            console.warn('Cannot disable buttons: form not found');
-        }
-    }
-
-    enableFormButtons() {
-        console.log('Enabling form buttons...');
-
-        if (this.elements.analyzeForm) {
-            const formButtons = this.elements.analyzeForm.querySelectorAll('button[type="submit"]');
-
-            formButtons.forEach(button => {
-                // Восстанавливаем оригинальный текст
-                if (button.dataset.originalText) {
-                    button.innerHTML = button.dataset.originalText;
-                }
-
-                // Восстанавливаем оригинальное состояние disabled
-                if (button.dataset.wasDisabled) {
-                    button.disabled = (button.dataset.wasDisabled === 'true');
-                } else {
-                    button.disabled = false;
-                }
-            });
-
-            console.log(`Enabled ${formButtons.length} buttons`);
-        }
-    }
-
     showLoading(message = 'Processing...') {
         if (this.elements.statusBar) {
             this.elements.statusBar.classList.add('visible');
@@ -1139,12 +1007,15 @@ class GameAnalyzerUI {
     }
 
     showMessage(text, type = 'info') {
-        // Удаляем старые сообщения
         const oldAlerts = document.querySelectorAll('.analyzer-alert');
         oldAlerts.forEach(alert => {
-            const bsAlert = bootstrap.Alert.getInstance(alert);
-            if (bsAlert) {
-                bsAlert.close();
+            if (window.bootstrap) {
+                const bsAlert = bootstrap.Alert.getInstance(alert);
+                if (bsAlert) {
+                    bsAlert.close();
+                } else {
+                    alert.remove();
+                }
             } else {
                 alert.remove();
             }
@@ -1179,16 +1050,20 @@ class GameAnalyzerUI {
 
         document.body.appendChild(alert);
 
-        // Инициализируем Bootstrap Alert
-        new bootstrap.Alert(alert);
+        if (window.bootstrap) {
+            new bootstrap.Alert(alert);
+        }
 
-        // Автоматически закрываем через 5 секунд (кроме ошибок)
         if (type !== 'error') {
             setTimeout(() => {
                 if (alert.parentNode) {
-                    const bsAlert = bootstrap.Alert.getInstance(alert);
-                    if (bsAlert) {
-                        bsAlert.close();
+                    if (window.bootstrap) {
+                        const bsAlert = bootstrap.Alert.getInstance(alert);
+                        if (bsAlert) {
+                            bsAlert.close();
+                        }
+                    } else {
+                        alert.remove();
                     }
                 }
             }, 5000);
@@ -1205,19 +1080,16 @@ document.addEventListener('DOMContentLoaded', function() {
         const analyzer = new GameAnalyzerUI();
         window.gameAnalyzer = analyzer;
 
-        // Принудительное исправление выравнивания при загрузке
         setTimeout(() => {
             analyzer.forceTextAlignmentFix();
         }, 100);
 
-        // Добавляем обработку изменения размера окна
         window.addEventListener('resize', () => {
             setTimeout(() => {
                 analyzer.forceTextAlignmentFix();
             }, 100);
         });
 
-        // Добавляем обработку закрытия табов
         const tabLinks = document.querySelectorAll('#analyzeTabs .nav-link');
         tabLinks.forEach(link => {
             link.addEventListener('hidden.bs.tab', () => {
@@ -1229,7 +1101,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
     } catch (error) {
         console.error('Failed to initialize Game Analyzer UI:', error);
-        // Показываем сообщение об ошибке пользователю
         const errorAlert = document.createElement('div');
         errorAlert.className = 'alert alert-danger alert-dismissible fade show position-fixed';
         errorAlert.style.cssText = `
@@ -1250,11 +1121,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-/* ============================================
-   СТИЛИ ДЛЯ АНИМАЦИЙ
-   ============================================ */
-
-// Добавляем стили для анимаций
 const style = document.createElement('style');
 style.textContent = `
     @keyframes slideInRight {
@@ -1281,7 +1147,7 @@ style.textContent = `
     }
 
     .highlight-pulse {
-        animation: highlightPulse 1s ease;
+        animation: highlightPulse 1s ease-in-out;
     }
 
     .scroll-to-top {

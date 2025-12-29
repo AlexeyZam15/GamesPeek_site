@@ -150,6 +150,12 @@ class PatternManager:
     }
 
     THEME_PATTERNS = {
+        'Base Building': [
+            r'\bbase\s+building\b',
+            r'\bbase\s+construction\b',
+            r'\bbuilding\s+bases\b',
+            r'\bconstructing\s+bases\b',
+        ],
         '4X (explore, expand, exploit, and exterminate)': [
             r'\b4x(\s+game|\s|$)',
             r'\bexplore.*expand.*exploit.*exterminate',
@@ -247,8 +253,9 @@ class PatternManager:
             r'\breal(\s+world|\s+life)\b',
         ],
         'Open world': [
-            r'\bopen\s+world(\s+game|\s|$)',
-            r'\bopen-world(\s+game|\s|$)',
+            r'\bopen[-\s]?world(\s+game|\s+title|\s+experience|\s+environment|\s+setting)\b',
+            r'\bopen[-\s]?world(\s+adventure|\s+exploration|\s+rpg|\s+action)?\b',
+            r'\bopen[-\s]?world\s+(sandbox|gameplay|mechanics)\b',
         ],
         'Party': [
             r'\bparty\s+(game|games|title|mode)\b',
@@ -276,12 +283,23 @@ class PatternManager:
             r'\bsneaking(\s+game)?\b',
         ],
         'Survival': [
-            r'\bsurvival\s+horror\b',
-            r'\bsurvival\s+game\b',
-            r'\bsurvival\s+elements\b',
-            r'\bsurvival\s+mechanics\b',
+            # Основные ключевые слова
+            r'\bsurvival(\s+(game|title|experience|horror|elements|mechanics|based|focused|oriented))?\b',
+
+            # Глагольные формы
+            r'\b(to\s+)?survive(\s+(the|in|against))?\b',
+            r'\bsurviving\s+(in|against|the)\b',
+
+            # Конкретные типы survival
             r'\bpost-apocalyptic\s+survival\b',
             r'\bwilderness\s+survival\b',
+            r'\bsurvival\s+horror\b',
+
+            # Описательные фразы
+            r'\bstruggle\s+to\s+survive\b',
+            r'\bfight\s+for\s+survival\b',
+            r'\bbattle\s+for\s+survival\b',
+            r'\bsurvival\s+of\s+the\s+fittest\b',
         ],
         'Thriller': [
             r'\bpsychological\s+thriller\b',

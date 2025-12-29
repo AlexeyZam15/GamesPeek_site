@@ -793,3 +793,63 @@
     color: #8b96a0;
     font-size: 0.875rem;
 }
+
+/* games/static/games/css/analyze.css */
+
+/* Стили для поля ввода ключевых слов */
+#new-keyword-input {
+    border-color: #28a745;
+    background: #1e1e2e;
+    color: #e0e0e0;
+}
+
+#new-keyword-input:focus {
+    border-color: #28a745;
+    box-shadow: 0 0 0 0.25rem rgba(40, 167, 69, 0.25);
+    background: #1e1e2e;
+}
+
+#add-keyword-button {
+    border-color: #28a745;
+    color: #28a745;
+}
+
+#add-keyword-button:hover {
+    background-color: #28a745;
+    color: #fff;
+}
+
+#add-keyword-button:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+/* Стили для добавленных ключевых слов */
+.current-item.newly-added {
+    animation: highlightPulse 2s ease;
+    border-color: #28a745;
+    background: rgba(40, 167, 69, 0.1);
+}
+
+/* В analyze.css добавляем стили для комбинированного режима */
+
+/* Стили для найденных элементов в комбинированном режиме */
+.found-items-category[data-category="keywords"] h6 {
+    color: #ffc107;
+}
+
+.found-items-category[data-category="genres"] h6 {
+    color: #28a745;
+}
+
+.found-items-category[data-category="themes"] h6 {
+    color: #dc3545;
+}
+
+.found-items-category[data-category="perspectives"] h6 {
+    color: #007bff;
+}
+
+.found-items-category[data-category="game_modes"] h6 {
+    color: #6f42c1;
+}

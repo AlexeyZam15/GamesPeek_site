@@ -1,21 +1,21 @@
 # games/analyze_views.py
 """
-Views для анализа описаний игр (с отдельной кнопкой сохранения)
+Views для анализа описаний игр - ТОЛЬКО комбинированный режим
 """
 
 import json
 from django.shortcuts import render, get_object_or_404, redirect
-from django.http import HttpRequest
+from django.http import HttpRequest, JsonResponse
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.contrib import messages
 from django.utils import timezone
 from django.urls import reverse
-from django.utils.html import escape
+from django.utils.html import escape, strip_tags
 
-from typing import Dict, Any, List, Optional, Tuple
-from .models import Game
+from typing import Dict, Any, List
+from .models import Game, Keyword, KeywordCategory
 from .analyze.game_analyzer_api import GameAnalyzerAPI
-from .analyze.utils import get_game_text
+from django.db import models
 
 
 # ===== УТИЛИТЫ ДЛЯ ПРОВЕРКИ ПРАВ =====
@@ -24,15 +24,10 @@ def is_staff_or_superuser(user):
     return user.is_authenticated and (user.is_staff or user.is_superuser)
 
 
-# ===== VIEW ДЛЯ АНАЛИЗА ОДНОЙ ИГРЫ =====
-
-
-# games/analyze_views.py - исправленная версия
-
 @login_required
 @user_passes_test(is_staff_or_superuser)
 def analyze_single_game(request: HttpRequest, game_id: int):
-    """Анализ одной игры - показывает все описания с подсветкой"""
+    """Анализ одной игры - ТОЛЬКО комбинированный режим с подсветкой ВСЕХ вхождений"""
     game = get_object_or_404(Game, pk=game_id)
 
     # Получаем ВСЕ текстовые описания
@@ -51,22 +46,83 @@ def analyze_single_game(request: HttpRequest, game_id: int):
     if active_tab not in available_descriptions:
         active_tab = next(iter(available_descriptions.keys()), 'summary')
 
-    # Режим анализа
-    analyze_mode = request.GET.get('mode', 'criteria')  # 'criteria' или 'keywords'
+    # ВСЕГДА комбинированный режим
+    analyze_mode = 'combined'
 
     # Переменные для результатов
     highlighted_text = ''
-    analysis_results = None
     found_items = {}
 
     # Флаг для включения/выключения подсветки
     highlight_enabled = request.session.get(f'highlight_enabled_{game.id}', True)
 
+    # Если пришел POST запрос на добавление ключевого слова
+    if request.method == 'POST' and 'add_keyword' in request.POST:
+        keyword_name = request.POST.get('new_keyword', '').strip()
+
+        if keyword_name:
+            try:
+                # Создаем или получаем ключевое слово
+                keyword = Keyword.objects.filter(name__iexact=keyword_name).first()
+
+                if not keyword:
+                    # Создаем новое ключевое слово
+                    other_category, created = KeywordCategory.objects.get_or_create(
+                        name='Other',
+                        defaults={'description': 'Manually added keywords'}
+                    )
+
+                    max_igdb_id = Keyword.objects.aggregate(models.Max('igdb_id'))['igdb_id__max'] or 1000000
+                    new_igdb_id = max_igdb_id + 1
+
+                    keyword = Keyword.objects.create(
+                        name=keyword_name,
+                        category=other_category,
+                        igdb_id=new_igdb_id,
+                        cached_usage_count=1
+                    )
+                    messages.success(request, f'✅ Created new keyword: "{keyword_name}"')
+                else:
+                    messages.info(request, f'ℹ️ Keyword "{keyword_name}" already exists')
+
+                # Добавляем ключевое слово к игре
+                game.keywords.add(keyword)
+
+                # Обновляем кэш
+                keyword.update_cached_count(force=True)
+                game.update_cached_counts(force=True)
+
+                # Обновляем данные игры
+                game.refresh_from_db()
+                messages.success(request, f'✅ Keyword "{keyword_name}" added to game!')
+
+                # ВАЖНО: сохраняем активную вкладку в редиректе
+                redirect_url = reverse('analyze_game', args=[game.id])
+
+                # Добавляем параметры
+                params = []
+                if active_tab and active_tab != 'summary':
+                    params.append(f'tab={active_tab}')
+                params.append('keyword_added=1')
+
+                if params:
+                    redirect_url += '?' + '&'.join(params)
+
+                return redirect(redirect_url)
+
+            except Exception as e:
+                messages.error(request, f'❌ Error adding keyword: {str(e)}')
+
+        # Если keyword_name пустой, остаемся на той же вкладке
+        redirect_url = reverse('analyze_game', args=[game.id])
+        if active_tab and active_tab != 'summary':
+            redirect_url += f'?tab={active_tab}'
+        return redirect(redirect_url)
+
     # Если пришел POST запрос на анализ
-    if request.method == 'POST' and 'analyze' in request.POST:
+    elif request.method == 'POST' and 'analyze' in request.POST:
         # Получаем параметры
         analyze_tab = request.POST.get('analyze_tab', active_tab)
-        analyze_mode = request.POST.get('analyze_mode', analyze_mode)
 
         # Проверяем, был ли отправлен переключатель подсветки
         highlight_toggle = request.POST.get('highlight_toggle')
@@ -78,34 +134,30 @@ def analyze_single_game(request: HttpRequest, game_id: int):
             text = available_descriptions[analyze_tab]
 
             if not text:
-                messages.error(request, '❌ Нет текста для анализа.')
+                messages.error(request, '❌ No text to analyze.')
             else:
                 try:
                     analyzer = GameAnalyzerAPI(verbose=True)
 
-                    # Анализируем текст с exclude_existing=False чтобы найти ВСЕ элементы
-                    analysis_result = analyzer.analyze_game_text(
+                    # ВСЕГДА используем комплексный анализ с поиском ВСЕХ вхождений
+                    analysis_result = analyzer.analyze_game_text_comprehensive(
                         text=text,
                         game_id=game.id,
-                        analyze_keywords=(analyze_mode == 'keywords'),
-                        existing_game=game,  # Передаем игру для информации
-                        detailed_patterns=True,  # Для подсветки
-                        exclude_existing=False  # НЕ исключать существующие
+                        existing_game=game,
+                        exclude_existing=False  # Показываем ВСЕ вхождения
                     )
 
-                    if analysis_result['success'] and analysis_result['has_results']:
-                        # Подсвечиваем текст
-                        highlighted_text = highlight_matches_in_text(
+                    if analysis_result['success']:
+                        # Подсвечиваем текст с учетом ВСЕХ вхождений
+                        highlighted_text = highlight_matches_in_text_combined(
                             text=text,
-                            analysis_result=analysis_result,
-                            mode=analyze_mode
+                            analysis_result=analysis_result
                         )
 
                         # Сохраняем результаты для отображения
-                        analysis_results = analysis_result
-                        found_items = extract_found_items(analysis_result, analyze_mode, game)
+                        found_items = extract_found_items_combined(analysis_result, game)
 
-                        # Сохраняем результаты в сессии (НЕ в базе данных!)
+                        # Сохраняем результаты в сессии
                         unsaved_results = request.session.get(f'unsaved_results_{game.id}', {
                             'highlighted_text': {},
                             'found_items': {},
@@ -117,75 +169,76 @@ def analyze_single_game(request: HttpRequest, game_id: int):
                         unsaved_results['found_items'][analyze_tab] = found_items
                         unsaved_results['analysis_data'][analyze_tab] = {
                             'text_source': analyze_tab,
-                            'analyze_keywords': (analyze_mode == 'keywords'),
                             'results': analysis_result['results'],
                             'summary': analysis_result['summary'],
-                            'all_results': analysis_result['results']
+                            'all_results': analysis_result['results'],
+                            'pattern_info': analysis_result.get('pattern_info', {}),
+                            'total_matches': analysis_result.get('total_matches', 0)
                         }
 
                         # Для сохранения: фильтруем только новые элементы
-                        if analyze_mode == 'keywords':
-                            # Для ключевых слов
-                            all_items = analysis_result['results'].get('keywords', {}).get('items', [])
-                            existing_keywords = set(game.keywords.values_list('id', flat=True))
-                            new_items = [item for item in all_items if item['id'] not in existing_keywords]
+                        save_data = {
+                            'text_source': analyze_tab,
+                            'results': {},
+                            'found_count': 0
+                        }
 
-                            save_data = {
-                                'text_source': analyze_tab,
-                                'analyze_keywords': True,
-                                'results': {'keywords': {'items': new_items}},
-                                'found_count': len(new_items),
-                            }
-                        else:
-                            # Для критериев
-                            new_items = {}
-                            categories = ['genres', 'themes', 'perspectives', 'game_modes']
-                            total_new = 0
+                        total_new = 0
+                        categories = ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']
 
-                            for category in categories:
-                                all_items = analysis_result['results'].get(category, {}).get('items', [])
-                                if all_items:
-                                    if category == 'genres':
-                                        existing_ids = set(game.genres.values_list('id', flat=True))
-                                    elif category == 'themes':
-                                        existing_ids = set(game.themes.values_list('id', flat=True))
-                                    elif category == 'perspectives':
-                                        existing_ids = set(game.player_perspectives.values_list('id', flat=True))
-                                    elif category == 'game_modes':
-                                        existing_ids = set(game.game_modes.values_list('id', flat=True))
-                                    else:
-                                        existing_ids = set()
+                        for category in categories:
+                            if category in analysis_result['results']:
+                                all_items = analysis_result['results'][category].get('items', [])
 
-                                    category_new_items = [item for item in all_items if item['id'] not in existing_ids]
-                                    if category_new_items:
-                                        new_items[category] = {'items': category_new_items}
-                                        total_new += len(category_new_items)
+                                if category == 'keywords':
+                                    existing_ids = set(game.keywords.values_list('id', flat=True))
+                                elif category == 'genres':
+                                    existing_ids = set(game.genres.values_list('id', flat=True))
+                                elif category == 'themes':
+                                    existing_ids = set(game.themes.values_list('id', flat=True))
+                                elif category == 'perspectives':
+                                    existing_ids = set(game.player_perspectives.values_list('id', flat=True))
+                                elif category == 'game_modes':
+                                    existing_ids = set(game.game_modes.values_list('id', flat=True))
+                                else:
+                                    existing_ids = set()
 
-                            save_data = {
-                                'text_source': analyze_tab,
-                                'analyze_keywords': False,
-                                'results': new_items,
-                                'found_count': total_new,
-                            }
+                                category_new_items = [item for item in all_items if item['id'] not in existing_ids]
+                                if category_new_items:
+                                    save_data['results'][category] = {'items': category_new_items}
+                                    total_new += len(category_new_items)
 
+                        save_data['found_count'] = total_new
                         unsaved_results['save_data'] = save_data
                         request.session[f'unsaved_results_{game.id}'] = unsaved_results
-                        request.session.modified = True  # Важно!
+                        request.session.modified = True
 
                         # Сообщение о найденных элементах
                         total_found = analysis_result['summary'].get('found_count', 0)
-                        messages.success(request,
-                                         f'🔍 Найдено {total_found} элементов. '
-                                         f'Текст подсвечен. Нажмите "Save Results" чтобы сохранить в базу данных.'
-                                         )
+                        total_matches = analysis_result.get('total_matches', 0)
+
+                        if total_found > 0:
+                            messages.success(request,
+                                             f'🔍 Found {total_found} elements with {total_matches} total matches. '
+                                             f'All matches highlighted. Click "Save Results" to save new elements to database.'
+                                             )
+                        else:
+                            messages.info(request,
+                                          'ℹ️ No new elements found in text. Existing elements are highlighted.')
 
                         # Переключаемся на проанализированную вкладку
                         active_tab = analyze_tab
                     else:
-                        messages.info(request, 'ℹ️ Элементы не найдены в тексте.')
+                        messages.error(request, f'❌ Analysis error: {analysis_result.get("error", "Unknown error")}')
 
                 except Exception as e:
-                    messages.error(request, f'❌ Ошибка при анализе: {str(e)}')
+                    messages.error(request, f'❌ Error during analysis: {str(e)}')
+
+        # После анализа остаемся на той же вкладке
+        redirect_url = reverse('analyze_game', args=[game.id])
+        if active_tab and active_tab != 'summary':
+            redirect_url += f'?tab={active_tab}'
+        return redirect(redirect_url)
 
     # Если пришел POST запрос на сохранение
     elif request.method == 'POST' and 'save_results' in request.POST:
@@ -194,16 +247,15 @@ def analyze_single_game(request: HttpRequest, game_id: int):
         save_data = unsaved_results.get('save_data', {})
 
         if not save_data:
-            messages.error(request, '❌ Нет данных анализа для сохранения. Сначала выполните анализ.')
+            messages.error(request, '❌ No analysis data to save. Perform analysis first.')
         else:
             try:
                 analyzer = GameAnalyzerAPI(verbose=True)
 
                 # При сохранении применяем данные к базе данных
-                update_result = analyzer.update_game_with_results(
+                update_result = analyzer.update_game_with_combined_results(
                     game_id=game.id,
-                    results=save_data['results'],
-                    is_keywords=save_data['analyze_keywords']
+                    results=save_data['results']
                 )
 
                 if update_result['success']:
@@ -226,20 +278,32 @@ def analyze_single_game(request: HttpRequest, game_id: int):
                         request.session.modified = True
 
                     added_count = save_data.get('found_count', 0)
-                    messages.success(request,
-                                     f'✅ Успешно добавлено {added_count} элементов в игру!'
-                                     )
+                    if added_count > 0:
+                        messages.success(request,
+                                         f'✅ Successfully added {added_count} new elements to the game!'
+                                         )
+                    else:
+                        messages.info(request, 'ℹ️ No new elements to add (all found elements already exist in game).')
 
-                    # Редирект с параметрами
-                    redirect_url = reverse('analyze_game', args=[game.id]) + \
-                                   f'?tab={active_tab}&mode={analyze_mode}&saved=1'
+                    # Сохраняем активную вкладку в редиректе
+                    redirect_url = reverse('analyze_game', args=[game.id])
+                    if active_tab and active_tab != 'summary':
+                        redirect_url += f'?tab={active_tab}'
+                    redirect_url += '&saved=1'
+
                     return redirect(redirect_url)
                 else:
                     messages.error(request,
-                                   f'❌ Не удалось сохранить результаты: {update_result.get("error", "Неизвестная ошибка")}')
+                                   f'❌ Failed to save results: {update_result.get("error", "Unknown error")}')
 
             except Exception as e:
-                messages.error(request, f'❌ Ошибка при сохранении: {str(e)}')
+                messages.error(request, f'❌ Error saving results: {str(e)}')
+
+        # Если ошибка сохранения, остаемся на той же вкладке
+        redirect_url = reverse('analyze_game', args=[game.id])
+        if active_tab and active_tab != 'summary':
+            redirect_url += f'?tab={active_tab}'
+        return redirect(redirect_url)
 
     # Если есть сохраненные результаты в сессии для текущей вкладки, используем их
     unsaved_results = request.session.get(f'unsaved_results_{game.id}', {})
@@ -313,145 +377,296 @@ def analyze_single_game(request: HttpRequest, game_id: int):
     return render(request, 'games/analyze.html', context)
 
 
-def highlight_matches_in_text(text: str, analysis_result: Dict, mode: str) -> str:
+def highlight_matches_in_text_combined(text: str, analysis_result: Dict) -> str:
     """
-    Подсвечивает найденные элементы в тексте с разными цветами для разных типов
+    Подсвечивает ВСЕ найденные элементы в HTML тексте
+    Сохраняет оригинальное форматирование, теги <mark> вставляются внутрь HTML
     """
     if not text or not analysis_result.get('pattern_info'):
         return text
 
-    from django.utils.html import escape
+    # Работаем с HTML как есть
+    working_text = text
 
-    # Экранируем HTML
-    escaped_text = escape(text)
-
-    # Собираем все совпадения с позициями
+    # Получаем все совпадения с позициями
     matches = []
 
-    if mode == 'keywords':
-        keyword_matches = analysis_result.get('pattern_info', {}).get('keywords', [])
-        for match in keyword_matches:
+    # Добавляем совпадения из всех категорий
+    categories = ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']
+
+    for category in categories:
+        category_matches = analysis_result.get('pattern_info', {}).get(category, [])
+        for match in category_matches:
             if match.get('status') == 'found':
+                # Позиции из анализатора соответствуют оригинальному тексту
                 matches.append({
                     'start': match.get('position', 0),
                     'end': match.get('position', 0) + len(match.get('matched_text', '')),
-                    'type': 'keyword',
+                    'type': category[:-1] if category != 'keywords' else 'keyword',
                     'name': match.get('name'),
-                    'text': match.get('matched_text')
+                    'text': match.get('matched_text'),
+                    'category': category
                 })
-    else:
-        # Для критериев собираем из всех категорий
-        categories = ['genres', 'themes', 'perspectives', 'game_modes']
-        for category in categories:
-            category_matches = analysis_result.get('pattern_info', {}).get(category, [])
-            for match in category_matches:
-                if match.get('status') == 'found':
-                    matches.append({
-                        'start': match.get('position', 0),
-                        'end': match.get('position', 0) + len(match.get('matched_text', '')),
-                        'type': category[:-1],  # Убираем 's' в конце
-                        'name': match.get('name'),
-                        'text': match.get('matched_text')
-                    })
 
-    # Сортируем по позиции (от конца к началу, чтобы не сбивать индексы)
+    # Если нет совпадений в pattern_info, ищем вручную в оригинальном тексте
+    if not matches and analysis_result.get('results'):
+        matches = find_all_matches_in_html_text(working_text, analysis_result['results'])
+
+    # Сортируем по позиции (от конца к началу) - ВАЖНО для корректной вставки
     matches.sort(key=lambda x: x['start'], reverse=True)
 
-    # Применяем подсветку
-    highlighted_text = escaped_text
+    # Применяем подсветку, вставляя <mark> теги в HTML
+    highlighted_text = working_text
+
     for match in matches:
-        before = highlighted_text[:match['start']]
-        matched = highlighted_text[match['start']:match['end']]
-        after = highlighted_text[match['end']:]
+        # Проверяем, что позиции валидны
+        if match['start'] < 0 or match['end'] > len(highlighted_text) or match['start'] >= match['end']:
+            continue
 
-        # Создаем подсвеченный элемент с тултипом
-        highlighted = (
-            f'<mark class="highlight-{match["type"]}" '
-            f'data-element-name="{escape(match["name"])}" '
-            f'data-bs-toggle="tooltip" data-bs-title="{escape(match["name"])}">'
-            f'{matched}'
-            f'</mark>'
-        )
+        try:
+            before = highlighted_text[:match['start']]
+            matched = highlighted_text[match['start']:match['end']]
+            after = highlighted_text[match['end']:]
 
-        highlighted_text = before + highlighted + after
+            # Вставляем тег <mark> с атрибутами
+            highlighted = (
+                f'<mark class="highlight-{match["type"]}" '
+                f'data-element-name="{match["name"]}" '
+                f'data-bs-toggle="tooltip" data-bs-title="{match["name"]}" '
+                f'data-category="{match["category"]}">'
+                f'{matched}'
+                f'</mark>'
+            )
+
+            highlighted_text = before + highlighted + after
+        except Exception as e:
+            # Если ошибка - пропускаем этот match и продолжаем
+            print(f"Error highlighting match '{match['name']}': {e}")
+            continue
 
     return highlighted_text
 
 
-def extract_found_items(analysis_result: Dict, mode: str, game=None) -> Dict:
+def find_all_matches_in_html_text(html_text: str, results: Dict) -> List[Dict]:
     """
-    Извлекает найденные элементы для отображения в боковой панели
-    с указанием статуса (новый или уже есть)
+    Находит все вхождения элементов в HTML тексте
+    Ищет в plain text версии, но возвращает позиции для HTML
     """
-    if mode == 'keywords':
-        keywords = analysis_result.get('results', {}).get('keywords', {}).get('items', [])
-        result = []
-        new_count = 0
-        total_count = len(keywords)
+    from django.utils.html import strip_tags
+    from django.utils.html import escape
 
-        for k in keywords:
-            is_new = True
-            if game:
-                is_new = not game.keywords.filter(id=k['id']).exists()
-            if is_new:
-                new_count += 1
-            result.append({
-                'name': k['name'],
-                'id': k['id'],
-                'is_new': is_new
-            })
+    # Создаем plain text версию для поиска
+    plain_text = strip_tags(html_text)
+    plain_text_lower = plain_text.lower()
 
-        return {
-            'keywords': result,
-            'new_count': new_count,
-            'total_count': total_count
-        }
-    else:
-        found = {}
-        categories = ['genres', 'themes', 'perspectives', 'game_modes']
-        new_counts = {}
-        total_counts = {}
+    matches = []
 
-        for category in categories:
-            items = analysis_result.get('results', {}).get(category, {}).get('items', [])
-            if items:
-                found_items = []
-                new_count = 0
-                total_count = len(items)
+    # Словарь соответствий имен элементов
+    element_names = {}
 
-                for item in items:
-                    is_new = True
-                    if game:
-                        if category == 'genres':
-                            is_new = not game.genres.filter(id=item['id']).exists()
-                        elif category == 'themes':
-                            is_new = not game.themes.filter(id=item['id']).exists()
-                        elif category == 'perspectives':
-                            is_new = not game.player_perspectives.filter(id=item['id']).exists()
-                        elif category == 'game_modes':
-                            is_new = not game.game_modes.filter(id=item['id']).exists()
+    # Собираем все имена элементов
+    categories = ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']
+    for category in categories:
+        if category in results:
+            items = results[category].get('items', [])
+            for item in items:
+                element_names[item['name'].lower()] = {
+                    'category': category,
+                    'name': item['name']
+                }
 
-                    if is_new:
-                        new_count += 1
+    # Находим все вхождения каждого элемента в plain text
+    for element_lower, element_info in element_names.items():
+        start_pos = 0
 
-                    found_items.append({
-                        'name': item['name'],
-                        'id': item['id'],
-                        'is_new': is_new
+        if ' ' in element_lower:
+            # Для фраз из нескольких слов
+            while True:
+                pos = plain_text_lower.find(element_lower, start_pos)
+                if pos == -1:
+                    break
+
+                # Преобразуем позицию из plain text в позицию в HTML
+                html_pos = get_html_position_from_plain_position(html_text, plain_text, pos)
+                html_end_pos = get_html_position_from_plain_position(html_text, plain_text, pos + len(element_lower))
+
+                if html_pos != -1 and html_end_pos != -1:
+                    matches.append({
+                        'start': html_pos,
+                        'end': html_end_pos,
+                        'type': element_info['category'][:-1] if element_info['category'] != 'keywords' else 'keyword',
+                        'name': element_info['name'],
+                        'text': html_text[html_pos:html_end_pos],
+                        'category': element_info['category']
                     })
 
-                found[category] = found_items
-                new_counts[category] = new_count
-                total_counts[category] = total_count
-            else:
-                new_counts[category] = 0
-                total_counts[category] = 0
+                start_pos = pos + 1
+        else:
+            # Для отдельных слов (с учетом границ слов)
+            import re
+            pattern = rf'\b{re.escape(element_lower)}\b'
 
-        return {
-            'items': found,
-            'new_counts': new_counts,
-            'total_counts': total_counts
-        }
+            for match in re.finditer(pattern, plain_text_lower):
+                pos = match.start()
+                html_pos = get_html_position_from_plain_position(html_text, plain_text, pos)
+                html_end_pos = get_html_position_from_plain_position(html_text, plain_text, match.end())
+
+                if html_pos != -1 and html_end_pos != -1:
+                    matches.append({
+                        'start': html_pos,
+                        'end': html_end_pos,
+                        'type': element_info['category'][:-1] if element_info['category'] != 'keywords' else 'keyword',
+                        'name': element_info['name'],
+                        'text': html_text[html_pos:html_end_pos],
+                        'category': element_info['category']
+                    })
+
+    return matches
+
+
+def get_html_position_from_plain_position(html_text: str, plain_text: str, plain_pos: int) -> int:
+    """
+    Конвертирует позицию в plain text в позицию в HTML тексте
+    Считает символы, игнорируя HTML теги
+    """
+    if plain_pos < 0 or plain_pos > len(plain_text):
+        return -1
+
+    in_tag = False
+    plain_chars_counted = 0
+    html_pos = 0
+
+    for i, char in enumerate(html_text):
+        if char == '<':
+            in_tag = True
+        elif char == '>':
+            in_tag = False
+        elif not in_tag and char != '\n' and char != '\r':
+            # Это текстовый символ (не в теге)
+            if plain_chars_counted == plain_pos:
+                return i
+            plain_chars_counted += 1
+
+        html_pos = i
+
+    # Если не нашли, возвращаем последнюю позицию
+    return len(html_text) if plain_chars_counted == plain_pos else -1
+
+
+def find_all_matches_in_text_plain(plain_text: str, results: Dict) -> List[Dict]:
+    """
+    Простой поиск совпадений в plain text
+    """
+    matches = []
+    text_lower = plain_text.lower()
+
+    # Словарь соответствий имен элементов
+    element_names = {}
+
+    # Собираем все имена элементов
+    categories = ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']
+    for category in categories:
+        if category in results:
+            items = results[category].get('items', [])
+            for item in items:
+                element_names[item['name'].lower()] = {
+                    'category': category,
+                    'name': item['name']
+                }
+
+    # Находим все вхождения каждого элемента в тексте
+    for element_lower, element_info in element_names.items():
+        start_pos = 0
+
+        if ' ' in element_lower:
+            # Для фраз из нескольких слов
+            while True:
+                pos = text_lower.find(element_lower, start_pos)
+                if pos == -1:
+                    break
+
+                matches.append({
+                    'start': pos,
+                    'end': pos + len(element_lower),
+                    'type': element_info['category'][:-1] if element_info['category'] != 'keywords' else 'keyword',
+                    'name': element_info['name'],
+                    'text': plain_text[pos:pos + len(element_lower)],
+                    'category': element_info['category']
+                })
+
+                start_pos = pos + 1
+        else:
+            # Для отдельных слов
+            import re
+            pattern = rf'\b{re.escape(element_lower)}\b'
+
+            for match in re.finditer(pattern, text_lower):
+                matches.append({
+                    'start': match.start(),
+                    'end': match.end(),
+                    'type': element_info['category'][:-1] if element_info['category'] != 'keywords' else 'keyword',
+                    'name': element_info['name'],
+                    'text': plain_text[match.start():match.end()],
+                    'category': element_info['category']
+                })
+
+    return matches
+
+
+def extract_found_items_combined(analysis_result: Dict, game=None) -> Dict:
+    """
+    Извлекает все найденные элементы для комбинированного режима
+    """
+    results = {}
+    new_counts = {}
+
+    categories = ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']
+
+    for category in categories:
+        items = analysis_result.get('results', {}).get(category, {}).get('items', [])
+        if items:
+            found_items = []
+            new_count = 0
+
+            for item in items:
+                is_new = True
+                if game:
+                    if category == 'keywords':
+                        is_new = not game.keywords.filter(id=item['id']).exists()
+                    elif category == 'genres':
+                        is_new = not game.genres.filter(id=item['id']).exists()
+                    elif category == 'themes':
+                        is_new = not game.themes.filter(id=item['id']).exists()
+                    elif category == 'perspectives':
+                        is_new = not game.player_perspectives.filter(id=item['id']).exists()
+                    elif category == 'game_modes':
+                        is_new = not game.game_modes.filter(id=item['id']).exists()
+
+                if is_new:
+                    new_count += 1
+
+                found_items.append({
+                    'name': item['name'],
+                    'id': item['id'],
+                    'is_new': is_new
+                })
+
+            results[category] = found_items
+            new_counts[f'{category}_new_count'] = new_count
+            results[f'{category}_new_count'] = new_count
+        else:
+            new_counts[f'{category}_new_count'] = 0
+            results[f'{category}_new_count'] = 0
+
+    # Добавляем общую статистику
+    total_found = sum(len(results.get(cat, [])) for cat in categories)
+    results['total_found'] = total_found
+
+    # Добавляем информацию о количестве совпадений
+    total_matches = analysis_result.get('total_matches', 0)
+    results['total_matches'] = total_matches
+
+    return results
 
 
 @login_required
@@ -459,6 +674,9 @@ def extract_found_items(analysis_result: Dict, mode: str, game=None) -> Dict:
 def clear_analysis_results(request: HttpRequest, game_id: int):
     """Очищает несохраненные результаты анализа"""
     game = get_object_or_404(Game, pk=game_id)
+
+    # Получаем текущую вкладку из запроса
+    active_tab = request.GET.get('tab', 'summary')
 
     # Ключи, которые нужно удалить из сессии
     session_keys_to_remove = [
@@ -481,19 +699,15 @@ def clear_analysis_results(request: HttpRequest, game_id: int):
     else:
         messages.info(request, 'ℹ️ Не было сохранённых результатов для очистки.')
 
-    # Получаем текущие параметры для редиректа
-    active_tab = request.GET.get('tab', 'summary')
-    analyze_mode = request.GET.get('mode', 'criteria')
-
     # Проверяем, это AJAX запрос или обычный
     if request.headers.get('x-requested-with') == 'XMLHttpRequest':
         # Для AJAX возвращаем JSON ответ
         return JsonResponse({
             'success': True,
             'message': f'Очищено {removed_count} результатов',
-            'redirect_url': reverse('analyze_game', args=[game.id]) + f'?tab={active_tab}&mode={analyze_mode}&cleared=1'
+            'redirect_url': reverse('analyze_game', args=[game.id]) + f'?tab={active_tab}&cleared=1'
         })
 
-    # Для обычных запросов - редирект
-    redirect_url = reverse('analyze_game', args=[game.id]) + f'?tab={active_tab}&mode={analyze_mode}&cleared=1'
+    # Для обычных запросов - редирект с сохранением вкладки
+    redirect_url = reverse('analyze_game', args=[game.id]) + f'?tab={active_tab}&cleared=1'
     return redirect(redirect_url)
