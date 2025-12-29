@@ -155,6 +155,15 @@
                            class="btn btn-primary-gradient px-4 py-2 fw-bold">
                             <i class="bi bi-search-heart me-2"></i>Find Similar
                         </a>
+
+                        <!-- КНОПКА АНАЛИЗА -->
+                        {% if user.is_authenticated and user.is_staff %}
+                            <a href="{% url 'analyze_game' game.id %}"
+                               class="btn btn-outline-warning px-4 py-2 fw-bold">
+                                <i class="bi bi-search me-2"></i>Analyze Descriptions
+                            </a>
+                        {% endif %}
+
                         <!-- Кнопка View on IGDB -->
                         <a href="https://www.igdb.com/games/{{ game.name|slugify }}"
                            target="_blank" class="btn btn-outline-secondary px-4 py-2">

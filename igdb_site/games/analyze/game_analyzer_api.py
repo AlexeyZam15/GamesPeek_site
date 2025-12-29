@@ -25,7 +25,8 @@ class GameAnalyzerAPI:
             game_id: Optional[int] = None,
             analyze_keywords: bool = False,
             existing_game=None,
-            detailed_patterns: bool = False
+            detailed_patterns: bool = False,
+            exclude_existing: bool = False
     ) -> Dict[str, Any]:
         """
         Анализирует текст игры
@@ -36,6 +37,7 @@ class GameAnalyzerAPI:
             analyze_keywords: Анализировать ключевые слова
             existing_game: Существующая игра для проверки критериев
             detailed_patterns: Подробная информация о паттернах
+            exclude_existing: Исключать уже существующие элементы
 
         Returns:
             Результаты анализа
@@ -47,25 +49,35 @@ class GameAnalyzerAPI:
                 'success': False,
                 'error': 'Пустой текст для анализа',
                 'game_id': game_id,
-                'processing_time': time.time() - start_time
+                'processing_time': time.time() - start_time,
+                'has_results': False
             }
+
+        print(f"=== GameAnalyzerAPI.analyze_game_text: Starting analysis")
+        print(f"=== Game ID: {game_id}")
+        print(f"=== Analyze keywords: {analyze_keywords}")
+        print(f"=== Exclude existing: {exclude_existing}")
+        print(f"=== Text length: {len(text)}")
 
         # Анализируем текст
         analysis_result = self.text_analyzer.analyze(
             text=text,
             analyze_keywords=analyze_keywords,
             existing_game=existing_game,
-            detailed_patterns=detailed_patterns
+            detailed_patterns=detailed_patterns,
+            exclude_existing=exclude_existing
         )
 
         response = {
-            'success': True,
+            'success': analysis_result.get('success', False),
+            'error': analysis_result.get('error'),
             'processing_time': time.time() - start_time,
             'text_length': len(text),
             'analysis_mode': 'keywords' if analyze_keywords else 'criteria',
-            'results': analysis_result['results'],
-            'summary': analysis_result['summary'],
-            'has_results': analysis_result['has_results']
+            'results': analysis_result.get('results', {}),
+            'summary': analysis_result.get('summary', {}),
+            'has_results': analysis_result.get('has_results', False),
+            'exclude_existing': exclude_existing
         }
 
         # Добавляем информацию о паттернах если нужно
@@ -75,6 +87,10 @@ class GameAnalyzerAPI:
         # Добавляем ID игры если передан
         if game_id:
             response['game_id'] = game_id
+
+        print(f"=== Analysis completed. Success: {response['success']}")
+        print(f"=== Has results: {response['has_results']}")
+        print(f"=== Found count: {response['summary'].get('found_count', 0)}")
 
         return response
 

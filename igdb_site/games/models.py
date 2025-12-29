@@ -428,6 +428,12 @@ class Game(models.Model):
     name = models.CharField(max_length=255, db_index=True)
     summary = models.TextField(blank=True, null=True)
 
+    last_analyzed_date = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Дата последнего анализа"
+    )
+
     game_type = models.IntegerField(
         choices=GameTypeEnum.CHOICES,
         null=True,
