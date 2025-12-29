@@ -20,12 +20,15 @@ class TextAnalyzer:
         self._keywords_cache = None
         self._cache_stats = {'hits': 0, 'misses': 0}
 
+    # games/analyze/text_analyzer.py - ДОБАВЬТЕ НОВЫЙ ПАРАМЕТР
+
     def analyze(
             self,
             text: str,
             analyze_keywords: bool = False,
             existing_game=None,
-            detailed_patterns: bool = False
+            detailed_patterns: bool = False,
+            exclude_existing: bool = False  # НОВЫЙ ПАРАМЕТР
     ) -> Dict[str, Any]:
         """
         Анализирует текст на наличие критериев или ключевых слов
@@ -35,6 +38,7 @@ class TextAnalyzer:
             analyze_keywords: Искать ключевые слова (False = критерии)
             existing_game: Существующая игра для проверки критериев
             detailed_patterns: Собирать детальную информацию о паттернах
+            exclude_existing: Исключать уже существующие элементы (по умолчанию False)
 
         Returns:
             Результаты анализа
@@ -43,6 +47,8 @@ class TextAnalyzer:
 
         if not text:
             return {
+                'success': False,
+                'error': 'Empty text',
                 'results': {},
                 'summary': {
                     'found_count': 0,
@@ -53,36 +59,51 @@ class TextAnalyzer:
                 'has_results': False
             }
 
+        print(
+            f"=== TextAnalyzer.analyze: Starting analysis (keywords={analyze_keywords}, exclude_existing={exclude_existing})")
+        print(f"=== Text length: {len(text)} characters")
+
         if analyze_keywords:
+            print("=== Analyzing keywords...")
             results, pattern_info = self._analyze_keywords(
                 text=text,
                 existing_game=existing_game,
-                collect_patterns=detailed_patterns
+                collect_patterns=detailed_patterns,
+                exclude_existing=exclude_existing
             )
         else:
+            print("=== Analyzing criteria...")
             results, pattern_info = self._analyze_criteria(
                 text=text,
                 existing_game=existing_game,
-                collect_patterns=detailed_patterns
+                collect_patterns=detailed_patterns,
+                exclude_existing=exclude_existing
             )
 
         # Форматируем результаты
         formatted_results = self._format_results(results, analyze_keywords)
         summary = self._create_summary(results, analyze_keywords)
 
+        processing_time = time.time() - start_time
+        print(f"=== Analysis completed in {processing_time:.2f}s")
+        print(f"=== Found: {summary.get('found_count', 0)} elements")
+        print(f"=== Has results: {summary.get('has_results', False)}")
+
         return {
+            'success': True,
             'results': formatted_results,
             'summary': summary,
             'pattern_info': pattern_info if detailed_patterns else None,
-            'processing_time': time.time() - start_time,
-            'has_results': summary.get('found_count', 0) > 0  # ИСПРАВЛЕНИЕ: используем get
+            'processing_time': processing_time,
+            'has_results': summary.get('found_count', 0) > 0
         }
 
     def _analyze_criteria(
             self,
             text: str,
             existing_game=None,
-            collect_patterns: bool = False
+            collect_patterns: bool = False,
+            exclude_existing: bool = True  # НОВЫЙ ПАРАМЕТР
     ) -> Tuple[Dict[str, List], Dict[str, List]]:
         """Анализирует критерии (жанры, темы и т.д.)"""
         if not text:
@@ -104,9 +125,9 @@ class TextAnalyzer:
             'game_modes': []
         }
 
-        # Существующие критерии игры
+        # Существующие критерии игры (используем только если exclude_existing = True)
         existing_items = {}
-        if existing_game:
+        if existing_game and exclude_existing:
             existing_items = {
                 'genres': set(existing_game.genres.values_list('name', flat=True)),
                 'themes': set(existing_game.themes.values_list('name', flat=True)),
@@ -121,8 +142,9 @@ class TextAnalyzer:
                 text_lower=text_lower,
                 patterns=patterns[criteria_type],
                 model=self._get_model_for_criteria(criteria_type),
-                existing_names=existing_items.get(criteria_type, set()),
-                collect_patterns=collect_patterns
+                existing_names=existing_items.get(criteria_type, set()) if exclude_existing else set(),
+                collect_patterns=collect_patterns,
+                exclude_existing=exclude_existing
             )
 
             results[criteria_type] = criteria_results
@@ -134,7 +156,8 @@ class TextAnalyzer:
             self,
             text: str,
             existing_game=None,
-            collect_patterns: bool = False
+            collect_patterns: bool = False,
+            exclude_existing: bool = True  # НОВЫЙ ПАРАМЕТР
     ) -> Tuple[Dict[str, List], Dict[str, List]]:
         """Анализирует ключевые слова"""
         if not text:
@@ -144,9 +167,9 @@ class TextAnalyzer:
         all_keywords = self._get_all_keywords()
         text_lower = text.lower()
 
-        # Существующие ключевые слова
+        # Существующие ключевые слова (используем только если exclude_existing = True)
         existing_keywords = set()
-        if existing_game:
+        if existing_game and exclude_existing:
             existing_keywords = set(existing_game.keywords.values_list('name', flat=True))
 
         found_keywords = []
@@ -156,8 +179,8 @@ class TextAnalyzer:
             keyword_name = keyword.name
             keyword_lower = keyword.name.lower()
 
-            # Пропускаем если уже есть у игры
-            if keyword_name in existing_keywords:
+            # Пропускаем если уже есть у игры И нужно исключать
+            if exclude_existing and keyword_name in existing_keywords:
                 if collect_patterns:
                     pattern_info.append({
                         'name': keyword_name,
@@ -204,15 +227,16 @@ class TextAnalyzer:
             patterns: Dict,
             model,
             existing_names: Set[str],
-            collect_patterns: bool
+            collect_patterns: bool,
+            exclude_existing: bool  # НОВЫЙ ПАРАМЕТР
     ) -> Tuple[List, List]:
         """Ищет критерии по паттернам"""
         found_items = []
         pattern_matches = []
 
         for name, pattern_list in patterns.items():
-            # Пропускаем если уже существует
-            if name.lower() in existing_names:
+            # Пропускаем если уже существует И нужно исключать
+            if exclude_existing and name.lower() in existing_names:
                 if collect_patterns:
                     pattern_matches.append({
                         'name': name,

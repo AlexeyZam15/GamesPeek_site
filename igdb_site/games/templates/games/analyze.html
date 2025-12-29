@@ -1,0 +1,640 @@
+<!-- games/templates/games/analyze.html -->
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Analyze: {{ game.name }} - GamesPeek{% endblock %}
+
+{% block extra_css %}
+    <link rel="stylesheet" href="{% static 'games/css/analyze.css' %}">
+{% endblock %}
+
+{% block content %}
+    <div class="container-fluid analyze-page">
+        <input type="hidden" id="game-id" value="{{ game.id }}">
+
+        <!-- Заголовок -->
+        <div class="analyze-header">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h1>
+                        <i class="bi bi-search text-warning me-2"></i>
+                        Analyze: <a href="{% url 'game_detail' game.id %}" class="game-link">{{ game.name }}</a>
+                    </h1>
+                    <p class="text-muted mb-0">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Analyze game descriptions and extract criteria/keywords with automatic highlighting
+                    </p>
+                </div>
+                <div>
+                    <span class="badge bg-secondary">
+                        <i class="bi bi-calendar me-1"></i>
+                        Last analyzed: {% if game.last_analyzed_date %}
+                        {{ game.last_analyzed_date|date:"M d, Y" }}{% else %}Never{% endif %}
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Сообщения -->
+        {% if messages %}
+            <div class="row">
+                <div class="col-12">
+                    {% for message in messages %}
+                        <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                            <i class="bi
+                                {% if message.tags == 'success' %}bi-check-circle
+                                {% elif message.tags == 'error' %}bi-x-circle
+                                {% elif message.tags == 'warning' %}bi-exclamation-triangle
+                                {% else %}bi-info-circle{% endif %}
+                                me-2"></i>
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        {% endif %}
+
+        <!-- Предупреждение о несохраненных результатах -->
+        {% if has_unsaved_results %}
+            <div class="alert alert-warning alert-dismissible fade show mb-4" role="alert">
+                <div class="d-flex align-items-center">
+                    <i class="bi bi-exclamation-triangle-fill me-3 fs-4"></i>
+                    <div>
+                        <h5 class="alert-heading mb-2">⚠️ Unsaved Results</h5>
+                        <p class="mb-2">You have unsaved analysis results. Click "Save Results" to apply them to the
+                            game database.</p>
+                        <div class="d-flex gap-2">
+                            <form method="post" class="d-inline">
+                                {% csrf_token %}
+                                <button type="submit" name="save_results" class="btn btn-success btn-sm">
+                                    <i class="bi bi-save me-1"></i> Save Results Now
+                                </button>
+                            </form>
+                            <a href="{% url 'clear_analysis_results' game.id %}"
+                               class="btn btn-outline-secondary btn-sm">
+                                <i class="bi bi-x-circle me-1"></i> Discard Results
+                            </a>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert"></button>
+                </div>
+            </div>
+        {% endif %}
+
+        <div class="row">
+            <!-- Основная колонка -->
+            <div class="col-lg-8">
+                <!-- Настройки анализа -->
+                <div class="settings-card">
+                    <div class="settings-card-header">
+                        <i class="bi bi-gear me-2"></i>Analysis Settings
+                    </div>
+                    <div class="settings-card-body">
+                        <form method="post" id="analyze-form" class="row g-3" action="{% url 'analyze_game' game.id %}">
+                            {% csrf_token %}
+
+                            <!-- Скрытые поля -->
+                            <input type="hidden" id="analyze-tab-input" name="analyze_tab" value="{{ active_tab }}">
+                            <input type="hidden" id="analyze-mode-input" name="analyze_mode" value="{{ analyze_mode }}">
+
+                            <!-- Группа переключателей режимов -->
+                            <div class="col-12">
+                                <span id="analysis-mode-label" class="form-label mb-2 d-block">Analysis Mode:</span>
+                                <div class="mode-toggle" role="group" aria-labelledby="analysis-mode-label">
+                                    <button type="button"
+                                            id="mode-btn-criteria"
+                                            class="mode-btn {% if analyze_mode == 'criteria' %}active{% endif %}"
+                                            data-mode="criteria"
+                                            aria-pressed="{% if analyze_mode == 'criteria' %}true{% else %}false{% endif %}">
+                                        <i class="bi bi-tags me-2"></i>
+                                        <span class="mode-btn-text">
+                            Criteria Analysis
+                            <small class="d-block text-xs opacity-75 mt-1">Find genres, themes,
+                                perspectives, game modes</small>
+                        </span>
+                                    </button>
+                                    <button type="button"
+                                            id="mode-btn-keywords"
+                                            class="mode-btn {% if analyze_mode == 'keywords' %}active{% endif %}"
+                                            data-mode="keywords"
+                                            aria-pressed="{% if analyze_mode == 'keywords' %}true{% else %}false{% endif %}">
+                                        <i class="bi bi-key me-2"></i>
+                                        <span class="mode-btn-text">
+                            Keyword Analysis
+                            <small class="d-block text-xs opacity-75 mt-1">Find specific keywords from
+                                database</small>
+                        </span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Выбор вкладки -->
+                            <div class="col-md-6">
+                                <label for="analyze-tab-select" class="form-label">Select Description:</label>
+                                <select name="analyze_tab_select" class="form-select" id="analyze-tab-select">
+                                    {% for tab in description_tabs %}
+                                        <option value="{{ tab.key }}" {% if tab.key == active_tab %}selected{% endif %}>
+                                            {{ tab.label }} ({{ tab.length }} chars)
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+
+                            <!-- Переключатель подсветки -->
+                            <div class="col-md-6">
+                                <div class="mb-2">
+                                    <span class="form-label d-block">Highlight Settings:</span>
+                                </div>
+                                <div class="d-flex align-items-center">
+                                    <div class="form-check form-switch me-3">
+                                        <input class="form-check-input" type="checkbox"
+                                               id="highlight-toggle" name="highlight_toggle"
+                                               value="on" {% if highlight_enabled %}checked{% endif %}>
+                                        <label class="form-check-label" for="highlight-toggle">
+                                            Enable Highlighting
+                                        </label>
+                                    </div>
+                                    <div class="form-text">
+                                        <small class="text-muted">
+                                            <i class="bi bi-info-circle me-1"></i>
+                                            Toggle text highlighting
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Кнопки действий -->
+                            <div class="col-12">
+                                <div class="d-flex gap-2 flex-wrap">
+                                    <!-- Кнопка анализа -->
+                                    <button type="submit"
+                                            name="analyze"
+                                            class="btn btn-primary px-4"
+                                            id="analyze-button"
+                                            aria-label="Analyze selected text description">
+                                        <i class="bi bi-search me-2"></i> Analyze Text
+                                    </button>
+
+                                    {% if has_unsaved_results %}
+                                        <!-- Кнопка сохранения -->
+                                        <button type="button"
+                                                name="save_results"
+                                                class="btn btn-success px-4"
+                                                id="save-button"
+                                                aria-label="Save analysis results to game database">
+                                            <i class="bi bi-save me-2"></i> Save Results
+                                        </button>
+
+                                        <!-- Кнопка очистки -->
+                                        <a href="{% url 'clear_analysis_results' game.id %}"
+                                           id="clear-results-btn"
+                                           class="btn btn-outline-secondary"
+                                           data-bs-toggle="tooltip"
+                                           data-bs-title="Clear all unsaved analysis results"
+                                           aria-label="Clear unsaved analysis results">
+                                            <i class="bi bi-x-circle me-1"></i> Clear Results
+                                        </a>
+                                    {% endif %}
+
+                                    <!-- Кнопка назад -->
+                                    <a href="{% url 'game_detail' game.id %}"
+                                       id="back-to-game-btn"
+                                       class="btn btn-outline-info ms-auto"
+                                       aria-label="Go back to game details page">
+                                        <i class="bi bi-arrow-left me-1"></i> Back to Game
+                                    </a>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- ВКЛАДКИ КАК НА GAME_DETAIL -->
+                <!-- Навигация табов -->
+                <ul class="nav nav-tabs mb-4" id="analyzeTabs" role="tablist">
+                    {% for tab in description_tabs %}
+                        <li class="nav-item" role="presentation">
+                            <a class="nav-link {% if tab.key == active_tab %}active{% endif %}"
+                               id="{{ tab.key }}-tab"
+                               data-bs-toggle="tab"
+                               href="#{{ tab.key }}"
+                               role="tab"
+                               aria-controls="{{ tab.key }}"
+                               aria-selected="{% if tab.key == active_tab %}true{% else %}false{% endif %}">
+                                <i class="bi
+                                    {% if tab.key == 'summary' %}bi-file-text
+                                    {% elif tab.key == 'storyline' %}bi-book
+                                    {% elif tab.key == 'rawg' %}bi-globe
+                                    {% else %}bi-wikipedia{% endif %}
+                                    me-2"></i>
+                                {{ tab.label }}
+                                <span class="badge bg-secondary ms-2">{{ tab.length }} chars</span>
+                            </a>
+                        </li>
+                    {% endfor %}
+                </ul>
+
+                <!-- Контент табов -->
+                <div class="tab-content" id="analyzeTabsContent">
+                    {% for tab in description_tabs %}
+                        <div class="tab-pane fade {% if tab.key == active_tab %}show active{% endif %}"
+                             id="{{ tab.key }}"
+                             role="tabpanel"
+                             aria-labelledby="{{ tab.key }}-tab">
+
+                            <div class="analyze-tab-content">
+                                {% if tab.is_highlighted %}
+                                    <div class="highlight-info mb-3">
+                                        <i class="bi bi-lightbulb text-info"></i>
+                                        <span>Text is highlighted with found elements. Hover over colored text to see details.</span>
+                                    </div>
+                                {% endif %}
+
+                                <div class="text-display-area">
+                                    <div class="text-content">
+                                        {% if tab.is_highlighted %}
+                                            {{ tab.text|safe }}
+                                        {% elif tab.text %}
+                                            {% if tab.key == 'rawg' or tab.key == 'wiki' %}
+                                                {{ tab.text|safe|linebreaks }}
+                                            {% else %}
+                                                {{ tab.text|linebreaks }}
+                                            {% endif %}
+                                        {% else %}
+                                            <div class="no-highlights">
+                                                <i class="bi bi-emoji-frown display-4 text-muted mb-3"></i>
+                                                <h5 class="text-muted mb-2">No Content Available</h5>
+                                                <p class="text-muted mb-0">This description is empty</p>
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Боковая панель -->
+            <div class="col-lg-4">
+                <!-- Легенда подсветки -->
+                <div class="sidebar-card">
+                    <div class="sidebar-card-header">
+                        <i class="bi bi-palette me-2"></i>Highlight Legend
+                    </div>
+                    <div class="sidebar-card-body">
+                        <div class="legend-grid">
+                            <div class="legend-item">
+                                <div class="legend-color genre"></div>
+                                <div class="legend-text">Genres</div>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color theme"></div>
+                                <div class="legend-text">Themes</div>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color perspective"></div>
+                                <div class="legend-text">Perspectives</div>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color game_mode"></div>
+                                <div class="legend-text">Game Modes</div>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color keyword"></div>
+                                <div class="legend-text">Keywords</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Найденные элементы -->
+                {% if found_items %}
+                    <div class="sidebar-card">
+                        <div class="sidebar-card-header bg-success text-white">
+                            <i class="bi bi-check-circle me-2"></i>Found Elements
+                            <span class="badge bg-light text-success ms-2">
+                                {% if analyze_mode == 'keywords' %}
+                                    {{ found_items.total_count }} total
+                                {% else %}
+                                    {% with total=found_items.total_counts.genres|default:0|add:found_items.total_counts.themes|default:0|add:found_items.total_counts.perspectives|default:0|add:found_items.total_counts.game_modes|default:0 %}
+                                        {{ total }} total
+                                    {% endwith %}
+                                {% endif %}
+                            </span>
+                        </div>
+                        <div class="sidebar-card-body">
+                            <div class="found-items-grid" id="found-items-container">
+                                {% if analyze_mode == 'keywords' and found_items.keywords %}
+                                    <div class="found-items-category">
+                                        <h6>
+                                            Keywords ({{ found_items.total_count }})
+                                            {% if found_items.new_count > 0 %}
+                                                <span class="badge bg-success ms-2" data-bs-toggle="tooltip"
+                                                      title="New elements (not saved yet)">
+                                                    {{ found_items.new_count }} new
+                                                </span>
+                                            {% endif %}
+                                        </h6>
+                                        <div class="found-items-list">
+                                            {% for keyword in found_items.keywords %}
+                                                <span class="badge {% if keyword.is_new %}bg-warning text-dark{% else %}bg-secondary{% endif %} found-item-badge"
+                                                      data-name="{{ keyword.name }}"
+                                                      data-bs-toggle="tooltip"
+                                                      title="{% if keyword.is_new %}New keyword (not saved yet) - Click to scroll to highlight{% else %}Already exists in game - Click to scroll to highlight{% endif %}">
+                                                    {{ keyword.name }}
+                                                    {% if keyword.is_new %}
+                                                        <i class="bi bi-plus-circle ms-1"></i>
+                                                    {% else %}
+                                                        <i class="bi bi-check-circle ms-1"></i>
+                                                    {% endif %}
+                                                </span>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                {% endif %}
+
+                                {% if analyze_mode == 'criteria' %}
+                                    {% if found_items.items.genres %}
+                                        <div class="found-items-category">
+                                            <h6>
+                                                Genres ({{ found_items.total_counts.genres }})
+                                                {% if found_items.new_counts.genres > 0 %}
+                                                    <span class="badge bg-success ms-2" data-bs-toggle="tooltip"
+                                                          title="New elements (not saved yet)">
+                                                        {{ found_items.new_counts.genres }} new
+                                                    </span>
+                                                {% endif %}
+                                            </h6>
+                                            <div class="found-items-list">
+                                                {% for item in found_items.items.genres %}
+                                                    <span class="badge {% if item.is_new %}bg-success{% else %}bg-secondary{% endif %} found-item-badge"
+                                                          data-name="{{ item.name }}"
+                                                          data-bs-toggle="tooltip"
+                                                          title="{% if item.is_new %}New genre (not saved yet) - Click to scroll to highlight{% else %}Already exists in game - Click to scroll to highlight{% endif %}">
+                                                        {{ item.name }}
+                                                        {% if item.is_new %}
+                                                            <i class="bi bi-plus-circle ms-1"></i>
+                                                        {% else %}
+                                                            <i class="bi bi-check-circle ms-1"></i>
+                                                        {% endif %}
+                                                    </span>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    {% endif %}
+
+                                    {% if found_items.items.themes %}
+                                        <div class="found-items-category">
+                                            <h6>
+                                                Themes ({{ found_items.total_counts.themes }})
+                                                {% if found_items.new_counts.themes > 0 %}
+                                                    <span class="badge bg-success ms-2" data-bs-toggle="tooltip"
+                                                          title="New elements (not saved yet)">
+                                                        {{ found_items.new_counts.themes }} new
+                                                    </span>
+                                                {% endif %}
+                                            </h6>
+                                            <div class="found-items-list">
+                                                {% for item in found_items.items.themes %}
+                                                    <span class="badge {% if item.is_new %}bg-danger{% else %}bg-secondary{% endif %} found-item-badge"
+                                                          data-name="{{ item.name }}"
+                                                          data-bs-toggle="tooltip"
+                                                          title="{% if item.is_new %}New theme (not saved yet) - Click to scroll to highlight{% else %}Already exists in game - Click to scroll to highlight{% endif %}">
+                                                        {{ item.name }}
+                                                        {% if item.is_new %}
+                                                            <i class="bi bi-plus-circle ms-1"></i>
+                                                        {% else %}
+                                                            <i class="bi bi-check-circle ms-1"></i>
+                                                        {% endif %}
+                                                    </span>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    {% endif %}
+
+                                    {% if found_items.items.perspectives %}
+                                        <div class="found-items-category">
+                                            <h6>
+                                                Perspectives ({{ found_items.total_counts.perspectives }})
+                                                {% if found_items.new_counts.perspectives > 0 %}
+                                                    <span class="badge bg-success ms-2" data-bs-toggle="tooltip"
+                                                          title="New elements (not saved yet)">
+                                                        {{ found_items.new_counts.perspectives }} new
+                                                    </span>
+                                                {% endif %}
+                                            </h6>
+                                            <div class="found-items-list">
+                                                {% for item in found_items.items.perspectives %}
+                                                    <span class="badge {% if item.is_new %}bg-primary{% else %}bg-secondary{% endif %} found-item-badge"
+                                                          data-name="{{ item.name }}"
+                                                          data-bs-toggle="tooltip"
+                                                          title="{% if item.is_new %}New perspective (not saved yet) - Click to scroll to highlight{% else %}Already exists in game - Click to scroll to highlight{% endif %}">
+                                                        {{ item.name }}
+                                                        {% if item.is_new %}
+                                                            <i class="bi bi-plus-circle ms-1"></i>
+                                                        {% else %}
+                                                            <i class="bi bi-check-circle ms-1"></i>
+                                                        {% endif %}
+                                                    </span>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    {% endif %}
+
+                                    {% if found_items.items.game_modes %}
+                                        <div class="found-items-category">
+                                            <h6>
+                                                Game Modes ({{ found_items.total_counts.game_modes }})
+                                                {% if found_items.new_counts.game_modes > 0 %}
+                                                    <span class="badge bg-success ms-2" data-bs-toggle="tooltip"
+                                                          title="New elements (not saved yet)">
+                                                        {{ found_items.new_counts.game_modes }} new
+                                                    </span>
+                                                {% endif %}
+                                            </h6>
+                                            <div class="found-items-list">
+                                                {% for item in found_items.items.game_modes %}
+                                                    <span class="badge {% if item.is_new %}bg-purple{% else %}bg-secondary{% endif %} found-item-badge"
+                                                          data-name="{{ item.name }}"
+                                                          data-bs-toggle="tooltip"
+                                                          title="{% if item.is_new %}New game mode (not saved yet) - Click to scroll to highlight{% else %}Already exists in game - Click to scroll to highlight{% endif %}">
+                                                        {{ item.name }}
+                                                        {% if item.is_new %}
+                                                            <i class="bi bi-plus-circle ms-1"></i>
+                                                        {% else %}
+                                                            <i class="bi bi-check-circle ms-1"></i>
+                                                        {% endif %}
+                                                    </span>
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    {% endif %}
+                                {% endif %}
+                            </div>
+
+                            {% if has_unsaved_results %}
+                                <div class="mt-3 pt-3 border-top border-secondary">
+                                    <div class="alert alert-info mb-0 py-2">
+                                        <small>
+                                            <i class="bi bi-info-circle me-1"></i>
+                                            Found elements are displayed but not saved to database yet.
+                                            Click "Save Results" button to save.
+                                        </small>
+                                    </div>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endif %}
+
+                <!-- Текущие критерии игры -->
+                <div class="sidebar-card">
+                    <div class="sidebar-card-header">
+                        <i class="bi bi-info-circle me-2"></i>Current Game Data
+                    </div>
+                    <div class="sidebar-card-body">
+                        <div class="current-data-grid" id="current-items-container">
+                            {% if current_genres %}
+                                <div class="current-data-category">
+                                    <h6>Genres ({{ current_genres|length }})</h6>
+                                    <div class="current-items-list">
+                                        {% for genre in current_genres %}
+                                            <span class="current-item">{{ genre.name }}</span>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            {% endif %}
+
+                            {% if current_themes %}
+                                <div class="current-data-category">
+                                    <h6>Themes ({{ current_themes|length }})</h6>
+                                    <div class="current-items-list">
+                                        {% for theme in current_themes %}
+                                            <span class="current-item">{{ theme.name }}</span>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            {% endif %}
+
+                            {% if current_perspectives %}
+                                <div class="current-data-category">
+                                    <h6>Perspectives ({{ current_perspectives|length }})</h6>
+                                    <div class="current-items-list">
+                                        {% for perspective in current_perspectives %}
+                                            <span class="current-item">{{ perspective.name }}</span>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            {% endif %}
+
+                            {% if current_game_modes %}
+                                <div class="current-data-category">
+                                    <h6>Game Modes ({{ current_game_modes|length }})</h6>
+                                    <div class="current-items-list">
+                                        {% for mode in current_game_modes %}
+                                            <span class="current-item">{{ mode.name }}</span>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            {% endif %}
+
+                            {% if current_keywords %}
+                                <div class="current-data-category">
+                                    <h6>Keywords ({{ current_keywords|length }})</h6>
+                                    <div class="current-items-list">
+                                        {% for keyword in current_keywords %}
+                                            <span class="current-item">{{ keyword.name }}</span>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Кнопка прокрутки наверх -->
+        <button type="button" class="scroll-to-top">
+            <i class="bi bi-chevron-up"></i>
+        </button>
+    </div>
+
+    <!-- Статус бар -->
+    <div class="status-bar">
+        <div class="status-message">
+            <i class="bi bi-info-circle me-2"></i>
+            <span>Ready to analyze</span>
+        </div>
+        <div class="status-actions">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="copy-text-btn">
+                <i class="bi bi-copy me-1"></i> Copy Text
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-info" id="find-highlights-btn">
+                <i class="bi bi-search me-1"></i> Find Highlights
+            </button>
+        </div>
+    </div>
+
+    <!-- Простой fallback на случай если JavaScript не работает -->
+    <noscript>
+        <style>
+            .settings-card {
+                border: 2px solid #dc3545 !important;
+            }
+        </style>
+        <div class="alert alert-danger">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+            JavaScript is disabled. Some features may not work properly.
+        </div>
+    </noscript>
+{% endblock %}
+
+{% block extra_js %}
+    <script src="{% static 'games/js/analyze.js' %}"></script>
+    <script>
+        // Простая проверка DOM
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('=== DOM LOADED ===');
+
+            // Проверяем все обязательные элементы
+            const requiredIds = [
+                'analyze-form',
+                'analyze-button',
+                'analyze-tab-select',
+                'analyze-tab-input',
+                'analyze-mode-input',
+                'highlight-toggle'
+            ];
+
+            requiredIds.forEach(id => {
+                const element = document.getElementById(id);
+                if (!element) {
+                    console.error(`MISSING ELEMENT: #${id}`);
+                } else {
+                    console.log(`✓ Found: #${id}`);
+                }
+            });
+
+            // Проверяем CSRF токен
+            const csrfToken = document.querySelector('[name="csrfmiddlewaretoken"]');
+            if (!csrfToken) {
+                console.error('MISSING: CSRF token');
+                alert('Security error: Missing CSRF token. Please refresh the page.');
+            } else {
+                console.log('✓ CSRF token present');
+            }
+
+            // Добавляем простой fallback
+            const analyzeButton = document.getElementById('analyze-button');
+            if (analyzeButton) {
+                // Резервный обработчик на случай проблем с JavaScript
+                analyzeButton.addEventListener('click', function() {
+                    console.log('Fallback handler: Analyze button clicked');
+                });
+            }
+        });
+    </script>
+{% endblock %}

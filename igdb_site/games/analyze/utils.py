@@ -7,6 +7,52 @@ from typing import Dict, Any, List
 from games.models import Game
 
 
+def prepare_text_for_display(text: str, analysis_result: Dict = None, mode: str = 'criteria') -> str:
+    """
+    Подготавливает текст для отображения с подсветкой
+    """
+    if not text:
+        return ''
+
+    if not analysis_result or not analysis_result.get('pattern_info'):
+        return text
+
+    # Используем уже созданную функцию highlight_matches_in_text
+    from .analyze_views import highlight_matches_in_text  # Или перенесите функцию в utils
+    return highlight_matches_in_text(text, analysis_result, mode)
+
+
+def get_description_stats(game: Game) -> Dict[str, Dict]:
+    """
+    Возвращает статистику по всем описаниям игры
+    """
+    descriptions = {
+        'summary': game.summary or '',
+        'storyline': game.storyline or '',
+        'rawg': game.rawg_description or '',
+        'wiki': game.wiki_description or '',
+    }
+
+    stats = {}
+    for key, text in descriptions.items():
+        if text.strip():
+            stats[key] = {
+                'length': len(text),
+                'word_count': len(text.split()),
+                'lines': text.count('\n') + 1,
+                'has_content': True
+            }
+        else:
+            stats[key] = {
+                'length': 0,
+                'word_count': 0,
+                'lines': 0,
+                'has_content': False
+            }
+
+    return stats
+
+
 def get_game_text(game: Game, source: str = 'default') -> str:
     """
     Получает текст игры в зависимости от источника
