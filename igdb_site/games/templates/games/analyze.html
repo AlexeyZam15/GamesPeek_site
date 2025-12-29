@@ -11,7 +11,7 @@
 {% block content %}
     <div class="container-fluid analyze-page">
         <input type="hidden" id="game-id" value="{{ game.id }}">
-
+        <div id="analyze-top"></div>  <!-- Якорь для возврата -->
         <!-- Заголовок -->
         <div class="analyze-header">
             <div class="d-flex justify-content-between align-items-center">
@@ -554,22 +554,6 @@
         <button type="button" class="scroll-to-top">
             <i class="bi bi-chevron-up"></i>
         </button>
-    </div>
-
-    <!-- Статус бар -->
-    <div class="status-bar">
-        <div class="status-message">
-            <i class="bi bi-info-circle me-2"></i>
-            <span>Ready to analyze</span>
-        </div>
-        <div class="status-actions">
-            <button type="button" class="btn btn-sm btn-outline-secondary" id="copy-text-btn">
-                <i class="bi bi-copy me-1"></i> Copy Text
-            </button>
-            <button type="button" class="btn btn-sm btn-outline-info" id="find-highlights-btn">
-                <i class="bi bi-search me-1"></i> Find Highlights
-            </button>
-        </div>
     </div>
 
     <!-- Простой fallback на случай если JavaScript не работает -->

@@ -97,7 +97,7 @@
     opacity: 0.8;
 }
 
-/* ===== ВКЛАДКИ (ТОЧНО КАК НА GAME_DETAIL) ===== */
+/* ===== ВКЛАДКИ ===== */
 #analyzeTabs.nav-tabs {
     border-bottom: 1px solid #333;
     margin-bottom: 1rem;
@@ -156,7 +156,7 @@
     min-height: 300px;
 }
 
-/* Текстовый контент - ВАЖНЫЕ ИСПРАВЛЕНИЯ */
+/* Текстовый контент */
 .text-content {
     color: #e0e0e0;
     font-size: 1rem;
@@ -222,7 +222,7 @@
     text-align: left !important;
 }
 
-/* ===== ПОДСВЕТКА - ИСПРАВЛЕНА (без подчеркивания, светлее) ===== */
+/* ===== ПОДСВЕТКА ===== */
 .highlight-genre,
 .highlight-theme,
 .highlight-perspective,
@@ -232,9 +232,7 @@
     border-radius: 4px !important;
     display: inline !important;
     position: relative !important;
-    /* Без подчеркивания */
     border-bottom: none !important;
-    /* Более светлые цвета */
 }
 
 .highlight-genre {
@@ -314,9 +312,7 @@
     width: 20px;
     height: 20px;
     border-radius: 4px;
-    /* Только легкая обводка, без подчеркивания */
     border: 1px solid rgba(255, 255, 255, 0.3);
-    /* Более светлые цвета как в подсветке */
 }
 
 .legend-color.genre {
@@ -403,31 +399,10 @@
     font-size: 0.875rem;
 }
 
-/* ===== СТАТУС БАР ===== */
-.status-bar {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    background: rgba(0, 0, 0, 0.95);
-    border-top: 1px solid #333;
-    padding: 1rem 1.5rem;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    z-index: 1000;
-    transform: translateY(100%);
-    transition: transform 0.3s ease;
-}
-
-.status-bar.visible {
-    transform: translateY(0);
-}
-
 /* ===== КНОПКА ВВЕРХ ===== */
 .scroll-to-top {
     position: fixed;
-    bottom: 80px;
+    bottom: 20px;
     right: 20px;
     background: linear-gradient(135deg, #ff6b35, #ff8c00);
     color: white;
@@ -530,16 +505,9 @@
         flex-direction: column;
     }
 
-    /* Статус бар */
-    .status-bar {
-        padding: 0.75rem 1rem;
-        flex-direction: column;
-        gap: 0.5rem;
-    }
-
     /* Кнопка вверх */
     .scroll-to-top {
-        bottom: 70px;
+        bottom: 15px;
         right: 15px;
         width: 45px;
         height: 45px;
@@ -584,8 +552,6 @@
     padding: 0.2rem 0.4rem;
 }
 
-/* Добавьте в analyze.css */
-
 /* Переключатель подсветки */
 .form-switch .form-check-input {
     width: 3em;
@@ -613,7 +579,7 @@
     color: inherit !important;
 }
 
-/* Улучшенные стили для доступности */
+/* Доступность */
 .mode-btn[aria-pressed="true"] {
     border-color: #ff6b35;
     background: rgba(255, 107, 53, 0.2);
@@ -643,48 +609,6 @@
 }
 
 /* Стили для переключателей режимов */
-.mode-toggle {
-    display: flex;
-    gap: 0.75rem;
-    margin-bottom: 1rem;
-}
-
-.mode-btn {
-    flex: 1;
-    border: 2px solid #333;
-    background: #1e1e2e;
-    color: #8b96a0;
-    padding: 1rem;
-    text-align: left;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    font-weight: 600;
-    border-radius: 6px;
-    display: flex;
-    align-items: flex-start;
-    gap: 0.75rem;
-    position: relative;
-}
-
-.mode-btn:hover {
-    border-color: #ff6b35;
-    color: #ff6b35;
-    background: rgba(255, 107, 53, 0.1);
-    transform: translateY(-2px);
-}
-
-.mode-btn.active {
-    border-color: #ff6b35;
-    background: rgba(255, 107, 53, 0.2);
-    color: #fff;
-    box-shadow: 0 4px 20px rgba(255, 107, 53, 0.25);
-}
-
-.mode-btn i {
-    font-size: 1.2rem;
-    margin-top: 0.25rem;
-}
-
 .mode-btn-text {
     display: block;
     text-align: left;
@@ -775,12 +699,6 @@
     outline-offset: 2px;
 }
 
-/* Спиннер */
-.spinner-border {
-    vertical-align: middle;
-    border-width: 0.15em;
-}
-
 /* Форма */
 .form-label {
     font-weight: 600;
@@ -793,8 +711,6 @@
     color: #8b96a0;
     font-size: 0.875rem;
 }
-
-/* games/static/games/css/analyze.css */
 
 /* Стили для поля ввода ключевых слов */
 #new-keyword-input {
@@ -831,9 +747,7 @@
     background: rgba(40, 167, 69, 0.1);
 }
 
-/* В analyze.css добавляем стили для комбинированного режима */
-
-/* Стили для найденных элементов в комбинированном режиме */
+/* Стили для комбинированного режима */
 .found-items-category[data-category="keywords"] h6 {
     color: #ffc107;
 }
@@ -852,4 +766,16 @@
 
 .found-items-category[data-category="game_modes"] h6 {
     color: #6f42c1;
+}
+
+@keyframes highlightPulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7);
+    }
+    70% {
+        box-shadow: 0 0 0 10px rgba(40, 167, 69, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(40, 167, 69, 0);
+    }
 }

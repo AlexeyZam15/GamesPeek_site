@@ -10,7 +10,7 @@ class GameAnalyzerUI {
 
         this.elements = {};
         this.currentTab = '';
-        this.currentMode = 'combined'; // Всегда combined
+        this.currentMode = 'combined';
         this.init();
     }
 
@@ -26,6 +26,7 @@ class GameAnalyzerUI {
         this.handleScroll();
         this.loadUrlParams();
         this.forceTextAlignmentFix();
+        this.restoreScrollPosition();
 
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('cleared') === '1') {
@@ -44,7 +45,14 @@ class GameAnalyzerUI {
             }, 3000);
         }
 
-        console.log('Game Analyzer UI initialized in COMBINED mode');
+        if (urlParams.get('saved') === '1') {
+            this.showMessage('✅ Results saved successfully!', 'success');
+            setTimeout(() => {
+                this.removeUrlParam('saved');
+            }, 3000);
+        }
+
+        console.log('Game Analyzer UI initialized');
     }
 
     removeUrlParam(param) {
@@ -54,6 +62,33 @@ class GameAnalyzerUI {
             window.history.replaceState({}, '', url);
         } catch (e) {
             console.error('Failed to remove URL param:', e);
+        }
+    }
+
+    saveScrollPosition() {
+        sessionStorage.setItem(`analyze_scroll_${this.options.gameId}`, window.scrollY);
+        sessionStorage.setItem(`analyze_tab_${this.options.gameId}`, this.currentTab);
+        console.log(`Scroll position saved: ${window.scrollY}, tab: ${this.currentTab}`);
+    }
+
+    restoreScrollPosition() {
+        const savedPosition = sessionStorage.getItem(`analyze_scroll_${this.options.gameId}`);
+        const savedTab = sessionStorage.getItem(`analyze_tab_${this.options.gameId}`);
+
+        if (savedTab && savedTab !== this.currentTab) {
+            setTimeout(() => {
+                this.switchTabByName(savedTab);
+            }, 50);
+        }
+
+        if (savedPosition) {
+            setTimeout(() => {
+                window.scrollTo(0, parseInt(savedPosition));
+                console.log(`Scroll position restored: ${savedPosition}`);
+
+                sessionStorage.removeItem(`analyze_scroll_${this.options.gameId}`);
+                sessionStorage.removeItem(`analyze_tab_${this.options.gameId}`);
+            }, 200);
         }
     }
 
@@ -68,13 +103,9 @@ class GameAnalyzerUI {
             analyzeTabs: document.getElementById('analyzeTabs'),
             analyzeTabLinks: document.querySelectorAll('#analyzeTabs .nav-link'),
             analyzeTabPanes: document.querySelectorAll('.tab-pane'),
-            copyTextBtn: document.getElementById('copy-text-btn'),
-            findHighlightsBtn: document.getElementById('find-highlights-btn'),
+            copyTextBtn: document.getElementById('copy-text-btn'), // Оставляем если где-то еще используется
+            findHighlightsBtn: document.getElementById('find-highlights-btn'), // Оставляем если где-то еще используется
             scrollToTopBtn: document.querySelector('.scroll-to-top'),
-            statusBar: document.querySelector('.status-bar'),
-            currentModeDisplay: document.getElementById('current-mode-display'),
-            currentTabDisplay: document.getElementById('current-tab-display'),
-            currentTabChars: document.getElementById('current-tab-chars'),
             tabInput: document.getElementById('analyze-tab-input'),
             modeInput: document.getElementById('analyze-mode-input'),
             analyzeButton: document.getElementById('analyze-button'),
@@ -83,9 +114,7 @@ class GameAnalyzerUI {
             backToGameBtn: document.getElementById('back-to-game-btn')
         };
 
-        console.log('Elements cached for COMBINED mode');
-        console.log('- Form:', this.elements.analyzeForm ? 'found' : 'NOT FOUND');
-        console.log('- Analyze button:', this.elements.analyzeButton ? 'found' : 'NOT FOUND');
+        console.log('Elements cached');
     }
 
     getCurrentState() {
@@ -93,13 +122,13 @@ class GameAnalyzerUI {
         if (activeTabLink) {
             const href = activeTabLink.getAttribute('href');
             this.currentTab = href ? href.substring(1) : '';
-        } else if (this.elements.analyzeTabLinks.length > 0) {
+        } else if (this.elements.analyzeTabLinks && this.elements.analyzeTabLinks.length > 0) {
             const firstTab = this.elements.analyzeTabLinks[0];
             const href = firstTab.getAttribute('href');
             this.currentTab = href ? href.substring(1) : '';
         }
 
-        this.currentMode = 'combined'; // Всегда combined
+        this.currentMode = 'combined';
     }
 
     /* ============================================
@@ -107,7 +136,7 @@ class GameAnalyzerUI {
        ============================================ */
 
     bindEvents() {
-        console.log('=== BINDING EVENTS FOR COMBINED MODE ===');
+        console.log('=== BINDING EVENTS ===');
 
         this.bindTabSelect();
         this.bindHighlightToggle();
@@ -121,10 +150,7 @@ class GameAnalyzerUI {
     }
 
     bindTabSelect() {
-        if (!this.elements.tabSelect) {
-            console.error('Tab select not found');
-            return;
-        }
+        if (!this.elements.tabSelect) return;
 
         this.elements.tabSelect.addEventListener('change', (e) => {
             const tabName = e.target.value;
@@ -139,10 +165,7 @@ class GameAnalyzerUI {
     }
 
     bindHighlightToggle() {
-        if (!this.elements.highlightToggle) {
-            console.warn('Highlight toggle not found');
-            return;
-        }
+        if (!this.elements.highlightToggle) return;
 
         this.elements.highlightToggle.addEventListener('change', (e) => {
             console.log(`Highlight toggle: ${e.target.checked}`);
@@ -151,15 +174,11 @@ class GameAnalyzerUI {
     }
 
     bindAnalyzeButton() {
-        console.log('=== BINDING ANALYZE BUTTON ===');
-
         if (!this.elements.analyzeButton) {
             console.error('ANALYZE BUTTON NOT FOUND!');
             this.showMessage('Error: Analyze button not found. Please refresh page.', 'error');
             return;
         }
-
-        console.log('Found analyze button:', this.elements.analyzeButton);
 
         const originalButton = this.elements.analyzeButton;
         const newButton = originalButton.cloneNode(true);
@@ -167,7 +186,7 @@ class GameAnalyzerUI {
         this.elements.analyzeButton = newButton;
 
         this.elements.analyzeButton.addEventListener('click', (e) => {
-            console.log('=== ANALYZE BUTTON CLICKED (COMBINED MODE) ===');
+            console.log('=== ANALYZE BUTTON CLICKED ===');
             e.preventDefault();
             e.stopPropagation();
 
@@ -177,6 +196,7 @@ class GameAnalyzerUI {
                 return;
             }
 
+            this.saveScrollPosition();
             this.updateHiddenFields();
 
             const csrfToken = document.querySelector('[name="csrfmiddlewaretoken"]');
@@ -188,7 +208,6 @@ class GameAnalyzerUI {
 
             let analyzeField = this.elements.analyzeForm.querySelector('input[name="analyze"]');
             if (!analyzeField) {
-                console.log('Creating hidden analyze field');
                 analyzeField = document.createElement('input');
                 analyzeField.type = 'hidden';
                 analyzeField.name = 'analyze';
@@ -200,12 +219,8 @@ class GameAnalyzerUI {
             this.elements.analyzeButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Analyzing...';
             this.elements.analyzeButton.disabled = true;
 
-            console.log('=== SUBMITTING FORM FOR COMBINED ANALYSIS ===');
-            console.log('- Mode: combined (always)');
-
             setTimeout(() => {
                 try {
-                    console.log('Attempting form submission...');
                     this.elements.analyzeForm.submit();
                 } catch (error) {
                     console.error('Error submitting form:', error);
@@ -216,15 +231,10 @@ class GameAnalyzerUI {
                 }
             }, 300);
         });
-
-        console.log('Analyze button bound successfully');
     }
 
     bindSaveButton() {
-        if (!this.elements.saveButton) {
-            console.log('Save button not found (may be hidden)');
-            return;
-        }
+        if (!this.elements.saveButton) return;
 
         const newButton = this.elements.saveButton.cloneNode(true);
         this.elements.saveButton.parentNode.replaceChild(newButton, this.elements.saveButton);
@@ -232,6 +242,7 @@ class GameAnalyzerUI {
 
         this.elements.saveButton.addEventListener('click', (e) => {
             e.preventDefault();
+            this.saveScrollPosition();
             this.handleSaveResults(e);
         });
     }
@@ -240,29 +251,25 @@ class GameAnalyzerUI {
         const addButton = document.getElementById('add-keyword-button');
         const keywordInput = document.getElementById('new-keyword-input');
 
-        if (!addButton || !keywordInput) {
-            console.log('Add keyword button or input not found');
-            return;
-        }
-
-        console.log('Found add keyword button and input');
+        if (!addButton || !keywordInput) return;
 
         keywordInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
+                this.saveScrollPosition();
                 this.handleAddKeyword();
             }
         });
 
         addButton.addEventListener('click', (e) => {
             e.preventDefault();
+            this.saveScrollPosition();
             this.handleAddKeyword();
         });
-
-        console.log('Add keyword button bound successfully');
     }
 
     bindOtherButtons() {
+        // Кнопки Copy Text и Find Highlights теперь могут отсутствовать
         if (this.elements.copyTextBtn) {
             this.elements.copyTextBtn.addEventListener('click', () => this.copyText());
         }
@@ -288,12 +295,7 @@ class GameAnalyzerUI {
 
     bindClearResultsButton() {
         const clearButton = document.getElementById('clear-results-btn');
-        if (!clearButton) {
-            console.log('Clear results button not found');
-            return;
-        }
-
-        console.log('Found clear results button:', clearButton);
+        if (!clearButton) return;
 
         const originalButton = clearButton;
         const newButton = originalButton.cloneNode(true);
@@ -309,11 +311,11 @@ class GameAnalyzerUI {
                 return;
             }
 
+            this.saveScrollPosition();
+
             const originalHTML = clearBtn.innerHTML;
             clearBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Clearing...';
             clearBtn.disabled = true;
-
-            console.log('Clearing analysis results...');
 
             const clearUrl = clearBtn.getAttribute('href');
 
@@ -323,8 +325,6 @@ class GameAnalyzerUI {
                 this.resetClearButton(clearBtn, originalHTML);
                 return;
             }
-
-            console.log('Clear URL:', clearUrl);
 
             try {
                 const response = await fetch(clearUrl, {
@@ -336,11 +336,8 @@ class GameAnalyzerUI {
                     credentials: 'same-origin'
                 });
 
-                console.log('Clear response status:', response.status);
-
                 if (response.ok) {
                     const data = await response.json();
-                    console.log('Clear response data:', data);
 
                     if (data.success) {
                         this.showMessage('✅ ' + data.message, 'success');
@@ -366,8 +363,6 @@ class GameAnalyzerUI {
                 this.resetClearButton(clearBtn, originalHTML);
             }
         });
-
-        console.log('Clear results button bound successfully');
     }
 
     resetClearButton(button, originalHTML) {
@@ -378,9 +373,7 @@ class GameAnalyzerUI {
     }
 
     bindBootstrapTabs() {
-        if (!this.elements.analyzeTabLinks || this.elements.analyzeTabLinks.length === 0) {
-            return;
-        }
+        if (!this.elements.analyzeTabLinks || this.elements.analyzeTabLinks.length === 0) return;
 
         this.elements.analyzeTabLinks.forEach(link => {
             link.addEventListener('shown.bs.tab', (e) => {
@@ -394,30 +387,18 @@ class GameAnalyzerUI {
     }
 
     updateHiddenFields() {
-        console.log('=== UPDATING HIDDEN FIELDS ===');
-
         if (this.elements.tabSelect && this.elements.tabInput) {
             const selectedTab = this.elements.tabSelect.value;
             this.elements.tabInput.value = selectedTab;
-            console.log(`Tab input updated: ${selectedTab} → ${this.elements.tabInput.value}`);
         }
 
         if (this.elements.modeInput) {
             this.elements.modeInput.value = 'combined';
-            console.log(`Mode input set to: combined (always)`);
         }
-
-        console.log('Hidden fields update complete');
     }
 
     handleHighlightToggle(e) {
-        console.log(`handleHighlightToggle: ${e.target.checked ? 'enabling' : 'disabling'} highlighting`);
-
-        e.preventDefault();
-        e.stopPropagation();
-
         const isEnabled = e.target.checked;
-
         this.showMessage(isEnabled ? 'Highlighting enabled...' : 'Highlighting disabled...', 'info');
 
         if (this.elements.analyzeForm) {
@@ -439,11 +420,8 @@ class GameAnalyzerUI {
             }
             highlightInput.value = isEnabled ? 'on' : 'off';
 
-            console.log('Toggle fields added to form');
-
             this.showMessage('Now click "Analyze Text" to apply highlighting changes', 'info');
         } else {
-            console.error('Cannot handle highlight toggle: form not found');
             this.showMessage('Error: Cannot toggle highlighting. Form not found.', 'error');
         }
     }
@@ -471,8 +449,6 @@ class GameAnalyzerUI {
             return;
         }
 
-        console.log(`Adding keyword "${keyword}" to game ${gameId}`);
-
         const originalButtonText = addButton.innerHTML;
         const originalButtonState = addButton.disabled;
 
@@ -482,6 +458,7 @@ class GameAnalyzerUI {
         const formData = new FormData();
         formData.append('add_keyword', 'true');
         formData.append('new_keyword', keyword);
+        formData.append('analyze_tab', this.currentTab);
 
         const csrfToken = this.getCSRFToken();
         if (csrfToken) {
@@ -503,21 +480,17 @@ class GameAnalyzerUI {
             return response.json();
         })
         .then(data => {
-            if (!data) return; // Redirect handled
+            if (!data) return;
 
             if (data.success) {
                 this.showMessage(`✅ Keyword "${keyword}" added successfully!`, 'success');
-
                 keywordInput.value = '';
-
                 this.updateCurrentKeywordsList(data.keyword_id, data.keyword_name);
-
                 this.refreshFoundElementsList('keywords', {
                     id: data.keyword_id,
                     name: data.keyword_name,
                     is_new: true
                 });
-
                 keywordInput.focus();
             } else {
                 throw new Error(data.error || 'Failed to add keyword');
@@ -540,19 +513,12 @@ class GameAnalyzerUI {
 
     updateCurrentKeywordsList(keywordId, keywordName) {
         const currentKeywordsContainer = document.querySelector('#current-items-container .current-items-list');
-
-        if (!currentKeywordsContainer) {
-            console.log('Current keywords container not found');
-            return;
-        }
+        if (!currentKeywordsContainer) return;
 
         const newKeywordElement = document.createElement('span');
         newKeywordElement.className = 'current-item';
         newKeywordElement.textContent = keywordName;
-
         currentKeywordsContainer.prepend(newKeywordElement);
-
-        this.updateKeywordCount('current');
     }
 
     refreshFoundElementsList(category, item) {
@@ -609,16 +575,6 @@ class GameAnalyzerUI {
         return string.charAt(0).toUpperCase() + string.slice(1);
     }
 
-    updateKeywordCount(type) {
-        if (type === 'current') {
-            const categoryHeader = document.querySelector('#current-items-container .current-data-category h6');
-            if (categoryHeader) {
-                const currentCount = categoryHeader.parentElement.querySelectorAll('.current-item').length;
-                categoryHeader.innerHTML = `Keywords (${currentCount})`;
-            }
-        }
-    }
-
     /* ============================================
        TAB & MODE MANAGEMENT
        ============================================ */
@@ -630,32 +586,21 @@ class GameAnalyzerUI {
         if (tab) {
             this.switchTabByName(tab);
         }
-
-        // Mode всегда 'combined', игнорируем параметр mode
     }
 
     switchTabByName(tabName) {
-        console.log(`switchTabByName called with: ${tabName}`);
-
         const tabLink = document.querySelector(`#analyzeTabs a[href="#${tabName}"]`);
         if (tabLink) {
-            console.log(`Found tab link for: ${tabName}`);
-
             try {
                 if (window.bootstrap) {
                     const tab = new bootstrap.Tab(tabLink);
                     tab.show();
-                    console.log(`Tab ${tabName} shown successfully`);
                 } else {
                     this.manualTabSwitch(tabName);
                 }
             } catch (error) {
-                console.error('Error showing tab:', error);
                 this.manualTabSwitch(tabName);
             }
-        } else {
-            console.error(`Tab link not found for: ${tabName}`);
-            this.showMessage(`Error: Tab ${tabName} not found.`, 'error');
         }
     }
 
@@ -694,8 +639,6 @@ class GameAnalyzerUI {
             this.elements.tabInput.value = tabName;
         }
 
-        this.updateTabDisplay(tabName);
-
         this.currentTab = tabName;
 
         setTimeout(() => {
@@ -706,16 +649,13 @@ class GameAnalyzerUI {
         this.updateUrlParam('tab', tabName);
     }
 
-    updateTabDisplay(tabName) {
-        if (this.elements.currentTabDisplay && this.elements.currentTabChars) {
-            const tabLink = document.querySelector(`#analyzeTabs a[href="#${tabName}"]`);
-            if (tabLink) {
-                const label = tabLink.textContent.match(/[^\(]+/)[0].trim();
-                const chars = tabLink.querySelector('.badge').textContent;
-
-                this.elements.currentTabDisplay.textContent = label;
-                this.elements.currentTabChars.textContent = chars;
-            }
+    updateUrlParam(key, value) {
+        try {
+            const url = new URL(window.location);
+            url.searchParams.set(key, value);
+            window.history.replaceState({}, '', url);
+        } catch (e) {
+            console.error('Failed to update URL:', e);
         }
     }
 
@@ -787,9 +727,7 @@ class GameAnalyzerUI {
         }
 
         const clone = textContent.cloneNode(true);
-
         clone.querySelectorAll('.highlight-info').forEach(el => el.remove());
-
         clone.querySelectorAll('mark').forEach(mark => {
             mark.replaceWith(mark.textContent);
         });
@@ -866,7 +804,6 @@ class GameAnalyzerUI {
     }
 
     handleSaveResults(e) {
-        console.log('handleSaveResults called for COMBINED mode');
         e.preventDefault();
 
         if (!confirm('Are you sure you want to save the analysis results to the game database?\n\nThis will add new elements (genres, themes, keywords, etc.) to the game.')) {
@@ -875,12 +812,9 @@ class GameAnalyzerUI {
         }
 
         if (!this.elements.analyzeForm) {
-            console.error('Cannot save: form not found');
             this.showMessage('Error: Form not found. Cannot save results.', 'error');
             return;
         }
-
-        console.log('Starting save process...');
 
         const saveButton = this.elements.analyzeForm.querySelector('button[name="save_results"]');
         if (saveButton) {
@@ -898,14 +832,10 @@ class GameAnalyzerUI {
         saveInput.value = 'true';
         this.elements.analyzeForm.appendChild(saveInput);
 
-        console.log('Submitting form for save...');
-
         setTimeout(() => {
             try {
                 this.elements.analyzeForm.submit();
-                console.log('Form submitted successfully for save');
             } catch (error) {
-                console.error('Error submitting form for save:', error);
                 this.showMessage('❌ Error submitting form: ' + error.message, 'error');
 
                 if (saveButton && saveButton.dataset.originalHTML) {
@@ -966,43 +896,6 @@ class GameAnalyzerUI {
             this.elements.scrollToTopBtn.classList.add('visible');
         } else {
             this.elements.scrollToTopBtn.classList.remove('visible');
-        }
-
-        if (this.elements.statusBar) {
-            if (window.scrollY > 100) {
-                this.elements.statusBar.classList.add('visible');
-            } else {
-                this.elements.statusBar.classList.remove('visible');
-            }
-        }
-    }
-
-    updateUrlParam(key, value) {
-        try {
-            const url = new URL(window.location);
-            url.searchParams.set(key, value);
-            window.history.replaceState({}, '', url);
-        } catch (e) {
-            console.error('Failed to update URL:', e);
-        }
-    }
-
-    showLoading(message = 'Processing...') {
-        if (this.elements.statusBar) {
-            this.elements.statusBar.classList.add('visible');
-            const statusMessage = this.elements.statusBar.querySelector('.status-message');
-            if (statusMessage) {
-                statusMessage.innerHTML =
-                    `<i class="bi bi-hourglass-split text-warning me-2"></i> ${message}`;
-            }
-        }
-    }
-
-    hideLoading() {
-        if (this.elements.statusBar) {
-            setTimeout(() => {
-                this.elements.statusBar.classList.remove('visible');
-            }, 1000);
         }
     }
 
@@ -1157,10 +1050,6 @@ style.textContent = `
 
     .scroll-to-top.visible {
         opacity: 1;
-    }
-
-    .status-bar {
-        transition: transform 0.3s ease;
     }
 `;
 document.head.appendChild(style);
