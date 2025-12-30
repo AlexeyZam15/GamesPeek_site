@@ -155,24 +155,32 @@ class AsyncWikiImporter:
 
         return all_results[:5]  # Возвращаем не более 5 результатов
 
-    async def get_page_content(self, title: str) -> Optional[str]:
+    async def get_page_content(self, title: str, get_full_text: bool = False) -> Optional[str]:
         """Получение содержимого страницы"""
         # Проверяем кэш
-        cached = await self.get_from_cache('content', title)
+        cache_key = f"content:{title}:{'full' if get_full_text else 'intro'}"
+        cached = await self.get_from_cache('content', cache_key)
         if cached:
             return cached
 
         url = f"https://{self.lang}.wikipedia.org/w/api.php"
+
+        # Параметры для получения ПОЛНОГО текста
         params = {
             'action': 'query',
             'prop': 'extracts',
             'titles': title,
             'explaintext': 1,
-            'exsectionformat': 'plain',
-            'exintro': 1,
-            'exsentences': 8,
             'format': 'json'
         }
+
+        # Если нужно полное содержимое, убираем exintro
+        if not get_full_text:
+            params['exintro'] = 1
+            params['exsentences'] = 8
+
+        # Также можно получить секции отдельно
+        # params['exsectionformat'] = 'wiki'  # Возвращает текст с заголовками в вики-формате
 
         async with self.semaphore:
             data = await self.fetch_with_retry(url, params)
@@ -185,97 +193,120 @@ class AsyncWikiImporter:
             if page_id != '-1':
                 content = page_data.get('extract', '')
                 if content:
+                    print(f"📄 Получена страница '{title}': {len(content)} символов")
+                    if get_full_text and len(content) < 500:
+                        print(f"⚠️  Мало контента для полной статьи: {len(content)} символов")
+
                     # Сохраняем в кэш
-                    await self.set_to_cache('content', title, content)
+                    await self.set_to_cache('content', cache_key, content)
                 return content
 
         return None
 
     @staticmethod
     def extract_gameplay_fast(content: str) -> Optional[str]:
-        """Быстрое извлечение раздела Gameplay"""
+        """Извлечение полного раздела Gameplay"""
         if not content:
             return None
 
-        # Быстрый поиск раздела Gameplay
         lines = content.split('\n')
 
-        # Ищем заголовок Gameplay
+        # Ищем заголовок Gameplay в разных форматах
+        gameplay_patterns = [
+            '==Gameplay==',
+            '==Gameplay ==',
+            '== Gameplay==',
+            '== Gameplay ==',
+            '===Gameplay===',
+            '==Game mechanics==',
+            '==Gameplay and mechanics=='
+        ]
+
         gameplay_start = -1
         for i, line in enumerate(lines):
-            if any(marker in line.lower() for marker in ['==gameplay==', '== game ==', '==game mechanics==']):
-                gameplay_start = i + 1
+            line_stripped = line.strip()
+            for pattern in gameplay_patterns:
+                if line_stripped == pattern:
+                    gameplay_start = i + 1
+                    break
+            if gameplay_start != -1:
                 break
 
-        # Если нашли Gameplay
-        if gameplay_start != -1:
-            gameplay_lines = []
-            for i in range(gameplay_start, min(gameplay_start + 10, len(lines))):
-                line = lines[i].strip()
-                if line and not line.startswith('=='):
-                    gameplay_lines.append(line)
-                elif line.startswith('=='):
+        if gameplay_start == -1:
+            return None
+
+        # Извлекаем ВЕСЬ раздел Gameplay (до следующего заголовка ==)
+        gameplay_lines = []
+        for i in range(gameplay_start, len(lines)):
+            line = lines[i].strip()
+
+            # Останавливаемся на следующем заголовке уровня ==
+            if line.startswith('==') and len(line) >= 2 and line[0] == '=' and line[1] == '=':
+                # Проверяем, что это не подзаголовок внутри Gameplay (===)
+                if not line.startswith('==='):
                     break
 
-            if gameplay_lines:
-                text = ' '.join(gameplay_lines[:5])  # Берем первые 5 строк
-                text = re.sub(r'\[\d+\]', '', text)
-                text = ' '.join(text.split()[:80])
-                return text[:600]
+            if line:
+                gameplay_lines.append(line)
 
-        # Если не нашли Gameplay, берем первые абзацы
-        for line in lines:
-            line = line.strip()
-            if line and len(line) > 60 and not line.startswith('=='):
-                line = re.sub(r'\[\d+\]', '', line)
-                line = ' '.join(line.split()[:60])
-                return line[:400]
+        if not gameplay_lines:
+            return None
+
+        # Объединяем ВСЕ строки раздела
+        result = ' '.join(gameplay_lines)
+
+        # Очищаем от ссылок [1], [2] и т.д.
+        result = re.sub(r'\[\d+\]', '', result)
+
+        # Не ограничиваем длину! Возвращаем весь текст
+        return result
+
+    async def get_page_by_exact_title(self, title: str) -> Optional[str]:
+        """Получить страницу по точному заголовку"""
+        url = f"https://{self.lang}.wikipedia.org/w/api.php"
+        params = {
+            'action': 'query',
+            'prop': 'extracts',
+            'titles': title,
+            'explaintext': 1,
+            'exsectionformat': 'plain',
+            'format': 'json'
+        }
+
+        async with self.semaphore:
+            data = await self.fetch_with_retry(url, params)
+
+        if not data:
+            return None
+
+        pages = data.get('query', {}).get('pages', {})
+        for page_id, page_data in pages.items():
+            if page_id != '-1':
+                return page_data.get('extract', '')
 
         return None
 
     async def get_game_description(self, game_name: str, game_year: int = None) -> Optional[str]:
         """Получить описание игры с учетом года выпуска"""
         try:
-            # 1. Прямые запросы к возможным названиям страниц
-            variants = []
+            print(f"\n🔍 Поиск описания для: '{game_name}' (год: {game_year})")
 
-            if game_year:
-                variants.append(f"{game_name} ({game_year} video game)")
-                variants.append(f"{game_name} ({game_year})")
-                variants.append(f"{game_name} (video game, {game_year})")
+            # Получаем полный текст
+            content = await self.get_page_content(game_name.replace(' ', '_'), get_full_text=True)
 
-            variants.extend([
-                f"{game_name} (video game)",
-                game_name,
-                game_name.replace(':', ''),
-            ])
+            if content:
+                print(f"✅ Найдена страница: '{game_name}' ({len(content)} символов)")
 
-            # Пробуем все варианты
-            for variant in variants:
-                content = await self.get_page_content(variant)
-                if content:
-                    # Проверяем, подходит ли по году
-                    if not game_year or str(game_year) in content:
-                        description = self.extract_gameplay_fast(content)
-                        if description and len(description) >= 40:
-                            return description
-
-            # 2. Если прямые запросы не сработали, ищем через поиск
-            titles = await self.search_wikipedia_titles(game_name, game_year)
-
-            for title in titles:
-                content = await self.get_page_content(title)
-                if content:
-                    # Проверяем, что это действительно игра (а не фильм/книга)
-                    if any(keyword in content.lower() for keyword in ['game', 'video game', 'play', 'player', 'level']):
-                        description = self.extract_gameplay_fast(content)
-                        if description and len(description) >= 40:
-                            return description
+                # Извлекаем Gameplay
+                description = self.extract_gameplay_fast(content)
+                if description:
+                    print(f"🎮 Найден раздел Gameplay ({len(description)} символов)")
+                    return description  # Возвращаем ПОЛНЫЙ текст
 
             return None
 
         except Exception as e:
-            logger.debug(f"Error getting description for {game_name}: {e}")
+            print(f"❌ Ошибка: {e}")
             return None
 
     async def process_batch(self, games_batch: List[Dict]) -> Dict[int, str]:
