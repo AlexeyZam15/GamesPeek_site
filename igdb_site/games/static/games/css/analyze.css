@@ -77,7 +77,8 @@
     transform: translateY(-2px);
 }
 
-.mode-btn.active {
+.mode-btn.active,
+.mode-btn[aria-pressed="true"] {
     border-color: #ff6b35;
     background: rgba(255, 107, 53, 0.2);
     color: #fff;
@@ -89,12 +90,23 @@
     margin-top: 0.25rem;
 }
 
-.mode-btn small {
+.mode-btn-text {
+    display: block;
+    text-align: left;
+}
+
+.mode-btn-text small {
     display: block;
     font-weight: 400;
     font-size: 0.85rem;
     margin-top: 0.5rem;
     opacity: 0.8;
+}
+
+.mode-btn:focus,
+.mode-btn:focus-visible {
+    outline: 2px solid #0d6efd;
+    outline-offset: 2px;
 }
 
 /* ===== ВКЛАДКИ ===== */
@@ -166,9 +178,6 @@
     margin: 0 !important;
     padding: 0 !important;
     position: static !important;
-    top: auto !important;
-    left: auto !important;
-    transform: none !important;
     vertical-align: top !important;
 }
 
@@ -222,37 +231,148 @@
     text-align: left !important;
 }
 
-/* ===== ПОДСВЕТКА ===== */
+/* ===== ПОДСВЕТКА С ПОМОЩЬЮ SPAN ===== */
 .highlight-genre,
 .highlight-theme,
 .highlight-perspective,
 .highlight-game_mode,
 .highlight-keyword {
-    padding: 2px 4px !important;
-    border-radius: 4px !important;
+    padding: 1px 3px !important;
+    margin: 0 1px !important;
+    border-radius: 3px !important;
     display: inline !important;
     position: relative !important;
-    border-bottom: none !important;
+    cursor: pointer !important;
+    border: 1px solid transparent !important;
+    transition: all 0.2s ease !important;
+    line-height: 1.5 !important;
+    vertical-align: baseline !important;
+    font-size: inherit !important;
+    font-family: inherit !important;
+    background-clip: padding-box !important;
 }
 
+/* Цвета подсветки */
 .highlight-genre {
-    background-color: rgba(40, 167, 69, 0.35) !important;
+    background-color: rgba(40, 167, 69, 0.25) !important;
+    border-color: rgba(40, 167, 69, 0.4) !important;
+    box-shadow: 0 0 0 1px rgba(40, 167, 69, 0.1) !important;
 }
 
 .highlight-theme {
-    background-color: rgba(220, 53, 69, 0.35) !important;
+    background-color: rgba(220, 53, 69, 0.25) !important;
+    border-color: rgba(220, 53, 69, 0.4) !important;
+    box-shadow: 0 0 0 1px rgba(220, 53, 69, 0.1) !important;
 }
 
 .highlight-perspective {
-    background-color: rgba(0, 123, 255, 0.35) !important;
+    background-color: rgba(0, 123, 255, 0.25) !important;
+    border-color: rgba(0, 123, 255, 0.4) !important;
+    box-shadow: 0 0 0 1px rgba(0, 123, 255, 0.1) !important;
 }
 
 .highlight-game_mode {
-    background-color: rgba(111, 66, 193, 0.35) !important;
+    background-color: rgba(111, 66, 193, 0.25) !important;
+    border-color: rgba(111, 66, 193, 0.4) !important;
+    box-shadow: 0 0 0 1px rgba(111, 66, 193, 0.1) !important;
 }
 
 .highlight-keyword {
+    background-color: rgba(255, 193, 7, 0.25) !important;
+    border-color: rgba(255, 193, 7, 0.4) !important;
+    box-shadow: 0 0 0 1px rgba(255, 193, 7, 0.1) !important;
+}
+
+/* Эффекты при наведении */
+.highlight-genre:hover {
+    background-color: rgba(40, 167, 69, 0.35) !important;
+    border-color: rgba(40, 167, 69, 0.6) !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 2px 4px rgba(40, 167, 69, 0.2) !important;
+}
+
+.highlight-theme:hover {
+    background-color: rgba(220, 53, 69, 0.35) !important;
+    border-color: rgba(220, 53, 69, 0.6) !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 2px 4px rgba(220, 53, 69, 0.2) !important;
+}
+
+.highlight-perspective:hover {
+    background-color: rgba(0, 123, 255, 0.35) !important;
+    border-color: rgba(0, 123, 255, 0.6) !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 2px 4px rgba(0, 123, 255, 0.2) !important;
+}
+
+.highlight-game_mode:hover {
+    background-color: rgba(111, 66, 193, 0.35) !important;
+    border-color: rgba(111, 66, 193, 0.6) !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 2px 4px rgba(111, 66, 193, 0.2) !important;
+}
+
+.highlight-keyword:hover {
     background-color: rgba(255, 193, 7, 0.35) !important;
+    border-color: rgba(255, 193, 7, 0.6) !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 2px 4px rgba(255, 193, 7, 0.2) !important;
+}
+
+/* Активное состояние (при клике) */
+.highlight-genre:active,
+.highlight-theme:active,
+.highlight-perspective:active,
+.highlight-game_mode:active,
+.highlight-keyword:active {
+    transform: translateY(0) !important;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Стили для текста с подсветкой */
+.text-content .highlight-genre,
+.text-content .highlight-theme,
+.text-content .highlight-perspective,
+.text-content .highlight-game_mode,
+.text-content .highlight-keyword {
+    text-decoration: none !important;
+    font-weight: inherit !important;
+    font-style: inherit !important;
+}
+
+/* Вложенность подсветки */
+.highlight-genre .highlight-theme,
+.highlight-genre .highlight-perspective,
+.highlight-genre .highlight-game_mode,
+.highlight-genre .highlight-keyword,
+.highlight-theme .highlight-genre,
+.highlight-theme .highlight-perspective,
+.highlight-theme .highlight-game_mode,
+.highlight-theme .highlight-keyword,
+.highlight-perspective .highlight-genre,
+.highlight-perspective .highlight-theme,
+.highlight-perspective .highlight-game_mode,
+.highlight-perspective .highlight-keyword,
+.highlight-game_mode .highlight-genre,
+.highlight-game_mode .highlight-theme,
+.highlight-game_mode .highlight-perspective,
+.highlight-game_mode .highlight-keyword,
+.highlight-keyword .highlight-genre,
+.highlight-keyword .highlight-theme,
+.highlight-keyword .highlight-perspective,
+.highlight-keyword .highlight-game_mode {
+    background-color: rgba(0, 0, 0, 0.1) !important;
+    border-color: rgba(0, 0, 0, 0.2) !important;
+    box-shadow: none !important;
+}
+
+/* Тулкиты для подсвеченных элементов */
+.highlight-genre[title],
+.highlight-theme[title],
+.highlight-perspective[title],
+.highlight-game_mode[title],
+.highlight-keyword[title] {
+    cursor: help !important;
 }
 
 /* Пустое состояние */
@@ -316,28 +436,28 @@
 }
 
 .legend-color.genre {
-    background-color: rgba(40, 167, 69, 0.35);
-    border-color: rgba(40, 167, 69, 0.5);
+    background-color: rgba(40, 167, 69, 0.25);
+    border-color: rgba(40, 167, 69, 0.4);
 }
 
 .legend-color.theme {
-    background-color: rgba(220, 53, 69, 0.35);
-    border-color: rgba(220, 53, 69, 0.5);
+    background-color: rgba(220, 53, 69, 0.25);
+    border-color: rgba(220, 53, 69, 0.4);
 }
 
 .legend-color.perspective {
-    background-color: rgba(0, 123, 255, 0.35);
-    border-color: rgba(0, 123, 255, 0.5);
+    background-color: rgba(0, 123, 255, 0.25);
+    border-color: rgba(0, 123, 255, 0.4);
 }
 
 .legend-color.game_mode {
-    background-color: rgba(111, 66, 193, 0.35);
-    border-color: rgba(111, 66, 193, 0.5);
+    background-color: rgba(111, 66, 193, 0.25);
+    border-color: rgba(111, 66, 193, 0.4);
 }
 
 .legend-color.keyword {
-    background-color: rgba(255, 193, 7, 0.35);
-    border-color: rgba(255, 193, 7, 0.5);
+    background-color: rgba(255, 193, 7, 0.25);
+    border-color: rgba(255, 193, 7, 0.4);
 }
 
 .legend-text {
@@ -432,16 +552,63 @@
 }
 
 /* ===== ФОРМЫ ===== */
+.form-label {
+    font-weight: 600;
+    color: #e0e0e0;
+    margin-bottom: 0.5rem;
+    display: block;
+}
+
 .form-select {
     background: #1e1e2e;
     border: 1px solid #333;
     color: #e0e0e0;
+    padding: 0.5rem 2.25rem 0.5rem 0.75rem;
+    font-size: 1rem;
+    line-height: 1.5;
+    border-radius: 0.375rem;
+    transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
 }
 
 .form-select:focus {
     border-color: #ff6b35;
     box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.1);
     background: #1e1e2e;
+    color: #e0e0e0;
+}
+
+.form-switch {
+    padding-left: 3.5rem;
+}
+
+.form-switch .form-check-input {
+    width: 3em;
+    height: 1.5em;
+    margin-left: -3.5rem;
+    cursor: pointer;
+    background-color: #6c757d;
+    border-color: #6c757d;
+}
+
+.form-switch .form-check-input:checked {
+    background-color: #28a745;
+    border-color: #28a745;
+}
+
+.form-switch .form-check-input:focus {
+    box-shadow: 0 0 0 0.25rem rgba(40, 167, 69, 0.25);
+    border-color: #28a745;
+}
+
+.form-switch .form-check-label {
+    cursor: pointer;
+    font-weight: 500;
+    user-select: none;
+}
+
+.form-text {
+    color: #8b96a0;
+    font-size: 0.875rem;
 }
 
 /* ===== СКРОЛЛБАР ===== */
@@ -475,6 +642,231 @@
 
 .highlight-pulse {
     animation: pulse 1s ease-in-out;
+}
+
+@keyframes highlightFlash {
+    0%, 100% {
+        background-color: inherit;
+    }
+    50% {
+        background-color: rgba(255, 255, 255, 0.5);
+    }
+}
+
+.highlight-flash {
+    animation: highlightFlash 1s ease 3;
+}
+
+@keyframes highlightPulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7);
+    }
+    70% {
+        box-shadow: 0 0 0 10px rgba(40, 167, 69, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(40, 167, 69, 0);
+    }
+}
+
+@keyframes highlightNewElement {
+    0% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.7);
+    }
+    50% {
+        transform: scale(1.05);
+        box-shadow: 0 0 20px 10px rgba(255, 193, 7, 0);
+    }
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(255, 193, 7, 0);
+    }
+}
+
+.highlight-new-element {
+    animation: highlightNewElement 1.5s ease-in-out;
+}
+
+/* ===== ДОПОЛНИТЕЛЬНЫЕ СТИЛИ ===== */
+/* Стили для счетчиков новых элементов */
+.found-items-category h6 .badge {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.4rem;
+}
+
+/* Состояние текста без подсветки */
+.text-content.no-highlight {
+    color: #e0e0e0 !important;
+}
+
+.text-content.no-highlight mark {
+    background-color: transparent !important;
+    border-bottom: none !important;
+    color: inherit !important;
+}
+
+/* Кнопки */
+.btn {
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.btn:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+.btn:focus-visible {
+    outline: 2px solid #0d6efd;
+    outline-offset: 2px;
+}
+
+/* Стили для статусов элементов */
+.found-item-badge.bg-secondary {
+    opacity: 0.7;
+}
+
+.found-item-badge.bg-secondary:hover {
+    opacity: 1;
+}
+
+.found-item-badge i {
+    font-size: 0.8em;
+}
+
+/* Стили для добавленных ключевых слов */
+.current-item.newly-added {
+    animation: highlightPulse 2s ease;
+    border-color: #28a745;
+    background: rgba(40, 167, 69, 0.1);
+}
+
+/* Стили для комбинированного режима */
+.found-items-category[data-category="keywords"] h6 {
+    color: #ffc107;
+}
+
+.found-items-category[data-category="genres"] h6 {
+    color: #28a745;
+}
+
+.found-items-category[data-category="themes"] h6 {
+    color: #dc3545;
+}
+
+.found-items-category[data-category="perspectives"] h6 {
+    color: #007bff;
+}
+
+.found-items-category[data-category="game_modes"] h6 {
+    color: #6f42c1;
+}
+
+/* Стили для поля ввода ключевых слов */
+#new-keyword-input {
+    border-color: #28a745;
+    background: #1e1e2e;
+    color: #e0e0e0;
+}
+
+#new-keyword-input:focus {
+    border-color: #28a745;
+    box-shadow: 0 0 0 0.25rem rgba(40, 167, 69, 0.25);
+    background: #1e1e2e;
+}
+
+#add-keyword-button {
+    border-color: #28a745;
+    color: #28a745;
+}
+
+#add-keyword-button:hover {
+    background-color: #28a745;
+    color: #fff;
+}
+
+#add-keyword-button:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+/* Стили для сообщений об автоматическом анализе */
+.alert-info .btn-outline-primary {
+    border-color: #0dcaf0;
+    color: #0dcaf0;
+}
+
+.alert-info .btn-outline-primary:hover {
+    background-color: #0dcaf0;
+    color: #fff;
+}
+
+.alert-info .btn-outline-success {
+    border-color: #198754;
+    color: #198754;
+}
+
+.alert-info .btn-outline-success:hover {
+    background-color: #198754;
+    color: #fff;
+}
+
+/* Стили для тултипов */
+.tooltip-inner {
+    max-width: 300px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.tooltip.show {
+    opacity: 1;
+}
+
+/* Специфичные цвета для тултипов */
+.highlight-genre + .tooltip .tooltip-inner {
+    background-color: #28a745;
+}
+
+.highlight-theme + .tooltip .tooltip-inner {
+    background-color: #dc3545;
+}
+
+.highlight-perspective + .tooltip .tooltip-inner {
+    background-color: #007bff;
+}
+
+.highlight-game_mode + .tooltip .tooltip-inner {
+    background-color: #6f42c1;
+}
+
+.highlight-keyword + .tooltip .tooltip-inner {
+    background-color: #ffc107;
+    color: #212529;
+}
+
+/* Стрелки тултипов */
+.tooltip.bs-tooltip-top .tooltip-arrow::before {
+    border-top-color: inherit;
+}
+
+.tooltip.bs-tooltip-bottom .tooltip-arrow::before {
+    border-bottom-color: inherit;
+}
+
+.tooltip.bs-tooltip-start .tooltip-arrow::before {
+    border-left-color: inherit;
+}
+
+.tooltip.bs-tooltip-end .tooltip-arrow::before {
+    border-right-color: inherit;
+}
+
+/* Стили для состояния загрузки */
+.spinner-border {
+    vertical-align: middle;
 }
 
 /* ===== АДАПТИВНОСТЬ ===== */
@@ -512,6 +904,16 @@
         width: 45px;
         height: 45px;
     }
+
+    /* Адаптивность для подсветки */
+    .highlight-genre,
+    .highlight-theme,
+    .highlight-perspective,
+    .highlight-game_mode,
+    .highlight-keyword {
+        padding: 1px 2px !important;
+        margin: 0 0.5px !important;
+    }
 }
 
 @media (max-width: 576px) {
@@ -533,249 +935,133 @@
     }
 }
 
-/* Дополнительные стили для статусов элементов */
-.found-item-badge.bg-secondary {
-    opacity: 0.7;
-}
-
-.found-item-badge.bg-secondary:hover {
-    opacity: 1;
-}
-
-.found-item-badge i {
-    font-size: 0.8em;
-}
-
-/* Стили для счетчиков новых элементов */
-.found-items-category h6 .badge {
-    font-size: 0.7rem;
-    padding: 0.2rem 0.4rem;
-}
-
-/* Переключатель подсветки */
-.form-switch .form-check-input {
-    width: 3em;
-    height: 1.5em;
-    cursor: pointer;
-}
-
-.form-switch .form-check-input:checked {
-    background-color: #28a745;
-    border-color: #28a745;
-}
-
-.form-switch .form-check-input:focus {
-    box-shadow: 0 0 0 0.25rem rgba(40, 167, 69, 0.25);
-}
-
-/* Состояние текста без подсветки */
-.text-content.no-highlight {
-    color: #e0e0e0 !important;
-}
-
-.text-content.no-highlight mark {
-    background-color: transparent !important;
-    border-bottom: none !important;
-    color: inherit !important;
-}
-
-/* Доступность */
-.mode-btn[aria-pressed="true"] {
-    border-color: #ff6b35;
-    background: rgba(255, 107, 53, 0.2);
-    color: #fff;
-    box-shadow: 0 4px 20px rgba(255, 107, 53, 0.25);
-}
-
-.mode-btn:focus {
-    outline: 2px solid #0d6efd;
-    outline-offset: 2px;
-}
-
-.form-select:focus,
-.form-check-input:focus {
-    border-color: #0d6efd;
-    box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.25);
-}
-
-/* Стили для состояния загрузки */
-.btn:disabled {
-    opacity: 0.65;
-    cursor: not-allowed;
-}
-
-.spinner-border {
-    vertical-align: middle;
-}
-
-/* Стили для переключателей режимов */
-.mode-btn-text {
-    display: block;
-    text-align: left;
-}
-
-.mode-btn-text small {
-    display: block;
-    font-weight: 400;
-    font-size: 0.85rem;
-    margin-top: 0.5rem;
-    opacity: 0.8;
-}
-
-/* Доступность */
-.mode-btn:focus-visible {
-    outline: 2px solid #0d6efd;
-    outline-offset: 2px;
-}
-
-.mode-btn[aria-pressed="true"] {
-    border-color: #ff6b35;
-    background: rgba(255, 107, 53, 0.2);
-    color: #fff;
-}
-
-/* Стили для переключателя */
-.form-switch {
-    padding-left: 3.5rem;
-}
-
-.form-switch .form-check-input {
-    width: 3em;
-    height: 1.5em;
-    margin-left: -3.5rem;
-    cursor: pointer;
-    background-color: #6c757d;
-    border-color: #6c757d;
-}
-
-.form-switch .form-check-input:checked {
-    background-color: #28a745;
-    border-color: #28a745;
-}
-
-.form-switch .form-check-input:focus {
-    box-shadow: 0 0 0 0.25rem rgba(40, 167, 69, 0.25);
-    border-color: #28a745;
-}
-
-.form-switch .form-check-label {
-    cursor: pointer;
-    font-weight: 500;
-    user-select: none;
-}
-
-/* Стили для селекта */
-.form-select {
-    background: #1e1e2e;
-    border: 1px solid #333;
+/* ===== ТЕКСТОВЫЙ КОНТЕНТ ===== */
+.text-content {
     color: #e0e0e0;
-    padding: 0.5rem 2.25rem 0.5rem 0.75rem;
     font-size: 1rem;
-    line-height: 1.5;
-    border-radius: 0.375rem;
-    transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+    line-height: 1.7;
+    text-align: left !important;
+    white-space: normal !important;
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
 }
 
-.form-select:focus {
-    border-color: #ff6b35;
-    box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.1);
-    background: #1e1e2e;
-    color: #e0e0e0;
+/* Сохраняем оригинальные HTML теги */
+.text-content p {
+    margin-bottom: 1.5em !important;
+    margin-top: 0 !important;
+    text-align: left !important;
+    line-height: 1.7 !important;
 }
 
-/* Кнопки */
-.btn {
-    font-weight: 500;
-    transition: all 0.2s ease;
+.text-content br {
+    display: block !important;
+    content: "" !important;
+    margin-top: 0.5em !important;
 }
 
-.btn:disabled {
-    opacity: 0.65;
-    cursor: not-allowed;
+.text-content h1,
+.text-content h2,
+.text-content h3,
+.text-content h4,
+.text-content h5,
+.text-content h6 {
+    text-align: left !important;
+    margin-top: 1.5em !important;
+    margin-bottom: 0.75em !important;
+    font-weight: 600 !important;
 }
 
-.btn:focus-visible {
-    outline: 2px solid #0d6efd;
-    outline-offset: 2px;
+.text-content ul,
+.text-content ol {
+    margin-left: 1.5em !important;
+    margin-bottom: 1.5em !important;
+    text-align: left !important;
 }
 
-/* Форма */
-.form-label {
-    font-weight: 600;
-    color: #e0e0e0;
-    margin-bottom: 0.5rem;
-    display: block;
+.text-content li {
+    margin-bottom: 0.5em !important;
+    text-align: left !important;
 }
 
-.form-text {
-    color: #8b96a0;
-    font-size: 0.875rem;
+.text-content blockquote {
+    border-left: 3px solid #ff6b35;
+    padding-left: 1em;
+    margin-left: 0;
+    margin-right: 0;
+    font-style: italic;
+    color: #aaa;
 }
 
-/* Стили для поля ввода ключевых слов */
-#new-keyword-input {
-    border-color: #28a745;
-    background: #1e1e2e;
-    color: #e0e0e0;
+/* Убираем все Flex/Grid центрирования */
+.text-content .d-flex,
+.text-content .flex-column,
+.text-content .align-items-center,
+.text-content .justify-content-center,
+.text-content .text-center {
+    display: block !important;
+    text-align: left !important;
+    align-items: flex-start !important;
+    justify-content: flex-start !important;
 }
 
-#new-keyword-input:focus {
-    border-color: #28a745;
-    box-shadow: 0 0 0 0.25rem rgba(40, 167, 69, 0.25);
-    background: #1e1e2e;
+/* Исправляем для классов Bootstrap */
+.text-content .mx-auto,
+.text-content .my-auto {
+    margin: 0 !important;
+    text-align: left !important;
 }
 
-#add-keyword-button {
-    border-color: #28a745;
-    color: #28a745;
+/* Сохраняем отступы между абзацами */
+.text-content > * {
+    margin-bottom: 1.5em !important;
 }
 
-#add-keyword-button:hover {
-    background-color: #28a745;
-    color: #fff;
+.text-content > *:last-child {
+    margin-bottom: 0 !important;
 }
 
-#add-keyword-button:disabled {
-    opacity: 0.65;
-    cursor: not-allowed;
+/* ПОДСВЕТКА С ПОДДЕРЖКОЙ HTML */
+.highlight-genre,
+.highlight-theme,
+.highlight-perspective,
+.highlight-game_mode,
+.highlight-keyword {
+    padding: 1px 3px !important;
+    margin: 0 1px !important;
+    border-radius: 3px !important;
+    display: inline !important;
+    position: relative !important;
+    cursor: pointer !important;
+    border: 1px solid transparent !important;
+    transition: all 0.2s ease !important;
+    line-height: inherit !important;
+    vertical-align: baseline !important;
+    font-size: inherit !important;
+    font-family: inherit !important;
+    background-clip: padding-box !important;
+    box-decoration-break: clone !important;
+    -webkit-box-decoration-break: clone !important;
 }
 
-/* Стили для добавленных ключевых слов */
-.current-item.newly-added {
-    animation: highlightPulse 2s ease;
-    border-color: #28a745;
-    background: rgba(40, 167, 69, 0.1);
+/* Подсветка внутри абзацев */
+.text-content p .highlight-genre,
+.text-content p .highlight-theme,
+.text-content p .highlight-perspective,
+.text-content p .highlight-game_mode,
+.text-content p .highlight-keyword {
+    display: inline !important;
+    line-height: inherit !important;
 }
 
-/* Стили для комбинированного режима */
-.found-items-category[data-category="keywords"] h6 {
-    color: #ffc107;
-}
-
-.found-items-category[data-category="genres"] h6 {
-    color: #28a745;
-}
-
-.found-items-category[data-category="themes"] h6 {
-    color: #dc3545;
-}
-
-.found-items-category[data-category="perspectives"] h6 {
-    color: #007bff;
-}
-
-.found-items-category[data-category="game_modes"] h6 {
-    color: #6f42c1;
-}
-
-@keyframes highlightPulse {
-    0% {
-        box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7);
-    }
-    70% {
-        box-shadow: 0 0 0 10px rgba(40, 167, 69, 0);
-    }
-    100% {
-        box-shadow: 0 0 0 0 rgba(40, 167, 69, 0);
-    }
+/* Убираем лишние стили для текста с подсветкой */
+.text-content .highlight-genre *,
+.text-content .highlight-theme *,
+.text-content .highlight-perspective *,
+.text-content .highlight-game_mode *,
+.text-content .highlight-keyword * {
+    text-decoration: none !important;
+    font-weight: inherit !important;
+    font-style: inherit !important;
+    color: inherit !important;
 }

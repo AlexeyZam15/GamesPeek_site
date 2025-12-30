@@ -156,31 +156,27 @@ class AsyncWikiImporter:
         return all_results[:5]  # Возвращаем не более 5 результатов
 
     async def get_page_content(self, title: str, get_full_text: bool = False) -> Optional[str]:
-        """Получение содержимого страницы"""
-        # Проверяем кэш
-        cache_key = f"content:{title}:{'full' if get_full_text else 'intro'}"
+        """Получение содержимого страницы С абзацами"""
+        cache_key = f"content:{title}:{'full' if get_full_text else 'intro'}:paragraphs"  # ← Измените ключ кэша
         cached = await self.get_from_cache('content', cache_key)
         if cached:
             return cached
 
         url = f"https://{self.lang}.wikipedia.org/w/api.php"
 
-        # Параметры для получения ПОЛНОГО текста
+        # Ключевое изменение: используем exsectionformat=wiki для структуры
         params = {
             'action': 'query',
             'prop': 'extracts',
             'titles': title,
             'explaintext': 1,
-            'format': 'json'
+            'format': 'json',
+            'exsectionformat': 'wiki'  # ← Это сохраняет структуру!
         }
 
-        # Если нужно полное содержимое, убираем exintro
         if not get_full_text:
             params['exintro'] = 1
             params['exsentences'] = 8
-
-        # Также можно получить секции отдельно
-        # params['exsectionformat'] = 'wiki'  # Возвращает текст с заголовками в вики-формате
 
         async with self.semaphore:
             data = await self.fetch_with_retry(url, params)
@@ -194,71 +190,106 @@ class AsyncWikiImporter:
                 content = page_data.get('extract', '')
                 if content:
                     print(f"📄 Получена страница '{title}': {len(content)} символов")
-                    if get_full_text and len(content) < 500:
-                        print(f"⚠️  Мало контента для полной статьи: {len(content)} символов")
 
-                    # Сохраняем в кэш
-                    await self.set_to_cache('content', cache_key, content)
-                return content
+                    # Ключевое: добавляем отступы между разделами
+                    formatted_content = self.add_paragraphs_to_content(content)
 
+                    await self.set_to_cache('content', cache_key, formatted_content)
+                    return formatted_content  # ← Возвращаем с отступами
         return None
 
     @staticmethod
+    def add_paragraphs_to_content(content: str) -> str:
+        """Добавить отступы между предложениями/абзацами"""
+        if not content:
+            return ""
+
+        # Разделяем по точкам (предложения) и добавляем отступы
+        # Это упрощенный вариант - на самом деле нужно парсить структуру
+
+        # 1. Разделяем по строкам
+        lines = content.split('\n')
+
+        # 2. Находим заголовки (==Section==)
+        result_lines = []
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+
+            # Если это заголовок (начинается и заканчивается на ==)
+            if line.startswith('==') and line.endswith('=='):
+                # Добавляем пустую строку перед заголовком (кроме первого)
+                if result_lines and result_lines[-1] != '':
+                    result_lines.append('')
+                result_lines.append(line)
+                result_lines.append('')  # Пустая строка после заголовка
+            else:
+                # Для обычного текста - добавляем как есть
+                result_lines.append(line)
+                # После длинного предложения добавляем отступ
+                if len(line) > 100 and line.endswith('.'):
+                    result_lines.append('')
+
+        # 3. Убираем лишние пустые строки подряд
+        cleaned_lines = []
+        for i, line in enumerate(result_lines):
+            if line != '' or (i > 0 and result_lines[i - 1] != ''):
+                cleaned_lines.append(line)
+
+        return '\n'.join(cleaned_lines)
+
+    @staticmethod
     def extract_gameplay_fast(content: str) -> Optional[str]:
-        """Извлечение полного раздела Gameplay"""
+        """Простое извлечение Gameplay с отступами"""
         if not content:
             return None
 
         lines = content.split('\n')
 
-        # Ищем заголовок Gameplay в разных форматах
-        gameplay_patterns = [
-            '==Gameplay==',
-            '==Gameplay ==',
-            '== Gameplay==',
-            '== Gameplay ==',
-            '===Gameplay===',
-            '==Game mechanics==',
-            '==Gameplay and mechanics=='
-        ]
-
+        # Находим Gameplay
         gameplay_start = -1
         for i, line in enumerate(lines):
-            line_stripped = line.strip()
-            for pattern in gameplay_patterns:
-                if line_stripped == pattern:
-                    gameplay_start = i + 1
-                    break
-            if gameplay_start != -1:
+            if 'Gameplay' in line and line.strip().startswith('==') and line.strip().endswith('=='):
+                gameplay_start = i + 1
                 break
 
         if gameplay_start == -1:
             return None
 
-        # Извлекаем ВЕСЬ раздел Gameplay (до следующего заголовка ==)
-        gameplay_lines = []
+        # Собираем текст до следующего заголовка ==
+        paragraphs = []
+        current_paragraph = []
+
         for i in range(gameplay_start, len(lines)):
-            line = lines[i].strip()
+            line = lines[i].rstrip()  # Сохраняем левые пробелы
 
-            # Останавливаемся на следующем заголовке уровня ==
-            if line.startswith('==') and len(line) >= 2 and line[0] == '=' and line[1] == '=':
-                # Проверяем, что это не подзаголовок внутри Gameplay (===)
-                if not line.startswith('==='):
-                    break
+            # Останавливаемся на следующем основном разделе
+            if line.strip().startswith('==') and line.strip().endswith('=='):
+                if len(line.strip().replace('=', '').strip()) > 0:
+                    if not any(x in line.lower() for x in ['gameplay', 'mechanics']):
+                        break
 
-            if line:
-                gameplay_lines.append(line)
+            if line:  # Если строка не пустая
+                current_paragraph.append(line)
+            elif current_paragraph:  # Пустая строка = конец абзаца
+                paragraphs.append('\n'.join(current_paragraph))
+                current_paragraph = []
 
-        if not gameplay_lines:
+        # Добавляем последний абзац
+        if current_paragraph:
+            paragraphs.append('\n'.join(current_paragraph))
+
+        if not paragraphs:
             return None
 
-        # Объединяем ВСЕ строки раздела
-        result = ' '.join(gameplay_lines)
+        # Объединяем абзацы через двойной перевод строки (отступ)
+        result = '\n\n'.join(paragraphs)
 
-        # Очищаем от ссылок [1], [2] и т.д.
+        # Удаляем сноски
         result = re.sub(r'\[\d+\]', '', result)
 
-        # Не ограничиваем длину! Возвращаем весь текст
         return result
 
     async def get_page_by_exact_title(self, title: str) -> Optional[str]:
