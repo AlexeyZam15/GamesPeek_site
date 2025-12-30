@@ -14,79 +14,9 @@ class Command(BaseCommand):
     help = 'Асинхронный импорт описаний из Wikipedia'
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            '--limit', type=int, default=0,
-            help='Лимит на количество обрабатываемых игр (0 = без лимита)'
-        )
-        parser.add_argument(
-            '--game-id', type=int, help='Обработать конкретную игру'
-        )
-        parser.add_argument(
-            '--chunk-size', type=int, default=200, help='Размер батча'
-        )
-        parser.add_argument(
-            '--max-concurrent', type=int, default=50,
-            help='Максимальное количество одновременных соединений'
-        )
-        parser.add_argument(
-            '--max-save-concurrent', type=int, default=1,
-            help='Максимальное количество одновременных сохранений (по умолчанию: 1)'
-        )
-        parser.add_argument(
-            '--skip-existing', action='store_true', default=True
-        )
-        parser.add_argument(
-            '--only-empty', action='store_true'
-        )
-        parser.add_argument(
-            '--force-update', action='store_true'
-        )
-        parser.add_argument(
-            '--lang', default='en'
-        )
-        parser.add_argument(
-            '--delay', type=float, default=0.3, help='Задержка между батчами'
-        )
-        parser.add_argument(
-            '--stats', action='store_true'
-        )
-        parser.add_argument(
-            '--skip-errors', action='store_true', default=False
-        )
-        parser.add_argument(
-            '--no-progress', action='store_false', dest='progress', default=True
-        )
-        parser.add_argument(
-            '--failed-file',
-            default="failed_wiki_games.csv",  # Изменено с logs/failed_wiki_games.csv
-            help='Файл для ошибок (по умолчанию: failed_wiki_games.csv)'
-        )
-        parser.add_argument(
-            '--no-save-failed', action='store_true', default=False
-        )
-        parser.add_argument(
-            '--skip-failed', action='store_true', default=False,
-            help='Пропускать игры, которые уже в файле ошибок'
-        )
-        parser.add_argument(
-            '--retry-failed', action='store_true', default=False,
-            help='Обработать только игры из файла ошибок'
-        )
-        parser.add_argument(
-            '--clear-failed', action='store_true', default=False,
-            help='Очистить файл ошибок перед началом'
-        )
-        parser.add_argument(
-            '--save-each-batch', action='store_true', default=True,
-            help='Сохранять результаты после каждого батча (по умолчанию: True)'
-        )
-        # Новый аргумент
-        parser.add_argument(
-            '--include-not-found',
-            action='store_true',
-            default=False,
-            help='Включить игры из файла ненайденных (по умолчанию: False)'
-        )
+        """Аргументы теперь определены в основном файле команды"""
+        # Оставляем пустым или с комментарием
+        pass
 
     def handle(self, *args, **options):
         """Основной метод обработки команды"""

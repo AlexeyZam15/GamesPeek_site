@@ -1265,12 +1265,15 @@ class Keyword(models.Model):
     cached_usage_count = models.IntegerField(default=0, db_index=True)
     last_count_update = models.DateTimeField(null=True, blank=True)
 
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
     class Meta:
         ordering = ['name']
         indexes = [
             models.Index(fields=['cached_usage_count']),
             models.Index(fields=['name']),
             models.Index(fields=['category', 'cached_usage_count']),
+            models.Index(fields=['created_at']),
         ]
 
     def __str__(self) -> str:
