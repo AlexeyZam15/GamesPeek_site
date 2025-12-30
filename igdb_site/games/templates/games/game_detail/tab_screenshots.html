@@ -1,0 +1,53 @@
+{% load game_tags %}
+<div class="screenshots-gallery">
+    {% if game.screenshots.all %}
+        <div class="row g-3">
+            {% for screenshot in game.screenshots.all %}
+                <div class="col-md-6 col-lg-4 col-xl-3">
+                    <div class="screenshot-card-fixed card h-100 border-0">
+                        <div class="screenshot-container-fixed position-relative overflow-hidden rounded">
+                            <img src="{{ screenshot.image_url }}"
+                                 class="screenshot-image-fixed gallery-img w-100 h-100"
+                                 alt="{{ game.name }} - Screenshot {{ forloop.counter }}"
+                                 data-image="{{ screenshot.image_url }}"
+                                 loading="lazy">
+                            <div class="hover-overlay position-absolute top-0 start-0 w-100 h-100">
+                                <div class="position-absolute top-50 start-50 translate-middle">
+                                    <i class="bi bi-zoom-in text-light fs-3"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="game-detail-card card">
+            <div class="card-body text-center py-5">
+                <div class="mb-3">
+                    <i class="bi bi-image text-muted" style="font-size: 3rem;"></i>
+                </div>
+                <h5 class="text-muted mb-2">No Screenshots Available</h5>
+                <p class="text-muted mb-0">
+                    Screenshots for this game haven't been loaded yet.
+                </p>
+            </div>
+        </div>
+    {% endif %}
+
+    <!-- Скрипт галереи -->
+    <script>
+        // Инициализация галереи после загрузки DOM
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(function() {
+                if (typeof initInlineGallery === 'function') {
+                    initInlineGallery();
+                } else {
+                    console.error('Gallery function not found');
+                }
+            }, 1000);
+        });
+    </script>
+
+    {% include 'games/game_detail/gallery_script.html' %}
+</div>

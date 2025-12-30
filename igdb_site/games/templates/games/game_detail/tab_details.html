@@ -1,0 +1,158 @@
+{% load game_tags %}
+{% load platform_icons %}
+
+{% if game.platforms.all or game.themes.all or game.genres.all or game.player_perspectives.all or game.game_modes.all %}
+    <div class="vertical-details">
+        <!-- Additional Details -->
+        <div class="vertical-detail-card additional">
+            <h5 class="mb-4">
+                <i class="bi bi-info-circle me-2"></i>Additional Information
+            </h5>
+            <div class="info-grid">
+                {% if game.rating %}
+                    <div class="info-item d-flex justify-content-between py-3 border-bottom">
+                        <span class="text-muted">IGDB Rating:</span>
+                        <span class="fw-bold text-light">
+                        {{ game.rating|floatformat:1 }}/100
+                            {% if game.rating_count %}
+                                <small class="text-muted ms-2">({{ game.rating_count }} votes)</small>
+                            {% endif %}
+                    </span>
+                    </div>
+                {% endif %}
+
+                {% if game.first_release_date %}
+                    <div class="info-item d-flex justify-content-between py-3 border-bottom">
+                        <span class="text-muted">Release Date:</span>
+                        <span class="fw-bold text-light">
+                        {{ game.first_release_date|date:"F j, Y" }}
+                    </span>
+                    </div>
+                {% endif %}
+
+                {% if game.igdb_id %}
+                    <div class="info-item d-flex justify-content-between py-3 border-bottom">
+                        <span class="text-muted">IGDB ID:</span>
+                        <span class="fw-bold text-light">{{ game.igdb_id }}</span>
+                    </div>
+                {% endif %}
+
+                {% if game.is_part_of_series and game.main_series %}
+                    <div class="info-item d-flex justify-content-between py-3 border-bottom">
+                        <span class="text-muted">Series:</span>
+                        <span class="fw-bold text-light">
+                        {{ game.main_series.name }}
+                            {% if game.series_order %}
+                                <span class="badge bg-info ms-2">Part {{ game.series_order }}</span>
+                            {% endif %}
+                    </span>
+                    </div>
+                {% endif %}
+
+                {% if game.series.all|length > 1 %}
+                    <div class="info-item d-flex justify-content-between py-3 border-bottom">
+                        <span class="text-muted">Additional Series:</span>
+                        <span class="fw-bold text-light">
+                        {% for series in game.series.all|slice:"1:" %}
+                            {{ series.name }}{% if not forloop.last %}, {% endif %}
+                        {% endfor %}
+                    </span>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Platforms -->
+        {% if game.platforms.all %}
+            <div class="vertical-detail-card platforms">
+                <h5 class="mb-4">
+                    <i class="bi bi-device-ssd me-2"></i>Platforms
+                    <span class="badge bg-info ms-2">{{ game.platforms.all|length }}</span>
+                </h5>
+                <div class="detail-tags">
+                    {% for platform in game.platforms.all %}
+                        <div class="platform-badge-wrapper mb-2"
+                             data-bs-toggle="tooltip"
+                             data-bs-title="{{ platform.display_name|default:platform.name }}">
+                            {% platform_badge platform.name %}
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        {% endif %}
+
+        <!-- Genres -->
+        {% if game.genres.all %}
+            <div class="vertical-detail-card genres">
+                <h5 class="mb-4">
+                    <i class="bi bi-grid me-2"></i>Genres
+                    <span class="badge bg-success ms-2">{{ game.genres.all|length }}</span>
+                </h5>
+                <div class="detail-tags">
+                    {% for genre in game.genres.all %}
+                        <span class="detail-tag genre">{{ genre.name }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+        {% endif %}
+
+        <!-- Themes -->
+        {% if game.themes.all %}
+            <div class="vertical-detail-card themes">
+                <h5 class="mb-4">
+                    <i class="bi bi-palette me-2"></i>Themes
+                    <span class="badge bg-danger ms-2">{{ game.themes.all|length }}</span>
+                </h5>
+                <div class="detail-tags">
+                    {% for theme in game.themes.all %}
+                        <span class="detail-tag theme">{{ theme.name }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+        {% endif %}
+
+
+        <!-- Player Perspectives -->
+        {% if game.player_perspectives.all %}
+            <div class="vertical-detail-card perspectives">
+                <h5 class="mb-4">
+                    <i class="bi bi-camera-video me-2"></i>Player Perspectives
+                    <span class="badge bg-primary ms-2">{{ game.player_perspectives.all|length }}</span>
+                </h5>
+                <div class="detail-tags">
+                    {% for perspective in game.player_perspectives.all %}
+                        <span class="detail-tag perspective">{{ perspective.name }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+        {% endif %}
+
+        <!-- Game Modes -->
+        {% if game.game_modes.all %}
+            <div class="vertical-detail-card game-modes">
+                <h5 class="mb-4">
+                    <i class="bi bi-people me-2"></i>Game Modes
+                    <span class="badge bg-purple ms-2">{{ game.game_modes.all|length }}</span>
+                </h5>
+                <div class="detail-tags">
+                    {% for mode in game.game_modes.all %}
+                        <span class="detail-tag game-mode">{{ mode.name }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+        {% endif %}
+
+    </div>
+{% else %}
+    <div class="game-detail-card card border-0">
+        <div class="text-center py-5">
+            <div class="mb-3">
+                <i class="bi bi-list-check text-muted" style="font-size: 3rem;"></i>
+            </div>
+            <h5 class="text-muted mb-2">No Details Available</h5>
+            <p class="text-muted mb-0">
+                Additional details for this game haven't been loaded yet.
+            </p>
+        </div>
+    </div>
+{% endif %}

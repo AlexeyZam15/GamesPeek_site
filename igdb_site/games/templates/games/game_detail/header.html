@@ -1,0 +1,198 @@
+{% load platform_icons game_tags color_tags %}
+
+<div class="game-header-card card border-0">
+    <div class="card-body p-0">
+        <div class="row g-0">
+            <!-- Обложка с наложенными элементами -->
+            <div class="col-md-5 col-lg-4 col-xl-4">
+                <div class="position-relative h-100" style="min-height: 400px;">
+                    <!-- Основной контейнер обложки -->
+                    <div class="game-cover-container w-100 h-100">
+                        {% if game.cover_url %}
+                            <div class="game-cover-wrapper w-100 h-100">
+                                <img src="{{ game.cover_url }}"
+                                     class="game-cover-main w-100 h-100"
+                                     alt="{{ game.name }}"
+                                     loading="lazy"
+                                     onload="this.style.opacity='1'"
+                                     style="opacity: 0; transition: opacity 0.5s ease; object-fit: cover; object-position: center 20%;">
+                            </div>
+                        {% else %}
+                            <div class="no-cover-placeholder w-100 h-100 d-flex align-items-center justify-content-center">
+                                <span class="text-muted fs-3">No Cover</span>
+                            </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Рейтинг как SVG изображение (верхний левый угол) -->
+                    <div class="position-absolute top-0 start-0 rating-overlay">
+                        {% if game.rating %}
+                            {% rating_star_svg game.rating 80 %}
+                        {% else %}
+                            <!-- Звезда с N/A для игр без рейтинга -->
+                            <div class="no-rating-container"
+                                 data-bs-toggle="tooltip"
+                                 data-bs-placement="right"
+                                 data-bs-title="No Rating">
+                                <svg viewBox="0 0 80 80">
+                                    <!-- Внешняя звезда -->
+                                    <path d="M40,10 L48.6,30.2 L70,30.2 L52.7,42.8 L61.3,63 L40,50.4 L18.7,63 L27.3,42.8 L10,30.2 L31.4,30.2 Z"/>
+                                    <!-- Текст N/A внутри -->
+                                    <text x="40" y="45" text-anchor="middle">N/A</text>
+                                </svg>
+                            </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Платформы (нижний левый угол) -->
+                    {% if game.platforms.all %}
+                        <div class="position-absolute bottom-0 start-0 platforms-overlay">
+                            <div class="d-flex flex-wrap gap-1">
+                                {% for platform in game.platforms.all %}
+                                    {% platform_badge platform.name %}
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Основная информация -->
+            <div class="col-md-7 col-lg-8 col-xl-8">
+                <div class="h-100 p-4">
+                    <!-- Только заголовок (рейтинг теперь на обложке) -->
+                    <h1 class="display-5 fw-bold text-info mb-3">{{ game.name }}</h1>
+
+                    <!-- Дата релиза -->
+                    <div class="mb-4">
+                        {% if game.first_release_date %}
+                            <span class="text-light fs-5">
+                                <i class="bi bi-calendar-event me-2"></i>Released: {{ game.first_release_date|date:"M j, Y" }}
+                            </span>
+                        {% else %}
+                            <span class="text-light fs-5">
+                                <i class="bi bi-calendar-event me-2"></i>Release Date Unknown
+                            </span>
+                        {% endif %}
+                    </div>
+
+                    <!-- Серия игры -->
+                    {% if game.is_part_of_series and game.main_series %}
+                        <div class="mb-4">
+                            <h6 class="text-light mb-2">
+                                <i class="bi bi-collection-play me-2 text-primary"></i>Series:
+                            </h6>
+                            <div class="d-flex align-items-center">
+                                <span class="text-light fs-5">
+                                    {{ game.main_series.name }}
+                                    {% if game.series_order %}
+                                        <span class="ms-2 badge bg-info fs-6">Part {{ game.series_order }}</span>
+                                    {% endif %}
+                                </span>
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    <!-- Жанры -->
+                    {% if game.genres.all %}
+                        <div class="mb-4">
+                            <h6 class="text-light mb-2">
+                                <i class="bi bi-grid me-2"></i>Genres:
+                            </h6>
+                            <div class="d-flex flex-wrap gap-2">
+                                {% for genre in game.genres.all %}
+                                    <span class="badge bg-success px-3 py-2 fs-6">{{ genre.name }}</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    <!-- Темы -->
+                    {% if game.themes.all %}
+                        <div class="mb-4">
+                            <h6 class="text-light mb-2">
+                                <i class="bi bi-palette me-2"></i>Themes:
+                            </h6>
+                            <div class="d-flex flex-wrap gap-2">
+                                {% for theme in game.themes.all %}
+                                    <span class="badge bg-danger px-3 py-2 fs-6">{{ theme.name }}</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    <!-- Player Perspectives -->
+                    {% if game.player_perspectives.all %}
+                        <div class="mb-4">
+                            <h6 class="text-light mb-2">
+                                <i class="bi bi-camera-video me-2"></i>Perspectives:
+                            </h6>
+                            <div class="d-flex flex-wrap gap-2">
+                                {% for perspective in game.player_perspectives.all %}
+                                    <span class="badge bg-primary px-3 py-2 fs-6">{{ perspective.name }}</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    <!-- Game Modes -->
+                    {% if game.game_modes.all %}
+                        <div class="mb-4">
+                            <h6 class="text-light mb-2">
+                                <i class="bi bi-people me-2"></i>Game Modes:
+                            </h6>
+                            <div class="d-flex flex-wrap gap-2">
+                                {% for mode in game.game_modes.all %}
+                                    <span class="badge bg-purple px-3 py-2 fs-6">{{ mode.name }}</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    <!-- Кнопки действий -->
+                    <div class="d-flex flex-wrap gap-3 mt-auto pt-4">
+                        <a href="{% get_find_similar_url game %}"
+                           class="btn btn-primary-gradient px-4 py-2 fw-bold">
+                            <i class="bi bi-search-heart me-2"></i>Find Similar
+                        </a>
+
+                        <!-- КНОПКА АНАЛИЗА -->
+                        {% if user.is_authenticated and user.is_staff %}
+                            <a href="{% url 'analyze_game' game.id %}"
+                               class="btn btn-outline-warning px-4 py-2 fw-bold">
+                                <i class="bi bi-search me-2"></i>Analyze Descriptions
+                            </a>
+                        {% endif %}
+
+                        <!-- Кнопка View on IGDB -->
+                        <a href="https://www.igdb.com/games/{{ game.name|slugify }}"
+                           target="_blank" class="btn btn-outline-secondary px-4 py-2">
+                            <i class="bi bi-box-arrow-up-right me-2"></i>View on IGDB
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Инициализация тултипов Bootstrap -->
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Инициализация тултипов для иконок платформ
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+
+        // Дополнительно инициализируем тултипы для элементов без рейтинга
+        setTimeout(function() {
+            var noRatingElements = document.querySelectorAll('.no-rating-container');
+            noRatingElements.forEach(function(el) {
+                if (!el._tooltip) {
+                    new bootstrap.Tooltip(el);
+                }
+            });
+        }, 500);
+    });
+</script>

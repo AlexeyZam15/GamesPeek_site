@@ -194,30 +194,31 @@
         }
 
         // Авто-отправка формы для ВСЕХ чекбоксов
-        function setupAutoSubmit() {
-            // Для всех критериев похожести - включаем режим похожих игр
-            document.querySelectorAll('.genre-checkbox, .keyword-checkbox, .theme-checkbox, .perspective-checkbox, .developer-checkbox').forEach(checkbox => {
-                checkbox.addEventListener('change', function() {
-                    document.getElementById('find_similar_field').value = '1';
-                    form.submit();
-                });
-            });
+function setupAutoSubmit() {
+    // Для всех критериев похожести - включаем режим похожих игр
+    document.querySelectorAll('.genre-checkbox, .keyword-checkbox, .theme-checkbox, .perspective-checkbox, .developer-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            document.getElementById('find_similar_field').value = '1';
+            updateHiddenFields();  // Только обновляем поля
+            // НЕ отправляем форму!
+        });
+    });
 
-            // Для платформ - НЕ включаем режим похожих игр, просто фильтруем
-            document.querySelectorAll('.platform-checkbox').forEach(checkbox => {
-                checkbox.addEventListener('change', function() {
-                    // Не меняем find_similar_field, оставляем текущее значение
-                    form.submit();
-                });
-            });
+    // Для платформ - НЕ включаем режим похожих игр и НЕ отправляем форму
+    document.querySelectorAll('.platform-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            updateHiddenFields();  // Только обновляем поля
+            // НЕ отправляем форму!
+        });
+    });
 
-            const sortSelect = document.querySelector('select[name="sort"]');
-            if (sortSelect) {
-                sortSelect.addEventListener('change', function() {
-                    form.submit();
-                });
-            }
-        }
+    const sortSelect = document.querySelector('select[name="sort"]');
+    if (sortSelect) {
+        sortSelect.addEventListener('change', function() {
+            form.submit();  // Для сортировки оставляем автозапуск
+        });
+    }
+}
 
         // Инициализация всех функций
         function initializeAll() {

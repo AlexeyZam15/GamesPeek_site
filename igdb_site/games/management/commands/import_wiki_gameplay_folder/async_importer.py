@@ -155,24 +155,28 @@ class AsyncWikiImporter:
 
         return all_results[:5]  # Возвращаем не более 5 результатов
 
-    async def get_page_content(self, title: str) -> Optional[str]:
-        """Получение содержимого страницы"""
-        # Проверяем кэш
-        cached = await self.get_from_cache('content', title)
+    async def get_page_content(self, title: str, get_full_text: bool = False) -> Optional[str]:
+        """Получение содержимого страницы С абзацами"""
+        cache_key = f"content:{title}:{'full' if get_full_text else 'intro'}:paragraphs"  # ← Измените ключ кэша
+        cached = await self.get_from_cache('content', cache_key)
         if cached:
             return cached
 
         url = f"https://{self.lang}.wikipedia.org/w/api.php"
+
+        # Ключевое изменение: используем exsectionformat=wiki для структуры
         params = {
             'action': 'query',
             'prop': 'extracts',
             'titles': title,
             'explaintext': 1,
-            'exsectionformat': 'plain',
-            'exintro': 1,
-            'exsentences': 8,
-            'format': 'json'
+            'format': 'json',
+            'exsectionformat': 'wiki'  # ← Это сохраняет структуру!
         }
+
+        if not get_full_text:
+            params['exintro'] = 1
+            params['exsentences'] = 8
 
         async with self.semaphore:
             data = await self.fetch_with_retry(url, params)
@@ -185,97 +189,155 @@ class AsyncWikiImporter:
             if page_id != '-1':
                 content = page_data.get('extract', '')
                 if content:
-                    # Сохраняем в кэш
-                    await self.set_to_cache('content', title, content)
-                return content
+                    print(f"📄 Получена страница '{title}': {len(content)} символов")
 
+                    # Ключевое: добавляем отступы между разделами
+                    formatted_content = self.add_paragraphs_to_content(content)
+
+                    await self.set_to_cache('content', cache_key, formatted_content)
+                    return formatted_content  # ← Возвращаем с отступами
         return None
 
     @staticmethod
+    def add_paragraphs_to_content(content: str) -> str:
+        """Добавить отступы между предложениями/абзацами"""
+        if not content:
+            return ""
+
+        # Разделяем по точкам (предложения) и добавляем отступы
+        # Это упрощенный вариант - на самом деле нужно парсить структуру
+
+        # 1. Разделяем по строкам
+        lines = content.split('\n')
+
+        # 2. Находим заголовки (==Section==)
+        result_lines = []
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+
+            # Если это заголовок (начинается и заканчивается на ==)
+            if line.startswith('==') and line.endswith('=='):
+                # Добавляем пустую строку перед заголовком (кроме первого)
+                if result_lines and result_lines[-1] != '':
+                    result_lines.append('')
+                result_lines.append(line)
+                result_lines.append('')  # Пустая строка после заголовка
+            else:
+                # Для обычного текста - добавляем как есть
+                result_lines.append(line)
+                # После длинного предложения добавляем отступ
+                if len(line) > 100 and line.endswith('.'):
+                    result_lines.append('')
+
+        # 3. Убираем лишние пустые строки подряд
+        cleaned_lines = []
+        for i, line in enumerate(result_lines):
+            if line != '' or (i > 0 and result_lines[i - 1] != ''):
+                cleaned_lines.append(line)
+
+        return '\n'.join(cleaned_lines)
+
+    @staticmethod
     def extract_gameplay_fast(content: str) -> Optional[str]:
-        """Быстрое извлечение раздела Gameplay"""
+        """Простое извлечение Gameplay с отступами"""
         if not content:
             return None
 
-        # Быстрый поиск раздела Gameplay
         lines = content.split('\n')
 
-        # Ищем заголовок Gameplay
+        # Находим Gameplay
         gameplay_start = -1
         for i, line in enumerate(lines):
-            if any(marker in line.lower() for marker in ['==gameplay==', '== game ==', '==game mechanics==']):
+            if 'Gameplay' in line and line.strip().startswith('==') and line.strip().endswith('=='):
                 gameplay_start = i + 1
                 break
 
-        # Если нашли Gameplay
-        if gameplay_start != -1:
-            gameplay_lines = []
-            for i in range(gameplay_start, min(gameplay_start + 10, len(lines))):
-                line = lines[i].strip()
-                if line and not line.startswith('=='):
-                    gameplay_lines.append(line)
-                elif line.startswith('=='):
-                    break
+        if gameplay_start == -1:
+            return None
 
-            if gameplay_lines:
-                text = ' '.join(gameplay_lines[:5])  # Берем первые 5 строк
-                text = re.sub(r'\[\d+\]', '', text)
-                text = ' '.join(text.split()[:80])
-                return text[:600]
+        # Собираем текст до следующего заголовка ==
+        paragraphs = []
+        current_paragraph = []
 
-        # Если не нашли Gameplay, берем первые абзацы
-        for line in lines:
-            line = line.strip()
-            if line and len(line) > 60 and not line.startswith('=='):
-                line = re.sub(r'\[\d+\]', '', line)
-                line = ' '.join(line.split()[:60])
-                return line[:400]
+        for i in range(gameplay_start, len(lines)):
+            line = lines[i].rstrip()  # Сохраняем левые пробелы
+
+            # Останавливаемся на следующем основном разделе
+            if line.strip().startswith('==') and line.strip().endswith('=='):
+                if len(line.strip().replace('=', '').strip()) > 0:
+                    if not any(x in line.lower() for x in ['gameplay', 'mechanics']):
+                        break
+
+            if line:  # Если строка не пустая
+                current_paragraph.append(line)
+            elif current_paragraph:  # Пустая строка = конец абзаца
+                paragraphs.append('\n'.join(current_paragraph))
+                current_paragraph = []
+
+        # Добавляем последний абзац
+        if current_paragraph:
+            paragraphs.append('\n'.join(current_paragraph))
+
+        if not paragraphs:
+            return None
+
+        # Объединяем абзацы через двойной перевод строки (отступ)
+        result = '\n\n'.join(paragraphs)
+
+        # Удаляем сноски
+        result = re.sub(r'\[\d+\]', '', result)
+
+        return result
+
+    async def get_page_by_exact_title(self, title: str) -> Optional[str]:
+        """Получить страницу по точному заголовку"""
+        url = f"https://{self.lang}.wikipedia.org/w/api.php"
+        params = {
+            'action': 'query',
+            'prop': 'extracts',
+            'titles': title,
+            'explaintext': 1,
+            'exsectionformat': 'plain',
+            'format': 'json'
+        }
+
+        async with self.semaphore:
+            data = await self.fetch_with_retry(url, params)
+
+        if not data:
+            return None
+
+        pages = data.get('query', {}).get('pages', {})
+        for page_id, page_data in pages.items():
+            if page_id != '-1':
+                return page_data.get('extract', '')
 
         return None
 
     async def get_game_description(self, game_name: str, game_year: int = None) -> Optional[str]:
         """Получить описание игры с учетом года выпуска"""
         try:
-            # 1. Прямые запросы к возможным названиям страниц
-            variants = []
+            print(f"\n🔍 Поиск описания для: '{game_name}' (год: {game_year})")
 
-            if game_year:
-                variants.append(f"{game_name} ({game_year} video game)")
-                variants.append(f"{game_name} ({game_year})")
-                variants.append(f"{game_name} (video game, {game_year})")
+            # Получаем полный текст
+            content = await self.get_page_content(game_name.replace(' ', '_'), get_full_text=True)
 
-            variants.extend([
-                f"{game_name} (video game)",
-                game_name,
-                game_name.replace(':', ''),
-            ])
+            if content:
+                print(f"✅ Найдена страница: '{game_name}' ({len(content)} символов)")
 
-            # Пробуем все варианты
-            for variant in variants:
-                content = await self.get_page_content(variant)
-                if content:
-                    # Проверяем, подходит ли по году
-                    if not game_year or str(game_year) in content:
-                        description = self.extract_gameplay_fast(content)
-                        if description and len(description) >= 40:
-                            return description
-
-            # 2. Если прямые запросы не сработали, ищем через поиск
-            titles = await self.search_wikipedia_titles(game_name, game_year)
-
-            for title in titles:
-                content = await self.get_page_content(title)
-                if content:
-                    # Проверяем, что это действительно игра (а не фильм/книга)
-                    if any(keyword in content.lower() for keyword in ['game', 'video game', 'play', 'player', 'level']):
-                        description = self.extract_gameplay_fast(content)
-                        if description and len(description) >= 40:
-                            return description
+                # Извлекаем Gameplay
+                description = self.extract_gameplay_fast(content)
+                if description:
+                    print(f"🎮 Найден раздел Gameplay ({len(description)} символов)")
+                    return description  # Возвращаем ПОЛНЫЙ текст
 
             return None
 
         except Exception as e:
-            logger.debug(f"Error getting description for {game_name}: {e}")
+            print(f"❌ Ошибка: {e}")
             return None
 
     async def process_batch(self, games_batch: List[Dict]) -> Dict[int, str]:

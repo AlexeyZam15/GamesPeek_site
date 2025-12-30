@@ -28,6 +28,13 @@
             }
         });
 
+        // Восстанавливаем выбранные чекбоксы после полной загрузки
+        setTimeout(function() {
+            restoreSelectedCheckboxes();
+            updateHiddenFields();
+            sortFilterLists();
+        }, 100);
+
         // Сохраняем состояние в localStorage
         function saveSectionState(sectionId, isOpen) {
             localStorage.setItem(`filter_section_${sectionId}`, isOpen ? 'open' : 'closed');
@@ -88,555 +95,802 @@
             });
         }
 
-        // Обновляем скрытые поля при изменении чекбоксов
-        function updateHiddenFields() {
-            // Обновляем жанры
-            const genreCheckboxes = document.querySelectorAll('.genre-checkbox:checked');
-            const genreIds = Array.from(genreCheckboxes).map(cb => cb.value);
-            document.getElementById('genres-field').value = genreIds.join(',');
-
-            // Обновляем ключевые слова
-            const keywordCheckboxes = document.querySelectorAll('.keyword-checkbox:checked');
-            const keywordIds = Array.from(keywordCheckboxes).map(cb => cb.value);
-            document.getElementById('keywords-field').value = keywordIds.join(',');
-
-            // Обновляем платформы
-            const platformCheckboxes = document.querySelectorAll('.platform-checkbox:checked');
-            const platformIds = Array.from(platformCheckboxes).map(cb => cb.value);
-            document.getElementById('platforms-field').value = platformIds.join(',');
-
-            // Обновляем темы
-            const themeCheckboxes = document.querySelectorAll('.theme-checkbox:checked');
-            const themeIds = Array.from(themeCheckboxes).map(cb => cb.value);
-            document.getElementById('themes-field').value = themeIds.join(',');
-
-            // Обновляем перспективы
-            const perspectiveCheckboxes = document.querySelectorAll('.perspective-checkbox:checked');
-            const perspectiveIds = Array.from(perspectiveCheckboxes).map(cb => cb.value);
-            document.getElementById('perspectives-field').value = perspectiveIds.join(',');
-
-            // Обновляем разработчиков
-            const developerCheckboxes = document.querySelectorAll('.developer-checkbox:checked');
-            const developerIds = Array.from(developerCheckboxes).map(cb => cb.value);
-            document.getElementById('developers-field').value = developerIds.join(',');
-
-            // Обновляем режимы игры
-            const gameModeCheckboxes = document.querySelectorAll('.game-mode-checkbox:checked');
-            const gameModeIds = Array.from(gameModeCheckboxes).map(cb => cb.value);
-            document.getElementById('game-modes-field').value = gameModeIds.join(',');
-
-            // Автоматически включаем режим поиска похожих игр при выборе любых критериев похожести
-            if (genreIds.length > 0 || keywordIds.length > 0 || themeIds.length > 0 ||
-                perspectiveIds.length > 0 || developerIds.length > 0 || gameModeIds.length > 0) {
-                document.getElementById('find_similar_field').value = '1';
-            } else {
-                document.getElementById('find_similar_field').value = '0';
+        // Функция восстановления выбранных чекбоксов
+        function restoreSelectedCheckboxes() {
+            console.log('Restoring selected checkboxes...');
+            
+            // Восстанавливаем жанры
+    {% for genre_id in selected_genres %}
+        try {
+            const genreCheckbox = document.querySelector(`.genre-checkbox[value="{{ genre_id }}"]`);
+                if (genreCheckbox && !genreCheckbox.checked) {
+                    genreCheckbox.checked = true;
+                }
+            } catch(e) {
+                console.error('Error restoring genre {{ genre_id }}:', e);
             }
-        }
+    {% endfor %}
 
-        // Слушаем изменения всех чекбоксов
-        document.querySelectorAll('.genre-checkbox, .keyword-checkbox, .platform-checkbox, .theme-checkbox, .perspective-checkbox, .developer-checkbox, .game-mode-checkbox').forEach(checkbox => {
-            checkbox.addEventListener('change', updateHiddenFields);
+    // Восстанавливаем ключевые слова
+    {% for keyword_id in selected_keywords %}
+        try {
+            const keywordCheckbox = document.querySelector(`.keyword-checkbox[value="{{ keyword_id }}"]`);
+                if (keywordCheckbox && !keywordCheckbox.checked) {
+                    keywordCheckbox.checked = true;
+                }
+            } catch(e) {
+                console.error('Error restoring keyword {{ keyword_id }}:', e);
+            }
+    {% endfor %}
+
+    // Восстанавливаем платформы
+    {% for platform_id in selected_platforms %}
+        try {
+            const platformCheckbox = document.querySelector(`.platform-checkbox[value="{{ platform_id }}"]`);
+                if (platformCheckbox && !platformCheckbox.checked) {
+                    platformCheckbox.checked = true;
+                }
+            } catch(e) {
+                console.error('Error restoring platform {{ platform_id }}:', e);
+            }
+    {% endfor %}
+
+    // Восстанавливаем темы
+    {% for theme_id in selected_themes %}
+        try {
+            const themeCheckbox = document.querySelector(`.theme-checkbox[value="{{ theme_id }}"]`);
+                if (themeCheckbox && !themeCheckbox.checked) {
+                    themeCheckbox.checked = true;
+                }
+            } catch(e) {
+                console.error('Error restoring theme {{ theme_id }}:', e);
+            }
+    {% endfor %}
+
+    // Восстанавливаем перспективы
+    {% for perspective_id in selected_perspectives %}
+        try {
+            const perspectiveCheckbox = document.querySelector(`.perspective-checkbox[value="{{ perspective_id }}"]`);
+                if (perspectiveCheckbox && !perspectiveCheckbox.checked) {
+                    perspectiveCheckbox.checked = true;
+                }
+            } catch(e) {
+                console.error('Error restoring perspective {{ perspective_id }}:', e);
+            }
+    {% endfor %}
+
+    // Восстанавливаем режимы игры
+    {% for game_mode_id in selected_game_modes %}
+        try {
+            const gameModeCheckbox = document.querySelector(`.game-mode-checkbox[value="{{ game_mode_id }}"]`);
+                if (gameModeCheckbox && !gameModeCheckbox.checked) {
+                    gameModeCheckbox.checked = true;
+                }
+            } catch(e) {
+                console.error('Error restoring game mode {{ game_mode_id }}:', e);
+            }
+    {% endfor %}
+
+    console.log('Checkbox restoration completed');
+}
+
+// Функция сортировки списков фильтров
+function sortFilterLists() {
+    console.log('Sorting filter lists...');
+
+    // Список всех типов фильтров для обработки
+    const filterTypes = [
+        { container: '.genre-grid', items: '.genre-item', checkbox: '.genre-checkbox' },
+        { container: '.keyword-grid', items: '.keyword-item', checkbox: '.keyword-checkbox' },
+        { container: '.platform-grid', items: '.platform-item', checkbox: '.platform-checkbox' },
+        { container: '.theme-grid', items: '.theme-item', checkbox: '.theme-checkbox' },
+        { container: '.perspective-grid', items: '.perspective-item', checkbox: '.perspective-checkbox' },
+        { container: '.game-mode-grid', items: '.game-mode-item', checkbox: '.game-mode-checkbox' }
+    ];
+
+    filterTypes.forEach(filterType => {
+        const container = document.querySelector(filterType.container);
+        if (!container) return;
+
+        const items = Array.from(container.querySelectorAll(filterType.items));
+
+        // Разделяем на выбранные и невыбранные
+        const selectedItems = items.filter(item => {
+            const checkbox = item.querySelector(filterType.checkbox);
+            return checkbox && checkbox.checked;
         });
 
-        // Функции очистки для всех фильтров
-        function setupClearButtons() {
-            // Очистка жанров
-            const clearGenresBtn = document.querySelector('.clear-genres-btn');
-            if (clearGenresBtn) {
-                clearGenresBtn.addEventListener('click', function () {
-                    document.querySelectorAll('.genre-checkbox:checked').forEach(checkbox => {
-                        checkbox.checked = false;
-                    });
-                    updateHiddenFields();
-                    document.getElementById('main-search-form').submit();
-                });
-            }
-
-            // Очистка ключевых слов
-            const clearKeywordsBtn = document.querySelector('.clear-keywords-btn');
-            if (clearKeywordsBtn) {
-                clearKeywordsBtn.addEventListener('click', function () {
-                    document.querySelectorAll('.keyword-checkbox:checked').forEach(checkbox => {
-                        checkbox.checked = false;
-                    });
-                    updateHiddenFields();
-                    document.getElementById('main-search-form').submit();
-                });
-            }
-
-            // Очистка платформ
-            const clearPlatformsBtn = document.querySelector('.clear-platforms-btn');
-            if (clearPlatformsBtn) {
-                clearPlatformsBtn.addEventListener('click', function () {
-                    document.querySelectorAll('.platform-checkbox:checked').forEach(checkbox => {
-                        checkbox.checked = false;
-                    });
-                    updateHiddenFields();
-                    document.getElementById('main-search-form').submit();
-                });
-            }
-
-            // Очистка тем
-            const clearThemesBtn = document.querySelector('.clear-themes-btn');
-            if (clearThemesBtn) {
-                clearThemesBtn.addEventListener('click', function () {
-                    document.querySelectorAll('.theme-checkbox:checked').forEach(checkbox => {
-                        checkbox.checked = false;
-                    });
-                    updateHiddenFields();
-                    document.getElementById('main-search-form').submit();
-                });
-            }
-
-            // Очистка перспектив
-            const clearPerspectivesBtn = document.querySelector('.clear-perspectives-btn');
-            if (clearPerspectivesBtn) {
-                clearPerspectivesBtn.addEventListener('click', function () {
-                    document.querySelectorAll('.perspective-checkbox:checked').forEach(checkbox => {
-                        checkbox.checked = false;
-                    });
-                    updateHiddenFields();
-                    document.getElementById('main-search-form').submit();
-                });
-            }
-
-            // Очистка разработчиков
-            const clearDevelopersBtn = document.querySelector('.clear-developers-btn');
-            if (clearDevelopersBtn) {
-                clearDevelopersBtn.addEventListener('click', function () {
-                    document.querySelectorAll('.developer-checkbox:checked').forEach(checkbox => {
-                        checkbox.checked = false;
-                    });
-                    updateHiddenFields();
-                    document.getElementById('main-search-form').submit();
-                });
-            }
-
-            // Очистка режимов игры
-            const clearGameModesBtn = document.querySelector('.clear-game-modes-btn');
-            if (clearGameModesBtn) {
-                clearGameModesBtn.addEventListener('click', function () {
-                    document.querySelectorAll('.game-mode-checkbox:checked').forEach(checkbox => {
-                        checkbox.checked = false;
-                    });
-                    updateHiddenFields();
-                    document.getElementById('main-search-form').submit();
-                });
-            }
-        }
-
-        // Удаление активных тегов для всех фильтров
-        document.addEventListener('click', function (e) {
-            // Удаление жанра
-            if (e.target.classList.contains('active-genre-tag')) {
-                const genreId = e.target.getAttribute('data-genre-id');
-                const checkbox = document.querySelector(`.genre-checkbox[value="${genreId}"]`);
-                if (checkbox) {
-                    checkbox.checked = false;
-                    updateHiddenFields();
-                    document.getElementById('main-search-form').submit();
-                }
-            }
-
-            // Удаление ключевого слова
-            if (e.target.classList.contains('active-keyword-tag')) {
-                const keywordId = e.target.getAttribute('data-keyword-id');
-                const checkbox = document.querySelector(`.keyword-checkbox[value="${keywordId}"]`);
-                if (checkbox) {
-                    checkbox.checked = false;
-                    updateHiddenFields();
-                    document.getElementById('main-search-form').submit();
-                }
-            }
-
-            // Удаление платформы
-            if (e.target.classList.contains('active-platform-tag')) {
-                const platformId = e.target.getAttribute('data-platform-id');
-                const checkbox = document.querySelector(`.platform-checkbox[value="${platformId}"]`);
-                if (checkbox) {
-                    checkbox.checked = false;
-                    updateHiddenFields();
-                    document.getElementById('main-search-form').submit();
-                }
-            }
-
-            // Удаление темы
-            if (e.target.classList.contains('active-theme-tag')) {
-                const themeId = e.target.getAttribute('data-theme-id');
-                const checkbox = document.querySelector(`.theme-checkbox[value="${themeId}"]`);
-                if (checkbox) {
-                    checkbox.checked = false;
-                    updateHiddenFields();
-                    document.getElementById('main-search-form').submit();
-                }
-            }
-
-            // Удаление перспективы
-            if (e.target.classList.contains('active-perspective-tag')) {
-                const perspectiveId = e.target.getAttribute('data-perspective-id');
-                const checkbox = document.querySelector(`.perspective-checkbox[value="${perspectiveId}"]`);
-                if (checkbox) {
-                    checkbox.checked = false;
-                    updateHiddenFields();
-                    document.getElementById('main-search-form').submit();
-                }
-            }
-
-            // Удаление разработчика
-            if (e.target.classList.contains('active-developer-tag')) {
-                const developerId = e.target.getAttribute('data-developer-id');
-                const checkbox = document.querySelector(`.developer-checkbox[value="${developerId}"]`);
-                if (checkbox) {
-                    checkbox.checked = false;
-                    updateHiddenFields();
-                    document.getElementById('main-search-form').submit();
-                }
-            }
-
-            // Удаление режима игры
-            if (e.target.classList.contains('active-game-mode-tag')) {
-                const gameModeId = e.target.getAttribute('data-game-mode-id');
-                const checkbox = document.querySelector(`.game-mode-checkbox[value="${gameModeId}"]`);
-                if (checkbox) {
-                    checkbox.checked = false;
-                    updateHiddenFields();
-                    document.getElementById('main-search-form').submit();
-                }
-            }
+        const unselectedItems = items.filter(item => {
+            const checkbox = item.querySelector(filterType.checkbox);
+            return checkbox && !checkbox.checked;
         });
 
-        // Поиск для всех фильтров
-        function setupSearchFilters() {
-            // Поиск по жанрам
-            const genreSearch = document.getElementById('genre-search');
-            if (genreSearch) {
-                genreSearch.addEventListener('input', function () {
-                    const searchTerm = this.value.toLowerCase();
-                    document.querySelectorAll('.genre-item').forEach(item => {
-                        const genreName = item.getAttribute('data-genre-name');
-                        if (genreName.includes(searchTerm)) {
-                            item.style.display = 'block';
-                        } else {
-                            item.style.display = 'none';
-                        }
-                    });
-                });
-            }
+        // НИКАКОЙ СОРТИРОВКИ ПО АЛФАВИТУ
+        // Оставляем невыбранные в исходном порядке (по популярности с сервера)
 
-            // Поиск по ключевым словам
-            const keywordSearch = document.getElementById('keyword-search');
-            if (keywordSearch) {
-                keywordSearch.addEventListener('input', function () {
-                    const searchTerm = this.value.toLowerCase();
-                    document.querySelectorAll('.keyword-item').forEach(item => {
-                        const keywordName = item.getAttribute('data-keyword-name');
-                        if (keywordName.includes(searchTerm)) {
-                            item.style.display = 'block';
-                        } else {
-                            item.style.display = 'none';
-                        }
-                    });
-                });
-            }
+        // Объединяем: сначала выбранные, потом невыбранные в исходном порядке
+        const sortedItems = [...selectedItems, ...unselectedItems];
 
-            // Поиск по платформам
-            const platformSearch = document.getElementById('platform-search');
-            if (platformSearch) {
-                platformSearch.addEventListener('input', function () {
-                    const searchTerm = this.value.toLowerCase();
-                    document.querySelectorAll('.platform-item').forEach(item => {
-                        const platformName = item.getAttribute('data-platform-name');
-                        if (platformName.includes(searchTerm)) {
-                            item.style.display = 'block';
-                        } else {
-                            item.style.display = 'none';
-                        }
-                    });
-                });
-            }
-
-            // Поиск по темам
-            const themeSearch = document.getElementById('theme-search');
-            if (themeSearch) {
-                themeSearch.addEventListener('input', function () {
-                    const searchTerm = this.value.toLowerCase();
-                    document.querySelectorAll('.theme-item').forEach(item => {
-                        const themeName = item.getAttribute('data-theme-name');
-                        if (themeName.includes(searchTerm)) {
-                            item.style.display = 'block';
-                        } else {
-                            item.style.display = 'none';
-                        }
-                    });
-                });
-            }
-
-            // Поиск по перспективам
-            const perspectiveSearch = document.getElementById('perspective-search');
-            if (perspectiveSearch) {
-                perspectiveSearch.addEventListener('input', function () {
-                    const searchTerm = this.value.toLowerCase();
-                    document.querySelectorAll('.perspective-item').forEach(item => {
-                        const perspectiveName = item.getAttribute('data-perspective-name');
-                        if (perspectiveName.includes(searchTerm)) {
-                            item.style.display = 'block';
-                        } else {
-                            item.style.display = 'none';
-                        }
-                    });
-                });
-            }
-
-            // Поиск по разработчикам
-            const developerSearch = document.getElementById('developer-search');
-            if (developerSearch) {
-                developerSearch.addEventListener('input', function () {
-                    const searchTerm = this.value.toLowerCase();
-                    document.querySelectorAll('.developer-item').forEach(item => {
-                        const developerName = item.getAttribute('data-developer-name');
-                        if (developerName.includes(searchTerm)) {
-                            item.style.display = 'block';
-                        } else {
-                            item.style.display = 'none';
-                        }
-                    });
-                });
-            }
-
-            // Поиск по режимам игры
-            const gameModeSearch = document.getElementById('game-mode-search');
-            if (gameModeSearch) {
-                gameModeSearch.addEventListener('input', function () {
-                    const searchTerm = this.value.toLowerCase();
-                    document.querySelectorAll('.game-mode-item').forEach(item => {
-                        const gameModeName = item.getAttribute('data-game-mode-name');
-                        if (gameModeName.includes(searchTerm)) {
-                            item.style.display = 'block';
-                        } else {
-                            item.style.display = 'none';
-                        }
-                    });
-                });
-            }
-        }
-
-        // Показать/скрыть для всех фильтров
-        function setupShowAllToggles() {
-            // Жанры
-            const showAllGenresBtn = document.querySelector('.show-all-genres-btn');
-            if (showAllGenresBtn) {
-                showAllGenresBtn.addEventListener('click', function () {
-                    const genreList = document.querySelector('.genre-list');
-                    const showText = this.querySelector('.show-text');
-                    const hideText = this.querySelector('.hide-text');
-
-                    if (genreList.style.maxHeight === '200px' || genreList.style.maxHeight === '') {
-                        genreList.style.maxHeight = 'none';
-                        showText.style.display = 'none';
-                        hideText.style.display = 'inline';
-                    } else {
-                        genreList.style.maxHeight = '200px';
-                        showText.style.display = 'inline';
-                        hideText.style.display = 'none';
-                    }
-                });
-            }
-
-            // Ключевые слова
-            const showAllKeywordsBtn = document.querySelector('.show-all-keywords-btn');
-            if (showAllKeywordsBtn) {
-                showAllKeywordsBtn.addEventListener('click', function () {
-                    const keywordList = document.querySelector('.keyword-list');
-                    const showText = this.querySelector('.show-text');
-                    const hideText = this.querySelector('.hide-text');
-
-                    if (keywordList.style.maxHeight === '200px' || keywordList.style.maxHeight === '') {
-                        keywordList.style.maxHeight = 'none';
-                        showText.style.display = 'none';
-                        hideText.style.display = 'inline';
-                    } else {
-                        keywordList.style.maxHeight = '200px';
-                        showText.style.display = 'inline';
-                        hideText.style.display = 'none';
-                    }
-                });
-            }
-
-            // Платформы
-            const showAllPlatformsBtn = document.querySelector('.show-all-platforms-btn');
-            if (showAllPlatformsBtn) {
-                showAllPlatformsBtn.addEventListener('click', function () {
-                    const platformList = document.querySelector('.platform-list');
-                    const showText = this.querySelector('.show-text');
-                    const hideText = this.querySelector('.hide-text');
-
-                    if (platformList.style.maxHeight === '200px' || platformList.style.maxHeight === '') {
-                        platformList.style.maxHeight = 'none';
-                        showText.style.display = 'none';
-                        hideText.style.display = 'inline';
-                    } else {
-                        platformList.style.maxHeight = '200px';
-                        showText.style.display = 'inline';
-                        hideText.style.display = 'none';
-                    }
-                });
-            }
-
-            // Темы
-            const showAllThemesBtn = document.querySelector('.show-all-themes-btn');
-            if (showAllThemesBtn) {
-                showAllThemesBtn.addEventListener('click', function () {
-                    const themeList = document.querySelector('.theme-list');
-                    const showText = this.querySelector('.show-text');
-                    const hideText = this.querySelector('.hide-text');
-
-                    if (themeList.style.maxHeight === '200px' || themeList.style.maxHeight === '') {
-                        themeList.style.maxHeight = 'none';
-                        showText.style.display = 'none';
-                        hideText.style.display = 'inline';
-                    } else {
-                        themeList.style.maxHeight = '200px';
-                        showText.style.display = 'inline';
-                        hideText.style.display = 'none';
-                    }
-                });
-            }
-
-            // Перспективы
-            const showAllPerspectivesBtn = document.querySelector('.show-all-perspectives-btn');
-            if (showAllPerspectivesBtn) {
-                showAllPerspectivesBtn.addEventListener('click', function () {
-                    const perspectiveList = document.querySelector('.perspective-list');
-                    const showText = this.querySelector('.show-text');
-                    const hideText = this.querySelector('.hide-text');
-
-                    if (perspectiveList.style.maxHeight === '200px' || perspectiveList.style.maxHeight === '') {
-                        perspectiveList.style.maxHeight = 'none';
-                        showText.style.display = 'none';
-                        hideText.style.display = 'inline';
-                    } else {
-                        perspectiveList.style.maxHeight = '200px';
-                        showText.style.display = 'inline';
-                        hideText.style.display = 'none';
-                    }
-                });
-            }
-
-            // Разработчики
-            const showAllDevelopersBtn = document.querySelector('.show-all-developers-btn');
-            if (showAllDevelopersBtn) {
-                showAllDevelopersBtn.addEventListener('click', function () {
-                    const developerList = document.querySelector('.developer-list');
-                    const showText = this.querySelector('.show-text');
-                    const hideText = this.querySelector('.hide-text');
-
-                    if (developerList.style.maxHeight === '200px' || developerList.style.maxHeight === '') {
-                        developerList.style.maxHeight = 'none';
-                        showText.style.display = 'none';
-                        hideText.style.display = 'inline';
-                    } else {
-                        developerList.style.maxHeight = '200px';
-                        showText.style.display = 'inline';
-                        hideText.style.display = 'none';
-                    }
-                });
-            }
-
-            // Режимы игры
-            const showAllGameModesBtn = document.querySelector('.show-all-game-modes-btn');
-            if (showAllGameModesBtn) {
-                showAllGameModesBtn.addEventListener('click', function () {
-                    const gameModeList = document.querySelector('.game-mode-list');
-                    const showText = this.querySelector('.show-text');
-                    const hideText = this.querySelector('.hide-text');
-
-                    if (gameModeList.style.maxHeight === '200px' || gameModeList.style.maxHeight === '') {
-                        gameModeList.style.maxHeight = 'none';
-                        showText.style.display = 'none';
-                        hideText.style.display = 'inline';
-                    } else {
-                        gameModeList.style.maxHeight = '200px';
-                        showText.style.display = 'inline';
-                        hideText.style.display = 'none';
-                    }
-                });
-            }
-        }
-
-        // Авто-отправка формы для всех чекбоксов
-        function setupAutoSubmit() {
-            // Для всех критериев похожести - включаем режим похожих игр
-            document.querySelectorAll('.genre-checkbox, .keyword-checkbox, .theme-checkbox, .perspective-checkbox, .developer-checkbox, .game-mode-checkbox').forEach(checkbox => {
-                checkbox.addEventListener('change', function () {
-                    document.getElementById('find_similar_field').value = '1';
-                    document.getElementById('main-search-form').submit();
-                });
-            });
-
-            // Для платформ - НЕ включаем режим похожих игр, просто фильтруем
-            document.querySelectorAll('.platform-checkbox').forEach(checkbox => {
-                checkbox.addEventListener('change', function () {
-                    // Не меняем find_similar_field, оставляем текущее значение
-                    document.getElementById('main-search-form').submit();
-                });
-            });
-
-            const sortSelect = document.querySelector('select[name="sort"]');
-            if (sortSelect) {
-                sortSelect.addEventListener('change', function () {
-                    document.getElementById('main-search-form').submit();
-                });
-            }
-        }
-
-        // Переключение секций с сохранением состояния
-        document.querySelectorAll('.toggle-section').forEach(section => {
-            section.addEventListener('click', function () {
-                const targetId = this.getAttribute('data-target');
-                const targetContent = document.getElementById(targetId);
-                const icon = this.querySelector('i');
-
-                if (targetContent.style.display === 'none') {
-                    targetContent.style.display = 'block';
-                    icon.classList.remove('bi-chevron-right');
-                    icon.classList.add('bi-chevron-down');
-                    saveSectionState(targetId, true);
-                } else {
-                    targetContent.style.display = 'none';
-                    icon.classList.remove('bi-chevron-down');
-                    icon.classList.add('bi-chevron-right');
-                    saveSectionState(targetId, false);
-                }
-            });
+        // Очищаем контейнер и добавляем отсортированные элементы
+        container.innerHTML = '';
+        sortedItems.forEach(item => {
+            container.appendChild(item);
         });
 
-        // Переключение подсекций с сохранением состояния
-        document.querySelectorAll('.toggle-subsection').forEach(subsection => {
-            subsection.addEventListener('click', function () {
-                const targetId = this.getAttribute('data-target');
-                const targetContent = document.getElementById(targetId);
-                const icon = this.querySelector('i');
-
-                if (targetContent.style.display === 'none') {
-                    targetContent.style.display = 'block';
-                    icon.classList.remove('bi-chevron-right');
-                    icon.classList.add('bi-chevron-down');
-                    saveSubsectionState(targetId, true);
-                } else {
-                    targetContent.style.display = 'none';
-                    icon.classList.remove('bi-chevron-down');
-                    icon.classList.add('bi-chevron-right');
-                    saveSubsectionState(targetId, false);
-                }
-            });
-        });
-
-        // Инициализация всех функций
-        restoreSectionStates(); // Восстанавливаем сохраненные состояния
-        setupClearButtons();
-        setupSearchFilters();
-        setupShowAllToggles();
-        setupAutoSubmit();
+        console.log(`Sorted ${filterType.container}: ${selectedItems.length} selected + ${unselectedItems.length} unselected (kept original order)`);
     });
+}
+
+// Обновляем скрытые поля при изменении чекбоксов
+function updateHiddenFields() {
+    console.log('Updating hidden fields...');
+
+    // Обновляем жанры
+    const genreCheckboxes = document.querySelectorAll('.genre-checkbox:checked');
+    const genreIds = Array.from(genreCheckboxes).map(cb => cb.value);
+    document.getElementById('genres-field').value = genreIds.join(',');
+    console.log('Genres:', genreIds);
+
+    // Обновляем ключевые слова
+    const keywordCheckboxes = document.querySelectorAll('.keyword-checkbox:checked');
+    const keywordIds = Array.from(keywordCheckboxes).map(cb => cb.value);
+    document.getElementById('keywords-field').value = keywordIds.join(',');
+    console.log('Keywords:', keywordIds);
+
+    // Обновляем платформы
+    const platformCheckboxes = document.querySelectorAll('.platform-checkbox:checked');
+    const platformIds = Array.from(platformCheckboxes).map(cb => cb.value);
+    document.getElementById('platforms-field').value = platformIds.join(',');
+    console.log('Platforms:', platformIds);
+
+    // Обновляем темы
+    const themeCheckboxes = document.querySelectorAll('.theme-checkbox:checked');
+    const themeIds = Array.from(themeCheckboxes).map(cb => cb.value);
+    document.getElementById('themes-field').value = themeIds.join(',');
+    console.log('Themes:', themeIds);
+
+    // Обновляем перспективы
+    const perspectiveCheckboxes = document.querySelectorAll('.perspective-checkbox:checked');
+    const perspectiveIds = Array.from(perspectiveCheckboxes).map(cb => cb.value);
+    document.getElementById('perspectives-field').value = perspectiveIds.join(',');
+    console.log('Perspectives:', perspectiveIds);
+
+    // Обновляем режимы игры
+    const gameModeCheckboxes = document.querySelectorAll('.game-mode-checkbox:checked');
+    const gameModeIds = Array.from(gameModeCheckboxes).map(cb => cb.value);
+    document.getElementById('game-modes-field').value = gameModeIds.join(',');
+    console.log('Game modes:', gameModeIds);
+
+    // Автоматически включаем режим поиска похожих игр при выборе любых критериев похожести
+    if (genreIds.length > 0 || keywordIds.length > 0 || themeIds.length > 0 ||
+        perspectiveIds.length > 0 || gameModeIds.length > 0) {
+        document.getElementById('find_similar_field').value = '1';
+        console.log('Find similar enabled');
+    } else {
+        document.getElementById('find_similar_field').value = '0';
+        console.log('Find similar disabled');
+    }
+}
+
+// Слушаем изменения всех чекбоксов
+function setupCheckboxListeners() {
+    console.log('Setting up checkbox listeners...');
+
+    document.querySelectorAll('.genre-checkbox, .keyword-checkbox, .platform-checkbox, .theme-checkbox, .perspective-checkbox, .game-mode-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            console.log('Checkbox changed:', this.value, this.checked);
+            updateHiddenFields();
+            sortFilterLists();
+            // НЕ вызываем updatePlatformBadges() - бейджи обновятся только после Apply Filters
+        });
+    });
+}
+
+// Функции очистки для всех фильтров
+function setupClearButtons() {
+    console.log('Setting up clear buttons...');
+
+    // Очистка жанров
+    const clearGenresBtn = document.querySelector('.clear-genres-btn');
+    if (clearGenresBtn) {
+        clearGenresBtn.addEventListener('click', function () {
+            document.querySelectorAll('.genre-checkbox:checked').forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            updateHiddenFields();
+            sortFilterLists();
+        });
+    }
+
+    // Очистка ключевых слов
+    const clearKeywordsBtn = document.querySelector('.clear-keywords-btn');
+    if (clearKeywordsBtn) {
+        clearKeywordsBtn.addEventListener('click', function () {
+            document.querySelectorAll('.keyword-checkbox:checked').forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            updateHiddenFields();
+            sortFilterLists();
+        });
+    }
+
+    // Очистка платформ
+    const clearPlatformsBtn = document.querySelector('.clear-platforms-btn');
+    if (clearPlatformsBtn) {
+        clearPlatformsBtn.addEventListener('click', function () {
+            document.querySelectorAll('.platform-checkbox:checked').forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            updateHiddenFields();
+            sortFilterLists();
+            // НЕ вызываем updatePlatformBadges()
+        });
+    }
+
+    // Очистка тем
+    const clearThemesBtn = document.querySelector('.clear-themes-btn');
+    if (clearThemesBtn) {
+        clearThemesBtn.addEventListener('click', function () {
+            document.querySelectorAll('.theme-checkbox:checked').forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            updateHiddenFields();
+            sortFilterLists();
+        });
+    }
+
+    // Очистка перспектив
+    const clearPerspectivesBtn = document.querySelector('.clear-perspectives-btn');
+    if (clearPerspectivesBtn) {
+        clearPerspectivesBtn.addEventListener('click', function () {
+            document.querySelectorAll('.perspective-checkbox:checked').forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            updateHiddenFields();
+            sortFilterLists();
+        });
+    }
+
+    // Очистка режимов игры
+    const clearGameModesBtn = document.querySelector('.clear-game-modes-btn');
+    if (clearGameModesBtn) {
+        clearGameModesBtn.addEventListener('click', function () {
+            document.querySelectorAll('.game-mode-checkbox:checked').forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            updateHiddenFields();
+            sortFilterLists();
+        });
+    }
+}
+
+// Удаление активных тегов для всех фильтров
+function setupActiveTagRemoval() {
+    console.log('Setting up active tag removal...');
+
+    document.addEventListener('click', function (e) {
+        // Удаление жанра
+        if (e.target.classList.contains('active-genre-tag')) {
+            const genreId = e.target.getAttribute('data-genre-id');
+            const checkbox = document.querySelector(`.genre-checkbox[value="${genreId}"]`);
+            if (checkbox) {
+                checkbox.checked = false;
+                updateHiddenFields();
+                sortFilterLists();
+            }
+        }
+
+        // Удаление ключевого слова
+        if (e.target.classList.contains('active-keyword-tag')) {
+            const keywordId = e.target.getAttribute('data-keyword-id');
+            const checkbox = document.querySelector(`.keyword-checkbox[value="${keywordId}"]`);
+            if (checkbox) {
+                checkbox.checked = false;
+                updateHiddenFields();
+                sortFilterLists();
+            }
+        }
+
+        // Удаление платформы
+        if (e.target.classList.contains('active-platform-tag')) {
+            const platformId = e.target.getAttribute('data-platform-id');
+            const checkbox = document.querySelector(`.platform-checkbox[value="${platformId}"]`);
+            if (checkbox) {
+                checkbox.checked = false;
+                updateHiddenFields();
+                sortFilterLists();
+            }
+        }
+
+        // Удаление темы
+        if (e.target.classList.contains('active-theme-tag')) {
+            const themeId = e.target.getAttribute('data-theme-id');
+            const checkbox = document.querySelector(`.theme-checkbox[value="${themeId}"]`);
+            if (checkbox) {
+                checkbox.checked = false;
+                updateHiddenFields();
+                sortFilterLists();
+            }
+        }
+
+        // Удаление перспективы
+        if (e.target.classList.contains('active-perspective-tag')) {
+            const perspectiveId = e.target.getAttribute('data-perspective-id');
+            const checkbox = document.querySelector(`.perspective-checkbox[value="${perspectiveId}"]`);
+            if (checkbox) {
+                checkbox.checked = false;
+                updateHiddenFields();
+                sortFilterLists();
+            }
+        }
+
+        // Удаление режима игры
+        if (e.target.classList.contains('active-game-mode-tag')) {
+            const gameModeId = e.target.getAttribute('data-game-mode-id');
+            const checkbox = document.querySelector(`.game-mode-checkbox[value="${gameModeId}"]`);
+            if (checkbox) {
+                checkbox.checked = false;
+                updateHiddenFields();
+                sortFilterLists();
+            }
+        }
+    });
+}
+
+// Поиск для всех фильтров
+function setupSearchFilters() {
+    console.log('Setting up search filters...');
+
+    // Поиск по жанрам
+    const genreSearch = document.getElementById('genre-search');
+    if (genreSearch) {
+        genreSearch.addEventListener('input', function () {
+            const searchTerm = this.value.toLowerCase();
+            document.querySelectorAll('.genre-item').forEach(item => {
+                const genreName = item.getAttribute('data-genre-name');
+                if (genreName.includes(searchTerm)) {
+                    item.style.display = 'block';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        });
+    }
+
+    // Поиск по ключевым словам
+    const keywordSearch = document.getElementById('keyword-search');
+    if (keywordSearch) {
+        keywordSearch.addEventListener('input', function () {
+            const searchTerm = this.value.toLowerCase();
+            document.querySelectorAll('.keyword-item').forEach(item => {
+                const keywordName = item.getAttribute('data-keyword-name');
+                if (keywordName.includes(searchTerm)) {
+                    item.style.display = 'block';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        });
+    }
+
+    // Поиск по платформам
+    const platformSearch = document.getElementById('platform-search');
+    if (platformSearch) {
+        platformSearch.addEventListener('input', function () {
+            const searchTerm = this.value.toLowerCase();
+            document.querySelectorAll('.platform-item').forEach(item => {
+                const platformName = item.getAttribute('data-platform-name');
+                if (platformName.includes(searchTerm)) {
+                    item.style.display = 'block';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        });
+    }
+
+    // Поиск по темам
+    const themeSearch = document.getElementById('theme-search');
+    if (themeSearch) {
+        themeSearch.addEventListener('input', function () {
+            const searchTerm = this.value.toLowerCase();
+            document.querySelectorAll('.theme-item').forEach(item => {
+                const themeName = item.getAttribute('data-theme-name');
+                if (themeName.includes(searchTerm)) {
+                    item.style.display = 'block';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        });
+    }
+
+    // Поиск по перспективам
+    const perspectiveSearch = document.getElementById('perspective-search');
+    if (perspectiveSearch) {
+        perspectiveSearch.addEventListener('input', function () {
+            const searchTerm = this.value.toLowerCase();
+            document.querySelectorAll('.perspective-item').forEach(item => {
+                const perspectiveName = item.getAttribute('data-perspective-name');
+                if (perspectiveName.includes(searchTerm)) {
+                    item.style.display = 'block';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        });
+    }
+
+    // Поиск по режимам игры
+    const gameModeSearch = document.getElementById('game-mode-search');
+    if (gameModeSearch) {
+        gameModeSearch.addEventListener('input', function () {
+            const searchTerm = this.value.toLowerCase();
+            document.querySelectorAll('.game-mode-item').forEach(item => {
+                const gameModeName = item.getAttribute('data-game-mode-name');
+                if (gameModeName.includes(searchTerm)) {
+                    item.style.display = 'block';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        });
+    }
+}
+
+// Показать/скрыть для всех фильтров
+function setupShowAllToggles() {
+    console.log('Setting up show all toggles...');
+
+    // Жанры
+    const showAllGenresBtn = document.querySelector('.show-all-genres-btn');
+    if (showAllGenresBtn) {
+        showAllGenresBtn.addEventListener('click', function () {
+            const genreList = document.querySelector('.genre-list');
+            const showText = this.querySelector('.show-text');
+            const hideText = this.querySelector('.hide-text');
+
+            if (genreList.style.maxHeight === '200px' || genreList.style.maxHeight === '') {
+                genreList.style.maxHeight = 'none';
+                showText.style.display = 'none';
+                hideText.style.display = 'inline';
+            } else {
+                genreList.style.maxHeight = '200px';
+                showText.style.display = 'inline';
+                hideText.style.display = 'none';
+            }
+        });
+    }
+
+    // Ключевые слова
+    const showAllKeywordsBtn = document.querySelector('.show-all-keywords-btn');
+    if (showAllKeywordsBtn) {
+        showAllKeywordsBtn.addEventListener('click', function () {
+            const keywordList = document.querySelector('.keyword-list');
+            const showText = this.querySelector('.show-text');
+            const hideText = this.querySelector('.hideText');
+
+            if (keywordList.style.maxHeight === '200px' || keywordList.style.maxHeight === '') {
+                keywordList.style.maxHeight = 'none';
+                showText.style.display = 'none';
+                hideText.style.display = 'inline';
+            } else {
+                keywordList.style.maxHeight = '200px';
+                showText.style.display = 'inline';
+                hideText.style.display = 'none';
+            }
+        });
+    }
+
+    // Платформы
+    const showAllPlatformsBtn = document.querySelector('.show-all-platforms-btn');
+    if (showAllPlatformsBtn) {
+        showAllPlatformsBtn.addEventListener('click', function () {
+            const platformList = document.querySelector('.platform-list');
+            const showText = this.querySelector('.show-text');
+            const hideText = this.querySelector('.hide-text');
+
+            if (platformList.style.maxHeight === '200px' || platformList.style.maxHeight === '') {
+                platformList.style.maxHeight = 'none';
+                showText.style.display = 'none';
+                hideText.style.display = 'inline';
+            } else {
+                platformList.style.maxHeight = '200px';
+                showText.style.display = 'inline';
+                hideText.style.display = 'none';
+            }
+        });
+    }
+
+    // Темы
+    const showAllThemesBtn = document.querySelector('.show-all-themes-btn');
+    if (showAllThemesBtn) {
+        showAllThemesBtn.addEventListener('click', function () {
+            const themeList = document.querySelector('.theme-list');
+            const showText = this.querySelector('.show-text');
+            const hideText = this.querySelector('.hide-text');
+
+            if (themeList.style.maxHeight === '200px' || themeList.style.maxHeight === '') {
+                themeList.style.maxHeight = 'none';
+                showText.style.display = 'none';
+                hideText.style.display = 'inline';
+            } else {
+                themeList.style.maxHeight = '200px';
+                showText.style.display = 'inline';
+                hideText.style.display = 'none';
+            }
+        });
+    }
+
+    // Перспективы
+    const showAllPerspectivesBtn = document.querySelector('.show-all-perspectives-btn');
+    if (showAllPerspectivesBtn) {
+        showAllPerspectivesBtn.addEventListener('click', function () {
+            const perspectiveList = document.querySelector('.perspective-list');
+            const showText = this.querySelector('.show-text');
+            const hideText = this.querySelector('.hide-text');
+
+            if (perspectiveList.style.maxHeight === '200px' || perspectiveList.style.maxHeight === '') {
+                perspectiveList.style.maxHeight = 'none';
+                showText.style.display = 'none';
+                hideText.style.display = 'inline';
+            } else {
+                perspectiveList.style.maxHeight = '200px';
+                showText.style.display = 'inline';
+                hideText.style.display = 'none';
+            }
+        });
+    }
+
+    // Режимы игры
+    const showAllGameModesBtn = document.querySelector('.show-all-game-modes-btn');
+    if (showAllGameModesBtn) {
+        showAllGameModesBtn.addEventListener('click', function () {
+            const gameModeList = document.querySelector('.game-mode-list');
+            const showText = this.querySelector('.show-text');
+            const hideText = this.querySelector('.hide-text');
+
+            if (gameModeList.style.maxHeight === '200px' || gameModeList.style.maxHeight === '') {
+                gameModeList.style.maxHeight = 'none';
+                showText.style.display = 'none';
+                hideText.style.display = 'inline';
+            } else {
+                gameModeList.style.maxHeight = '200px';
+                showText.style.display = 'inline';
+                hideText.style.display = 'none';
+            }
+        });
+    }
+}
+
+// Авто-отправка формы для всех чекбоксов
+function setupAutoSubmit() {
+    console.log('Setting up auto-submit...');
+
+    // Для всех критериев похожести - включаем режим похожих игр
+    document.querySelectorAll('.genre-checkbox, .keyword-checkbox, .theme-checkbox, .perspective-checkbox, .game-mode-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', function () {
+            // ТОЛЬКО обновляем скрытое поле, НЕ отправляем форму
+            document.getElementById('find_similar_field').value = '1';
+            updateHiddenFields();
+            sortFilterLists();
+            // НЕ вызываем form.submit() - форма отправится только по кнопке Apply Filters
+        });
+    });
+
+    // Для платформ - НЕ включаем режим похожих игр и НЕ отправляем форму автоматически
+    document.querySelectorAll('.platform-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', function () {
+            // ТОЛЬКО обновляем скрытые поля и сортируем списки
+            updateHiddenFields();
+            sortFilterLists();
+            // НЕ вызываем form.submit() - форма отправится только по кнопке Apply Filters
+        });
+    });
+
+    const sortSelect = document.querySelector('select[name="sort"]');
+    if (sortSelect) {
+        sortSelect.addEventListener('change', function () {
+            document.getElementById('main-search-form').submit();
+        });
+    }
+}
+
+// Переключение секций с сохранением состояния
+function setupSectionToggles() {
+    console.log('Setting up section toggles...');
+
+    document.querySelectorAll('.toggle-section').forEach(section => {
+        section.addEventListener('click', function () {
+            const targetId = this.getAttribute('data-target');
+            const targetContent = document.getElementById(targetId);
+            const icon = this.querySelector('i');
+
+            if (targetContent.style.display === 'none') {
+                targetContent.style.display = 'block';
+                icon.classList.remove('bi-chevron-right');
+                icon.classList.add('bi-chevron-down');
+                saveSectionState(targetId, true);
+            } else {
+                targetContent.style.display = 'none';
+                icon.classList.remove('bi-chevron-down');
+                icon.classList.add('bi-chevron-right');
+                saveSectionState(targetId, false);
+            }
+        });
+    });
+
+    // Переключение подсекций с сохранением состояния
+    document.querySelectorAll('.toggle-subsection').forEach(subsection => {
+        subsection.addEventListener('click', function () {
+            const targetId = this.getAttribute('data-target');
+            const targetContent = document.getElementById(targetId);
+            const icon = this.querySelector('i');
+
+            if (targetContent.style.display === 'none') {
+                targetContent.style.display = 'block';
+                icon.classList.remove('bi-chevron-right');
+                icon.classList.add('bi-chevron-down');
+                saveSubsectionState(targetId, true);
+            } else {
+                targetContent.style.display = 'none';
+                icon.classList.remove('bi-chevron-down');
+                icon.classList.add('bi-chevron-right');
+                saveSubsectionState(targetId, false);
+            }
+        });
+    });
+}
+
+// Функции для показа/скрытия дополнительных бейджей
+function setupShowMoreButtons() {
+    console.log('Setting up show more/less buttons...');
+
+    // Platforms
+    window.toggleMorePlatforms = function(button) {
+        const hiddenSection = document.getElementById('hidden-platforms-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleLessPlatforms = function(button) {
+        const hiddenSection = document.getElementById('hidden-platforms-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
+    // Genres
+    window.toggleMoreGenres = function(button) {
+        const hiddenSection = document.getElementById('hidden-genres-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleLessGenres = function(button) {
+        const hiddenSection = document.getElementById('hidden-genres-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
+    // Keywords
+    window.toggleMoreKeywords = function(button) {
+        const hiddenSection = document.getElementById('hidden-keywords-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleLessKeywords = function(button) {
+        const hiddenSection = document.getElementById('hidden-keywords-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
+    // Themes
+    window.toggleMoreThemes = function(button) {
+        const hiddenSection = document.getElementById('hidden-themes-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleLessThemes = function(button) {
+        const hiddenSection = document.getElementById('hidden-themes-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
+    // Perspectives
+    window.toggleMorePerspectives = function(button) {
+        const hiddenSection = document.getElementById('hidden-perspectives-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleLessPerspectives = function(button) {
+        const hiddenSection = document.getElementById('hidden-perspectives-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
+    // Game Modes
+    window.toggleMoreGameModes = function(button) {
+        const hiddenSection = document.getElementById('hidden-game-modes-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleLessGameModes = function(button) {
+        const hiddenSection = document.getElementById('hidden-game-modes-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+}
+
+// Инициализация всех функций с задержкой
+function initializeAll() {
+    console.log('Initializing all functions...');
+
+    restoreSectionStates(); // Восстанавливаем сохраненные состояния
+    setupClearButtons();
+    setupSearchFilters();
+    setupShowAllToggles();
+    setupAutoSubmit();
+    setupActiveTagRemoval();
+    setupCheckboxListeners();
+    setupSectionToggles();
+    setupShowMoreButtons(); // Добавляем инициализацию кнопок show more/less
+
+    console.log('All functions initialized');
+}
+
+// Запускаем инициализацию с небольшой задержкой
+setTimeout(initializeAll, 150);
+});
 </script>

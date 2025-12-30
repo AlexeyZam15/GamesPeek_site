@@ -1,306 +1,586 @@
-/* ===== GAME CARDS ===== */
+/* ===== CSS VARIABLES ===== */
+:root {
+  /* Высота карточек */
+  --game-card-height: 480px;
+  --game-card-height-md: 420px;
+  --game-card-height-sm: 380px;
+  --game-card-height-xs: 350px;
 
-/* Основная карточка игры */
-.game-card {
-    min-height: 480px;
-    border: none;
-    border-radius: var(--border-radius);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    overflow: hidden;
-    position: relative;
-    height: 100%;
-    transition: var(--transition);
+  /* Высота обложки */
+  --cover-height: 250px;
+  --cover-height-md: 200px;
+  --cover-height-sm: 180px;
+  --cover-height-xs: 160px;
+
+  /* Размеры рейтинга */
+  --rating-size: 60px;
+  --rating-size-md: 50px;
+  --rating-size-sm: 45px;
+  --rating-size-xs: 40px;
+
+  /* Градиенты */
+  --gradient-primary: linear-gradient(90deg, var(--secondary-color), var(--accent-color));
+  --gradient-warning: linear-gradient(135deg, var(--warning-color), #e67e22);
+
+  /* Тени */
+  --shadow-drop: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
+  --shadow-drop-hover: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.7));
+  --shadow-card: 0 20px 40px rgba(255, 107, 53, 0.25);
+  --shadow-card-hover: 0 20px 50px rgba(255, 107, 53, 0.25);
+  --shadow-button: 0 6px 20px rgba(231, 126, 34, 0.3);
 }
 
+/* ===== GAME CARD ===== */
+.game-card {
+  min-height: var(--game-card-height);
+  border: none;
+  border-radius: var(--border-radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  position: relative;
+  height: 100%;
+  transition: var(--transition);
+}
+
+/* Горизонтальная полоса при наведении */
 .game-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-    background: linear-gradient(90deg, var(--secondary-color), var(--accent-color));
-    transform: scaleX(0);
-    transition: transform 0.4s ease;
-    z-index: 2;
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--gradient-primary);
+  transform: scaleX(0);
+  transition: transform 0.4s ease;
+  z-index: 2;
 }
 
 .game-card:hover::before {
-    transform: scaleX(1);
+  transform: scaleX(1);
 }
 
 .game-card:hover {
-    transform: translateY(-8px);
-    box-shadow: 0 20px 40px rgba(255, 107, 53, 0.25);
-    border-color: var(--secondary-color);
+  transform: translateY(-8px);
+  box-shadow: var(--shadow-card);
+  border-color: var(--secondary-color);
 }
 
-/* Контейнер для обложки */
-.card-img-top-container {
-    height: 250px;
-    overflow: hidden;
-    position: relative;
+/* Контейнер для обложки игры */
+.game-card .card-img-top-container {
+  height: var(--cover-height);
+  overflow: hidden;
+  position: relative;
 }
 
+/* Сама обложка игры */
 .game-card .card-img-top {
-    transition: var(--transition);
-    border-radius: 0;
-    filter: grayscale(0.2);
-    height: 110%;
-    object-fit: cover;
-    width: 100%;
-    object-position: center 20%;
+  transition: var(--transition);
+  border-radius: 0;
+  filter: grayscale(0.2);
+  height: 110%;
+  object-fit: cover;
+  width: 100%;
+  object-position: center 20%;
 }
 
 .game-card:hover .card-img-top {
-    transform: scale(1.08);
-    filter: grayscale(0);
-    object-position: center 35%;
+  transform: scale(1.08);
+  filter: grayscale(0);
+  object-position: center 35%;
+}
+
+/* Позиционирование наложенных элементов на обложке */
+.card-img-top-container .position-absolute {
+  z-index: 10;
+}
+
+/* Процент схожести (справа сверху) */
+.card-img-top-container .top-0.end-0 {
+  z-index: 11;
 }
 
 /* Рейтинг на обложке */
 .game-card .position-absolute.top-0.start-0 {
+  z-index: 10;
+}
+
+/* SVG иконки на обложке */
+.rating-svg,
+.similarity-svg {
+  transition: all 0.3s ease;
+  filter: var(--shadow-drop);
+}
+
+.card:hover .rating-svg,
+.card:hover .similarity-svg {
+  transform: scale(1.1);
+  filter: var(--shadow-drop-hover);
+}
+
+/* Стили для звезды с N/A в карточках игр */
+.game-card .no-rating-container {
+  cursor: help;
+  transition: all 0.3s ease;
+  filter: var(--shadow-drop);
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 50%;
+  width: var(--rating-size);
+  height: var(--rating-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.game-card:hover .no-rating-container {
+  transform: scale(1.1);
+  filter: var(--shadow-drop-hover);
+  background: rgba(0, 0, 0, 0.8);
+}
+
+.game-card .no-rating-container svg {
+  width: var(--rating-size);
+  height: var(--rating-size);
+}
+
+.game-card .no-rating-container path {
+  fill: none;
+  stroke: #6c757d;
+  stroke-width: 2;
+}
+
+.game-card .no-rating-container text {
+  text-anchor: middle;
+  fill: #6c757d;
+  font-size: 14px;
+  font-weight: bold;
+}
+
+/* Стили для тултипов Bootstrap в карточках */
+.game-card [data-bs-toggle="tooltip"] {
+  position: relative;
+}
+
+/* ===== GAME TYPE BADGES ===== */
+.game-type-badge {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    z-index: 11;
+    padding: 3px 6px;
+    border-radius: 4px;
+    font-size: 9px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    min-width: 45px;
+    text-align: center;
+    color: white;
+    background-color: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(2px);
+    transition: all 0.2s ease;
+}
+
+/* Цвета для разных типов */
+.type-main { background-color: #28a745; }
+.type-dlc { background-color: #007bff; }
+.type-bundle { background-color: #6c757d; }
+.type-expansion { background-color: #17a2b8; }
+.type-mod { background-color: #343a40; }
+.type-episode { background-color: #7950f2; }
+.type-season { background-color: #6f42c1; }
+.type-remake { background-color: #fd7e14; }
+.type-remaster { background-color: #e83e8c; }
+.type-expanded { background-color: #20c997; }
+.type-port { background-color: #fab005; color: #212529; }
+.type-fork { background-color: #868e96; }
+.type-pack { background-color: #5c7cfa; }
+.type-update { background-color: #ced4da; color: #212529; }
+.type-other { background-color: #6c757d; }
+
+/* Hover эффект */
+.game-type-badge:hover {
+    transform: scale(1.05);
+    opacity: 0.9;
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.4);
+}
+
+/* ===== PLATFORM BADGES ===== */
+.platform-badge {
+    display: inline-block;
+    padding: 2px 5px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.2px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    color: white;
+    background-color: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(2px);
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    max-width: 48px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.2;
+    margin-right: 2px;
+    margin-bottom: 2px;
+}
+
+/* Цвета для разных платформ */
+.platform-ps { background-color: #0066cc; } /* PlayStation синий */
+.platform-xbox { background-color: #107c10; } /* Xbox зеленый */
+.platform-nintendo { background-color: #e60012; } /* Nintendo красный */
+.platform-pc { background-color: #005a9e; } /* PC синий */
+.platform-mobile { background-color: #6f42c1; } /* Mobile фиолетовый */
+.platform-sega { background-color: #008cff; } /* Sega голубой */
+.platform-retro { background-color: #7950f2; } /* Retro фиолетовый */
+.platform-vr { background-color: #868e96; } /* VR серый */
+.platform-cloud { background-color: #20c997; } /* Cloud бирюзовый */
+.platform-arcade { background-color: #fd7e14; } /* Arcade оранжевый */
+.platform-legacy { background-color: #6c757d; } /* Legacy серый */
+.platform-other { background-color: #495057; } /* Другие темно-серый */
+
+/* Hover эффект для платформ */
+.platform-badge:hover {
+    transform: scale(1.05);
+    opacity: 0.9;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+
+/* Контейнер для платформ */
+.platforms-overlay {
     z-index: 10;
+    max-width: calc(100% - 60px);
+    bottom: 8px !important;
+}
+
+.platforms-container {
+    max-height: 70px;
+    overflow: hidden;
+}
+
+/* Отступы между рядами платформ */
+.platform-row + .platform-row {
+    margin-top: 4px;
+}
+
+/* Убираем правый отступ у последнего бейджа в ряду */
+.platform-badge:last-child {
+    margin-right: 0;
+}
+
+/* Место между платформами в ряду */
+.platforms-overlay .d-flex.flex-wrap.gap-1 {
+    gap: 2px !important;
 }
 
 /* Платформы на обложке */
-.game-card .platforms-overlay {
-    z-index: 10;
-    padding: 0.5rem;
-}
-
-.game-card .platforms-overlay .platform-icon {
+.game-card .platforms-overlay .platform-badge {
     filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.8));
-    font-size: 1.5rem;
 }
 
 /* Заголовок игры */
 .game-card .card-title {
-    font-weight: 700;
-    color: var(--text-light);
-    margin-bottom: 0.75rem;
-    line-height: 1.4;
-    letter-spacing: -0.01em;
-    font-size: 1.15rem;
-    min-height: 2.8em;
+  font-weight: 700;
+  color: var(--text-light);
+  margin-bottom: 0.75rem;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  font-size: 1.15rem;
+  min-height: 2.8em;
 }
 
+/* Описание игры */
 .game-card .card-text {
-    color: #b0b0b0;
-    font-size: 0.9rem;
-    line-height: 1.5;
-    flex-grow: 1;
-    margin-bottom: 0.75rem;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+  color: #b0b0b0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  flex-grow: 1;
+  margin-bottom: 0.75rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* Жанры в карточке */
 .game-card .game-genres {
-    margin-bottom: 0.75rem;
-    min-height: 50px;
+  margin-bottom: 0.75rem;
+  min-height: 50px;
 }
 
 .game-card .game-genres .badge {
-    margin-bottom: 0.25rem;
-    font-size: 0.85rem !important;
-    padding: 0.4rem 0.8rem !important;
-    border-radius: 12px !important;
+  margin-bottom: 0.25rem;
+  font-size: 0.85rem !important;
+  padding: 0.4rem 0.8rem !important;
+  border-radius: 12px !important;
 }
 
 /* Кнопки в карточке */
 .game-card .card-footer {
-    background: var(--surface-dark);
-    border-top: 1px solid var(--border);
-    padding: 1rem;
+  background: var(--surface-dark);
+  border-top: 1px solid var(--border);
+  padding: 1rem;
 }
 
 .game-card .card-footer .d-grid {
-    gap: 0.5rem;
+  gap: 0.5rem;
 }
 
-/* Карточка сравнения */
-.game-comparison-card {
-    position: relative;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--border-radius);
-    padding: 1.5rem;
-    transition: var(--transition);
-    text-align: center;
-}
-
-.game-comparison-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 4px;
-    background: linear-gradient(90deg, var(--secondary-color), var(--accent-color));
-    transform: scaleX(1);
-    transition: transform 0.4s ease;
-    z-index: 2;
-}
-
-.game-comparison-card:hover::before {
-    transform: scaleX(1.1);
-}
-
-.game-comparison-card:hover {
-    transform: translateY(-8px);
-    box-shadow: 0 20px 50px rgba(255, 107, 53, 0.25);
-    border-color: var(--secondary-color);
-}
-
-.comparison-cover {
-    height: 220px;
-    border-radius: var(--border-radius) var(--border-radius) 0 0;
-    object-fit: cover;
-    width: 100%;
-    transition: var(--transition);
-}
-
-.game-comparison-card:hover .comparison-cover {
-    transform: scale(1.03);
-}
-
-.no-cover-placeholder {
-    background: var(--surface-dark);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-muted);
-    font-weight: 600;
-    position: relative;
-}
-
-/* Название игры в сравнении */
-.game-comparison-card .game-title {
-    font-size: 1.8rem;
-    margin-bottom: 1.5rem;
-    text-align: center;
-    color: #ffc107;
-    font-weight: 700;
-}
-
-/* Жанры в сравнении */
-.game-comparison-card .game-genres {
-    display: flex !important;
-    flex-wrap: wrap !important;
-    justify-content: center !important;
-    align-items: center !important;
-    gap: 0.5rem !important;
-    margin-top: 1rem !important;
-    text-align: center !important;
-}
-
-.game-comparison-card .game-genres .badge {
-    margin: 0.1rem !important;
-    flex-shrink: 0 !important;
-    font-size: 0.9rem !important;
-}
-
-/* Детали в сравнении */
-.game-comparison-card .game-rating,
-.game-comparison-card .game-developers,
-.game-comparison-card .game-modes,
-.game-comparison-card .release-date {
-    margin-bottom: 1rem;
-}
-
-/* Карточка для деталей игры */
+/* ===== DETAIL CARD ===== */
 .game-detail-card {
-    background: rgba(30, 30, 46, 0.7);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 10px;
-    transition: transform 0.2s ease;
+  background: rgba(30, 30, 46, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  transition: transform 0.2s ease;
 }
 
 .game-detail-card:hover {
-    transform: translateY(-2px);
-    border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
-/* Адаптивность */
+/* ===== СТИЛИ ДЛЯ КНОПКИ COMPARE ===== */
+.btn-outline-warning {
+  border: 2px solid var(--warning-color);
+  color: var(--warning-color);
+  background: transparent;
+  font-weight: 600;
+  transition: all 0.3s ease;
+}
+
+.btn-outline-warning:hover {
+  background: var(--gradient-warning);
+  color: var(--primary-color);
+  border-color: var(--warning-color);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-button);
+}
+
+/* ===== АДАПТИВНОСТЬ ===== */
 @media (max-width: 992px) {
-    .game-card {
-        min-height: 420px;
-        margin-bottom: 1.5rem;
-    }
+  .game-card {
+    min-height: var(--game-card-height-md);
+    margin-bottom: 1.5rem;
+  }
 
-    .card-img-top-container {
-        height: 200px;
-    }
+  .game-card .card-img-top-container {
+    height: var(--cover-height-md);
+  }
 
-    .game-card .card-title {
-        font-size: 1.1rem;
-        min-height: 2.4em;
-    }
+  .game-card .card-title {
+    font-size: 1.1rem;
+    min-height: 2.4em;
+  }
 
-    .game-comparison-card .game-title {
-        font-size: 1.5rem;
-    }
+  .game-card .no-rating-container {
+    width: var(--rating-size-md);
+    height: var(--rating-size-md);
+  }
 
-    .comparison-cover {
-        height: 180px;
-    }
+  .game-card .no-rating-container svg {
+    width: var(--rating-size-md);
+    height: var(--rating-size-md);
+  }
+
+  .game-card .no-rating-container text {
+    font-size: 12px;
+  }
+
+  /* Адаптивность для платформ */
+  .platform-badge {
+    font-size: 8px;
+    padding: 2px 4px;
+    max-width: 42px;
+  }
+
+  .game-type-badge {
+    font-size: 8px;
+    padding: 2px 4px;
+    min-width: 40px;
+  }
+
+  .platforms-overlay {
+    max-width: calc(100% - 50px);
+    padding: 0.25rem !important;
+  }
+
+  .platforms-container {
+    max-height: 60px;
+  }
 }
 
 @media (max-width: 768px) {
-    .game-card {
-        min-height: 380px;
-    }
+  .game-card {
+    min-height: var(--game-card-height-sm);
+  }
 
-    .card-img-top-container {
-        height: 180px;
-    }
+  .game-card .card-img-top-container {
+    height: var(--cover-height-sm);
+  }
 
-    .game-card .card-title {
-        font-size: 1rem;
-        min-height: 2.2em;
-    }
+  .game-card .card-title {
+    font-size: 1rem;
+    min-height: 2.2em;
+  }
 
-    .game-card .game-genres .badge {
-        font-size: 0.8rem !important;
-        padding: 0.35rem 0.7rem !important;
-    }
+  .game-card .no-rating-container {
+    width: var(--rating-size-sm);
+    height: var(--rating-size-sm);
+  }
 
-    .game-comparison-card {
-        padding: 1rem;
-    }
+  .game-card .no-rating-container svg {
+    width: var(--rating-size-sm);
+    height: var(--rating-size-sm);
+  }
 
-    .game-comparison-card .game-title {
-        font-size: 1.3rem;
-    }
+  .game-card .no-rating-container text {
+    font-size: 11px;
+  }
 
-    .comparison-cover {
-        height: 150px;
-    }
+  .game-card .game-genres .badge {
+    font-size: 0.8rem !important;
+    padding: 0.35rem 0.7rem !important;
+  }
+
+  /* Адаптивность для платформ */
+  .platforms-container {
+    max-height: 55px;
+  }
+
+  .platform-badge {
+    font-size: 7px;
+    padding: 1px 3px;
+    max-width: 38px;
+  }
+
+  .game-type-badge {
+    font-size: 7px;
+    padding: 2px 3px;
+    min-width: 35px;
+  }
+
+  .platforms-overlay {
+    max-width: calc(100% - 45px);
+    padding: 0.2rem !important;
+  }
 }
 
 @media (max-width: 576px) {
-    .game-card {
-        min-height: 350px;
-    }
+  .game-card {
+    min-height: var(--game-card-height-xs);
+  }
 
-    .card-img-top-container {
-        height: 160px;
-    }
+  .game-card .card-img-top-container {
+    height: var(--cover-height-xs);
+  }
 
-    .game-card .card-title {
-        font-size: 0.95rem;
-        min-height: 2em;
-    }
+  .game-card .card-title {
+    font-size: 0.95rem;
+    min-height: 2em;
+  }
 
-    .game-comparison-card .game-title {
-        font-size: 1.2rem;
-    }
+  .game-card .no-rating-container {
+    width: var(--rating-size-xs);
+    height: var(--rating-size-xs);
+  }
 
-    .comparison-cover {
-        height: 120px;
-    }
+  .game-card .no-rating-container svg {
+    width: var(--rating-size-xs);
+    height: var(--rating-size-xs);
+  }
+
+  .game-card .no-rating-container text {
+    font-size: 10px;
+  }
+
+  /* Адаптивность для платформ */
+  .platform-badge {
+    font-size: 6px;
+    padding: 1px 2px;
+    max-width: 34px;
+  }
+
+  .game-type-badge {
+    font-size: 6px;
+    padding: 1px 2px;
+    min-width: 30px;
+  }
+
+  .platforms-overlay {
+    max-width: calc(100% - 40px);
+    padding: 0.15rem !important;
+  }
+
+  .platforms-container {
+    max-height: 50px;
+  }
+
+  /* Уменьшаем отступы между платформами на маленьких экранах */
+  .platforms-overlay .d-flex.flex-wrap.gap-1 {
+    gap: 1px !important;
+  }
+}
+
+/* Улучшенная читаемость для темных цветов */
+.platform-ps,
+.platform-xbox,
+.platform-nintendo,
+.platform-pc,
+.platform-mobile,
+.platform-sega,
+.platform-retro,
+.platform-vr,
+.platform-cloud,
+.platform-arcade,
+.platform-legacy,
+.platform-other,
+.type-main,
+.type-dlc,
+.type-bundle,
+.type-expansion,
+.type-mod,
+.type-episode,
+.type-season,
+.type-remake,
+.type-remaster,
+.type-expanded,
+.type-port,
+.type-fork,
+.type-pack,
+.type-update,
+.type-other {
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
+}
+
+/* Для светлых бейджей делаем темный текст */
+.type-port,
+.type-update,
+.platform-badge[style*="color: #212529"],
+.platform-badge[style*="color:#212529"] {
+  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.3);
+}
+
+/* Особые стили для Arcade бейджей (оранжевый фон) */
+.platform-arcade {
+  font-weight: 900;
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+/* Особые стили для Legacy бейджей */
+.platform-legacy {
+  opacity: 0.9;
+  font-style: italic;
+}
+
+/* Особые стили для Retro бейджей */
+.platform-retro {
+  border-color: rgba(255, 255, 255, 0.3);
+  font-weight: 800;
 }
