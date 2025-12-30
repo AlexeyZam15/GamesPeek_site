@@ -63,6 +63,11 @@ class AnalyzerCommand(BaseCommand):
         self.combine_texts = False
         self.combine_all_texts = False
 
+        # Новые параметры
+        self.comprehensive_mode = False
+        self.combined_mode = False
+        self.exclude_existing = False
+
     def handle(self, *args, **options):
         """Основной обработчик команды"""
         # Сохраняем опции
@@ -633,7 +638,7 @@ class AnalyzerCommand(BaseCommand):
             self.stderr.write(f"❌ Игра с ID {game_id} не найдена")
 
     def _process_single_game_in_batch(self, game):
-        """Обрабатывает одну игру в пакетной обработке"""
+        """Обрабатывает одну игру в пакетной обработке с поддержкой всех режимов"""
         # Показываем отладочные сообщения только если не в режиме only-found
         show_debug = not self.only_found
 
@@ -683,13 +688,41 @@ class AnalyzerCommand(BaseCommand):
             self.stdout.write(f"   🔧 Анализируем текст через API...")
 
         try:
-            result = self.api.analyze_game_text(
-                text=text,
-                game_id=game.id,
-                analyze_keywords=self.keywords,
-                existing_game=game if not self.ignore_existing else None,
-                detailed_patterns=self.verbose
-            )
+            # ВЫБОР РЕЖИМА АНАЛИЗА на основе флагов
+            if self.comprehensive_mode:
+                # КОМПЛЕКСНЫЙ АНАЛИЗ
+                if show_debug:
+                    self.stdout.write(f"   🔎 Режим: КОМПЛЕКСНЫЙ (все вхождения)")
+                result = self.api.analyze_game_text_comprehensive(
+                    text=text,
+                    game_id=game.id,
+                    existing_game=game if not self.ignore_existing and self.exclude_existing else None,
+                    exclude_existing=self.exclude_existing
+                )
+            elif self.combined_mode:
+                # КОМБИНИРОВАННЫЙ АНАЛИЗ
+                if show_debug:
+                    self.stdout.write(f"   🔎 Режим: КОМБИНИРОВАННЫЙ (критерии + ключевые слова)")
+                result = self.api.analyze_game_text_combined(
+                    text=text,
+                    game_id=game.id,
+                    existing_game=game if not self.ignore_existing and self.exclude_existing else None,
+                    detailed_patterns=self.verbose,
+                    exclude_existing=self.exclude_existing
+                )
+            else:
+                # ОБЫЧНЫЙ АНАЛИЗ (критерии или ключевые слова)
+                mode_text = "ключевых слов" if self.keywords else "критериев"
+                if show_debug:
+                    self.stdout.write(f"   🔎 Режим: ОБЫЧНЫЙ ({mode_text})")
+                result = self.api.analyze_game_text(
+                    text=text,
+                    game_id=game.id,
+                    analyze_keywords=self.keywords,
+                    existing_game=game if not self.ignore_existing and self.exclude_existing else None,
+                    detailed_patterns=self.verbose,
+                    exclude_existing=self.exclude_existing
+                )
 
             if not result['success']:
                 if show_debug:
@@ -711,14 +744,36 @@ class AnalyzerCommand(BaseCommand):
 
             # Обновляем статистику
             if result['has_results']:
-                found_count = result['summary'].get('found_count', 0)
+                # Для комплексного режима используем total_matches, для остальных - found_count
+                if self.comprehensive_mode:
+                    found_count = result.get('total_matches', 0)
+                else:
+                    found_count = result['summary'].get('found_count', 0)
 
                 if show_debug:  # Всегда показываем для режима отладки
-                    self.stdout.write(f"   ✅ Найдены ключевые слова: {found_count}")
+                    if self.comprehensive_mode:
+                        self.stdout.write(f"   ✅ Найдено вхождений: {found_count}")
+                    else:
+                        self.stdout.write(f"   ✅ Найдено элементов: {found_count}")
 
+                # Обновляем статистику в зависимости от режима
                 if self.keywords:
                     self.stats['keywords_found'] += 1
                     self.stats['keywords_count'] += found_count
+                elif self.combined_mode:
+                    self.stats['found_count'] += 1
+                    self.stats['total_criteria_found'] += found_count
+                    # Дополнительная статистика для комбинированного режима
+                    if 'summary' in result:
+                        for key in ['genres_found', 'themes_found', 'perspectives_found', 'game_modes_found',
+                                    'keywords_found']:
+                            if key in result['summary']:
+                                if key not in self.stats:
+                                    self.stats[key] = 0
+                                self.stats[key] += result['summary'][key]
+                elif self.comprehensive_mode:
+                    self.stats['found_count'] += 1
+                    self.stats['total_criteria_found'] += found_count
                 else:
                     self.stats['found_count'] += 1
                     self.stats['total_criteria_found'] += found_count
@@ -733,9 +788,16 @@ class AnalyzerCommand(BaseCommand):
             else:
                 # ВСЕГДА показываем если не найден результат и не в режиме only-found
                 if show_debug:
-                    mode = "ключевые слова" if self.keywords else "критерии"
-                    self.stdout.write(f"   ⚡ {mode.capitalize()} не найдены")
+                    if self.comprehensive_mode:
+                        self.stdout.write(f"   ⚡ Вхождения не найдены")
+                    elif self.combined_mode:
+                        self.stdout.write(f"   ⚡ Критерии и ключевые слова не найдены")
+                    elif self.keywords:
+                        self.stdout.write(f"   ⚡ Ключевые слова не найдены")
+                    else:
+                        self.stdout.write(f"   ⚡ Критерии не найдены")
 
+                # Обновляем статистику "не найдено"
                 if self.keywords:
                     self.stats['keywords_not_found'] += 1
                 else:
@@ -755,7 +817,9 @@ class AnalyzerCommand(BaseCommand):
                 verbose=self.verbose,
                 keywords=self.keywords,
                 ignore_existing=self.ignore_existing,
-                update_game=self.update_game
+                update_game=self.update_game,
+                comprehensive_mode=self.comprehensive_mode,
+                combined_mode=self.combined_mode
             )
 
             # Добавляем в батч для обновления если нужно
@@ -763,11 +827,21 @@ class AnalyzerCommand(BaseCommand):
                 if show_debug:
                     self.stdout.write(f"   💾 Добавляем в очередь для обновления БД")
 
-                self.batch_updater.add_game_for_update(
-                    game_id=game.id,
-                    results=result['results'],
-                    is_keywords=self.keywords
-                )
+                # Для обновления используем правильный метод API в зависимости от режима
+                if self.combined_mode or self.comprehensive_mode:
+                    # Для комбинированного/комплексного режима используем специальный метод
+                    self.batch_updater.add_game_for_update_combined(
+                        game_id=game.id,
+                        results=result['results'],
+                        combined_mode=True
+                    )
+                else:
+                    # Для обычного режима
+                    self.batch_updater.add_game_for_update(
+                        game_id=game.id,
+                        results=result['results'],
+                        is_keywords=self.keywords
+                    )
 
             # Помечаем как обработанную
             self.state_manager.add_processed_game(game.id)
