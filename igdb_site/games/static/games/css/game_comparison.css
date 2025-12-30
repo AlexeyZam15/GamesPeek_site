@@ -1,450 +1,912 @@
+/* ===== CSS VARIABLES ===== */
+:root {
+  /* Размеры текста */
+  --similarity-score-size: 3rem;
+  --similarity-score-size-lg: 2.5rem;
+  --similarity-score-size-md: 2rem;
+  --similarity-score-size-sm: 1.8rem;
+
+  --stat-number-size: 2.5rem;
+  --stat-number-size-md: 2rem;
+  --stat-number-size-sm: 1.8rem;
+
+  /* Цвета градиентов */
+  --gradient-primary: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
+  --gradient-success: linear-gradient(90deg, var(--success-color), #2ecc71);
+  --gradient-warning: linear-gradient(90deg, var(--warning-color), #f1c40f);
+  --gradient-info: linear-gradient(90deg, var(--info-color), #3498db);
+
+  /* Фоны */
+  --hero-bg: linear-gradient(135deg,
+    rgba(255, 107, 53, 0.1) 0%,
+    rgba(255, 140, 0, 0.05) 50%,
+    rgba(52, 152, 219, 0.1) 100%);
+
+  --similarity-card-bg: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
+
+  /* Тени */
+  --card-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+  --stat-shadow: 0 5px 15px rgba(255, 107, 53, 0.2);
+  --section-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+  --section-hover-shadow: 0 6px 15px rgba(0, 0, 0, 0.3);
+
+  /* Отступы */
+  --hero-padding: 2rem;
+  --hero-padding-md: 1.5rem;
+  --hero-padding-sm: 1rem;
+
+  --similarity-card-padding: 2rem 1rem;
+  --similarity-card-padding-sm: 1.5rem 0.5rem;
+
+  /* Прогресс-бар */
+  --progress-height: 30px;
+  --progress-height-sm: 25px;
+
+  /* Категории */
+  --category-padding: 1.5rem;
+  --category-padding-sm: 1rem;
+
+  /* Высота карточек сравнения */
+  --comparison-card-height: 500px;
+  --comparison-cover-height: 220px;
+  --comparison-cover-height-md: 180px;
+  --comparison-cover-height-sm: 150px;
+  --comparison-cover-height-xs: 120px;
+}
+
 /* ===== GAME COMPARISON PAGE ===== */
 
 /* Хедер сравнения */
 .comparison-hero {
-    background: linear-gradient(135deg,
-        rgba(255, 107, 53, 0.1) 0%,
-        rgba(255, 140, 0, 0.05) 50%,
-        rgba(52, 152, 219, 0.1) 100%);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: var(--border-radius);
-    padding: 2rem;
-    margin-bottom: 2rem;
-    position: relative;
-    overflow: hidden;
+  background: var(--hero-bg);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--border-radius);
+  padding: var(--hero-padding);
+  margin-bottom: 2rem;
+  position: relative;
+  overflow: hidden;
 }
 
 .comparison-hero::before {
-    content: '';
-    position: absolute;
-    top: -50%;
-    left: -50%;
-    width: 200%;
-    height: 200%;
-    background: radial-gradient(circle, rgba(255, 107, 53, 0.1) 0%, transparent 70%);
-    animation: pulse 8s ease-in-out infinite;
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(255, 107, 53, 0.1) 0%, transparent 70%);
+  animation: pulse 8s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.1); opacity: 0.8; }
 }
 
 /* Карточка сходства */
 .similarity-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--border-radius);
-    text-align: center;
-    transition: var(--transition);
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
-    padding: 2rem 1rem;
-    position: relative;
-    border: 2px solid transparent;
-    background-clip: padding-box;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius);
+  text-align: center;
+  transition: var(--transition);
+  box-shadow: var(--card-shadow);
+  padding: var(--similarity-card-padding);
+  position: relative;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 .similarity-card::before {
-    content: '';
-    position: absolute;
-    top: -2px;
-    left: -2px;
-    right: -2px;
-    bottom: -2px;
-    background: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
-    border-radius: var(--border-radius);
-    z-index: -1;
-    opacity: 0.3;
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  background: var(--gradient-primary);
+  border-radius: var(--border-radius);
+  z-index: -1;
+  opacity: 0.3;
 }
 
 .similarity-score {
-    font-weight: 800;
-    background: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    line-height: 1;
-    margin-bottom: 0.75rem;
-    font-size: 3rem;
-    margin-bottom: 1rem;
-    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+  font-weight: 800;
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1;
+  margin-bottom: 0.75rem;
+  font-size: var(--similarity-score-size);
+  margin-bottom: 1rem;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 .similarity-label {
-    font-weight: 600;
-    color: var(--text-light);
-    margin-bottom: 0.5rem;
-    font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--text-light);
+  margin-bottom: 0.5rem;
+  font-size: 1.2rem;
 }
 
 .similarity-description {
-    font-size: 0.9rem;
-    color: var(--text-dark);
-    font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-dark);
+  font-weight: 600;
 }
 
 /* Статистические карточки */
 .stat-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--border-radius);
-    text-align: center;
-    transition: var(--transition);
-    padding: 1.5rem;
-    margin-bottom: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius);
+  text-align: center;
+  transition: var(--transition);
+  padding: 1.5rem;
+  margin-bottom: 1rem;
 }
 
 .stat-card:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 5px 15px rgba(255, 107, 53, 0.2);
-    border-color: var(--secondary-color);
+  transform: translateY(-3px);
+  box-shadow: var(--stat-shadow);
+  border-color: var(--secondary-color);
 }
 
 .stat-number {
-    font-weight: 800;
-    background: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    line-height: 1;
-    margin-bottom: 0.75rem;
-    font-size: 2.5rem;
+  font-weight: 800;
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1;
+  margin-bottom: 0.75rem;
+  font-size: var(--stat-number-size);
 }
 
 .stat-label {
-    font-weight: 600;
-    color: var(--text-light);
-    margin-bottom: 0.5rem;
-    font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-light);
+  margin-bottom: 0.5rem;
+  font-size: 1.1rem;
 }
 
 .stat-description {
-    font-size: 0.9rem;
-    color: var(--text-dark);
+  font-size: 0.9rem;
+  color: var(--text-dark);
 }
 
 /* Разбивка алгоритма */
 .algorithm-breakdown {
-    margin-bottom: 2rem;
+  margin-bottom: 2rem;
 }
 
 .breakdown-section {
-    padding: 1rem;
-    border-radius: 8px;
-    background: rgba(255,255,255,0.05);
-    margin-bottom: 1rem;
+  padding: 1rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  margin-bottom: 1rem;
 }
 
 .breakdown-item {
-    margin-bottom: 0.75rem;
-    padding-bottom: 0.75rem;
-    border-bottom: 1px solid rgba(255,255,255,0.1);
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .breakdown-item:last-child {
-    border-bottom: none;
-    margin-bottom: 0;
+  border-bottom: none;
+  margin-bottom: 0;
 }
 
 .breakdown-label {
-    font-weight: 500;
-    color: var(--text-dark);
+  font-weight: 500;
+  color: var(--text-dark);
 }
 
 .breakdown-value {
-    font-weight: bold;
-    color: var(--text-light);
+  font-weight: bold;
+  color: var(--text-light);
 }
 
 .breakdown-total {
-    margin-top: 1rem;
-    padding-top: 1rem;
-    border-top: 2px solid rgba(255,255,255,0.2);
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 2px solid rgba(255, 255, 255, 0.2);
 }
 
 .calculation-formula {
-    font-size: 1.1rem;
-    padding: 1rem;
-    background: rgba(0,0,0,0.3);
-    border-radius: 6px;
-    color: var(--text-light);
-    font-family: monospace;
+  font-size: 1.1rem;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 6px;
+  color: var(--text-light);
+  font-family: monospace;
 }
 
 .final-calculation {
-    border: 2px solid #ffc107 !important;
-    background: rgba(255, 193, 7, 0.05);
+  border: 2px solid #ffc107 !important;
+  background: rgba(255, 193, 7, 0.05);
 }
 
 /* Общие элементы */
 .shared-section {
-    margin-bottom: 2rem;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--border-radius);
-    padding: 1.5rem;
+  margin-bottom: 2rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius);
+  padding: 1.5rem;
 }
 
 .shared-section .section-title {
-    font-size: 1.3rem;
-    margin-bottom: 1.5rem;
-    text-align: left;
-    color: var(--text-light);
+  font-size: 1.3rem;
+  margin-bottom: 1.5rem;
+  text-align: left;
+  color: var(--text-light);
 }
 
 .shared-items-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .shared-item {
-    padding: 0.75rem 1.25rem;
-    border-radius: 6px;
-    font-size: 0.9rem;
-    font-weight: 600;
-    transition: all 0.2s ease;
-    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+  padding: 0.75rem 1.25rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  box-shadow: var(--section-shadow);
 }
 
 .shared-item:hover {
-    transform: translateY(-2px) scale(1.05);
-    box-shadow: 0 6px 15px rgba(0, 0, 0, 0.3);
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: var(--section-hover-shadow);
 }
 
 .no-shared-items {
-    padding: 1rem;
-    text-align: center;
-    color: var(--text-dark);
-    font-style: italic;
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 6px;
-    border: 1px dashed var(--border);
+  padding: 1rem;
+  text-align: center;
+  color: var(--text-dark);
+  font-style: italic;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  border: 1px dashed var(--border);
 }
 
 /* Кнопки действий */
 .action-buttons {
-    display: flex;
-    gap: 1.5rem;
-    justify-content: center;
-    flex-wrap: wrap;
-    padding: 3rem 0;
+  display: flex;
+  gap: 1.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  padding: 3rem 0;
 }
 
 .action-buttons .btn {
-    padding: 1rem 2rem;
-    font-size: 1.1rem;
-    font-weight: 700;
-    border-radius: 12px;
-    min-width: 200px;
+  padding: 1rem 2rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  border-radius: 12px;
+  min-width: 200px;
 }
 
 /* Категории сходства */
 .similarity-category {
-    padding: 1.5rem;
-    border-bottom: 1px solid var(--border);
-    transition: var(--transition);
+  padding: var(--category-padding);
+  border-bottom: 1px solid var(--border);
+  transition: var(--transition);
 }
 
 .similarity-category:hover {
-    background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .similarity-category:last-child {
-    border-bottom: none;
+  border-bottom: none;
 }
 
 .category-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 1rem;
-    gap: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  gap: 1.5rem;
 }
 
 .category-info {
-    flex: 1;
+  flex: 1;
 }
 
 .category-name {
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: var(--text-light);
-    margin-bottom: 0.5rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-light);
+  margin-bottom: 0.5rem;
 }
 
 .category-meta {
-    display: flex;
-    gap: 1rem;
-    flex-wrap: wrap;
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 
-.weight-badge, .impact-badge {
-    font-size: 0.8rem;
-    padding: 0.25rem 0.75rem;
-    border-radius: 12px;
-    font-weight: 600;
+.weight-badge,
+.impact-badge {
+  font-size: 0.8rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-weight: 600;
 }
 
 .weight-badge {
-    background: rgba(255, 107, 53, 0.1);
-    color: var(--secondary-color);
-    border: 1px solid rgba(255, 107, 53, 0.3);
+  background: rgba(255, 107, 53, 0.1);
+  color: var(--secondary-color);
+  border: 1px solid rgba(255, 107, 53, 0.3);
 }
 
 .impact-badge {
-    background: rgba(52, 152, 219, 0.1);
-    color: var(--info-color);
-    border: 1px solid rgba(52, 152, 219, 0.3);
+  background: rgba(52, 152, 219, 0.1);
+  color: var(--info-color);
+  border: 1px solid rgba(52, 152, 219, 0.3);
 }
 
 /* Прогресс-бар */
 .category-progress {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    min-width: 200px;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-width: 200px;
 }
 
 .progress-wrapper {
-    flex: 1;
+  flex: 1;
 }
 
 .progress {
-    height: 30px;
-    background: var(--surface-dark);
-    border-radius: 15px;
-    overflow: hidden;
-    position: relative;
+  height: var(--progress-height);
+  background: var(--surface-dark);
+  border-radius: 15px;
+  overflow: hidden;
+  position: relative;
 }
 
 .progress-bar {
-    height: 100%;
-    border-radius: 15px;
-    transition: width 1s ease-in-out;
-    position: relative;
+  height: 100%;
+  border-radius: 15px;
+  transition: width 1s ease-in-out;
+  position: relative;
 }
 
 .progress-high .progress-bar {
-    background: linear-gradient(90deg, var(--success-color), #2ecc71);
+  background: var(--gradient-success);
 }
 
 .progress-medium .progress-bar {
-    background: linear-gradient(90deg, var(--warning-color), #f1c40f);
+  background: var(--gradient-warning);
 }
 
 .progress-low .progress-bar {
-    background: linear-gradient(90deg, var(--info-color), #3498db);
+  background: var(--gradient-info);
 }
 
 .progress-text {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    color: white;
-    font-weight: 700;
-    font-size: 0.85rem;
-    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: white;
+  font-weight: 700;
+  font-size: 0.85rem;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
 }
 
-/* Адаптивность */
-@media (max-width: 1200px) {
-    .similarity-score {
-        font-size: 2.5rem;
-    }
+/* ===== COMPARISON CARD SPECIFIC STYLES ===== */
 
-    .stat-number {
-        font-size: 2rem;
-    }
+/* Стиль для центрирования жанров на карточках сравнения */
+.game-comparison-card .game-genres {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  justify-content: center !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+  margin-top: 1rem !important;
+  text-align: center !important;
+}
+
+.game-comparison-card .game-genres .badge {
+  margin: 0.1rem !important;
+  flex-shrink: 0 !important;
+}
+
+/* Основные стили карточек сравнения */
+.game-comparison-card {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius);
+  padding: 1.5rem;
+  height: 100%;
+  min-height: var(--comparison-card-height);
+  transition: var(--transition);
+  text-align: center;
+}
+
+/* Полоса сверху для карточки сравнения */
+.game-comparison-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--gradient-primary);
+  transform: scaleX(1);
+  transition: transform 0.4s ease;
+  z-index: 2;
+}
+
+.game-comparison-card:hover::before {
+  transform: scaleX(1.1);
+}
+
+.game-comparison-card:hover {
+  transform: translateY(-8px);
+  box-shadow: var(--shadow-card-hover);
+  border-color: var(--secondary-color);
+}
+
+/* Обложка для карточки сравнения */
+.comparison-cover {
+  height: var(--comparison-cover-height);
+  border-radius: var(--border-radius) var(--border-radius) 0 0;
+  object-fit: cover;
+  width: 100%;
+  transition: var(--transition);
+}
+
+.game-comparison-card:hover .comparison-cover {
+  transform: scale(1.03);
+}
+
+.no-cover-placeholder {
+  background: var(--surface-dark);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-weight: 600;
+  position: relative;
+  height: var(--comparison-cover-height);
+}
+
+/* Название игры в сравнении */
+.game-comparison-card .game-title {
+  font-size: 1.8rem;
+  margin-bottom: 1.5rem;
+  text-align: center;
+  color: var(--text-light); /* Используем тот же цвет что и в обычной карточке */
+  font-weight: 700;
+}
+
+/* Бейджи в карточке сравнения - используем те же цвета что и в обычной карточке */
+.game-comparison-card .game-genres .badge,
+.game-comparison-card .game-modes .badge,
+.game-comparison-card .game-developers .badge,
+.game-comparison-card .game-themes .badge,
+.game-comparison-card .game-perspectives .badge,
+.game-comparison-card .game-platforms .badge,
+.game-comparison-card .game-keywords .badge {
+  margin: 0.1rem !important;
+  flex-shrink: 0 !important;
+  font-size: 0.9rem !important;
+  padding: 0.4rem 0.8rem !important;
+  border-radius: 12px !important;
+}
+
+/* Конкретные цвета для бейджей в карточке сравнения */
+.game-comparison-card .item-genre {
+  background-color: rgba(111, 66, 193, 0.15) !important;
+  color: #6f42c1 !important;
+  border: 1px solid rgba(111, 66, 193, 0.3) !important;
+}
+
+.game-comparison-card .item-development {
+  background-color: rgba(52, 152, 219, 0.15) !important;
+  color: var(--info-color) !important;
+  border: 1px solid rgba(52, 152, 219, 0.3) !important;
+}
+
+.game-comparison-card .item-keyword {
+  background-color: rgba(25, 135, 84, 0.15) !important;
+  color: var(--success-color) !important;
+  border: 1px solid rgba(25, 135, 84, 0.3) !important;
+}
+
+.game-comparison-card .item-setting {
+  background-color: rgba(13, 110, 253, 0.15) !important;
+  color: var(--primary-color) !important;
+  border: 1px solid rgba(13, 110, 253, 0.3) !important;
+}
+
+/* Стандартные бейджи Bootstrap для карточки сравнения */
+.game-comparison-card .bg-primary {
+  background: linear-gradient(135deg, var(--secondary-color), var(--accent-color)) !important;
+  color: var(--text-light) !important;
+  border: none !important;
+}
+
+.game-comparison-card .bg-info {
+  background: var(--info-color) !important;
+  color: var(--text-light) !important;
+  border: none !important;
+}
+
+.game-comparison-card .bg-success {
+  background: var(--success-color) !important;
+  color: var(--text-light) !important;
+  border: none !important;
+}
+
+.game-comparison-card .bg-warning {
+  background: var(--warning-color) !important;
+  color: var(--primary-color) !important;
+  border: none !important;
+}
+
+.game-comparison-card .bg-purple {
+  background: linear-gradient(135deg, #6f42c1, #8e44ad) !important;
+  color: white !important;
+  border: none !important;
+}
+
+.game-comparison-card .bg-secondary {
+  background: #404040 !important;
+  color: var(--text-light) !important;
+  border: none !important;
+}
+
+/* Рейтинг в карточке сравнения */
+.game-comparison-card .game-rating .text-warning {
+  color: var(--warning-color) !important;
+}
+
+.game-comparison-card .game-rating .text-muted {
+  color: var(--text-dark) !important;
+}
+
+/* Детали в сравнении */
+.game-comparison-card .game-rating,
+.game-comparison-card .game-developers,
+.game-comparison-card .game-modes,
+.game-comparison-card .release-date {
+  margin-bottom: 1rem;
+}
+
+/* Ключевые слова */
+.keywords-container {
+  max-height: 150px;
+  overflow-y: auto;
+  padding-right: 0.5rem;
+}
+
+.keywords-collapsible {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.keywords-hidden {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+/* SVG звезда с рейтингом для карточек сравнения */
+.game-comparison-card .position-absolute.top-0.start-0 {
+  z-index: 10;
+}
+
+.game-comparison-card .rating-svg,
+.game-comparison-card .similarity-svg {
+  transition: all 0.3s ease;
+  filter: var(--shadow-drop);
+}
+
+.game-comparison-card:hover .rating-svg,
+.game-comparison-card:hover .similarity-svg {
+  transform: scale(1.1);
+  filter: var(--shadow-drop-hover);
+}
+
+/* Стили для звезды с N/A в карточках сравнения */
+.game-comparison-card .no-rating-container {
+  cursor: help;
+  transition: all 0.3s ease;
+  filter: var(--shadow-drop);
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 50%;
+  width: 60px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.game-comparison-card:hover .no-rating-container {
+  transform: scale(1.1);
+  filter: var(--shadow-drop-hover);
+  background: rgba(0, 0, 0, 0.8);
+}
+
+.game-comparison-card .no-rating-container svg {
+  width: 60px;
+  height: 60px;
+}
+
+.game-comparison-card .no-rating-container path {
+  fill: none;
+  stroke: #6c757d;
+  stroke-width: 2;
+}
+
+.game-comparison-card .no-rating-container text {
+  text-anchor: middle;
+  fill: #6c757d;
+  font-size: 14px;
+  font-weight: bold;
+}
+
+/* Стили для тултипов Bootstrap в карточках сравнения */
+.game-comparison-card [data-bs-toggle="tooltip"] {
+  position: relative;
+}
+
+/* ===== АДАПТИВНОСТЬ ===== */
+@media (max-width: 1200px) {
+  .similarity-score {
+    font-size: var(--similarity-score-size-lg);
+  }
+
+  .stat-number {
+    font-size: var(--stat-number-size-md);
+  }
+
+  .game-comparison-card .game-title {
+    font-size: 1.5rem;
+  }
+
+  .comparison-cover {
+    height: var(--comparison-cover-height-md);
+  }
+
+  .no-cover-placeholder {
+    height: var(--comparison-cover-height-md);
+  }
 }
 
 @media (max-width: 992px) {
-    .comparison-hero {
-        padding: 1.5rem;
-    }
+  .comparison-hero {
+    padding: var(--hero-padding-md);
+  }
 
-    .category-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 1rem;
-    }
+  .category-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
 
-    .category-progress {
-        width: 100%;
-        min-width: auto;
-    }
+  .category-progress {
+    width: 100%;
+    min-width: auto;
+  }
 
-    .action-buttons .btn {
-        min-width: 150px;
-    }
+  .action-buttons .btn {
+    min-width: 150px;
+  }
+
+  .game-comparison-card {
+    padding: 1rem;
+  }
+
+  .game-comparison-card .game-title {
+    font-size: 1.3rem;
+  }
+
+  .comparison-cover {
+    height: var(--comparison-cover-height-sm);
+  }
+
+  .no-cover-placeholder {
+    height: var(--comparison-cover-height-sm);
+  }
 }
 
 @media (max-width: 768px) {
-    .similarity-score {
-        font-size: 2rem;
-    }
+  .similarity-score {
+    font-size: var(--similarity-score-size-md);
+  }
 
-    .stat-card {
-        padding: 1rem;
-    }
+  .stat-card {
+    padding: 1rem;
+  }
 
-    .stat-number {
-        font-size: 1.8rem;
-    }
+  .stat-number {
+    font-size: var(--stat-number-size-sm);
+  }
 
-    .shared-section {
-        padding: 1rem;
-    }
+  .shared-section {
+    padding: 1rem;
+  }
 
-    .shared-section .section-title {
-        font-size: 1.1rem;
-    }
+  .shared-section .section-title {
+    font-size: 1.1rem;
+  }
 
-    .shared-item {
-        padding: 0.5rem 1rem;
-        font-size: 0.85rem;
-    }
+  .shared-item {
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+  }
 
-    .action-buttons {
-        flex-direction: column;
-        align-items: center;
-        padding: 2rem 0;
-    }
+  .action-buttons {
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem 0;
+  }
 
-    .action-buttons .btn {
-        width: 100%;
-        max-width: 300px;
-        text-align: center;
+  .action-buttons .btn {
+    width: 100%;
+    max-width: 300px;
+    text-align: center;
+  }
+
+  .similarity-category {
+    padding: var(--category-padding-sm);
+  }
+
+  .game-comparison-card .game-title {
+    font-size: 1.2rem;
+  }
+
+  .comparison-cover {
+    height: var(--comparison-cover-height-xs);
+  }
+
+  .no-cover-placeholder {
+    height: var(--comparison-cover-height-xs);
+  }
+
+  .game-comparison-card .game-genres .badge,
+  .game-comparison-card .game-modes .badge,
+  .game-comparison-card .game-developers .badge {
+    font-size: 0.8rem !important;
+    padding: 0.35rem 0.7rem !important;
+  }
+}
+
+@media (max-width: 576px) {
+  .comparison-hero {
+    padding: var(--hero-padding-sm);
+  }
+
+  .similarity-card {
+    padding: var(--similarity-card-padding-sm);
+  }
+
+  .similarity-score {
+    font-size: var(--similarity-score-size-sm);
+  }
+
+  .similarity-label {
+    font-size: 1rem;
+  }
+
+  .category-meta {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .shared-items-grid {
+    justify-content: center;
+  }
+
+  .progress {
+    height: var(--progress-height-sm);
+  }
+
+  .progress-text {
+    font-size: 0.8rem;
+  }
+
+  .game-comparison-card .game-title {
+    font-size: 1.1rem;
+  }
+
+  .game-comparison-card .no-rating-container {
+    width: 50px;
+    height: 50px;
+  }
+
+  .game-comparison-card .no-rating-container svg {
+    width: 50px;
+    height: 50px;
+  }
+
+  .game-comparison-card .no-rating-container text {
+    font-size: 12px;
+  }
+}
+
+/* Стили для виртуальной карточки */
+.virtual-game-card {
+    background: var(--surface);
+    border: 2px dashed var(--warning-color);
+    border-radius: var(--border-radius);
+    transition: var(--transition);
+    height: 100%;
+    position: relative;
+}
+
+.virtual-game-card::before {
+    content: '🔍 Search Criteria';
+    position: absolute;
+    top: -10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--warning-color);
+    color: var(--primary-color);
+    padding: 2px 12px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: bold;
+    z-index: 1;
+}
+
+.virtual-game-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 25px rgba(255, 193, 7, 0.2);
+    border-style: solid;
+}
+
+/* Стили для критериев в виртуальной карточке */
+.criteria-list {
+    max-height: 200px;
+    overflow-y: auto;
+    padding-right: 5px;
+}
+
+.criteria-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+.criteria-list::-webkit-scrollbar-thumb {
+    background: var(--warning-color);
+    border-radius: 2px;
+}
+
+.criteria-section {
+    padding: 0.5rem;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    margin-bottom: 0.75rem;
+}
+
+.criteria-section:last-child {
+    margin-bottom: 0;
+}
+
+/* Адаптивность */
+@media (max-width: 992px) {
+    .virtual-game-card::before {
+        font-size: 0.7rem;
+        padding: 2px 8px;
     }
 }
 
 @media (max-width: 576px) {
-    .comparison-hero {
-        padding: 1rem;
-    }
-
-    .similarity-card {
-        padding: 1.5rem 0.5rem;
-    }
-
-    .similarity-score {
-        font-size: 1.8rem;
-    }
-
-    .similarity-label {
-        font-size: 1rem;
-    }
-
-    .category-meta {
-        flex-direction: column;
-        gap: 0.5rem;
-    }
-
-    .shared-items-grid {
-        justify-content: center;
-    }
-
-    .progress {
-        height: 25px;
-    }
-
-    .progress-text {
-        font-size: 0.8rem;
+    .virtual-game-card {
+        margin-bottom: 1.5rem;
     }
 }

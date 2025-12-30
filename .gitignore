@@ -81,3 +81,17 @@ Thumbs.db
 /igdb_site/logs/error_details_20251221_020939.json
 /igdb_site/logs/error_details_20251221_021537.json
 /igdb_site/failed_wiki_games.csv
+/igdb_site/results/keywords_20251223_021252.txt
+/igdb_site/results/keywords_20251223_021603.txt
+/igdb_site/results/keywords_20251223_022927.txt
+/igdb_site/results/keywords_20251223_032521.txt
+/igdb_site/results/state_criteria.json
+/igdb_site/results/state_keywords.json
+/igdb_site/games/migrations/0016_alter_genre_options_alter_keyword_options_and_more.py
+/igdb_site/games/migrations/0017_create_performance_indexes.py
+/igdb_site/backup.json
+/igdb_site/backup.json[citation
+/igdb_site/db.sqlite3.backup_migration
+/igdb_site/backup.json[citation
+/igdb_site/backup.json[citation
+/igdb_site/optimize_similarity.sql

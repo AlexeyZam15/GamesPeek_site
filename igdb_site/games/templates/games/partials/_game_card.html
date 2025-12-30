@@ -1,4 +1,4 @@
-{% load game_tags platform_icons color_tags %}
+{% load game_tags platform_icons color_tags game_type_tags %}
 
 <div class="col-xl-3 col-lg-4 col-md-6 mb-4">
     <div class="card h-100 game-card d-flex flex-column">
@@ -6,7 +6,8 @@
         <div class="card-img-top-container position-relative" style="height: 250px; overflow: hidden;">
             {% if game.cover_url %}
                 <img src="{{ game.cover_url }}" class="card-img-top w-100" alt="{{ game.name }}"
-                     style="object-fit: cover; object-position: center 20%; height: 110%;">
+                     style="object-fit: cover; object-position: center 20%; height: 110%;"
+                     loading="lazy">
             {% else %}
                 <div class="card-img-top bg-light w-100 h-100 d-flex align-items-center justify-content-center">
                     <span class="text-muted">No Cover</span>
@@ -18,29 +19,55 @@
                 <div class="position-absolute top-0 start-0 p-1">
                     {% rating_star_svg game.rating 60 %}
                 </div>
+            {% else %}
+                <!-- Звезда с N/A для игр без рейтинга (как в хедере) -->
+                <div class="position-absolute top-0 start-0 p-1 no-rating-container"
+                     data-bs-toggle="tooltip"
+                     data-bs-placement="right"
+                     title="No Rating">
+                    <svg viewBox="0 0 60 60" width="60" height="60">
+                        <!-- Внешняя звезда -->
+                        <path d="M30,7.5 L36.45,22.65 L52.5,22.65 L39.525,31.1 L45.975,46.25 L30,37.8 L14.025,46.25 L20.475,31.1 L7.5,22.65 L23.55,22.65 Z"
+                              fill="none"
+                              stroke="#6c757d"
+                              stroke-width="2"/>
+                        <!-- Текст N/A внутри -->
+                        <text x="30" y="34" text-anchor="middle" fill="#6c757d" font-size="14" font-weight="bold">N/A
+                        </text>
+                    </svg>
+                </div>
             {% endif %}
 
-            <!-- Процент схожести как SVG изображение -->
-            {% if similarity_percent %}
+            <!-- Процент похожести (только в режиме show_similarity) -->
+            {% if show_similarity and similarity_percent %}
                 <div class="position-absolute top-0 end-0 p-1">
                     {% similarity_pattern_svg similarity_percent 60 %}
                 </div>
             {% endif %}
 
-            <!-- Платформы -->
+            <!-- Платформы - используем prefetched данные -->
             {% if game.platforms.all %}
-                <div class="position-absolute bottom-0 start-0 p-1 platforms-overlay">
-                    <div class="d-flex flex-wrap gap-1">
-                        {% for platform in game.platforms.all %}
-                            <span class="platform-icon text-white"
-                                  title="{{ platform.name }}"
-                                  style="filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.8));">
-                                {% platform_icon platform.name %}
-                            </span>
-                        {% endfor %}
-                    </div>
-                </div>
+                {% with platforms=game.platforms.all %}
+                    {% with platforms_count=platforms|length %}
+                        <div class="position-absolute bottom-0 start-0 p-1 platforms-overlay w-100">
+                            <div class="platforms-container">
+                                <!-- Разделяем платформы на ряды по 8 штук -->
+                                {% for platform_row in platforms|split_platforms:8 %}
+                                    <div class="d-flex flex-wrap gap-1 {% if not forloop.first %}mt-1{% endif %}">
+                                        {% for platform in platform_row %}
+                                            {% platform_badge platform.name %}
+                                        {% endfor %}
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endwith %}
+                {% endwith %}
             {% endif %}
+
+            <!-- Тип игры (справа снизу) -->
+            {% game_type_badge game.game_type %}
+
         </div>
 
         <!-- Card body -->
@@ -50,7 +77,7 @@
                 <h6 class="card-title">{{ game.name }}</h6>
             </div>
 
-            <!-- ЖАНРЫ -->
+            <!-- Жанры - используем prefetched данные -->
             {% if game.genres.all %}
                 <div class="mb-2 genres-container" style="min-height: 50px;">
                     <div class="game-genres">
@@ -63,7 +90,7 @@
                 <div class="mb-2 genres-container" style="min-height: 50px;"></div>
             {% endif %}
 
-            <!-- Перспективы -->
+            <!-- Перспективы - используем prefetched данные -->
             {% if game.player_perspectives.all %}
                 <div class="mb-2">
                     {% for perspective in game.player_perspectives.all %}
@@ -94,9 +121,9 @@
                     <i class="bi bi-search-heart"></i> Find Similar
                 </a>
 
-                <!-- Compare Button -->
+                <!-- Кнопка Compare (только в режиме show_similarity) -->
                 {% if show_similarity and source_game %}
-                    <a href="{% get_card_comparison_url source_game game selected_genres selected_keywords selected_themes selected_perspectives selected_developers %}"
+                    <a href="{% get_card_comparison_url source_game game selected_genres selected_keywords selected_themes selected_perspectives selected_developers selected_game_modes %}"
                        class="btn btn-sm btn-outline-warning">
                         <i class="bi bi-arrow-left-right"></i> Compare
                     </a>
