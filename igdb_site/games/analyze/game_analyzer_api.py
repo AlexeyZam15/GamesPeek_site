@@ -10,6 +10,7 @@ from typing import Dict, Any, List, Optional
 from games.models import Game
 from .text_analyzer import TextAnalyzer
 from .utils import update_game_criteria
+from .sync_patterns_to_db import ensure_patterns_in_db
 
 
 class GameAnalyzerAPI:
@@ -19,13 +20,35 @@ class GameAnalyzerAPI:
         self.verbose = verbose
         self.text_analyzer = TextAnalyzer(verbose=verbose)
 
+        # Автоматически синхронизируем паттерны при создании API
+        self._ensure_patterns_in_db()
+
+    def _ensure_patterns_in_db(self):
+        """Гарантирует, что все паттерны есть в базе данных"""
+        if self.verbose:
+            print("=== GameAnalyzerAPI: Проверка синхронизации паттернов ===")
+
+        try:
+            # Запускаем синхронизацию паттернов с базой данных
+            results = ensure_patterns_in_db(self.verbose)
+
+            total_added = sum(stats['added'] for stats in results.values())
+            if total_added > 0 and self.verbose:
+                print(f"✅ GameAnalyzerAPI: Добавлено {total_added} элементов в базу данных")
+            elif self.verbose:
+                print("ℹ️ GameAnalyzerAPI: Все элементы уже есть в базе данных")
+
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ GameAnalyzerAPI: Ошибка при синхронизации паттернов: {e}")
+
     def analyze_game_text_comprehensive(
             self,
             text: str,
             game_id: Optional[int] = None,
             existing_game=None,
-            detailed_patterns: bool = True,  # Всегда собираем подробную информацию
-            exclude_existing: bool = False  # По умолчанию показываем все
+            detailed_patterns: bool = True,
+            exclude_existing: bool = False
     ) -> Dict[str, Any]:
         """
         Комплексный анализ текста с поиском ВСЕХ вхождений элементов
@@ -49,7 +72,7 @@ class GameAnalyzerAPI:
         analysis_result = self.text_analyzer.analyze_comprehensive(
             text=text,
             existing_game=existing_game,
-            detailed_patterns=True,  # Всегда собираем подробную информацию
+            detailed_patterns=detailed_patterns,
             exclude_existing=exclude_existing
         )
 
@@ -75,6 +98,7 @@ class GameAnalyzerAPI:
 
         return response
 
+    # Все остальные методы остаются без изменений
     def analyze_game_text_combined(
             self,
             text: str,
