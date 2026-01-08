@@ -31,6 +31,9 @@ class GameAnalyzerUI {
         this.setupHighlightEvents();
         this.checkForAutoAnalyze();
 
+        // ВОССТАНАВЛИВАЕМ СОХРАНЕННУЮ ВКЛАДКУ
+        this.restoreCurrentTab();
+
         console.log('Game Analyzer UI initialized');
     }
 
@@ -149,6 +152,76 @@ class GameAnalyzerUI {
     }
 
     /* ============================================
+       TAB PERSISTENCE METHODS
+       ============================================ */
+
+    saveCurrentTab() {
+        // Сохраняем текущую вкладку в sessionStorage
+        if (this.currentTab) {
+            sessionStorage.setItem(`analyze_active_tab_${this.options.gameId}`, this.currentTab);
+
+            // Также сохраняем в localStorage для долгосрочного хранения
+            localStorage.setItem(`analyze_active_tab_${this.options.gameId}`, this.currentTab);
+
+            console.log(`Tab saved: ${this.currentTab} for game ${this.options.gameId}`);
+        }
+    }
+
+    restoreCurrentTab() {
+        try {
+            // Проверяем, есть ли вкладка в URL параметрах
+            const urlParams = new URLSearchParams(window.location.search);
+            const tabFromUrl = urlParams.get('tab');
+
+            // Если есть вкладка в URL, используем её (самый высокий приоритет)
+            if (tabFromUrl) {
+                const tabExists = document.querySelector(`#analyzeTabs a[href="#${tabFromUrl}"]`);
+                if (tabExists) {
+                    setTimeout(() => {
+                        this.switchTabByName(tabFromUrl);
+                    }, 100);
+                    return tabFromUrl;
+                }
+            }
+
+            // Если нет в URL, пробуем получить из sessionStorage
+            let savedTab = sessionStorage.getItem(`analyze_active_tab_${this.options.gameId}`);
+
+            // Если нет, пробуем из localStorage
+            if (!savedTab) {
+                savedTab = localStorage.getItem(`analyze_active_tab_${this.options.gameId}`);
+            }
+
+            // Если есть сохраненная вкладка и она существует на странице
+            if (savedTab) {
+                const tabExists = document.querySelector(`#analyzeTabs a[href="#${savedTab}"]`);
+                if (tabExists) {
+                    // Ждем немного, чтобы DOM полностью загрузился
+                    setTimeout(() => {
+                        this.switchTabByName(savedTab);
+                    }, 150);
+                    return savedTab;
+                }
+            }
+
+            // Если ничего не нашли, но есть активная вкладка по умолчанию
+            if (this.currentTab) {
+                this.saveCurrentTab();
+            }
+        } catch (error) {
+            console.error('Error restoring tab:', error);
+        }
+
+        return null;
+    }
+
+    clearTabStorage() {
+        // Очищаем сохраненные данные о вкладках
+        sessionStorage.removeItem(`analyze_active_tab_${this.options.gameId}`);
+        localStorage.removeItem(`analyze_active_tab_${this.options.gameId}`);
+    }
+
+    /* ============================================
        SCROLL POSITION MANAGEMENT
        ============================================ */
 
@@ -210,6 +283,9 @@ class GameAnalyzerUI {
             }
 
             this.switchTabByName(tabName);
+
+            // СОХРАНЯЕМ ВЫБРАННУЮ ВКЛАДКУ
+            this.saveCurrentTab();
         });
     }
 
@@ -245,6 +321,8 @@ class GameAnalyzerUI {
                 return;
             }
 
+            // СОХРАНЯЕМ ТЕКУЩУЮ ВКЛАДКУ ПЕРЕД ОТПРАВКОЙ
+            this.saveCurrentTab();
             this.saveScrollPosition();
             this.updateHiddenFields();
 
@@ -292,6 +370,9 @@ class GameAnalyzerUI {
 
         this.elements.saveButton.addEventListener('click', (e) => {
             e.preventDefault();
+
+            // СОХРАНЯЕМ ТЕКУЩУЮ ВКЛАДКУ ПЕРЕД ОТПРАВКОЙ
+            this.saveCurrentTab();
             this.saveScrollPosition();
             this.handleSaveResults(e);
         });
@@ -306,6 +387,9 @@ class GameAnalyzerUI {
         keywordInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
+
+                // СОХРАНЯЕМ ТЕКУЩУЮ ВКЛАДКУ ПЕРЕД ОТПРАВКОЙ
+                this.saveCurrentTab();
                 this.saveScrollPosition();
                 this.handleAddKeyword();
             }
@@ -313,6 +397,9 @@ class GameAnalyzerUI {
 
         addButton.addEventListener('click', (e) => {
             e.preventDefault();
+
+            // СОХРАНЯЕМ ТЕКУЩУЮ ВКЛАДКУ ПЕРЕД ОТПРАВКОЙ
+            this.saveCurrentTab();
             this.saveScrollPosition();
             this.handleAddKeyword();
         });
@@ -335,6 +422,8 @@ class GameAnalyzerUI {
                 return;
             }
 
+            // СОХРАНЯЕМ ТЕКУЩУЮ ВКЛАДКУ ПЕРЕД ОТПРАВКОЙ
+            this.saveCurrentTab();
             this.saveScrollPosition();
 
             const originalHTML = clearBtn.innerHTML;
@@ -393,6 +482,8 @@ class GameAnalyzerUI {
         if (!this.elements.backToGameBtn) return;
 
         this.elements.backToGameBtn.addEventListener('click', (e) => {
+            // Очищаем сохраненные данные о вкладках при переходе назад
+            this.clearTabStorage();
             this.saveScrollPosition();
         });
     }
@@ -406,6 +497,9 @@ class GameAnalyzerUI {
                 if (href) {
                     const tabName = href.substring(1);
                     this.onTabSwitch(tabName);
+
+                    // СОХРАНЯЕМ ВЫБРАННУЮ ВКЛАДКУ
+                    this.saveCurrentTab();
                 }
             });
         });
@@ -468,6 +562,7 @@ class GameAnalyzerUI {
                 toggleInput = document.createElement('input');
                 toggleInput.type = 'hidden';
                 toggleInput.name = 'highlight_toggle_only';
+                toggleInput.value = '1';
                 this.elements.analyzeForm.appendChild(toggleInput);
             }
             toggleInput.value = '1';
@@ -481,6 +576,8 @@ class GameAnalyzerUI {
             }
             highlightInput.value = isEnabled ? 'on' : 'off';
 
+            // СОХРАНЯЕМ ТЕКУЩУЮ ВКЛАДКУ ПЕРЕД ОТПРАВКОЙ
+            this.saveCurrentTab();
             this.saveScrollPosition();
 
             this.showMessage('Highlight setting updated. Click "Analyze Text" to apply changes.', 'info');
@@ -518,10 +615,14 @@ class GameAnalyzerUI {
         addButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Adding and Analyzing...';
         addButton.disabled = true;
 
+        // ПОЛУЧАЕМ ТЕКУЩУЮ АКТИВНУЮ ВКЛАДКУ
+        const currentTab = this.currentTab || 'summary';
+        console.log(`Adding keyword to current tab: ${currentTab}`);
+
         const formData = new FormData();
         formData.append('add_keyword', 'true');
         formData.append('new_keyword', keyword);
-        formData.append('analyze_tab', this.currentTab);
+        formData.append('analyze_tab', currentTab); // ИСПРАВЛЕНИЕ: используем currentTab вместо this.currentTab
         formData.append('auto_analyze', 'true');
 
         const csrfToken = this.getCSRFToken();
@@ -1052,6 +1153,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     analyzer.setupTooltips();
                 }, 50);
             });
+        });
+
+        // Обработка перед закрытием страницы
+        window.addEventListener('beforeunload', () => {
+            // Сохраняем текущую вкладку перед закрытием
+            analyzer.saveCurrentTab();
         });
 
     } catch (error) {

@@ -90,11 +90,14 @@ def _handle_post_request(request: HttpRequest, game: Game, original_descriptions
 def _handle_add_keyword(request: HttpRequest, game: Game, original_descriptions: Dict, active_tab: str):
     """Обработка добавления ключевого слова"""
     keyword_name = request.POST.get('new_keyword', '').strip()
+
+    # ИСПРАВЛЕНИЕ: получаем вкладку из POST запроса, а не из active_tab
+    analyze_tab = request.POST.get('analyze_tab', active_tab)
     auto_analyze = request.POST.get('auto_analyze', 'false') == 'true'
 
     if not keyword_name:
         messages.error(request, '❌ Please enter a keyword')
-        return _redirect_to_tab(game.id, active_tab)
+        return _redirect_to_tab(game.id, analyze_tab)  # ИСПРАВЛЕНИЕ: используем analyze_tab
 
     try:
         # Создаем или получаем ключевое слово
@@ -131,8 +134,8 @@ def _handle_add_keyword(request: HttpRequest, game: Game, original_descriptions:
         messages.success(request, f'✅ Keyword "{keyword_name}" added to game!')
 
         # Автоматически анализируем после добавления
-        if auto_analyze and active_tab in original_descriptions:
-            text = original_descriptions[active_tab]
+        if auto_analyze and analyze_tab in original_descriptions:  # ИСПРАВЛЕНИЕ: используем analyze_tab
+            text = original_descriptions[analyze_tab]
             if text:
                 try:
                     analyzer = GameAnalyzerAPI(verbose=True)
@@ -144,19 +147,21 @@ def _handle_add_keyword(request: HttpRequest, game: Game, original_descriptions:
                     )
 
                     if analysis_result['success']:
-                        _save_analysis_results(request, game.id, active_tab, text, analysis_result)
+                        _save_analysis_results(request, game.id, analyze_tab, text,
+                                               analysis_result)  # ИСПРАВЛЕНИЕ: используем analyze_tab
                         messages.info(request,
-                                      '🔍 Текст автоматически проанализирован после добавления ключевого слова.')
+                                      f'🔍 Текст автоматически проанализирован после добавления ключевого слова (вкладка: {analyze_tab}).')
                 except Exception as e:
                     messages.warning(request, f'⚠️ Ключевое слово добавлено, но возникла ошибка при анализе: {str(e)}')
 
         # Редирект с параметрами
         redirect_url = reverse('analyze_game', args=[game.id])
         params = []
-        if active_tab and active_tab != 'summary':
-            params.append(f'tab={active_tab}')
+        if analyze_tab and analyze_tab != 'summary':  # ИСПРАВЛЕНИЕ: используем analyze_tab
+            params.append(f'tab={analyze_tab}')
         params.append('keyword_added=1')
-        params.append('auto_analyze=1')
+        if auto_analyze:
+            params.append('auto_analyze=1')
 
         if params:
             redirect_url += '?' + '&'.join(params)
@@ -165,7 +170,7 @@ def _handle_add_keyword(request: HttpRequest, game: Game, original_descriptions:
 
     except Exception as e:
         messages.error(request, f'❌ Error adding keyword: {str(e)}')
-        return _redirect_to_tab(game.id, active_tab)
+        return _redirect_to_tab(game.id, analyze_tab)  # ИСПРАВЛЕНИЕ: используем analyze_tab
 
 
 def _handle_analyze_request(request: HttpRequest, game: Game, original_descriptions: Dict, active_tab: str):
