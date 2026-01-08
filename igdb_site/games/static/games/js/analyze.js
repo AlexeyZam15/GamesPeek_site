@@ -48,7 +48,6 @@ class GameAnalyzerUI {
             if (urlParams.get('auto_analyze') === '1') {
                 setTimeout(() => {
                     this.showMessage('🔍 Текст автоматически проанализирован после добавления ключевого слова. Все совпадения подсвечены.', 'info');
-                    this.handleAutoAnalyze();
                 }, 500);
             }
 
@@ -62,25 +61,10 @@ class GameAnalyzerUI {
             this.showMessage('✅ Results saved successfully!', 'success');
             setTimeout(() => this.removeUrlParam('saved'), 3000);
         }
-
-        if (urlParams.get('auto_analyze') === '1' && !urlParams.get('keyword_added')) {
-            this.handleAutoAnalyze();
-        }
     }
 
     setupHighlightEvents() {
-        // Обработка кликов на подсвеченные элементы
-        document.addEventListener('click', (e) => {
-            const highlightElement = e.target.closest('.highlight-genre, .highlight-theme, .highlight-perspective, .highlight-game_mode, .highlight-keyword');
-
-            if (highlightElement) {
-                e.preventDefault();
-                e.stopPropagation();
-                this.handleHighlightClick(highlightElement);
-            }
-        });
-
-        // Обработка наведения на подсвеченные элементы
+        // Обработка наведения на подсвеченные элементы (только hover)
         document.addEventListener('mouseenter', (e) => {
             const highlightElement = e.target.closest('.highlight-genre, .highlight-theme, .highlight-perspective, .highlight-game_mode, .highlight-keyword');
 
@@ -96,29 +80,6 @@ class GameAnalyzerUI {
                 this.handleHighlightHover(highlightElement, false);
             }
         }, true);
-    }
-
-    handleHighlightClick(element) {
-        const elementName = element.dataset.elementName || element.getAttribute('title') || element.textContent.trim();
-        const category = element.dataset.category || '';
-
-        if (elementName) {
-            // Прокручиваем к соответствующему элементу в списке
-            const listItem = document.querySelector(`.found-item-badge[data-name="${elementName}"], .found-item-badge[data-name*="${elementName}"]`);
-
-            if (listItem) {
-                listItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-                // Мигаем элементом в списке
-                this.flashElement(listItem);
-
-                // Мигаем подсвеченным элементом в тексте
-                this.flashElement(element);
-            }
-
-            // Показываем информацию об элементе
-            this.showElementInfo(elementName, category);
-        }
     }
 
     handleHighlightHover(element, isEntering) {
@@ -147,51 +108,6 @@ class GameAnalyzerUI {
 
         const categoryName = categoryNames[category] || 'Element';
         this.showMessage(`${categoryName}: <strong>${name}</strong>`, 'info', 2000);
-    }
-
-    handleAutoAnalyze() {
-        console.log('=== AUTO ANALYZE TRIGGERED ===');
-
-        // Прокручиваем к началу анализа
-        setTimeout(() => {
-            this.scrollToAnalyzeTop();
-        }, 300);
-
-        // Обновляем тултипы для новых подсвеченных элементов
-        setTimeout(() => {
-            this.setupTooltips();
-            this.flashNewHighlights();
-        }, 500);
-    }
-
-    scrollToAnalyzeTop() {
-        const analyzeTop = document.getElementById('analyze-top');
-        if (analyzeTop) {
-            analyzeTop.scrollIntoView({
-                behavior: 'smooth',
-                block: 'start',
-                inline: 'nearest'
-            });
-        }
-    }
-
-    flashNewHighlights() {
-        // Находим все подсвеченные элементы на активной вкладке
-        const activePane = document.querySelector(`#${this.currentTab}.tab-pane.active`);
-        if (!activePane) return;
-
-        const highlights = activePane.querySelectorAll('.highlight-genre, .highlight-theme, .highlight-perspective, .highlight-game_mode, .highlight-keyword');
-
-        if (highlights.length > 0) {
-            // Мигаем элементами по очереди
-            highlights.forEach((element, index) => {
-                setTimeout(() => {
-                    this.flashElement(element);
-                }, index * 150);
-            });
-
-            this.showMessage(`🔍 Found ${highlights.length} highlighted elements. Click any to jump to its entry in the list.`, 'info', 4000);
-        }
     }
 
     cacheElements() {
@@ -230,6 +146,35 @@ class GameAnalyzerUI {
         }
 
         this.currentMode = 'combined';
+    }
+
+    /* ============================================
+       SCROLL POSITION MANAGEMENT
+       ============================================ */
+
+    saveScrollPosition() {
+        // Сохраняем позицию прокрутки
+        sessionStorage.setItem(`analyze_scroll_y_${this.options.gameId}`, window.scrollY.toString());
+    }
+
+    restoreScrollPosition() {
+        try {
+            const savedScrollY = sessionStorage.getItem(`analyze_scroll_y_${this.options.gameId}`);
+            if (savedScrollY) {
+                const scrollY = parseInt(savedScrollY);
+                if (scrollY > 0) {
+                    // Прокручиваем после небольшой задержки
+                    setTimeout(() => {
+                        window.scrollTo(0, scrollY);
+                        // Очищаем сохраненную позицию
+                        sessionStorage.removeItem(`analyze_scroll_y_${this.options.gameId}`);
+                    }, 100);
+                }
+            }
+        } catch (error) {
+            console.error('Error restoring scroll position:', error);
+            sessionStorage.removeItem(`analyze_scroll_y_${this.options.gameId}`);
+        }
     }
 
     /* ============================================
@@ -475,9 +420,23 @@ class GameAnalyzerUI {
 
     bindFoundItemsClicks() {
         document.addEventListener('click', (e) => {
-            if (e.target.classList.contains('found-item-badge')) {
+            const foundItem = e.target.closest('.found-item-badge');
+            if (foundItem) {
                 e.preventDefault();
-                this.scrollToHighlight(e.target.dataset.name);
+                const elementName = foundItem.dataset.name;
+                if (elementName) {
+                    // Убираем выделение с предыдущих элементов в списке
+                    const previousSelected = document.querySelectorAll('.found-item-badge.selected');
+                    previousSelected.forEach(el => {
+                        el.classList.remove('selected');
+                    });
+
+                    // Выделяем текущий элемент в списке
+                    foundItem.classList.add('selected');
+
+                    // Прокручиваем к подсвеченным словам
+                    this.scrollToHighlight(elementName);
+                }
             }
         });
     }
@@ -521,6 +480,8 @@ class GameAnalyzerUI {
                 this.elements.analyzeForm.appendChild(highlightInput);
             }
             highlightInput.value = isEnabled ? 'on' : 'off';
+
+            this.saveScrollPosition();
 
             this.showMessage('Highlight setting updated. Click "Analyze Text" to apply changes.', 'info');
         } else {
@@ -568,9 +529,10 @@ class GameAnalyzerUI {
             formData.append('csrfmiddlewaretoken', csrfToken);
         }
 
-        this.saveScrollPosition();
+        const form = this.elements.analyzeForm;
+        const originalAction = form ? form.action : window.location.href;
 
-        fetch(this.elements.analyzeForm ? this.elements.analyzeForm.action : window.location.href, {
+        fetch(originalAction, {
             method: 'POST',
             body: formData,
             headers: {
@@ -584,34 +546,9 @@ class GameAnalyzerUI {
             }
             return response.json();
         })
-        .then(data => {
-            if (!data) return;
-
-            if (data.success) {
-                this.showMessage(`✅ Keyword "${keyword}" added successfully! Analysis in progress...`, 'success');
-                keywordInput.value = '';
-
-                this.updateCurrentKeywordsList(data.keyword_id, data.keyword_name);
-                this.refreshFoundElementsList('keywords', {
-                    id: data.keyword_id,
-                    name: data.keyword_name,
-                    is_new: true
-                });
-
-                if (data.analysis_results) {
-                    this.updateUIWithAnalysisResults(data.analysis_results);
-                }
-
-                keywordInput.focus();
-            } else {
-                throw new Error(data.error || 'Failed to add keyword');
-            }
-        })
         .catch(error => {
             console.error('Error adding keyword:', error);
             this.showMessage(`❌ Error adding keyword: ${error.message}`, 'error');
-        })
-        .finally(() => {
             addButton.innerHTML = originalButtonText;
             addButton.disabled = originalButtonState;
         });
@@ -837,6 +774,27 @@ class GameAnalyzerUI {
        ACTION METHODS
        ============================================ */
 
+    createMatchCountIndicator(element, count) {
+        // Удаляем старый индикатор, если есть
+        const oldIndicator = element.querySelector('.highlight-match-count');
+        if (oldIndicator) oldIndicator.remove();
+
+        if (count > 1) {
+            const indicator = document.createElement('span');
+            indicator.className = 'highlight-match-count';
+            indicator.textContent = count;
+            element.style.position = 'relative';
+            element.appendChild(indicator);
+
+            // Автоматически скрываем через 3 секунды
+            setTimeout(() => {
+                if (indicator.parentNode === element) {
+                    indicator.remove();
+                }
+            }, 3000);
+        }
+    }
+
     scrollToHighlight(elementName) {
         const activePane = document.querySelector(`#${this.currentTab}.tab-pane.active`);
         if (!activePane) return;
@@ -845,22 +803,42 @@ class GameAnalyzerUI {
         if (highlights.length > 0) {
             let targetHighlight = highlights[0];
 
-            for (let i = 0; i < highlights.length; i++) {
-                const rect = highlights[i].getBoundingClientRect();
-                if (rect.top >= 0 && rect.bottom <= window.innerHeight) {
-                    targetHighlight = highlights[i];
-                    break;
-                }
-            }
+            // Сначала убираем предыдущее специальное выделение
+            const previousSpecial = activePane.querySelectorAll('.highlight-found-element');
+            previousSpecial.forEach(el => {
+                el.classList.remove('highlight-found-element', 'highlight-blink', 'highlight-gradient');
+            });
 
+            // Прокручиваем к первому элементу
             targetHighlight.scrollIntoView({
                 behavior: 'smooth',
                 block: 'center'
             });
 
-            highlights.forEach(h => {
+            // Применяем специальное выделение ко ВСЕМ совпадениям
+            highlights.forEach((h, index) => {
+                // Добавляем классы специальной подсветки
+                h.classList.add('highlight-found-element', 'highlight-blink', 'highlight-transition');
+
+                // Добавляем градиентный эффект
+                h.classList.add('highlight-gradient');
+
+                // Добавляем анимацию с задержкой для создания волны
+                setTimeout(() => {
+                    h.style.animation = 'highlightFoundElementPulse 2s ease-in-out';
+                }, index * 50);
+
+                // Добавляем flash анимацию
                 this.flashElement(h);
+
+                // Добавляем индикатор количества совпадений
+                this.createMatchCountIndicator(h, highlights.length);
             });
+
+            // Показываем сообщение о количестве найденных совпадений
+            if (highlights.length > 1) {
+                this.showMessage(`Found ${highlights.length} occurrences of "${elementName}"`, 'info', 3000);
+            }
         }
     }
 
@@ -1039,30 +1017,6 @@ class GameAnalyzerUI {
         }
     }
 
-    saveScrollPosition() {
-        sessionStorage.setItem(`analyze_scroll_${this.options.gameId}`, window.scrollY);
-        sessionStorage.setItem(`analyze_tab_${this.options.gameId}`, this.currentTab);
-    }
-
-    restoreScrollPosition() {
-        const savedPosition = sessionStorage.getItem(`analyze_scroll_${this.options.gameId}`);
-        const savedTab = sessionStorage.getItem(`analyze_tab_${this.options.gameId}`);
-
-        if (savedTab && savedTab !== this.currentTab) {
-            setTimeout(() => {
-                this.switchTabByName(savedTab);
-            }, 50);
-        }
-
-        if (savedPosition) {
-            setTimeout(() => {
-                window.scrollTo(0, parseInt(savedPosition));
-                sessionStorage.removeItem(`analyze_scroll_${this.options.gameId}`);
-                sessionStorage.removeItem(`analyze_tab_${this.options.gameId}`);
-            }, 200);
-        }
-    }
-
     updateUIWithAnalysisResults(results) {
         // Обновляем интерфейс с результатами анализа
         console.log('Updating UI with analysis results:', results);
@@ -1100,53 +1054,6 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
 
-        // Добавляем CSS анимации
-        if (!document.querySelector('#analyzer-styles')) {
-            const style = document.createElement('style');
-            style.id = 'analyzer-styles';
-            style.textContent = `
-                @keyframes slideInRight {
-                    from {
-                        transform: translateX(100%);
-                        opacity: 0;
-                    }
-                    to {
-                        transform: translateX(0);
-                        opacity: 1;
-                    }
-                }
-
-                @keyframes highlightFlash {
-                    0%, 100% {
-                        background-color: inherit;
-                    }
-                    50% {
-                        background-color: rgba(255, 255, 255, 0.5);
-                    }
-                }
-
-                .highlight-flash {
-                    animation: highlightFlash 0.5s ease 2;
-                }
-
-                .highlight-hover {
-                    filter: brightness(1.1);
-                    transform: translateY(-1px);
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-                }
-
-                .scroll-to-top {
-                    opacity: 0;
-                    transition: opacity 0.3s ease, transform 0.3s ease;
-                }
-
-                .scroll-to-top.visible {
-                    opacity: 1;
-                }
-            `;
-            document.head.appendChild(style);
-        }
-
     } catch (error) {
         console.error('Failed to initialize Game Analyzer UI:', error);
 
@@ -1170,14 +1077,3 @@ document.addEventListener('DOMContentLoaded', function() {
         document.body.appendChild(errorAlert);
     }
 });
-
-// Fallback для noscript
-if (!document.querySelector('.noscript-warning')) {
-    const noscriptWarning = document.createElement('div');
-    noscriptWarning.className = 'alert alert-warning noscript-warning';
-    noscriptWarning.innerHTML = `
-        <i class="bi bi-exclamation-triangle me-2"></i>
-        JavaScript is disabled. Some features may not work properly.
-    `;
-    document.body.insertBefore(noscriptWarning, document.body.firstChild);
-}

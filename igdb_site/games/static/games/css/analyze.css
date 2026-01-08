@@ -1065,3 +1065,268 @@
     font-style: inherit !important;
     color: inherit !important;
 }
+
+/* ===== СПЕЦИАЛЬНАЯ ПОДСВЕТКА ДЛЯ FOUND ELEMENTS ===== */
+
+/* Специальная подсветка при клике на элемент в списке */
+.highlight-found-element {
+    position: relative !important;
+    z-index: 10 !important;
+    animation: highlightFoundElementPulse 2s ease-in-out !important;
+    border-width: 2px !important;
+    box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.3) !important;
+}
+
+/* Цвета специальной подсветки для каждого типа */
+.highlight-found-element.highlight-genre {
+    background-color: rgba(40, 167, 69, 0.4) !important;
+    border-color: rgba(40, 167, 69, 0.8) !important;
+    box-shadow: 0 0 0 3px rgba(40, 167, 69, 0.4) !important;
+}
+
+.highlight-found-element.highlight-theme {
+    background-color: rgba(220, 53, 69, 0.4) !important;
+    border-color: rgba(220, 53, 69, 0.8) !important;
+    box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.4) !important;
+}
+
+.highlight-found-element.highlight-perspective {
+    background-color: rgba(0, 123, 255, 0.4) !important;
+    border-color: rgba(0, 123, 255, 0.8) !important;
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.4) !important;
+}
+
+.highlight-found-element.highlight-game_mode {
+    background-color: rgba(111, 66, 193, 0.4) !important;
+    border-color: rgba(111, 66, 193, 0.8) !important;
+    box-shadow: 0 0 0 3px rgba(111, 66, 193, 0.4) !important;
+}
+
+.highlight-found-element.highlight-keyword {
+    background-color: rgba(255, 193, 7, 0.4) !important;
+    border-color: rgba(255, 193, 7, 0.8) !important;
+    box-shadow: 0 0 0 3px rgba(255, 193, 7, 0.4) !important;
+}
+
+/* Анимация пульсации для специальной подсветки */
+@keyframes highlightFoundElementPulse {
+    0%, 100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.3);
+    }
+    50% {
+        transform: scale(1.03);
+        box-shadow: 0 0 0 6px rgba(255, 107, 53, 0.2);
+    }
+}
+
+/* Активный элемент в списке Found Elements */
+.found-item-badge.selected {
+    border: 2px solid #ff6b35 !important;
+    box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.25) !important;
+    position: relative;
+    z-index: 5;
+    animation: foundItemSelectedPulse 1.5s ease-in-out;
+}
+
+/* Анимация для выбранного элемента в списке */
+@keyframes foundItemSelectedPulse {
+    0%, 100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.05);
+    }
+}
+
+/* Индикатор количества совпадений */
+.highlight-match-count {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    background: #ff6b35;
+    color: white;
+    font-size: 0.7rem;
+    font-weight: bold;
+    min-width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 20;
+    padding: 0 4px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    animation: matchCountAppear 0.3s ease-out;
+}
+
+@keyframes matchCountAppear {
+    from {
+        opacity: 0;
+        transform: scale(0.5);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* Плавающая подсказка при клике */
+.found-element-tooltip {
+    position: absolute;
+    background: rgba(0, 0, 0, 0.9);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    z-index: 1000;
+    pointer-events: none;
+    white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    animation: tooltipFadeIn 0.2s ease-out;
+    border: 1px solid #333;
+}
+
+@keyframes tooltipFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(5px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Эффект перехода между подсветками */
+.highlight-transition {
+    transition: all 0.3s ease !important;
+}
+
+/* Градиентная подсветка для акцентирования внимания */
+.highlight-gradient {
+    background: linear-gradient(135deg,
+        rgba(255, 107, 53, 0.3) 0%,
+        rgba(255, 107, 53, 0.1) 100%) !important;
+}
+
+/* Стили для мигающей подсветки (для совпадений) */
+.highlight-blink {
+    animation: highlightBlink 1s ease-in-out 3 !important;
+}
+
+@keyframes highlightBlink {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
+}
+
+/* Выделение группы совпадений */
+.highlight-group {
+    position: relative;
+}
+
+.highlight-group::before {
+    content: '';
+    position: absolute;
+    top: -2px;
+    left: -2px;
+    right: -2px;
+    bottom: -2px;
+    border-radius: 4px;
+    background: rgba(255, 107, 53, 0.1);
+    z-index: -1;
+    animation: groupHighlightPulse 2s infinite;
+}
+
+@keyframes groupHighlightPulse {
+    0%, 100% {
+        opacity: 0.3;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.6;
+        transform: scale(1.02);
+    }
+}
+
+/* Стили для навигации по совпадениям */
+.highlight-navigation {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 4px;
+    vertical-align: middle;
+}
+
+.highlight-counter {
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    font-size: 0.7rem;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-weight: bold;
+}
+
+/* Улучшенные hover эффекты для Found Elements */
+.found-item-badge:hover {
+    transform: translateY(-3px) !important;
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3) !important;
+    transition: all 0.3s ease !important;
+}
+
+/* Активный Found Element с градиентом */
+.found-item-badge.selected::after {
+    content: '';
+    position: absolute;
+    top: -2px;
+    left: -2px;
+    right: -2px;
+    bottom: -2px;
+    background: linear-gradient(45deg,
+        transparent,
+        rgba(255, 107, 53, 0.2),
+        transparent);
+    border-radius: 6px;
+    z-index: -1;
+    animation: selectedGlow 2s infinite;
+}
+
+@keyframes selectedGlow {
+    0%, 100% {
+        opacity: 0.3;
+    }
+    50% {
+        opacity: 0.8;
+    }
+}
+
+/* Адаптивность для специальной подсветки */
+@media (max-width: 768px) {
+    .highlight-found-element {
+        border-width: 1px !important;
+        box-shadow: 0 0 0 2px rgba(255, 107, 53, 0.3) !important;
+    }
+
+    .highlight-match-count {
+        font-size: 0.6rem;
+        min-width: 16px;
+        height: 16px;
+        top: -6px;
+        right: -6px;
+    }
+
+    @keyframes highlightFoundElementPulse {
+        0%, 100% {
+            transform: scale(1);
+            box-shadow: 0 0 0 2px rgba(255, 107, 53, 0.3);
+        }
+        50% {
+            transform: scale(1.02);
+            box-shadow: 0 0 0 4px rgba(255, 107, 53, 0.2);
+        }
+    }
+}

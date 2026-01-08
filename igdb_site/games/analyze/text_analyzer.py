@@ -10,9 +10,9 @@ from typing import Dict, Any, List, Optional, Set, Tuple
 from games.models import Genre, Theme, PlayerPerspective, GameMode, Keyword
 from .pattern_manager import PatternManager
 from .sync_patterns_to_db import ensure_patterns_in_db, PatternAutoSyncer
+from .range_cache import RangeCacheManager
 
 
-# games/analyze/text_analyzer.py
 class TextAnalyzer:
     """Анализатор текста для поиска критериев и ключевых слов"""
 
@@ -20,118 +20,23 @@ class TextAnalyzer:
         self.verbose = verbose
         self._patterns = None
         self._keywords_cache = None
-        self._cache_stats = {'hits': 0, 'misses': 0}
 
-        # Автоматически проверяем и синхронизируем паттерны с базой данных
-        # Только если паттерны изменились
-        self._ensure_all_patterns_in_db_if_needed()
+    def _should_check_criteria(self, category: str, element_name: str, element_id: int) -> bool:
+        """
+        Определяет, нужно ли проверять критерий.
+        Возвращает False если критерий уже был проверен в этом диапазоне.
+        """
+        # Всегда проверяем, если это verbose режим
+        if self.verbose:
+            return True
 
-
-    def _ensure_all_patterns_in_db_if_needed(self):
-        """Гарантирует, что все элементы из паттернов есть в базе данных, только если паттерны изменились"""
-        try:
+        # Проверяем, не находится ли ID в уже проверенном диапазоне
+        if RangeCacheManager.is_criteria_checked(category, element_id):
             if self.verbose:
-                print("=== Начало проверки изменений паттернов ===")
+                print(f"ℹ️ Критерий {element_name} (ID: {element_id}) уже проверен, пропускаем")
+            return False
 
-            # Проверяем, изменились ли паттерны
-            from .pattern_manager import PatternManager
-            patterns_changed = PatternManager.check_patterns_changed()
-
-            if not patterns_changed and self.verbose:
-                print("ℹ️ Паттерны не изменились, пропускаем проверку")
-
-            # Даже если паттерны не изменились, проверяем наличие всех элементов
-            # (на случай, если база данных была очищена)
-            if self.verbose:
-                print("=== Проверка наличия всех элементов в базе данных ===")
-
-            from .sync_patterns_to_db import PatternAutoSyncer
-            syncer = PatternAutoSyncer(verbose=self.verbose)
-
-            # Быстрая проверка наличия элементов
-            missing_count = syncer.get_missing_items_count()
-
-            if missing_count > 0:
-                if self.verbose:
-                    print(f"⚠️ Обнаружено {missing_count} отсутствующих элементов в базе данных")
-
-                # Запускаем синхронизацию
-                from .sync_patterns_to_db import ensure_patterns_in_db
-                results = ensure_patterns_in_db(self.verbose)
-
-                # Перезагружаем кеш паттернов
-                self._patterns = None
-
-                total_added = sum(stats['added'] for stats in results.values())
-                if total_added > 0 and self.verbose:
-                    print(f"✅ Автоматически создано {total_added} элементов в базе данных")
-            elif self.verbose:
-                print("ℹ️ Все элементы уже есть в базе данных")
-
-            if self.verbose:
-                print("=== Проверка паттернов завершена ===")
-
-        except Exception as e:
-            if self.verbose:
-                print(f"❌ Ошибка при проверке паттернов: {e}")
-
-    def _get_patterns(self) -> Dict:
-        """Загружает паттерны с предварительной проверкой изменений"""
-        if self._patterns is None:
-            # Проверяем, изменились ли паттерны
-            from .pattern_manager import PatternManager
-            patterns_changed = PatternManager.check_patterns_changed()
-
-            if patterns_changed and self.verbose:
-                print("=== Паттерны изменились, загружаем заново ===")
-
-            # Загружаем паттерны (с кэшированием внутри PatternManager)
-            self._patterns = PatternManager.get_all_patterns()
-
-            if self.verbose:
-                print(f"=== Загружено паттернов: ===")
-                for category, patterns in self._patterns.items():
-                    print(f"   {category}: {len(patterns)} элементов")
-
-        return self._patterns
-
-    def _ensure_all_patterns_in_db(self):
-        """Гарантирует, что все элементы из паттернов есть в базе данных"""
-        try:
-            if self.verbose:
-                print("=== Начало автоматической проверки паттернов ===")
-
-            # Проверяем, есть ли вообще паттерны
-            if self._patterns is None:
-                self._patterns = PatternManager.get_all_patterns()
-
-            # Быстрая проверка - подсчитываем отсутствующие элементы
-            syncer = PatternAutoSyncer(verbose=self.verbose)
-            missing_count = syncer.get_missing_items_count()
-
-            if missing_count > 0:
-                if self.verbose:
-                    print(f"⚠️ Обнаружено {missing_count} отсутствующих элементов в базе данных")
-                    print("=== Запуск автоматического создания отсутствующих элементов ===")
-
-                # Синхронизируем все паттерны с базой данных
-                results = ensure_patterns_in_db(self.verbose)
-
-                # Перезагружаем кеш паттернов
-                self._patterns = None
-
-                total_added = sum(stats['added'] for stats in results.values())
-                if total_added > 0 and self.verbose:
-                    print(f"✅ Автоматически создано {total_added} элементов в базе данных")
-            elif self.verbose:
-                print("ℹ️ Все элементы уже есть в базе данных")
-
-            if self.verbose:
-                print("=== Проверка паттернов завершена ===")
-
-        except Exception as e:
-            if self.verbose:
-                print(f"❌ Ошибка при проверке паттернов: {e}")
+        return True
 
     def _find_criteria_comprehensive(
             self,
@@ -142,10 +47,14 @@ class TextAnalyzer:
             existing_names: Set[str],
             collect_patterns: bool = True
     ) -> Tuple[List, List]:
-        """Ищет критерии по паттернам, находит ВСЕ вхождения в тексте, автоматически создает отсутствующие"""
+        """Ищет критерии по паттернам с учетом кэширования диапазонов"""
         found_items = []  # Уникальные объекты
         pattern_matches = []  # Все совпадения
         already_added_ids = set()  # Для отслеживания уже добавленных объектов
+
+        # Получаем минимальный и максимальный ID среди найденных элементов
+        min_id = float('inf')
+        max_id = 0
 
         # Кешируем все существующие элементы из базы данных
         all_existing_items = {item.name.lower(): item for item in model.objects.all()}
@@ -167,11 +76,30 @@ class TextAnalyzer:
                 created_object = self._create_missing_criteria(name, model)
                 if created_object:
                     all_existing_items[name.lower()] = created_object
+                    # Обновляем диапазоны для нового элемента
+                    RangeCacheManager.update_criteria_range(
+                        self._get_category_for_model(model),
+                        created_object.id,
+                        created_object.id
+                    )
                     if self.verbose:
                         print(f"✅ Автоматически создан отсутствующий элемент: {name} ({model.__name__})")
                 else:
                     # Не удалось создать элемент, пропускаем
                     continue
+
+            # Получаем объект из базы
+            obj = all_existing_items.get(name.lower())
+            if not obj:
+                continue
+
+            # Проверяем, нужно ли анализировать этот критерий
+            if not self._should_check_criteria(self._get_category_for_model(model), name, obj.id):
+                continue
+
+            # Обновляем min/max ID
+            min_id = min(min_id, obj.id)
+            max_id = max(max_id, obj.id)
 
             # Флаг, чтобы добавить объект только один раз
             object_added = False
@@ -181,9 +109,7 @@ class TextAnalyzer:
                 # Находим ВСЕ совпадения с этим паттерном
                 for match in pattern.finditer(text_lower):
                     if not object_added:
-                        # Получаем объект из базы (только один раз для этого критерия)
-                        obj = all_existing_items.get(name.lower())
-                        if obj and obj.id not in already_added_ids:
+                        if obj.id not in already_added_ids:
                             found_items.append(obj)
                             already_added_ids.add(obj.id)
                             object_added = True
@@ -200,75 +126,28 @@ class TextAnalyzer:
                             'context': self._get_context(text, match.start(), match.end())
                         })
 
+        # Обновляем диапазон проверенных критериев
+        if min_id <= max_id and found_items:
+            category = self._get_category_for_model(model)
+            RangeCacheManager.update_criteria_range(category, min_id, max_id)
+
         return found_items, pattern_matches
 
-    def _create_missing_criteria(self, name: str, model) -> Any:
-        """
-        Создает отсутствующий элемент критерия в базе данных
-        Вызывается автоматически при обнаружении отсутствующего элемента
-
-        Args:
-            name: Название элемента
-            model: Модель Django (Genre, Theme, и т.д.)
-
-        Returns:
-            Созданный объект или None
-        """
-        try:
-            # Проверяем, существует ли уже
-            existing = model.objects.filter(name__iexact=name).first()
-            if existing:
-                return existing
-
-            # Создаем элемент в зависимости от модели
-            from django.db.models import Max
-
-            if model.__name__ == 'Genre':
-                max_igdb_id = model.objects.aggregate(Max('igdb_id'))['igdb_id__max'] or 1000000
-                new_igdb_id = max_igdb_id + 1
-
-                obj = model.objects.create(
-                    name=name,
-                    igdb_id=new_igdb_id,
-                    cached_usage_count=0
-                )
-
-            elif model.__name__ == 'Theme':
-                # Для тем только имя
-                obj = model.objects.create(name=name)
-
-            elif model.__name__ == 'PlayerPerspective':
-                max_igdb_id = model.objects.aggregate(Max('igdb_id'))['igdb_id__max'] or 1000000
-                new_igdb_id = max_igdb_id + 1
-
-                obj = model.objects.create(
-                    name=name,
-                    igdb_id=new_igdb_id,
-                    cached_usage_count=0
-                )
-
-            elif model.__name__ == 'GameMode':
-                max_igdb_id = model.objects.aggregate(Max('igdb_id'))['igdb_id__max'] or 1000000
-                new_igdb_id = max_igdb_id + 1
-
-                obj = model.objects.create(
-                    name=name,
-                    igdb_id=new_igdb_id,
-                    cached_usage_count=0
-                )
-            else:
-                # Для других моделей просто создаем с именем
-                obj = model.objects.create(name=name)
-
-            if self.verbose:
-                print(f"✅ Автоматически создан {model.__name__}: '{name}'")
-
-            return obj
-
-        except Exception as e:
-            if self.verbose:
-                print(f"❌ Ошибка при создании элемента '{name}' ({model.__name__}): {e}")
-            return None
+    def _get_category_for_model(self, model) -> str:
+        """Возвращает имя категории для модели"""
+        model_name = model.__name__
+        if model_name == 'Genre':
+            return 'genres'
+        elif model_name == 'Theme':
+            return 'themes'
+        elif model_name == 'PlayerPerspective':
+            return 'perspectives'
+        elif model_name == 'GameMode':
+            return 'game_modes'
+        elif model_name == 'Keyword':
+            return 'keywords'
+        else:
+            return 'unknown'
 
     def _analyze_criteria_comprehensive(
             self,
@@ -324,7 +203,6 @@ class TextAnalyzer:
 
         return results, pattern_info
 
-    # Все остальные методы остаются без изменений
     def _analyze_keywords_comprehensive(
             self,
             text: str,
@@ -349,6 +227,10 @@ class TextAnalyzer:
         pattern_info = []  # Все совпадения
         already_added_ids = set()  # Для отслеживания уже добавленных объектов
 
+        # Получаем минимальный и максимальный ID среди найденных ключевых слов
+        min_id = float('inf')
+        max_id = 0
+
         for keyword in all_keywords:
             keyword_name = keyword.name
             keyword_lower = keyword.name.lower()
@@ -362,6 +244,14 @@ class TextAnalyzer:
                         'reason': 'already_exists_in_game'
                     })
                 continue
+
+            # Проверяем, нужно ли анализировать это ключевое слово
+            if not self._should_check_criteria('keywords', keyword_name, keyword.id):
+                continue
+
+            # Обновляем min/max ID
+            min_id = min(min_id, keyword.id)
+            max_id = max(max_id, keyword.id)
 
             # Флаг, чтобы добавить объект только один раз
             object_added = False
@@ -416,6 +306,10 @@ class TextAnalyzer:
                             'context': self._get_context(text, match.start(), match.end())
                         })
 
+        # Обновляем диапазон проверенных ключевых слов
+        if min_id <= max_id and found_keywords:
+            RangeCacheManager.update_criteria_range('keywords', min_id, max_id)
+
         return {'keywords': found_keywords}, {'keywords': pattern_info}
 
     def analyze_comprehensive(
@@ -441,11 +335,9 @@ class TextAnalyzer:
                 'has_results': False
             }
 
-        print(f"=== TextAnalyzer.analyze_comprehensive: Starting comprehensive analysis")
-        print(f"=== Text length: {len(text)} characters")
-
-        # Гарантируем, что все паттерны есть в базе данных перед анализом
-        self._ensure_all_patterns_in_db()
+        if self.verbose:
+            print(f"=== TextAnalyzer.analyze_comprehensive: Starting comprehensive analysis")
+            print(f"=== Text length: {len(text)} characters")
 
         # Анализируем критерии
         criteria_results, criteria_patterns = self._analyze_criteria_comprehensive(
@@ -507,9 +399,10 @@ class TextAnalyzer:
         }
 
         processing_time = time.time() - start_time
-        print(f"=== Comprehensive analysis completed in {processing_time:.2f}s")
-        print(f"=== Found: {total_found} elements")
-        print(f"=== Total matches: {total_matches}")
+        if self.verbose:
+            print(f"=== Comprehensive analysis completed in {processing_time:.2f}s")
+            print(f"=== Found: {total_found} elements")
+            print(f"=== Total matches: {total_matches}")
 
         return {
             'success': True,
@@ -554,16 +447,67 @@ class TextAnalyzer:
         }
         return models.get(criteria_type)
 
-    def get_cache_stats(self) -> Dict[str, Any]:
-        """Статистика кеша"""
-        return {
-            'patterns_loaded': self._patterns is not None,
-            'keywords_cached': self._keywords_cache is not None,
-            'cache_stats': self._cache_stats.copy()
-        }
-
     def clear_cache(self):
         """Очищает кеш"""
         self._patterns = None
         self._keywords_cache = None
-        self._cache_stats = {'hits': 0, 'misses': 0}
+
+    def _get_patterns(self) -> Dict:
+        """Загружает паттерны"""
+        if self._patterns is None:
+            self._patterns = PatternManager.get_all_patterns()
+        return self._patterns
+
+    def _create_missing_criteria(self, name: str, model) -> Any:
+        """
+        Создает отсутствующий элемент критерия в базе данных
+        ИСПРАВЛЕНИЕ: Учитываем все поля модели
+        """
+        try:
+            # Проверяем, существует ли уже
+            existing = model.objects.filter(name__iexact=name).first()
+            if existing:
+                return existing
+
+            # ИСПРАВЛЕНИЕ: Используем словарь полей модели
+            from django.db.models import Max
+
+            # Получаем поля модели
+            model_fields = [field.name for field in model._meta.fields]
+
+            # Базовые данные
+            create_data = {'name': name}
+
+            # Добавляем igdb_id если поле существует
+            if 'igdb_id' in model_fields:
+                try:
+                    max_igdb_id = model.objects.aggregate(Max('igdb_id'))['igdb_id__max'] or 1000000
+                    create_data['igdb_id'] = max_igdb_id + 1
+                except Exception as e:
+                    if self.verbose:
+                        print(f"⚠️ Не удалось получить max igdb_id для {model.__name__}: {e}")
+                    create_data['igdb_id'] = 999999  # Значение по умолчанию
+
+            # Добавляем cached_usage_count если поле существует
+            if 'cached_usage_count' in model_fields:
+                create_data['cached_usage_count'] = 0
+
+            # ИСПРАВЛЕНИЕ: Для тем также добавим slug если поле существует
+            if 'slug' in model_fields and model.__name__ == 'Theme':
+                from django.utils.text import slugify
+                create_data['slug'] = slugify(name)
+
+            # Создаем объект
+            obj = model.objects.create(**create_data)
+
+            if self.verbose:
+                print(f"✅ Автоматически создан {model.__name__}: '{name}' с ID {obj.id}")
+
+            return obj
+
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Ошибка при создании элемента '{name}' ({model.__name__}): {e}")
+                import traceback
+                traceback.print_exc()
+            return None

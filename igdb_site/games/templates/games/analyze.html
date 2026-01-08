@@ -148,6 +148,9 @@
                                 </select>
                             </div>
 
+                            <!-- В начале формы добавления ключевых слов: -->
+                            <div id="keywords-section"></div>
+
                             <!-- Добавление ключевых слов -->
                             <div class="col-md-6">
                                 <label for="new-keyword-input" class="form-label">Add New Keyword:</label>
@@ -572,18 +575,6 @@
         </button>
     </div>
 
-    <!-- Простой fallback на случай если JavaScript не работает -->
-    <noscript>
-        <style>
-            .settings-card {
-                border: 2px solid #dc3545 !important;
-            }
-        </style>
-        <div class="alert alert-danger">
-            <i class="bi bi-exclamation-triangle-fill me-2"></i>
-            JavaScript is disabled. Some features may not work properly.
-        </div>
-    </noscript>
 {% endblock %}
 
 {% block extra_js %}
