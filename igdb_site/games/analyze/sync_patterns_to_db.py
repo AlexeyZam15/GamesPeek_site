@@ -9,6 +9,7 @@ from django.utils.text import slugify
 
 from games.models import Genre, Theme, PlayerPerspective, GameMode
 from .pattern_manager import PatternManager
+from .range_cache import RangeCacheManager
 
 
 class PatternAutoSyncer:
@@ -127,42 +128,70 @@ class PatternAutoSyncer:
     def _create_item_in_db(self, name: str, model_class) -> bool:
         """
         Создает элемент в базе данных
-
-        Args:
-            name: Название элемента
-            model_class: Класс модели Django
-
-        Returns:
-            True если создано успешно
+        ИСПРАВЛЕНИЕ: Учитываем все поля модели
         """
         try:
             # Проверяем, существует ли уже
             if model_class.objects.filter(name__iexact=name).exists():
                 return True
 
-            # Для всех моделей пытаемся создать с igdb_id если поле существует
-            create_kwargs = {'name': name}
+            # Для всех моделей создаем с нужными полями
+            from django.db.models import Max
 
-            # Добавляем igdb_id только если поле существует в модели
+            # Получаем поля модели
             model_fields = [field.name for field in model_class._meta.fields]
 
+            create_kwargs = {'name': name}
+
+            # Добавляем igdb_id если поле существует
             if 'igdb_id' in model_fields:
                 try:
-                    max_igdb_id = model_class.objects.aggregate(models.Max('igdb_id'))['igdb_id__max'] or 1000000
+                    max_igdb_id = model_class.objects.aggregate(Max('igdb_id'))['igdb_id__max'] or 1000000
                     new_igdb_id = max_igdb_id + 1
                     create_kwargs['igdb_id'] = new_igdb_id
-                except:
-                    # Если не удалось получить max igdb_id, пропускаем
-                    pass
+                except Exception as e:
+                    if self.verbose:
+                        print(f"⚠️ Не удалось получить max igdb_id: {e}")
+                    create_kwargs['igdb_id'] = 999999
+
+            # Добавляем cached_usage_count если поле существует
+            if 'cached_usage_count' in model_fields:
+                create_kwargs['cached_usage_count'] = 0
+
+            # ИСПРАВЛЕНИЕ: Для тем добавляем slug
+            if 'slug' in model_fields and model_class.__name__ == 'Theme':
+                from django.utils.text import slugify
+                create_kwargs['slug'] = slugify(name)
 
             # Создаем элемент
-            model_class.objects.create(**create_kwargs)
+            created_object = model_class.objects.create(**create_kwargs)
+
+            # После создания элемента обновляем кэш диапазонов
+            # Получаем категорию для модели
+            category_map = {
+                'Genre': 'genres',
+                'Theme': 'themes',
+                'PlayerPerspective': 'perspectives',
+                'GameMode': 'game_modes',
+                'Keyword': 'keywords'
+            }
+
+            category = category_map.get(model_class.__name__, 'unknown')
+
+            # Помечаем категорию как содержащую новые элементы
+            RangeCacheManager.mark_criteria_as_new(category)
+
+            if self.verbose:
+                print(f"⚠️ Категория {category} помечена как содержащая новые элементы")
+                print(f"✅ Создан элемент {model_class.__name__}: '{name}' (ID: {created_object.id})")
 
             return True
 
         except Exception as e:
             if self.verbose:
                 print(f"❌ Ошибка при создании элемента {name} ({model_class.__name__}): {e}")
+                import traceback
+                traceback.print_exc()
             return False
 
     def _get_category_display_name(self, category: str, capitalize: bool = True) -> str:

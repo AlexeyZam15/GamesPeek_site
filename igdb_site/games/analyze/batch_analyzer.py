@@ -9,6 +9,7 @@ from typing import Dict, Any, List, Optional
 from games.models import Game
 from .text_analyzer import TextAnalyzer
 from .utils import get_game_text, update_game_criteria
+from .range_cache import RangeCacheManager
 
 
 class BatchAnalyzer:
@@ -18,6 +19,8 @@ class BatchAnalyzer:
         self.verbose = verbose
         self.text_analyzer = TextAnalyzer(verbose=verbose)
 
+    # games/analyze/batch_analyzer.py
+
     def analyze_games(
             self,
             game_ids: Optional[List[int]] = None,
@@ -25,23 +28,17 @@ class BatchAnalyzer:
             update_database: bool = False,
             text_source: str = 'default',
             limit: Optional[int] = None,
-            offset: int = 0
+            offset: int = 0,
+            use_cache: bool = True,
+            verbose: Optional[bool] = None  # Добавляем параметр для переопределения
     ) -> Dict[str, Any]:
         """
-        Анализирует несколько игр
-
-        Args:
-            game_ids: Список ID игр (None = все игры)
-            analyze_keywords: Анализировать ключевые слова
-            update_database: Обновить данные в базе
-            text_source: Источник текста
-            limit: Максимальное количество игр
-            offset: Пропустить первые N игр
-
-        Returns:
-            Статистика и результаты
+        Анализирует несколько игр С ПОДДЕРЖКОЙ КЭША
         """
         start_time = time.time()
+
+        # Используем переданный verbose или self.verbose
+        current_verbose = verbose if verbose is not None else self.verbose
 
         # Получаем игры
         if game_ids:
@@ -49,31 +46,60 @@ class BatchAnalyzer:
         else:
             games = Game.objects.all().order_by('id')
 
+        total_games_in_db = Game.objects.count()
         total_games = games.count()
+
+        # Фильтруем игры по кэшу если нужно
+        games_to_analyze = []
+        skipped_cached = 0
+
+        if use_cache and not game_ids:
+            for game in games:
+                if not RangeCacheManager.is_game_checked(game.id):
+                    games_to_analyze.append(game)
+                else:
+                    skipped_cached += 1
+                    if current_verbose:
+                        print(f"ℹ️ Игра {game.id} ({game.name}) уже проверена, пропускаем (кэш)")
+
+        else:
+            games_to_analyze = list(games)
 
         # Применяем лимит и offset
         if offset:
-            games = games[offset:]
+            games_to_analyze = games_to_analyze[offset:]
         if limit:
-            games = games[:limit]
+            games_to_analyze = games_to_analyze[:limit]
 
-        analyzed_games = games.count()
+        analyzed_games = len(games_to_analyze)
 
         # Статистика
         stats = {
-            'total_games_in_database': total_games,
+            'total_games_in_database': total_games_in_db,
+            'games_already_checked': skipped_cached,
+            'games_need_analysis': total_games - skipped_cached,
             'games_selected_for_analysis': analyzed_games,
             'games_with_text': 0,
             'games_with_results': 0,
             'total_criteria_found': 0,
             'games_updated': 0,
             'errors': 0,
-            'detailed_results': []
+            'detailed_results': [],
+            'cache_used': use_cache,
+            'skipped_cached': skipped_cached  # НОВОЕ: количество пропущенных из-за кэша
         }
 
+        # Минимальный и максимальный ID для обновления кэша
+        min_game_id = float('inf')
+        max_game_id = 0
+
         # Анализируем каждую игру
-        for index, game in enumerate(games, 1):
+        for index, game in enumerate(games_to_analyze, 1):
             try:
+                # Обновляем min/max ID
+                min_game_id = min(min_game_id, game.id)
+                max_game_id = max(max_game_id, game.id)
+
                 game_result = self._analyze_single_game_in_batch(
                     game=game,
                     index=index,
@@ -96,14 +122,20 @@ class BatchAnalyzer:
                 stats['detailed_results'].append(game_result)
 
                 # Логирование прогресса
-                if self.verbose and index % 100 == 0:
+                if current_verbose and index % 100 == 0:
                     print(f"Обработано {index}/{analyzed_games} игр")
 
             except Exception as e:
                 stats['errors'] += 1
-                if self.verbose:
+                if current_verbose:
                     print(f"Ошибка при анализе игры {game.id} ({game.name}): {e}")
                 continue
+
+        # Обновляем диапазон проверенных игр
+        if min_game_id <= max_game_id and analyzed_games > 0:
+            RangeCacheManager.update_game_range(min_game_id, max_game_id)
+            if current_verbose:
+                print(f"✅ Обновлен диапазон проверенных игр: {min_game_id}-{max_game_id}")
 
         # Финальная статистика
         stats['execution_time'] = time.time() - start_time
@@ -148,7 +180,7 @@ class BatchAnalyzer:
 
         result['has_results'] = analysis_result['has_results']
         result['found_count'] = analysis_result['summary'].get('total_found', 0) if analyze_keywords else \
-        analysis_result['summary'].get('found_count', 0)
+            analysis_result['summary'].get('found_count', 0)
 
         # Обновляем базу если нужно
         if update_database and analysis_result['has_results']:

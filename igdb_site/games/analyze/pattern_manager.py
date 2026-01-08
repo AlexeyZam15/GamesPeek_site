@@ -1,96 +1,20 @@
-# games/analyzer/pattern_manager.py
+# games/analyze/pattern_manager.py
 import re
-import hashlib
-import json
 from typing import Dict, List
-from django.core.cache import cache
 
 
 class PatternManager:
-    """Менеджер для работы с паттернами с кешированием и отслеживанием изменений"""
-
-    # Ключи для кэша
-    CACHE_KEY_PATTERNS = 'pattern_manager:all_patterns'
-    CACHE_KEY_HASH = 'pattern_manager:patterns_hash'
-    CACHE_TIMEOUT = 86400  # 24 часа
-
-    # Компилированные паттерны для производительности
-    _compiled_patterns = None
-    _patterns_hash = None
+    """Менеджер для работы с паттернами - только статические паттерны"""
 
     @classmethod
     def get_all_patterns(cls) -> Dict[str, Dict[str, List[re.Pattern]]]:
-        """Возвращает ВСЕ скомпилированные паттерны с кэшированием"""
-        # Пробуем получить из памяти
-        if cls._compiled_patterns is not None:
-            return cls._compiled_patterns
-
-        # Пробуем получить из кэша
-        cached_patterns = cache.get(cls.CACHE_KEY_PATTERNS)
-        cached_hash = cache.get(cls.CACHE_KEY_HASH)
-
-        # Рассчитываем текущий хеш паттернов
-        current_hash = cls._calculate_patterns_hash()
-
-        # Если есть кэш и хеш совпадает, используем кэш
-        if cached_patterns and cached_hash == current_hash:
-            cls._compiled_patterns = cached_patterns
-            cls._patterns_hash = current_hash
-            return cls._compiled_patterns
-
-        # Иначе компилируем заново и кэшируем
-        cls._compiled_patterns = {
+        """Возвращает ВСЕ скомпилированные паттерны БЕЗ кэширования"""
+        return {
             'genres': cls._compile_patterns_dict(cls.GENRE_PATTERNS),
             'themes': cls._compile_patterns_dict(cls.THEME_PATTERNS),
             'perspectives': cls._compile_patterns_dict(cls.PERSPECTIVE_PATTERNS),
             'game_modes': cls._compile_patterns_dict(cls.MODE_PATTERNS),
         }
-
-        # Сохраняем в кэш
-        cls._patterns_hash = current_hash
-        cache.set(cls.CACHE_KEY_PATTERNS, cls._compiled_patterns, cls.CACHE_TIMEOUT)
-        cache.set(cls.CACHE_KEY_HASH, current_hash, cls.CACHE_TIMEOUT)
-
-        return cls._compiled_patterns
-
-    @classmethod
-    def _calculate_patterns_hash(cls) -> str:
-        """Рассчитывает хеш всех паттернов для отслеживания изменений"""
-        # Собираем все паттерны в один словарь
-        all_patterns = {
-            'genres': cls.GENRE_PATTERNS,
-            'themes': cls.THEME_PATTERNS,
-            'perspectives': cls.PERSPECTIVE_PATTERNS,
-            'game_modes': cls.MODE_PATTERNS,
-        }
-
-        # Преобразуем в JSON строку и вычисляем хеш
-        patterns_json = json.dumps(all_patterns, sort_keys=True)
-        return hashlib.md5(patterns_json.encode('utf-8')).hexdigest()
-
-    @classmethod
-    def check_patterns_changed(cls) -> bool:
-        """Проверяет, изменились ли паттерны с момента последнего кэширования"""
-        # Получаем сохраненный хеш из кэша
-        cached_hash = cache.get(cls.CACHE_KEY_HASH)
-
-        # Если нет сохраненного хеша, значит паттерны изменились
-        if cached_hash is None:
-            return True
-
-        # Рассчитываем текущий хеш
-        current_hash = cls._calculate_patterns_hash()
-
-        # Сравниваем хеши
-        return cached_hash != current_hash
-
-    @classmethod
-    def clear_cache(cls):
-        """Очищает кэш паттернов"""
-        cls._compiled_patterns = None
-        cls._patterns_hash = None
-        cache.delete(cls.CACHE_KEY_PATTERNS)
-        cache.delete(cls.CACHE_KEY_HASH)
 
     @staticmethod
     def _compile_patterns_dict(patterns_dict: Dict[str, List[str]]) -> Dict[str, List[re.Pattern]]:

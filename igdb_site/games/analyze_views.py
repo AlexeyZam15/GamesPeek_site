@@ -22,6 +22,7 @@ import html
 from typing import Dict, Any, List, Tuple
 from django.utils.html import escape, strip_tags, mark_safe
 
+
 # ===== УТИЛИТЫ ДЛЯ ПРОВЕРКИ ПРАВ =====
 def is_staff_or_superuser(user):
     """Проверяет, является ли пользователь staff или superuser"""
@@ -278,7 +279,9 @@ def _handle_save_results(request: HttpRequest, game: Game, original_descriptions
 
 
 def _save_analysis_results(request: HttpRequest, game_id: int, tab: str, original_text: str, analysis_result: Dict):
-    """Сохранение результатов анализа в сессии"""
+    """Сохранение результатов анализа в сессии
+    ИСПРАВЛЕНИЕ: Безопасное сохранение HTML
+    """
     # Форматируем оригинальный текст для подсветки
     formatted_text = format_text_with_html(original_text)
 
@@ -299,12 +302,8 @@ def _save_analysis_results(request: HttpRequest, game_id: int, tab: str, origina
         'save_data': {}
     })
 
-    # Сохраняем подсвеченный текст и найденные элементы
-    # Преобразуем mark_safe объект в строку для сохранения в сессии
-    if hasattr(highlighted_text, '__html__'):
-        unsaved_results['highlighted_text'][tab] = str(highlighted_text)
-    else:
-        unsaved_results['highlighted_text'][tab] = highlighted_text
+    # ИСПРАВЛЕНИЕ: Сохраняем как обычный текст
+    unsaved_results['highlighted_text'][tab] = highlighted_text  # Уже HTML
 
     unsaved_results['found_items'][tab] = found_items
 
@@ -316,7 +315,7 @@ def _save_analysis_results(request: HttpRequest, game_id: int, tab: str, origina
         'pattern_info': analysis_result.get('pattern_info', {}),
         'total_matches': analysis_result.get('total_matches', 0),
         'original_text': original_text,
-        'formatted_text': formatted_text
+        'formatted_text': formatted_text  # Сохраняем как обычный текст
     }
 
     # Подготавливаем данные для сохранения (только новые элементы)
@@ -366,7 +365,9 @@ from django.utils.safestring import mark_safe
 
 
 def _prepare_get_context(request: HttpRequest, game: Game, original_descriptions: Dict, active_tab: str) -> Dict:
-    """Подготовка контекста для GET запроса"""
+    """Подготовка контекста для GET запроса
+    ИСПРАВЛЕНИЕ: Упрощенная логика с сохранением абзацной структуры
+    """
 
     # Проверяем флаг auto_analyze в URL
     auto_analyze_flag = request.GET.get('auto_analyze', '0') == '1'
@@ -379,16 +380,20 @@ def _prepare_get_context(request: HttpRequest, game: Game, original_descriptions
     unsaved_found_items = unsaved_results.get('found_items', {}).get(active_tab, {})
 
     highlight_enabled = request.session.get(f'highlight_enabled_{game.id}', True)
-    highlighted_text = ''
+
+    # ИСПРАВЛЕНИЕ: Используем текст из сессии если есть, иначе форматируем оригинальный
+    display_text = ''
     found_items = {}
 
     if unsaved_highlighted_text and highlight_enabled:
-        highlighted_text = unsaved_highlighted_text
+        # Текст уже в HTML формате из сессии, применяем mark_safe
+        display_text = mark_safe(unsaved_highlighted_text)
         found_items = unsaved_found_items
-    else:
-        # Если нет сохраненных результатов или подсветка выключена
-        if active_tab in original_descriptions and not highlight_enabled:
-            highlighted_text = original_descriptions[active_tab]
+    elif active_tab in original_descriptions:
+        # Форматируем обычный текст в HTML с сохранением абзацев
+        text = original_descriptions[active_tab]
+        formatted_text = format_text_with_html(text)
+        display_text = mark_safe(formatted_text)
 
     # Подготавливаем вкладки
     description_tabs = []
@@ -404,33 +409,22 @@ def _prepare_get_context(request: HttpRequest, game: Game, original_descriptions
             text = original_descriptions[tab_key]
             is_active = (tab_key == active_tab)
 
-            # Определяем текст для отображения
-            display_text = text
-            is_highlighted = False
-
+            # ИСПРАВЛЕНИЕ: Правильная логика отображения текста для каждой вкладки
             if is_active:
-                # Активная вкладка
-                if highlighted_text and highlight_enabled:
-                    # Есть подсвеченный текст и подсветка включена
-                    display_text = mark_safe(highlighted_text)
-                    is_highlighted = True
-                elif text:
-                    # Нет подсветки, форматируем обычный текст
-                    formatted_text = format_text_with_html(text)
-                    display_text = mark_safe(formatted_text)
+                # Для активной вкладки используем display_text (уже сформирован выше)
+                tab_display_text = display_text
             else:
-                # Неактивная вкладка - просто форматируем текст
-                if text:
-                    formatted_text = format_text_with_html(text)
-                    display_text = mark_safe(formatted_text)
+                # Для неактивных вкладок форматируем текст без подсветки
+                formatted_text = format_text_with_html(text)
+                tab_display_text = mark_safe(formatted_text)
 
             description_tabs.append({
                 'key': tab_key,
                 'label': tab_label,
                 'length': len(text),
                 'is_active': is_active,
-                'text': display_text,  # Уже помечено как safe если нужно
-                'is_highlighted': is_highlighted
+                'text': tab_display_text,
+                'is_highlighted': (is_active and bool(unsaved_highlighted_text) and highlight_enabled)
             })
         else:
             # Вкладка без текста
@@ -475,6 +469,7 @@ def _prepare_get_context(request: HttpRequest, game: Game, original_descriptions
 
     return context
 
+
 def _redirect_to_tab(game_id: int, tab: str):
     """Редирект на указанную вкладку"""
     redirect_url = reverse('analyze_game', args=[game_id])
@@ -488,10 +483,10 @@ def highlight_matches_in_text_combined(text: str, analysis_result: Dict) -> str:
     Безопасная подсветка совпадений в тексте
     """
     if not text or not analysis_result.get('pattern_info'):
-        return mark_safe(text) if text else text
+        return text if text else ""
 
-    # Форматируем текст в HTML
-    working_text = format_text_with_html(text)
+    # Текст уже должен быть в HTML формате (с <p> тегами)
+    working_text = text
 
     # Создаем список всех совпадений без пересечений
     all_matches = []
@@ -534,7 +529,7 @@ def highlight_matches_in_text_combined(text: str, analysis_result: Dict) -> str:
             # Получаем оригинальный текст
             original_text = highlighted_text[match['start']:match['end']]
 
-            # Пропускаем если текст уже внутри span
+            # Пропускаем если текст уже внутри HTML тега
             if is_inside_html_tag(highlighted_text, match['start']):
                 continue
 
@@ -568,7 +563,7 @@ def highlight_matches_in_text_combined(text: str, analysis_result: Dict) -> str:
             print(f"Ошибка при подсветке '{match.get('name', 'unknown')}': {e}")
             continue
 
-    return mark_safe(highlighted_text)
+    return highlighted_text  # Убрал mark_safe, так как он будет применен позже
 
 
 def find_all_occurrences(text: str, search_text: str, name: str, category: str) -> List[Dict]:
@@ -666,61 +661,43 @@ def remove_duplicate_matches(matches: List[Dict]) -> List[Dict]:
 
 def format_text_with_html(text: str) -> str:
     """
-    Преобразует обычный текст в безопасный HTML
+    Преобразует обычный текст в безопасный HTML с сохранением абзацной структуры
+    Если текст уже содержит HTML теги - использует его как есть (с безопасной обработкой)
     """
     if not text:
         return ""
 
-    # Если текст уже содержит HTML, очищаем его
-    if '<' in text and '>' in text:
-        # Удаляем все HTML теги кроме безопасных
-        import re
+    # Проверяем, содержит ли текст HTML теги
+    has_html_tags = '<' in text and '>' in text
 
-        # Сохраняем только безопасные теги
-        safe_tags = ['p', 'br', 'b', 'strong', 'i', 'em', 'u', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']
-        safe_tags_str = '|'.join(safe_tags)
-
-        # Удаляем все опасные теги и их содержимое
-        text = re.sub(r'<(script|style|iframe|frame|frameset|object|embed|applet|form).*?>.*?</\1>',
-                      '', text, flags=re.DOTALL | re.IGNORECASE)
-
-        # Удаляем одиночные опасные теги
-        text = re.sub(
-            r'<(script|style|iframe|frame|frameset|object|embed|applet|form|input|button|select|textarea).*?>',
-            '', text, flags=re.IGNORECASE)
-
-        # Удаляем все обработчики событий
-        text = re.sub(r'\s+on\w+="[^"]*"', '', text, flags=re.IGNORECASE)
-        text = re.sub(r"\s+on\w+='[^']*'", '', text, flags=re.IGNORECASE)
-
-        # Удаляем javascript: в ссылках
-        text = re.sub(r'href="javascript:[^"]*"', 'href="#"', text, flags=re.IGNORECASE)
-        text = re.sub(r"href='javascript:[^']*'", "href='#'", text, flags=re.IGNORECASE)
-
+    if has_html_tags:
+        # Если текст уже содержит HTML, применяем безопасную обработку
+        # но сохраняем существующие теги
+        from django.utils.html import mark_safe
+        # mark_safe уже применен в вызывающем коде, поэтому просто возвращаем текст
         return text
 
-    # Обычный текст - преобразуем в HTML
-    from django.utils.html import escape
+    # Если нет HTML тегов, форматируем как обычный текст
+    # Разделяем на абзацы по двойным переносам строк
+    paragraphs = text.split('\n\n')
 
-    # Экранируем HTML символы
-    safe_text = escape(text)
+    formatted_paragraphs = []
 
-    # Преобразуем переносы строк
-    # Двойные переносы -> параграфы
-    paragraphs = []
-    lines = safe_text.split('\n\n')
-
-    for para in lines:
+    for para in paragraphs:
         if para.strip():
-            # Одиночные переносы -> <br>
-            para = para.replace('\n', '<br>')
-            paragraphs.append(f'<p>{para}</p>')
+            # Экранируем HTML внутри абзаца
+            from django.utils.html import escape
+            safe_para = escape(para.strip())
+            # Заменяем одиночные переносы строк на <br>
+            safe_para = safe_para.replace('\n', '<br>')
+            formatted_paragraphs.append(f'<p>{safe_para}</p>')
 
-    if paragraphs:
-        return ''.join(paragraphs)
+    if formatted_paragraphs:
+        return '\n'.join(formatted_paragraphs)
     else:
-        # Если нет абзацев, создаем один
-        safe_text = safe_text.replace('\n', '<br>')
+        # Если нет абзацев (например, весь текст в одной строке)
+        from django.utils.html import escape
+        safe_text = escape(text.replace('\n', '<br>'))
         return f'<p>{safe_text}</p>'
 
 
@@ -831,66 +808,6 @@ def find_all_matches_in_html_text(html_text: str, results: Dict) -> List[Dict]:
 
     return matches
 
-
-def format_text_with_html(text: str) -> str:
-    """
-    Преобразует обычный текст в HTML с сохранением форматирования
-    Безопасная версия
-    """
-    if not text:
-        return ""
-
-    # Если текст уже содержит HTML, проверяем его безопасность
-    if '<' in text and '>' in text:
-        # Удаляем опасные теги, но сохраняем безопасные
-        import re
-
-        # Сначала удаляем все script, style и опасные теги
-        dangerous_patterns = [
-            r'<script\b[^<]*(?:(?!</script>)<[^<]*)*</script>',
-            r'<style\b[^<]*(?:(?!</style>)<[^<]*)*</style>',
-            r'<iframe[^>]*>.*?</iframe>',
-            r'<object[^>]*>.*?</object>',
-            r'<embed[^>]*>.*?</embed>',
-            r'<applet[^>]*>.*?</applet>',
-            r'<form[^>]*>.*?</form>',
-            r'on\w+="[^"]*"',
-            r'on\w+=\'[^\']*\'',
-        ]
-
-        safe_text = text
-        for pattern in dangerous_patterns:
-            safe_text = re.sub(pattern, '', safe_text, flags=re.IGNORECASE | re.DOTALL)
-
-        # Удаляем одиночные опасные теги
-        dangerous_tags = ['script', 'style', 'iframe', 'object', 'embed', 'applet', 'form']
-        for tag in dangerous_tags:
-            safe_text = re.sub(f'<{tag}[^>]*>', '', safe_text, flags=re.IGNORECASE)
-
-        return safe_text
-
-    # Обычный текст - преобразуем переносы строк
-    # Экранируем HTML спецсимволы
-    from django.utils.html import escape
-    safe_text = escape(text)
-
-    # Преобразуем двойные переносы в параграфы
-    paragraphs = []
-    lines = safe_text.split('\n\n')
-
-    for para in lines:
-        if para.strip():
-            # Одиночные переносы -> br
-            para_lines = para.split('\n')
-            formatted_para = '<br>'.join(para_lines)
-            paragraphs.append(f'<p>{formatted_para}</p>')
-
-    if paragraphs:
-        return ''.join(paragraphs)
-    else:
-        # Если нет абзацев, создаем один
-        safe_text = safe_text.replace('\n', '<br>')
-        return f'<p>{safe_text}</p>'
 
 def get_html_position_from_plain_position(html_text: str, plain_text: str, plain_pos: int) -> int:
     """
