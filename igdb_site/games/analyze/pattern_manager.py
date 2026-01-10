@@ -144,20 +144,91 @@ class PatternManager:
     THEME_PATTERNS = {
         # Найдите тему 'Crafting & Gathering' и измените паттерн:
         'Crafting & Gathering': [
+            # Основные крафтовые паттерны
             r'\bcrafting\s+system\b',
-            # ИСПРАВЛЕННЫЙ ПАТТЕРН: добавлен (s|ing)?
-            r'\bgather(s|ing)?\s+(resources|materials|supplies)\b',
-            # Было: r'\bgather(ing)?\s+(resources|materials|supplies)\b'
-            r'\bcollect(ing)?\s+(resources|materials|items)\b',
+            r'\bcraft(?:ing)?\s+(?:items?|equipment|gear|weapons?|armor|tools)\b',
+
+            # Паттерны сбора (ИСПРАВЛЕННЫЕ)
+            r'\bgather(s|ing)?\s+(?:resources?|materials?|supplies?|ingredients?|components?)\b',
+            r'\bcollect(?:ing)?\s+(?:resources?|materials?|items?|components?)\b',
+
+            # Ресурсы и материалы
             r'\bresource\s+gathering\b',
             r'\bmaterial\s+collection\b',
+            r'\bgathering\s+materials?\b',
+            r'\bcollecting\s+resources?\b',
+
+            # Конкретные типы крафта
             r'\bitem\s+crafting\b',
-            r'\bharvest(ing)?\s+(resources|materials)\b',
-            r'\bforag(ing|e)\s+(for|)\b',
-            r'\bmining\s+(for|)\s+resources\b',
+            r'\bweapon\s+crafting\b',
+            r'\barmor\s+crafting\b',
+            r'\bgear\s+crafting\b',
+            r'\btool\s+crafting\b',
+
+            # Паттерны улучшения (НОВЫЕ)
+            r'\bmakes?\s+(?:their|your)?\s+equipment\b',
+            r'\bupgrades?\s+(?:their|your)?\s+equipment\b',
+            r'\bupgrad(?:ing|e)\s+(?:gear|armor|weapons?|tools|items?|equipment)\b',
+            r'\benhanc(?:ing|e)\s+(?:gear|armor|weapons?|equipment)\b',
+            r'\bimprove(?:ing)?\s+(?:gear|equipment|items?)\b',
+            r'\bmodif(?:ying|y)\s+(?:gear|equipment|weapons?)\b',
+            r'\bcustomiz(?:ing|e)\s+(?:gear|equipment|weapons?)\b',
+
+            # Производство и создание
+            r'\bforge(?:ing)?\s+(?:weapons?|armor|tools|equipment)\b',
+            r'\bsmith(?:ing)?\s+(?:weapons?|armor)\b',
+            r'\bcreate(?:ing)?\s+(?:gear|equipment|items?)\b',
+            r'\bmanufactur(?:ing|e)\s+(?:gear|equipment|items?)\b',
+            r'\bfabricat(?:ing|e)\s+(?:gear|equipment)\b',
+            r'\bbuild(?:ing)?\s+(?:equipment|gear|items?)\b',
+            r'\bassemble(?:ing)?\s+(?:equipment|gear|items?)\b',
+
+            # Различные методы сбора
+            r'\bharvest(?:ing)?\s+(?:resources?|materials?|crops?)\b',
+            r'\bforag(?:ing|e)\s+(?:for|)\s+(?:resources?|materials?|ingredients?)\b',
+            r'\bmining\s+(?:for|)\s+resources?\b',
             r'\bwoodcutting\b',
-            r'\bfishing\s+(for|)\s+materials\b',
-            r'\bscaveng(ing|e)\s+(for|)\s+supplies\b',
+            r'\bfishing\s+(?:for|)\s+(?:materials?|resources?)\b',
+            r'\bscaveng(?:ing|e)\s+(?:for|)\s+supplies?\b',
+            r'\bexcavat(?:ing|e)\s+(?:for|)\s+materials?\b',
+            r'\bprospect(?:ing)?\s+(?:for|)\s+resources?\b',
+
+            # Комбинированные действия
+            r'\bcraft(?:ing)?\s+and\s+gather(?:ing)?\b',
+            r'\bgather(?:ing)?\s+and\s+craft(?:ing)?\b',
+            r'\bcraft(?:ing)?\s+and\s+upgrad(?:ing|e)\b',
+            r'\bcollect(?:ing)?\s+and\s+craft(?:ing)?\b',
+
+            # Системные паттерны
+            r'\bcrafting\s+mechanic\b',
+            r'\bgathering\s+mechanic\b',
+            r'\bresource\s+management\b',
+            r'\bmaterial\s+processing\b',
+            r'\bcrafting\s+station\b',
+            r'\bworkbench\b',
+            r'\bcrafting\s+table\b',
+            r'\bforge\s+station\b',
+            r'\bcrafting\s+recipes?\b',
+            r'\bcrafting\s+ingredients?\b',
+
+            # Дополнительные паттерны
+            r'\brefin(?:ing|e)\s+(?:materials?|resources?)\b',
+            r'\bprocess(?:ing)?\s+(?:materials?|resources?)\b',
+            r'\bdisassemble(?:ing)?\s+items?\b',
+            r'\bbreak\s+down\s+items?\b',
+            r'\brepair(?:ing)?\s+(?:gear|equipment|items?)\b',
+            r'\bmaint(?:ain|enance)\s+(?:gear|equipment)\b',
+
+            # НОВЫЕ ПАТТЕРНЫ ДЛЯ РАЗБЛОКИРОВКИ И ПРОГРЕССИИ
+            r'\bunlock\s+access\s+to\s+more\s+advanced\s+(?:materials|equipment)\b',
+            r'\bunlock(?:ing)?\s+(?:new|advanced|better)\s+(?:materials?|resources?|equipment)\b',
+            r'\baccess\s+(?:new|advanced)\s+(?:materials?|equipment)\b',
+            r'\bprogress\s+to\s+(?:better|advanced)\s+(?:materials?|equipment)\b',
+            r'\badvance(?:ing|e)\s+to\s+(?:better|superior)\s+(?:materials?|equipment)\b',
+            r'\bunlock(?:ing)?\s+(?:higher|tier|level)\s+(?:materials?|equipment)\b',
+            r'\bgain\s+access\s+to\s+(?:advanced|superior|rare)\s+(?:materials?|equipment)\b',
+            r'\bobtain(?:ing)?\s+(?:advanced|better)\s+(?:materials?|equipment)\b',
+            r'\bacquir(?:ing|e)\s+(?:advanced|superior)\s+(?:materials?|equipment)\b',
         ],
         'Base Building': [
             r'\bbase\s+building\b',
@@ -167,8 +238,50 @@ class PatternManager:
             r'\bplayers?\s+can\s+build\b',
             r'\byou\s+can\s+build\b',
             r'\bable\s+to\s+build\b',
-            r'\bbuild(ing)?\s+(structures|bases|homes)\b',
-            r'\bconstruct(ing)?\s+(buildings|structures)\b',
+            r'\bbuild(?:ing)?\s+(?:structures?|bases?|homes?|buildings?)\b',
+            r'\bconstruct(?:ing)?\s+(?:buildings?|structures?)\b',
+            # Добавленные паттерны для Rebuild
+            r'\brebuild(?:ing)?\s+(?:bases?|structures?|buildings?|cities?|towns?|settlements?|castle|fortress)\b',
+            r'\brebuild(?:ing)?\s+(?:your|their|the)\s+(?:castle|fortress|base|structure|building|city|town|settlement)\b',
+            # ДОБАВЛЕННЫЕ ПАТТЕРНЫ ДЛЯ CASTLE
+            r'\bbuilds?\s+a\s+castle\b',
+            r'\bconstructs?\s+a\s+castle\b',
+            r'\bcastle\s+building\b',
+            r'\bcastle\s+construction\b',
+            r'\bbuild(?:ing)?\s+castles?\b',
+            r'\bconstruct(?:ing)?\s+castles?\b',
+            r'\beraise\s+a\s+castle\b',
+            r'\bestablish\s+a\s+castle\b',
+            r'\bfortress\s+building\b',
+            r'\bfortress\s+construction\b',
+            r'\bbuild(?:ing)?\s+fortresses?\b',
+            r'\bconstruct(?:ing)?\s+fortresses?\b',
+            r'\bstronghold\s+building\b',
+            r'\bstronghold\s+construction\b',
+            r'\bbuild(?:ing)?\s+strongholds?\b',
+            r'\bconstruct(?:ing)?\s+strongholds?\b',
+            # Паттерны для расширенных вариаций
+            r'\bbuild(?:ing)?\s+(?:your|their|a)\s+own\s+castle\b',
+            r'\bconstruct(?:ing)?\s+(?:your|their|a)\s+own\s+castle\b',
+            r'\bcreate(?:ing)?\s+a\s+castle\b',
+            r'\beraise(?:ing)?\s+(?:your|their|a)\s+castle\b',
+            r'\bdesign(?:ing)?\s+(?:your|their|a)\s+castle\b',
+            r'\bdevelop(?:ing)?\s+a\s+castle\b',
+        ],
+        'Precision Combat': [
+            r'\baim\s+skill[\s-]?shots?\b',
+            r'\bdodge\s+projectiles?\b',
+            r'\bprecise\s+WASD\s+controls\b',
+            r'\bcursor[\s-]?based\s+aiming\b',
+            r'\bno\s+click\s+to\s+move\b',
+            r'\bmanual\s+aiming\b',
+            r'\bdirect\s+control\s+combat\b',
+            r'\bprecision\s+movement\b',
+            r'\bskill[\s-]?based\s+aiming\b',
+            r'\bprojectile\s+dodging\b',
+            r'\breal[\s-]?time\s+aiming\b',
+            r'\btwin[\s-]?stick\s+controls?\b',
+            r'\bmanual\s+targeting\b',
         ],
         '4X (explore, expand, exploit, and exterminate)': [
             r'\b4x(\s+game|\s|$)',
@@ -230,6 +343,9 @@ class PatternManager:
         'Fantasy': [
             r'\bfantasy(\s+world|\s+setting|\s+game|\s|$)',
             r'\bmagical(\s+world|\s|$)',
+        ],
+        'Gothic': [
+            r'\bgothic\b',
         ],
         'Historical': [
             r'\bhistorical\s+(drama|fiction|epic|recreation)\b',
@@ -348,6 +464,7 @@ class PatternManager:
             r'\bmilitary\s+conflict\b',
             r'\bcombat\s+simulation\b',
             r'\btactical\s+warfare\b',
+            r'\ba\s+world\s+of\s+conflict\b',
         ],
     }
 
@@ -405,6 +522,17 @@ class PatternManager:
         'Multiplayer': [
             r'\bmultiplayer(\s+game|\s+mode|\s|$)',
             r'\bmulti-player(\s+game|\s|$)'
+        ],
+        # ДОБАВЛЯЕМ НОВУЮ КАТЕГОРИЮ
+        'Player vs Player (PvP)': [
+            r'\bpvp\b',
+            r'\bpvp\s+mode\b',
+            r'\bplayer\s+vs\s+player\b',
+            r'\bplayer\s+versus\s+player\b',
+            r'\bagainst\s+other\s+players\b',
+            r'\bcompete\s+against\s+other\s+players\b',
+            r'\bfight\s+against\s+other\s+players\b',
+            r'\bbattle\s+against\s+other\s+players\b',
         ],
         'Single player': [
             r'\bsingle-player(\s+game|\s+campaign|\s|$)',
