@@ -26,6 +26,20 @@ class TextAnalyzer:
         Определяет, нужно ли проверять критерий.
         Возвращает False если критерий уже был проверен в этом диапазоне.
         """
+        # ИСПРАВЛЕНИЕ: Если force_restart включен, ВСЕГДА проверяем
+        from . import GameAnalyzerAPI
+        # Получаем текущий экземпляр API или создаем новый
+        try:
+            api = GameAnalyzerAPI()
+            # Проверяем, есть ли флаг force_restart в каком-то глобальном контексте
+            # Если нет - просто игнорируем кэш
+            force_restart = getattr(api, 'force_restart', False) or getattr(self, 'force_restart', False)
+        except:
+            force_restart = False
+
+        if force_restart:
+            return True
+
         # Всегда проверяем, если это verbose режим
         if self.verbose:
             return True
@@ -320,8 +334,7 @@ class TextAnalyzer:
             exclude_existing: bool = False
     ) -> Dict[str, Any]:
         """
-        Комплексный анализ, который находит ВСЕ вхождения элементов в тексте
-        с поддержкой обнаружения множественных критериев на одних словах
+        Комплексный анализ текста с поиском ВСЕХ вхождений элементов
         """
         start_time = time.time()
 
@@ -336,9 +349,10 @@ class TextAnalyzer:
                 'has_results': False
             }
 
-        if self.verbose:
-            print(f"=== TextAnalyzer.analyze_comprehensive: Starting comprehensive analysis")
-            print(f"=== Text length: {len(text)} characters")
+        # ИСПРАВЛЕНИЕ: Убрали вывод в консоль - он ломает прогресс-бар
+        # if self.verbose:
+        #     print(f"=== TextAnalyzer.analyze_comprehensive: Starting comprehensive analysis")
+        #     print(f"=== Text length: {len(text)} characters")
 
         # Получаем паттерны
         patterns = self._get_patterns()
@@ -420,11 +434,13 @@ class TextAnalyzer:
         }
 
         processing_time = time.time() - start_time
-        if self.verbose:
-            print(f"=== Comprehensive analysis completed in {processing_time:.2f}s")
-            print(f"=== Found: {total_found} elements")
-            print(f"=== Total matches: {total_matches}")
-            print(f"=== Overlaps found: {total_overlaps}")
+
+        # ИСПРАВЛЕНИЕ: Убрали вывод в консоль
+        # if self.verbose:
+        #     print(f"=== Comprehensive analysis completed in {processing_time:.2f}s")
+        #     print(f"=== Found: {total_found} elements")
+        #     print(f"=== Total matches: {total_matches}")
+        #     print(f"=== Overlaps found: {total_overlaps}")
 
         return {
             'success': True,

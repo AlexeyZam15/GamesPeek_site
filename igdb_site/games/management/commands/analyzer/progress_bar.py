@@ -102,10 +102,13 @@ class ProgressBar:
         message += f"💾{spacing}{self.stats['updated']:>{self.stat_width}} "
         message += f"({time_str})"
 
-        # Добавляем пробелы для очистки остатков предыдущей строки
-        message += " " * 30
+        # ИСПРАВЛЕНИЕ: Добавляем ДОПОЛНИТЕЛЬНЫЕ пробелы для очистки
+        terminal_width = 150  # Минимальная ширина для очистки
+        message_length = len(message)
+        if message_length < terminal_width:
+            message += " " * (terminal_width - message_length)
 
-        # ИСПРАВЛЕНО: используем terminal_stream вместо terminal_stderr
+        # ИСПРАВЛЕНИЕ: Используем terminal_stream
         self.terminal_stream.write(message)
         self.terminal_stream.flush()
 

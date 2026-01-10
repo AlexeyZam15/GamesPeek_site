@@ -97,23 +97,28 @@ class StateManager:
                 'keywords_mode': self.keywords_mode
             }
 
-            # Создаем директорию если нужно (с exist_ok=True)
+            # Создаем директорию если нужно
             directory = os.path.dirname(self.state_file)
             if directory:
                 os.makedirs(directory, exist_ok=True)
 
-            # Отладочный вывод
-            import sys
-            print(f"💾 Сохраняем состояние в файл: {self.state_file}", file=sys.stderr)
-            print(f"   Директория: {directory}", file=sys.stderr)
-            print(f"   Обработано игр: {processed_count}", file=sys.stderr)
+            # ИСПРАВЛЕНИЕ: Выводим только если verbose_mode=True
+            # Добавьте параметр verbose_mode в __init__ если нужно
+            if hasattr(self, 'verbose_mode') and self.verbose_mode:
+                import sys
+                print(f"💾 Сохраняем состояние в файл: {self.state_file}", file=sys.stderr)
+                print(f"   Директория: {directory}", file=sys.stderr)
+                print(f"   Обработано игр: {processed_count}", file=sys.stderr)
 
             with open(self.state_file, 'w', encoding='utf-8') as f:
                 json.dump(state_data, f, ensure_ascii=False, indent=2)
 
-            print(f"✅ Состояние сохранено", file=sys.stderr)
+            if hasattr(self, 'verbose_mode') and self.verbose_mode:
+                import sys
+                print(f"✅ Состояние сохранено", file=sys.stderr)
 
         except Exception as e:
+            import sys
             print(f"⚠️ Ошибка сохранения состояния: {e}", file=sys.stderr)
             import traceback
             traceback.print_exc(file=sys.stderr)
