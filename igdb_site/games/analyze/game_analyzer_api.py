@@ -21,12 +21,11 @@ class GameAnalyzerAPI:
     def __init__(self, verbose: bool = False):
         self.verbose = verbose
         self.text_analyzer = TextAnalyzer(verbose=verbose)
+        self.force_restart = False  # ⬅️ Добавьте этот атрибут
         if verbose:
             print("=== Инициализация GameAnalyzerAPI ===")
             print("=== Проверяем наличие паттернов в базе данных ===")
         ensure_patterns_in_db(verbose=verbose)
-
-    # games/analyze/game_analyzer_api.py
 
     def force_analyze_game_text(
             self,
@@ -35,29 +34,188 @@ class GameAnalyzerAPI:
             analyze_keywords: bool = False,
             existing_game=None,
             detailed_patterns: bool = False,
-            exclude_existing: bool = False
+            exclude_existing: bool = True  # ← ИЗМЕНЕНИЕ: по умолчанию True
     ) -> Dict[str, Any]:
         """
         Принудительный анализ текста игры (игнорирует кэш)
         """
-        # Временное отключение verbose чтобы кэш не проверялся
+        start_time = time.time()
+
+        if not text:
+            return {
+                'success': False,
+                'error': 'Пустой текст для анализа',
+                'game_id': game_id,
+                'processing_time': time.time() - start_time,
+                'has_results': False
+            }
+
+        # ВРЕМЕННО отключаем verbose во время анализа
         original_verbose = self.verbose
-        self.verbose = True  # Устанавливаем verbose чтобы обойти проверку кэша
+        self.verbose = False
 
         try:
-            result = self.analyze_game_text(
-                text=text,
-                game_id=game_id,
-                analyze_keywords=analyze_keywords,
-                existing_game=existing_game,
-                detailed_patterns=detailed_patterns,
-                exclude_existing=exclude_existing
-            )
-            result['force_analysis'] = True  # Помечаем как принудительный анализ
-            return result
+            if analyze_keywords:
+                # Только если явно запрошен анализ ключевых слов
+                analysis_result = self.text_analyzer.analyze_comprehensive(
+                    text=text,
+                    existing_game=existing_game,
+                    detailed_patterns=detailed_patterns,
+                    exclude_existing=exclude_existing
+                )
+                # Фильтруем только ключевые слова
+                if 'keywords' in analysis_result.get('results', {}):
+                    analysis_result['results'] = {'keywords': analysis_result['results']['keywords']}
+            else:
+                # ИСПРАВЛЕНИЕ: Используем быстрый анализ ТОЛЬКО критериев, без ключевых слов
+                analysis_result = self._analyze_criteria_only(
+                    text=text,
+                    existing_game=existing_game,
+                    detailed_patterns=detailed_patterns,
+                    exclude_existing=exclude_existing  # ← Передаем exclude_existing
+                )
+
+            processing_time = time.time() - start_time
+
+            # Формируем стандартизированный ответ
+            response = {
+                'success': analysis_result.get('success', True),
+                'error': analysis_result.get('error'),
+                'processing_time': processing_time,
+                'text_length': len(text),
+                'analysis_mode': 'keywords' if analyze_keywords else 'criteria',
+                'results': analysis_result.get('results', {}),
+                'summary': analysis_result.get('summary', {
+                    'found_count': 0,
+                    'has_results': False
+                }),
+                'has_results': analysis_result.get('has_results', False),
+                'exclude_existing': exclude_existing,
+                'cached': False,
+                'force_analysis': True,
+                'bypass_cache': True
+            }
+
+            # Добавляем информацию о паттернах если нужно
+            if detailed_patterns and 'pattern_info' in analysis_result:
+                response['pattern_info'] = analysis_result['pattern_info']
+
+            # Добавляем ID игры
+            if game_id:
+                response['game_id'] = game_id
+
+            return response
+
         finally:
             # Восстанавливаем original_verbose
             self.verbose = original_verbose
+
+    def _analyze_criteria_only(
+            self,
+            text: str,
+            existing_game=None,
+            detailed_patterns: bool = False,
+            exclude_existing: bool = True  # ← ИЗМЕНЕНИЕ: по умолчанию True
+    ) -> Dict[str, Any]:
+        """
+        Быстрый анализ ТОЛЬКО критериев (жанры, темы, перспективы, режимы)
+        БЕЗ анализа ключевых слов
+        """
+        start_time = time.time()
+
+        # ИСПРАВЛЕНИЕ: Ограничиваем текст для скорости
+        if len(text) > 5000:
+            text = text[:5000]
+
+        if not text:
+            return {
+                'success': False,
+                'error': 'Empty text',
+                'results': {},
+                'summary': {'found_count': 0, 'has_results': False},
+                'processing_time': time.time() - start_time,
+                'has_results': False
+            }
+
+        text_lower = text.lower()
+
+        # Получаем паттерны
+        from .pattern_manager import PatternManager
+        patterns = PatternManager.get_all_patterns()
+
+        # ИСПРАВЛЕНИЕ: По умолчанию исключаем существующие критерии
+        # Если передана игра и exclude_existing=True, получаем существующие критерии
+        existing_items = {}
+        if existing_game and exclude_existing:
+            existing_items = {
+                'genres': set(existing_game.genres.values_list('name', flat=True)),
+                'themes': set(existing_game.themes.values_list('name', flat=True)),
+                'perspectives': set(existing_game.player_perspectives.values_list('name', flat=True)),
+                'game_modes': set(existing_game.game_modes.values_list('name', flat=True))
+            }
+
+        # Анализируем каждый тип критериев
+        results = {}
+        pattern_info = {}
+        total_found = 0
+
+        for criteria_type in ['genres', 'themes', 'perspectives', 'game_modes']:
+            model = self._get_model_for_criteria(criteria_type)
+            found_items = []
+            patterns_for_type = patterns[criteria_type]
+
+            for name, pattern_list in patterns_for_type.items():
+                # ИСПРАВЛЕНИЕ: Пропускаем если уже существует у игры
+                if exclude_existing:
+                    # Проверяем в разных регистрах
+                    existing_names_lower = {n.lower() for n in existing_items.get(criteria_type, set())}
+                    if name.lower() in existing_names_lower:
+                        continue
+
+                # Проверяем паттерны
+                for pattern in pattern_list:
+                    if pattern.search(text_lower):
+                        # Нашли совпадение - получаем объект
+                        try:
+                            obj = model.objects.filter(name__iexact=name).first()
+                            if obj and obj not in found_items:
+                                found_items.append(obj)
+                                break  # Нашли один паттерн - достаточно
+                        except Exception:
+                            pass
+
+            if found_items:
+                results[criteria_type] = {
+                    'count': len(found_items),
+                    'items': [{'id': i.id, 'name': i.name} for i in found_items]
+                }
+                total_found += len(found_items)
+
+        processing_time = time.time() - start_time
+
+        return {
+            'success': True,
+            'results': results,
+            'summary': {
+                'found_count': total_found,
+                'has_results': total_found > 0,
+                'mode': 'criteria_only'
+            },
+            'has_results': total_found > 0,
+            'processing_time': processing_time
+        }
+
+    def _get_model_for_criteria(self, criteria_type: str):
+        """Возвращает модель для типа критерия"""
+        from games.models import Genre, Theme, PlayerPerspective, GameMode
+
+        models = {
+            'genres': Genre,
+            'themes': Theme,
+            'perspectives': PlayerPerspective,
+            'game_modes': GameMode
+        }
+        return models.get(criteria_type)
 
     def clear_analysis_cache(self):
         """Очищает кэш анализатора"""
@@ -93,80 +251,123 @@ class GameAnalyzerAPI:
                 'has_results': False
             }
 
-        # ПРОВЕРКА КЭША: если игра уже проверена, возвращаем кэшированный результат
-        if game_id and not self.verbose:
-            if RangeCacheManager.is_game_checked(game_id):
-                if self.verbose:
-                    print(f"ℹ️ Игра {game_id} уже проверена, возвращаем пустой результат из кэша")
+        # ИСПРАВЛЕНИЕ: Убрали вывод в консоль - он ломает прогресс-бар
+        # if self.verbose:
+        #     print(f"=== GameAnalyzerAPI.analyze_game_text: Starting analysis")
+        #     print(f"=== Game ID: {game_id}")
+        #     print(f"=== Analyze keywords: {analyze_keywords}")
+        #     print(f"=== Exclude existing: {exclude_existing}")
+        #     print(f"=== Text length: {len(text)}")
 
-                return {
-                    'success': True,
-                    'error': None,
-                    'processing_time': 0.001,
-                    'text_length': len(text),
-                    'analysis_mode': 'keywords' if analyze_keywords else 'criteria',
-                    'results': {},
-                    'summary': {
-                        'found_count': 0,
-                        'has_results': False,
-                        'mode': 'cached'
-                    },
-                    'has_results': False,
-                    'exclude_existing': exclude_existing,
-                    'cached': True,
-                    'game_id': game_id,
-                    'message': f'Игра {game_id} уже проверена (используется кэш)'
-                }
-
-        if self.verbose:
-            print(f"=== GameAnalyzerAPI.analyze_game_text: Starting analysis")
-            print(f"=== Game ID: {game_id}")
-            print(f"=== Analyze keywords: {analyze_keywords}")
-            print(f"=== Exclude existing: {exclude_existing}")
-            print(f"=== Text length: {len(text)}")
-
-        # Анализируем текст
-        analysis_result = self.text_analyzer.analyze(
-            text=text,
-            analyze_keywords=analyze_keywords,
-            existing_game=existing_game,
-            detailed_patterns=detailed_patterns,
-            exclude_existing=exclude_existing
+        # БЫСТРАЯ ПРОВЕРКА КЭША
+        should_use_cache = (
+                game_id and
+                not self.verbose and
+                not exclude_existing
         )
 
+        if should_use_cache and RangeCacheManager.is_game_checked(game_id):
+            # Возвращаем минимальный ответ для кэшированных игр
+            return {
+                'success': True,
+                'error': None,
+                'processing_time': 0.001,
+                'text_length': len(text),
+                'analysis_mode': 'keywords' if analyze_keywords else 'criteria',
+                'results': {},
+                'summary': {'found_count': 0, 'has_results': False, 'mode': 'cached'},
+                'has_results': False,
+                'exclude_existing': exclude_existing,
+                'cached': True,
+                'game_id': game_id,
+            }
+
+        # ВЫБОР МЕТОДА АНАЛИЗА В ЗАВИСИМОСТИ ОТ РЕЖИМА
+        if analyze_keywords:
+            # Анализ только ключевых слов
+            if hasattr(self.text_analyzer, 'analyze_keywords'):
+                analysis_result = self.text_analyzer.analyze_keywords(
+                    text=text,
+                    existing_game=existing_game,
+                    detailed_patterns=detailed_patterns,
+                    exclude_existing=exclude_existing
+                )
+            else:
+                # Запасной вариант
+                analysis_result = self.text_analyzer.analyze_comprehensive(
+                    text=text,
+                    existing_game=existing_game,
+                    detailed_patterns=detailed_patterns,
+                    exclude_existing=exclude_existing
+                )
+                # Фильтруем только ключевые слова
+                if 'keywords' in analysis_result.get('results', {}):
+                    analysis_result['results'] = {'keywords': analysis_result['results']['keywords']}
+        else:
+            # Анализ критериев (жанры, темы и т.д.)
+            if hasattr(self.text_analyzer, 'analyze_criteria'):
+                analysis_result = self.text_analyzer.analyze_criteria(
+                    text=text,
+                    existing_game=existing_game,
+                    detailed_patterns=detailed_patterns,
+                    exclude_existing=exclude_existing
+                )
+            else:
+                analysis_result = self.text_analyzer.analyze_comprehensive(
+                    text=text,
+                    existing_game=existing_game,
+                    detailed_patterns=detailed_patterns,
+                    exclude_existing=exclude_existing
+                )
+                # Убираем ключевые слова из результатов
+                if 'keywords' in analysis_result.get('results', {}):
+                    del analysis_result['results']['keywords']
+
+        processing_time = time.time() - start_time
+
+        # Формируем стандартизированный ответ
         response = {
-            'success': analysis_result.get('success', False),
+            'success': analysis_result.get('success', True),
             'error': analysis_result.get('error'),
-            'processing_time': time.time() - start_time,
+            'processing_time': processing_time,
             'text_length': len(text),
             'analysis_mode': 'keywords' if analyze_keywords else 'criteria',
             'results': analysis_result.get('results', {}),
-            'summary': analysis_result.get('summary', {}),
+            'summary': analysis_result.get('summary', {
+                'found_count': 0,
+                'has_results': False
+            }),
             'has_results': analysis_result.get('has_results', False),
             'exclude_existing': exclude_existing,
             'cached': False
         }
 
-        # ДОБАВЛЯЕМ КЭШИРОВАНИЕ: обновляем кэш если анализ успешен и есть game_id
-        if response['success'] and game_id and not self.verbose:
-            # Обновляем кэш для этой игры
-            RangeCacheManager.update_game_range(game_id, game_id)
-            if self.verbose:
-                print(f"✅ Кэш обновлен для игры {game_id}")
-
         # Добавляем информацию о паттернах если нужно
-        if detailed_patterns and analysis_result.get('pattern_info'):
+        if detailed_patterns and 'pattern_info' in analysis_result:
             response['pattern_info'] = analysis_result['pattern_info']
 
-        # Добавляем ID игры если передан
+        # ОБНОВЛЕНИЕ КЭША
+        should_update_cache = (
+                response['success'] and
+                game_id and
+                not self.verbose and
+                not exclude_existing
+        )
+
+        if should_update_cache:
+            RangeCacheManager.update_game_range(game_id, game_id)
+            response['cached'] = True
+
+        # Добавляем ID игры
         if game_id:
             response['game_id'] = game_id
 
-        if self.verbose:
-            print(f"=== Analysis completed. Success: {response['success']}")
-            print(f"=== Has results: {response['has_results']}")
-            print(f"=== Found count: {response['summary'].get('found_count', 0)}")
-            print(f"=== Cached: {response.get('cached', False)}")
+        # ИСПРАВЛЕНИЕ: Убрали вывод в консоль
+        # if self.verbose:
+        #     print(f"=== Analysis completed. Success: {response['success']}")
+        #     print(f"=== Has results: {response['has_results']}")
+        #     print(f"=== Found count: {response['summary'].get('found_count', 0)}")
+        #     print(f"=== Cached: {response.get('cached', False)}")
 
         return response
 
