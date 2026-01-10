@@ -321,6 +321,7 @@ class TextAnalyzer:
     ) -> Dict[str, Any]:
         """
         Комплексный анализ, который находит ВСЕ вхождения элементов в тексте
+        с поддержкой обнаружения множественных критериев на одних словах
         """
         start_time = time.time()
 
@@ -339,9 +340,15 @@ class TextAnalyzer:
             print(f"=== TextAnalyzer.analyze_comprehensive: Starting comprehensive analysis")
             print(f"=== Text length: {len(text)} characters")
 
-        # Анализируем критерии
-        criteria_results, criteria_patterns = self._analyze_criteria_comprehensive(
+        # Получаем паттерны
+        patterns = self._get_patterns()
+        text_lower = text.lower()
+
+        # Анализируем критерии с поддержкой множественных совпадений
+        criteria_results, criteria_patterns, overlapping_info = self._analyze_criteria_with_overlap(
             text=text,
+            text_lower=text_lower,
+            patterns=patterns,
             existing_game=existing_game,
             collect_patterns=detailed_patterns,
             exclude_existing=exclude_existing
@@ -381,10 +388,23 @@ class TextAnalyzer:
                 pattern_info['keywords'] = keywords_patterns.get('keywords', [])
                 total_matches += len(pattern_info['keywords'])
 
-        # Создаем сводку
+        # Создаем сводку с информацией о пересечениях
         total_found = sum(
             len(criteria_results.get(key, [])) for key in ['genres', 'themes', 'perspectives', 'game_modes'])
         total_found += len(keywords_results.get('keywords', []))
+
+        # Считаем общее количество пересечений
+        total_overlaps = 0
+        if detailed_patterns:
+            # Анализируем пересечения между всеми категориями
+            all_patterns = []
+            for category in ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']:
+                if category in pattern_info:
+                    all_patterns.extend(pattern_info[category])
+
+            # Находим пересечения
+            overlapping_positions = self._find_overlapping_positions(all_patterns)
+            total_overlaps = len(overlapping_positions)
 
         summary = {
             'found_count': total_found,
@@ -395,7 +415,8 @@ class TextAnalyzer:
             'perspectives_found': len(criteria_results.get('perspectives', [])),
             'game_modes_found': len(criteria_results.get('game_modes', [])),
             'keywords_found': len(keywords_results.get('keywords', [])),
-            'total_matches': total_matches
+            'total_matches': total_matches,
+            'total_overlaps': total_overlaps
         }
 
         processing_time = time.time() - start_time
@@ -403,6 +424,7 @@ class TextAnalyzer:
             print(f"=== Comprehensive analysis completed in {processing_time:.2f}s")
             print(f"=== Found: {total_found} elements")
             print(f"=== Total matches: {total_matches}")
+            print(f"=== Overlaps found: {total_overlaps}")
 
         return {
             'success': True,
@@ -411,8 +433,159 @@ class TextAnalyzer:
             'pattern_info': pattern_info,
             'processing_time': processing_time,
             'has_results': total_found > 0,
-            'total_matches': total_matches
+            'total_matches': total_matches,
+            'total_overlaps': total_overlaps
         }
+
+    def _analyze_criteria_with_overlap(
+            self,
+            text: str,
+            text_lower: str,
+            patterns: Dict,
+            existing_game=None,
+            collect_patterns: bool = True,
+            exclude_existing: bool = False
+    ) -> Tuple[Dict, Dict, Dict]:
+        """
+        Анализирует критерии с поддержкой обнаружения пересечений
+        """
+        results = {
+            'genres': [],
+            'themes': [],
+            'perspectives': [],
+            'game_modes': []
+        }
+
+        pattern_info = {
+            'genres': [],
+            'themes': [],
+            'perspectives': [],
+            'game_modes': []
+        }
+
+        overlapping_info = {}
+
+        # Существующие критерии игры
+        existing_items = {}
+        if existing_game and exclude_existing:
+            existing_items = {
+                'genres': set(existing_game.genres.values_list('name', flat=True)),
+                'themes': set(existing_game.themes.values_list('name', flat=True)),
+                'perspectives': set(existing_game.player_perspectives.values_list('name', flat=True)),
+                'game_modes': set(existing_game.game_modes.values_list('name', flat=True))
+            }
+
+        # Собираем все совпадения для последующего анализа пересечений
+        all_matches_by_category = {}
+
+        for criteria_type in ['genres', 'themes', 'perspectives', 'game_modes']:
+            found_items, pattern_matches = self._find_criteria_comprehensive(
+                text=text,
+                text_lower=text_lower,
+                patterns=patterns[criteria_type],
+                model=self._get_model_for_criteria(criteria_type),
+                existing_names=existing_items.get(criteria_type, set()) if exclude_existing else set(),
+                collect_patterns=collect_patterns
+            )
+
+            results[criteria_type] = found_items
+            pattern_info[criteria_type] = pattern_matches
+            all_matches_by_category[criteria_type] = pattern_matches
+
+        # Анализируем пересечения между категориями
+        if collect_patterns:
+            overlapping_info = self._analyze_cross_category_overlaps(all_matches_by_category)
+
+        return results, pattern_info, overlapping_info
+
+    def _find_overlapping_positions(self, pattern_matches: List[Dict]) -> List[Dict]:
+        """
+        Находит пересечения позиций в списке совпадений
+        """
+        if not pattern_matches:
+            return []
+
+        # Фильтруем только найденные элементы
+        found_matches = [m for m in pattern_matches if m.get('status') == 'found']
+
+        if not found_matches:
+            return []
+
+        # Создаем список всех позиций
+        positions = []
+        for match in found_matches:
+            position = match.get('position', 0)
+            match_length = len(match.get('matched_text', ''))
+            positions.append({
+                'start': position,
+                'end': position + match_length,
+                'match': match
+            })
+
+        # Сортируем по начальной позиции
+        positions.sort(key=lambda x: x['start'])
+
+        # Находим пересечения
+        overlaps = []
+        i = 0
+
+        while i < len(positions):
+            current = positions[i]
+            overlapping_group = [current['match']]
+            group_start = current['start']
+            group_end = current['end']
+
+            j = i + 1
+            while j < len(positions):
+                next_pos = positions[j]
+
+                # Проверяем пересечение
+                if (current['start'] <= next_pos['start'] < current['end'] or
+                        current['start'] <= next_pos['end'] < current['end'] or
+                        next_pos['start'] <= current['start'] < next_pos['end']):
+
+                    overlapping_group.append(next_pos['match'])
+                    group_start = min(group_start, next_pos['start'])
+                    group_end = max(group_end, next_pos['end'])
+                    j += 1
+                else:
+                    break
+
+            if len(overlapping_group) > 1:
+                overlaps.append({
+                    'start': group_start,
+                    'end': group_end,
+                    'matches': overlapping_group,
+                    'count': len(overlapping_group)
+                })
+
+            i = j
+
+        return overlaps
+
+    def _analyze_cross_category_overlaps(self, matches_by_category: Dict) -> Dict:
+        """
+        Анализирует пересечения между разными категориями
+        """
+        overlaps = {}
+
+        # Собираем все совпадения из всех категорий
+        all_matches = []
+        for category, matches in matches_by_category.items():
+            for match in matches:
+                if match.get('status') == 'found':
+                    all_matches.append({
+                        **match,
+                        'category': category
+                    })
+
+        # Находим пересечения
+        overlapping_positions = self._find_overlapping_positions(all_matches)
+
+        if overlapping_positions:
+            overlaps['cross_category'] = overlapping_positions
+
+        return overlaps
 
     def _get_context(self, text: str, start: int, end: int, context_length: int = 50) -> str:
         """Получает контекст вокруг найденного совпадения"""
