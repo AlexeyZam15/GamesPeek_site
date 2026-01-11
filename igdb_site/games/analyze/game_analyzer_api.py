@@ -16,16 +16,224 @@ from django.utils import timezone
 
 
 class GameAnalyzerAPI:
-    """Главный API для анализа игр - только анализ текста"""
+    """Главный API для анализа игр с оптимизированными ключевыми словами"""
 
     def __init__(self, verbose: bool = False):
         self.verbose = verbose
         self.text_analyzer = TextAnalyzer(verbose=verbose)
-        self.force_restart = False  # ⬅️ Добавьте этот атрибут
+        self.force_restart = False
+
         if verbose:
             print("=== Инициализация GameAnalyzerAPI ===")
             print("=== Проверяем наличие паттернов в базе данных ===")
+
         ensure_patterns_in_db(verbose=verbose)
+
+        # Предзагрузка Trie при инициализации
+        if not verbose:
+            # В фоновом режиме предзагружаем Trie
+            self._preload_trie_async()
+
+    def _preload_trie_async(self):
+        """Асинхронная предзагрузка Trie для быстрого старта"""
+        import threading
+
+        def load_trie():
+            try:
+                self.text_analyzer._ensure_trie_loaded()
+            except Exception:
+                pass
+
+        # Запускаем в фоновом потоке
+        thread = threading.Thread(target=load_trie)
+        thread.daemon = True
+        thread.start()
+
+    def analyze_game_text(
+            self,
+            text: str,
+            game_id: Optional[int] = None,
+            analyze_keywords: bool = False,
+            existing_game=None,
+            detailed_patterns: bool = False,
+            exclude_existing: bool = False
+    ) -> Dict[str, Any]:
+        """
+        ОПТИМИЗИРОВАННЫЙ: Анализирует текст игры с поддержкой кэша и быстрыми ключевыми словами
+        """
+        start_time = time.time()
+
+        if not text:
+            return {
+                'success': False,
+                'error': 'Пустой текст для анализа',
+                'game_id': game_id,
+                'processing_time': time.time() - start_time,
+                'has_results': False
+            }
+
+        # ПРОВЕРКА КЭША
+        should_use_cache = (
+                game_id and
+                not self.verbose and
+                not exclude_existing
+        )
+
+        if should_use_cache and RangeCacheManager.is_game_checked(game_id):
+            return {
+                'success': True,
+                'error': None,
+                'processing_time': 0.001,
+                'text_length': len(text),
+                'analysis_mode': 'keywords' if analyze_keywords else 'criteria',
+                'results': {},
+                'summary': {'found_count': 0, 'has_results': False, 'mode': 'cached'},
+                'has_results': False,
+                'exclude_existing': exclude_existing,
+                'cached': True,
+                'game_id': game_id,
+            }
+
+        # ВЫБОР МЕТОДА АНАЛИЗА
+        if analyze_keywords:
+            # Используем оптимизированный метод анализа ключевых слов
+            # text_analyzer уже использует Trie внутри analyze() метода
+            analysis_result = self.text_analyzer.analyze(
+                text=text,
+                analyze_keywords=True,
+                existing_game=existing_game,
+                detailed_patterns=detailed_patterns,
+                exclude_existing=exclude_existing
+            )
+        else:
+            # Анализ критериев
+            analysis_result = self.text_analyzer.analyze(
+                text=text,
+                analyze_keywords=False,
+                existing_game=existing_game,
+                detailed_patterns=detailed_patterns,
+                exclude_existing=exclude_existing
+            )
+
+        processing_time = time.time() - start_time
+
+        # Формируем ответ
+        response = {
+            'success': analysis_result.get('success', True),
+            'error': analysis_result.get('error'),
+            'processing_time': processing_time,
+            'text_length': len(text),
+            'analysis_mode': 'keywords' if analyze_keywords else 'criteria',
+            'results': analysis_result.get('results', {}),
+            'summary': analysis_result.get('summary', {
+                'found_count': 0,
+                'has_results': False
+            }),
+            'has_results': analysis_result.get('has_results', False),
+            'exclude_existing': exclude_existing,
+            'cached': False
+        }
+
+        if detailed_patterns and 'pattern_info' in analysis_result:
+            response['pattern_info'] = analysis_result['pattern_info']
+
+        # ОБНОВЛЕНИЕ КЭША
+        if response['success'] and game_id and not self.verbose and not exclude_existing:
+            RangeCacheManager.update_game_range(game_id, game_id)
+            response['cached'] = True
+
+        if game_id:
+            response['game_id'] = game_id
+
+        return response
+
+    def analyze_game_text_comprehensive(
+            self,
+            text: str,
+            game_id: Optional[int] = None,
+            existing_game=None,
+            detailed_patterns: bool = True,
+            exclude_existing: bool = False
+    ) -> Dict[str, Any]:
+        """
+        ОПТИМИЗИРОВАННЫЙ: Комплексный анализ с быстрыми ключевыми словами
+        """
+        start_time = time.time()
+
+        if not text:
+            return {
+                'success': False,
+                'error': 'Пустой текст для анализа',
+                'game_id': game_id,
+                'processing_time': time.time() - start_time,
+                'has_results': False
+            }
+
+        # ПРОВЕРКА КЭША
+        if game_id and not self.verbose:
+            if RangeCacheManager.is_game_checked(game_id):
+                return {
+                    'success': True,
+                    'error': None,
+                    'processing_time': 0.001,
+                    'text_length': len(text),
+                    'analysis_mode': 'comprehensive',
+                    'results': {},
+                    'summary': {
+                        'found_count': 0,
+                        'has_results': False,
+                        'mode': 'cached',
+                        'total_matches': 0
+                    },
+                    'pattern_info': {},
+                    'has_results': False,
+                    'total_matches': 0,
+                    'cached': True,
+                    'game_id': game_id,
+                    'message': f'Игра {game_id} уже проверена (используется кэш)'
+                }
+
+        # Используем оптимизированный комплексный анализ
+        analysis_result = self.text_analyzer.analyze_comprehensive(
+            text=text,
+            existing_game=existing_game,
+            detailed_patterns=detailed_patterns,
+            exclude_existing=exclude_existing
+        )
+
+        response = {
+            'success': analysis_result.get('success', False),
+            'error': analysis_result.get('error'),
+            'processing_time': time.time() - start_time,
+            'text_length': len(text),
+            'analysis_mode': 'comprehensive',
+            'results': analysis_result.get('results', {}),
+            'summary': analysis_result.get('summary', {}),
+            'pattern_info': analysis_result.get('pattern_info', {}),
+            'has_results': analysis_result.get('has_results', False),
+            'total_matches': analysis_result.get('total_matches', 0),
+            'cached': False
+        }
+
+        # ДОБАВЛЯЕМ КЭШИРОВАНИЕ
+        if response['success'] and game_id and not self.verbose:
+            RangeCacheManager.update_game_range(game_id, game_id)
+
+        if game_id:
+            response['game_id'] = game_id
+
+        return response
+
+    def clear_all_cache(self):
+        """Очищает весь кэш анализатора и диапазонов"""
+        # Очищаем кэш анализатора текста
+        self.text_analyzer.clear_cache()
+
+        # Очищаем кэш диапазонов
+        RangeCacheManager.clear_all_cache()
+
+        if self.verbose:
+            print("✅ Весь кэш анализатора очищен")
 
     def force_analyze_game_text(
             self,
@@ -228,243 +436,6 @@ class GameAnalyzerAPI:
         if self.verbose:
             print("✅ Весь кэш анализатора очищен")
 
-    def analyze_game_text(
-            self,
-            text: str,
-            game_id: Optional[int] = None,
-            analyze_keywords: bool = False,
-            existing_game=None,
-            detailed_patterns: bool = False,
-            exclude_existing: bool = False
-    ) -> Dict[str, Any]:
-        """
-        Анализирует текст игры С ПОДДЕРЖКОЙ КЭША
-        """
-        start_time = time.time()
-
-        if not text:
-            return {
-                'success': False,
-                'error': 'Пустой текст для анализа',
-                'game_id': game_id,
-                'processing_time': time.time() - start_time,
-                'has_results': False
-            }
-
-        # ИСПРАВЛЕНИЕ: Убрали вывод в консоль - он ломает прогресс-бар
-        # if self.verbose:
-        #     print(f"=== GameAnalyzerAPI.analyze_game_text: Starting analysis")
-        #     print(f"=== Game ID: {game_id}")
-        #     print(f"=== Analyze keywords: {analyze_keywords}")
-        #     print(f"=== Exclude existing: {exclude_existing}")
-        #     print(f"=== Text length: {len(text)}")
-
-        # БЫСТРАЯ ПРОВЕРКА КЭША
-        should_use_cache = (
-                game_id and
-                not self.verbose and
-                not exclude_existing
-        )
-
-        if should_use_cache and RangeCacheManager.is_game_checked(game_id):
-            # Возвращаем минимальный ответ для кэшированных игр
-            return {
-                'success': True,
-                'error': None,
-                'processing_time': 0.001,
-                'text_length': len(text),
-                'analysis_mode': 'keywords' if analyze_keywords else 'criteria',
-                'results': {},
-                'summary': {'found_count': 0, 'has_results': False, 'mode': 'cached'},
-                'has_results': False,
-                'exclude_existing': exclude_existing,
-                'cached': True,
-                'game_id': game_id,
-            }
-
-        # ВЫБОР МЕТОДА АНАЛИЗА В ЗАВИСИМОСТИ ОТ РЕЖИМА
-        if analyze_keywords:
-            # Анализ только ключевых слов
-            if hasattr(self.text_analyzer, 'analyze_keywords'):
-                analysis_result = self.text_analyzer.analyze_keywords(
-                    text=text,
-                    existing_game=existing_game,
-                    detailed_patterns=detailed_patterns,
-                    exclude_existing=exclude_existing
-                )
-            else:
-                # Запасной вариант
-                analysis_result = self.text_analyzer.analyze_comprehensive(
-                    text=text,
-                    existing_game=existing_game,
-                    detailed_patterns=detailed_patterns,
-                    exclude_existing=exclude_existing
-                )
-                # Фильтруем только ключевые слова
-                if 'keywords' in analysis_result.get('results', {}):
-                    analysis_result['results'] = {'keywords': analysis_result['results']['keywords']}
-        else:
-            # Анализ критериев (жанры, темы и т.д.)
-            if hasattr(self.text_analyzer, 'analyze_criteria'):
-                analysis_result = self.text_analyzer.analyze_criteria(
-                    text=text,
-                    existing_game=existing_game,
-                    detailed_patterns=detailed_patterns,
-                    exclude_existing=exclude_existing
-                )
-            else:
-                analysis_result = self.text_analyzer.analyze_comprehensive(
-                    text=text,
-                    existing_game=existing_game,
-                    detailed_patterns=detailed_patterns,
-                    exclude_existing=exclude_existing
-                )
-                # Убираем ключевые слова из результатов
-                if 'keywords' in analysis_result.get('results', {}):
-                    del analysis_result['results']['keywords']
-
-        processing_time = time.time() - start_time
-
-        # Формируем стандартизированный ответ
-        response = {
-            'success': analysis_result.get('success', True),
-            'error': analysis_result.get('error'),
-            'processing_time': processing_time,
-            'text_length': len(text),
-            'analysis_mode': 'keywords' if analyze_keywords else 'criteria',
-            'results': analysis_result.get('results', {}),
-            'summary': analysis_result.get('summary', {
-                'found_count': 0,
-                'has_results': False
-            }),
-            'has_results': analysis_result.get('has_results', False),
-            'exclude_existing': exclude_existing,
-            'cached': False
-        }
-
-        # Добавляем информацию о паттернах если нужно
-        if detailed_patterns and 'pattern_info' in analysis_result:
-            response['pattern_info'] = analysis_result['pattern_info']
-
-        # ОБНОВЛЕНИЕ КЭША
-        should_update_cache = (
-                response['success'] and
-                game_id and
-                not self.verbose and
-                not exclude_existing
-        )
-
-        if should_update_cache:
-            RangeCacheManager.update_game_range(game_id, game_id)
-            response['cached'] = True
-
-        # Добавляем ID игры
-        if game_id:
-            response['game_id'] = game_id
-
-        # ИСПРАВЛЕНИЕ: Убрали вывод в консоль
-        # if self.verbose:
-        #     print(f"=== Analysis completed. Success: {response['success']}")
-        #     print(f"=== Has results: {response['has_results']}")
-        #     print(f"=== Found count: {response['summary'].get('found_count', 0)}")
-        #     print(f"=== Cached: {response.get('cached', False)}")
-
-        return response
-
-    def analyze_game_text_comprehensive(
-            self,
-            text: str,
-            game_id: Optional[int] = None,
-            existing_game=None,
-            detailed_patterns: bool = True,
-            exclude_existing: bool = False
-    ) -> Dict[str, Any]:
-        """
-        Комплексный анализ текста с поиском ВСЕХ вхождений элементов С ПОДДЕРЖКОЙ КЭША
-        """
-        start_time = time.time()
-
-        if not text:
-            return {
-                'success': False,
-                'error': 'Пустой текст для анализа',
-                'game_id': game_id,
-                'processing_time': time.time() - start_time,
-                'has_results': False
-            }
-
-        # ПРОВЕРКА КЭША: если игра уже проверена, возвращаем кэшированный результат
-        if game_id and not self.verbose:
-            if RangeCacheManager.is_game_checked(game_id):
-                if self.verbose:
-                    print(f"ℹ️ Игра {game_id} уже проверена, возвращаем пустой результат из кэша")
-
-                return {
-                    'success': True,
-                    'error': None,
-                    'processing_time': 0.001,
-                    'text_length': len(text),
-                    'analysis_mode': 'comprehensive',
-                    'results': {},
-                    'summary': {
-                        'found_count': 0,
-                        'has_results': False,
-                        'mode': 'cached',
-                        'total_matches': 0
-                    },
-                    'pattern_info': {},
-                    'has_results': False,
-                    'total_matches': 0,
-                    'cached': True,
-                    'game_id': game_id,
-                    'message': f'Игра {game_id} уже проверена (используется кэш)'
-                }
-
-        if self.verbose:
-            print(f"=== GameAnalyzerAPI.analyze_game_text_comprehensive: Starting comprehensive analysis")
-            print(f"=== Game ID: {game_id}")
-            print(f"=== Text length: {len(text)}")
-
-        # Используем обновленный анализатор с поддержкой всех вхождений
-        analysis_result = self.text_analyzer.analyze_comprehensive(
-            text=text,
-            existing_game=existing_game,
-            detailed_patterns=detailed_patterns,
-            exclude_existing=exclude_existing
-        )
-
-        response = {
-            'success': analysis_result.get('success', False),
-            'error': analysis_result.get('error'),
-            'processing_time': time.time() - start_time,
-            'text_length': len(text),
-            'analysis_mode': 'comprehensive',
-            'results': analysis_result.get('results', {}),
-            'summary': analysis_result.get('summary', {}),
-            'pattern_info': analysis_result.get('pattern_info', {}),
-            'has_results': analysis_result.get('has_results', False),
-            'total_matches': analysis_result.get('total_matches', 0),
-            'cached': False
-        }
-
-        # ДОБАВЛЯЕМ КЭШИРОВАНИЕ: обновляем кэш если анализ успешен и есть game_id
-        if response['success'] and game_id and not self.verbose:
-            # Обновляем кэш для этой игры
-            RangeCacheManager.update_game_range(game_id, game_id)
-            if self.verbose:
-                print(f"✅ Кэш обновлен для игры {game_id}")
-
-        if game_id:
-            response['game_id'] = game_id
-
-        if self.verbose:
-            print(f"=== Comprehensive analysis completed. Success: {response['success']}")
-            print(f"=== Has results: {response['has_results']}")
-            print(f"=== Total matches: {response.get('total_matches', 0)}")
-            print(f"=== Cached: {response.get('cached', False)}")
-
-        return response
-
     def analyze_game_text_combined(
             self,
             text: str,
@@ -600,17 +571,6 @@ class GameAnalyzerAPI:
             print(f"=== Cached: {response.get('cached', False)}")
 
         return response
-
-    def clear_all_cache(self):
-        """Очищает весь кэш анализатора и диапазонов"""
-        # Очищаем кэш анализатора текста
-        self.text_analyzer.clear_cache()
-
-        # Очищаем кэш диапазонов
-        RangeCacheManager.clear_all_cache()
-
-        if self.verbose:
-            print("✅ Весь кэш анализатора очищен")
 
     def mark_new_games_added(self):
         """Вызывать при добавлении новых игр - помечает все игры как непроверенные"""

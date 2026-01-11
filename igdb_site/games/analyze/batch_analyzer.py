@@ -1,10 +1,8 @@
-# games/analyze/batch_analyzer.py
-"""
-Пакетный анализатор игр
-"""
-
+# games/analyze/batch_analyzer.py - ОБНОВЛЕННЫЙ КЛАСС
 import time
 from typing import Dict, Any, List, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from django.db import connection
 
 from games.models import Game
 from .text_analyzer import TextAnalyzer
@@ -13,15 +11,14 @@ from .range_cache import RangeCacheManager
 
 
 class BatchAnalyzer:
-    """Пакетный анализатор для обработки множества игр"""
+    """ОПТИМИЗИРОВАННЫЙ пакетный анализатор с параллельной обработкой"""
 
-    def __init__(self, verbose: bool = False):
+    def __init__(self, verbose: bool = False, max_workers: int = 4):
         self.verbose = verbose
+        self.max_workers = max_workers
         self.text_analyzer = TextAnalyzer(verbose=verbose)
 
-    # games/analyze/batch_analyzer.py
-
-    def analyze_games(
+    def analyze_games_fast(
             self,
             game_ids: Optional[List[int]] = None,
             analyze_keywords: bool = False,
@@ -30,14 +27,13 @@ class BatchAnalyzer:
             limit: Optional[int] = None,
             offset: int = 0,
             use_cache: bool = True,
-            verbose: Optional[bool] = None  # Добавляем параметр для переопределения
+            batch_size: int = 50,
+            verbose: Optional[bool] = None
     ) -> Dict[str, Any]:
         """
-        Анализирует несколько игр С ПОДДЕРЖКОЙ КЭША
+        ОПТИМИЗИРОВАННЫЙ: Анализирует несколько игр с параллельной обработкой
         """
         start_time = time.time()
-
-        # Используем переданный verbose или self.verbose
         current_verbose = verbose if verbose is not None else self.verbose
 
         # Получаем игры
@@ -59,8 +55,6 @@ class BatchAnalyzer:
                     games_to_analyze.append(game)
                 else:
                     skipped_cached += 1
-                    if current_verbose:
-                        print(f"ℹ️ Игра {game.id} ({game.name}) уже проверена, пропускаем (кэш)")
 
         else:
             games_to_analyze = list(games)
@@ -73,11 +67,18 @@ class BatchAnalyzer:
 
         analyzed_games = len(games_to_analyze)
 
+        if current_verbose:
+            print(f"🔍 Анализируем {analyzed_games} игр (пропущено {skipped_cached} по кэшу)")
+            if analyze_keywords:
+                print("⚡ Используется оптимизированный поиск ключевых слов (Trie)")
+
+        # Разделяем на батчи для параллельной обработки
+        batches = self._create_batches(games_to_analyze, batch_size)
+
         # Статистика
         stats = {
             'total_games_in_database': total_games_in_db,
             'games_already_checked': skipped_cached,
-            'games_need_analysis': total_games - skipped_cached,
             'games_selected_for_analysis': analyzed_games,
             'games_with_text': 0,
             'games_with_results': 0,
@@ -86,59 +87,49 @@ class BatchAnalyzer:
             'errors': 0,
             'detailed_results': [],
             'cache_used': use_cache,
-            'skipped_cached': skipped_cached  # НОВОЕ: количество пропущенных из-за кэша
+            'skipped_cached': skipped_cached,
+            'batches_processed': 0,
+            'batch_size': batch_size,
+            'max_workers': self.max_workers
         }
 
-        # Минимальный и максимальный ID для обновления кэша
-        min_game_id = float('inf')
-        max_game_id = 0
+        # Параллельная обработка батчей
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = []
 
-        # Анализируем каждую игру
-        for index, game in enumerate(games_to_analyze, 1):
-            try:
-                # Обновляем min/max ID
-                min_game_id = min(min_game_id, game.id)
-                max_game_id = max(max_game_id, game.id)
-
-                game_result = self._analyze_single_game_in_batch(
-                    game=game,
-                    index=index,
-                    analyze_keywords=analyze_keywords,
-                    update_database=update_database,
-                    text_source=text_source
+            for batch_idx, batch in enumerate(batches):
+                future = executor.submit(
+                    self._process_batch,
+                    batch,
+                    batch_idx,
+                    analyze_keywords,
+                    update_database,
+                    text_source,
+                    stats
                 )
+                futures.append(future)
 
-                # Обновляем статистику
-                if game_result['has_text']:
-                    stats['games_with_text'] += 1
+            # Собираем результаты
+            for future in as_completed(futures):
+                try:
+                    batch_results = future.result()
+                    # Обновляем общую статистику
+                    self._update_stats_from_batch(stats, batch_results)
+                    stats['batches_processed'] += 1
 
-                if game_result['has_results']:
-                    stats['games_with_results'] += 1
-                    stats['total_criteria_found'] += game_result['found_count']
+                    if current_verbose and stats['batches_processed'] % 10 == 0:
+                        self._print_progress(stats, start_time)
 
-                if game_result.get('updated', False):
-                    stats['games_updated'] += 1
-
-                stats['detailed_results'].append(game_result)
-
-                # Логирование прогресса
-                if current_verbose and index % 100 == 0:
-                    print(f"Обработано {index}/{analyzed_games} игр")
-
-            except Exception as e:
-                stats['errors'] += 1
-                if current_verbose:
-                    print(f"Ошибка при анализе игры {game.id} ({game.name}): {e}")
-                continue
-
-        # Обновляем диапазон проверенных игр
-        if min_game_id <= max_game_id and analyzed_games > 0:
-            RangeCacheManager.update_game_range(min_game_id, max_game_id)
-            if current_verbose:
-                print(f"✅ Обновлен диапазон проверенных игр: {min_game_id}-{max_game_id}")
+                except Exception as e:
+                    stats['errors'] += 1
+                    if current_verbose:
+                        print(f"❌ Ошибка обработки батча: {e}")
 
         # Финальная статистика
         stats['execution_time'] = time.time() - start_time
+
+        if current_verbose:
+            self._print_final_stats(stats)
 
         return {
             'success': True,
@@ -146,49 +137,126 @@ class BatchAnalyzer:
             'timestamp': start_time
         }
 
-    def _analyze_single_game_in_batch(
+    def _create_batches(self, games: List[Game], batch_size: int) -> List[List[Game]]:
+        """Создает батчи для обработки"""
+        return [games[i:i + batch_size] for i in range(0, len(games), batch_size)]
+
+    def _process_batch(
             self,
-            game: Game,
-            index: int,
+            batch: List[Game],
+            batch_idx: int,
             analyze_keywords: bool,
             update_database: bool,
-            text_source: str
+            text_source: str,
+            stats: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Анализирует одну игру в рамках пакетной обработки"""
-        # Получаем текст
-        text = get_game_text(game, text_source)
-
-        result = {
-            'index': index,
-            'game_id': game.id,
-            'game_name': game.name,
-            'has_text': bool(text),
-            'text_length': len(text) if text else 0,
-            'has_results': False,
-            'found_count': 0,
-            'updated': False
+        """Обрабатывает один батч игр"""
+        batch_results = {
+            'games_with_text': 0,
+            'games_with_results': 0,
+            'total_criteria_found': 0,
+            'games_updated': 0,
+            'errors': 0,
+            'games': []
         }
 
-        if not text:
-            return result
+        for game in batch:
+            try:
+                # Получаем текст
+                text = get_game_text(game, text_source)
 
-        # Анализируем текст
-        analysis_result = self.text_analyzer.analyze(
-            text=text,
-            analyze_keywords=analyze_keywords
-        )
+                if not text:
+                    batch_results['games'].append({
+                        'game_id': game.id,
+                        'has_text': False,
+                        'has_results': False
+                    })
+                    continue
 
-        result['has_results'] = analysis_result['has_results']
-        result['found_count'] = analysis_result['summary'].get('total_found', 0) if analyze_keywords else \
-            analysis_result['summary'].get('found_count', 0)
+                batch_results['games_with_text'] += 1
 
-        # Обновляем базу если нужно
-        if update_database and analysis_result['has_results']:
-            updated = update_game_criteria(
-                game=game,
-                results=analysis_result['results'],
-                is_keywords=analyze_keywords
-            )
-            result['updated'] = updated
+                # Анализируем
+                analysis_result = self.text_analyzer.analyze(
+                    text=text,
+                    analyze_keywords=analyze_keywords,
+                    existing_game=game,
+                    detailed_patterns=False,
+                    exclude_existing=True
+                )
 
-        return result
+                game_result = {
+                    'game_id': game.id,
+                    'has_text': True,
+                    'has_results': analysis_result['has_results'],
+                    'found_count': analysis_result['summary'].get('found_count', 0),
+                    'text_length': len(text)
+                }
+
+                if analysis_result['has_results']:
+                    batch_results['games_with_results'] += 1
+                    batch_results['total_criteria_found'] += analysis_result['summary'].get('found_count', 0)
+
+                    # Обновляем базу если нужно
+                    if update_database:
+                        updated = update_game_criteria(
+                            game=game,
+                            results=analysis_result['results'],
+                            is_keywords=analyze_keywords
+                        )
+                        if updated:
+                            batch_results['games_updated'] += 1
+                            game_result['updated'] = True
+
+                batch_results['games'].append(game_result)
+
+            except Exception as e:
+                batch_results['errors'] += 1
+                batch_results['games'].append({
+                    'game_id': game.id,
+                    'error': str(e)
+                })
+
+        return batch_results
+
+    def _update_stats_from_batch(self, stats: Dict[str, Any], batch_results: Dict[str, Any]):
+        """Обновляет общую статистику из результатов батча"""
+        stats['games_with_text'] += batch_results['games_with_text']
+        stats['games_with_results'] += batch_results['games_with_results']
+        stats['total_criteria_found'] += batch_results['total_criteria_found']
+        stats['games_updated'] += batch_results['games_updated']
+        stats['errors'] += batch_results['errors']
+        stats['detailed_results'].extend(batch_results['games'])
+
+    def _print_progress(self, stats: Dict[str, Any], start_time: float):
+        """Выводит прогресс обработки"""
+        elapsed = time.time() - start_time
+        processed = stats['games_with_text'] + stats['errors']
+        total = stats['games_selected_for_analysis']
+
+        if elapsed > 0 and processed > 0:
+            games_per_second = processed / elapsed
+            estimated_total = elapsed * total / processed if processed > 0 else 0
+            remaining = max(0, estimated_total - elapsed)
+
+            print(f"📊 Прогресс: {processed}/{total} игр "
+                  f"({processed / total * 100:.1f}%) | "
+                  f"⚡ {games_per_second:.1f} игр/сек | "
+                  f"⏱️ Осталось: {remaining:.0f}сек")
+
+    def _print_final_stats(self, stats: Dict[str, Any]):
+        """Выводит финальную статистику"""
+        print("\n" + "=" * 60)
+        print("📊 ФИНАЛЬНАЯ СТАТИСТИКА")
+        print("=" * 60)
+        print(f"🔄 Обработано игр: {stats['games_selected_for_analysis']}")
+        print(f"📝 Игр с текстом: {stats['games_with_text']}")
+        print(f"🎯 Игр с результатами: {stats['games_with_results']}")
+        print(f"📈 Всего найдено элементов: {stats['total_criteria_found']}")
+        print(f"💾 Обновлено игр: {stats['games_updated']}")
+        print(f"❌ Ошибок: {stats['errors']}")
+        print(f"⏱️ Время выполнения: {stats['execution_time']:.1f} секунд")
+
+        if stats['execution_time'] > 0:
+            games_per_second = stats['games_with_text'] / stats['execution_time']
+            print(f"⚡ Скорость обработки: {games_per_second:.1f} игр/секунду")
+        print("=" * 60)
