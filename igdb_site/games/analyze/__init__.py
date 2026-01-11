@@ -1,22 +1,12 @@
-# games/analyze/__init__.py
-"""
-Пакет для анализа игр
-
-Основные классы:
-    GameAnalyzerAPI - главный API для анализа
-    TextAnalyzer - анализатор текста
-    BatchAnalyzer - пакетный анализатор
-    RangeCacheManager - менеджер кэширования диапазонов
-
-Вспомогательные модули:
-    utils - вспомогательные функции
-"""
-
+# games/analyze/__init__.py - ДОБАВЛЯЕМ НОВЫЕ КЛАССЫ
 from .game_analyzer_api import GameAnalyzerAPI
 from .text_analyzer import TextAnalyzer
 from .batch_analyzer import BatchAnalyzer
 from .range_cache import RangeCacheManager
 from .utils import get_game_text, update_game_criteria, format_game_response, create_error_response
+
+# НОВЫЕ ОПТИМИЗИРОВАННЫЕ КЛАССЫ
+from .keyword_trie import KeywordTrie, KeywordTrieManager
 
 __all__ = [
     'GameAnalyzerAPI',
@@ -26,5 +16,8 @@ __all__ = [
     'get_game_text',
     'update_game_criteria',
     'format_game_response',
-    'create_error_response'
+    'create_error_response',
+    # Новые оптимизированные классы
+    'KeywordTrie',
+    'KeywordTrieManager'
 ]
