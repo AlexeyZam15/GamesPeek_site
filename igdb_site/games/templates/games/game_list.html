@@ -9,20 +9,23 @@
 {% endblock %}
 
 {% block content %}
-<div class="container">
-    <!-- ЗАГОЛОВОК -->
-    <div class="row mb-4">
-        <div class="col-12">
-            <h1>🎮 Browse Games</h1>
+    <div class="container">
+        <!-- ЗАГОЛОВОК -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <h1>🎮 Browse Games</h1>
+            </div>
         </div>
+
+        <!-- Форма фильтров -->
+        {% include 'games/game_list/_filters_form.html' %}
+
+        <!-- Результаты -->
+        {% include 'games/game_list/_games_results.html' %}
     </div>
+{% endblock %}
 
-    <!-- Форма фильтров -->
-    {% include 'games/game_list/_filters_form.html' %}
-
-    <!-- Результаты -->
-    {% include 'games/game_list/_games_results.html' %}
-</div>
-
-{% include 'games/game_list/_game_list_script.html' %}
+{% block extra_js %}
+    <script src="{% static 'games/js/filters_script.js' %}"></script>
+    {% include 'games/game_list/_game_list_script.html' %}
 {% endblock %}

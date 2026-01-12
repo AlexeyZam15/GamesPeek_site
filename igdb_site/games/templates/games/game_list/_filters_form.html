@@ -561,6 +561,7 @@
                                 </div>
                             </div>
 
+
                             <!-- Game Modes -->
                             <div class="filter-subsection mt-3">
                                 <label class="form-label toggle-subsection" data-target="game-modes-content"
@@ -588,47 +589,16 @@
                                             </div>
                                         {% endif %}
 
-                                        <!-- Видимые режимы игры (первые 27) -->
+                                        <!-- Видимые режимы игры -->
                                         <div id="visible-game-modes-badges">
                                             {% for game_mode in selected_game_modes_objects|slice:":27" %}
                                                 <span class="badge bg-purple me-1 mb-1 active-game-mode-tag"
                                                       data-game-mode-id="{{ game_mode.id }}"
                                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
-                                                    {{ game_mode.name }} <i class="bi bi-x ms-1"
-                                                                            style="font-size: 0.9rem;"></i>
-                                                </span>
+                        {{ game_mode.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                    </span>
                                             {% endfor %}
                                         </div>
-
-                                        <!-- Скрытые режимы игры (остальные) -->
-                                        {% if selected_game_modes_objects|length > 27 %}
-                                            <div id="hidden-game-modes-badges" style="display: none;">
-                                                {% for game_mode in selected_game_modes_objects|slice:"27:" %}
-                                                    <span class="badge bg-purple me-1 mb-1 active-game-mode-tag"
-                                                          data-game-mode-id="{{ game_mode.id }}"
-                                                          style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
-                                                        {{ game_mode.name }} <i class="bi bi-x ms-1"
-                                                                                style="font-size: 0.9rem;"></i>
-                                                    </span>
-                                                {% endfor %}
-                                            </div>
-
-                                            <!-- Кнопки показать/скрыть -->
-                                            <div class="text-center mt-2">
-                                                <button type="button"
-                                                        class="btn btn-sm btn-outline-secondary show-more-game-modes"
-                                                        onclick="toggleMoreGameModes(this)">
-                                                    <i class="bi bi-chevron-down"></i> Show all
-                                                    ({{ selected_game_modes_objects|length }})
-                                                </button>
-                                                <button type="button"
-                                                        class="btn btn-sm btn-outline-secondary show-less-game-modes"
-                                                        style="display: none;"
-                                                        onclick="toggleLessGameModes(this)">
-                                                    <i class="bi bi-chevron-up"></i> Show less
-                                                </button>
-                                            </div>
-                                        {% endif %}
                                     </div>
 
                                     <!-- Список режимов игры -->
@@ -654,15 +624,6 @@
                                             {% endfor %}
                                         </div>
                                     </div>
-
-                                    <!-- Кнопка "Show all game modes" -->
-                                    <div class="text-center mt-2">
-                                        <button type="button"
-                                                class="btn btn-outline-secondary btn-sm show-all-game-modes-btn">
-                                            <span class="show-text">Show all game modes</span>
-                                            <span class="hide-text" style="display: none;">Show less</span>
-                                        </button>
-                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -682,5 +643,3 @@
         </form>
     </div>
 </div>
-
-{% include 'games/game_list/_filters_script.html' %}

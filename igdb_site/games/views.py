@@ -1013,9 +1013,9 @@ def _get_similar_games_mode(params: Dict[str, str], selected_criteria: Dict[str,
     games_with_similarity = _format_similar_games_data(similar_games_data)
     _sort_similar_games(games_with_similarity, current_sort)
 
-    # Пагинация - ИСПРАВЛЕНО: 16 игр на страницу
+    # Пагинация
     page_obj, paginator, is_paginated = _paginate_results(
-        games_with_similarity, page_number, 16  # ← БЫЛО: ITEMS_PER_PAGE['similar']
+        games_with_similarity, page_number, 16
     )
 
     # Создаем source game объект
@@ -1037,9 +1037,10 @@ def _get_similar_games_mode(params: Dict[str, str], selected_criteria: Dict[str,
         'source_game_obj': source_game_obj,
     }
 
+
 def _get_cached_filter_data() -> Dict[str, List]:
-    """Получаем кэшированные данные для фильтров."""
-    filter_data = cache.get('optimized_filter_data_v3')
+    """Получаем кэшированные данные для всех фильтров."""
+    filter_data = cache.get('optimized_filter_data_v4')  # Увеличиваем версию кэша
 
     if not filter_data:
         filter_data = {
@@ -1070,32 +1071,50 @@ def _get_cached_filter_data() -> Dict[str, List]:
                 developed_game_count=Count('developed_games', distinct=True)
             ).filter(developed_game_count__gt=0).only('id', 'name').order_by('name')),
         }
-        cache.set('optimized_filter_data_v3', filter_data, 7200)
+        cache.set('optimized_filter_data_v4', filter_data, 7200)  # 2 часа кэша
 
     return filter_data
 
 
 def _get_selected_criteria_objects(selected_criteria: Dict[str, List[int]]) -> Dict[str, List]:
-    """Получаем объекты для выбранных критериев."""
+    """Получаем объекты для всех выбранных критериев."""
     selected_objects = {}
 
-    # Список полей для загрузки
-    fields_to_load = [
-        ('genres', Genre, ['id', 'name']),
-        ('keywords', Keyword, ['id', 'name']),
-        ('platforms', Platform, ['id', 'name', 'slug']),
-        ('themes', Theme, ['id', 'name']),
-        ('perspectives', PlayerPerspective, ['id', 'name']),
-        ('game_modes', GameMode, ['id', 'name']),
-        ('developers', Company, ['id', 'name']),
-    ]
+    # Жанры
+    if selected_criteria['genres']:
+        selected_objects['genres'] = list(Genre.objects.filter(
+            id__in=selected_criteria['genres']
+        ).only('id', 'name'))
 
-    for field_name, model_class, fields in fields_to_load:
-        if selected_criteria[field_name]:
-            selected_objects[field_name] = list(
-                model_class.objects.filter(id__in=selected_criteria[field_name])
-                .only(*fields)
-            )
+    # Ключевые слова
+    if selected_criteria['keywords']:
+        selected_objects['keywords'] = list(Keyword.objects.filter(
+            id__in=selected_criteria['keywords']
+        ).only('id', 'name'))
+
+    # Платформы
+    if selected_criteria['platforms']:
+        selected_objects['platforms'] = list(Platform.objects.filter(
+            id__in=selected_criteria['platforms']
+        ).only('id', 'name'))
+
+    # Темы
+    if selected_criteria['themes']:
+        selected_objects['themes'] = list(Theme.objects.filter(
+            id__in=selected_criteria['themes']
+        ).only('id', 'name'))
+
+    # Перспективы
+    if selected_criteria['perspectives']:
+        selected_objects['perspectives'] = list(PlayerPerspective.objects.filter(
+            id__in=selected_criteria['perspectives']
+        ).only('id', 'name'))
+
+    # Режимы игры
+    if selected_criteria['game_modes']:
+        selected_objects['game_modes'] = list(GameMode.objects.filter(
+            id__in=selected_criteria['game_modes']
+        ).only('id', 'name'))
 
     return selected_objects
 
@@ -1195,7 +1214,6 @@ def game_list(request: HttpRequest) -> HttpResponse:
     # 3. Если очень много параметров - используем агрессивный кэш
     total_params = sum(len(str(v)) for v in params.values() if v)
     if total_params > 1000:  # Очень длинный URL
-        # Специальный быстрый ключ для длинных запросов
         cache_key_long = f'game_list_long_{hashlib.md5(request.GET.urlencode()[:500].encode()).hexdigest()}'
         cached_long = cache.get(cache_key_long)
 
@@ -1206,7 +1224,10 @@ def game_list(request: HttpRequest) -> HttpResponse:
 
     selected_criteria = convert_params_to_lists(params)
 
-    # 4. Определяем режим
+    # 4. Получаем объекты для всех выбранных критериев (ВОТ ИСПРАВЛЕНИЕ!)
+    selected_criteria_objects = _get_selected_criteria_objects(selected_criteria)
+
+    # 5. Определяем режим
     find_similar = params.get('find_similar') == '1'
     source_game_obj = None
     if params.get('source_game'):
@@ -1215,7 +1236,7 @@ def game_list(request: HttpRequest) -> HttpResponse:
         except (Game.DoesNotExist, ValueError):
             pass
 
-    # 5. ВЫБОР РЕЖИМА с приоритетом на кэширование
+    # 6. ВЫБОР РЕЖИМА с приоритетом на кэширование
     if find_similar or source_game_obj or has_similarity_criteria(selected_criteria):
         mode_result = _get_similar_games_mode(params, selected_criteria, source_game_obj)
         mode = 'similar'
@@ -1227,11 +1248,11 @@ def game_list(request: HttpRequest) -> HttpResponse:
         )
         mode = 'regular'
 
-    # 6. БЫСТРАЯ загрузка фильтров из кэша
+    # 7. БЫСТРАЯ загрузка фильтров из кэша
     filter_data = _get_cached_filter_data()
     genres_list = cache.get('genres_list_v3') or list(Genre.objects.only('id', 'name').order_by('name'))
 
-    # 7. Минимальный контекст для скорости
+    # 8. Минимальный контекст для скорости (ДОБАВЛЯЕМ ВСЕ ОБЪЕКТЫ)
     context = {
         'games': mode_result.get('games', []),
         'games_with_similarity': mode_result.get('games_with_similarity', []),
@@ -1245,28 +1266,44 @@ def game_list(request: HttpRequest) -> HttpResponse:
 
         'genres': genres_list,
         'platforms': filter_data['platforms'],
-        'selected_genres': selected_criteria['genres'],
-        'selected_platforms': selected_criteria['platforms'],
-        'current_sort': params.get('sort', ''),
+        'themes': filter_data['themes'],
+        'perspectives': filter_data['perspectives'],
+        'game_modes': filter_data['game_modes'],
+        'popular_keywords': filter_data['popular_keywords'],
 
+        # Selected criteria IDs
+        'selected_genres': selected_criteria['genres'],
+        'selected_keywords': selected_criteria['keywords'],
+        'selected_platforms': selected_criteria['platforms'],
+        'selected_themes': selected_criteria['themes'],
+        'selected_perspectives': selected_criteria['perspectives'],
+        'selected_game_modes': selected_criteria['game_modes'],
+
+        # Selected criteria OBJECTS (ВОТ ИСПРАВЛЕНИЕ!)
+        'selected_genres_objects': selected_criteria_objects.get('genres', []),
+        'selected_keywords_objects': selected_criteria_objects.get('keywords', []),
+        'selected_platforms_objects': selected_criteria_objects.get('platforms', []),
+        'selected_themes_objects': selected_criteria_objects.get('themes', []),
+        'selected_perspectives_objects': selected_criteria_objects.get('perspectives', []),
+        'selected_game_modes_objects': selected_criteria_objects.get('game_modes', []),
+
+        'current_sort': params.get('sort', ''),
         'execution_time': round(time.time() - start_time, 3),
     }
 
-    # 8. Рендерим
+    # 9. Рендерим
     response = render(request, 'games/game_list.html', context)
 
-    # 9. АГРЕССИВНОЕ КЭШИРОВАНИЕ для медленных запросов
+    # 10. АГРЕССИВНОЕ КЭШИРОВАНИЕ для медленных запросов
     cache_time = 300  # 5 минут по умолчанию
 
     if context['execution_time'] > 1.0:
-        # Медленные запросы кэшируем дольше
         cache_time = 600  # 10 минут
         response['X-Cache-Reason'] = 'Slow-Query'
 
     cache.set(cache_key_simple, response, cache_time)
 
     if total_params > 1000:
-        # Длинные запросы тоже кэшируем
         cache.set(cache_key_long, response, cache_time)
 
     response['X-Cache-Hit'] = 'False'
