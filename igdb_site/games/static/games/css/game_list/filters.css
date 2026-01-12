@@ -417,3 +417,52 @@
         font-size: 0.85rem !important;
     }
 }
+
+/* Добавляем в конец файла */
+.active-theme-tag {
+    background: linear-gradient(135deg, var(--warning-color), #e67e22) !important;
+    color: #2c3e50 !important;
+    border: 2px solid #e67e22 !important;
+}
+
+.active-perspective-tag {
+    background: linear-gradient(135deg, #3498db, #2980b9) !important;
+    color: white !important;
+    border: 2px solid #3498db !important;
+}
+
+.active-game-mode-tag {
+    background: linear-gradient(135deg, #6f42c1, #8e44ad) !important;
+    color: white !important;
+    border: 2px solid #6f42c1 !important;
+}
+
+.theme-grid, .perspective-grid, .game-mode-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.theme-item, .perspective-item, .game-mode-item {
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #f8f9fa;
+}
+
+.theme-item:hover, .perspective-item:hover, .game-mode-item:hover {
+    background: #e9ecef;
+    border-color: #adb5bd;
+}
+
+.clear-themes-btn, .clear-perspectives-btn, .clear-game-modes-btn {
+    border-color: #6c757d !important;
+    color: #6c757d !important;
+}
+
+.clear-themes-btn:hover, .clear-perspectives-btn:hover, .clear-game-modes-btn:hover {
+    border-color: #495057 !important;
+    color: #495057 !important;
+    background-color: #f8f9fa !important;
+}
