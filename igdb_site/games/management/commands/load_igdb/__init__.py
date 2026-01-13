@@ -6,6 +6,7 @@ from .statistics import Statistics
 from .game_cache import GameCacheManager
 from .offset_manager import OffsetManager
 from .base_command import BaseGamesCommand, BaseProgressBar, TopProgressBar, SimpleProgressBar
+from .game_loader import GameLoader
 
 __all__ = [
     'DataCollector',
@@ -18,4 +19,5 @@ __all__ = [
     'BaseProgressBar',
     'TopProgressBar',
     'SimpleProgressBar',
+    'GameLoader',
 ]

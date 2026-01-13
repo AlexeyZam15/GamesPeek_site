@@ -41,6 +41,152 @@ class DataCollector:
         self.stdout = stdout
         self.stderr = stderr
 
+    def load_games_by_names(self, game_names_str, debug=False, limit=0, offset=0, min_rating_count=0,
+                            skip_existing=True, count_only=False, game_types_str='0,1,2,4,5,8,9,10,11'):
+        """Загрузка САМОЙ ПОПУЛЯРНОЙ игры по точному названию"""
+        game_names = [name.strip() for name in game_names_str.split(',') if name.strip()]
+
+        if not game_names:
+            self.stdout.write('⚠️  Не указаны имена игр')
+            return self._empty_result()
+
+        if debug:
+            self.stdout.write(f'🔍 Поиск САМОЙ ПОПУЛЯРНОЙ игры по имени: "{game_names[0]}"')
+
+        # Формируем условие для поиска игры по ТОЧНОМУ названию (без wildcard)
+        # Используем точное сравнение name = "..." вместо name ~ *"..."*
+        where_clause = f'name = "{game_names[0]}"'
+
+        if min_rating_count > 0:
+            where_clause = f'{where_clause} & rating_count >= {min_rating_count}'
+
+        # Добавляем фильтр по game_type если указаны типы
+        if game_types_str:
+            try:
+                game_types = [int(gt.strip()) for gt in game_types_str.split(',') if gt.strip()]
+                if game_types:
+                    game_types_str_query = ','.join(map(str, game_types))
+                    where_clause = f'{where_clause} & game_type = ({game_types_str_query})'
+            except ValueError:
+                self.stderr.write(f'   ⚠️  Ошибка парсинга game-types: "{game_types_str}"')
+
+        if debug:
+            self.stdout.write(f'🎯 Условие поиска (точное название): {where_clause}')
+
+        # Вместо load_games_by_query используем прямой запрос за ОДНОЙ игрой
+        return self._load_single_game_by_exact_name(where_clause, debug, skip_existing, count_only)
+
+    def _load_single_game_by_exact_name(self, where_clause, debug=False, skip_existing=True, count_only=False):
+        """Загружает САМУЮ ПОПУЛЯРНУЮ игру по точному имени"""
+        # Загружаем существующие ID игр для фильтрации
+        from games.models import Game
+        existing_game_ids = set()
+        if skip_existing:
+            existing_game_ids = set(Game.objects.values_list('igdb_id', flat=True))
+            if debug:
+                self.stdout.write(f'   📊 Игр в базе для фильтрации: {len(existing_game_ids)}')
+
+        try:
+            if debug:
+                self.stdout.write(f'   🎯 Запрос самой популярной игры...')
+
+            # Делаем запрос за ОДНОЙ самой популярной игрой
+            query = f'''
+                fields id,name,summary,storyline,genres,keywords,rating,rating_count,first_release_date,platforms,cover,game_type;
+                where {where_clause};
+                sort rating_count desc;
+                limit 1;
+            '''.strip()
+
+            games = make_igdb_request('games', query, debug=False)
+
+            if not games:
+                if debug:
+                    self.stdout.write('   ❌ Игра с таким названием не найдена')
+                return self._empty_result()
+
+            game = games[0]
+            game_id = game.get('id')
+
+            if debug:
+                self.stdout.write(
+                    f'   ✅ Найдена игра: "{game.get("name")}" (ID: {game_id}, rating_count: {game.get("rating_count", 0)})')
+
+            # Проверяем существование в базе
+            if skip_existing and game_id in existing_game_ids:
+                if debug:
+                    self.stdout.write(f'   ⏭️  Игра уже есть в базе, пропускаем')
+                return {
+                    'new_games': [],
+                    'all_found_games': [game],
+                    'total_games_checked': 1,
+                    'new_games_count': 0,
+                    'existing_games_skipped': 1,
+                    'last_checked_offset': 0,
+                    'limit_reached': False,
+                    'limit_reached_at_offset': None,
+                    'interrupted': False,
+                }
+
+            # Возвращаем только одну игру
+            return {
+                'new_games': [game],
+                'all_found_games': [game],
+                'total_games_checked': 1,
+                'new_games_count': 1,
+                'existing_games_skipped': 0,
+                'last_checked_offset': 0,
+                'limit_reached': False,
+                'limit_reached_at_offset': None,
+                'interrupted': False,
+            }
+
+        except Exception as e:
+            if debug:
+                self.stderr.write(f'   ❌ Ошибка при запросе игры: {str(e)}')
+            return self._empty_result()
+
+    def _empty_result(self):
+        """Возвращает пустой результат"""
+        return {
+            'new_games': [],
+            'all_found_games': [],
+            'total_games_checked': 0,
+            'new_games_count': 0,
+            'existing_games_skipped': 0,
+            'last_checked_offset': 0,
+            'limit_reached': False,
+            'limit_reached_at_offset': None,
+            'interrupted': False,
+        }
+
+    def load_all_popular_games(self, debug=False, limit=0, offset=0, min_rating_count=0,
+                               skip_existing=True, count_only=False, game_types_str='0,1,2,4,5,8,9,10,11'):
+        """Загрузка всех игр с сортировкой по популярности (rating_count)"""
+        # Формируем базовое условие для поиска
+        where_conditions = ['rating_count > 0', 'name != null']
+
+        if min_rating_count > 0:
+            where_conditions.append(f'rating_count >= {min_rating_count}')
+
+        # Добавляем фильтр по game_type если указаны типы
+        if game_types_str:
+            try:
+                game_types = [int(gt.strip()) for gt in game_types_str.split(',') if gt.strip()]
+                if game_types:
+                    game_types_str_query = ','.join(map(str, game_types))
+                    where_conditions.append(f'game_type = ({game_types_str_query})')
+            except ValueError:
+                if debug:
+                    self.stderr.write(f'   ⚠️  Ошибка парсинга game-types: "{game_types_str}"')
+
+        where_clause = ' & '.join(where_conditions)
+
+        if debug:
+            self.stdout.write(f'   🎯 Условие поиска популярных игр: {where_clause}')
+
+        return self.load_games_by_query(where_clause, debug, limit, offset, skip_existing, count_only)
+
     def load_games_by_query(self, where_clause, debug=False, limit=0, offset=0,
                             skip_existing=True, count_only=False, query_context=None):
         """Загрузка игр по запросу с пагинацией и offset"""
