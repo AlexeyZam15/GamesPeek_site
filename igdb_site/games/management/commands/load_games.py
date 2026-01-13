@@ -58,5 +58,6 @@ class Command(BaseCommand):
         loader = GameLoader(self.stdout, self.stderr)
         loader.execute_command(options)  # Не возвращаем результат
 
-        if options['debug']:
-            self.stdout.write('✅ Команда выполнена')
+        # УДАЛЕНО: лишний вывод
+        # if options['debug']:
+        #     self.stdout.write('✅ Команда выполнена')

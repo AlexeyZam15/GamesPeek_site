@@ -118,10 +118,10 @@ class GameLoader:
             if not reset_offset:
                 self._save_offset_for_continuation(options, current_offset)
 
-            # Выводим статистику, но не возвращаем значение
-            if debug:
-                self.stdout.write(f'\n🛑 Команда прервана, статистика: {total_stats}')
-            return
+            # УДАЛЕНО: лишний вывод статистики
+            # if debug:
+            #     self.stdout.write(f'\n🛑 Команда прервана, статистика: {total_stats}')
+            return  # Просто выходим
 
         except Exception as e:
             # Обработка других исключений
@@ -135,9 +135,10 @@ class GameLoader:
             if not reset_offset:
                 self._save_offset_for_continuation(options, current_offset)
 
-            if debug:
-                self.stdout.write(f'\n❌ Завершено с ошибкой, статистика: {total_stats}')
-            return
+            # УДАЛЕНО: лишний вывод статистики
+            # if debug:
+            #     self.stdout.write(f'\n❌ Завершено с ошибкой, статистика: {total_stats}')
+            return  # Просто выходим
 
         # ФИНАЛЬНЫЙ ЭТАП
         self._finalize_execution(total_stats, limit, progress_bar,
@@ -147,9 +148,9 @@ class GameLoader:
         # Итоговый статус
         self._display_final_status(total_stats, limit)
 
-        # Не возвращаем значение, просто выводим статистику при необходимости
-        if debug:
-            self.stdout.write(f'\n✅ Команда завершена успешно, статистика: {total_stats}')
+        # УДАЛЕНО: лишний вывод отладочной статистики
+        # if debug:
+        #     self.stdout.write(f'\n✅ Команда завершена успешно, статистика: {total_stats}')
 
     def _execute_single_iteration(self, iteration, current_offset, total_stats, execution_mode,
                                   limit, iteration_limit, options, progress_bar):
@@ -582,12 +583,31 @@ class GameLoader:
                 if params['debug']:
                     self.stdout.write('\n📥 ЗАГРУЗКА ВСЕХ ДАННЫХ...')
 
-                # Загружаем скриншоты и дополнительные данные
-                screenshots_info = {}
+                # Получаем информацию о скриншотах из collected_data
+                screenshots_info = collected_data.get('screenshots_info', {})
+
+                # Загружаем скриншоты ПЕРЕД дополнительными данными
+                screenshots_loaded = 0
+                if 'all_screenshot_games' in collected_data and screenshots_info:
+                    if params['debug']:
+                        self.stdout.write(f'\n📸 ЗАГРУЗКА СКРИНШОТОВ...')
+                        self.stdout.write(f'   📊 Информация о скриншотах: {screenshots_info}')
+
+                    screenshots_loaded = loader.load_screenshots_parallel(
+                        collected_data['all_screenshot_games'],
+                        collected_data['game_data_map'],
+                        screenshots_info,
+                        params['debug']
+                    )
+
+                    if params['debug']:
+                        self.stdout.write(f'   ✅ Загружено скриншотов: {screenshots_loaded}')
+
+                # Загружаем дополнительные данные
                 additional_data_map, additional_ids = loader.load_and_process_additional_data(
                     list(game_basic_map.keys()),
                     collected_data['game_data_map'],
-                    screenshots_info,
+                    screenshots_info,  # Передаем информацию о скриншотах
                     params['debug']
                 )
 
@@ -607,6 +627,7 @@ class GameLoader:
                         'created_count': created_count,
                         'skipped_count': 0,
                         'total_time': time.time() - iteration_start_time,
+                        'screenshots_loaded': screenshots_loaded,
                     }, errors
 
                 # Шаг 5: Обновляем игры с обложками
@@ -614,16 +635,6 @@ class GameLoader:
                     game_basic_map, data_maps.get('cover_map', {}),
                     collected_data['game_data_map'], params['debug']
                 )
-
-                # Шаг 6: Загружаем скриншоты
-                screenshots_loaded = 0
-                if 'all_screenshot_games' in collected_data:
-                    screenshots_loaded = loader.load_screenshots_parallel(
-                        collected_data['all_screenshot_games'],
-                        collected_data['game_data_map'],
-                        screenshots_info,
-                        params['debug']
-                    )
 
                 # Проверка прерывания
                 if interrupted.is_set():
@@ -635,7 +646,7 @@ class GameLoader:
                         'total_time': time.time() - iteration_start_time,
                     }, errors
 
-                # Шаг 7: Подготавливаем и создаем связи
+                # Шаг 6: Подготавливаем и создаем связи
                 all_game_relations, relations_prep_time = handler.prepare_game_relations(
                     game_basic_map, collected_data['game_data_map'],
                     additional_data_map, data_maps, params['debug']
@@ -646,7 +657,7 @@ class GameLoader:
                     all_game_relations, params['debug']
                 )
 
-                # Шаг 8: Собираем статистику
+                # Шаг 7: Собираем статистику
                 loaded_data_stats = {
                     'collected': collected_data,
                     'loaded': {k: len(v) for k, v in data_maps.items()}
@@ -758,6 +769,7 @@ class GameLoader:
                                                    last_checked_offset, total_games_checked,
                                                    new_games_count, errors, limit_reached)
 
+        # Возвращаем статистику, но НЕ выводим здесь общую статистику
         return {
             'total_games_checked': total_games_checked,
             'total_games_found': new_games_count,

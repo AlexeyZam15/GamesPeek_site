@@ -77,7 +77,7 @@ class DataCollector:
         return self._load_single_game_by_exact_name(where_clause, debug, skip_existing, count_only)
 
     def _load_single_game_by_exact_name(self, where_clause, debug=False, skip_existing=True, count_only=False):
-        """Загружает САМУЮ ПОПУЛЯРНУЮ игру по точному имени"""
+        """Загружает САМУЮ ПОПУЛЯРНУЮ игру по точному имени С СОБИРАНИЕМ ID СКРИНШОТОВ"""
         # Загружаем существующие ID игр для фильтрации
         from games.models import Game
         existing_game_ids = set()
@@ -90,9 +90,9 @@ class DataCollector:
             if debug:
                 self.stdout.write(f'   🎯 Запрос самой популярной игры...')
 
-            # Делаем запрос за ОДНОЙ самой популярной игрой
+            # ЗАПРОС ДОЛЖЕН ВКЛЮЧАТЬ screenshots!
             query = f'''
-                fields id,name,summary,storyline,genres,keywords,rating,rating_count,first_release_date,platforms,cover,game_type;
+                fields id,name,summary,storyline,genres,keywords,rating,rating_count,first_release_date,platforms,cover,game_type,screenshots;
                 where {where_clause};
                 sort rating_count desc;
                 limit 1;
@@ -111,6 +111,8 @@ class DataCollector:
             if debug:
                 self.stdout.write(
                     f'   ✅ Найдена игра: "{game.get("name")}" (ID: {game_id}, rating_count: {game.get("rating_count", 0)})')
+                if game.get('screenshots'):
+                    self.stdout.write(f'   📸 Скриншотов у игры: {len(game.get("screenshots", []))}')
 
             # Проверяем существование в базе
             if skip_existing and game_id in existing_game_ids:
@@ -261,12 +263,20 @@ class DataCollector:
     def _load_existing_ids_for_filtering(self, skip_existing, debug):
         """Загружает существующие ID игр для фильтрации"""
         from games.models import Game
-        existing_game_ids = set()
-        if skip_existing:
+
+        if not skip_existing:
+            return set()
+
+        # Используем values_list для оптимизации запроса
+        try:
             existing_game_ids = set(Game.objects.values_list('igdb_id', flat=True))
             if debug:
                 self.stdout.write(f'   📊 Игр в базе для фильтрации: {len(existing_game_ids)}')
-        return existing_game_ids
+            return existing_game_ids
+        except Exception as e:
+            if debug:
+                self.stderr.write(f'   ⚠️  Ошибка загрузки существующих ID: {e}')
+            return set()
 
     def _init_loading_stats(self):
         """Инициализирует статистику загрузки"""
@@ -446,7 +456,7 @@ class DataCollector:
                 self.stdout.write(f'      📦 Пачка {batch_num}: загрузка {batch_offset}-{batch_offset + batch_limit}...')
 
             query = f'''
-                fields id,name,summary,storyline,genres,keywords,rating,rating_count,first_release_date,platforms,cover,game_type;
+                fields id,name,summary,storyline,genres,keywords,rating,rating_count,first_release_date,platforms,cover,game_type,screenshots;
                 where {where_clause};
                 sort rating_count desc;
                 limit {batch_limit};
@@ -606,8 +616,6 @@ class DataCollector:
             'interrupted': interrupted,
         }
 
-    # Остальные методы класса остаются без изменений, так как они используются другими методами
-
     def collect_all_data_ids(self, all_games_data, debug=False):
         """Собирает все ID для последующей загрузки"""
         all_game_ids = []
@@ -616,6 +624,9 @@ class DataCollector:
         all_platform_ids = set()
         all_keyword_ids = set()
         game_data_map = {}
+
+        # НОВОЕ: собираем информацию о скриншотах
+        screenshots_info = {}  # game_id -> количество скриншотов
 
         if debug:
             self.stdout.write('   📊 Сбор всех ID данных...')
@@ -640,6 +651,14 @@ class DataCollector:
             if game_data.get('keywords'):
                 all_keyword_ids.update(game_data['keywords'])
 
+            # НОВОЕ: собираем информацию о скриншотах
+            if game_data.get('screenshots'):
+                screenshots_info[game_id] = len(game_data['screenshots'])
+                if debug:
+                    self.stdout.write(f'      • Игра {game_id}: {len(game_data["screenshots"])} скриншотов')
+            else:
+                screenshots_info[game_id] = 0
+
         if debug:
             self.stdout.write(f'   ✅ Собрано ID:')
             self.stdout.write(f'      • Игр: {len(all_game_ids)}')
@@ -647,6 +666,9 @@ class DataCollector:
             self.stdout.write(f'      • Жанров: {len(all_genre_ids)}')
             self.stdout.write(f'      • Платформ: {len(all_platform_ids)}')
             self.stdout.write(f'      • Ключевых слов: {len(all_keyword_ids)}')
+            # НОВОЕ:
+            games_with_screenshots = len([v for v in screenshots_info.values() if v > 0])
+            self.stdout.write(f'      • Игр со скриншотами: {games_with_screenshots}')
 
         return {
             'game_data_map': game_data_map,
@@ -655,5 +677,6 @@ class DataCollector:
             'all_genre_ids': list(all_genre_ids),
             'all_platform_ids': list(all_platform_ids),
             'all_keyword_ids': list(all_keyword_ids),
-            'all_screenshot_games': all_game_ids,
+            'all_screenshot_games': all_game_ids,  # Все игры могут иметь скриншоты
+            'screenshots_info': screenshots_info,  # НОВОЕ: передаем информацию о скриншотах
         }
