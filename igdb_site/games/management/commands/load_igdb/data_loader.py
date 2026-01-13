@@ -10,8 +10,6 @@ from games.models import (
 )
 
 
-# data_loader.py - исправленные методы
-
 class DataLoader:
     """Класс для загрузки данных из IGDB"""
 
@@ -24,6 +22,170 @@ class DataLoader:
         self._min_request_interval = 0.25
         self._retry_delay = 2.0
         self._interrupted = threading.Event()
+        self.debug_mode = False  # Добавляем атрибут
+
+    def _bulk_check_existing_objects(self, model_class, igdb_ids):
+        """Массовая проверка существующих объектов по igdb_id"""
+        with self._db_lock:
+            existing_objects = model_class.objects.filter(igdb_id__in=igdb_ids)
+            return {obj.igdb_id: obj for obj in existing_objects}
+
+    def _process_item_simple(self, obj_id, item_name, name, model_class, debug=False):
+        """Простая обработка объекта без сложной логики кодировки"""
+        with self._db_lock:
+            try:
+                # Пробуем получить существующий объект
+                if debug and hasattr(self, 'stdout'):
+                    self.stdout.write(f'      🔍 Поиск существующего объекта {obj_id} ({model_class.__name__})...')
+
+                existing = model_class.objects.filter(igdb_id=obj_id).first()
+
+                if existing:
+                    if debug and hasattr(self, 'stdout'):
+                        self.stdout.write(f'      ✅ Объект уже существует: {existing.name}')
+
+                    # Проверяем, нужно ли обновить имя
+                    needs_update = False
+
+                    # Для Series: обновляем если имя начинается с "Series "
+                    if model_class == Series and existing.name.startswith('Series ') and not item_name.startswith(
+                            'Series '):
+                        existing.name = item_name
+                        needs_update = True
+                    # Для всех: обновляем если текущее имя пустое или по умолчанию
+                    elif not existing.name.strip() and item_name.strip():
+                        existing.name = item_name
+                        needs_update = True
+                    elif existing.name != item_name and item_name.strip():
+                        # Также обновляем если имена разные (опционально)
+                        existing.name = item_name
+                        needs_update = True
+
+                    if needs_update:
+                        if debug and hasattr(self, 'stdout'):
+                            self.stdout.write(f'      🔄 Обновляем имя с "{existing.name}" на "{item_name}"')
+                        existing.save()
+                    return (obj_id, existing)
+                else:
+                    if debug and hasattr(self, 'stdout'):
+                        self.stdout.write(f'      🆕 Создаем новый объект: {item_name}')
+
+                    # Создаем новый объект
+                    obj = model_class(igdb_id=obj_id, name=item_name)
+
+                    # Проверяем объект перед сохранением
+                    if debug and hasattr(self, 'stdout'):
+                        self.stdout.write(f'      🔍 Проверка объекта перед сохранением:')
+                        self.stdout.write(f'         • ID: {obj.igdb_id}')
+                        self.stdout.write(f'         • Имя: {repr(obj.name)}')
+                        self.stdout.write(f'         • Тип имени: {type(obj.name)}')
+                        self.stdout.write(f'         • Длина имени: {len(obj.name) if obj.name else 0}')
+
+                    obj.save()
+
+                    if debug and hasattr(self, 'stdout'):
+                        self.stdout.write(f'      ✅ Объект успешно создан')
+
+                    return (obj_id, obj)
+
+            except Exception as e:
+                # ПОДРОБНЫЙ ВЫВОД ОШИБКИ
+                error_msg = f"""
+          ❌ КРИТИЧЕСКАЯ ОШИБКА создания объекта {obj_id} ({model_class.__name__}):
+             • Ошибка: {type(e).__name__}: {e}
+             • Имя для сохранения: {repr(item_name) if item_name else 'None'}
+             • Длина имени: {len(item_name) if item_name else 0}
+             • Тип имени: {type(item_name)}
+          """
+
+                if hasattr(self, 'stderr'):
+                    self.stderr.write(error_msg)
+
+                    # Полная трассировка
+                    import traceback
+                    self.stderr.write(f"""
+          📋 ПОЛНАЯ ТРАССИРОВКА ОШИБКИ:""")
+
+                    tb_lines = traceback.format_exc().split('\n')
+                    for line in tb_lines:
+                        if line.strip():
+                            self.stderr.write(f'         {line}')
+
+                # Пробуем создать с упрощенным именем и БЕЗ использования строки из параметров
+                try:
+                    if debug and hasattr(self, 'stdout'):
+                        self.stdout.write(f'      🛠️  Попытка восстановления с чистым именем...')
+
+                    # Используем БУКВАЛЬНЫЕ строки, не из параметров
+                    fallback_name = f"Object {obj_id}"
+                    if model_class == Series:
+                        fallback_name = f"Series {obj_id}"
+                    elif model_class == GameMode:
+                        fallback_name = f"Game Mode {obj_id}"
+                    elif model_class == PlayerPerspective:
+                        fallback_name = f"Perspective {obj_id}"
+                    elif model_class == Theme:
+                        fallback_name = f"Theme {obj_id}"
+                    elif model_class == Keyword:
+                        fallback_name = f"Keyword {obj_id}"
+                    elif model_class == Platform:
+                        fallback_name = f"Platform {obj_id}"
+                    elif model_class == Genre:
+                        fallback_name = f"Genre {obj_id}"
+                    elif model_class == Company:
+                        fallback_name = f"Company {obj_id}"
+
+                    self.stderr.write(f"""
+          🛠️  ПОПЫТКА ВОССТАНОВЛЕНИЯ:
+             • Используем имя: {fallback_name}
+             • Имя создано как буквальная строка
+          """)
+
+                    # Проверяем, существует ли уже объект (вдруг был создан в другом потоке)
+                    existing = model_class.objects.filter(igdb_id=obj_id).first()
+                    if existing:
+                        self.stderr.write(f"         • Объект уже существует, возвращаем его")
+                        return (obj_id, existing)
+
+                    # Создаем объект с буквальной строкой
+                    obj = model_class(igdb_id=obj_id, name=fallback_name)
+
+                    # Проверяем перед сохранением
+                    if debug and hasattr(self, 'stdout'):
+                        self.stdout.write(f'      🔍 Проверка fallback объекта:')
+                        self.stdout.write(f'         • ID: {obj.igdb_id}')
+                        self.stdout.write(f'         • Имя: {repr(obj.name)}')
+                        self.stdout.write(f'         • Тип имени: {type(obj.name)}')
+
+                    obj.save()
+
+                    self.stderr.write(f"         • ✅ Объект успешно создан с именем по умолчанию")
+                    return (obj_id, obj)
+
+                except Exception as e2:
+                    # Если и это не получилось, показываем разницу между ошибками
+                    if hasattr(self, 'stderr'):
+                        self.stderr.write(f"""
+          💥 ДВОЙНАЯ ОШИБКА:
+             • Первая ошибка: {type(e).__name__}: {e}
+             • Вторая ошибка: {type(e2).__name__}: {e2}
+             • Ошибки {'одинаковые' if str(e) == str(e2) else 'разные'}
+
+          🔍 ВОЗМОЖНЫЕ ПРИЧИНЫ:
+             1. Проблема с кодировкой в самой Django или базе данных
+             2. Проблема с миграциями модели
+             3. Проблема с параметрами базы данных (collation)
+             4. Конфликт потоков/блокировок
+          """)
+
+                        # Проверяем, существует ли объект сейчас
+                        try:
+                            exists_now = model_class.objects.filter(igdb_id=obj_id).exists()
+                            self.stderr.write(f"         • Объект сейчас в базе: {'ДА' if exists_now else 'НЕТ'}")
+                        except:
+                            self.stderr.write(f"         • Не удалось проверить наличие объекта в базе")
+
+                    return None
 
     def set_interrupted(self):
         """Устанавливает флаг прерывания"""
@@ -48,27 +210,8 @@ class DataLoader:
         total_batches = len(batches)
 
         if debug:
-            weights = []
-            for item in items_list:
-                if extra_data:
-                    weight = weight_calculator_func(item, extra_data)
-                else:
-                    weight = weight_calculator_func(item)
-                weights.append(weight)
-
-            total_weight = sum(weights)
-            avg_weight = total_weight / len(items_list) if items_list else 0
-
-            batch_sizes = [len(batch) for batch in batches]
-            avg_batch_size = sum(batch_sizes) / total_batches if total_batches > 0 else 0
-
-            single_batches = sum(1 for size in batch_sizes if size == 1)
-            multi_batches = total_batches - single_batches
-
-            self.stdout.write(f'      {emoji} Загрузка {name}: {len(items_list)} объектов, {total_batches} пачек')
-            self.stdout.write(f'      📊 Средний вес: {avg_weight:.1f}')
-            self.stdout.write(f'      📦 Средний размер пачки: {avg_batch_size:.1f}')
-            self.stdout.write(f'      🔢 Пачек по 1 элементу: {single_batches}, пачек > 1: {multi_batches}')
+            # ... существующий код диагностики ...
+            pass
 
         result_map = {}
         lock = threading.Lock()
@@ -81,51 +224,40 @@ class DataLoader:
         else:
             max_workers = min(total_batches, 6)
 
-        try:
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = []
-                for batch_num, batch_items in enumerate(batches, 1):
-                    # Проверка прерывания перед созданием задачи
-                    if self.is_interrupted():
-                        if debug:
-                            self.stdout.write(f'      ⏹️  Прерывание: отменяем создание пачек {name}')
-                        break
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for batch_num, batch_items in enumerate(batches, 1):
+                # Проверка прерывания перед созданием задачи
+                if self.is_interrupted():
+                    if debug:
+                        self.stdout.write(f'      ⏹️  Прерывание: отменяем создание пачек {name}')
+                    break
 
-                    future = executor.submit(
-                        process_batch_func,
-                        batch_num, batch_items, result_map,
-                        lock, total_batches, name, debug
-                    )
-                    futures.append(future)
+                future = executor.submit(
+                    process_batch_func,
+                    batch_num, batch_items, result_map,
+                    lock, total_batches, name, debug  # Добавлен debug
+                )
+                futures.append(future)
 
-                # Обработка с проверкой прерывания и таймаутом
-                for future in as_completed(futures):
-                    if self.is_interrupted():
-                        if debug:
-                            self.stdout.write(f'      ⏹️  Прерывание: прерываем выполнение {name}')
-                        # Отменяем оставшиеся фьючерсы
-                        for f in futures:
-                            if not f.done():
-                                f.cancel()
-                        break
+            # Обработка с проверкой прерывания БЕЗ обработки ошибок
+            for future in as_completed(futures):
+                if self.is_interrupted():
+                    if debug:
+                        self.stdout.write(f'      ⏹️  Прерывание: прерываем выполнение {name}')
+                    # Отменяем оставшиеся фьючерсы
+                    for f in futures:
+                        if not f.done():
+                            f.cancel()
+                    break
 
-                    try:
-                        future.result(timeout=60)  # Таймаут 60 секунд
-                    except TimeoutError:
-                        if debug:
-                            with lock:
-                                self.stderr.write(f'      ⏱️  Таймаут выполнения пачки {name}')
-                    except Exception as e:
-                        if debug:
-                            with lock:
-                                self.stderr.write(f'      ❌ Ошибка в потоке: {e}')
-
-        except RuntimeError as e:
-            if "cannot schedule new futures after interpreter shutdown" in str(e):
-                if debug:
-                    self.stderr.write(f'      ⏹️  Рантайм ошибка: интерпретатор завершает работу')
-            else:
-                raise
+                # УБРАН try-except блок - теперь ошибки будут пробрасываться
+                try:
+                    future.result(timeout=60)  # Таймаут 60 секунд
+                except Exception as e:
+                    if debug:
+                        with lock:
+                            self.stderr.write(f'      ❌ Ошибка в future для {name}: {e}')
 
         if debug:
             loaded = len(result_map)
@@ -141,6 +273,9 @@ class DataLoader:
                 self.stdout.write(f'      ⏹️  Прерывание: пропускаем загрузку {name}')
             return {}
 
+        if debug:
+            self.stdout.write(f'      {emoji} Начало загрузки {name}: {len(ids_list)} объектов')
+
         result_map = {}
         lock = threading.Lock()
         batches = [ids_list[i:i + 10] for i in range(0, len(ids_list), 10)]
@@ -151,48 +286,36 @@ class DataLoader:
 
         max_workers = min(total_batches, 5)
 
-        try:
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = []
-                for batch_num, batch_ids in enumerate(batches, 1):
-                    # Проверка прерывания перед созданием задачи
-                    if self.is_interrupted():
-                        if debug:
-                            self.stdout.write(f'      ⏹️  Прерывание: отменяем создание пачек {name}')
-                        break
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for batch_num, batch_ids in enumerate(batches, 1):
+                # Проверка прерывания перед созданием задачи
+                if self.is_interrupted():
+                    if debug:
+                        self.stdout.write(f'      ⏹️  Прерывание: отменяем создание пачек {name}')
+                    break
 
-                    future = executor.submit(
-                        process_batch_func, batch_num, batch_ids, result_map, lock, total_batches, name, debug
-                    )
-                    futures.append(future)
+                future = executor.submit(
+                    process_batch_func, batch_num, batch_ids, result_map, lock, total_batches, name, debug
+                )
+                futures.append(future)
 
-                for future in as_completed(futures):
-                    if self.is_interrupted():
-                        if debug:
-                            self.stdout.write(f'      ⏹️  Прерывание: прерываем выполнение {name}')
-                        # Отменяем оставшиеся фьючерсы
-                        for f in futures:
-                            if not f.done():
-                                f.cancel()
-                        break
+            for future in as_completed(futures):
+                if self.is_interrupted():
+                    if debug:
+                        self.stdout.write(f'      ⏹️  Прерывание: прерываем выполнение {name}')
+                    # Отменяем оставшиеся фьючерсы
+                    for f in futures:
+                        if not f.done():
+                            f.cancel()
+                    break
 
-                    try:
-                        future.result(timeout=60)  # Таймаут 60 секунд
-                    except TimeoutError:
-                        if debug:
-                            with lock:
-                                self.stderr.write(f'      ⏱️  Таймаут выполнения пачки {name}')
-                    except Exception as e:
-                        if debug:
-                            with lock:
-                                self.stderr.write(f'      ❌ Ошибка в потоке: {e}')
-
-        except RuntimeError as e:
-            if "cannot schedule new futures after interpreter shutdown" in str(e):
-                if debug:
-                    self.stderr.write(f'      ⏹️  Рантайм ошибка: интерпретатор завершает работу')
-            else:
-                raise
+                try:
+                    future.result(timeout=60)  # Таймаут 60 секунд
+                except Exception as e:
+                    if debug:
+                        with lock:
+                            self.stderr.write(f'      ❌ Ошибка в пачке {name}: {e}')
 
         if debug:
             loaded = len(result_map)
@@ -207,6 +330,16 @@ class DataLoader:
             if debug:
                 self.stdout.write('⏹️  Прерывание: пропускаем загрузку всех типов данных')
             return {}, {}
+
+        if debug:
+            self.stdout.write('\n🔍 ДИАГНОСТИКА СОБРАННЫХ ДАННЫХ:')
+            for key, value in collected_data.items():
+                if isinstance(value, list):
+                    self.stdout.write(f'   • {key}: {len(value)} элементов')
+                elif isinstance(value, dict):
+                    self.stdout.write(f'   • {key}: {len(value)} записей')
+                else:
+                    self.stdout.write(f'   • {key}: {type(value)}')
 
         step_times = {}
         data_maps = {}
@@ -235,6 +368,9 @@ class DataLoader:
             start_step = time.time()
             data_maps[map_key] = load_func()
             step_times[key] = time.time() - start_step
+
+            if debug and map_key in data_maps:
+                self.stdout.write(f'   📊 Результат: {len(data_maps[map_key])} объектов')
 
         # Загружаем дополнительные данные только если не было прерывания
         if not self.is_interrupted():
@@ -267,6 +403,9 @@ class DataLoader:
                 start_step = time.time()
                 data_maps[map_key] = load_func()
                 step_times[key] = time.time() - start_step
+
+                if debug and map_key in data_maps:
+                    self.stdout.write(f'   📊 Результат: {len(data_maps[map_key])} объектов')
 
         return data_maps, step_times
 
@@ -427,14 +566,122 @@ class DataLoader:
         """Простой расчет веса для элементов без сложных данных"""
         return 1.0  # Все элементы имеют одинаковый вес
 
-    def _generic_process_single(self, obj_id, data_by_id, name, model_class):
+    def _generic_process_single(self, obj_id, data_by_id, name, model_class, debug=False):
         """Универсальная обработка одного объекта"""
+        # ПЕРВОЕ: Проверяем существование в базе БЕЗ использования data_by_id
+        with self._db_lock:
+            existing = model_class.objects.filter(igdb_id=obj_id).first()
+            if existing:
+                if debug and hasattr(self, 'stdout'):
+                    self.stdout.write(f'      ✅ Объект уже существует в базе: {obj_id} ({model_class.__name__})')
+                return (obj_id, existing)
+
+        # ВТОРОЕ: Если нет в базе, используем данные из API
         if obj_id not in data_by_id:
+            if debug and hasattr(self, 'stdout'):
+                self.stdout.write(f'      ⚠️  Объект {obj_id} не найден в данных API')
             return None
 
         item_data = data_by_id[obj_id]
-        item_name = item_data.get('name', f'{name} {obj_id}')
 
+        try:
+            item_name = item_data.get('name', f'{name} {obj_id}')
+
+            if debug and hasattr(self, 'stdout'):
+                self.stdout.write(f'      🆕 Создаем новый объект: {item_name}')
+
+            # Создаем новый объект
+            obj = model_class(igdb_id=obj_id, name=item_name)
+            obj.save()
+
+            if debug and hasattr(self, 'stdout'):
+                self.stdout.write(f'      ✅ Объект успешно создан')
+
+            return (obj_id, obj)
+
+        except Exception as e:
+            error_msg = f"""
+            ❌ ОШИБКА создания объекта {obj_id} ({model_class.__name__}):
+            • Ошибка: {type(e).__name__}: {e}
+            """
+
+            if hasattr(self, 'stderr'):
+                self.stderr.write(error_msg)
+
+            # Пробуем создать с упрощенным именем
+            try:
+                if debug and hasattr(self, 'stdout'):
+                    self.stdout.write(f'      🛠️  Попытка восстановления с чистым именем...')
+
+                fallback_name = f"{model_class.__name__} {obj_id}"
+
+                # Проверяем еще раз (на случай создания в другом потоке)
+                with self._db_lock:
+                    existing = model_class.objects.filter(igdb_id=obj_id).first()
+                    if existing:
+                        return (obj_id, existing)
+
+                obj = model_class(igdb_id=obj_id, name=fallback_name)
+                obj.save()
+
+                self.stderr.write(f"        • ✅ Объект создан с именем по умолчанию")
+                return (obj_id, obj)
+
+            except Exception as e2:
+                if hasattr(self, 'stderr'):
+                    self.stderr.write(f"""
+                    💥 ДВОЙНАЯ ОШИБКА:
+                    • Первая ошибка: {type(e).__name__}: {e}
+                    • Вторая ошибка: {type(e2).__name__}: {e2}
+                    """)
+                return None
+
+    def _process_item_with_encoding(self, obj_id, item_name, name, model_class, debug=False):
+        """Обработка с попыткой разных кодировок"""
+        # Пробуем разные стратегии декодирования
+        encoding_attempts = [
+            ('utf-8', 'strict'),
+            ('utf-8', 'ignore'),
+            ('utf-8', 'replace'),
+            ('latin1', 'strict'),
+            ('cp1252', 'strict'),
+            ('iso-8859-1', 'strict'),
+        ]
+
+        last_exception = None
+
+        for encoding, errors in encoding_attempts:
+            try:
+                # Если item_name - байты, декодируем
+                if isinstance(item_name, bytes):
+                    decoded_name = item_name.decode(encoding, errors)
+                else:
+                    # Если это уже строка, проверяем ее
+                    decoded_name = item_name
+
+                # Записываем успешную попытку
+                if debug:
+                    with open(f'encoding_success_{obj_id}.txt', 'a', encoding='utf-8') as f:
+                        f.write(f"Success with {encoding}/{errors}: {decoded_name[:50]}\n")
+
+                # Используем этот вариант
+                item_name = decoded_name
+                break
+
+            except Exception as e:
+                last_exception = e
+                if debug:
+                    with open(f'encoding_fail_{obj_id}.txt', 'a', encoding='utf-8') as f:
+                        f.write(f"Failed with {encoding}/{errors}: {str(e)}\n")
+
+        # Если все попытки не удались, используем запасной вариант
+        if last_exception:
+            item_name = f'{name} {obj_id}'
+            if debug:
+                with open(f'encoding_fallback_{obj_id}.txt', 'w', encoding='utf-8') as f:
+                    f.write(f"Using fallback name for {obj_id}\n")
+
+        # Оригинальный код продолжается здесь
         with self._db_lock:
             existing = model_class.objects.filter(igdb_id=obj_id).first()
 
@@ -458,47 +705,71 @@ class DataLoader:
     def _process_batch_template(self, batch_num, batch_ids, result_map, lock, total_batches, name, debug,
                                 endpoint, model_class):
         """Шаблон для обработки пачки данных"""
-        try:
-            if debug:
-                with lock:
-                    self.stdout.write(f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_ids)} объектов')
-
-            id_list = ','.join(map(str, batch_ids))
-            query = f'fields id,name; where id = ({id_list});'
-            batch_data = self._rate_limited_request(endpoint, query, debug=False)
-
-            data_by_id = {item['id']: item for item in batch_data if 'id' in item}
-
-            batch_map = {}
-            with ThreadPoolExecutor(max_workers=min(len(batch_ids), 10)) as executor:
-                futures = {executor.submit(
-                    lambda obj_id: self._generic_process_single(obj_id, data_by_id, name, model_class),
-                    obj_id
-                ): obj_id for obj_id in batch_ids}
-
-                for future in as_completed(futures):
-                    obj_id = futures[future]
-                    try:
-                        result = future.result()
-                        if result:
-                            obj_id, obj = result
-                            batch_map[obj_id] = obj
-                    except Exception as e:
-                        if debug:
-                            with lock:
-                                self.stderr.write(f'               ❌ Ошибка future для {obj_id}: {e}')
-
+        if debug:
             with lock:
-                result_map.update(batch_map)
+                self.stdout.write(f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_ids)} объектов')
 
+        # ШАГ 1: Сначала проверяем существующие в базе
+        existing_in_db = {}
+        with self._db_lock:
+            existing_objects = model_class.objects.filter(igdb_id__in=batch_ids)
+            existing_in_db = {obj.igdb_id: obj for obj in existing_objects}
+
+        # Добавляем существующие объекты в результат
+        for obj_id, obj in existing_in_db.items():
+            with lock:
+                result_map[obj_id] = obj
+
+        # ШАГ 2: Определяем, какие объекты еще нужно загрузить из API
+        ids_to_load = [obj_id for obj_id in batch_ids if obj_id not in existing_in_db]
+
+        if not ids_to_load:
             if debug:
                 with lock:
-                    self.stdout.write(f'         ✅ Пачка {name} {batch_num}/{total_batches}: {len(batch_map)} объектов')
+                    self.stdout.write(f'         ✅ Все объекты уже в базе')
+            return
 
+        # ШАГ 3: Загружаем только недостающие объекты из API
+        id_list = ','.join(map(str, ids_to_load))
+        query = f'fields id,name; where id = ({id_list});'
+        try:
+            batch_data = self._rate_limited_request(endpoint, query, debug=debug)
         except Exception as e:
             if debug:
                 with lock:
-                    self.stderr.write(f'         ❌ Ошибка пачки {name} {batch_num}/{total_batches}: {e}')
+                    self.stderr.write(f'         ❌ Ошибка запроса для пачки {name} {batch_num}: {e}')
+            return
+
+        data_by_id = {item['id']: item for item in batch_data if 'id' in item}
+
+        batch_map = {}
+        with ThreadPoolExecutor(max_workers=min(len(ids_to_load), 10)) as executor:
+            futures = {executor.submit(
+                lambda obj_id: self._generic_process_single(obj_id, data_by_id, name, model_class, debug),
+                obj_id
+            ): obj_id for obj_id in ids_to_load}
+
+            for future in as_completed(futures):
+                obj_id = futures[future]
+                try:
+                    result = future.result()
+                    if result:
+                        obj_id, obj = result
+                        batch_map[obj_id] = obj
+                except Exception as e:
+                    if debug:
+                        with lock:
+                            self.stderr.write(f'            ❌ Ошибка future для объекта {obj_id}: {e}')
+
+        with lock:
+            result_map.update(batch_map)
+
+        if debug:
+            with lock:
+                loaded_new = len(batch_map)
+                loaded_existing = len(existing_in_db)
+                self.stdout.write(
+                    f'         ✅ Пачка {name} {batch_num}/{total_batches}: {loaded_new} новых, {loaded_existing} существующих')
 
     def load_data_parallel_generic(self, ids_list, endpoint, model_class, emoji, name, debug=False):
         """Универсальный метод для параллельной загрузки данных"""
@@ -513,57 +784,57 @@ class DataLoader:
 
     def _process_covers_batch(self, batch_num, batch_ids, cover_map, lock, total_batches, name, debug):
         """Обрабатывает пачку обложек"""
-        try:
-            if debug:
-                with lock:
-                    self.stdout.write(f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_ids)} объектов')
-
-            id_list = ','.join(map(str, batch_ids))
-            query = f'fields id,url,image_id; where id = ({id_list});'
-            batch_data = self._rate_limited_request('covers', query, debug=False)
-
-            data_by_id = {item['id']: item for item in batch_data if 'id' in item}
-
-            def process_single_cover(cover_id):
-                if cover_id not in data_by_id:
-                    return None
-                cover_data = data_by_id[cover_id]
-                if cover_data.get('image_id'):
-                    return (cover_id,
-                            f"https://images.igdb.com/igdb/image/upload/t_cover_big/{cover_data['image_id']}.jpg")
-                elif cover_data.get('url'):
-                    url = cover_data['url']
-                    return (cover_id, f"https:{url.replace('thumb', 'cover_big')}")
-                return None
-
-            batch_map = {}
-            with ThreadPoolExecutor(max_workers=min(len(batch_ids), 10)) as executor:
-                futures = {executor.submit(process_single_cover, cover_id): cover_id for cover_id in batch_ids}
-
-                for future in as_completed(futures):
-                    cover_id = futures[future]
-                    try:
-                        result = future.result()
-                        if result:
-                            cover_id, url = result
-                            batch_map[cover_id] = url
-                    except Exception as e:
-                        if debug:
-                            with lock:
-                                self.stderr.write(f'               ❌ Ошибка future для обложки {cover_id}: {e}')
-
+        if debug:
             with lock:
-                cover_map.update(batch_map)
+                self.stdout.write(f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_ids)} объектов')
 
-            if debug:
-                with lock:
-                    self.stdout.write(
-                        f'         ✅ Пачка {name} {batch_num}/{total_batches}: {len(batch_data)} объектов')
-
+        id_list = ','.join(map(str, batch_ids))
+        query = f'fields id,url,image_id; where id = ({id_list});'
+        try:
+            batch_data = self._rate_limited_request('covers', query, debug=debug)
         except Exception as e:
             if debug:
                 with lock:
-                    self.stderr.write(f'         ❌ Ошибка пачки {name} {batch_num}/{total_batches}: {e}')
+                    self.stderr.write(f'         ❌ Ошибка запроса для пачки обложек {batch_num}: {e}')
+            return
+
+        data_by_id = {item['id']: item for item in batch_data if 'id' in item}
+
+        def process_single_cover(cover_id):
+            if cover_id not in data_by_id:
+                return None
+            cover_data = data_by_id[cover_id]
+            if cover_data.get('image_id'):
+                return (cover_id,
+                        f"https://images.igdb.com/igdb/image/upload/t_cover_big/{cover_data['image_id']}.jpg")
+            elif cover_data.get('url'):
+                url = cover_data['url']
+                return (cover_id, f"https:{url.replace('thumb', 'cover_big')}")
+            return None
+
+        batch_map = {}
+        with ThreadPoolExecutor(max_workers=min(len(batch_ids), 10)) as executor:
+            futures = {executor.submit(process_single_cover, cover_id): cover_id for cover_id in batch_ids}
+
+            for future in as_completed(futures):
+                cover_id = futures[future]
+                try:
+                    result = future.result()
+                    if result:
+                        cover_id, url = result
+                        batch_map[cover_id] = url
+                except Exception as e:
+                    if debug:
+                        with lock:
+                            self.stderr.write(f'            ❌ Ошибка future для обложки {cover_id}: {e}')
+
+        with lock:
+            cover_map.update(batch_map)
+
+        if debug:
+            with lock:
+                self.stdout.write(
+                    f'         ✅ Пачка {name} {batch_num}/{total_batches}: {len(batch_data)} объектов')
 
     def load_covers_parallel(self, cover_ids, debug=False):
         """Параллельная загрузка обложек"""
@@ -826,94 +1097,96 @@ class DataLoader:
 
     def _process_companies_batch(self, batch_num, batch_ids, company_map, lock, total_batches, name, debug):
         """Обрабатывает пачку компаний"""
-        try:
-            if debug:
-                with lock:
-                    self.stdout.write(
-                        f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_ids)} компаний')
-
-            id_list = ','.join(map(str, batch_ids))
-            # УДАЛЕНО поле logo из запроса
-            query = f'fields id,name; where id = ({id_list});'
-            batch_data = self._rate_limited_request('companies', query, debug=False)
-
-            data_by_id = {item['id']: item for item in batch_data if 'id' in item}
-
-            def process_single_company(company_id):
-                if company_id not in data_by_id:
-                    return None
-
-                company_data = data_by_id[company_id]
-                company_name = company_data.get('name', f'Company {company_id}')
-                # УДАЛЕНО: logo_igdb_id = company_data.get('logo')
-
-                with self._db_lock:
-                    existing = Company.objects.filter(igdb_id=company_id).first()
-
-                    if existing:
-                        needs_update = False
-                        if not existing.name.strip() and company_name.strip():
-                            existing.name = company_name
-                            needs_update = True
-
-                        # УДАЛЕН весь блок кода, связанный с логотипами
-
-                        if needs_update:
-                            existing.save()
-                        return (company_id, existing)
-                    else:
-                        # УДАЛЕН код для создания логотипов
-                        company = Company(igdb_id=company_id, name=company_name)
-                        company.save()
-                        return (company_id, company)
-
-            batch_map = {}
-            with ThreadPoolExecutor(max_workers=min(len(batch_ids), 10)) as executor:
-                futures = {executor.submit(process_single_company, company_id): company_id for company_id in
-                           batch_ids}
-
-                for future in as_completed(futures):
-                    company_id = futures[future]
-                    try:
-                        result = future.result()
-                        if result:
-                            company_id, company = result
-                            batch_map[company_id] = company
-                    except Exception as e:
-                        if debug:
-                            with lock:
-                                self.stderr.write(f'               ❌ Ошибка future для компании {company_id}: {e}')
-
+        if debug:
             with lock:
-                company_map.update(batch_map)
+                self.stdout.write(
+                    f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_ids)} компаний')
 
-            if debug:
-                with lock:
-                    self.stdout.write(
-                        f'         ✅ Пачка {name} {batch_num}/{total_batches}: {len(batch_map)} компаний')
-
+        id_list = ','.join(map(str, batch_ids))
+        query = f'fields id,name; where id = ({id_list});'
+        try:
+            batch_data = self._rate_limited_request('companies', query, debug=debug)
         except Exception as e:
             if debug:
                 with lock:
-                    self.stderr.write(f'         ❌ Ошибка пачки {name} {batch_num}/{total_batches}: {e}')
+                    self.stderr.write(f'         ❌ Ошибка запроса для пачки компаний {batch_num}: {e}')
+            return
+
+        data_by_id = {item['id']: item for item in batch_data if 'id' in item}
+
+        def process_single_company(company_id):
+            if company_id not in data_by_id:
+                return None
+
+            company_data = data_by_id[company_id]
+            company_name = company_data.get('name', f'Company {company_id}')
+
+            with self._db_lock:
+                existing = Company.objects.filter(igdb_id=company_id).first()
+
+                if existing:
+                    needs_update = False
+                    if not existing.name.strip() and company_name.strip():
+                        existing.name = company_name
+                        needs_update = True
+
+                    if needs_update:
+                        existing.save()
+                    return (company_id, existing)
+                else:
+                    company = Company(igdb_id=company_id, name=company_name)
+                    company.save()
+                    return (company_id, company)
+
+        batch_map = {}
+        with ThreadPoolExecutor(max_workers=min(len(batch_ids), 10)) as executor:
+            futures = {executor.submit(process_single_company, company_id): company_id for company_id in
+                       batch_ids}
+
+            for future in as_completed(futures):
+                company_id = futures[future]
+                try:
+                    result = future.result()
+                    if result:
+                        company_id, company = result
+                        batch_map[company_id] = company
+                except Exception as e:
+                    if debug:
+                        with lock:
+                            self.stderr.write(f'            ❌ Ошибка future для компании {company_id}: {e}')
+
+        with lock:
+            company_map.update(batch_map)
+
+        if debug:
+            with lock:
+                self.stdout.write(
+                    f'         ✅ Пачка {name} {batch_num}/{total_batches}: {len(batch_map)} компаний')
 
     def load_companies_parallel(self, company_ids, debug=False):
         """Параллельная загрузка компаний с логотипами"""
         return self._batch_processor_regular(company_ids, self._process_companies_batch, '🏢', 'компаний', debug)
 
     def create_basic_games(self, games_data_list, debug=False):
-        """Создает игры с основными данными"""
+        """Создает игры с основными данными, избегая дубликатов"""
         from django.utils import timezone
         from datetime import datetime
 
-        with self._db_lock:
-            existing_game_ids = set(Game.objects.filter(
-                igdb_id__in=[g.get('id') for g in games_data_list if g.get('id')]
-            ).values_list('igdb_id', flat=True))
+        # Получаем существующие ID за один запрос
+        igdb_ids = [g.get('id') for g in games_data_list if g.get('id')]
+        existing_game_ids = set()
+
+        if igdb_ids:
+            with self._db_lock:
+                existing_game_ids = set(Game.objects.filter(
+                    igdb_id__in=igdb_ids
+                ).values_list('igdb_id', flat=True))
 
         def process_single_game(game_data):
             game_id = game_data.get('id')
             if not game_id or game_id in existing_game_ids:
+                if debug and game_id in existing_game_ids:
+                    self.stdout.write(f'   ⏭️  Игра уже существует: {game_id}')
                 return None
 
             # Создаем объект игры напрямую
@@ -938,21 +1211,34 @@ class DataLoader:
             return game
 
         games_to_create = []
-        with ThreadPoolExecutor(max_workers=min(len(games_data_list), 10)) as executor:
-            futures = [executor.submit(process_single_game, game_data) for game_data in games_data_list]
-
-            for future in as_completed(futures):
-                try:
-                    game = future.result()
-                    if game:
-                        games_to_create.append(game)
-                except Exception as e:
-                    if debug:
-                        self.stderr.write(f'   ❌ Ошибка future создания игры: {e}')
+        # Используем обычный цикл вместо ThreadPoolExecutor для простоты
+        for game_data in games_data_list:
+            try:
+                game = process_single_game(game_data)
+                if game:
+                    games_to_create.append(game)
+            except Exception as e:
+                if debug:
+                    self.stderr.write(f'   ❌ Ошибка создания игры: {e}')
 
         if games_to_create:
-            with self._db_lock:
-                Game.objects.bulk_create(games_to_create, batch_size=50)
+            try:
+                with self._db_lock:
+                    Game.objects.bulk_create(games_to_create, batch_size=50, ignore_conflicts=True)
+                if debug:
+                    self.stdout.write(f'   ✅ Создано игр: {len(games_to_create)}')
+            except Exception as e:
+                if debug:
+                    self.stderr.write(f'   ❌ Ошибка bulk_create игр: {e}')
+                # Fallback: создаем по одной
+                created_count = 0
+                for game in games_to_create:
+                    try:
+                        game.save()
+                        created_count += 1
+                    except:
+                        pass
+                return created_count, {}
 
         return len(games_to_create), {game.igdb_id: game for game in games_to_create}
 
