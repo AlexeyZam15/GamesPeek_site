@@ -833,7 +833,8 @@ class DataLoader:
                         f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_ids)} компаний')
 
             id_list = ','.join(map(str, batch_ids))
-            query = f'fields id,name,logo; where id = ({id_list});'
+            # УДАЛЕНО поле logo из запроса
+            query = f'fields id,name; where id = ({id_list});'
             batch_data = self._rate_limited_request('companies', query, debug=False)
 
             data_by_id = {item['id']: item for item in batch_data if 'id' in item}
@@ -844,7 +845,7 @@ class DataLoader:
 
                 company_data = data_by_id[company_id]
                 company_name = company_data.get('name', f'Company {company_id}')
-                logo_igdb_id = company_data.get('logo')
+                # УДАЛЕНО: logo_igdb_id = company_data.get('logo')
 
                 with self._db_lock:
                     existing = Company.objects.filter(igdb_id=company_id).first()
@@ -855,22 +856,14 @@ class DataLoader:
                             existing.name = company_name
                             needs_update = True
 
-                        if logo_igdb_id and not existing.logo_igdb_id:
-                            existing.logo_igdb_id = logo_igdb_id
-                            if logo_igdb_id:
-                                existing.logo_url = f"https://images.igdb.com/igdb/image/upload/t_thumb/{logo_igdb_id}.jpg"
-                            needs_update = True
+                        # УДАЛЕН весь блок кода, связанный с логотипами
 
                         if needs_update:
                             existing.save()
                         return (company_id, existing)
                     else:
+                        # УДАЛЕН код для создания логотипов
                         company = Company(igdb_id=company_id, name=company_name)
-
-                        if logo_igdb_id:
-                            company.logo_igdb_id = logo_igdb_id
-                            company.logo_url = f"https://images.igdb.com/igdb/image/upload/t_thumb/{logo_igdb_id}.jpg"
-
                         company.save()
                         return (company_id, company)
 
@@ -896,10 +889,8 @@ class DataLoader:
 
             if debug:
                 with lock:
-                    companies_with_logos = len([c for c in batch_map.values() if c.logo_igdb_id])
                     self.stdout.write(
-                        f'         ✅ Пачка {name} {batch_num}/{total_batches}: {len(batch_map)} компаний '
-                        f'({companies_with_logos} с логотипами)')
+                        f'         ✅ Пачка {name} {batch_num}/{total_batches}: {len(batch_map)} компаний')
 
         except Exception as e:
             if debug:
