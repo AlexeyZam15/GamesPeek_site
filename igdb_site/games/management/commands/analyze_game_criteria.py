@@ -54,9 +54,9 @@ class Command(AnalyzerCommand):
         parser.add_argument('--only-found', action='store_true',
                             help='Показывать только игры где были найдены критерии')
         parser.add_argument('--ignore-existing', action='store_true',
-                            help='Полностью игнорировать существующие критерии (устаревший параметр)')
-        parser.add_argument('--exclude-existing', action='store_true',
-                            help='Исключать уже существующие критерии из результатов анализа (НОВЫЙ)')
+                            help='Игнорировать проверку существующих критериев (добавлять все найденные)')
+        parser.add_argument('--exclude-existing', action='store_true', default=True,
+                            help='Исключать уже существующие критерии из результатов анализа (по умолчанию ВКЛЮЧЕНО)')
         parser.add_argument('--hide-skipped', action='store_true',
                             help='Скрыть информацию о пропущенных критериях')
         parser.add_argument('--no-progress', action='store_true',

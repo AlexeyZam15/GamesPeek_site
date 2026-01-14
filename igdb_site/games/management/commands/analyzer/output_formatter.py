@@ -14,6 +14,55 @@ class OutputFormatter:
         self.command = command_instance
         # text_preparer будет получаться из command_instance
 
+    def _print_pattern_details_to_file(self, pattern_info: Dict[str, Any]):
+        """Выводит детальную информацию о совпадениях паттернов в файл"""
+        if not pattern_info:
+            return
+
+        if not hasattr(self.command, 'output_file') or self.command.output_file.closed:
+            return
+
+        has_found_matches = False
+        has_skipped_matches = False
+
+        for criteria_type, matches in pattern_info.items():
+            for match in matches:
+                if match.get('status') == 'found':
+                    has_found_matches = True
+                elif match.get('status') == 'skipped':
+                    has_skipped_matches = True
+
+        if not (has_found_matches or has_skipped_matches):
+            return
+
+        if has_found_matches:
+            self.command.output_file.write("      🔍 Совпадения паттернов:\n")
+            seen_matches = set()
+
+            for criteria_type, matches in pattern_info.items():
+                for match in matches:
+                    if match.get('status') == 'found':
+                        match_key = (match['pattern'], match.get('matched_text', ''), criteria_type)
+                        if match_key not in seen_matches:
+                            seen_matches.add(match_key)
+                            pattern_display = match['pattern']
+                            if len(pattern_display) > 80:
+                                pattern_display = pattern_display[:77] + "..."
+                            self.command.output_file.write(
+                                f"         • '{match.get('matched_text', '')}' ← {self._get_display_name(criteria_type)}: {pattern_display}\n")
+
+        if has_skipped_matches and not getattr(self.command, 'hide_skipped', False):
+            self.command.output_file.write("      ⏭️ Пропущенные критерии (уже существуют):\n")
+            seen_skipped = set()
+
+            for criteria_type, matches in pattern_info.items():
+                for match in matches:
+                    if match.get('status') == 'skipped':
+                        if match['name'] not in seen_skipped:
+                            seen_skipped.add(match['name'])
+                            self.command.output_file.write(
+                                f"         • {match['name']} ({self._get_display_name(criteria_type)})\n")
+
     def print_game_header(self, game: Game, keywords_mode: bool):
         """Выводит заголовок для игры"""
         existing_criteria = self._get_existing_criteria_summary(game, keywords_mode)
@@ -60,55 +109,91 @@ class OutputFormatter:
         keywords = options.get('keywords', False)
         ignore_existing = options.get('ignore_existing', False)
         update_game = options.get('update_game', False)
+        comprehensive_mode = options.get('comprehensive_mode', False)
+        combined_mode = options.get('combined_mode', False)
+        exclude_existing = options.get('exclude_existing', False)
 
         # Проверяем наличие text_preparer
         if not hasattr(self.command, 'text_preparer') or self.command.text_preparer is None:
-            self.command.stderr.write(f"❌ Ошибка: text_preparer не инициализирован для игры {game.name}")
             return
 
-        # Пропускаем если режим only-found и нет результатов
-        if only_found and not result['has_results']:
-            return
+        # Проверяем условия для вывода
+        should_skip = (
+                only_found and not result['has_results'] and
+                not (exclude_existing and update_game)
+        )
 
-        # Пропускаем если ignore-existing + update-game и нет реально новых критериев
-        if ignore_existing and update_game and not result['has_results']:
+        if should_skip:
             return
 
         stats['displayed_count'] += 1
 
-        if stats['displayed_count'] > 1:
-            self.command.stdout.write("")
+        # Пишем в файл только при наличии результатов
+        has_output_file = (
+                hasattr(self.command, 'output_file') and
+                self.command.output_file and
+                not self.command.output_file.closed
+        )
 
-        if verbose and not only_found:
-            # Используем text_preparer из команды
-            text_source = self.command.text_preparer.get_text_source_for_game(game, result.get('text', ''))
-            text_length = result.get('text_length', 0)
-            self.command.stdout.write(f"{index}. 🔍 Анализируем: {game.name}")
-            self.command.stdout.write(f"   📝 Используется: {text_source} ({text_length} символов)")
+        if has_output_file and result['has_results']:
+            try:
+                # Простой вывод без лишней информации
+                self.command.output_file.write(f"{index}. 🎮 {game.name} (ID: {game.id})\n")
 
-        if result['has_results']:
+                # Выводим найденные элементы кратко
+                for key, data in result['results'].items():
+                    if data.get('count', 0) > 0:
+                        display_name = self._get_display_name(key)
+                        item_names = [item['name'] for item in data.get('items', [])]
+                        self.command.output_file.write(f"   📌 {display_name}: {', '.join(item_names)}\n")
+
+                self.command.output_file.write("\n")
+                self.command.output_file.flush()
+
+            except Exception:
+                pass
+
+        # Добавляем игру в батч для обновления если нужно
+        if update_game and result['has_results'] and hasattr(self.command, 'batch_updater'):
+            try:
+                # Проверяем, есть ли реальные элементы для обновления
+                has_real_items = False
+                for key, data in result['results'].items():
+                    if data.get('count', 0) > 0 and data.get('items'):
+                        has_real_items = True
+                        break
+
+                if has_real_items:
+                    success = self.command.batch_updater.add_game_for_update(
+                        game_id=game.id,
+                        results=result['results'],
+                        is_keywords=keywords
+                    )
+
+            except Exception:
+                # Молча игнорируем ошибки при обновлении
+                pass
+
+        # Вывод в терминал ТОЛЬКО если нет прогресс-бара и verbose
+        show_in_terminal = (
+                not self.command.progress_bar and  # Нет прогресс-бара
+                verbose  # Только если verbose режим
+        )
+
+        if show_in_terminal and result['has_results']:
             found_count = result['summary'].get('found_count', 0)
             mode = 'ключевые слова' if keywords else 'критерии'
 
             if ignore_existing:
                 mode = f"новые {mode}"
 
-            self.command.stdout.write(f"🎯 Найдены {mode} для '{game.name}' ({found_count}):")
+            self.command.stdout.write(f"🎯 Найдены {mode} для '{game.name}' ({found_count}):\n")
 
             for key, data in result['results'].items():
-                if data['count'] > 0:
+                if data.get('count', 0) > 0:
                     display_name = self._get_display_name(key)
-                    item_names = [item['name'] for item in data['items']]
-                    self.command.stdout.write(f"  📌 {display_name} ({data['count']}): {item_names}")
-
-            # Выводим паттерны если verbose
-            if verbose and 'pattern_info' in result:
-                self._print_pattern_details(result['pattern_info'])
-        elif not only_found:
-            mode = 'ключевые слова' if keywords else 'критерии'
-            if ignore_existing:
-                mode = f"новые {mode}"
-            self.command.stdout.write(f"   ⚡ {mode.capitalize()} не найдены")
+                    item_names = [item['name'] for item in data.get('items', [])]
+                    self.command.stdout.write(f"  📌 {display_name} ({data['count']}): {item_names}\n")
 
     def print_final_statistics(self, stats: Dict[str, Any], already_processed: int, total_games: int):
         """Выводит финальную статистику"""

@@ -428,6 +428,12 @@ class Game(models.Model):
     name = models.CharField(max_length=255, db_index=True)
     summary = models.TextField(blank=True, null=True)
 
+    date_added = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Дата добавления",
+        db_index=True
+    )
+
     last_analyzed_date = models.DateTimeField(
         null=True,
         blank=True,
@@ -567,6 +573,8 @@ class Game(models.Model):
 
             # Индекс для быстрого подсчета
             models.Index(fields=['game_type', 'rating_count']),
+
+            models.Index(fields=['-date_added']),  # Для сортировки новых игр
         ]
 
     def update_cached_counts(self, force: bool = False, async_update: bool = False) -> None:
@@ -1057,6 +1065,8 @@ class Game(models.Model):
 
 
 # ===== OPTIMIZED COMPANY MODEL =====
+# В models.py - упростить модель Company (опционально):
+
 class Company(models.Model):
     """Optimized Company model."""
 
@@ -1065,8 +1075,8 @@ class Company(models.Model):
     description = models.TextField(blank=True)
     website = models.URLField(blank=True, max_length=500)
 
-    logo_igdb_id = models.CharField(max_length=50, blank=True, null=True, help_text="Logo ID in IGDB")
-    logo_url = models.URLField(blank=True, max_length=500)
+    # Поля логотипов УДАЛЕНЫ
+
     start_date = models.DateTimeField(null=True, blank=True)
     changed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1087,11 +1097,7 @@ class Company(models.Model):
     @property
     @lru_cache(maxsize=1)
     def logo_image_url(self) -> str:
-        """Generate URL for logo from IGDB with caching."""
-        if self.logo_igdb_id:
-            return f"https://images.igdb.com/igdb/image/upload/t_thumb/{self.logo_igdb_id}.jpg"
-        elif self.logo_url:
-            return self.logo_url
+        """Логотипы временно недоступны"""
         return ""
 
     @property
@@ -1279,7 +1285,6 @@ class Keyword(models.Model):
     def __str__(self) -> str:
         category_name = self.category.name if self.category else "No Category"
         return f"{self.name} ({category_name})"
-
 
     def update_cached_count(self, force: bool = False, async_update: bool = False) -> None:
         """

@@ -99,6 +99,7 @@ class GameAdmin(admin.ModelAdmin):
         'game_type',
         'rating',
         'first_release_date',
+        'date_added',  # ← ДОБАВЛЕНО: Дата добавления
     ]
 
     # Фильтры в правой панели
@@ -106,12 +107,19 @@ class GameAdmin(admin.ModelAdmin):
         'game_type',
         'genres',
         'platforms',
+        'date_added',  # ← ДОБАВЛЕНО: Фильтр по дате добавления
     ]
+
+    # Поля только для чтения
+    readonly_fields = ['date_added']  # ← ДОБАВЛЕНО
 
     # ТОЧНЫЙ ПОИСК ПО НАЗВАНИЮ (используем __iexact для точного совпадения)
     search_fields = [
         'name',  # Только по названию игры
     ]
+
+    # Сортировка по умолчанию - сначала новые
+    ordering = ['-date_added']  # ← ИЗМЕНЕНО: Сортировка по дате добавления (новые сверху)
 
     # Переопределяем поиск для точного совпадения
     def get_search_results(self, request, queryset, search_term):
@@ -156,6 +164,7 @@ class GameAdmin(admin.ModelAdmin):
                 'rating_count',
                 'first_release_date',
                 'last_analyzed_date',
+                'date_added',  # ← ДОБАВЛЕНО: В форму редактирования
             )
         }),
         ('Связи с играми', {
@@ -205,9 +214,6 @@ class GameAdmin(admin.ModelAdmin):
             'classes': ('wide',),
         }),
     )
-
-    # Сортировка по умолчанию - сначала точные совпадения, затем по имени
-    ordering = ['name']
 
     # Количество элементов на странице
     list_per_page = 50
@@ -325,7 +331,6 @@ class GameAdmin(admin.ModelAdmin):
     def get_queryset(self, request):
         """Оптимизация запросов"""
         queryset = super().get_queryset(request)
-        # Минимальная оптимизация для производительности
         return queryset
 
     def formfield_for_manytomany(self, db_field, request, **kwargs):

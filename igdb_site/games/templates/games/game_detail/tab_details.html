@@ -66,14 +66,14 @@
         {% if game.platforms.all %}
             <div class="vertical-detail-card platforms">
                 <h5 class="mb-4">
-                    <i class="bi bi-device-ssd me-2"></i>Platforms
+                    <i class="bi bi-device-ssd me-2"></i>Платформы
                     <span class="badge bg-info ms-2">{{ game.platforms.all|length }}</span>
                 </h5>
                 <div class="detail-tags">
                     {% for platform in game.platforms.all %}
                         <div class="platform-badge-wrapper mb-2"
                              data-bs-toggle="tooltip"
-                             data-bs-title="{{ platform.display_name|default:platform.name }}">
+                             data-bs-title="{{ platform.name }}">
                             {% platform_badge platform.name %}
                         </div>
                     {% endfor %}

@@ -19,8 +19,11 @@ class RelationsHandler:
                           field_name, debug=False):
         """Универсальный метод для создания связей M2M"""
         relations_to_create = []
+        existing_relations = set()
         count = 0
 
+        # ШАГ 1: Собираем все пары game_id + relation_id для проверки
+        all_relation_pairs = []
         for rel in all_game_relations:
             game = game_map.get(rel['game_id'])
             if not game:
@@ -28,6 +31,44 @@ class RelationsHandler:
 
             for relation_obj in rel.get(relation_field, []):
                 if relation_obj:
+                    all_relation_pairs.append((game.id, relation_obj.id))
+
+        if not all_relation_pairs:
+            return 0
+
+        # ШАГ 2: Проверяем существующие связи одним запросом
+        try:
+            # Получаем существующие связи
+            filter_conditions = []
+            for game_id, relation_id in all_relation_pairs:
+                filter_conditions.append(Q(game_id=game_id) & Q(**{f'{field_name}_id': relation_id}))
+
+            # Объединяем условия через OR
+            if filter_conditions:
+                combined_condition = filter_conditions[0]
+                for condition in filter_conditions[1:]:
+                    combined_condition |= condition
+
+                existing_pairs = through_model.objects.filter(combined_condition).values_list(
+                    'game_id', f'{field_name}_id'
+                )
+                existing_relations = set(existing_pairs)
+        except Exception as e:
+            if debug:
+                self.stderr.write(f'   ⚠️  Ошибка при проверке существующих связей: {e}')
+
+        # ШАГ 3: Создаем только новые связи
+        for rel in all_game_relations:
+            game = game_map.get(rel['game_id'])
+            if not game:
+                continue
+
+            for relation_obj in rel.get(relation_field, []):
+                if not relation_obj:
+                    continue
+
+                # Проверяем, существует ли уже такая связь
+                if (game.id, relation_obj.id) not in existing_relations:
                     relations_to_create.append(through_model(
                         game_id=game.id,
                         **{f'{field_name}_id': relation_obj.id}
@@ -35,9 +76,17 @@ class RelationsHandler:
                     count += 1
 
         if relations_to_create:
-            through_model.objects.bulk_create(relations_to_create, batch_size=100, ignore_conflicts=True)
-            if debug:
-                self.stdout.write(f'   ✅ Создано связей с {relation_field}: {count}')
+            try:
+                # Используем ignore_conflicts для избежания дубликатов
+                through_model.objects.bulk_create(relations_to_create, batch_size=100, ignore_conflicts=True)
+                if debug:
+                    self.stdout.write(f'   ✅ Создано связей с {relation_field}: {count}')
+            except Exception as e:
+                if debug:
+                    self.stderr.write(f'   ❌ Ошибка создания связей {relation_field}: {e}')
+        else:
+            if debug and existing_relations:
+                self.stdout.write(f'   ℹ️  Все связи {relation_field} уже существуют: {len(existing_relations)}')
 
         return count
 

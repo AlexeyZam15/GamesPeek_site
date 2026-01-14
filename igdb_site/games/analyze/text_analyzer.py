@@ -1,8 +1,4 @@
-# games/analyze/text_analyzer.py
-"""
-Анализатор текста - ядро логики поиска критериев и ключевых слов
-"""
-
+# games/analyze/text_analyzer.py - ОБНОВЛЕННЫЙ КЛАСС
 import re
 import time
 from typing import Dict, Any, List, Optional, Set, Tuple
@@ -10,321 +6,122 @@ from typing import Dict, Any, List, Optional, Set, Tuple
 from games.models import Genre, Theme, PlayerPerspective, GameMode, Keyword
 from .pattern_manager import PatternManager
 from .sync_patterns_to_db import ensure_patterns_in_db, PatternAutoSyncer
+from .range_cache import RangeCacheManager
+from .keyword_trie import KeywordTrieManager  # НОВЫЙ ИМПОРТ
 
 
-# games/analyze/text_analyzer.py
 class TextAnalyzer:
-    """Анализатор текста для поиска критериев и ключевых слов"""
+    """Анализатор текста с оптимизированным поиском ключевых слов"""
 
     def __init__(self, verbose: bool = False):
         self.verbose = verbose
         self._patterns = None
-        self._keywords_cache = None
-        self._cache_stats = {'hits': 0, 'misses': 0}
+        self._trie_manager = KeywordTrieManager()  # Используем менеджер Trie
+        self._trie = None
+        self._keywords_count = 0
 
-        # Автоматически проверяем и синхронизируем паттерны с базой данных
-        # Только если паттерны изменились
-        self._ensure_all_patterns_in_db_if_needed()
+    # ============== ОПТИМИЗИРОВАННЫЕ МЕТОДЫ КЛЮЧЕВЫХ СЛОВ ==============
 
+    def _ensure_trie_loaded(self):
+        """Гарантирует, что Trie ключевых слов загружен"""
+        if self._trie is None:
+            self._trie = self._trie_manager.get_trie(verbose=self.verbose)
+            self._keywords_count = Keyword.objects.count()
 
-    def _ensure_all_patterns_in_db_if_needed(self):
-        """Гарантирует, что все элементы из паттернов есть в базе данных, только если паттерны изменились"""
-        try:
-            if self.verbose:
-                print("=== Начало проверки изменений паттернов ===")
-
-            # Проверяем, изменились ли паттерны
-            from .pattern_manager import PatternManager
-            patterns_changed = PatternManager.check_patterns_changed()
-
-            if not patterns_changed and self.verbose:
-                print("ℹ️ Паттерны не изменились, пропускаем проверку")
-
-            # Даже если паттерны не изменились, проверяем наличие всех элементов
-            # (на случай, если база данных была очищена)
-            if self.verbose:
-                print("=== Проверка наличия всех элементов в базе данных ===")
-
-            from .sync_patterns_to_db import PatternAutoSyncer
-            syncer = PatternAutoSyncer(verbose=self.verbose)
-
-            # Быстрая проверка наличия элементов
-            missing_count = syncer.get_missing_items_count()
-
-            if missing_count > 0:
-                if self.verbose:
-                    print(f"⚠️ Обнаружено {missing_count} отсутствующих элементов в базе данных")
-
-                # Запускаем синхронизацию
-                from .sync_patterns_to_db import ensure_patterns_in_db
-                results = ensure_patterns_in_db(self.verbose)
-
-                # Перезагружаем кеш паттернов
-                self._patterns = None
-
-                total_added = sum(stats['added'] for stats in results.values())
-                if total_added > 0 and self.verbose:
-                    print(f"✅ Автоматически создано {total_added} элементов в базе данных")
-            elif self.verbose:
-                print("ℹ️ Все элементы уже есть в базе данных")
-
-            if self.verbose:
-                print("=== Проверка паттернов завершена ===")
-
-        except Exception as e:
-            if self.verbose:
-                print(f"❌ Ошибка при проверке паттернов: {e}")
-
-    def _get_patterns(self) -> Dict:
-        """Загружает паттерны с предварительной проверкой изменений"""
-        if self._patterns is None:
-            # Проверяем, изменились ли паттерны
-            from .pattern_manager import PatternManager
-            patterns_changed = PatternManager.check_patterns_changed()
-
-            if patterns_changed and self.verbose:
-                print("=== Паттерны изменились, загружаем заново ===")
-
-            # Загружаем паттерны (с кэшированием внутри PatternManager)
-            self._patterns = PatternManager.get_all_patterns()
-
-            if self.verbose:
-                print(f"=== Загружено паттернов: ===")
-                for category, patterns in self._patterns.items():
-                    print(f"   {category}: {len(patterns)} элементов")
-
-        return self._patterns
-
-    def _ensure_all_patterns_in_db(self):
-        """Гарантирует, что все элементы из паттернов есть в базе данных"""
-        try:
-            if self.verbose:
-                print("=== Начало автоматической проверки паттернов ===")
-
-            # Проверяем, есть ли вообще паттерны
-            if self._patterns is None:
-                self._patterns = PatternManager.get_all_patterns()
-
-            # Быстрая проверка - подсчитываем отсутствующие элементы
-            syncer = PatternAutoSyncer(verbose=self.verbose)
-            missing_count = syncer.get_missing_items_count()
-
-            if missing_count > 0:
-                if self.verbose:
-                    print(f"⚠️ Обнаружено {missing_count} отсутствующих элементов в базе данных")
-                    print("=== Запуск автоматического создания отсутствующих элементов ===")
-
-                # Синхронизируем все паттерны с базой данных
-                results = ensure_patterns_in_db(self.verbose)
-
-                # Перезагружаем кеш паттернов
-                self._patterns = None
-
-                total_added = sum(stats['added'] for stats in results.values())
-                if total_added > 0 and self.verbose:
-                    print(f"✅ Автоматически создано {total_added} элементов в базе данных")
-            elif self.verbose:
-                print("ℹ️ Все элементы уже есть в базе данных")
-
-            if self.verbose:
-                print("=== Проверка паттернов завершена ===")
-
-        except Exception as e:
-            if self.verbose:
-                print(f"❌ Ошибка при проверке паттернов: {e}")
-
-    def _find_criteria_comprehensive(
-            self,
-            text: str,
-            text_lower: str,
-            patterns: Dict,
-            model,
-            existing_names: Set[str],
-            collect_patterns: bool = True
-    ) -> Tuple[List, List]:
-        """Ищет критерии по паттернам, находит ВСЕ вхождения в тексте, автоматически создает отсутствующие"""
-        found_items = []  # Уникальные объекты
-        pattern_matches = []  # Все совпадения
-        already_added_ids = set()  # Для отслеживания уже добавленных объектов
-
-        # Кешируем все существующие элементы из базы данных
-        all_existing_items = {item.name.lower(): item for item in model.objects.all()}
-
-        for name, pattern_list in patterns.items():
-            # Пропускаем если уже существует у игры И нужно исключать
-            if existing_names and name.lower() in existing_names:
-                if collect_patterns:
-                    pattern_matches.append({
-                        'name': name,
-                        'status': 'exists',
-                        'reason': 'already_exists_in_game'
-                    })
-                continue
-
-            # Проверяем, существует ли элемент в базе данных
-            if name.lower() not in all_existing_items:
-                # Элемент отсутствует в базе данных - автоматически создаем его
-                created_object = self._create_missing_criteria(name, model)
-                if created_object:
-                    all_existing_items[name.lower()] = created_object
-                    if self.verbose:
-                        print(f"✅ Автоматически создан отсутствующий элемент: {name} ({model.__name__})")
-                else:
-                    # Не удалось создать элемент, пропускаем
-                    continue
-
-            # Флаг, чтобы добавить объект только один раз
-            object_added = False
-
-            # Проверяем все паттерны для этого критерия
-            for pattern in pattern_list:
-                # Находим ВСЕ совпадения с этим паттерном
-                for match in pattern.finditer(text_lower):
-                    if not object_added:
-                        # Получаем объект из базы (только один раз для этого критерия)
-                        obj = all_existing_items.get(name.lower())
-                        if obj and obj.id not in already_added_ids:
-                            found_items.append(obj)
-                            already_added_ids.add(obj.id)
-                            object_added = True
-
-                    if collect_patterns:
-                        # Добавляем информацию о каждом совпадении
-                        pattern_matches.append({
-                            'name': name,
-                            'status': 'found',
-                            'pattern': pattern.pattern,
-                            'matched_text': text[match.start():match.end()],
-                            'position': match.start(),
-                            'matched_word': text_lower[match.start():match.end()],
-                            'context': self._get_context(text, match.start(), match.end())
-                        })
-
-        return found_items, pattern_matches
-
-    def _create_missing_criteria(self, name: str, model) -> Any:
-        """
-        Создает отсутствующий элемент критерия в базе данных
-        Вызывается автоматически при обнаружении отсутствующего элемента
-
-        Args:
-            name: Название элемента
-            model: Модель Django (Genre, Theme, и т.д.)
-
-        Returns:
-            Созданный объект или None
-        """
-        try:
-            # Проверяем, существует ли уже
-            existing = model.objects.filter(name__iexact=name).first()
-            if existing:
-                return existing
-
-            # Создаем элемент в зависимости от модели
-            from django.db.models import Max
-
-            if model.__name__ == 'Genre':
-                max_igdb_id = model.objects.aggregate(Max('igdb_id'))['igdb_id__max'] or 1000000
-                new_igdb_id = max_igdb_id + 1
-
-                obj = model.objects.create(
-                    name=name,
-                    igdb_id=new_igdb_id,
-                    cached_usage_count=0
-                )
-
-            elif model.__name__ == 'Theme':
-                # Для тем только имя
-                obj = model.objects.create(name=name)
-
-            elif model.__name__ == 'PlayerPerspective':
-                max_igdb_id = model.objects.aggregate(Max('igdb_id'))['igdb_id__max'] or 1000000
-                new_igdb_id = max_igdb_id + 1
-
-                obj = model.objects.create(
-                    name=name,
-                    igdb_id=new_igdb_id,
-                    cached_usage_count=0
-                )
-
-            elif model.__name__ == 'GameMode':
-                max_igdb_id = model.objects.aggregate(Max('igdb_id'))['igdb_id__max'] or 1000000
-                new_igdb_id = max_igdb_id + 1
-
-                obj = model.objects.create(
-                    name=name,
-                    igdb_id=new_igdb_id,
-                    cached_usage_count=0
-                )
-            else:
-                # Для других моделей просто создаем с именем
-                obj = model.objects.create(name=name)
-
-            if self.verbose:
-                print(f"✅ Автоматически создан {model.__name__}: '{name}'")
-
-            return obj
-
-        except Exception as e:
-            if self.verbose:
-                print(f"❌ Ошибка при создании элемента '{name}' ({model.__name__}): {e}")
-            return None
-
-    def _analyze_criteria_comprehensive(
+    def _analyze_keywords_fast(
             self,
             text: str,
             existing_game=None,
             collect_patterns: bool = True,
             exclude_existing: bool = False
     ) -> Tuple[Dict[str, List], Dict[str, List]]:
-        """Комплексный анализ критериев (жанры, темы и т.д.) с поиском ВСЕХ вхождений"""
+        """
+        ОПТИМИЗИРОВАННЫЙ: Анализ ключевых слов с использованием Trie
+        """
+        start_time = time.time()
+
         if not text:
-            return {}, {}
+            return {'keywords': []}, {'keywords': []}
 
-        patterns = self._get_patterns()
-        text_lower = text.lower()
+        # Загружаем Trie если нужно
+        self._ensure_trie_loaded()
 
-        results = {
-            'genres': [],
-            'themes': [],
-            'perspectives': [],
-            'game_modes': []
-        }
-
-        pattern_info = {
-            'genres': [],
-            'themes': [],
-            'perspectives': [],
-            'game_modes': []
-        }
-
-        # Существующие критерии игры (используем только если exclude_existing = True)
-        existing_items = {}
+        # Существующие ключевые слова игры
+        existing_keyword_ids = set()
         if existing_game and exclude_existing:
-            existing_items = {
-                'genres': set(existing_game.genres.values_list('name', flat=True)),
-                'themes': set(existing_game.themes.values_list('name', flat=True)),
-                'perspectives': set(existing_game.player_perspectives.values_list('name', flat=True)),
-                'game_modes': set(existing_game.game_modes.values_list('name', flat=True))
-            }
+            existing_keyword_ids = set(existing_game.keywords.values_list('id', flat=True))
 
-        # Анализируем каждый тип критериев
-        for criteria_type in ['genres', 'themes', 'perspectives', 'game_modes']:
-            criteria_results, criteria_patterns = self._find_criteria_comprehensive(
-                text=text,
-                text_lower=text_lower,
-                patterns=patterns[criteria_type],
-                model=self._get_model_for_criteria(criteria_type),
-                existing_names=existing_items.get(criteria_type, set()) if exclude_existing else set(),
-                collect_patterns=collect_patterns
-            )
+        # БЫСТРЫЙ ПОИСК через Trie
+        if self.verbose:
+            print(f"🔍 Поиск ключевых слов в тексте ({len(text)} символов)...")
 
-            results[criteria_type] = criteria_results
-            pattern_info[criteria_type] = criteria_patterns
+        trie_results = self._trie.find_all_in_text(text)
 
-        return results, pattern_info
+        if self.verbose:
+            print(f"✅ Найдено {len(trie_results)} совпадений за {(time.time() - start_time) * 1000:.1f}ms")
 
-    # Все остальные методы остаются без изменений
+        # Фильтруем по существующим
+        filtered_results = []
+        for result in trie_results:
+            if result['id'] not in existing_keyword_ids:
+                filtered_results.append(result)
+
+        # Группируем уникальные ключевые слова
+        unique_keywords = {}
+        pattern_info = []
+
+        for result in filtered_results:
+            kw_id = result['id']
+
+            if kw_id not in unique_keywords:
+                # Получаем объект Keyword
+                keyword_data = self._trie.keywords_cache.get(kw_id)
+                if keyword_data:
+                    unique_keywords[kw_id] = {
+                        'id': kw_id,
+                        'name': keyword_data['name'],
+                        'count': 0,
+                        'positions': [],
+                        'texts': []
+                    }
+
+            if kw_id in unique_keywords:
+                unique_keywords[kw_id]['count'] += 1
+                unique_keywords[kw_id]['positions'].append(result['position'])
+                unique_keywords[kw_id]['texts'].append(result['text'])
+
+        # Собираем объекты Keyword
+        found_keywords = []
+        for kw_id, kw_data in unique_keywords.items():
+            try:
+                kw_obj = Keyword.objects.get(id=kw_id)
+                found_keywords.append(kw_obj)
+
+                if collect_patterns:
+                    # Добавляем информацию о совпадениях
+                    for pos, txt in zip(kw_data['positions'], kw_data['texts']):
+                        pattern_info.append({
+                            'name': kw_data['name'],
+                            'status': 'found',
+                            'pattern': 'exact_match',
+                            'matched_text': txt,
+                            'position': pos,
+                            'matched_word': txt,
+                            'context': self._get_context(text, pos, pos + len(txt)),
+                            'keyword_id': kw_id,
+                            'count': kw_data['count']
+                        })
+            except Keyword.DoesNotExist:
+                continue
+
+        # Обновляем кэш диапазонов если нужно
+        if found_keywords:
+            min_id = min(kw.id for kw in found_keywords)
+            max_id = max(kw.id for kw in found_keywords)
+            RangeCacheManager.update_criteria_range('keywords', min_id, max_id)
+
+        return {'keywords': found_keywords}, {'keywords': pattern_info}
+
     def _analyze_keywords_comprehensive(
             self,
             text: str,
@@ -332,91 +129,157 @@ class TextAnalyzer:
             collect_patterns: bool = True,
             exclude_existing: bool = False
     ) -> Tuple[Dict[str, List], Dict[str, List]]:
-        """Комплексный анализ ключевых слов с поиском ВСЕХ вхождений"""
-        if not text:
-            return {'keywords': []}, {'keywords': []}
+        """
+        ЗАМЕНЯЕТ СТАРЫЙ МЕТОД: Использует оптимизированный поиск
+        """
+        return self._analyze_keywords_fast(
+            text=text,
+            existing_game=existing_game,
+            collect_patterns=collect_patterns,
+            exclude_existing=exclude_existing
+        )
 
-        # Получаем все ключевые слова
-        all_keywords = self._get_all_keywords()
+    # ============== ОПТИМИЗИРОВАННЫЕ КОМПОЗИТНЫЕ МЕТОДЫ ==============
+
+    def analyze(
+            self,
+            text: str,
+            analyze_keywords: bool = False,
+            existing_game=None,
+            detailed_patterns: bool = False,
+            exclude_existing: bool = False
+    ) -> Dict[str, Any]:
+        """
+        ОПТИМИЗИРОВАННЫЙ: Основной метод анализа
+        """
+        start_time = time.time()
+
+        if not text:
+            return {
+                'success': False,
+                'error': 'Empty text',
+                'results': {},
+                'summary': {'found_count': 0, 'has_results': False},
+                'processing_time': time.time() - start_time,
+                'has_results': False
+            }
+
+        # Ограничиваем текст для скорости (только для длинных текстов)
+        if len(text) > 10000:
+            text = text[:10000]
+
         text_lower = text.lower()
 
-        # Существующие ключевые слова (используем только если exclude_existing = True)
-        existing_keywords = set()
-        if existing_game and exclude_existing:
-            existing_keywords = set(existing_game.keywords.values_list('name', flat=True))
+        if analyze_keywords:
+            # Используем быстрый анализ ключевых слов
+            keywords_results, keywords_patterns = self._analyze_keywords_fast(
+                text=text,
+                existing_game=existing_game,
+                collect_patterns=detailed_patterns,
+                exclude_existing=exclude_existing
+            )
 
-        found_keywords = []  # Уникальные объекты
-        pattern_info = []  # Все совпадения
-        already_added_ids = set()  # Для отслеживания уже добавленных объектов
+            total_found = len(keywords_results.get('keywords', []))
 
-        for keyword in all_keywords:
-            keyword_name = keyword.name
-            keyword_lower = keyword.name.lower()
+            return {
+                'success': True,
+                'results': keywords_results,
+                'summary': {
+                    'found_count': total_found,
+                    'has_results': total_found > 0,
+                    'mode': 'keywords_only'
+                },
+                'pattern_info': keywords_patterns if detailed_patterns else {},
+                'processing_time': time.time() - start_time,
+                'has_results': total_found > 0
+            }
+        else:
+            # Анализ критериев (оставляем старый алгоритм, он уже быстрый)
+            patterns = self._get_patterns()
 
-            # Пропускаем если уже есть у игры И нужно исключать
-            if exclude_existing and keyword_name in existing_keywords:
-                if collect_patterns:
-                    pattern_info.append({
-                        'name': keyword_name,
-                        'status': 'exists',
-                        'reason': 'already_exists_in_game'
-                    })
-                continue
+            results = {}
+            pattern_info = {}
+            total_found = 0
 
-            # Флаг, чтобы добавить объект только один раз
-            object_added = False
+            # Существующие критерии игры
+            existing_items = {}
+            if existing_game and exclude_existing:
+                existing_items = {
+                    'genres': set(existing_game.genres.values_list('name', flat=True)),
+                    'themes': set(existing_game.themes.values_list('name', flat=True)),
+                    'perspectives': set(existing_game.player_perspectives.values_list('name', flat=True)),
+                    'game_modes': set(existing_game.game_modes.values_list('name', flat=True))
+                }
 
-            # Ищем ВСЕ вхождения ключевого слова в тексте
-            if ' ' in keyword_lower:
-                # Для фраз из нескольких слов - находим все вхождения
-                start_pos = 0
-                while True:
-                    pos = text_lower.find(keyword_lower, start_pos)
-                    if pos == -1:
-                        break
+            # Анализируем каждый тип критериев
+            for criteria_type in ['genres', 'themes', 'perspectives', 'game_modes']:
+                model = self._get_model_for_criteria(criteria_type)
+                found_items = []
+                patterns_for_type = patterns[criteria_type]
 
-                    # Добавляем ключевое слово в список (только один раз)
-                    if not object_added and keyword.id not in already_added_ids:
-                        found_keywords.append(keyword)
-                        already_added_ids.add(keyword.id)
-                        object_added = True
+                if detailed_patterns:
+                    pattern_info[criteria_type] = []
 
-                    if collect_patterns:
-                        pattern_info.append({
-                            'name': keyword_name,
-                            'status': 'found',
-                            'pattern': 'exact_phrase',
-                            'matched_text': text[pos:pos + len(keyword_lower)],
-                            'position': pos,
-                            'matched_word': text_lower[pos:pos + len(keyword_lower)],
-                            'context': self._get_context(text, pos, pos + len(keyword_lower))
-                        })
+                for name, pattern_list in patterns_for_type.items():
+                    # Пропускаем если уже существует у игры
+                    if exclude_existing:
+                        existing_names_lower = {n.lower() for n in existing_items.get(criteria_type, set())}
+                        if name.lower() in existing_names_lower:
+                            if detailed_patterns:
+                                pattern_info[criteria_type].append({
+                                    'name': name,
+                                    'status': 'skipped',
+                                    'reason': 'already_exists_in_game'
+                                })
+                            continue
 
-                    start_pos = pos + 1
-            else:
-                # Для отдельных слов - находим все вхождения
-                import re
-                pattern = rf'\b{re.escape(keyword_lower)}\b'
+                    # Проверяем паттерны
+                    for pattern in pattern_list:
+                        if pattern.search(text_lower):
+                            # Нашли совпадение
+                            try:
+                                obj = model.objects.filter(name__iexact=name).first()
+                                if obj and obj not in found_items:
+                                    found_items.append(obj)
 
-                for match in re.finditer(pattern, text_lower):
-                    # Добавляем ключевое слово в список (только один раз)
-                    if not object_added and keyword.id not in already_added_ids:
-                        found_keywords.append(keyword)
-                        already_added_ids.add(keyword.id)
-                        object_added = True
+                                    if detailed_patterns:
+                                        # Находим первое совпадение
+                                        match = pattern.search(text_lower)
+                                        if match:
+                                            pattern_info[criteria_type].append({
+                                                'name': name,
+                                                'status': 'found',
+                                                'pattern': pattern.pattern,
+                                                'matched_text': text[match.start():match.end()],
+                                                'position': match.start(),
+                                                'matched_word': text_lower[match.start():match.end()],
+                                                'context': self._get_context(text, match.start(), match.end())
+                                            })
+                                    break  # Нашли один паттерн - достаточно
+                            except Exception:
+                                pass
 
-                    if collect_patterns:
-                        pattern_info.append({
-                            'name': keyword_name,
-                            'status': 'found',
-                            'pattern': pattern,
-                            'matched_text': text[match.start():match.end()],
-                            'position': match.start(),
-                            'matched_word': text_lower[match.start():match.end()],
-                            'context': self._get_context(text, match.start(), match.end())
-                        })
+                if found_items:
+                    results[criteria_type] = {
+                        'count': len(found_items),
+                        'items': [{'id': i.id, 'name': i.name} for i in found_items]
+                    }
+                    total_found += len(found_items)
 
-        return {'keywords': found_keywords}, {'keywords': pattern_info}
+            processing_time = time.time() - start_time
+
+            return {
+                'success': True,
+                'results': results,
+                'summary': {
+                    'found_count': total_found,
+                    'has_results': total_found > 0,
+                    'mode': 'criteria_only'
+                },
+                'pattern_info': pattern_info if detailed_patterns else {},
+                'processing_time': processing_time,
+                'has_results': total_found > 0
+            }
 
     def analyze_comprehensive(
             self,
@@ -426,7 +289,7 @@ class TextAnalyzer:
             exclude_existing: bool = False
     ) -> Dict[str, Any]:
         """
-        Комплексный анализ, который находит ВСЕ вхождения элементов в тексте
+        ОПТИМИЗИРОВАННЫЙ: Комплексный анализ с быстрыми ключевыми словами
         """
         start_time = time.time()
 
@@ -441,79 +304,117 @@ class TextAnalyzer:
                 'has_results': False
             }
 
-        print(f"=== TextAnalyzer.analyze_comprehensive: Starting comprehensive analysis")
-        print(f"=== Text length: {len(text)} characters")
+        # Ограничиваем текст
+        if len(text) > 10000:
+            text = text[:10000]
 
-        # Гарантируем, что все паттерны есть в базе данных перед анализом
-        self._ensure_all_patterns_in_db()
+        # БЫСТРЫЙ анализ ключевых слов через Trie
+        keywords_results, keywords_patterns = self._analyze_keywords_fast(
+            text=text,
+            existing_game=existing_game,
+            collect_patterns=detailed_patterns,
+            exclude_existing=exclude_existing
+        )
+
+        # Анализ критериев (существующий алгоритм)
+        patterns = self._get_patterns()
+        text_lower = text.lower()
+
+        results = {}
+        pattern_info = {}
+
+        # Существующие критерии игры
+        existing_items = {}
+        if existing_game and exclude_existing:
+            existing_items = {
+                'genres': set(existing_game.genres.values_list('name', flat=True)),
+                'themes': set(existing_game.themes.values_list('name', flat=True)),
+                'perspectives': set(existing_game.player_perspectives.values_list('name', flat=True)),
+                'game_modes': set(existing_game.game_modes.values_list('name', flat=True))
+            }
 
         # Анализируем критерии
-        criteria_results, criteria_patterns = self._analyze_criteria_comprehensive(
-            text=text,
-            existing_game=existing_game,
-            collect_patterns=detailed_patterns,
-            exclude_existing=exclude_existing
-        )
+        for criteria_type in ['genres', 'themes', 'perspectives', 'game_modes']:
+            model = self._get_model_for_criteria(criteria_type)
+            found_items = []
+            patterns_for_type = patterns[criteria_type]
 
-        # Анализируем ключевые слова
-        keywords_results, keywords_patterns = self._analyze_keywords_comprehensive(
-            text=text,
-            existing_game=existing_game,
-            collect_patterns=detailed_patterns,
-            exclude_existing=exclude_existing
-        )
+            if detailed_patterns:
+                pattern_info[criteria_type] = []
 
-        # Объединяем результаты
-        combined_results = {}
-        pattern_info = {}
-        total_matches = 0
+            for name, pattern_list in patterns_for_type.items():
+                # Пропускаем если уже существует у игры
+                if exclude_existing:
+                    existing_names_lower = {n.lower() for n in existing_items.get(criteria_type, set())}
+                    if name.lower() in existing_names_lower:
+                        if detailed_patterns:
+                            pattern_info[criteria_type].append({
+                                'name': name,
+                                'status': 'skipped',
+                                'reason': 'already_exists_in_game'
+                            })
+                        continue
 
-        # Добавляем критерии
-        for key in ['genres', 'themes', 'perspectives', 'game_modes']:
-            if criteria_results.get(key):
-                combined_results[key] = {
-                    'count': len(criteria_results[key]),
-                    'items': [{'id': i.id, 'name': i.name} for i in criteria_results[key]]
+                for pattern in pattern_list:
+                    if pattern.search(text_lower):
+                        try:
+                            obj = model.objects.filter(name__iexact=name).first()
+                            if obj and obj not in found_items:
+                                found_items.append(obj)
+
+                                if detailed_patterns:
+                                    match = pattern.search(text_lower)
+                                    if match:
+                                        pattern_info[criteria_type].append({
+                                            'name': name,
+                                            'status': 'found',
+                                            'pattern': pattern.pattern,
+                                            'matched_text': text[match.start():match.end()],
+                                            'position': match.start(),
+                                            'matched_word': text_lower[match.start():match.end()],
+                                            'context': self._get_context(text, match.start(), match.end())
+                                        })
+                                break
+                        except Exception:
+                            pass
+
+            if found_items:
+                results[criteria_type] = {
+                    'count': len(found_items),
+                    'items': [{'id': i.id, 'name': i.name} for i in found_items]
                 }
-                if detailed_patterns:
-                    pattern_info[key] = criteria_patterns.get(key, [])
-                    total_matches += len(pattern_info[key])
 
         # Добавляем ключевые слова
         if keywords_results.get('keywords'):
-            combined_results['keywords'] = {
+            results['keywords'] = {
                 'count': len(keywords_results['keywords']),
                 'items': [{'id': k.id, 'name': k.name} for k in keywords_results['keywords']]
             }
-            if detailed_patterns:
-                pattern_info['keywords'] = keywords_patterns.get('keywords', [])
-                total_matches += len(pattern_info['keywords'])
 
-        # Создаем сводку
-        total_found = sum(
-            len(criteria_results.get(key, [])) for key in ['genres', 'themes', 'perspectives', 'game_modes'])
-        total_found += len(keywords_results.get('keywords', []))
+        if detailed_patterns and keywords_patterns.get('keywords'):
+            pattern_info['keywords'] = keywords_patterns['keywords']
+
+        # Считаем итоги
+        total_found = sum(len(results.get(key, {}).get('items', []))
+                          for key in ['genres', 'themes', 'perspectives', 'game_modes', 'keywords'])
+        total_matches = sum(len(pattern_info.get(key, [])) for key in pattern_info)
 
         summary = {
             'found_count': total_found,
             'has_results': total_found > 0,
             'mode': 'comprehensive',
-            'genres_found': len(criteria_results.get('genres', [])),
-            'themes_found': len(criteria_results.get('themes', [])),
-            'perspectives_found': len(criteria_results.get('perspectives', [])),
-            'game_modes_found': len(criteria_results.get('game_modes', [])),
-            'keywords_found': len(keywords_results.get('keywords', [])),
             'total_matches': total_matches
         }
 
         processing_time = time.time() - start_time
-        print(f"=== Comprehensive analysis completed in {processing_time:.2f}s")
-        print(f"=== Found: {total_found} elements")
-        print(f"=== Total matches: {total_matches}")
+
+        if self.verbose:
+            print(f"⚡ Комплексный анализ завершен за {processing_time:.2f}s")
+            print(f"📊 Найдено элементов: {total_found}, совпадений: {total_matches}")
 
         return {
             'success': True,
-            'results': combined_results,
+            'results': results,
             'summary': summary,
             'pattern_info': pattern_info,
             'processing_time': processing_time,
@@ -521,28 +422,13 @@ class TextAnalyzer:
             'total_matches': total_matches
         }
 
-    def _get_context(self, text: str, start: int, end: int, context_length: int = 50) -> str:
-        """Получает контекст вокруг найденного совпадения"""
-        # Вычисляем границы для контекста
-        context_start = max(0, start - context_length)
-        context_end = min(len(text), end + context_length)
+    # ============== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ==============
 
-        # Извлекаем контекст
-        context = text[context_start:context_end]
-
-        # Добавляем многоточия если выходим за границы текста
-        if context_start > 0:
-            context = '...' + context
-        if context_end < len(text):
-            context = context + '...'
-
-        return context
-
-    def _get_all_keywords(self) -> List[Keyword]:
-        """Получает все ключевые слова"""
-        if self._keywords_cache is None:
-            self._keywords_cache = list(Keyword.objects.all().order_by('name'))
-        return self._keywords_cache
+    def _get_patterns(self) -> Dict:
+        """Загружает паттерны (с кэшированием)"""
+        if self._patterns is None:
+            self._patterns = PatternManager.get_all_patterns()
+        return self._patterns
 
     def _get_model_for_criteria(self, criteria_type: str):
         """Возвращает модель для типа критерия"""
@@ -554,16 +440,23 @@ class TextAnalyzer:
         }
         return models.get(criteria_type)
 
-    def get_cache_stats(self) -> Dict[str, Any]:
-        """Статистика кеша"""
-        return {
-            'patterns_loaded': self._patterns is not None,
-            'keywords_cached': self._keywords_cache is not None,
-            'cache_stats': self._cache_stats.copy()
-        }
+    def _get_context(self, text: str, start: int, end: int, context_length: int = 50) -> str:
+        """Получает контекст вокруг найденного совпадения"""
+        context_start = max(0, start - context_length)
+        context_end = min(len(text), end + context_length)
+
+        context = text[context_start:context_end]
+
+        if context_start > 0:
+            context = '...' + context
+        if context_end < len(text):
+            context = context + '...'
+
+        return context
 
     def clear_cache(self):
-        """Очищает кеш"""
+        """Очищает кэши"""
         self._patterns = None
-        self._keywords_cache = None
-        self._cache_stats = {'hits': 0, 'misses': 0}
+        self._trie_manager.clear_cache()
+        self._trie = None
+        self._keywords_count = 0
