@@ -1,3 +1,4 @@
+<!-- games/templates/games/game_list.html -->
 {% extends 'base.html' %}
 {% load static %}
 
@@ -14,6 +15,7 @@
         <div class="row mb-4">
             <div class="col-12">
                 <h1>🎮 Browse Games</h1>
+                <p class="text-muted">Use filters to find your next favorite game</p>
             </div>
         </div>
 
@@ -26,6 +28,9 @@
 {% endblock %}
 
 {% block extra_js %}
-    <script src="{% static 'games/js/filters_script.js' %}"></script>
+    <!-- Основной скрипт фильтров (модульная версия ES6) -->
+    <script type="module" src="{% static 'games/js/filters_script.js' %}"></script>
+
+    <!-- Скрипт для списка игр (старый, если нужен) -->
     {% include 'games/game_list/_game_list_script.html' %}
 {% endblock %}
