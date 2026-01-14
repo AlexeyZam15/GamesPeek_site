@@ -1,3 +1,4 @@
+<!-- games/templates/games/game_list/_filters_form.html -->
 <!-- Блок фильтров -->
 <div class="card mb-4">
     <div class="card-body">
@@ -8,10 +9,8 @@
             <input type="hidden" name="g" id="genres-field" value="{{ selected_genres|join:',' }}">
             <input type="hidden" name="k" id="keywords-field" value="{{ selected_keywords|join:',' }}">
             <input type="hidden" name="p" id="platforms-field" value="{{ selected_platforms|join:',' }}">
-            <!-- НОВЫЕ СКРЫТЫЕ ПОЛЯ -->
             <input type="hidden" name="t" id="themes-field" value="{{ selected_themes|join:',' }}">
             <input type="hidden" name="pp" id="perspectives-field" value="{{ selected_perspectives|join:',' }}">
-            <!-- УДАЛИЛ ПОЛЕ РАЗРАБОТЧИКОВ -->
             <input type="hidden" name="gm" id="game-modes-field" value="{{ selected_game_modes|join:',' }}">
 
             <div class="row g-3">
@@ -26,7 +25,7 @@
                             <i class="bi bi-chevron-down me-2"></i>🔍 Search Filters
                         </h6>
                         <div id="search-filters-content">
-                            <!-- Platforms фильтр (остается без изменений) -->
+                            <!-- Platforms фильтр -->
                             <div class="filter-subsection">
                                 <label class="form-label toggle-subsection" data-target="platforms-content"
                                        style="cursor: pointer;">
@@ -43,7 +42,8 @@
                                                 <div class="d-flex align-items-center gap-2">
                                                     <button type="button"
                                                             class="btn btn-sm clear-platforms-btn btn-outline-info"
-                                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;">
+                                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                                                            data-param="p">
                                                         <i class="bi bi-x-circle me-1"></i>Clear All
                                                     </button>
                                                     <small class="text-muted" style="font-weight: 500;">
@@ -82,14 +82,14 @@
                                             <div class="text-center mt-2">
                                                 <button type="button"
                                                         class="btn btn-sm btn-outline-secondary show-more-platforms"
-                                                        onclick="toggleMorePlatforms(this)">
+                                                        onclick="toggleMoreplatforms(this)">
                                                     <i class="bi bi-chevron-down"></i> Show all
                                                     ({{ selected_platforms_objects|length }})
                                                 </button>
                                                 <button type="button"
                                                         class="btn btn-sm btn-outline-secondary show-less-platforms"
                                                         style="display: none;"
-                                                        onclick="toggleLessPlatforms(this)">
+                                                        onclick="toggleLessplatforms(this)">
                                                     <i class="bi bi-chevron-up"></i> Show less
                                                 </button>
                                             </div>
@@ -160,7 +160,8 @@
                                                 <div class="d-flex align-items-center gap-2">
                                                     <button type="button"
                                                             class="btn btn-sm clear-genres-btn btn-outline-primary"
-                                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;">
+                                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                                                            data-param="g">
                                                         <i class="bi bi-x-circle me-1"></i>Clear All
                                                     </button>
                                                     <small class="text-muted" style="font-weight: 500;">
@@ -199,14 +200,14 @@
                                             <div class="text-center mt-2">
                                                 <button type="button"
                                                         class="btn btn-sm btn-outline-secondary show-more-genres"
-                                                        onclick="toggleMoreGenres(this)">
+                                                        onclick="toggleMoregenres(this)">
                                                     <i class="bi bi-chevron-down"></i> Show all
                                                     ({{ selected_genres_objects|length }})
                                                 </button>
                                                 <button type="button"
                                                         class="btn btn-sm btn-outline-secondary show-less-genres"
                                                         style="display: none;"
-                                                        onclick="toggleLessGenres(this)">
+                                                        onclick="toggleLessgenres(this)">
                                                     <i class="bi bi-chevron-up"></i> Show less
                                                 </button>
                                             </div>
@@ -263,7 +264,8 @@
                                                 <div class="d-flex align-items-center gap-2">
                                                     <button type="button"
                                                             class="btn btn-sm clear-keywords-btn btn-outline-success"
-                                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;">
+                                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                                                            data-param="k">
                                                         <i class="bi bi-x-circle me-1"></i>Clear All
                                                     </button>
                                                     <small class="text-muted" style="font-weight: 500;">
@@ -302,14 +304,14 @@
                                             <div class="text-center mt-2">
                                                 <button type="button"
                                                         class="btn btn-sm btn-outline-secondary show-more-keywords"
-                                                        onclick="toggleMoreKeywords(this)">
+                                                        onclick="toggleMorekeywords(this)">
                                                     <i class="bi bi-chevron-down"></i> Show all
                                                     ({{ selected_keywords_objects|length }})
                                                 </button>
                                                 <button type="button"
                                                         class="btn btn-sm btn-outline-secondary show-less-keywords"
                                                         style="display: none;"
-                                                        onclick="toggleLessKeywords(this)">
+                                                        onclick="toggleLesskeywords(this)">
                                                     <i class="bi bi-chevron-up"></i> Show less
                                                 </button>
                                             </div>
@@ -351,8 +353,6 @@
                                 </div>
                             </div>
 
-                            <!-- НОВЫЕ ФИЛЬТРЫ -->
-
                             <!-- Themes -->
                             <div class="filter-subsection mt-3">
                                 <label class="form-label toggle-subsection" data-target="themes-content"
@@ -370,7 +370,8 @@
                                                 <div class="d-flex align-items-center gap-2">
                                                     <button type="button"
                                                             class="btn btn-sm clear-themes-btn btn-outline-warning"
-                                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;">
+                                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                                                            data-param="t">
                                                         <i class="bi bi-x-circle me-1"></i>Clear All
                                                     </button>
                                                     <small class="text-muted" style="font-weight: 500;">
@@ -409,14 +410,14 @@
                                             <div class="text-center mt-2">
                                                 <button type="button"
                                                         class="btn btn-sm btn-outline-secondary show-more-themes"
-                                                        onclick="toggleMoreThemes(this)">
+                                                        onclick="toggleMorethemes(this)">
                                                     <i class="bi bi-chevron-down"></i> Show all
                                                     ({{ selected_themes_objects|length }})
                                                 </button>
                                                 <button type="button"
                                                         class="btn btn-sm btn-outline-secondary show-less-themes"
                                                         style="display: none;"
-                                                        onclick="toggleLessThemes(this)">
+                                                        onclick="toggleLessthemes(this)">
                                                     <i class="bi bi-chevron-up"></i> Show less
                                                 </button>
                                             </div>
@@ -473,7 +474,8 @@
                                                 <div class="d-flex align-items-center gap-2">
                                                     <button type="button"
                                                             class="btn btn-sm clear-perspectives-btn btn-outline-info"
-                                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;">
+                                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                                                            data-param="pp">
                                                         <i class="bi bi-x-circle me-1"></i>Clear All
                                                     </button>
                                                     <small class="text-muted" style="font-weight: 500;">
@@ -512,14 +514,14 @@
                                             <div class="text-center mt-2">
                                                 <button type="button"
                                                         class="btn btn-sm btn-outline-secondary show-more-perspectives"
-                                                        onclick="toggleMorePerspectives(this)">
+                                                        onclick="toggleMoreperspectives(this)">
                                                     <i class="bi bi-chevron-down"></i> Show all
                                                     ({{ selected_perspectives_objects|length }})
                                                 </button>
                                                 <button type="button"
                                                         class="btn btn-sm btn-outline-secondary show-less-perspectives"
                                                         style="display: none;"
-                                                        onclick="toggleLessPerspectives(this)">
+                                                        onclick="toggleLessperspectives(this)">
                                                     <i class="bi bi-chevron-up"></i> Show less
                                                 </button>
                                             </div>
@@ -561,7 +563,6 @@
                                 </div>
                             </div>
 
-
                             <!-- Game Modes -->
                             <div class="filter-subsection mt-3">
                                 <label class="form-label toggle-subsection" data-target="game-modes-content"
@@ -579,7 +580,8 @@
                                                 <div class="d-flex align-items-center gap-2">
                                                     <button type="button"
                                                             class="btn btn-sm clear-game-modes-btn btn-outline-purple"
-                                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;">
+                                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                                                            data-param="gm">
                                                         <i class="bi bi-x-circle me-1"></i>Clear All
                                                     </button>
                                                     <small class="text-muted" style="font-weight: 500;">
@@ -595,8 +597,9 @@
                                                 <span class="badge bg-purple me-1 mb-1 active-game-mode-tag"
                                                       data-game-mode-id="{{ game_mode.id }}"
                                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
-                        {{ game_mode.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
-                    </span>
+                                                    {{ game_mode.name }} <i class="bi bi-x ms-1"
+                                                                            style="font-size: 0.9rem;"></i>
+                                                </span>
                                             {% endfor %}
                                         </div>
                                     </div>
@@ -624,6 +627,15 @@
                                             {% endfor %}
                                         </div>
                                     </div>
+
+                                    <!-- Кнопка "Show all game modes" -->
+                                    <div class="text-center mt-2">
+                                        <button type="button"
+                                                class="btn btn-outline-secondary btn-sm show-all-game-modes-btn">
+                                            <span class="show-text">Show all game modes</span>
+                                            <span class="hide-text" style="display: none;">Show less</span>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -634,12 +646,117 @@
                 <div class="col-12">
                     <div class="d-flex gap-2 flex-wrap">
                         <button type="submit" class="btn btn-primary">
-                            Apply Filters
+                            <i class="bi bi-funnel me-1"></i> Apply Filters
                         </button>
-                        <a href="{% url 'game_list' %}" class="btn btn-secondary">Show All Games</a>
+                        <a href="{% url 'game_list' %}" class="btn btn-secondary">
+                            <i class="bi bi-arrow-clockwise me-1"></i> Show All Games
+                        </a>
                     </div>
                 </div>
             </div>
         </form>
     </div>
 </div>
+
+<script>
+    // Глобальные функции для кнопок Show More/Less (поддерживаются filters-ui.js)
+    function toggleMoreplatforms(button) {
+        const hiddenSection = document.getElementById('hidden-platforms-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    }
+
+    function toggleLessplatforms(button) {
+        const hiddenSection = document.getElementById('hidden-platforms-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    }
+
+    function toggleMoregenres(button) {
+        const hiddenSection = document.getElementById('hidden-genres-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    }
+
+    function toggleLessgenres(button) {
+        const hiddenSection = document.getElementById('hidden-genres-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    }
+
+    function toggleMorekeywords(button) {
+        const hiddenSection = document.getElementById('hidden-keywords-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    }
+
+    function toggleLesskeywords(button) {
+        const hiddenSection = document.getElementById('hidden-keywords-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    }
+
+    function toggleMorethemes(button) {
+        const hiddenSection = document.getElementById('hidden-themes-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    }
+
+    function toggleLessthemes(button) {
+        const hiddenSection = document.getElementById('hidden-themes-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    }
+
+    function toggleMoreperspectives(button) {
+        const hiddenSection = document.getElementById('hidden-perspectives-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    }
+
+    function toggleLessperspectives(button) {
+        const hiddenSection = document.getElementById('hidden-perspectives-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    }
+</script>
