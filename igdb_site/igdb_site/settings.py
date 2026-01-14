@@ -143,9 +143,9 @@ USE_TZ = True
 # СТАТИЧЕСКИЕ И МЕДИА ФАЙЛЫ
 # ============================================
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
 STATICFILES_DIRS = [
-    BASE_DIR / 'static',
+    os.path.join(BASE_DIR, 'games', 'static'),
 ]
 STATIC_ROOT = BASE_DIR / 'staticfiles'  # Для сбора статики в production
 

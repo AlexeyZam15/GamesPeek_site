@@ -156,16 +156,47 @@
     border-radius: 0 0 8px 8px;
     min-height: 400px;
     max-height: 600px;
-    overflow-y: auto;
+    overflow: hidden; /* Убираем прокрутку здесь */
 }
 
 .analyze-tab-content {
     padding: 1.5rem;
+    height: 100%;
 }
 
 /* Область отображения текста */
 .text-display-area {
     min-height: 300px;
+    max-height: 540px; /* Высота с учетом padding */
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 5px;
+    position: relative;
+}
+
+/* Стили для скроллбара в области текста */
+.text-display-area::-webkit-scrollbar {
+    width: 8px;
+}
+
+.text-display-area::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+}
+
+.text-display-area::-webkit-scrollbar-thumb {
+    background: #ff6b35;
+    border-radius: 4px;
+    transition: background 0.3s ease;
+}
+
+.text-display-area::-webkit-scrollbar-thumb:hover {
+    background: #ff8c00;
+}
+
+/* Анимация для плавной прокрутки */
+.text-display-area {
+    scroll-behavior: smooth;
 }
 
 /* Текстовый контент */
@@ -179,6 +210,9 @@
     padding: 0 !important;
     position: static !important;
     vertical-align: top !important;
+    white-space: normal !important;
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
 }
 
 /* Сброс всех стилей для дочерних элементов */
@@ -612,17 +646,14 @@
 }
 
 /* ===== СКРОЛЛБАР ===== */
-#analyzeTabsContent .tab-pane::-webkit-scrollbar,
 .sidebar-card-body::-webkit-scrollbar {
     width: 6px;
 }
 
-#analyzeTabsContent .tab-pane::-webkit-scrollbar-track,
 .sidebar-card-body::-webkit-scrollbar-track {
     background: rgba(255, 255, 255, 0.05);
 }
 
-#analyzeTabsContent .tab-pane::-webkit-scrollbar-thumb,
 .sidebar-card-body::-webkit-scrollbar-thumb {
     background: #ff6b35;
     border-radius: 3px;
@@ -892,6 +923,10 @@
         padding: 1rem;
     }
 
+    .text-display-area {
+        max-height: 440px;
+    }
+
     /* Переключатель режимов */
     .mode-toggle {
         flex-direction: column;
@@ -932,6 +967,10 @@
 
     #analyzeTabsContent .tab-pane {
         max-height: 400px;
+    }
+
+    .text-display-area {
+        max-height: 340px;
     }
 }
 
@@ -1064,4 +1103,674 @@
     font-weight: inherit !important;
     font-style: inherit !important;
     color: inherit !important;
+}
+
+/* ===== СПЕЦИАЛЬНАЯ ПОДСВЕТКА ДЛЯ FOUND ELEMENTS ===== */
+
+/* Специальная подсветка при клике на элемент в списке */
+.highlight-found-element {
+    position: relative !important;
+    z-index: 10 !important;
+    animation: highlightFoundElementPulse 2s ease-in-out !important;
+    border-width: 2px !important;
+    box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.3) !important;
+}
+
+/* Цвета специальной подсветки для каждого типа */
+.highlight-found-element.highlight-genre {
+    background-color: rgba(40, 167, 69, 0.4) !important;
+    border-color: rgba(40, 167, 69, 0.8) !important;
+    box-shadow: 0 0 0 3px rgba(40, 167, 69, 0.4) !important;
+}
+
+.highlight-found-element.highlight-theme {
+    background-color: rgba(220, 53, 69, 0.4) !important;
+    border-color: rgba(220, 53, 69, 0.8) !important;
+    box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.4) !important;
+}
+
+.highlight-found-element.highlight-perspective {
+    background-color: rgba(0, 123, 255, 0.4) !important;
+    border-color: rgba(0, 123, 255, 0.8) !important;
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.4) !important;
+}
+
+.highlight-found-element.highlight-game_mode {
+    background-color: rgba(111, 66, 193, 0.4) !important;
+    border-color: rgba(111, 66, 193, 0.8) !important;
+    box-shadow: 0 0 0 3px rgba(111, 66, 193, 0.4) !important;
+}
+
+.highlight-found-element.highlight-keyword {
+    background-color: rgba(255, 193, 7, 0.4) !important;
+    border-color: rgba(255, 193, 7, 0.8) !important;
+    box-shadow: 0 0 0 3px rgba(255, 193, 7, 0.4) !important;
+}
+
+/* Анимация пульсации для специальной подсветки */
+@keyframes highlightFoundElementPulse {
+    0%, 100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.3);
+    }
+    50% {
+        transform: scale(1.03);
+        box-shadow: 0 0 0 6px rgba(255, 107, 53, 0.2);
+    }
+}
+
+/* Активный элемент в списке Found Elements */
+.found-item-badge.selected {
+    border: 2px solid #ff6b35 !important;
+    box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.25) !important;
+    position: relative;
+    z-index: 5;
+    animation: foundItemSelectedPulse 1.5s ease-in-out;
+}
+
+/* Анимация для выбранного элемента в списке */
+@keyframes foundItemSelectedPulse {
+    0%, 100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.05);
+    }
+}
+
+/* Индикатор количества совпадений */
+.highlight-match-count {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    background: #ff6b35;
+    color: white;
+    font-size: 0.7rem;
+    font-weight: bold;
+    min-width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 20;
+    padding: 0 4px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    animation: matchCountAppear 0.3s ease-out;
+}
+
+@keyframes matchCountAppear {
+    from {
+        opacity: 0;
+        transform: scale(0.5);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* Плавающая подсказка при клике */
+.found-element-tooltip {
+    position: absolute;
+    background: rgba(0, 0, 0, 0.9);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    z-index: 1000;
+    pointer-events: none;
+    white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    animation: tooltipFadeIn 0.2s ease-out;
+    border: 1px solid #333;
+}
+
+@keyframes tooltipFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(5px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Эффект перехода между подсветками */
+.highlight-transition {
+    transition: all 0.3s ease !important;
+}
+
+/* Градиентная подсветка для акцентирования внимания */
+.highlight-gradient {
+    background: linear-gradient(135deg,
+        rgba(255, 107, 53, 0.3) 0%,
+        rgba(255, 107, 53, 0.1) 100%) !important;
+}
+
+/* Стили для мигающей подсветки (для совпадений) */
+.highlight-blink {
+    animation: highlightBlink 1s ease-in-out 3 !important;
+}
+
+@keyframes highlightBlink {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
+}
+
+/* Выделение группы совпадений */
+.highlight-group {
+    position: relative;
+}
+
+.highlight-group::before {
+    content: '';
+    position: absolute;
+    top: -2px;
+    left: -2px;
+    right: -2px;
+    bottom: -2px;
+    border-radius: 4px;
+    background: rgba(255, 107, 53, 0.1);
+    z-index: -1;
+    animation: groupHighlightPulse 2s infinite;
+}
+
+@keyframes groupHighlightPulse {
+    0%, 100% {
+        opacity: 0.3;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.6;
+        transform: scale(1.02);
+    }
+}
+
+/* Стили для навигации по совпадениям */
+.highlight-navigation {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 4px;
+    vertical-align: middle;
+}
+
+.highlight-counter {
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    font-size: 0.7rem;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-weight: bold;
+}
+
+/* Улучшенные hover эффекты для Found Elements */
+.found-item-badge:hover {
+    transform: translateY(-3px) !important;
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3) !important;
+    transition: all 0.3s ease !important;
+}
+
+/* Активный Found Element с градиентом */
+.found-item-badge.selected::after {
+    content: '';
+    position: absolute;
+    top: -2px;
+    left: -2px;
+    right: -2px;
+    bottom: -2px;
+    background: linear-gradient(45deg,
+        transparent,
+        rgba(255, 107, 53, 0.2),
+        transparent);
+    border-radius: 6px;
+    z-index: -1;
+    animation: selectedGlow 2s infinite;
+}
+
+@keyframes selectedGlow {
+    0%, 100% {
+        opacity: 0.3;
+    }
+    50% {
+        opacity: 0.8;
+    }
+}
+
+/* Адаптивность для специальной подсветки */
+@media (max-width: 768px) {
+    .highlight-found-element {
+        border-width: 1px !important;
+        box-shadow: 0 0 0 2px rgba(255, 107, 53, 0.3) !important;
+    }
+
+    .highlight-match-count {
+        font-size: 0.6rem;
+        min-width: 16px;
+        height: 16px;
+        top: -6px;
+        right: -6px;
+    }
+
+    @keyframes highlightFoundElementPulse {
+        0%, 100% {
+            transform: scale(1);
+            box-shadow: 0 0 0 2px rgba(255, 107, 53, 0.3);
+        }
+        50% {
+            transform: scale(1.02);
+            box-shadow: 0 0 0 4px rgba(255, 107, 53, 0.2);
+        }
+    }
+}
+
+/* ===== СТИЛИ ДЛЯ МНОЖЕСТВЕННОЙ ПОДСВЕТКИ ===== */
+
+/* Основной класс для множественной подсветки */
+.highlight-multi {
+    position: relative !important;
+    z-index: 5 !important;
+}
+
+/* Градиент для множественной подсветки */
+.highlight-multi.highlight-genre.highlight-theme {
+    background: linear-gradient(135deg,
+        rgba(40, 167, 69, 0.25) 0%,
+        rgba(40, 167, 69, 0.15) 50%,
+        rgba(220, 53, 69, 0.15) 50%,
+        rgba(220, 53, 69, 0.25) 100%) !important;
+    border-color: rgba(40, 167, 69, 0.4) !important;
+    border-right-color: rgba(220, 53, 69, 0.4) !important;
+    border-bottom-color: rgba(220, 53, 69, 0.4) !important;
+}
+
+.highlight-multi.highlight-genre.highlight-keyword {
+    background: linear-gradient(135deg,
+        rgba(40, 167, 69, 0.25) 0%,
+        rgba(40, 167, 69, 0.15) 50%,
+        rgba(255, 193, 7, 0.15) 50%,
+        rgba(255, 193, 7, 0.25) 100%) !important;
+    border-color: rgba(40, 167, 69, 0.4) !important;
+    border-right-color: rgba(255, 193, 7, 0.4) !important;
+    border-bottom-color: rgba(255, 193, 7, 0.4) !important;
+}
+
+.highlight-multi.highlight-theme.highlight-keyword {
+    background: linear-gradient(135deg,
+        rgba(220, 53, 69, 0.25) 0%,
+        rgba(220, 53, 69, 0.15) 50%,
+        rgba(255, 193, 7, 0.15) 50%,
+        rgba(255, 193, 7, 0.25) 100%) !important;
+    border-color: rgba(220, 53, 69, 0.4) !important;
+    border-right-color: rgba(255, 193, 7, 0.4) !important;
+    border-bottom-color: rgba(255, 193, 7, 0.4) !important;
+}
+
+.highlight-multi.highlight-genre.highlight-theme.highlight-keyword {
+    background: linear-gradient(135deg,
+        rgba(40, 167, 69, 0.2) 0%,
+        rgba(220, 53, 69, 0.2) 33%,
+        rgba(255, 193, 7, 0.2) 66%,
+        rgba(0, 123, 255, 0.2) 100%) !important;
+    border-color: rgba(40, 167, 69, 0.3) !important;
+    border-image: linear-gradient(135deg,
+        rgba(40, 167, 69, 0.4),
+        rgba(220, 53, 69, 0.4),
+        rgba(255, 193, 7, 0.4)) 1 !important;
+}
+
+/* Полосатая подсветка для 3+ критериев */
+.highlight-multi[data-categories*=","][data-categories*=","]:not([data-categories*=",,"]) {
+    background-image: repeating-linear-gradient(
+        45deg,
+        transparent,
+        transparent 10px,
+        rgba(255, 255, 255, 0.05) 10px,
+        rgba(255, 255, 255, 0.05) 20px
+    ) !important;
+    background-blend-mode: overlay !important;
+}
+
+/* Специальные тултипы для множественных критериев */
+.highlight-multi + .tooltip .tooltip-inner {
+    background: linear-gradient(135deg, #2c3e50, #4a5568) !important;
+    color: white !important;
+    max-width: 400px !important;
+    text-align: left !important;
+    padding: 12px !important;
+    border-radius: 8px !important;
+    border: 1px solid #4a5568 !important;
+}
+
+.highlight-multi + .tooltip .tooltip-inner strong {
+    color: #ff6b35 !important;
+    display: block !important;
+    margin-bottom: 5px !important;
+    font-size: 0.9rem !important;
+}
+
+.highlight-multi + .tooltip .tooltip-inner .multi-criteria-list {
+    font-size: 0.85rem !important;
+    line-height: 1.4 !important;
+}
+
+.highlight-multi + .tooltip .tooltip-inner .criteria-item {
+    display: flex !important;
+    align-items: center !important;
+    margin-bottom: 4px !important;
+    padding: 2px 4px !important;
+    border-radius: 3px !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+}
+
+.highlight-multi + .tooltip .tooltip-inner .criteria-color {
+    width: 10px !important;
+    height: 10px !important;
+    border-radius: 50% !important;
+    margin-right: 8px !important;
+    flex-shrink: 0 !important;
+}
+
+.highlight-multi + .tooltip .tooltip-inner .criteria-color.genre {
+    background: #28a745 !important;
+}
+
+.highlight-multi + .tooltip .tooltip-inner .criteria-color.theme {
+    background: #dc3545 !important;
+}
+
+.highlight-multi + .tooltip .tooltip-inner .criteria-color.perspective {
+    background: #007bff !important;
+}
+
+.highlight-multi + .tooltip .tooltip-inner .criteria-color.game_mode {
+    background: #6f42c1 !important;
+}
+
+.highlight-multi + .tooltip .tooltip-inner .criteria-color.keyword {
+    background: #ffc107 !important;
+}
+
+/* Анимация для привлечения внимания к множественным критериям */
+@keyframes multiCriteriaPulse {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(255, 107, 53, 0.4);
+    }
+    50% {
+        box-shadow: 0 0 0 4px rgba(255, 107, 53, 0.2);
+    }
+}
+
+.highlight-multi.new-overlap {
+    animation: multiCriteriaPulse 1.5s ease-in-out 3;
+}
+
+/* Стили для отображения в боковой панели */
+.found-items-category .found-item-badge.multi-criteria {
+    position: relative;
+    border-style: double !important;
+    border-width: 3px !important;
+    background: linear-gradient(135deg,
+        rgba(255, 255, 255, 0.1),
+        rgba(255, 255, 255, 0.05)) !important;
+}
+
+.found-items-category .found-item-badge.multi-criteria::before {
+    content: '⊕';
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    background: #ff6b35;
+    color: white;
+    font-size: 0.7rem;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+    .highlight-multi::after {
+        width: 6px;
+        height: 6px;
+        top: -1px;
+        right: -1px;
+    }
+
+    .highlight-multi + .tooltip .tooltip-inner {
+        max-width: 300px !important;
+        font-size: 0.8rem !important;
+    }
+}
+
+/* games/static/games/css/analyze.css - добавьте в конец */
+
+/* ===== ПОЛОСАТАЯ ПОДСВЕТКА ДЛЯ ПЕРЕСЕЧЕНИЙ ===== */
+
+/* Общие стили для полосатой подсветки */
+.highlight-striped-2 {
+    background: linear-gradient(90deg,
+        rgba(40, 167, 69, 0.2) 0%,
+        rgba(40, 167, 69, 0.2) 50%,
+        rgba(220, 53, 69, 0.2) 50%,
+        rgba(220, 53, 69, 0.2) 100%) !important;
+    border-left: 2px solid rgba(40, 167, 69, 0.4) !important;
+    border-right: 2px solid rgba(220, 53, 69, 0.4) !important;
+    border-top: 1px solid rgba(40, 167, 69, 0.3) !important;
+    border-bottom: 1px solid rgba(220, 53, 69, 0.3) !important;
+}
+
+.highlight-striped-3 {
+    background: repeating-linear-gradient(90deg,
+        rgba(40, 167, 69, 0.2),
+        rgba(40, 167, 69, 0.2) 10px,
+        rgba(220, 53, 69, 0.2) 10px,
+        rgba(220, 53, 69, 0.2) 20px,
+        rgba(0, 123, 255, 0.2) 20px,
+        rgba(0, 123, 255, 0.2) 30px) !important;
+    border: 1px solid;
+    border-image: linear-gradient(90deg,
+        rgba(40, 167, 69, 0.4),
+        rgba(220, 53, 69, 0.4),
+        rgba(0, 123, 255, 0.4)) 1 !important;
+}
+
+.highlight-striped-4 {
+    background: repeating-linear-gradient(45deg,
+        rgba(40, 167, 69, 0.15),
+        rgba(40, 167, 69, 0.15) 5px,
+        rgba(220, 53, 69, 0.15) 5px,
+        rgba(220, 53, 69, 0.15) 10px,
+        rgba(0, 123, 255, 0.15) 10px,
+        rgba(0, 123, 255, 0.15) 15px,
+        rgba(111, 66, 193, 0.15) 15px,
+        rgba(111, 66, 193, 0.15) 20px) !important;
+    border: 1px dashed rgba(255, 255, 255, 0.2) !important;
+}
+
+.highlight-striped-5 {
+    background: repeating-linear-gradient(135deg,
+        rgba(40, 167, 69, 0.12),
+        rgba(40, 167, 69, 0.12) 4px,
+        rgba(220, 53, 69, 0.12) 4px,
+        rgba(220, 53, 69, 0.12) 8px,
+        rgba(0, 123, 255, 0.12) 8px,
+        rgba(0, 123, 255, 0.12) 12px,
+        rgba(111, 66, 193, 0.12) 12px,
+        rgba(111, 66, 193, 0.12) 16px,
+        rgba(255, 193, 7, 0.12) 16px,
+        rgba(255, 193, 7, 0.12) 20px) !important;
+    border: 2px dotted rgba(255, 255, 255, 0.3) !important;
+}
+
+/* Конкретные комбинации для лучшей читаемости */
+
+/* Жанр + Тема (зеленый + красный) */
+.highlight-genre.highlight-theme:not(.highlight-multi) {
+    background: linear-gradient(90deg,
+        rgba(40, 167, 69, 0.25) 0%,
+        rgba(40, 167, 69, 0.25) 50%,
+        rgba(220, 53, 69, 0.25) 50%,
+        rgba(220, 53, 69, 0.25) 100%) !important;
+    border-left-color: rgba(40, 167, 69, 0.5) !important;
+    border-right-color: rgba(220, 53, 69, 0.5) !important;
+}
+
+/* Жанр + Ключевое слово (зеленый + желтый) */
+.highlight-genre.highlight-keyword:not(.highlight-multi) {
+    background: linear-gradient(90deg,
+        rgba(40, 167, 69, 0.25) 0%,
+        rgba(40, 167, 69, 0.25) 50%,
+        rgba(255, 193, 7, 0.25) 50%,
+        rgba(255, 193, 7, 0.25) 100%) !important;
+    border-left-color: rgba(40, 167, 69, 0.5) !important;
+    border-right-color: rgba(255, 193, 7, 0.5) !important;
+}
+
+/* Тема + Перспектива (красный + синий) */
+.highlight-theme.highlight-perspective:not(.highlight-multi) {
+    background: linear-gradient(90deg,
+        rgba(220, 53, 69, 0.25) 0%,
+        rgba(220, 53, 69, 0.25) 50%,
+        rgba(0, 123, 255, 0.25) 50%,
+        rgba(0, 123, 255, 0.25) 100%) !important;
+    border-left-color: rgba(220, 53, 69, 0.5) !important;
+    border-right-color: rgba(0, 123, 255, 0.5) !important;
+}
+
+/* Диагональные полосы для 3+ критериев */
+.highlight-multi[data-num-criteria="3"] {
+    background: repeating-linear-gradient(45deg,
+        rgba(40, 167, 69, 0.15),
+        rgba(40, 167, 69, 0.15) 8px,
+        rgba(220, 53, 69, 0.15) 8px,
+        rgba(220, 53, 69, 0.15) 16px,
+        rgba(0, 123, 255, 0.15) 16px,
+        rgba(0, 123, 255, 0.15) 24px) !important;
+}
+
+.highlight-multi[data-num-criteria="4"] {
+    background: repeating-linear-gradient(-45deg,
+        rgba(40, 167, 69, 0.12),
+        rgba(40, 167, 69, 0.12) 6px,
+        rgba(220, 53, 69, 0.12) 6px,
+        rgba(220, 53, 69, 0.12) 12px,
+        rgba(0, 123, 255, 0.12) 12px,
+        rgba(0, 123, 255, 0.12) 18px,
+        rgba(111, 66, 193, 0.12) 18px,
+        rgba(111, 66, 193, 0.12) 24px) !important;
+}
+
+/* Анимация для полосатой подсветки */
+@keyframes stripeMove {
+    0% {
+        background-position: 0 0;
+    }
+    100% {
+        background-position: 30px 0;
+    }
+}
+
+.highlight-multi:hover {
+    animation: stripeMove 3s linear infinite !important;
+    background-size: 30px 100% !important;
+}
+
+/* Улучшенные тултипы для полосатой подсветки */
+.highlight-multi + .tooltip .tooltip-inner {
+    background: linear-gradient(135deg, #2c3e50, #4a5568) !important;
+    border: 2px solid;
+    border-image: linear-gradient(45deg,
+        #28a745, #dc3545, #007bff, #6f42c1, #ffc107) 1 !important;
+    padding: 15px !important;
+    max-width: 450px !important;
+}
+
+.highlight-multi + .tooltip .tooltip-inner .criteria-count {
+    display: inline-block;
+    background: linear-gradient(45deg, #ff6b35, #ff8c00);
+    color: white;
+    font-size: 0.8rem;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-left: 8px;
+    font-weight: bold;
+}
+
+/* Эффект при наведении на полосатую подсветку */
+.highlight-multi:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+    z-index: 5 !important;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+    .highlight-striped-3,
+    .highlight-striped-4,
+    .highlight-striped-5 {
+        background-size: 20px 100% !important;
+    }
+
+    .highlight-multi::before {
+        width: 14px;
+        height: 14px;
+        font-size: 0.6rem;
+        top: -4px;
+        right: -4px;
+    }
+}
+
+/* Полосатая подсветка для 2 критериев */
+.highlight-striped-2 {
+    background: repeating-linear-gradient(
+        45deg,
+        rgba(40, 167, 69, 0.2),    /* зеленый - жанр */
+        rgba(40, 167, 69, 0.2) 5px,
+        rgba(220, 53, 69, 0.2) 5px, /* красный - тема */
+        rgba(220, 53, 69, 0.2) 10px
+    ) !important;
+}
+
+/* Полосатая подсветка для 3+ критериев */
+.highlight-striped-3 {
+    background: repeating-linear-gradient(
+        45deg,
+        rgba(40, 167, 69, 0.15),
+        rgba(40, 167, 69, 0.15) 4px,
+        rgba(220, 53, 69, 0.15) 4px,
+        rgba(220, 53, 69, 0.15) 8px,
+        rgba(255, 193, 7, 0.15) 8px, /* желтый - ключевые слова */
+        rgba(255, 193, 7, 0.15) 12px
+    ) !important;
+}
+
+/* Индикатор прокрутки (опционально) */
+.scroll-position-indicator {
+    position: absolute;
+    bottom: 10px;
+    right: 15px;
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    opacity: 0.7;
+    transition: opacity 0.3s ease;
+    z-index: 10;
+}
+
+.text-display-area:hover .scroll-position-indicator {
+    opacity: 1;
 }

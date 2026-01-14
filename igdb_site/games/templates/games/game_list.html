@@ -1,3 +1,4 @@
+<!-- games/templates/games/game_list.html -->
 {% extends 'base.html' %}
 {% load static %}
 
@@ -9,20 +10,27 @@
 {% endblock %}
 
 {% block content %}
-<div class="container">
-    <!-- ЗАГОЛОВОК -->
-    <div class="row mb-4">
-        <div class="col-12">
-            <h1>🎮 Browse Games</h1>
+    <div class="container">
+        <!-- ЗАГОЛОВОК -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <h1>🎮 Browse Games</h1>
+                <p class="text-muted">Use filters to find your next favorite game</p>
+            </div>
         </div>
+
+        <!-- Форма фильтров -->
+        {% include 'games/game_list/_filters_form.html' %}
+
+        <!-- Результаты -->
+        {% include 'games/game_list/_games_results.html' %}
     </div>
+{% endblock %}
 
-    <!-- Форма фильтров -->
-    {% include 'games/game_list/_filters_form.html' %}
+{% block extra_js %}
+    <!-- Основной скрипт фильтров (модульная версия ES6) -->
+    <script type="module" src="{% static 'games/js/filters_script.js' %}"></script>
 
-    <!-- Результаты -->
-    {% include 'games/game_list/_games_results.html' %}
-</div>
-
-{% include 'games/game_list/_game_list_script.html' %}
+    <!-- Скрипт для списка игр (старый, если нужен) -->
+    {% include 'games/game_list/_game_list_script.html' %}
 {% endblock %}

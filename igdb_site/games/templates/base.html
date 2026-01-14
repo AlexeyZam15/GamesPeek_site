@@ -1,3 +1,4 @@
+<!-- games/templates/base.html -->
 {% load static %}
 <!DOCTYPE html>
 <html lang="en">
@@ -13,7 +14,6 @@
 <body>
 <nav class="navbar navbar-expand-lg navbar-dark">
     <div class="container">
-        <!-- ИЗМЕНЕНО: логотип ведет на главную -->
         <a class="navbar-brand" href="{% url 'home' %}">
             <i class="bi bi-eye"></i> GamesPeek
         </a>
@@ -23,7 +23,6 @@
         </button>
 
         <div class="collapse navbar-collapse" id="navbarNav">
-            <!-- Навигационные ссылки -->
             <div class="navbar-nav me-auto">
                 <a class="nav-link" href="{% url 'game_list' %}">
                     <i class="bi bi-controller"></i> Browse Games
@@ -54,16 +53,18 @@
         <p>GamesPeek - Video Game Discovery Platform powered by IGDB API</p>
     </div>
 </footer>
+
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        // Инициализация тултипов Bootstrap для всех карточек игр
+        // Инициализация тултипов Bootstrap
         var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
         tooltipTriggerList.map(function (tooltipTriggerEl) {
             return new bootstrap.Tooltip(tooltipTriggerEl);
         });
     });
 </script>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-{% block extra_js %}{% endblock %}
+{% block extra_js %}{% endblock %}  <!-- ВАЖНО: этот блок должен быть здесь! -->
 </body>
 </html>

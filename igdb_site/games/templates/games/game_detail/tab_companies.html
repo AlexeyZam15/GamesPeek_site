@@ -13,21 +13,6 @@
                             <div class="company-item mb-4 p-3 rounded bg-dark">
                                 <!-- Заголовок с логотипом -->
                                 <div class="d-flex align-items-center mb-3">
-                                    {% if developer.logo_image_url %}
-                                        <div class="company-logo me-3">
-                                            <img src="{{ developer.logo_image_url }}"
-                                                 alt="{{ developer.name }} logo"
-                                                 class="company-logo-img rounded"
-                                                 style="width: 48px; height: 48px; object-fit: contain; background-color: rgba(255,255,255,0.1);">
-                                        </div>
-                                    {% else %}
-                                        <div class="company-logo-placeholder me-3">
-                                            <div class="company-logo-placeholder-icon rounded d-flex align-items-center justify-content-center"
-                                                 style="width: 48px; height: 48px; background-color: rgba(108, 117, 125, 0.2);">
-                                                <i class="bi bi-building text-muted"></i>
-                                            </div>
-                                        </div>
-                                    {% endif %}
                                     <h6 class="text-light mb-0 flex-grow-1">{{ developer.name }}</h6>
                                 </div>
 
@@ -81,21 +66,6 @@
                             <div class="company-item mb-4 p-3 rounded bg-dark">
                                 <!-- Заголовок с логотипом -->
                                 <div class="d-flex align-items-center mb-3">
-                                    {% if publisher.logo_image_url %}
-                                        <div class="company-logo me-3">
-                                            <img src="{{ publisher.logo_image_url }}"
-                                                 alt="{{ publisher.name }} logo"
-                                                 class="company-logo-img rounded"
-                                                 style="width: 48px; height: 48px; object-fit: contain; background-color: rgba(255,255,255,0.1);">
-                                        </div>
-                                    {% else %}
-                                        <div class="company-logo-placeholder me-3">
-                                            <div class="company-logo-placeholder-icon rounded d-flex align-items-center justify-content-center"
-                                                 style="width: 48px; height: 48px; background-color: rgba(108, 117, 125, 0.2);">
-                                                <i class="bi bi-shop text-muted"></i>
-                                            </div>
-                                        </div>
-                                    {% endif %}
                                     <h6 class="text-light mb-0 flex-grow-1">{{ publisher.name }}</h6>
                                 </div>
 

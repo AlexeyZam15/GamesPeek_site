@@ -205,12 +205,14 @@ class SimpleProgressBar(BaseProgressBar):
 
 
 class BaseGamesCommand(BaseCommand):
-    """Базовый класс для команд загрузки IGDB"""
+    """Базовый класс для команд загрузки IGDB - БЕЗ add_arguments"""
 
     DEFAULT_ITERATION_LIMIT = 100
+    max_consecutive_no_new_games = 3  # Добавляем значение по умолчанию
 
     def __init__(self):
         super().__init__()
+        self.debug_mode = False  # Добавляем атрибут
         # Инициализация GameCacheManager
         try:
             from .game_cache import GameCacheManager
@@ -223,36 +225,9 @@ class BaseGamesCommand(BaseCommand):
 
             self.cache_manager = GameCacheManager
 
-    def add_arguments(self, parser):
-        """Общие аргументы для всех команд"""
-        parser.add_argument('--genres', type=str, default='',
-                            help='Загружать игры с указанными жанрами (логика И между жанрами).')
-        parser.add_argument('--description-contains', type=str, default='',
-                            help='Загружать игры с указанным текстом в описании или названии')
-        parser.add_argument('--overwrite', action='store_true',
-                            help='Удалить существующие игры и загрузить заново')
-        parser.add_argument('--debug', action='store_true',
-                            help='Включить режим отладки')
-        parser.add_argument('--limit', type=int, default=0,
-                            help='Общий лимит загружаемых игр (0 - без общего лимита)')
-        parser.add_argument('--offset', type=int, default=0,
-                            help='Пропустить указанное количество игр из результатов поиска')
-        parser.add_argument('--min-rating-count', type=int, default=0,
-                            help='Минимальное количество оценок для фильтрации')
-        parser.add_argument('--keywords', type=str, default='',
-                            help='Загружать игры с указанными ключевыми словами (логика И)')
-        parser.add_argument('--count-only', action='store_true',
-                            help='Только подсчитать количество НОВЫХ игр без сохранения')
-        parser.add_argument('--repeat', type=int, default=0,
-                            help='Количество повторений (0 = бесконечно, -1 = только один раз)')
-        parser.add_argument('--game-types', type=str, default='0,1,2,4,5,8,9,10,11',
-                            help='Типы игр для загрузки')
-        parser.add_argument('--iteration-limit', type=int, default=self.DEFAULT_ITERATION_LIMIT,
-                            help=f'Количество игр за одну итерацию')
-        parser.add_argument('--clear-cache', action='store_true',
-                            help='Очистить кэш проверенных игр перед началом')
-        parser.add_argument('--reset-offset', action='store_true',
-                            help='Сбросить сохраненный offset и начать с начала')
+    def handle(self, *args, **options):
+        """Основной метод выполнения команды - должен быть переопределен в наследниках"""
+        raise NotImplementedError("Метод handle должен быть переопределен в наследниках")
 
     def _create_progress_bar(self):
         """Создает подходящий прогресс-бар для текущего терминала"""
@@ -536,7 +511,7 @@ class BaseGamesCommand(BaseCommand):
     def _finalize_execution(self, total_stats, limit, progress_bar,
                             execution_mode, original_offset,
                             current_offset, limit_val, overwrite):
-        """Завершает выполнение команды"""
+        """Завершает выполнение команда"""
         if progress_bar:
             if limit > 0:
                 if total_stats['total_games_created'] >= limit:
@@ -580,3 +555,88 @@ class BaseGamesCommand(BaseCommand):
         except Exception as e:
             self.stderr.write(f"❌ Ошибка при очистке кэша: {e}")
             return False
+
+    def _get_where_clause_for_current_command(self, options):
+        """Получает where_clause для текущей команды"""
+        game_names_str = options.get('game_names', '')  # НОВОЕ
+        genres_str = options.get('genres', '')
+        description_contains = options.get('description_contains', '')
+        keywords_str = options.get('keywords', '')
+        game_types_str = options.get('game_types', '')
+        min_rating_count = options.get('min_rating_count', 0)
+
+        where_parts = []
+
+        # НОВАЯ ВЕТКА: поиск по именам
+        if game_names_str:
+            name_list = [n.strip() for n in game_names_str.split(',') if n.strip()]
+            name_conditions = [f'name ~ *"{name}"*' for name in name_list]
+            where_parts.append(f'({" | ".join(name_conditions)})')
+        # Определяем режим загрузки
+        elif genres_str and description_contains:
+            where_parts.append('genres = (...)')
+            where_parts.append(f'(name ~ *"{description_contains}"* | summary ~ *"{description_contains}"*)')
+        elif genres_str:
+            where_parts.append('genres = (...)')
+        elif description_contains:
+            where_parts.append(f'(name ~ *"{description_contains}"* | summary ~ *"{description_contains}"*)')
+        elif keywords_str:
+            where_parts.append('keywords = (...)')
+
+        # Обязательные условия
+        if game_names_str:
+            # Для поиска по именам rating_count может быть 0
+            where_parts.append('name != null')
+            if min_rating_count > 0:
+                where_parts.append(f'rating_count >= {min_rating_count}')
+        else:
+            where_parts.append('rating_count > 0')
+            where_parts.append('name != null')
+            if min_rating_count > 0:
+                where_parts.append(f'rating_count >= {min_rating_count}')
+
+        if game_types_str:
+            try:
+                game_types = [int(gt.strip()) for gt in game_types_str.split(',') if gt.strip()]
+                if game_types:
+                    game_types_str_query = ','.join(map(str, game_types))
+                    where_parts.append(f'game_type = ({game_types_str_query})')
+            except ValueError:
+                pass
+
+        return ' & '.join(where_parts) if where_parts else 'rating_count > 0 & name != null'
+
+    def _get_loading_mode(self, options):
+        """Определяет режим загрузки для ключа offset"""
+        game_names_str = options.get('game_names', '')  # НОВОЕ
+        genres_str = options.get('genres', '')
+        description_contains = options.get('description_contains', '')
+        keywords_str = options.get('keywords', '')
+
+        if game_names_str:
+            return 'game_names'  # НОВЫЙ РЕЖИМ
+        elif genres_str and description_contains:
+            return 'genres_and_description'
+        elif genres_str:
+            return 'genres'
+        elif description_contains:
+            return 'description'
+        elif keywords_str:
+            return 'keywords'
+        else:
+            return 'popular'
+
+    def _get_query_key_for_current_command(self, options, where_clause):
+        """Создает ключ запроса для текущей команды"""
+        from .offset_manager import OffsetManager
+
+        params = {
+            'genres': options.get('genres', ''),
+            'description_contains': options.get('description_contains', ''),
+            'keywords': options.get('keywords', ''),
+            'game_types': options.get('game_types', ''),
+            'min_rating_count': options.get('min_rating_count', 0),
+            'mode': self._get_loading_mode(options),
+        }
+
+        return OffsetManager.get_query_key(where_clause, **params)
