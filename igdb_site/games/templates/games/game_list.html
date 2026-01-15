@@ -31,6 +31,6 @@
     <!-- Основной скрипт фильтров (модульная версия ES6) -->
     <script type="module" src="{% static 'games/js/filters_script.js' %}"></script>
 
-    <!-- Скрипт для списка игр (старый, если нужен) -->
-    {% include 'games/game_list/_game_list_script.html' %}
+    <!-- Скрипт для списка игр (новая версия JS) -->
+    <script type="module" src="{% static 'games/js/modules/game_list_script.js' %}"></script>
 {% endblock %}

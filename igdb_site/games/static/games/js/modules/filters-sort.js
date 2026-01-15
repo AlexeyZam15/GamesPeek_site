@@ -3,13 +3,17 @@
 const FilterSort = {
     // Список всех типов фильтров для обработки
     filterTypes: [
-        { container: '.genre-grid', itemClass: 'genre-item', checkboxClass: 'genre-checkbox' },
-        { container: '.keyword-grid', itemClass: 'keyword-item', checkboxClass: 'keyword-checkbox' },
-        { container: '.platform-grid', itemClass: 'platform-item', checkboxClass: 'platform-checkbox' },
-        { container: '.theme-grid', itemClass: 'theme-item', checkboxClass: 'theme-checkbox' },
-        { container: '.perspective-grid', itemClass: 'perspective-item', checkboxClass: 'perspective-checkbox' },
-        { container: '.game-mode-grid', itemClass: 'game-mode-item', checkboxClass: 'game-mode-checkbox' }
-    ],
+            // Search Filters (не влияют на find_similar)
+            { container: '.platform-grid', itemClass: 'platform-item', checkboxClass: 'platform-checkbox' },
+            { container: '.game-type-grid', itemClass: 'game-type-item', checkboxClass: 'game-type-checkbox' },
+
+            // Similarity Filters (влияют на find_similar)
+            { container: '.genre-grid', itemClass: 'genre-item', checkboxClass: 'genre-checkbox' },
+            { container: '.keyword-grid', itemClass: 'keyword-item', checkboxClass: 'keyword-checkbox' },
+            { container: '.theme-grid', itemClass: 'theme-item', checkboxClass: 'theme-checkbox' },
+            { container: '.perspective-grid', itemClass: 'perspective-item', checkboxClass: 'perspective-checkbox' },
+            { container: '.game-mode-grid', itemClass: 'game-mode-item', checkboxClass: 'game-mode-checkbox' }
+        ],
 
     // Основная функция сортировки
     sortFilterLists() {

@@ -8,7 +8,8 @@ class VirtualGame:
     """Виртуальная игра, созданная из выбранных критериев"""
 
     def __init__(self, genre_ids=None, keyword_ids=None, theme_ids=None,
-                 perspective_ids=None, developer_ids=None, series_id=None, game_mode_ids=None):
+                 perspective_ids=None, developer_ids=None, series_id=None,
+                 game_mode_ids=None, game_type_ids=None):  # ДОБАВЛЕНО game_type_ids
         self.genre_ids = genre_ids or []
         self.keyword_ids = keyword_ids or []
         self.theme_ids = theme_ids or []
@@ -16,6 +17,7 @@ class VirtualGame:
         self.developer_ids = developer_ids or []
         self.series_id = series_id
         self.game_mode_ids = game_mode_ids or []
+        self.game_type_ids = game_type_ids or []  # ДОБАВЛЕНО
 
         self.genres = []
         self.keywords = []
@@ -24,13 +26,14 @@ class VirtualGame:
         self.developers = []
         self.series = None
         self.game_modes = []
+        self.game_types = []  # ДОБАВЛЕНО
 
         self.name = "Custom Search Criteria"
         self.rating = None
         self.rating_count = 0
 
     def __str__(self):
-        return f"VirtualGame(genres: {len(self.genre_ids)}, keywords: {len(self.keyword_ids)}, game_modes: {len(self.game_mode_ids)})"
+        return f"VirtualGame(genres: {len(self.genre_ids)}, keywords: {len(self.keyword_ids)}, game_modes: {len(self.game_mode_ids)}, game_types: {len(self.game_type_ids)})"
 
     def load_related(self):
         """Ленивая загрузка связанных объектов"""
@@ -54,6 +57,11 @@ class VirtualGame:
 
         if not self.game_modes and self.game_mode_ids:
             self.game_modes = list(GameMode.objects.filter(id__in=self.game_mode_ids).only('id', 'name'))
+
+        # ДОБАВЛЕНО: загрузка типов игр
+        if not self.game_types and self.game_type_ids:
+            # Типы игр хранятся как ID, не нужно загружать из базы
+            self.game_types = self.game_type_ids
 
         if self.series_id and not self.series:
             self.series = Series.objects.filter(id=self.series_id).first()
@@ -107,16 +115,17 @@ class GameSimilarity:
         # 1. Подготовка данных исходной игры
         source_data, single_player_info = self._prepare_source_data(source_game)
 
-        # 2. Генерация ключа кэша
+        # 2. Генерация ключа кэша БЕЗ учета типов игр
         cache_key_data = {
             'type': 'game' if isinstance(source_game, Game) else 'virtual',
             'id': getattr(source_game, 'id', 'virtual'),
             'genres': sorted(source_data['genre_ids']),
+            # Убрано: 'game_types': sorted(source_data.get('game_type_ids', [])),
             'min_similarity': min_similarity,
             'has_single_player': single_player_info['has_single_player'],
             'only_released': True,
             'limit': limit,
-            'version': 'v_only_released'
+            'version': 'v12_no_game_types_in_similarity'
         }
 
         cache_key = f'game_similarity_{hashlib.md5(json.dumps(cache_key_data, sort_keys=True).encode()).hexdigest()}'
@@ -129,7 +138,7 @@ class GameSimilarity:
         print(f"РАСЧЕТ для {getattr(source_game, 'id', 'virtual')}...")
         start_time = time.time()
 
-        # 3. Получаем кандидатов (уже с фильтрацией по дате в _get_candidate_ids)
+        # 3. Получаем кандидатов БЕЗ учета типов игр
         candidate_ids = self._get_candidate_ids(source_data, single_player_info)
 
         if not candidate_ids:
@@ -231,6 +240,13 @@ class GameSimilarity:
         source_genre_ids = list(source_data['genres'])
         source_genre_count = len(source_genre_ids)
 
+        # УБРАНО: получение ID типов игр для similarity
+        # source_game_type_ids = []
+        # if isinstance(source_game, VirtualGame):
+        #     source_game_type_ids = source_game.game_type_ids
+        # elif hasattr(source_game, 'game_type') and source_game.game_type is not None:
+        #     source_game_type_ids = [source_game.game_type]
+
         # Проверяем, есть ли у исходной игры режим Single player
         source_game_mode_ids = list(source_data['game_modes'])
         has_single_player_in_source = False
@@ -259,7 +275,7 @@ class GameSimilarity:
         else:
             dynamic_min_common_genres = 0
 
-        # ДОБАВЛЯЕМ single_player_mode_id в source_data
+        # Обновляем source_data БЕЗ типов игр
         source_data.update({
             'genre_ids': source_genre_ids,
             'genre_count': source_genre_count,
@@ -268,7 +284,8 @@ class GameSimilarity:
             'developer_ids': list(source_data['developers']),
             'perspective_ids': list(source_data['perspectives']),
             'game_mode_ids': source_game_mode_ids,
-            'single_player_mode_id': single_player_mode_id,  # ← ДОБАВЛЕНО
+            # Убрано: 'game_type_ids': source_game_type_ids,
+            'single_player_mode_id': single_player_mode_id,
             'keyword_count': len(source_data['keywords']),
             'theme_count': len(source_data['themes']),
             'developer_count': len(source_data['developers']),
@@ -300,11 +317,12 @@ class GameSimilarity:
                 'genre_ids': sorted(source_game.genre_ids),
                 'keyword_ids': sorted(source_game.keyword_ids),
                 'theme_ids': sorted(source_game.theme_ids),
+                'game_type_ids': sorted(source_game.game_type_ids),  # ДОБАВЛЕНО
                 'min_similarity': min_similarity,
                 'dynamic_min_common_genres': single_player_info['dynamic_min_common_genres'],
                 'has_single_player': single_player_info['has_single_player'],
                 'limit': limit,
-                'version': 'v_single_player_check'
+                'version': 'v_with_game_types'
             }
         else:
             cache_key_data = {
@@ -313,8 +331,9 @@ class GameSimilarity:
                 'min_similarity': min_similarity,
                 'dynamic_min_common_genres': single_player_info['dynamic_min_common_genres'],
                 'has_single_player': single_player_info['has_single_player'],
+                'game_type': getattr(source_game, 'game_type', None),  # ДОБАВЛЕНО
                 'limit': limit,
-                'version': 'v_single_player_check'
+                'version': 'v_with_game_types'
             }
 
         cache_key_str = json.dumps(cache_key_data, sort_keys=True)
@@ -334,6 +353,7 @@ class GameSimilarity:
         has_single_player = single_player_info['has_single_player']
         single_player_mode_id = single_player_info['single_player_mode_id']
         source_genre_ids = source_data['genre_ids']
+        # Убрано: source_game_type_ids = source_data.get('game_type_ids', [])
         current_time = timezone.now()
 
         # Получаем ID игр с общими жанрами
@@ -341,7 +361,7 @@ class GameSimilarity:
             with connection.cursor() as cursor:
                 source_genre_ids_str = ','.join(map(str, source_genre_ids))
 
-                # Простой запрос с фильтрацией по дате
+                # Основной запрос с фильтрацией по дате
                 query = f"""
                     SELECT ggg.game_id, COUNT(*) as common_count
                     FROM games_game_genres ggg
@@ -349,6 +369,14 @@ class GameSimilarity:
                     WHERE ggg.genre_id IN ({source_genre_ids_str})
                     AND g.first_release_date IS NOT NULL
                     AND g.first_release_date <= %s
+                """
+
+                # УБРАНО: фильтрация по типам игр
+                # if source_game_type_ids:
+                #     source_game_type_ids_str = ','.join(map(str, source_game_type_ids))
+                #     query += f" AND g.game_type IN ({source_game_type_ids_str})"
+
+                query += f"""
                     GROUP BY ggg.game_id
                     HAVING COUNT(*) >= {dynamic_min_common_genres}
                     ORDER BY common_count DESC
@@ -360,12 +388,17 @@ class GameSimilarity:
         elif dynamic_min_common_genres == 0:
             # Если не требуется общих жанров
             from .models import Game
+            queryset = Game.objects.filter(
+                first_release_date__isnull=False,
+                first_release_date__lte=current_time
+            )
+
+            # УБРАНО: фильтрация по типам игр
+            # if source_game_type_ids:
+            #     queryset = queryset.filter(game_type__in=source_game_type_ids)
+
             candidate_ids = list(
-                Game.objects.filter(
-                    first_release_date__isnull=False,
-                    first_release_date__lte=current_time
-                )
-                .order_by('-rating_count')
+                queryset.order_by('-rating_count')
                 .values_list('id', flat=True)[:500]
             )
 
@@ -861,12 +894,12 @@ class GameSimilarity:
     def _get_similarity_cache_key(self, source, target):
         """Генерирует ключ для кэша схожести"""
         if isinstance(source, VirtualGame):
-            source_key = f"virtual_{hash(tuple(sorted(source.genre_ids + source.keyword_ids + source.theme_ids)))}"
+            source_key = f"virtual_{hash(tuple(sorted(source.genre_ids + source.keyword_ids + source.theme_ids + source.game_type_ids)))}"
         else:
             source_key = f"game_{source.id}"
 
         if isinstance(target, VirtualGame):
-            target_key = f"virtual_{hash(tuple(sorted(target.genre_ids + target.keyword_ids + target.theme_ids)))}"
+            target_key = f"virtual_{hash(tuple(sorted(target.genre_ids + target.keyword_ids + target.theme_ids + target.game_type_ids)))}"
         else:
             target_key = f"game_{target.id}"
 
@@ -875,7 +908,7 @@ class GameSimilarity:
     def _get_cached_game_data(self, obj):
         """Получает или кэширует данные игры"""
         if isinstance(obj, VirtualGame):
-            cache_key = f"virtual_{hash(tuple(sorted(obj.genre_ids + obj.keyword_ids + obj.theme_ids)))}"
+            cache_key = f"virtual_{hash(tuple(sorted(obj.genre_ids + obj.keyword_ids + obj.theme_ids + obj.game_type_ids)))}"
         else:
             cache_key = f"game_{obj.id}"
 

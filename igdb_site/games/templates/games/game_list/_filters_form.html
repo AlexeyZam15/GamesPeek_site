@@ -12,6 +12,7 @@
             <input type="hidden" name="t" id="themes-field" value="{{ selected_themes|join:',' }}">
             <input type="hidden" name="pp" id="perspectives-field" value="{{ selected_perspectives|join:',' }}">
             <input type="hidden" name="gm" id="game-modes-field" value="{{ selected_game_modes|join:',' }}">
+            <input type="hidden" name="gt" id="game-types-field" value="{{ selected_game_types|join:',' }}">
 
             <div class="row g-3">
                 <!-- Встроенная сортировка -->
@@ -20,17 +21,19 @@
                 <!-- Поисковые фильтры -->
                 <div class="col-12">
                     <div class="search-filter-section">
-                        <h6 class="border-bottom pb-2 mb-3 toggle-section" data-target="search-filters-content"
-                            style="cursor: pointer;">
-                            <i class="bi bi-chevron-down me-2"></i>🔍 Search Filters
-                        </h6>
+                        <div class="toggle-section border-bottom pb-2 mb-3" data-target="search-filters-content">
+                            <h6 class="mb-0 d-flex align-items-center">
+                                <i class="bi bi-chevron-down me-2"></i>🔍 Search Filters
+                            </h6>
+                        </div>
                         <div id="search-filters-content">
                             <!-- Platforms фильтр -->
                             <div class="filter-subsection">
-                                <label class="form-label toggle-subsection" data-target="platforms-content"
-                                       style="cursor: pointer;">
-                                    <i class="bi bi-chevron-down me-1"></i>Platforms:
-                                </label>
+                                <div class="toggle-subsection mb-2" data-target="platforms-content">
+                                    <label class="form-label mb-0 d-flex align-items-center">
+                                        <i class="bi bi-chevron-down me-1"></i>Platforms:
+                                    </label>
+                                </div>
                                 <div id="platforms-content">
                                     <input type="text" class="form-control mb-2" id="platform-search"
                                            placeholder="Search platforms..." autocomplete="off">
@@ -131,6 +134,82 @@
                                     </div>
                                 </div>
                             </div>
+                            <!-- Game Types -->
+                            <div class="filter-subsection mt-3">
+                                <div class="toggle-subsection mb-2" data-target="game-types-content">
+                                    <label class="form-label mb-0 d-flex align-items-center">
+                                        <i class="bi bi-chevron-down me-1"></i>🎲 Game Types:
+                                    </label>
+                                </div>
+                                <div id="game-types-content">
+                                    <input type="text" class="form-control mb-2" id="game-type-search"
+                                           placeholder="Search game types..." autocomplete="off">
+
+                                    <!-- Активные типы игр -->
+                                    <div id="active-game-types" class="mb-2">
+                                        {% if selected_game_types %}
+                                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <button type="button"
+                                                            class="btn btn-sm clear-game-types-btn btn-outline-secondary"
+                                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                                                            data-param="gt">
+                                                        <i class="bi bi-x-circle me-1"></i>Clear All
+                                                    </button>
+                                                    <small class="text-muted" style="font-weight: 500;">
+                                                        Selected game types ({{ selected_game_types|length }})
+                                                    </small>
+                                                </div>
+                                            </div>
+                                        {% endif %}
+
+                                        <!-- Видимые типы игр -->
+                                        <div id="visible-game-types-badges">
+                                            {% for game_type_id, game_type_name in selected_game_types_objects %}
+                                                <span class="badge bg-secondary me-1 mb-1 active-game-type-tag"
+                                                      data-game-type-id="{{ game_type_id }}"
+                                                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                                    {{ game_type_name }}
+                                                    <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                                                </span>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+
+                                    <!-- Список типов игр -->
+                                    <div class="game-type-list border rounded p-2"
+                                         style="max-height: 200px; overflow-y: auto;">
+                                        <div class="game-type-grid"
+                                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                                            {% for game_type_id, game_type_name in game_types %}
+                                                <div class="game-type-item"
+                                                     data-game-type-name="{{ game_type_name|lower }}">
+                                                    <div class="form-check">
+                                                        <input class="form-check-input game-type-checkbox"
+                                                               type="checkbox"
+                                                               value="{{ game_type_id }}"
+                                                               id="game_type_{{ game_type_id }}"
+                                                               {% if game_type_id in selected_game_types %}checked{% endif %}>
+                                                        <label class="form-check-label small"
+                                                               for="game_type_{{ game_type_id }}">
+                                                            {{ game_type_name }}
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+
+                                    <!-- Кнопка "Show all game types" -->
+                                    <div class="text-center mt-2">
+                                        <button type="button"
+                                                class="btn btn-outline-secondary btn-sm show-all-game-types-btn">
+                                            <span class="show-text">Show all game types</span>
+                                            <span class="hide-text" style="display: none;">Show less</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -138,17 +217,19 @@
                 <!-- Фильтры похожести -->
                 <div class="col-12">
                     <div class="similarity-filter-section">
-                        <h6 class="border-bottom pb-2 mb-3 toggle-section" data-target="similarity-filters-content"
-                            style="cursor: pointer;">
-                            <i class="bi bi-chevron-down me-2"></i>🎯 Find Similar Games
-                        </h6>
+                        <div class="toggle-section border-bottom pb-2 mb-3" data-target="similarity-filters-content">
+                            <h6 class="mb-0 d-flex align-items-center">
+                                <i class="bi bi-chevron-down me-2"></i>🎯 Find Similar Games
+                            </h6>
+                        </div>
                         <div id="similarity-filters-content">
                             <!-- Genres -->
                             <div class="filter-subsection">
-                                <label class="form-label toggle-subsection" data-target="genres-content"
-                                       style="cursor: pointer;">
-                                    <i class="bi bi-chevron-down me-1"></i>Genres:
-                                </label>
+                                <div class="toggle-subsection mb-2" data-target="genres-content">
+                                    <label class="form-label mb-0 d-flex align-items-center">
+                                        <i class="bi bi-chevron-down me-1"></i>Genres:
+                                    </label>
+                                </div>
                                 <div id="genres-content">
                                     <input type="text" class="form-control mb-2" id="genre-search"
                                            placeholder="Search genres..." autocomplete="off">
@@ -249,10 +330,11 @@
 
                             <!-- Features -->
                             <div class="filter-subsection mt-3">
-                                <label class="form-label toggle-subsection" data-target="features-content"
-                                       style="cursor: pointer;">
-                                    <i class="bi bi-chevron-down me-1"></i>Features:
-                                </label>
+                                <div class="toggle-subsection mb-2" data-target="features-content">
+                                    <label class="form-label mb-0 d-flex align-items-center">
+                                        <i class="bi bi-chevron-down me-1"></i>Features:
+                                    </label>
+                                </div>
                                 <div id="features-content">
                                     <input type="text" class="form-control mb-2" id="keyword-search"
                                            placeholder="Search features..." autocomplete="off">
@@ -355,10 +437,11 @@
 
                             <!-- Themes -->
                             <div class="filter-subsection mt-3">
-                                <label class="form-label toggle-subsection" data-target="themes-content"
-                                       style="cursor: pointer;">
-                                    <i class="bi bi-chevron-down me-1"></i>🎭 Themes:
-                                </label>
+                                <div class="toggle-subsection mb-2" data-target="themes-content">
+                                    <label class="form-label mb-0 d-flex align-items-center">
+                                        <i class="bi bi-chevron-down me-1"></i>🎭 Themes:
+                                    </label>
+                                </div>
                                 <div id="themes-content">
                                     <input type="text" class="form-control mb-2" id="theme-search"
                                            placeholder="Search themes..." autocomplete="off">
@@ -459,10 +542,11 @@
 
                             <!-- Perspectives -->
                             <div class="filter-subsection mt-3">
-                                <label class="form-label toggle-subsection" data-target="perspectives-content"
-                                       style="cursor: pointer;">
-                                    <i class="bi bi-chevron-down me-1"></i>👁️ Perspectives:
-                                </label>
+                                <div class="toggle-subsection mb-2" data-target="perspectives-content">
+                                    <label class="form-label mb-0 d-flex align-items-center">
+                                        <i class="bi bi-chevron-down me-1"></i>👁️ Perspectives:
+                                    </label>
+                                </div>
                                 <div id="perspectives-content">
                                     <input type="text" class="form-control mb-2" id="perspective-search"
                                            placeholder="Search perspectives..." autocomplete="off">
@@ -565,10 +649,11 @@
 
                             <!-- Game Modes -->
                             <div class="filter-subsection mt-3">
-                                <label class="form-label toggle-subsection" data-target="game-modes-content"
-                                       style="cursor: pointer;">
-                                    <i class="bi bi-chevron-down me-1"></i>🎮 Game Modes:
-                                </label>
+                                <div class="toggle-subsection mb-2" data-target="game-modes-content">
+                                    <label class="form-label mb-0 d-flex align-items-center">
+                                        <i class="bi bi-chevron-down me-1"></i>🎮 Game Modes:
+                                    </label>
+                                </div>
                                 <div id="game-modes-content">
                                     <input type="text" class="form-control mb-2" id="game-mode-search"
                                            placeholder="Search game modes..." autocomplete="off">
@@ -642,10 +727,10 @@
                     </div>
                 </div>
 
-                <!-- Кнопки -->
+                <!-- Основные кнопки -->
                 <div class="col-12">
                     <div class="d-flex gap-2 flex-wrap">
-                        <button type="submit" class="btn btn-primary">
+                        <button type="submit" class="btn btn-primary apply-filters-main">
                             <i class="bi bi-funnel me-1"></i> Apply Filters
                         </button>
                         <a href="{% url 'game_list' %}" class="btn btn-secondary">
@@ -658,9 +743,18 @@
     </div>
 </div>
 
+
+<!-- Плавающая кнопка Apply Filters -->
+<div id="sticky-apply-btn-container">
+    <button type="button" class="btn btn-primary btn-lg apply-filters-sticky">
+        <i class="bi bi-funnel me-2"></i> Apply Filters
+    </button>
+</div>
+
+<!-- Скрипты для глобальных функций Show More/Less -->
 <script>
-    // Глобальные функции для кнопок Show More/Less (поддерживаются filters-ui.js)
-    function toggleMoreplatforms(button) {
+    // Эти функции должны быть глобальными для работы с HTML onclick
+    window.toggleMoreplatforms = function(button) {
         const hiddenSection = document.getElementById('hidden-platforms-badges');
         const showLessBtn = button.nextElementSibling;
         if (hiddenSection) {
@@ -668,9 +762,9 @@
             button.style.display = 'none';
             if (showLessBtn) showLessBtn.style.display = 'inline-block';
         }
-    }
+    };
 
-    function toggleLessplatforms(button) {
+    window.toggleLessplatforms = function(button) {
         const hiddenSection = document.getElementById('hidden-platforms-badges');
         const showMoreBtn = button.previousElementSibling;
         if (hiddenSection) {
@@ -678,9 +772,9 @@
             button.style.display = 'none';
             if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
         }
-    }
+    };
 
-    function toggleMoregenres(button) {
+    window.toggleMoregenres = function(button) {
         const hiddenSection = document.getElementById('hidden-genres-badges');
         const showLessBtn = button.nextElementSibling;
         if (hiddenSection) {
@@ -688,9 +782,9 @@
             button.style.display = 'none';
             if (showLessBtn) showLessBtn.style.display = 'inline-block';
         }
-    }
+    };
 
-    function toggleLessgenres(button) {
+    window.toggleLessgenres = function(button) {
         const hiddenSection = document.getElementById('hidden-genres-badges');
         const showMoreBtn = button.previousElementSibling;
         if (hiddenSection) {
@@ -698,9 +792,9 @@
             button.style.display = 'none';
             if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
         }
-    }
+    };
 
-    function toggleMorekeywords(button) {
+    window.toggleMorekeywords = function(button) {
         const hiddenSection = document.getElementById('hidden-keywords-badges');
         const showLessBtn = button.nextElementSibling;
         if (hiddenSection) {
@@ -708,9 +802,9 @@
             button.style.display = 'none';
             if (showLessBtn) showLessBtn.style.display = 'inline-block';
         }
-    }
+    };
 
-    function toggleLesskeywords(button) {
+    window.toggleLesskeywords = function(button) {
         const hiddenSection = document.getElementById('hidden-keywords-badges');
         const showMoreBtn = button.previousElementSibling;
         if (hiddenSection) {
@@ -718,9 +812,9 @@
             button.style.display = 'none';
             if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
         }
-    }
+    };
 
-    function toggleMorethemes(button) {
+    window.toggleMorethemes = function(button) {
         const hiddenSection = document.getElementById('hidden-themes-badges');
         const showLessBtn = button.nextElementSibling;
         if (hiddenSection) {
@@ -728,9 +822,9 @@
             button.style.display = 'none';
             if (showLessBtn) showLessBtn.style.display = 'inline-block';
         }
-    }
+    };
 
-    function toggleLessthemes(button) {
+    window.toggleLessthemes = function(button) {
         const hiddenSection = document.getElementById('hidden-themes-badges');
         const showMoreBtn = button.previousElementSibling;
         if (hiddenSection) {
@@ -738,9 +832,9 @@
             button.style.display = 'none';
             if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
         }
-    }
+    };
 
-    function toggleMoreperspectives(button) {
+    window.toggleMoreperspectives = function(button) {
         const hiddenSection = document.getElementById('hidden-perspectives-badges');
         const showLessBtn = button.nextElementSibling;
         if (hiddenSection) {
@@ -748,9 +842,9 @@
             button.style.display = 'none';
             if (showLessBtn) showLessBtn.style.display = 'inline-block';
         }
-    }
+    };
 
-    function toggleLessperspectives(button) {
+    window.toggleLessperspectives = function(button) {
         const hiddenSection = document.getElementById('hidden-perspectives-badges');
         const showMoreBtn = button.previousElementSibling;
         if (hiddenSection) {
@@ -758,5 +852,5 @@
             button.style.display = 'none';
             if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
         }
-    }
+    };
 </script>
