@@ -3,6 +3,8 @@ import FilterSort from './modules/filters-sort.js';
 import FilterSearch from './modules/filters-search.js';
 import FilterUI from './modules/filters-ui.js';
 import FilterHandlers from './modules/filters-handlers.js';
+import GameListScript from './modules/game_list_script.js';
+import FilterSticky from './modules/filters-sticky.js'; // НОВЫЙ ИМПОРТ
 
 // Глобальный объект для доступа из других скриптов
 window.FilterManager = {
@@ -10,41 +12,23 @@ window.FilterManager = {
     search: null,
     ui: null,
     handlers: null,
+    gameList: null,
+    sticky: null, // НОВОЕ ПОЛЕ
     initialized: false
 };
 
 // Функция для безопасного восстановления прокрутки
 function safeRestoreScrollPosition() {
     if (window.FilterManager &&
-        window.FilterManager.handlers &&
-        typeof window.FilterManager.handlers.restoreScrollPosition === 'function') {
+        window.FilterManager.sticky &&
+        typeof window.FilterManager.sticky.restoreScrollPosition === 'function') {
 
         console.log('Attempting to restore scroll position...');
-        window.FilterManager.handlers.restoreScrollPosition();
+        window.FilterManager.sticky.restoreScrollPosition();
         return true;
     } else {
-        console.warn('Cannot restore scroll: handlers not ready');
+        console.warn('Cannot restore scroll: sticky not ready');
         return false;
-    }
-}
-
-// Функция для принудительного восстановления прокрутки с защитой
-function forceScrollRestoration() {
-    // Первая попытка
-    let restored = safeRestoreScrollPosition();
-
-    if (!restored) {
-        // Вторая попытка через 100мс
-        setTimeout(() => {
-            restored = safeRestoreScrollPosition();
-
-            if (!restored) {
-                // Третья попытка через 300мс
-                setTimeout(() => {
-                    safeRestoreScrollPosition();
-                }, 300);
-            }
-        }, 100);
     }
 }
 
@@ -61,34 +45,58 @@ document.addEventListener('DOMContentLoaded', function() {
             const search = FilterSearch;
             const ui = FilterUI;
             const handlers = FilterHandlers;
+            const gameList = GameListScript;
+            const sticky = FilterSticky; // НОВЫЙ МОДУЛЬ
 
             // Сохраняем в глобальный объект
             window.FilterManager.sort = sort;
             window.FilterManager.search = search;
             window.FilterManager.ui = ui;
             window.FilterManager.handlers = handlers;
+            window.FilterManager.gameList = gameList;
+            window.FilterManager.sticky = sticky; // СОХРАНЯЕМ
 
-            console.log('Modules loaded into FilterManager');
+            console.log('All modules loaded into FilterManager');
 
             // 1. Инициализация UI (секции, кнопки, поиск)
-            ui.initializeAllUI();
+            if (ui && typeof ui.initializeAllUI === 'function') {
+                ui.initializeAllUI();
+            } else {
+                console.warn('FilterUI module not properly loaded');
+            }
 
             // 2. Настройка обработчиков
-            handlers.initializeAllHandlers();
+            if (handlers && typeof handlers.initializeAllHandlers === 'function') {
+                handlers.initializeAllHandlers();
+            } else {
+                console.warn('FilterHandlers module not properly loaded');
+            }
 
             // 3. Настройка поиска
-            search.setupSearchFilters();
+            if (search && typeof search.setupSearchFilters === 'function') {
+                search.setupSearchFilters();
+            } else {
+                console.warn('FilterSearch module not properly loaded');
+            }
 
-            // 4. Первоначальная сортировка с задержкой
+            // 4. Инициализация sticky button с задержкой
+            setTimeout(() => {
+                if (sticky && typeof sticky.init === 'function') {
+                    sticky.init();
+                    console.log('Sticky button initialized');
+                } else {
+                    console.warn('FilterSticky module not properly loaded');
+                }
+            }, 500);
+
+            // 5. Первоначальная сортировка с задержкой
             setTimeout(() => {
                 if (sort && typeof sort.sortFilterLists === 'function') {
                     sort.sortFilterLists();
+                    console.log('Initial sorting completed');
+                } else {
+                    console.warn('FilterSort module not properly loaded');
                 }
-
-                // Восстанавливаем прокрутку после инициализации
-                setTimeout(() => {
-                    forceScrollRestoration();
-                }, 200);
 
                 window.FilterManager.initialized = true;
                 console.log('All modules initialized successfully');
@@ -123,4 +131,11 @@ function waitForFiltersReady(callback) {
 }
 
 // Экспорт для тестирования
-export { FilterSort, FilterSearch, FilterUI, FilterHandlers };
+export {
+    FilterSort,
+    FilterSearch,
+    FilterUI,
+    FilterHandlers,
+    GameListScript,
+    FilterSticky // НОВЫЙ ЭКСПОРТ
+};

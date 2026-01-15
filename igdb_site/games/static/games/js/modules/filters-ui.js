@@ -5,33 +5,10 @@ const FilterUI = {
     initializeSections() {
         console.log('Initializing sections...');
         
-        // Главные секции скрыты по умолчанию
-        document.querySelectorAll('.toggle-section').forEach(section => {
-            const targetId = section.getAttribute('data-target');
-            const targetContent = document.getElementById(targetId);
-
-            if (targetContent) {
-                targetContent.style.display = 'none';
-                const icon = section.querySelector('i');
-                if (icon) {
-                    icon.classList.remove('bi-chevron-down');
-                    icon.classList.add('bi-chevron-right');
-                }
-            }
-        });
-
-        // Подсекции раскрыты по умолчанию
-        document.querySelectorAll('.toggle-subsection').forEach(subsection => {
-            const targetId = subsection.getAttribute('data-target');
-            const targetContent = document.getElementById(targetId);
-            const icon = subsection.querySelector('i');
-
-            if (targetContent && icon) {
-                targetContent.style.display = 'block';
-                icon.classList.remove('bi-chevron-right');
-                icon.classList.add('bi-chevron-down');
-            }
-        });
+        // Восстановление состояний из localStorage
+        setTimeout(() => {
+            this.restoreSectionStates();
+        }, 100);
     },
 
     // Настройка кнопок "Show all"
@@ -44,7 +21,8 @@ const FilterUI = {
             { btn: '.show-all-platforms-btn', list: '.platform-list' },
             { btn: '.show-all-themes-btn', list: '.theme-list' },
             { btn: '.show-all-perspectives-btn', list: '.perspective-list' },
-            { btn: '.show-all-game-modes-btn', list: '.game-mode-list' }
+            { btn: '.show-all-game-modes-btn', list: '.game-mode-list' },
+            { btn: '.show-all-game-types-btn', list: '.game-type-list' }
         ];
 
         toggles.forEach(({ btn, list }) => {
@@ -52,11 +30,16 @@ const FilterUI = {
             const listElement = document.querySelector(list);
 
             if (button && listElement) {
-                // Проверяем текущее состояние
-                const isExpanded = listElement.style.maxHeight === 'none' ||
-                                  listElement.style.maxHeight === '';
+                // Проверяем сохраненное состояние
+                const isExpanded = this.getShowAllState(list);
 
-                if (!isExpanded) {
+                if (isExpanded) {
+                    listElement.style.maxHeight = 'none';
+                    const showText = button.querySelector('.show-text');
+                    const hideText = button.querySelector('.hide-text');
+                    if (showText) showText.style.display = 'none';
+                    if (hideText) hideText.style.display = 'inline';
+                } else {
                     listElement.style.maxHeight = '200px';
                 }
 
@@ -73,6 +56,7 @@ const FilterUI = {
                         const hideText = button.querySelector('.hide-text');
                         if (showText) showText.style.display = 'inline';
                         if (hideText) hideText.style.display = 'none';
+                        this.saveShowAllState(list, false);
                     } else {
                         // Разворачиваем
                         listElement.style.maxHeight = 'none';
@@ -80,6 +64,7 @@ const FilterUI = {
                         const hideText = button.querySelector('.hide-text');
                         if (showText) showText.style.display = 'none';
                         if (hideText) hideText.style.display = 'inline';
+                        this.saveShowAllState(list, true);
                     }
 
                     // Даем время на изменение DOM перед сортировкой
@@ -93,42 +78,61 @@ const FilterUI = {
         });
     },
 
-    // Настройка переключения секций
+    // Сохранение состояния "Show all"
+    saveShowAllState(listSelector, isExpanded) {
+        try {
+            localStorage.setItem(`show_all_${listSelector.replace('.', '')}`, isExpanded ? 'expanded' : 'collapsed');
+        } catch (e) {
+            console.warn('Could not save show all state:', e);
+        }
+    },
+
+    // Получение состояния "Show all"
+    getShowAllState(listSelector) {
+        try {
+            const state = localStorage.getItem(`show_all_${listSelector.replace('.', '')}`);
+            return state === 'expanded';
+        } catch (e) {
+            return false;
+        }
+    },
+
+    // Настройка переключения секций с сохранением состояния
     setupSectionToggles() {
         console.log('Setting up section toggles...');
 
         // Сохранение состояния в localStorage
-        function saveSectionState(sectionId, isOpen) {
+        const saveSectionState = (sectionId, isOpen) => {
             try {
                 localStorage.setItem(`filter_section_${sectionId}`, isOpen ? 'open' : 'closed');
             } catch (e) {
                 console.warn('Could not save section state:', e);
             }
-        }
+        };
 
-        function saveSubsectionState(subsectionId, isOpen) {
+        const saveSubsectionState = (subsectionId, isOpen) => {
             try {
                 localStorage.setItem(`filter_subsection_${subsectionId}`, isOpen ? 'open' : 'closed');
             } catch (e) {
                 console.warn('Could not save subsection state:', e);
             }
-        }
+        };
 
-        function getSectionState(sectionId) {
+        const getSectionState = (sectionId) => {
             try {
                 return localStorage.getItem(`filter_section_${sectionId}`);
             } catch (e) {
                 return null;
             }
-        }
+        };
 
-        function getSubsectionState(subsectionId) {
+        const getSubsectionState = (subsectionId) => {
             try {
                 return localStorage.getItem(`filter_subsection_${subsectionId}`);
             } catch (e) {
                 return null;
             }
-        }
+        };
 
         // Переключение главных секций
         document.querySelectorAll('.toggle-section').forEach(section => {
@@ -139,7 +143,7 @@ const FilterUI = {
 
                 if (!targetContent || !icon) return;
 
-                if (targetContent.style.display === 'none') {
+                if (targetContent.style.display === 'none' || targetContent.style.display === '') {
                     targetContent.style.display = 'block';
                     icon.classList.remove('bi-chevron-right');
                     icon.classList.add('bi-chevron-down');
@@ -169,7 +173,7 @@ const FilterUI = {
 
                 if (!targetContent || !icon) return;
 
-                if (targetContent.style.display === 'none') {
+                if (targetContent.style.display === 'none' || targetContent.style.display === '') {
                     targetContent.style.display = 'block';
                     icon.classList.remove('bi-chevron-right');
                     icon.classList.add('bi-chevron-down');
@@ -199,12 +203,18 @@ const FilterUI = {
                 const targetContent = document.getElementById(targetId);
                 const icon = section.querySelector('i');
 
-                if (targetContent && icon && savedState) {
+                if (targetContent && icon) {
                     if (savedState === 'open') {
                         targetContent.style.display = 'block';
                         icon.classList.remove('bi-chevron-right');
                         icon.classList.add('bi-chevron-down');
+                    } else if (savedState === 'closed') {
+                        targetContent.style.display = 'none';
+                        icon.classList.remove('bi-chevron-down');
+                        icon.classList.add('bi-chevron-right');
                     } else {
+                        // Если состояние не сохранено, используем умолчания
+                        // Главные секции закрыты по умолчанию
                         targetContent.style.display = 'none';
                         icon.classList.remove('bi-chevron-down');
                         icon.classList.add('bi-chevron-right');
@@ -219,29 +229,89 @@ const FilterUI = {
                 const targetContent = document.getElementById(targetId);
                 const icon = subsection.querySelector('i');
 
-                if (targetContent && icon && savedState) {
+                if (targetContent && icon) {
                     if (savedState === 'open') {
                         targetContent.style.display = 'block';
                         icon.classList.remove('bi-chevron-right');
                         icon.classList.add('bi-chevron-down');
-                    } else {
+                    } else if (savedState === 'closed') {
                         targetContent.style.display = 'none';
                         icon.classList.remove('bi-chevron-down');
                         icon.classList.add('bi-chevron-right');
+                    } else {
+                        // Если состояние не сохранено, подсекции открыты по умолчанию
+                        targetContent.style.display = 'block';
+                        icon.classList.remove('bi-chevron-right');
+                        icon.classList.add('bi-chevron-down');
                     }
                 }
             });
         }, 100);
     },
 
-    // Настройка поиска по фильтрам (совместно с FilterSearch)
+    // Восстановление состояний секций
+    restoreSectionStates() {
+        console.log('Restoring section states...');
+
+        // Восстанавливаем состояния главных секций
+        document.querySelectorAll('.toggle-section').forEach(section => {
+            const targetId = section.getAttribute('data-target');
+            const savedState = localStorage.getItem(`filter_section_${targetId}`);
+            const targetContent = document.getElementById(targetId);
+            const icon = section.querySelector('i');
+
+            if (targetContent && icon) {
+                if (savedState === 'open') {
+                    targetContent.style.display = 'block';
+                    icon.classList.remove('bi-chevron-right');
+                    icon.classList.add('bi-chevron-down');
+                } else if (savedState === 'closed') {
+                    targetContent.style.display = 'none';
+                    icon.classList.remove('bi-chevron-down');
+                    icon.classList.add('bi-chevron-right');
+                } else {
+                    // По умолчанию главные секции закрыты
+                    targetContent.style.display = 'none';
+                    icon.classList.remove('bi-chevron-down');
+                    icon.classList.add('bi-chevron-right');
+                }
+            }
+        });
+
+        // Восстанавливаем состояния подсекций
+        document.querySelectorAll('.toggle-subsection').forEach(subsection => {
+            const targetId = subsection.getAttribute('data-target');
+            const savedState = localStorage.getItem(`filter_subsection_${targetId}`);
+            const targetContent = document.getElementById(targetId);
+            const icon = subsection.querySelector('i');
+
+            if (targetContent && icon) {
+                if (savedState === 'open') {
+                    targetContent.style.display = 'block';
+                    icon.classList.remove('bi-chevron-right');
+                    icon.classList.add('bi-chevron-down');
+                } else if (savedState === 'closed') {
+                    targetContent.style.display = 'none';
+                    icon.classList.remove('bi-chevron-down');
+                    icon.classList.add('bi-chevron-right');
+                } else {
+                    // По умолчанию подсекции открыты
+                    targetContent.style.display = 'block';
+                    icon.classList.remove('bi-chevron-right');
+                    icon.classList.add('bi-chevron-down');
+                }
+            }
+        });
+    },
+
+    // Настройка поиска по фильтрам
     setupSearchInputs() {
         console.log('Setting up search inputs...');
 
-        // Добавляем обработчики очистки поиска
         const searchInputs = [
             'genre-search', 'keyword-search', 'platform-search',
-            'theme-search', 'perspective-search', 'game-mode-search'
+            'theme-search', 'perspective-search', 'game-mode-search',
+            'game-type-search'
         ];
 
         searchInputs.forEach(inputId => {
@@ -265,11 +335,11 @@ const FilterUI = {
                     wrapper.style.position = 'relative';
                     wrapper.appendChild(clearBtn);
 
-                    // Добавляем отступ для input, чтобы текст не перекрывался с кнопкой
+                    // Добавляем отступ для input
                     input.style.paddingRight = '30px';
                 }
 
-                // Показывать/скрывать кнопку очистки при вводе текста
+                // Показывать/скрывать кнопку очистки
                 const updateClearButton = () => {
                     clearBtn.style.display = input.value ? 'block' : 'none';
                 };
@@ -284,7 +354,6 @@ const FilterUI = {
                     input.dispatchEvent(new Event('input', { bubbles: true }));
                     clearBtn.style.display = 'none';
 
-                    // Сортируем после очистки
                     setTimeout(() => {
                         if (window.FilterManager && window.FilterManager.sort) {
                             window.FilterManager.sort.sortFilterLists();
@@ -308,7 +377,6 @@ const FilterUI = {
                     }
                 });
 
-                // Инициализируем состояние кнопки
                 updateClearButton();
             }
         });
@@ -318,19 +386,18 @@ const FilterUI = {
     setupBadgeEffects() {
         console.log('Setting up badge effects...');
 
-        // Добавляем hover эффекты для активных бейджей
         const badgeSelectors = [
             '.active-genre-tag',
             '.active-keyword-tag',
             '.active-platform-tag',
             '.active-theme-tag',
             '.active-perspective-tag',
-            '.active-game-mode-tag'
+            '.active-game-mode-tag',
+            '.active-game-type-tag'
         ];
 
         badgeSelectors.forEach(selector => {
             document.querySelectorAll(selector).forEach(badge => {
-                // Добавляем анимацию при наведении
                 badge.addEventListener('mouseenter', function() {
                     this.style.transform = 'scale(1.05)';
                     this.style.transition = 'transform 0.2s ease';
@@ -342,7 +409,7 @@ const FilterUI = {
                     this.style.boxShadow = 'none';
                 });
 
-                // Добавляем эффект нажатия
+                // Эффект нажатия
                 badge.addEventListener('mousedown', function() {
                     this.style.transform = 'scale(0.95)';
                 });
@@ -364,12 +431,12 @@ const FilterUI = {
             '.platform-checkbox',
             '.theme-checkbox',
             '.perspective-checkbox',
-            '.game-mode-checkbox'
+            '.game-mode-checkbox',
+            '.game-type-checkbox'
         ];
 
         checkboxSelectors.forEach(selector => {
             document.querySelectorAll(selector).forEach(checkbox => {
-                // Добавляем анимацию при изменении состояния
                 checkbox.addEventListener('change', function() {
                     const label = this.parentElement;
                     if (label) {
@@ -380,7 +447,6 @@ const FilterUI = {
                             label.style.transform = 'translateX(0)';
                         }
 
-                        // Возвращаем к исходному состоянию через 200мс
                         setTimeout(() => {
                             label.style.transform = 'translateX(0)';
                         }, 200);
