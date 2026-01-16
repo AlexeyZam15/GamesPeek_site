@@ -1,5 +1,4 @@
 // games/static/games/js/modules/filters-handlers.js
-
 const FilterHandlers = {
     // Глобальные переменные
     form: null,
@@ -8,37 +7,20 @@ const FilterHandlers = {
     init() {
         console.log('FilterHandlers init...');
         this.form = document.getElementById('main-search-form');
-        this.initializeScrollRestoration();
+        // Убираем автоматическое восстановление прокрутки здесь
+        // чтобы не было конфликта с filters_script.js
     },
 
-    // Инициализация восстановления прокрутки
+    // Инициализация восстановления прокрутки - теперь в filters_script.js
     initializeScrollRestoration() {
-        console.log('Initializing scroll restoration...');
-
-        // Сохраняем текущую позицию при выгрузке
-        window.addEventListener('beforeunload', () => {
-            this.saveScrollPosition();
-        });
-
-        // Восстанавливаем при загрузке
-        if (document.readyState === 'complete') {
-            setTimeout(() => {
-                this.restoreScrollPosition();
-            }, 100);
-        } else {
-            window.addEventListener('load', () => {
-                setTimeout(() => {
-                    this.restoreScrollPosition();
-                }, 100);
-            });
-        }
+        // Пустая функция - восстановление теперь в filters_script.js
+        console.log('Scroll restoration moved to filters_script.js');
     },
 
     // Сохранение позиции прокрутки
     saveScrollPosition() {
         try {
-            const scrollY = window.scrollY || window.pageYOffset;
-
+            const scrollY = window.scrollY || document.documentElement.scrollTop;
             // Сохраняем только если не в самом верху
             if (scrollY > 100) {
                 sessionStorage.setItem('filterScrollY', scrollY.toString());
@@ -51,30 +33,12 @@ const FilterHandlers = {
         }
     },
 
-    // Восстановление позиции прокрутки
+    // Восстановление позиции прокрутки - теперь в filters_script.js
     restoreScrollPosition() {
-        try {
-            const saved = sessionStorage.getItem('filterScrollY');
-            if (saved) {
-                const y = parseInt(saved);
-                if (!isNaN(y) && y > 0) {
-                    console.log('Restoring scroll to:', y);
-
-                    // Небольшая задержка для гарантии что DOM готов
-                    setTimeout(() => {
-                        window.scrollTo(0, y);
-
-                        // Очищаем сохраненную позицию
-                        sessionStorage.removeItem('filterScrollY');
-                    }, 150);
-                }
-            }
-        } catch (e) {
-            console.warn('Could not restore scroll position:', e);
-            sessionStorage.removeItem('filterScrollY');
-        }
+        // Пустая функция - восстановление теперь в filters_script.js
     },
 
+    // Остальные методы без изменений...
     // Восстановление выбранных чекбоксов
     restoreSelectedCheckboxes() {
         console.log('Restoring selected checkboxes...');
@@ -139,7 +103,6 @@ const FilterHandlers = {
             document.querySelectorAll('.theme-checkbox:checked').length,
             document.querySelectorAll('.perspective-checkbox:checked').length,
             document.querySelectorAll('.game-mode-checkbox:checked').length
-            // Убрано: document.querySelectorAll('.game-type-checkbox:checked').length
         ];
 
         const hasSimilarityCriteria = similarityCriteria.some(count => count > 0);

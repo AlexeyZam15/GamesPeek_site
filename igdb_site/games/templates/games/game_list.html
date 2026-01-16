@@ -6,6 +6,8 @@
 
 {% block extra_css %}
     <link rel="stylesheet" href="{% static 'games/css/game_list.css' %}">
+    <link rel="stylesheet" href="{% static 'games/css/game_list/filters.css' %}">
+    <link rel="stylesheet" href="{% static 'games/css/game_list/sticky-button.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/components/cards.css' %}">
 {% endblock %}
 
@@ -28,9 +30,25 @@
 {% endblock %}
 
 {% block extra_js %}
-    <!-- Основной скрипт фильтров (модульная версия ES6) -->
+    <!-- Основной скрипт фильтров -->
     <script type="module" src="{% static 'games/js/filters_script.js' %}"></script>
 
-    <!-- Скрипт для списка игр (новая версия JS) -->
+    <!-- Скрипт для списка игр -->
     <script type="module" src="{% static 'games/js/modules/game_list_script.js' %}"></script>
+
+    <!-- Простой скрипт для удаления дубликатов -->
+    <script>
+        // Удаляем дублирующиеся фиксированные контейнеры при загрузке
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(function() {
+                const containers = document.querySelectorAll('.apply-filters-fixed-container');
+                if (containers.length > 1) {
+                    // Оставляем только первый (самый ранний) контейнер
+                    for (let i = 1; i < containers.length; i++) {
+                        containers[i].remove();
+                    }
+                }
+            }, 1500);
+        });
+    </script>
 {% endblock %}
