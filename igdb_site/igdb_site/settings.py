@@ -6,6 +6,11 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 
+import warnings
+
+warnings.filterwarnings("ignore",
+                        message="DateTimeField.*received a naive datetime.*time zone support is active")
+
 # Загружаем переменные окружения из .env файла
 load_dotenv()
 
