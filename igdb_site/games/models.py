@@ -485,7 +485,17 @@ class Game(models.Model):
     storyline = models.TextField(blank=True, null=True)
     rating = models.FloatField(blank=True, null=True, db_index=True)
     rating_count = models.IntegerField(default=0, db_index=True)
-    first_release_date = models.DateTimeField(blank=True, null=True, db_index=True)
+    first_release_date = models.DateTimeField(null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        # Исправляем наивные даты при сохранении
+        if self.first_release_date and timezone.is_naive(self.first_release_date):
+            # Предполагаем UTC (или ваш локальный часовой пояс)
+            self.first_release_date = timezone.make_aware(
+                self.first_release_date,
+                timezone.get_current_timezone()  # или timezone.utc для UTC
+            )
+        super().save(*args, **kwargs)
 
     # Many-to-many relationships
     genres = models.ManyToManyField('Genre', blank=True)
