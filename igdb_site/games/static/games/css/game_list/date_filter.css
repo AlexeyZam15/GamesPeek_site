@@ -1,0 +1,208 @@
+/* games/static/games/css/game_list/date_filter.css */
+/* ===== RELEASE DATE FILTER STYLES ===== */
+
+/* Контейнер фильтра даты */
+.release-date-filter {
+    background: var(--surface-dark);
+    border: 1px solid var(--border);
+    border-radius: var(--border-radius);
+    padding: 20px;
+    margin-bottom: 25px;
+    transition: all 0.3s ease;
+}
+
+.release-date-filter:hover {
+    border-color: var(--secondary-color);
+    background: rgba(255, 107, 53, 0.05);
+}
+
+/* Заголовок секции */
+.release-date-filter h6 {
+    color: var(--text-light);
+    font-weight: 700;
+    margin-bottom: 20px;
+    font-size: 1.1rem;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.release-date-filter h6 i {
+    color: var(--secondary-color);
+}
+
+/* Контейнер для ползунка */
+.range-slider-container {
+    padding: 10px 0;
+    margin-bottom: 15px;
+}
+
+/* Стили для ползунка диапазона */
+.slider-range {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 6px;
+    background: linear-gradient(90deg, var(--border) 0%, var(--secondary-color) 100%);
+    border-radius: 3px;
+    outline: none;
+    margin: 15px 0;
+}
+
+.slider-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 20px;
+    height: 20px;
+    background: var(--secondary-color);
+    border-radius: 50%;
+    cursor: pointer;
+    border: 3px solid var(--text-light);
+    box-shadow: 0 0 10px rgba(255, 107, 53, 0.5);
+    transition: all 0.2s ease;
+}
+
+.slider-range::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+    box-shadow: 0 0 15px rgba(255, 107, 53, 0.8);
+}
+
+.slider-range::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    background: var(--secondary-color);
+    border-radius: 50%;
+    cursor: pointer;
+    border: 3px solid var(--text-light);
+    box-shadow: 0 0 10px rgba(255, 107, 53, 0.5);
+}
+
+/* Индикаторы значений */
+.range-values {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 10px;
+    font-weight: 600;
+    color: var(--text-dark);
+}
+
+.range-min, .range-max {
+    background: var(--surface);
+    padding: 5px 10px;
+    border-radius: 15px;
+    border: 1px solid var(--border);
+    min-width: 70px;
+    text-align: center;
+}
+
+/* Поля для ручного ввода */
+.year-inputs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    margin-top: 20px;
+}
+
+.year-input-group {
+    position: relative;
+}
+
+.year-input-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: var(--text-dark);
+    font-size: 0.9rem;
+}
+
+.year-input {
+    width: 100%;
+    padding: 12px 15px;
+    background: var(--surface);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-light);
+    font-weight: 600;
+    font-size: 1rem;
+    transition: all 0.3s ease;
+}
+
+.year-input:focus {
+    border-color: var(--secondary-color);
+    box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.1);
+    outline: none;
+}
+
+/* Кнопка очистки фильтра даты */
+.clear-date-filter-btn {
+    background: transparent;
+    border: 2px solid var(--warning-color);
+    color: var(--warning-color);
+    font-weight: 700;
+    padding: 8px 15px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    margin-top: 15px;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.clear-date-filter-btn:hover {
+    background: var(--warning-color);
+    color: var(--primary-color);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 15px rgba(243, 156, 18, 0.2);
+}
+
+/* Бейдж активного фильтра даты */
+.active-date-filter-tag {
+    background: linear-gradient(135deg, var(--warning-color), #e67e22) !important;
+    color: #2c3e50 !important;
+    font-weight: 600;
+    padding: 8px 14px !important;
+    border-radius: 20px !important;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin: 4px;
+    border: 2px solid transparent !important;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.active-date-filter-tag:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+    opacity: 0.9;
+}
+
+/* Информация о диапазоне */
+.range-info {
+    font-size: 0.85rem;
+    color: var(--text-dark);
+    margin-top: 10px;
+    text-align: center;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+    .year-inputs {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+
+    .range-values {
+        flex-direction: column;
+        gap: 10px;
+        align-items: center;
+    }
+
+    .range-min, .range-max {
+        width: 100px;
+    }
+}

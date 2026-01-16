@@ -5,10 +5,11 @@ from urllib.parse import urlencode
 
 def generate_compact_url_params(find_similar=False, genres=None, keywords=None, platforms=None,
                                 themes=None, perspectives=None, developers=None,
-                                game_modes=None, game_types=None, sort=None):
+                                game_modes=None, game_types=None,
+                                release_year_start=None, release_year_end=None,  # ДОБАВЛЕНО
+                                sort=None):
     """
     Генерирует компактные параметры URL с ВСЕМИ критериями
-    game_types - теперь поисковый фильтр (не влияет на find_similar)
     """
     params = {}
 
@@ -16,8 +17,20 @@ def generate_compact_url_params(find_similar=False, genres=None, keywords=None, 
     if platforms:
         params['p'] = ','.join(str(p) for p in platforms)
 
-    if game_types:  # Поисковый фильтр, не включает find_similar автоматически
+    if game_types:
         params['gt'] = ','.join(str(gt) for gt in game_types)
+
+    # Фильтр по дате выхода
+    if release_year_start is not None or release_year_end is not None:
+        if release_year_start is not None and release_year_end is not None:
+            # Используем комбинированный параметр yr
+            params['yr'] = f"{release_year_start}-{release_year_end}"
+        else:
+            # Используем отдельные параметры
+            if release_year_start is not None:
+                params['ys'] = str(release_year_start)
+            if release_year_end is not None:
+                params['ye'] = str(release_year_end)
 
     # Режим похожести
     if find_similar:
@@ -50,10 +63,11 @@ def generate_compact_url_params(find_similar=False, genres=None, keywords=None, 
 
 def get_compact_game_list_url(find_similar=False, genres=None, keywords=None, platforms=None,
                               themes=None, perspectives=None, developers=None,
-                              game_modes=None, game_types=None, sort=None):
+                              game_modes=None, game_types=None,
+                              release_year_start=None, release_year_end=None,  # ДОБАВЛЕНО
+                              sort=None):
     """
     Вспомогательная функция для генерации полного URL с компактными параметрами
-    game_types - теперь поисковый фильтр
     """
     params = generate_compact_url_params(
         find_similar=find_similar,
@@ -64,7 +78,9 @@ def get_compact_game_list_url(find_similar=False, genres=None, keywords=None, pl
         perspectives=perspectives,
         developers=developers,
         game_modes=game_modes,
-        game_types=game_types,  # ОСТАЕТСЯ, но не влияет на find_similar
+        game_types=game_types,
+        release_year_start=release_year_start,  # ДОБАВЛЕНО
+        release_year_end=release_year_end,  # ДОБАВЛЕНО
         sort=sort
     )
 

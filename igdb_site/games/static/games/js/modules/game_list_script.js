@@ -17,6 +17,7 @@ const GameListScript = {
         this.setupActiveTagRemoval();
         this.setupAutoSubmit();
         this.setupCheckboxListeners();
+        this.setupDateFilterListeners();
 
         console.log('GameListScript initialization completed');
     },
@@ -165,7 +166,8 @@ const GameListScript = {
             { class: 'active-perspective-tag', attr: 'data-perspective-id', checkboxClass: '.perspective-checkbox' },
             { class: 'active-developer-tag', attr: 'data-developer-id', checkboxClass: '.developer-checkbox' },
             { class: 'active-game-mode-tag', attr: 'data-game-mode-id', checkboxClass: '.game-mode-checkbox' },
-            { class: 'active-game-type-tag', attr: 'data-game-type-id', checkboxClass: '.game-type-checkbox' }
+            { class: 'active-game-type-tag', attr: 'data-game-type-id', checkboxClass: '.game-type-checkbox' },
+            { class: 'active-date-filter-tag', attr: 'data-date-range', checkboxClass: '' } // Для даты нет чекбокса
         ];
 
         tagConfigs.forEach(({ class: tagClass, attr, checkboxClass }) => {
@@ -181,23 +183,28 @@ const GameListScript = {
                 e.stopPropagation();
 
                 const id = tag.getAttribute(attr);
-                const checkbox = document.querySelector(`${checkboxClass}[value="${id}"]`);
+                let checkbox = null;
+
+                if (checkboxClass) {
+                    checkbox = document.querySelector(`${checkboxClass}[value="${id}"]`);
+                }
 
                 if (checkbox) {
                     checkbox.checked = false;
-                    // Обновляем скрытые поля и отправляем форму
-                    this.updateHiddenFields();
-
-                    // Сохраняем позицию прокрутки перед отправкой
-                    if (window.FilterManager && window.FilterManager.handlers) {
-                        window.FilterManager.handlers.saveScrollPosition();
-                    }
-
-                    // Небольшая задержка для гарантии сохранения позиции
-                    setTimeout(() => {
-                        this.form.submit();
-                    }, 50);
                 }
+
+                // Обновляем скрытые поля и отправляем форму
+                this.updateHiddenFields();
+
+                // Сохраняем позицию прокрутки перед отправкой
+                if (window.FilterManager && window.FilterManager.handlers) {
+                    window.FilterManager.handlers.saveScrollPosition();
+                }
+
+                // Небольшая задержка для гарантии сохранения позиции
+                setTimeout(() => {
+                    this.form.submit();
+                }, 50);
             });
         });
     },
@@ -228,6 +235,22 @@ const GameListScript = {
             }
         });
 
+        // Обновляем поля даты
+        const yearStartField = document.getElementById('year-start-field');
+        const yearEndField = document.getElementById('year-end-field');
+        const yearRangeField = document.getElementById('year-range-field');
+
+        if (yearStartField && yearEndField && yearRangeField) {
+            const startValue = yearStartField.value;
+            const endValue = yearEndField.value;
+
+            if (startValue && endValue) {
+                yearRangeField.value = `${startValue}-${endValue}`;
+            } else {
+                yearRangeField.value = '';
+            }
+        }
+
         // Обновляем поле поиска похожих игр (только для критериев похожести)
         this.updateFindSimilarField();
     },
@@ -238,7 +261,7 @@ const GameListScript = {
         if (!findSimilarField) return;
 
         // Критерии похожести (только Genres, Keywords, Themes, Perspectives, Game Modes)
-        // ИСКЛЮЧАЕМ: Platforms, Developers, Game Types
+        // ИСКЛЮЧАЕМ: Platforms, Developers, Game Types, Release Date
         const similarityCriteria = [
             document.querySelectorAll('.genre-checkbox:checked').length,
             document.querySelectorAll('.keyword-checkbox:checked').length,
@@ -270,13 +293,16 @@ const GameListScript = {
             document.querySelectorAll(selector).forEach(checkbox => {
                 checkbox.addEventListener('change', () => {
                     // Автоматически включаем find_similar
-                    document.getElementById('find_similar_field').value = '1';
+                    const findSimilarField = document.getElementById('find_similar_field');
+                    if (findSimilarField) {
+                        findSimilarField.value = '1';
+                    }
                     this.updateHiddenFields(); // Только обновляем поля, не отправляем
                 });
             });
         });
 
-        // Для поисковых фильтров (Platforms, Developers, Game Types) - не включаем find_similar
+        // Для поисковых фильтров (Platforms, Developers, Game Types, Release Date) - не включаем find_similar
         const searchFilterCheckboxes = [
             '.platform-checkbox',
             '.developer-checkbox',
@@ -331,6 +357,78 @@ const GameListScript = {
         });
     },
 
+    // Настройка обработчиков для фильтра даты
+    setupDateFilterListeners() {
+        console.log('Setting up date filter listeners...');
+
+        // Слушатели изменения ползунков
+        const minSlider = document.getElementById('year-range-slider-min');
+        const maxSlider = document.getElementById('year-range-slider-max');
+        const manualStart = document.getElementById('manual-year-start');
+        const manualEnd = document.getElementById('manual-year-end');
+
+        if (minSlider) {
+            minSlider.addEventListener('input', () => {
+                this.updateHiddenFields();
+                if (window.FilterManager && window.FilterManager.sort) {
+                    setTimeout(() => {
+                        window.FilterManager.sort.sortFilterLists();
+                    }, 50);
+                }
+            });
+        }
+
+        if (maxSlider) {
+            maxSlider.addEventListener('input', () => {
+                this.updateHiddenFields();
+                if (window.FilterManager && window.FilterManager.sort) {
+                    setTimeout(() => {
+                        window.FilterManager.sort.sortFilterLists();
+                    }, 50);
+                }
+            });
+        }
+
+        if (manualStart) {
+            manualStart.addEventListener('change', () => {
+                this.updateHiddenFields();
+                if (window.FilterManager && window.FilterManager.sort) {
+                    setTimeout(() => {
+                        window.FilterManager.sort.sortFilterLists();
+                    }, 50);
+                }
+            });
+        }
+
+        if (manualEnd) {
+            manualEnd.addEventListener('change', () => {
+                this.updateHiddenFields();
+                if (window.FilterManager && window.FilterManager.sort) {
+                    setTimeout(() => {
+                        window.FilterManager.sort.sortFilterLists();
+                    }, 50);
+                }
+            });
+        }
+
+        // Кнопки быстрого выбора диапазона
+        const quickButtons = document.querySelectorAll('#release-date-content .btn-outline-secondary');
+        quickButtons.forEach(button => {
+            if (button.textContent.includes('Years') || button.textContent.includes('s')) {
+                button.addEventListener('click', () => {
+                    setTimeout(() => {
+                        this.updateHiddenFields();
+                        if (window.FilterManager && window.FilterManager.sort) {
+                            setTimeout(() => {
+                                window.FilterManager.sort.sortFilterLists();
+                            }, 50);
+                        }
+                    }, 100);
+                });
+            }
+        });
+    },
+
     // Восстановление выбранных чекбоксов из URL
     restoreSelectedCheckboxes() {
         console.log('Restoring selected checkboxes from URL...');
@@ -361,6 +459,69 @@ const GameListScript = {
                 });
             }
         });
+
+        // Восстанавливаем фильтр даты
+        const yearRange = urlParams.get('yr');
+        const yearStart = urlParams.get('ys');
+        const yearEnd = urlParams.get('ye');
+
+        if (yearRange) {
+            const parts = yearRange.split('-');
+            if (parts.length === 2) {
+                const yearStartField = document.getElementById('year-start-field');
+                const yearEndField = document.getElementById('year-end-field');
+                if (yearStartField && yearEndField) {
+                    yearStartField.value = parts[0];
+                    yearEndField.value = parts[1];
+
+                    // Обновляем ползунки
+                    const minSlider = document.getElementById('year-range-slider-min');
+                    const maxSlider = document.getElementById('year-range-slider-max');
+                    if (minSlider) minSlider.value = parts[0];
+                    if (maxSlider) maxSlider.value = parts[1];
+
+                    // Обновляем отображаемые значения
+                    const minValueSpan = document.getElementById('min-year-value');
+                    const maxValueSpan = document.getElementById('max-year-value');
+                    if (minValueSpan) minValueSpan.textContent = parts[0];
+                    if (maxValueSpan) maxValueSpan.textContent = parts[1];
+
+                    // Обновляем поля ручного ввода
+                    const manualStart = document.getElementById('manual-year-start');
+                    const manualEnd = document.getElementById('manual-year-end');
+                    if (manualStart) manualStart.value = parts[0];
+                    if (manualEnd) manualEnd.value = parts[1];
+                }
+            }
+        } else if (yearStart || yearEnd) {
+            const yearStartField = document.getElementById('year-start-field');
+            const yearEndField = document.getElementById('year-end-field');
+            if (yearStartField) yearStartField.value = yearStart;
+            if (yearEndField) yearEndField.value = yearEnd;
+
+            // Обновляем ползунки если значения есть
+            if (yearStart) {
+                const minSlider = document.getElementById('year-range-slider-min');
+                if (minSlider) minSlider.value = yearStart;
+
+                const minValueSpan = document.getElementById('min-year-value');
+                if (minValueSpan) minValueSpan.textContent = yearStart;
+
+                const manualStart = document.getElementById('manual-year-start');
+                if (manualStart) manualStart.value = yearStart;
+            }
+
+            if (yearEnd) {
+                const maxSlider = document.getElementById('year-range-slider-max');
+                if (maxSlider) maxSlider.value = yearEnd;
+
+                const maxValueSpan = document.getElementById('max-year-value');
+                if (maxValueSpan) maxValueSpan.textContent = yearEnd;
+
+                const manualEnd = document.getElementById('manual-year-end');
+                if (manualEnd) manualEnd.value = yearEnd;
+            }
+        }
 
         // Восстанавливаем find_similar
         const findSimilar = urlParams.get('find_similar');

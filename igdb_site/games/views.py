@@ -29,23 +29,16 @@ from .models import (
 )
 from .helpers import generate_compact_url_params
 
-# ===== CONSTANTS =====
 CACHE_TIMES = {
     'filter_data': 3600,
-    'similar_games': 172800,  # 48 часов для похожих игр
+    'similar_games': 172800,
     'filtered_games': 1800,
     'full_page': 900,
     'genres_list': 7200,
     'static_pages': 3600,
+    'years_range': 86400,  # 24 часа для диапазона годов
 }
 
-ITEMS_PER_PAGE = {
-    'similar': 20,
-    'regular': 20,
-    'platform': 20,
-}
-
-# Pre-compiled empty results
 _EMPTY_RESULT = {
     'genres': [],
     'keywords': [],
@@ -54,8 +47,19 @@ _EMPTY_RESULT = {
     'perspectives': [],
     'developers': [],
     'game_modes': [],
-    'game_types': [],  # ДОБАВЛЕНО
+    'game_types': [],
+    'release_years': [],  # ДОБАВЛЕНО
+    'release_year_start': None,  # ДОБАВЛЕНО
+    'release_year_end': None,  # ДОБАВЛЕНО
 }
+
+
+ITEMS_PER_PAGE = {
+    'similar': 20,
+    'regular': 20,
+    'platform': 20,
+}
+
 
 # Добавьте настройки логов
 logger = logging.getLogger('game_similarity')
@@ -90,6 +94,438 @@ class SimpleSourceGame:
 
 
 # ===== CORE UTILITY FUNCTIONS =====
+
+# В views.py, обновите функцию game_list:
+
+def game_list(request: HttpRequest) -> HttpResponse:
+    """Main game list function - с приоритетом на кэширование."""
+    # 1. СУПЕР БЫСТРЫЙ КЭШ - проверяем даже без хеширования
+    cache_key_simple = f'game_list_{request.GET.urlencode()}'
+    cached_response = cache.get(cache_key_simple)
+
+    if cached_response:
+        cached_response['X-Cache-Hit'] = 'True-Simple'
+        return cached_response
+
+    start_time = time.time()
+
+    # 2. Быстрая обработка параметров
+    params = extract_request_params(request)
+
+    # 3. Если очень много параметров - используем агрессивный кэш
+    total_params = sum(len(str(v)) for v in params.values() if v)
+    if total_params > 1000:  # Очень длинный URL
+        cache_key_long = f'game_list_long_{hashlib.md5(request.GET.urlencode()[:500].encode()).hexdigest()}'
+        cached_long = cache.get(cache_key_long)
+
+        if cached_long:
+            cached_long['X-Cache-Hit'] = 'True-Long'
+            cached_long['X-Params-Length'] = str(total_params)
+            return cached_long
+
+    selected_criteria = convert_params_to_lists(params)
+
+    # 4. Получаем объекты для всех выбранных критериев
+    selected_criteria_objects = _get_selected_criteria_objects(selected_criteria)
+
+    # 5. Получаем диапазон годов выпуска
+    years_range = get_release_years_range()  # ДОБАВЬТЕ ЭТУ СТРОКУ
+
+    # 6. Определяем режим
+    find_similar = params.get('find_similar') == '1'
+    source_game_obj = None
+    if params.get('source_game'):
+        try:
+            source_game_obj = Game.objects.only('id', 'name').get(pk=int(params['source_game']))
+        except (Game.DoesNotExist, ValueError):
+            pass
+
+    # 7. ВЫБОР РЕЖИМА с приоритетом на кэширование
+    if find_similar or source_game_obj or has_similarity_criteria(selected_criteria):
+        mode_result = _get_similar_games_mode(params, selected_criteria, source_game_obj)
+        mode = 'similar'
+    else:
+        mode_result = _get_all_games_mode(
+            selected_criteria,
+            params.get('sort', '-rating_count'),
+            params.get('page', '1')
+        )
+        mode = 'regular'
+
+    # 8. БЫСТРАЯ загрузка фильтров из кэша
+    filter_data = _get_cached_filter_data()
+    genres_list = cache.get('genres_list_v3') or list(Genre.objects.only('id', 'name').order_by('name'))
+
+    # 9. Минимальный контекст для скорости (ДОБАВЛЯЕМ ВСЕ ОБЪЕКТЫ)
+    context = {
+        'games': mode_result.get('games', []),
+        'games_with_similarity': mode_result.get('games_with_similarity', []),
+        'page_obj': mode_result.get('page_obj'),
+        'is_paginated': mode_result.get('is_paginated', False),
+        'total_count': mode_result.get('total_count', 0),
+
+        'find_similar': mode_result.get('find_similar', False),
+        'show_similarity': mode_result.get('show_similarity', False),
+        'source_game': mode_result.get('source_game'),
+
+        'genres': genres_list,
+        'platforms': filter_data['platforms'],
+        'themes': filter_data['themes'],
+        'perspectives': filter_data['perspectives'],
+        'game_modes': filter_data['game_modes'],
+        'popular_keywords': filter_data['popular_keywords'],
+        'game_types': GameTypeEnum.CHOICES,
+
+        # Диапазон годов - ДОБАВЛЕНО
+        'years_range': years_range,
+        'current_year': timezone.now().year,
+
+        # Selected criteria IDs
+        'selected_genres': selected_criteria['genres'],
+        'selected_keywords': selected_criteria['keywords'],
+        'selected_platforms': selected_criteria['platforms'],
+        'selected_themes': selected_criteria['themes'],
+        'selected_perspectives': selected_criteria['perspectives'],
+        'selected_game_modes': selected_criteria['game_modes'],
+        'selected_game_types': selected_criteria['game_types'],
+        'selected_release_year_start': selected_criteria['release_year_start'],
+        'selected_release_year_end': selected_criteria['release_year_end'],
+
+        # Selected criteria OBJECTS
+        'selected_genres_objects': selected_criteria_objects.get('genres', []),
+        'selected_keywords_objects': selected_criteria_objects.get('keywords', []),
+        'selected_platforms_objects': selected_criteria_objects.get('platforms', []),
+        'selected_themes_objects': selected_criteria_objects.get('themes', []),
+        'selected_perspectives_objects': selected_criteria_objects.get('perspectives', []),
+        'selected_game_modes_objects': selected_criteria_objects.get('game_modes', []),
+        'selected_game_types_objects': selected_criteria_objects.get('game_types', []),
+
+        'current_sort': params.get('sort', ''),
+        'execution_time': round(time.time() - start_time, 3),
+    }
+
+    # Добавляем активный бейдж фильтра даты если выбраны годы
+    if selected_criteria['release_year_start'] or selected_criteria['release_year_end']:
+        context['has_date_filter'] = True
+    else:
+        context['has_date_filter'] = False
+
+    # 10. Рендерим
+    response = render(request, 'games/game_list.html', context)
+
+    # 11. АГРЕССИВНОЕ КЭШИРОВАНИЕ для медленных запросов
+    cache_time = 300  # 5 минут по умолчанию
+
+    if context['execution_time'] > 1.0:
+        cache_time = 600  # 10 минут
+        response['X-Cache-Reason'] = 'Slow-Query'
+
+    cache.set(cache_key_simple, response, cache_time)
+
+    if total_params > 1000:
+        cache.set(cache_key_long, response, cache_time)
+
+    response['X-Cache-Hit'] = 'False'
+    response['X-Response-Time'] = f"{context['execution_time']:.3f}s"
+    response['X-Mode'] = mode
+
+    return response
+
+@lru_cache(maxsize=1)
+def get_release_years_range():
+    """Get min and max release years from database."""
+    cache_key = 'release_years_range_v1'
+    cached_data = cache.get(cache_key)
+
+    if cached_data:
+        return cached_data
+
+    try:
+        from django.db.models import Min, Max
+
+        # Получаем минимальный и максимальный год из игр с непустой датой выхода
+        years_range = Game.objects.filter(
+            first_release_date__isnull=False
+        ).aggregate(
+            min_year=Min('first_release_date__year'),
+            max_year=Max('first_release_date__year')
+        )
+
+        min_year = years_range['min_year'] or 1970
+        max_year = years_range['max_year'] or timezone.now().year
+
+        # Убедимся что это целые числа
+        min_year = int(min_year)
+        max_year = int(max_year)
+
+        result = {
+            'min_year': min_year,
+            'max_year': max_year,
+        }
+
+        cache.set(cache_key, result, CACHE_TIMES['years_range'])
+        return result
+
+    except Exception as e:
+        logger.error(f"Error getting release years range: {e}")
+        current_year = timezone.now().year
+        return {'min_year': 1970, 'max_year': current_year}
+
+# Обновите extract_request_params:
+def extract_request_params(request: HttpRequest) -> Dict[str, str]:
+    """Extract parameters from request efficiently."""
+    get_params = request.GET
+    return {
+        'find_similar': get_params.get('find_similar', ''),
+        'g': get_params.get('g', ''),
+        'k': get_params.get('k', ''),
+        'p': get_params.get('p', ''),
+        't': get_params.get('t', ''),
+        'pp': get_params.get('pp', ''),
+        'd': get_params.get('d', ''),
+        'gm': get_params.get('gm', ''),
+        'gt': get_params.get('gt', ''),
+        'yr': get_params.get('yr', ''),  # ДОБАВЛЕНО: диапазон годов (например: "1990-2020")
+        'ys': get_params.get('ys', ''),  # ДОБАВЛЕНО: год начала
+        'ye': get_params.get('ye', ''),  # ДОБАВЛЕНО: год окончания
+        'source_game': get_params.get('source_game', ''),
+        'sort': get_params.get('sort', ''),
+        'page': get_params.get('page', '1'),
+    }
+
+
+# Обновите convert_params_to_lists:
+def convert_params_to_lists(params_dict: Dict[str, str]) -> Dict[str, List[int]]:
+    """Convert query parameters to lists of integers."""
+    # Quick check for empty params
+    has_params = False
+    for key in ['g', 'k', 'p', 't', 'pp', 'd', 'gm', 'gt', 'yr', 'ys', 'ye']:  # ДОБАВЛЕНО yr, ys, ye
+        if params_dict.get(key):
+            has_params = True
+            break
+
+    if not has_params:
+        return _EMPTY_RESULT.copy()
+
+    # Обработка диапазона годов
+    release_years = []
+    release_year_start = None
+    release_year_end = None
+
+    year_range = params_dict.get('yr', '')
+    if year_range and '-' in year_range:
+        try:
+            parts = year_range.split('-')
+            release_year_start = int(parts[0].strip()) if parts[0].strip() else None
+            release_year_end = int(parts[1].strip()) if parts[1].strip() else None
+        except (ValueError, IndexError):
+            pass
+
+    # Альтернативный формат: отдельные параметры
+    if not release_year_start and params_dict.get('ys'):
+        try:
+            release_year_start = int(params_dict.get('ys'))
+        except ValueError:
+            pass
+
+    if not release_year_end and params_dict.get('ye'):
+        try:
+            release_year_end = int(params_dict.get('ye'))
+        except ValueError:
+            pass
+
+    return {
+        'genres': _cached_string_to_int_list(params_dict.get('g', '')),
+        'keywords': _cached_string_to_int_list(params_dict.get('k', '')),
+        'platforms': _cached_string_to_int_list(params_dict.get('p', '')),
+        'themes': _cached_string_to_int_list(params_dict.get('t', '')),
+        'perspectives': _cached_string_to_int_list(params_dict.get('pp', '')),
+        'developers': _cached_string_to_int_list(params_dict.get('d', '')),
+        'game_modes': _cached_string_to_int_list(params_dict.get('gm', '')),
+        'game_types': _cached_string_to_int_list(params_dict.get('gt', '')),
+        'release_years': release_years,
+        'release_year_start': release_year_start,
+        'release_year_end': release_year_end,
+    }
+
+
+# Обновите _apply_filters для поддержки фильтра по дате:
+def _apply_filters(queryset: models.QuerySet, selected_criteria: Dict[str, List[int]]) -> models.QuerySet:
+    """Apply filters to queryset with OR logic for platforms."""
+    # Основной фильтр для всех полей кроме платформ
+    main_filters = Q()
+    has_main_filters = False
+
+    # Фильтр для платформ (OR логика)
+    platform_filter = Q()
+    has_platform_filter = False
+
+    # Обрабатываем платформы отдельно
+    if selected_criteria['platforms']:
+        platform_filter = Q(platforms__id__in=selected_criteria['platforms'])
+        has_platform_filter = True
+
+    # Обрабатываем остальные поля (AND логика)
+    other_fields = [
+        ('genres', 'genres__id__in'),
+        ('keywords', 'keywords__id__in'),
+        ('themes', 'themes__id__in'),
+        ('perspectives', 'player_perspectives__id__in'),
+        ('developers', 'developers__id__in'),
+        ('game_modes', 'game_modes__id__in'),
+        ('game_types', 'game_type__in')
+    ]
+
+    for field, model_field in other_fields:
+        if selected_criteria[field]:
+            main_filters &= Q(**{model_field: selected_criteria[field]})
+            has_main_filters = True
+
+    # Фильтр по диапазону годов
+    year_start = selected_criteria.get('release_year_start')
+    year_end = selected_criteria.get('release_year_end')
+
+    if year_start or year_end:
+        # Создаем фильтр по дате
+        date_filter = Q()
+
+        if year_start:
+            # Начало года (1 января year_start)
+            start_date = f"{year_start}-01-01"
+            date_filter &= Q(first_release_date__gte=start_date)
+
+        if year_end:
+            # Конец года (31 декабря year_end)
+            end_date = f"{year_end}-12-31"
+            date_filter &= Q(first_release_date__lte=end_date)
+
+        main_filters &= date_filter
+        has_main_filters = True
+
+    # Применяем фильтры
+    if has_platform_filter and has_main_filters:
+        # Платформы OR + остальные AND
+        queryset = queryset.filter(platform_filter & main_filters).distinct()
+    elif has_platform_filter:
+        # Только платформы (OR)
+        queryset = queryset.filter(platform_filter).distinct()
+    elif has_main_filters:
+        # Только остальные фильтры (AND)
+        queryset = queryset.filter(main_filters).distinct()
+
+    return queryset
+
+
+# Обновите _build_context для добавления информации о годах:
+def _build_context(mode: str, **kwargs) -> Dict[str, Any]:
+    """Build template context."""
+    # Get genres from cache
+    genres_list = cache.get('genres_list')
+    if not genres_list:
+        genres_list = list(Genre.objects.all().only('id', 'name').order_by('name'))
+        cache.set('genres_list', genres_list, CACHE_TIMES['genres_list'])
+
+    # Get years range
+    years_range = get_release_years_range()
+
+    # Generate URL parameters
+    selected_criteria = kwargs['selected_criteria']
+    compact_url_params = generate_compact_url_params(
+        find_similar=(mode == 'similar'),
+        genres=selected_criteria['genres'],
+        keywords=selected_criteria['keywords'],
+        platforms=selected_criteria['platforms'],
+        themes=selected_criteria['themes'],
+        perspectives=selected_criteria['perspectives'],
+        developers=selected_criteria['developers'],
+        game_modes=selected_criteria['game_modes'],
+        game_types=selected_criteria['game_types'],
+        release_year_start=selected_criteria['release_year_start'],
+        release_year_end=selected_criteria['release_year_end'],
+        sort=kwargs.get('current_sort', '')
+    )
+
+    # Get filter data
+    filter_data = kwargs.get('filter_data', {})
+
+    # Get selected criteria objects if available
+    selected_criteria_objects = kwargs.get('selected_criteria_objects', {})
+
+    # Build context
+    context = {
+        'genres': genres_list,
+        'keyword_categories': list(KeywordCategory.objects.all().only('id', 'name')),
+        'current_sort': kwargs.get('current_sort', ''),
+        'find_similar': kwargs.get('find_similar', False),
+        'compact_url_params': compact_url_params,
+
+        # Years range for date filter
+        'years_range': years_range,
+        'current_year': timezone.now().year,
+
+        # Selected criteria IDs
+        'selected_genres': selected_criteria['genres'],
+        'selected_keywords': selected_criteria['keywords'],
+        'selected_platforms': selected_criteria['platforms'],
+        'selected_themes': selected_criteria['themes'],
+        'selected_perspectives': selected_criteria['perspectives'],
+        'selected_developers': selected_criteria['developers'],
+        'selected_game_modes': selected_criteria['game_modes'],
+        'selected_game_types': selected_criteria['game_types'],
+        'selected_release_year_start': selected_criteria['release_year_start'],
+        'selected_release_year_end': selected_criteria['release_year_end'],
+
+        # Selected criteria OBJECTS
+        'selected_genres_objects': selected_criteria_objects.get('genres', []),
+        'selected_keywords_objects': selected_criteria_objects.get('keywords', []),
+        'selected_platforms_objects': selected_criteria_objects.get('platforms', []),
+        'selected_themes_objects': selected_criteria_objects.get('themes', []),
+        'selected_perspectives_objects': selected_criteria_objects.get('perspectives', []),
+        'selected_developers_objects': selected_criteria_objects.get('developers', []),
+        'selected_game_modes_objects': selected_criteria_objects.get('game_modes', []),
+        'selected_game_types_objects': selected_criteria_objects.get('game_types', []),
+
+        # Search Filters данные
+        'platforms': filter_data.get('platforms', []),
+        'game_types': GameTypeEnum.CHOICES,
+
+        # Similarity Filters данные
+        'popular_keywords': filter_data.get('popular_keywords', []),
+        'themes': filter_data.get('themes', []),
+        'perspectives': filter_data.get('perspectives', []),
+        'developers': filter_data.get('developers', []),
+        'game_modes': filter_data.get('game_modes', []),
+
+        # Pagination
+        'page_obj': kwargs.get('page_obj'),
+        'paginator': kwargs.get('paginator'),
+        'is_paginated': kwargs.get('is_paginated', False),
+        'total_count': kwargs.get('total_count', 0),
+
+        # Source
+        'source_game': kwargs.get('source_game'),
+        'source_game_obj': kwargs.get('source_game_obj'),
+        'selected_criteria': selected_criteria,
+
+        # Mode specific
+        'debug_mode': mode,
+    }
+
+    # Add mode-specific fields
+    if mode == 'similar':
+        context.update({
+            'games_with_similarity': kwargs['page_obj'].object_list if kwargs.get('page_obj') else [],
+            'games': [],
+            'show_similarity': True,
+        })
+    else:
+        context.update({
+            'games': kwargs['page_obj'].object_list if kwargs.get('page_obj') else [],
+            'games_with_similarity': [],
+            'show_similarity': False,
+        })
+
+    return context
 
 def get_objects_by_ids(model_class, ids: List[int], only_fields: List[str] = None) -> List:
     """Get model objects by their IDs efficiently."""
@@ -1264,49 +1700,6 @@ def platform_games(request: HttpRequest, platform_id: int) -> HttpResponse:
     })
 
 
-def convert_params_to_lists(params_dict: Dict[str, str]) -> Dict[str, List[int]]:
-    """Convert query parameters to lists of integers."""
-    # Quick check for empty params
-    has_params = False
-    for key in ['g', 'k', 'p', 't', 'pp', 'd', 'gm', 'gt']:  # ДОБАВЛЕН 'gt'
-        if params_dict.get(key):
-            has_params = True
-            break
-
-    if not has_params:
-        return _EMPTY_RESULT.copy()
-
-    return {
-        'genres': _cached_string_to_int_list(params_dict.get('g', '')),
-        'keywords': _cached_string_to_int_list(params_dict.get('k', '')),
-        'platforms': _cached_string_to_int_list(params_dict.get('p', '')),
-        'themes': _cached_string_to_int_list(params_dict.get('t', '')),
-        'perspectives': _cached_string_to_int_list(params_dict.get('pp', '')),
-        'developers': _cached_string_to_int_list(params_dict.get('d', '')),
-        'game_modes': _cached_string_to_int_list(params_dict.get('gm', '')),
-        'game_types': _cached_string_to_int_list(params_dict.get('gt', '')),  # ДОБАВЛЕНО
-    }
-
-
-def extract_request_params(request: HttpRequest) -> Dict[str, str]:
-    """Extract parameters from request efficiently."""
-    get_params = request.GET
-    return {
-        'find_similar': get_params.get('find_similar', ''),
-        'g': get_params.get('g', ''),
-        'k': get_params.get('k', ''),
-        'p': get_params.get('p', ''),
-        't': get_params.get('t', ''),
-        'pp': get_params.get('pp', ''),
-        'd': get_params.get('d', ''),
-        'gm': get_params.get('gm', ''),
-        'gt': get_params.get('gt', ''),  # ДОБАВЛЕНО
-        'source_game': get_params.get('source_game', ''),
-        'sort': get_params.get('sort', ''),
-        'page': get_params.get('page', '1'),
-    }
-
-
 # ===== FILTER DATA FUNCTIONS =====
 
 @lru_cache(maxsize=1)
@@ -1422,50 +1815,6 @@ def get_similar_games_for_criteria(selected_criteria: Dict[str, List[int]]) -> T
     return similar_games, total_count
 
 
-def _apply_filters(queryset: models.QuerySet, selected_criteria: Dict[str, List[int]]) -> models.QuerySet:
-    """Apply filters to queryset with OR logic for platforms."""
-    # Основной фильтр для всех полей кроме платформ
-    main_filters = Q()
-    has_main_filters = False
-
-    # Фильтр для платформ (OR логика)
-    platform_filter = Q()
-    has_platform_filter = False
-
-    # Обрабатываем платформы отдельно
-    if selected_criteria['platforms']:
-        platform_filter = Q(platforms__id__in=selected_criteria['platforms'])
-        has_platform_filter = True
-
-    # Обрабатываем остальные поля (AND логика)
-    other_fields = [
-        ('genres', 'genres__id__in'),
-        ('keywords', 'keywords__id__in'),
-        ('themes', 'themes__id__in'),
-        ('perspectives', 'player_perspectives__id__in'),
-        ('developers', 'developers__id__in'),
-        ('game_modes', 'game_modes__id__in'),
-        ('game_types', 'game_type__in')  # ДОБАВЛЕНО
-    ]
-
-    for field, model_field in other_fields:
-        if selected_criteria[field]:
-            main_filters &= Q(**{model_field: selected_criteria[field]})
-            has_main_filters = True
-
-    # Применяем фильтры
-    if has_platform_filter and has_main_filters:
-        # Платформы OR + остальные AND
-        queryset = queryset.filter(platform_filter & main_filters).distinct()
-    elif has_platform_filter:
-        # Только платформы (OR)
-        queryset = queryset.filter(platform_filter).distinct()
-    elif has_main_filters:
-        # Только остальные фильтры (AND)
-        queryset = queryset.filter(main_filters).distinct()
-
-    return queryset
-
 
 def _get_selected_criteria_objects(selected_criteria: Dict[str, List[int]]) -> Dict[str, List]:
     """Получаем объекты для всех выбранных критериев."""
@@ -1519,105 +1868,6 @@ def _get_selected_criteria_objects(selected_criteria: Dict[str, List[int]]) -> D
 
     return selected_objects
 
-
-def _build_context(mode: str, **kwargs) -> Dict[str, Any]:
-    """Build template context."""
-    # Get genres from cache
-    genres_list = cache.get('genres_list')
-    if not genres_list:
-        genres_list = list(Genre.objects.all().only('id', 'name').order_by('name'))
-        cache.set('genres_list', genres_list, CACHE_TIMES['genres_list'])
-
-    # Generate URL parameters
-    selected_criteria = kwargs['selected_criteria']
-    compact_url_params = generate_compact_url_params(
-        find_similar=(mode == 'similar'),
-        genres=selected_criteria['genres'],
-        keywords=selected_criteria['keywords'],
-        platforms=selected_criteria['platforms'],
-        themes=selected_criteria['themes'],
-        perspectives=selected_criteria['perspectives'],
-        developers=selected_criteria['developers'],
-        game_modes=selected_criteria['game_modes'],
-        game_types=selected_criteria['game_types'],  # ОСТАЕТСЯ, но не влияет на find_similar
-        sort=kwargs.get('current_sort', '')
-    )
-
-    # Get filter data
-    filter_data = kwargs.get('filter_data', {})
-
-    # Get selected criteria objects if available
-    selected_criteria_objects = kwargs.get('selected_criteria_objects', {})
-
-    # Build context - РАЗДЕЛЕНИЕ Search Filters и Similarity Filters
-    context = {
-        'genres': genres_list,
-        'keyword_categories': list(KeywordCategory.objects.all().only('id', 'name')),
-        'current_sort': kwargs.get('current_sort', ''),
-        'find_similar': kwargs.get('find_similar', False),
-        'compact_url_params': compact_url_params,
-
-        # Selected criteria IDs
-        'selected_genres': selected_criteria['genres'],
-        'selected_keywords': selected_criteria['keywords'],
-        'selected_platforms': selected_criteria['platforms'],
-        'selected_themes': selected_criteria['themes'],
-        'selected_perspectives': selected_criteria['perspectives'],
-        'selected_developers': selected_criteria['developers'],
-        'selected_game_modes': selected_criteria['game_modes'],
-        'selected_game_types': selected_criteria['game_types'],  # Теперь в Search Filters
-
-        # Selected criteria OBJECTS (для отображения бейджей)
-        'selected_genres_objects': selected_criteria_objects.get('genres', []),
-        'selected_keywords_objects': selected_criteria_objects.get('keywords', []),
-        'selected_platforms_objects': selected_criteria_objects.get('platforms', []),
-        'selected_themes_objects': selected_criteria_objects.get('themes', []),
-        'selected_perspectives_objects': selected_criteria_objects.get('perspectives', []),
-        'selected_developers_objects': selected_criteria_objects.get('developers', []),
-        'selected_game_modes_objects': selected_criteria_objects.get('game_modes', []),
-        'selected_game_types_objects': selected_criteria_objects.get('game_types', []),  # В Search Filters
-
-        # Search Filters данные
-        'platforms': filter_data.get('platforms', []),
-        'game_types': GameTypeEnum.CHOICES,  # Теперь в Search Filters
-
-        # Similarity Filters данные
-        'popular_keywords': filter_data.get('popular_keywords', []),
-        'themes': filter_data.get('themes', []),
-        'perspectives': filter_data.get('perspectives', []),
-        'developers': filter_data.get('developers', []),
-        'game_modes': filter_data.get('game_modes', []),
-
-        # Pagination
-        'page_obj': kwargs.get('page_obj'),
-        'paginator': kwargs.get('paginator'),
-        'is_paginated': kwargs.get('is_paginated', False),
-        'total_count': kwargs.get('total_count', 0),
-
-        # Source
-        'source_game': kwargs.get('source_game'),
-        'source_game_obj': kwargs.get('source_game_obj'),
-        'selected_criteria': selected_criteria,
-
-        # Mode specific
-        'debug_mode': mode,
-    }
-
-    # Add mode-specific fields
-    if mode == 'similar':
-        context.update({
-            'games_with_similarity': kwargs['page_obj'].object_list if kwargs.get('page_obj') else [],
-            'games': [],
-            'show_similarity': True,
-        })
-    else:
-        context.update({
-            'games': kwargs['page_obj'].object_list if kwargs.get('page_obj') else [],
-            'games_with_similarity': [],
-            'show_similarity': False,
-        })
-
-    return context
 
 
 def has_similarity_criteria(selected_criteria: Dict[str, List[int]]) -> bool:
@@ -1677,122 +1927,3 @@ def _get_similar_games_mode(params: Dict[str, str], selected_criteria: Dict[str,
         'source_game_obj': source_game_obj,
     }
 
-
-def game_list(request: HttpRequest) -> HttpResponse:
-    """Main game list function - с приоритетом на кэширование."""
-    # 1. СУПЕР БЫСТРЫЙ КЭШ - проверяем даже без хеширования
-    cache_key_simple = f'game_list_{request.GET.urlencode()}'
-    cached_response = cache.get(cache_key_simple)
-
-    if cached_response:
-        cached_response['X-Cache-Hit'] = 'True-Simple'
-        return cached_response
-
-    start_time = time.time()
-
-    # 2. Быстрая обработка параметров
-    params = extract_request_params(request)
-
-    # 3. Если очень много параметров - используем агрессивный кэш
-    total_params = sum(len(str(v)) for v in params.values() if v)
-    if total_params > 1000:  # Очень длинный URL
-        cache_key_long = f'game_list_long_{hashlib.md5(request.GET.urlencode()[:500].encode()).hexdigest()}'
-        cached_long = cache.get(cache_key_long)
-
-        if cached_long:
-            cached_long['X-Cache-Hit'] = 'True-Long'
-            cached_long['X-Params-Length'] = str(total_params)
-            return cached_long
-
-    selected_criteria = convert_params_to_lists(params)
-
-    # 4. Получаем объекты для всех выбранных критериев
-    selected_criteria_objects = _get_selected_criteria_objects(selected_criteria)
-
-    # 5. Определяем режим
-    find_similar = params.get('find_similar') == '1'
-    source_game_obj = None
-    if params.get('source_game'):
-        try:
-            source_game_obj = Game.objects.only('id', 'name').get(pk=int(params['source_game']))
-        except (Game.DoesNotExist, ValueError):
-            pass
-
-    # 6. ВЫБОР РЕЖИМА с приоритетом на кэширование
-    if find_similar or source_game_obj or has_similarity_criteria(selected_criteria):
-        mode_result = _get_similar_games_mode(params, selected_criteria, source_game_obj)
-        mode = 'similar'
-    else:
-        mode_result = _get_all_games_mode(
-            selected_criteria,
-            params.get('sort', '-rating_count'),
-            params.get('page', '1')
-        )
-        mode = 'regular'
-
-    # 7. БЫСТРАЯ загрузка фильтров из кэша
-    filter_data = _get_cached_filter_data()
-    genres_list = cache.get('genres_list_v3') or list(Genre.objects.only('id', 'name').order_by('name'))
-
-    # 8. Минимальный контекст для скорости (ДОБАВЛЯЕМ ВСЕ ОБЪЕКТЫ)
-    context = {
-        'games': mode_result.get('games', []),
-        'games_with_similarity': mode_result.get('games_with_similarity', []),
-        'page_obj': mode_result.get('page_obj'),
-        'is_paginated': mode_result.get('is_paginated', False),
-        'total_count': mode_result.get('total_count', 0),
-
-        'find_similar': mode_result.get('find_similar', False),
-        'show_similarity': mode_result.get('show_similarity', False),
-        'source_game': mode_result.get('source_game'),
-
-        'genres': genres_list,
-        'platforms': filter_data['platforms'],
-        'themes': filter_data['themes'],
-        'perspectives': filter_data['perspectives'],
-        'game_modes': filter_data['game_modes'],
-        'popular_keywords': filter_data['popular_keywords'],
-        'game_types': GameTypeEnum.CHOICES,  # ДОБАВЛЕНО
-
-        # Selected criteria IDs
-        'selected_genres': selected_criteria['genres'],
-        'selected_keywords': selected_criteria['keywords'],
-        'selected_platforms': selected_criteria['platforms'],
-        'selected_themes': selected_criteria['themes'],
-        'selected_perspectives': selected_criteria['perspectives'],
-        'selected_game_modes': selected_criteria['game_modes'],
-        'selected_game_types': selected_criteria['game_types'],  # ДОБАВЛЕНО
-
-        # Selected criteria OBJECTS
-        'selected_genres_objects': selected_criteria_objects.get('genres', []),
-        'selected_keywords_objects': selected_criteria_objects.get('keywords', []),
-        'selected_platforms_objects': selected_criteria_objects.get('platforms', []),
-        'selected_themes_objects': selected_criteria_objects.get('themes', []),
-        'selected_perspectives_objects': selected_criteria_objects.get('perspectives', []),
-        'selected_game_modes_objects': selected_criteria_objects.get('game_modes', []),
-        'selected_game_types_objects': selected_criteria_objects.get('game_types', []),  # ДОБАВЛЕНО
-
-        'current_sort': params.get('sort', ''),
-        'execution_time': round(time.time() - start_time, 3),
-    }
-
-    # 9. Рендерим
-    response = render(request, 'games/game_list.html', context)
-
-    # 10. АГРЕССИВНОЕ КЭШИРОВАНИЕ для медленных запросов
-    cache_time = 300  # 5 минут по умолчанию
-
-    if context['execution_time'] > 1.0:
-        cache_time = 600  # 10 минут
-        response['X-Cache-Reason'] = 'Slow-Query'
-
-    cache.set(cache_key_simple, response, cache_time)
-
-    if total_params > 1000:
-        cache.set(cache_key_long, response, cache_time)
-
-    response['X-Cache-Hit'] = 'False'
-    response['X-Response-Time'] = f"{context['execution_time']:.3f}s"
-    response['X-Mode'] = mode
-
-    return response

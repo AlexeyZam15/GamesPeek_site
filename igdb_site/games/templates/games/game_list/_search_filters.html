@@ -1,0 +1,322 @@
+<!-- games/templates/games/game_list/_search_filters.html -->
+<div class="col-12">
+    <div class="search-filter-section">
+        <div class="toggle-section border-bottom pb-2 mb-3" data-target="search-filters-content">
+            <h6 class="mb-0 d-flex align-items-center">
+                <i class="bi bi-chevron-down me-2"></i>🔍 Search Filters
+            </h6>
+        </div>
+        <div id="search-filters-content">
+            <!-- Platforms фильтр -->
+            <div class="filter-subsection">
+                <div class="toggle-subsection mb-2" data-target="platforms-content">
+                    <label class="form-label mb-0 d-flex align-items-center">
+                        <i class="bi bi-chevron-down me-1"></i>Platforms:
+                    </label>
+                </div>
+                <div id="platforms-content">
+                    <input type="text" class="form-control mb-2" id="platform-search"
+                           placeholder="Search platforms..." autocomplete="off">
+
+                    <!-- Активные платформы -->
+                    <div id="active-platforms" class="mb-2">
+                        {% if selected_platforms %}
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div class="d-flex align-items-center gap-2">
+                                    <button type="button"
+                                            class="btn btn-sm clear-platforms-btn btn-outline-info"
+                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                                            data-param="p">
+                                        <i class="bi bi-x-circle me-1"></i>Clear All
+                                    </button>
+                                    <small class="text-muted" style="font-weight: 500;">
+                                        Selected platforms ({{ selected_platforms|length }})
+                                    </small>
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        <!-- Видимые платформы (первые 27) -->
+                        <div id="visible-platforms-badges">
+                            {% for platform in selected_platforms_objects|slice:":27" %}
+                                <span class="badge bg-info me-1 mb-1 active-platform-tag"
+                                      data-platform-id="{{ platform.id }}"
+                                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                    {{ platform.name }} ({{ platform.game_count }})
+                                    <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                                </span>
+                            {% endfor %}
+                        </div>
+
+                        <!-- Скрытые платформы (остальные) -->
+                        {% if selected_platforms_objects|length > 27 %}
+                            <div id="hidden-platforms-badges" style="display: none;">
+                                {% for platform in selected_platforms_objects|slice:"27:" %}
+                                    <span class="badge bg-info me-1 mb-1 active-platform-tag"
+                                          data-platform-id="{{ platform.id }}"
+                                          style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                        {{ platform.name }} ({{ platform.game_count }})
+                                        <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                                    </span>
+                                {% endfor %}
+                            </div>
+
+                            <!-- Кнопки показать/скрыть -->
+                            <div class="text-center mt-2">
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-secondary show-more-platforms"
+                                        onclick="toggleMoreplatforms(this)">
+                                    <i class="bi bi-chevron-down"></i> Show all
+                                    ({{ selected_platforms_objects|length }})
+                                </button>
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-secondary show-less-platforms"
+                                        style="display: none;"
+                                        onclick="toggleLessplatforms(this)">
+                                    <i class="bi bi-chevron-up"></i> Show less
+                                </button>
+                            </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Список платформ -->
+                    <div class="platform-list border rounded p-2"
+                         style="max-height: 200px; overflow-y: auto;">
+                        <div class="platform-grid"
+                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                            {% for platform in platforms %}
+                                <div class="platform-item"
+                                     data-platform-name="{{ platform.name|lower }}"
+                                     data-game-count="{{ platform.game_count }}">
+                                    <div class="form-check">
+                                        <input class="form-check-input platform-checkbox"
+                                               type="checkbox"
+                                               value="{{ platform.id }}" id="platform_{{ platform.id }}"
+                                               {% if platform.id in selected_platforms %}checked{% endif %}>
+                                        <label class="form-check-label small"
+                                               for="platform_{{ platform.id }}">
+                                            {{ platform.name }}
+                                            <span class="text-muted ms-1">({{ platform.game_count }})</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <!-- Кнопка "Show all platforms" -->
+                    <div class="text-center mt-2">
+                        <button type="button"
+                                class="btn btn-outline-secondary btn-sm show-all-platforms-btn">
+                            <span class="show-text">Show all platforms</span>
+                            <span class="hide-text" style="display: none;">Show less</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Game Types -->
+            <div class="filter-subsection mt-3">
+                <div class="toggle-subsection mb-2" data-target="game-types-content">
+                    <label class="form-label mb-0 d-flex align-items-center">
+                        <i class="bi bi-chevron-down me-1"></i>🎲 Game Types:
+                    </label>
+                </div>
+                <div id="game-types-content">
+                    <input type="text" class="form-control mb-2" id="game-type-search"
+                           placeholder="Search game types..." autocomplete="off">
+
+                    <!-- Активные типы игр -->
+                    <div id="active-game-types" class="mb-2">
+                        {% if selected_game_types %}
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div class="d-flex align-items-center gap-2">
+                                    <button type="button"
+                                            class="btn btn-sm clear-game-types-btn btn-outline-secondary"
+                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                                            data-param="gt">
+                                        <i class="bi bi-x-circle me-1"></i>Clear All
+                                    </button>
+                                    <small class="text-muted" style="font-weight: 500;">
+                                        Selected game types ({{ selected_game_types|length }})
+                                    </small>
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        <!-- Видимые типы игр -->
+                        <div id="visible-game-types-badges">
+                            {% for game_type_id, game_type_name in selected_game_types_objects %}
+                                <span class="badge bg-secondary me-1 mb-1 active-game-type-tag"
+                                      data-game-type-id="{{ game_type_id }}"
+                                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                    {{ game_type_name }}
+                                    <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                                </span>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <!-- Список типов игр -->
+                    <div class="game-type-list border rounded p-2"
+                         style="max-height: 200px; overflow-y: auto;">
+                        <div class="game-type-grid"
+                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                            {% for game_type_id, game_type_name in game_types %}
+                                <div class="game-type-item"
+                                     data-game-type-name="{{ game_type_name|lower }}">
+                                    <div class="form-check">
+                                        <input class="form-check-input game-type-checkbox"
+                                               type="checkbox"
+                                               value="{{ game_type_id }}"
+                                               id="game_type_{{ game_type_id }}"
+                                               {% if game_type_id in selected_game_types %}checked{% endif %}>
+                                        <label class="form-check-label small"
+                                               for="game_type_{{ game_type_id }}">
+                                            {{ game_type_name }}
+                                        </label>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <!-- Кнопка "Show all game types" -->
+                    <div class="text-center mt-2">
+                        <button type="button"
+                                class="btn btn-outline-secondary btn-sm show-all-game-types-btn">
+                            <span class="show-text">Show all game types</span>
+                            <span class="hide-text" style="display: none;">Show less</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Release Date Filter -->
+            <div class="filter-subsection mt-3">
+                <div class="toggle-subsection mb-2" data-target="release-date-content">
+                    <label class="form-label mb-0 d-flex align-items-center">
+                        <i class="bi bi-chevron-down me-1"></i>📅 Release Date:
+                    </label>
+                </div>
+                <div id="release-date-content" class="release-date-filter">
+                    <!-- Активный бейдж фильтра даты -->
+                    {% if selected_release_year_start or selected_release_year_end %}
+                        <div id="active-date-filter" class="mb-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div class="d-flex align-items-center gap-2">
+                                    <button type="button"
+                                            class="btn btn-sm clear-date-filter-btn btn-outline-warning"
+                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                                            data-param="yr,ys,ye">
+                                        <i class="bi bi-x-circle me-1"></i>Clear Date Filter
+                                    </button>
+                                    <small class="text-muted" style="font-weight: 500;">
+                                        Selected date range
+                                    </small>
+                                </div>
+                            </div>
+
+                            <div id="visible-date-filter-badges">
+                            <span class="badge bg-warning me-1 mb-1 active-date-filter-tag"
+                                  data-date-range="{{ selected_release_year_start|default:'' }}-{{ selected_release_year_end|default:'' }}">
+                                {% if selected_release_year_start and selected_release_year_end %}
+                                    {{ selected_release_year_start }} - {{ selected_release_year_end }}
+                                {% elif selected_release_year_start %}
+                                    From {{ selected_release_year_start }}
+                                {% elif selected_release_year_end %}
+                                    Until {{ selected_release_year_end }}
+                                {% endif %}
+                                <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                            </span>
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    <!-- Ползунок диапазона -->
+                    <div class="range-slider-container">
+                        <input type="range"
+                               min="{{ years_range.min_year }}"
+                               max="{{ years_range.max_year }}"
+                               value="{{ selected_release_year_start|default:years_range.min_year }}"
+                               class="slider-range"
+                               id="year-range-slider-min"
+                               oninput="updateYearRange('min')">
+
+                        <input type="range"
+                               min="{{ years_range.min_year }}"
+                               max="{{ years_range.max_year }}"
+                               value="{{ selected_release_year_end|default:years_range.max_year }}"
+                               class="slider-range"
+                               id="year-range-slider-max"
+                               oninput="updateYearRange('max')">
+
+                        <div class="range-values">
+                            <div class="range-min">
+                                <span id="min-year-value">{{ selected_release_year_start|default:years_range.min_year }}</span>
+                            </div>
+                            <div class="range-max">
+                                <span id="max-year-value">{{ selected_release_year_end|default:years_range.max_year }}</span>
+                            </div>
+                        </div>
+
+                        <div class="range-info">
+                            Drag sliders to select date range
+                        </div>
+                    </div>
+
+                    <!-- Поля для ручного ввода -->
+                    <div class="year-inputs">
+                        <div class="year-input-group">
+                            <label for="manual-year-start">Start Year:</label>
+                            <input type="number"
+                                   id="manual-year-start"
+                                   class="year-input"
+                                   min="{{ years_range.min_year }}"
+                                   max="{{ years_range.max_year }}"
+                                   value="{{ selected_release_year_start|default:'' }}"
+                                   placeholder="From year..."
+                                   onchange="updateYearFromInput('start')">
+                        </div>
+
+                        <div class="year-input-group">
+                            <label for="manual-year-end">End Year:</label>
+                            <input type="number"
+                                   id="manual-year-end"
+                                   class="year-input"
+                                   min="{{ years_range.min_year }}"
+                                   max="{{ years_range.max_year }}"
+                                   value="{{ selected_release_year_end|default:'' }}"
+                                   placeholder="To year..."
+                                   onchange="updateYearFromInput('end')">
+                        </div>
+                    </div>
+
+                    <!-- Quick selection buttons -->
+                    <div class="d-flex flex-wrap gap-2 mt-3">
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                onclick="setYearRange('last5')">
+                            Last 5 Years
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                onclick="setYearRange('2010s')">
+                            2010s
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                onclick="setYearRange('2000s')">
+                            2000s
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                onclick="setYearRange('1990s')">
+                            1990s
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                onclick="setYearRange('1980s')">
+                            1980s
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
