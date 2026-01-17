@@ -225,6 +225,45 @@ class BaseGamesCommand(BaseCommand):
 
             self.cache_manager = GameCacheManager
 
+    def _get_offset_params(self, options):
+        """Получает параметры для создания ключа offset"""
+        # ВСЕГДА в одном порядке для одинаковых параметров
+        return {
+            'game_modes': options.get('game_modes', ''),
+            'game_names': options.get('game_names', ''),
+            'genres': options.get('genres', ''),
+            'description_contains': options.get('description_contains', ''),
+            'keywords': options.get('keywords', ''),
+            'game_types': options.get('game_types', ''),
+            'min_rating_count': options.get('min_rating_count', 0),
+            'mode': self._get_loading_mode(options),
+        }
+
+    def _get_saved_offset(self, options):
+        """Получает сохраненный offset для текущих параметров"""
+        params = self._get_offset_params(options)
+        return OffsetManager.load_offset(params)
+
+    def _save_offset_for_continuation(self, options, current_offset):
+        """Сохраняет offset для продолжения"""
+        params = self._get_offset_params(options)
+        saved = OffsetManager.save_offset(params, current_offset)
+
+        if saved and options.get('debug', False):
+            self.stdout.write(f'   💾 Сохранен offset для параметров {params}: {current_offset}')
+
+        return saved
+
+    def _handle_reset_offset(self, options, debug):
+        """Обрабатывает сброс сохраненного offset"""
+        params = self._get_offset_params(options)
+        cleared = OffsetManager.clear_offset(params)
+
+        if cleared:
+            self.stdout.write('🔄 Сброшен сохраненный offset для текущих параметров')
+        else:
+            self.stdout.write('⚠️  Не удалось сбросить offset или offset не существует')
+
     def handle(self, *args, **options):
         """Основной метод выполнения команды - должен быть переопределен в наследниках"""
         raise NotImplementedError("Метод handle должен быть переопределен в наследниках")
@@ -530,22 +569,6 @@ class BaseGamesCommand(BaseCommand):
             current_offset, limit_val, overwrite
         )
 
-    def _handle_reset_offset(self, options, debug):
-        """Обрабатывает сброс сохраненного offset"""
-        where_clause = self._get_where_clause_for_current_command(options)
-        if not where_clause:
-            if debug:
-                self.stdout.write('⚠️  Не удалось определить запрос для сброса offset')
-            return
-
-        query_key = self._get_query_key_for_current_command(options, where_clause)
-        cleared = OffsetManager.clear_offset(query_key)
-
-        if cleared:
-            self.stdout.write('🔄 Сброшен сохраненный offset для этого запроса')
-        else:
-            self.stdout.write('⚠️  Не удалось сбросить offset')
-
     def clear_game_cache(self):
         """Очищает кэш проверенных игр"""
         try:
@@ -558,7 +581,8 @@ class BaseGamesCommand(BaseCommand):
 
     def _get_where_clause_for_current_command(self, options):
         """Получает where_clause для текущей команды"""
-        game_names_str = options.get('game_names', '')  # НОВОЕ
+        game_names_str = options.get('game_names', '')
+        game_modes_str = options.get('game_modes', '')  # НОВЫЙ ПАРАМЕТР
         genres_str = options.get('genres', '')
         description_contains = options.get('description_contains', '')
         keywords_str = options.get('keywords', '')
@@ -567,8 +591,11 @@ class BaseGamesCommand(BaseCommand):
 
         where_parts = []
 
-        # НОВАЯ ВЕТКА: поиск по именам
-        if game_names_str:
+        # Режимы игры - просто указываем шаблон, так как ID будет найден позже
+        if game_modes_str:
+            where_parts.append('game_modes = (...)')
+        # Имена игр
+        elif game_names_str:
             name_list = [n.strip() for n in game_names_str.split(',') if n.strip()]
             name_conditions = [f'name ~ *"{name}"*' for name in name_list]
             where_parts.append(f'({" | ".join(name_conditions)})')
@@ -584,8 +611,8 @@ class BaseGamesCommand(BaseCommand):
             where_parts.append('keywords = (...)')
 
         # Обязательные условия
-        if game_names_str:
-            # Для поиска по именам rating_count может быть 0
+        if game_modes_str or game_names_str:
+            # Для поиска по режимам или именам rating_count может быть 0
             where_parts.append('name != null')
             if min_rating_count > 0:
                 where_parts.append(f'rating_count >= {min_rating_count}')
@@ -608,13 +635,16 @@ class BaseGamesCommand(BaseCommand):
 
     def _get_loading_mode(self, options):
         """Определяет режим загрузки для ключа offset"""
-        game_names_str = options.get('game_names', '')  # НОВОЕ
+        game_names_str = options.get('game_names', '')
+        game_modes_str = options.get('game_modes', '')  # НОВЫЙ
         genres_str = options.get('genres', '')
         description_contains = options.get('description_contains', '')
         keywords_str = options.get('keywords', '')
 
-        if game_names_str:
-            return 'game_names'  # НОВЫЙ РЕЖИМ
+        if game_modes_str:
+            return 'game_modes'  # НОВЫЙ РЕЖИМ
+        elif game_names_str:
+            return 'game_names'
         elif genres_str and description_contains:
             return 'genres_and_description'
         elif genres_str:
