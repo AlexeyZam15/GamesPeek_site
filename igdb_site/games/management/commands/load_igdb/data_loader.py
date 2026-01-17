@@ -24,6 +24,83 @@ class DataLoader:
         self._interrupted = threading.Event()
         self.debug_mode = False  # Добавляем атрибут
 
+    def create_basic_games(self, games_data_list, debug=False):
+        """Создает игры с основными данными, избегая дубликатов"""
+        from django.utils import timezone
+        from datetime import datetime
+
+        # Получаем существующие ID за один запрос
+        igdb_ids = [g.get('id') for g in games_data_list if g.get('id')]
+        existing_game_ids = set()
+        skipped_games = 0
+
+        if igdb_ids:
+            with self._db_lock:
+                existing_game_ids = set(Game.objects.filter(
+                    igdb_id__in=igdb_ids
+                ).values_list('igdb_id', flat=True))
+                skipped_games = len([gid for gid in igdb_ids if gid in existing_game_ids])
+
+        def process_single_game(game_data):
+            game_id = game_data.get('id')
+            if not game_id or game_id in existing_game_ids:
+                if debug and game_id in existing_game_ids:
+                    self.stdout.write(f'   ⏭️  Игра уже существует: {game_id}')
+                return None
+
+            # Создаем объект игры напрямую
+            game = Game(
+                igdb_id=game_id,
+                name=game_data.get('name', ''),
+                summary=game_data.get('summary', ''),
+                storyline=game_data.get('storyline', ''),
+                rating=game_data.get('rating'),
+                rating_count=game_data.get('rating_count', 0)
+            )
+
+            # Сохраняем game_type из данных игры
+            game_type = game_data.get('game_type')
+            if game_type is not None:
+                game.game_type = game_type
+
+            if game_data.get('first_release_date'):
+                naive_datetime = datetime.fromtimestamp(game_data['first_release_date'])
+                game.first_release_date = timezone.make_aware(naive_datetime)
+
+            return game
+
+        games_to_create = []
+        # Используем обычный цикл вместо ThreadPoolExecutor для простоты
+        for game_data in games_data_list:
+            try:
+                game = process_single_game(game_data)
+                if game:
+                    games_to_create.append(game)
+            except Exception as e:
+                if debug:
+                    self.stderr.write(f'   ❌ Ошибка создания игры: {e}')
+
+        if games_to_create:
+            try:
+                with self._db_lock:
+                    Game.objects.bulk_create(games_to_create, batch_size=50, ignore_conflicts=True)
+                if debug:
+                    self.stdout.write(f'   ✅ Создано игр: {len(games_to_create)}')
+            except Exception as e:
+                if debug:
+                    self.stderr.write(f'   ❌ Ошибка bulk_create игр: {e}')
+                # Fallback: создаем по одной
+                created_count = 0
+                for game in games_to_create:
+                    try:
+                        game.save()
+                        created_count += 1
+                    except:
+                        pass
+                return created_count, {}, skipped_games
+
+        return len(games_to_create), {game.igdb_id: game for game in games_to_create}, skipped_games
+
     def _bulk_check_existing_objects(self, model_class, igdb_ids):
         """Массовая проверка существующих объектов по igdb_id"""
         with self._db_lock:
@@ -1166,81 +1243,6 @@ class DataLoader:
     def load_companies_parallel(self, company_ids, debug=False):
         """Параллельная загрузка компаний с логотипами"""
         return self._batch_processor_regular(company_ids, self._process_companies_batch, '🏢', 'компаний', debug)
-
-    def create_basic_games(self, games_data_list, debug=False):
-        """Создает игры с основными данными, избегая дубликатов"""
-        from django.utils import timezone
-        from datetime import datetime
-
-        # Получаем существующие ID за один запрос
-        igdb_ids = [g.get('id') for g in games_data_list if g.get('id')]
-        existing_game_ids = set()
-
-        if igdb_ids:
-            with self._db_lock:
-                existing_game_ids = set(Game.objects.filter(
-                    igdb_id__in=igdb_ids
-                ).values_list('igdb_id', flat=True))
-
-        def process_single_game(game_data):
-            game_id = game_data.get('id')
-            if not game_id or game_id in existing_game_ids:
-                if debug and game_id in existing_game_ids:
-                    self.stdout.write(f'   ⏭️  Игра уже существует: {game_id}')
-                return None
-
-            # Создаем объект игры напрямую
-            game = Game(
-                igdb_id=game_id,
-                name=game_data.get('name', ''),
-                summary=game_data.get('summary', ''),
-                storyline=game_data.get('storyline', ''),
-                rating=game_data.get('rating'),
-                rating_count=game_data.get('rating_count', 0)
-            )
-
-            # Сохраняем game_type из данных игры
-            game_type = game_data.get('game_type')
-            if game_type is not None:
-                game.game_type = game_type
-
-            if game_data.get('first_release_date'):
-                naive_datetime = datetime.fromtimestamp(game_data['first_release_date'])
-                game.first_release_date = timezone.make_aware(naive_datetime)
-
-            return game
-
-        games_to_create = []
-        # Используем обычный цикл вместо ThreadPoolExecutor для простоты
-        for game_data in games_data_list:
-            try:
-                game = process_single_game(game_data)
-                if game:
-                    games_to_create.append(game)
-            except Exception as e:
-                if debug:
-                    self.stderr.write(f'   ❌ Ошибка создания игры: {e}')
-
-        if games_to_create:
-            try:
-                with self._db_lock:
-                    Game.objects.bulk_create(games_to_create, batch_size=50, ignore_conflicts=True)
-                if debug:
-                    self.stdout.write(f'   ✅ Создано игр: {len(games_to_create)}')
-            except Exception as e:
-                if debug:
-                    self.stderr.write(f'   ❌ Ошибка bulk_create игр: {e}')
-                # Fallback: создаем по одной
-                created_count = 0
-                for game in games_to_create:
-                    try:
-                        game.save()
-                        created_count += 1
-                    except:
-                        pass
-                return created_count, {}
-
-        return len(games_to_create), {game.igdb_id: game for game in games_to_create}
 
     def update_games_with_covers(self, game_basic_map, cover_map, game_data_map, debug=False):
         """Обновляет игры обложками"""

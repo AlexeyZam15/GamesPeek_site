@@ -10,6 +10,8 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         """Аргументы для команды load_games"""
+        parser.add_argument('--game-modes', type=str, default='',
+                            help='Загружать игры с указанными режимами (логика ИЛИ). Пример: "Battle Royale,Single player". Будет загружена САМАЯ ПОПУЛЯРНАЯ игра с ПЕРВЫМ указанным режимом')
         parser.add_argument('--game-names', type=str, default='',
                             help='Загружать самые популярные найденные игры по указанным именам (логика ИЛИ). Пример: "The Witcher,Cyberpunk"')
         parser.add_argument('--genres', type=str, default='',
@@ -21,7 +23,7 @@ class Command(BaseCommand):
         parser.add_argument('--debug', action='store_true',
                             help='Включить режим отладки')
         parser.add_argument('--limit', type=int, default=0,
-                            help='Общий лимит загружаемых игр (0 - без общего лимита). ДЛЯ --game-names ЛИМИТЫ ОТКЛЮЧЕНЫ')
+                            help='Общий лимит загружаемых игр (0 - без общего лимита)')
         parser.add_argument('--offset', type=int, default=0,
                             help='Пропустить указанное количество игр из результатов поиска')
         parser.add_argument('--min-rating-count', type=int, default=0,
@@ -35,7 +37,7 @@ class Command(BaseCommand):
         parser.add_argument('--game-types', type=str, default='0,1,2,4,5,8,9,10,11',
                             help='Типы игр для загрузки')
         parser.add_argument('--iteration-limit', type=int, default=100,
-                            help='Количество игр за одну итерацию. ДЛЯ --game-names ИТЕРАЦИИ ОТКЛЮЧЕНЫ')
+                            help='Количество игр за одну итерацию')
         parser.add_argument('--clear-cache', action='store_true',
                             help='Очистить кэш проверенных игр перед началом')
         parser.add_argument('--reset-offset', action='store_true',
@@ -43,21 +45,18 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         """Основной метод выполнения команды"""
-        # Если используется --game-names, отключаем итерации и лимиты
-        if options['game_names']:
-            self.stdout.write('🎮 РЕЖИМ ЗАГРУЗКИ ПО ИМЕНАМ ИГР')
-            self.stdout.write('📢 ЛИМИТЫ И ИТЕРАЦИИ ОТКЛЮЧЕНЫ')
-            self.stdout.write('🔍 Будет загружено ВСЕ найденное по указанным именам')
+        # Если используется --game-modes, показываем информацию
+        if options['game_modes']:
+            self.stdout.write(f'🎮 РЕЖИМ ЗАГРУЗКИ ПО РЕЖИМАМ ИГРЫ: {options["game_modes"]}')
 
+        # Если используется --game-names
+        elif options['game_names']:
+            self.stdout.write(f'🎮 РЕЖИМ ЗАГРУЗКИ ПО ИМЕНАМ ИГР: {options["game_names"]}')
             # Принудительно устанавливаем однократное выполнение без лимитов
-            options['repeat'] = -1  # Только одна итерация
-            options['limit'] = 0  # Без общего лимита
-            options['iteration_limit'] = 1000  # Большой лимит для одной итерации
+            options['repeat'] = -1
+            options['limit'] = 0
+            options['iteration_limit'] = 1000
 
         # Создаем экземпляр GameLoader и делегируем ему работу
         loader = GameLoader(self.stdout, self.stderr)
-        loader.execute_command(options)  # Не возвращаем результат
-
-        # УДАЛЕНО: лишний вывод
-        # if options['debug']:
-        #     self.stdout.write('✅ Команда выполнена')
+        loader.execute_command(options)

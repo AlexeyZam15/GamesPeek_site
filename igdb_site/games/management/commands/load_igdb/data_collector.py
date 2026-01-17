@@ -298,13 +298,32 @@ class DataCollector:
         MAX_WORKERS = 3
         MAX_EMPTY_BATCHES = 5
 
+        # Определяем, это ли специфический поиск (по режимам или именам)?
+        is_specific_search = 'game_modes = (' in where_clause or 'name ~ *"' in where_clause
+
+        # Для специфического поиска меняем параметры
+        if is_specific_search:
+            BATCH_SIZE = 20  # Меньшие пачки
+            BATCHES_PER_CYCLE = 1  # По одной пачке за цикл
+            MAX_EMPTY_BATCHES = 10  # Больше пустых пачек разрешено
+
         current_offset = offset
         batch_number = 1
         empty_batches_in_a_row = 0
         last_checked_offset = offset
         start_time = time.time()
 
+        # ДЛЯ СПЕЦИФИЧЕСКОГО ПОИСКА: Считаем сколько игр просмотрено
+        games_checked_for_new = 0
+        MAX_GAMES_TO_CHECK = 1000  # Максимум проверить 1000 игр перед остановкой
+
         while not interrupted.is_set():
+            # Для специфического поиска: проверяем лимит просмотренных игр
+            if is_specific_search and games_checked_for_new >= MAX_GAMES_TO_CHECK:
+                if debug:
+                    self.stdout.write(f'   ⚠️  Проверено {MAX_GAMES_TO_CHECK} игр, новых не найдено - останавливаемся')
+                break
+
             # Проверка условий завершения
             if self._check_loading_completion_conditions(
                     limit, len(new_games), empty_batches_in_a_row,
@@ -330,6 +349,14 @@ class DataCollector:
 
             empty_batches_in_a_row = cycle_result['empty_batches']
             last_checked_offset = cycle_result['last_offset']
+
+            # Для специфического поиска: обновляем счетчик проверенных игр
+            if is_specific_search:
+                games_in_this_cycle = sum(len(games) for _, _, games, _, _ in batch_results)
+                games_checked_for_new += games_in_this_cycle
+                if debug:
+                    self.stdout.write(
+                        f'   📊 Проверено игр в этом цикле: {games_in_this_cycle}, всего: {games_checked_for_new}')
 
             # Проверка достижения лимита
             if limit > 0 and len(new_games) >= limit:
