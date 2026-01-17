@@ -1766,7 +1766,6 @@ def get_similar_games_for_criteria(selected_criteria: Dict[str, List[int]]) -> T
         'pp': selected_criteria['perspectives'],
         'd': selected_criteria['developers'],
         'gm': selected_criteria['game_modes'],
-        # Убрано 'gt': selected_criteria['game_types'],
         'version': 'v11_no_game_types_in_similarity'
     }, sort_keys=True)
 
@@ -1786,7 +1785,6 @@ def get_similar_games_for_criteria(selected_criteria: Dict[str, List[int]]) -> T
         perspective_ids=selected_criteria['perspectives'],
         developer_ids=selected_criteria['developers'],
         game_mode_ids=selected_criteria['game_modes'],
-        # Убрано: game_type_ids=selected_criteria['game_types']
     )
 
     similarity_engine = GameSimilarity()
@@ -1808,8 +1806,16 @@ def get_similar_games_for_criteria(selected_criteria: Dict[str, List[int]]) -> T
         'timestamp': time.time()
     }, cache_time)
 
+    # ИСПРАВЛЕНИЕ: безопасно вычисляем количество критериев
+    criteria_count = 0
+    for key, value in selected_criteria.items():
+        # Исключаем годовые параметры из подсчета
+        if key not in ['release_years', 'release_year_start', 'release_year_end']:
+            if value is not None:
+                criteria_count += len(value)
+
     logging.info(f"Similar games search took: {time.time() - start_time:.2f}s, "
-                 f"criteria: {sum(len(v) for v in selected_criteria.values())}, "
+                 f"criteria: {criteria_count}, "
                  f"results: {total_count}")
 
     return similar_games, total_count
