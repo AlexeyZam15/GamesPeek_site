@@ -726,10 +726,64 @@ def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
                 game_mode_ids=selected_criteria['game_modes']
             )
 
-        # Calculate similarity
+        # КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: используем тот же метод расчета схожести как на карточках
         similarity_engine = GameSimilarity()
-        similarity_score = similarity_engine.calculate_similarity(source, game2)
-        breakdown = similarity_engine.get_similarity_breakdown(source, game2)
+
+        # Рассчитываем схожесть ТАК ЖЕ, как на странице поиска похожих игр
+        if is_criteria_comparison:
+            # Для критериев vs игры - используем метод find_similar_games
+            virtual_game = VirtualGame(
+                genre_ids=selected_criteria['genres'],
+                keyword_ids=selected_criteria['keywords'],
+                theme_ids=selected_criteria['themes'],
+                perspective_ids=selected_criteria['perspectives'],
+                developer_ids=selected_criteria['developers'],
+                game_mode_ids=selected_criteria['game_modes']
+            )
+
+            # Находим похожие игры (как на странице списка)
+            similar_games = similarity_engine.find_similar_games(
+                source_game=virtual_game,
+                min_similarity=0,  # Минимальный порог
+                limit=1000
+            )
+
+            # Ищем game2 в результатах
+            similarity_score = 0
+            for game_data in similar_games:
+                if isinstance(game_data, dict) and game_data.get('game') and game_data['game'].id == game2.id:
+                    similarity_score = game_data.get('similarity', 0)
+                    break
+                elif hasattr(game_data, 'id') and game_data.id == game2.id:
+                    similarity_score = getattr(game_data, 'similarity', 0)
+                    break
+
+            # Если не нашли в результатах, рассчитываем напрямую
+            if similarity_score == 0:
+                similarity_score = similarity_engine.calculate_similarity(virtual_game, game2)
+        else:
+            # Для game1 vs game2 - находим через поиск похожих игр для game1
+            similar_games = similarity_engine.find_similar_games(
+                source_game=game1,
+                min_similarity=0,
+                limit=1000
+            )
+
+            # Ищем game2 в результатах
+            similarity_score = 0
+            for game_data in similar_games:
+                if isinstance(game_data, dict) and game_data.get('game') and game_data['game'].id == game2.id:
+                    similarity_score = game_data.get('similarity', 0)
+                    break
+                elif hasattr(game_data, 'id') and game_data.id == game2.id:
+                    similarity_score = getattr(game_data, 'similarity', 0)
+                    break
+
+            # Если не нашли в результатах, рассчитываем напрямую
+            if similarity_score == 0:
+                similarity_score = similarity_engine.calculate_similarity(game1, game2)
+
+        breakdown = similarity_engine.get_similarity_breakdown(source if is_criteria_comparison else game1, game2)
 
         # Calculate shared items
         shared_items = {}
@@ -1497,7 +1551,7 @@ def get_source_game(source_game_id: Optional[str]) -> Optional[Game]:
 def _format_similar_games_data(similar_games_data: List, limit: int = 500) -> List[Dict[str, Any]]:
     """Format similar games data - OPTIMIZED for large datasets."""
     if not similar_games_data:
-        return []
+        return []  # Всегда возвращаем пустой список, а не None
 
     # Ограничиваем для начальной загрузки
     if len(similar_games_data) > limit:
@@ -1552,7 +1606,7 @@ def _format_similar_games_data(similar_games_data: List, limit: int = 500) -> Li
             'similarity': similarity,
         })
 
-    return formatted
+    return formatted  # Всегда возвращаем список (может быть пустым)
 
 
 def _sort_similar_games(games_with_similarity: List[Dict[str, Any]], current_sort: str) -> None:
