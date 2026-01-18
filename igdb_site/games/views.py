@@ -53,13 +53,11 @@ _EMPTY_RESULT = {
     'release_year_end': None,  # ДОБАВЛЕНО
 }
 
-
 ITEMS_PER_PAGE = {
     'similar': 20,
     'regular': 20,
     'platform': 20,
 }
-
 
 # Добавьте настройки логов
 logger = logging.getLogger('game_similarity')
@@ -73,6 +71,7 @@ console_handler.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
+
 
 # ===== HELPER CLASSES =====
 
@@ -97,8 +96,146 @@ class SimpleSourceGame:
 
 # В views.py, обновите функцию game_list:
 
+# В views.py, обновляем функцию should_find_similar:
+
+# В views.py, обновляем get_similar_games_for_criteria:
+
+def get_similar_games_for_criteria(selected_criteria: Dict[str, List[int]]) -> Tuple[List, int]:
+    """Get similar games for criteria - с поддержкой поиска без жанров."""
+    import json
+
+    # Быстрый хеш для кэша
+    cache_data = json.dumps({
+        'g': selected_criteria['genres'],
+        'k': selected_criteria['keywords'],
+        't': selected_criteria['themes'],
+        'pp': selected_criteria['perspectives'],
+        'd': selected_criteria['developers'],
+        'gm': selected_criteria['game_modes'],
+        'version': 'v15_similar_no_genres_final'  # Обновляем версию
+    }, sort_keys=True)
+
+    cache_key = f'virtual_search_full_{hashlib.md5(cache_data.encode()).hexdigest()}'
+    cached_data = cache.get(cache_key)
+
+    if cached_data:
+        logger.debug(f"Cache HIT for criteria search: {len(cached_data['games'])} games")
+        return cached_data['games'], cached_data['count']
+
+    start_time = time.time()
+
+    virtual_game = VirtualGame(
+        genre_ids=selected_criteria['genres'],
+        keyword_ids=selected_criteria['keywords'],
+        theme_ids=selected_criteria['themes'],
+        perspective_ids=selected_criteria['perspectives'],
+        developer_ids=selected_criteria['developers'],
+        game_mode_ids=selected_criteria['game_modes'],
+    )
+
+    similarity_engine = GameSimilarity()
+
+    # Адаптируем минимальную схожесть в зависимости от критериев
+    min_similarity = 10  # Базовый порог
+
+    # Логирование информации о критериях
+    has_genres = bool(selected_criteria['genres'])
+    has_keywords = bool(selected_criteria['keywords'])
+    has_themes = bool(selected_criteria['themes'])
+    has_perspectives = bool(selected_criteria['perspectives'])
+    has_game_modes = bool(selected_criteria['game_modes'])
+
+    logger.info(f"Поиск похожих игр по критериям: "
+                f"жанры={has_genres}({len(selected_criteria['genres'])}), "
+                f"ключевые слова={has_keywords}({len(selected_criteria['keywords'])}), "
+                f"темы={has_themes}({len(selected_criteria['themes'])}), "
+                f"перспективы={has_perspectives}({len(selected_criteria['perspectives'])}), "
+                f"режимы={has_game_modes}({len(selected_criteria['game_modes'])})")
+
+    # Если только режимы игры (без жанров)
+    if has_game_modes and not has_genres and not has_keywords and not has_themes and not has_perspectives:
+        min_similarity = 1  # Очень низкий порог для поиска по режимам
+        logger.info(f"Только режимы игры, порог схожести: {min_similarity}%")
+
+    # Если нет жанров, но есть другие критерии
+    elif not has_genres and any([has_keywords, has_themes, has_perspectives, has_game_modes]):
+        min_similarity = 3  # Низкий порог для поиска по другим критериям
+        logger.info(f"Поиск без жанров, порог схожести: {min_similarity}%")
+
+    # Если вообще нет критериев похожести
+    elif not any([has_genres, has_keywords, has_themes, has_perspectives, has_game_modes]):
+        min_similarity = 0  # Минимальный порог
+        logger.info(f"Нет критериев похожести, порог схожести: {min_similarity}%")
+
+    similar_games = similarity_engine.find_similar_games(
+        source_game=virtual_game,
+        min_similarity=min_similarity,
+        limit=1000
+    )
+
+    total_count = len(similar_games)
+
+    # Кэшируем
+    cache_time = 10800  # 3 часа для запросов без жанров
+    if has_genres:
+        cache_time = 7200  # 2 часа для запросов с жанрами
+
+    cache.set(cache_key, {
+        'games': similar_games,
+        'count': total_count,
+        'timestamp': time.time(),
+        'min_similarity': min_similarity
+    }, cache_time)
+
+    criteria_count = sum(len(v) for key, v in selected_criteria.items()
+                         if key not in ['release_years', 'release_year_start', 'release_year_end'])
+
+    logger.info(f"Similar games search took: {time.time() - start_time:.2f}s, "
+                f"criteria: {criteria_count}, "
+                f"results: {total_count}, "
+                f"genres_used: {has_genres}, "
+                f"min_similarity: {min_similarity}")
+
+    return similar_games, total_count
+
+def should_find_similar(params: Dict[str, str], selected_criteria: Dict[str, List[int]]) -> bool:
+    """Determine if similar games search should be performed."""
+    if params.get('find_similar') == '1':
+        return True
+
+    # Проверяем наличие исходной игры
+    if params.get('source_game'):
+        return True
+
+    # Проверяем критерии похожести
+    # Теперь жанры не обязательны - достаточно других критериев
+    similarity_criteria = [
+        selected_criteria['keywords'],
+        selected_criteria['themes'],
+        selected_criteria['perspectives'],
+        selected_criteria['game_modes'],
+        selected_criteria['genres']  # Жанры тоже считаются критерием похожести
+    ]
+
+    # Если есть хотя бы один критерий похожести
+    return any(similarity_criteria)
+
+
+def has_similarity_criteria(selected_criteria: Dict[str, List[int]]) -> bool:
+    """Check if there are criteria for similarity search."""
+    # Включаем все критерии похожести, включая жанры
+    similarity_criteria = [
+        selected_criteria['genres'],  # Теперь жанры тоже считаются
+        selected_criteria['keywords'],
+        selected_criteria['themes'],
+        selected_criteria['perspectives'],
+        selected_criteria['game_modes']
+    ]
+
+    return any(similarity_criteria)
+
 def game_list(request: HttpRequest) -> HttpResponse:
-    """Main game list function - с приоритетом на кэширование."""
+    """Main game list function - с приоритетом на кэширование и поддержкой поиска без жанров."""
     # 1. СУПЕР БЫСТРЫЙ КЭШ - проверяем даже без хеширования
     cache_key_simple = f'game_list_{request.GET.urlencode()}'
     cached_response = cache.get(cache_key_simple)
@@ -129,7 +266,7 @@ def game_list(request: HttpRequest) -> HttpResponse:
     selected_criteria_objects = _get_selected_criteria_objects(selected_criteria)
 
     # 5. Получаем диапазон годов выпуска
-    years_range = get_release_years_range()  # ДОБАВЬТЕ ЭТУ СТРОКУ
+    years_range = get_release_years_range()
 
     # 6. Определяем режим
     find_similar = params.get('find_similar') == '1'
@@ -141,7 +278,40 @@ def game_list(request: HttpRequest) -> HttpResponse:
             pass
 
     # 7. ВЫБОР РЕЖИМА с приоритетом на кэширование
-    if find_similar or source_game_obj or has_similarity_criteria(selected_criteria):
+    # Проверяем, нужен ли режим поиска похожих игр
+    should_use_similar_mode = False
+
+    # Если явно запрошен поиск похожих
+    if find_similar:
+        should_use_similar_mode = True
+        logger.debug("Режим похожих игр: явно запрошен (find_similar=1)")
+
+    # Если есть исходная игра
+    elif source_game_obj:
+        should_use_similar_mode = True
+        logger.debug(f"Режим похожих игр: есть исходная игра {source_game_obj.id}")
+
+    # Если есть критерии похожести (жанры ИЛИ другие критерии)
+    else:
+        # Проверяем наличие критериев похожести
+        has_genres = bool(selected_criteria['genres'])
+        has_other_criteria = any([
+            bool(selected_criteria['keywords']),
+            bool(selected_criteria['themes']),
+            bool(selected_criteria['perspectives']),
+            bool(selected_criteria['game_modes'])
+        ])
+
+        # Режим похожих игр включается если:
+        # 1. Есть жанры ИЛИ
+        # 2. Есть другие критерии похожести
+        should_use_similar_mode = has_genres or has_other_criteria
+
+        logger.debug(
+            f"Режим похожих игр проверка: жанры={has_genres}, другие критерии={has_other_criteria}, результат={should_use_similar_mode}")
+
+    # Выбираем режим
+    if should_use_similar_mode:
         mode_result = _get_similar_games_mode(params, selected_criteria, source_game_obj)
         mode = 'similar'
     else:
@@ -176,7 +346,7 @@ def game_list(request: HttpRequest) -> HttpResponse:
         'popular_keywords': filter_data['popular_keywords'],
         'game_types': GameTypeEnum.CHOICES,
 
-        # Диапазон годов - ДОБАВЛЕНО
+        # Диапазон годов
         'years_range': years_range,
         'current_year': timezone.now().year,
 
@@ -202,6 +372,23 @@ def game_list(request: HttpRequest) -> HttpResponse:
 
         'current_sort': params.get('sort', ''),
         'execution_time': round(time.time() - start_time, 3),
+
+        # Дополнительная информация для отладки
+        'debug_info': {
+            'mode': mode,
+            'has_genres': bool(selected_criteria['genres']),
+            'genre_count': len(selected_criteria['genres']),
+            'has_keywords': bool(selected_criteria['keywords']),
+            'keyword_count': len(selected_criteria['keywords']),
+            'has_themes': bool(selected_criteria['themes']),
+            'theme_count': len(selected_criteria['themes']),
+            'has_perspectives': bool(selected_criteria['perspectives']),
+            'perspective_count': len(selected_criteria['perspectives']),
+            'has_game_modes': bool(selected_criteria['game_modes']),
+            'game_mode_count': len(selected_criteria['game_modes']),
+            'find_similar_param': find_similar,
+            'has_source_game': bool(source_game_obj),
+        }
     }
 
     # Добавляем активный бейдж фильтра даты если выбраны годы
@@ -220,6 +407,11 @@ def game_list(request: HttpRequest) -> HttpResponse:
         cache_time = 600  # 10 минут
         response['X-Cache-Reason'] = 'Slow-Query'
 
+    # Увеличиваем время кэширования для похожих игр без жанров
+    if mode == 'similar' and not selected_criteria['genres']:
+        cache_time = 1800  # 30 минут для поиска без жанров
+        response['X-Cache-Reason'] = 'Similar-No-Genres'
+
     cache.set(cache_key_simple, response, cache_time)
 
     if total_params > 1000:
@@ -228,8 +420,86 @@ def game_list(request: HttpRequest) -> HttpResponse:
     response['X-Cache-Hit'] = 'False'
     response['X-Response-Time'] = f"{context['execution_time']:.3f}s"
     response['X-Mode'] = mode
+    response['X-Similarity-Criteria'] = str(should_use_similar_mode)
+
+    # Дополнительная информация для отладки
+    if logger.isEnabledFor(logging.DEBUG):
+        response['X-Debug'] = json.dumps({
+            'mode': mode,
+            'genres': len(selected_criteria['genres']),
+            'keywords': len(selected_criteria['keywords']),
+            'themes': len(selected_criteria['themes']),
+            'perspectives': len(selected_criteria['perspectives']),
+            'game_modes': len(selected_criteria['game_modes']),
+            'use_similar_mode': should_use_similar_mode,
+            'find_similar_param': find_similar,
+            'has_source_game': bool(source_game_obj)
+        })
 
     return response
+
+
+def _get_similar_games_mode(params: Dict[str, str], selected_criteria: Dict[str, List[int]],
+                            source_game_obj: Optional[Game]) -> Dict[str, Any]:
+    """Режим похожих игр с поддержкой поиска без жанров."""
+    current_sort = params.get('sort', '-similarity')
+    page_number = params.get('page', '1')
+
+    logger.info(f"Режим похожих игр запущен. Критерии: "
+                f"жанры={len(selected_criteria['genres'])}, "
+                f"ключевые слова={len(selected_criteria['keywords'])}, "
+                f"темы={len(selected_criteria['themes'])}, "
+                f"перспективы={len(selected_criteria['perspectives'])}, "
+                f"режимы игры={len(selected_criteria['game_modes'])}")
+
+    # Получаем похожие игры
+    if source_game_obj:
+        logger.info(f"Поиск похожих игр для игры: {source_game_obj.name} (ID: {source_game_obj.id})")
+        similar_games_data, total_count = get_similar_games_for_game(
+            source_game_obj, selected_criteria['platforms']
+        )
+        source_display = source_game_obj.name
+    else:
+        logger.info("Поиск похожих игр по критериям")
+        similar_games_data, total_count = get_similar_games_for_criteria(selected_criteria)
+        source_display = "Search Criteria"
+
+    logger.info(f"Найдено {len(similar_games_data)} игр до форматирования")
+
+    # Форматируем
+    games_with_similarity = _format_similar_games_data(similar_games_data)
+    logger.info(f"После форматирования: {len(games_with_similarity)} игр")
+
+    # Сортируем
+    _sort_similar_games(games_with_similarity, current_sort)
+
+    # Пагинация
+    page_obj, paginator, is_paginated = _paginate_results(
+        games_with_similarity, page_number, 16
+    )
+
+    # Создаем source game объект
+    source_game = SimpleSourceGame(
+        source_game_obj,
+        selected_criteria,
+        source_game_obj.name if source_game_obj else "Search Criteria"
+    )
+
+    logger.info(f"Режим похожих игр завершен. Результатов: {total_count}, показано: {len(page_obj.object_list)}")
+
+    return {
+        'games_with_similarity': page_obj.object_list,
+        'page_obj': page_obj,
+        'paginator': paginator,
+        'is_paginated': is_paginated,
+        'total_count': total_count,
+        'show_similarity': True,
+        'find_similar': True,
+        'source_game': source_game,
+        'source_game_obj': source_game_obj,
+    }
+
+
 
 @lru_cache(maxsize=1)
 def get_release_years_range():
@@ -270,6 +540,7 @@ def get_release_years_range():
         logger.error(f"Error getting release years range: {e}")
         current_year = timezone.now().year
         return {'min_year': 1970, 'max_year': current_year}
+
 
 # Обновите extract_request_params:
 def extract_request_params(request: HttpRequest) -> Dict[str, str]:
@@ -527,6 +798,7 @@ def _build_context(mode: str, **kwargs) -> Dict[str, Any]:
 
     return context
 
+
 def get_objects_by_ids(model_class, ids: List[int], only_fields: List[str] = None) -> List:
     """Get model objects by their IDs efficiently."""
     if not ids:
@@ -631,7 +903,6 @@ def _get_cached_similar_games(params: Dict[str, str], selected_criteria: Dict[st
     return cache.get(cache_key)
 
 
-
 def _filter_by_platforms(games_data: List, platform_ids: List[int]) -> List:
     """Filter games by platforms with optimization."""
     if not platform_ids or not games_data:
@@ -701,25 +972,6 @@ def _prefetch_similar_games(similar_games: List) -> List:
 
 
 # ===== VIEW HANDLERS =====
-
-def should_find_similar(params: Dict[str, str], selected_criteria: Dict[str, List[int]]) -> bool:
-    """Determine if similar games search should be performed."""
-    if params.get('find_similar') == '1':
-        return True
-
-    # Проверяем только критерии похожести, ИСКЛЮЧАЯ платформы, разработчиков и типы игр
-    similarity_criteria = [
-        selected_criteria['genres'],
-        selected_criteria['keywords'],
-        selected_criteria['themes'],
-        selected_criteria['perspectives'],
-        selected_criteria['game_modes']
-        # Убрано: selected_criteria['game_types']
-    ]
-
-    # Если есть хотя бы один критерий похожести
-    return any(similarity_criteria)
-
 
 
 def get_source_game(source_game_id: Optional[str]) -> Optional[Game]:
@@ -850,7 +1102,6 @@ def _create_filter_cache_key(selected_criteria: Dict[str, List[int]], sort_field
     return f'filtered_games_{"_".join(parts)}' if parts else 'filtered_games_all'
 
 
-
 def _get_filtered_games(selected_criteria: Dict[str, List[int]], sort_field: str) -> Tuple[List, int]:
     """Get filtered games with caching."""
     cache_key = _create_filter_cache_key(selected_criteria, sort_field)
@@ -916,7 +1167,6 @@ def _get_filtered_games(selected_criteria: Dict[str, List[int]], sort_field: str
         games = list(games[:200])
 
     return games, total_count
-
 
 
 def handle_similar_games_mode(
@@ -1170,7 +1420,6 @@ def _get_cached_filter_data() -> Dict[str, List]:
     return filter_data
 
 
-
 def _get_optimized_filtered_games(selected_criteria: Dict[str, List[int]], sort_field: str) -> Tuple[List, int]:
     """Get filtered games with maximum optimization."""
     # Кэшируем ID игр
@@ -1246,7 +1495,6 @@ def _get_optimized_filtered_games(selected_criteria: Dict[str, List[int]], sort_
     }, 1800)  # 30 минут
 
     return list(games[:200]), total_count
-
 
 
 def game_detail(request: HttpRequest, pk: int) -> HttpResponse:
@@ -1754,73 +2002,6 @@ def _fetch_filter_data_from_db() -> Dict[str, List]:
 
 # ===== SIMILARITY FUNCTIONS =====
 
-def get_similar_games_for_criteria(selected_criteria: Dict[str, List[int]]) -> Tuple[List, int]:
-    """Get similar games for criteria - OPTIMIZED for 1000+ results."""
-    import json
-
-    # Быстрый хеш для кэша
-    cache_data = json.dumps({
-        'g': selected_criteria['genres'],
-        'k': selected_criteria['keywords'],
-        't': selected_criteria['themes'],
-        'pp': selected_criteria['perspectives'],
-        'd': selected_criteria['developers'],
-        'gm': selected_criteria['game_modes'],
-        'version': 'v11_no_game_types_in_similarity'
-    }, sort_keys=True)
-
-    cache_key = f'virtual_search_full_{hashlib.md5(cache_data.encode()).hexdigest()}'
-    cached_data = cache.get(cache_key)
-
-    if cached_data:
-        logging.debug(f"Cache HIT for criteria search: {len(cached_data['games'])} games")
-        return cached_data['games'], cached_data['count']
-
-    start_time = time.time()
-
-    virtual_game = VirtualGame(
-        genre_ids=selected_criteria['genres'],
-        keyword_ids=selected_criteria['keywords'],
-        theme_ids=selected_criteria['themes'],
-        perspective_ids=selected_criteria['perspectives'],
-        developer_ids=selected_criteria['developers'],
-        game_mode_ids=selected_criteria['game_modes'],
-    )
-
-    similarity_engine = GameSimilarity()
-
-    # УВЕЛИЧИВАЕМ до 1000 игр
-    similar_games = similarity_engine.find_similar_games(
-        source_game=virtual_game,
-        min_similarity=10,  # Понижаем для большего количества результатов
-        limit=1000  # УВЕЛИЧИЛИ ДО 1000
-    )
-
-    total_count = len(similar_games)
-
-    # Кэшируем дольше для частых запросов
-    cache_time = 7200  # 2 часа
-    cache.set(cache_key, {
-        'games': similar_games,
-        'count': total_count,
-        'timestamp': time.time()
-    }, cache_time)
-
-    # ИСПРАВЛЕНИЕ: безопасно вычисляем количество критериев
-    criteria_count = 0
-    for key, value in selected_criteria.items():
-        # Исключаем годовые параметры из подсчета
-        if key not in ['release_years', 'release_year_start', 'release_year_end']:
-            if value is not None:
-                criteria_count += len(value)
-
-    logging.info(f"Similar games search took: {time.time() - start_time:.2f}s, "
-                 f"criteria: {criteria_count}, "
-                 f"results: {total_count}")
-
-    return similar_games, total_count
-
-
 
 def _get_selected_criteria_objects(selected_criteria: Dict[str, List[int]]) -> Dict[str, List]:
     """Получаем объекты для всех выбранных критериев."""
@@ -1873,63 +2054,3 @@ def _get_selected_criteria_objects(selected_criteria: Dict[str, List[int]]) -> D
                 selected_objects['game_types'].append((game_type_id, f"Type {game_type_id}"))
 
     return selected_objects
-
-
-
-def has_similarity_criteria(selected_criteria: Dict[str, List[int]]) -> bool:
-    """Check if there are criteria for similarity search."""
-    # Исключаем платформы, разработчиков и типы игр из критериев похожести
-    similarity_criteria = [
-        selected_criteria['genres'],
-        selected_criteria['keywords'],
-        selected_criteria['themes'],
-        selected_criteria['perspectives'],
-        selected_criteria['game_modes']
-        # Убрано: selected_criteria['game_types']
-    ]
-
-    return any(similarity_criteria)
-
-
-def _get_similar_games_mode(params: Dict[str, str], selected_criteria: Dict[str, List[int]],
-                            source_game_obj: Optional[Game]) -> Dict[str, Any]:
-    """Режим похожих игр."""
-    current_sort = params.get('sort', '-similarity')
-    page_number = params.get('page', '1')
-
-    # Получаем похожие игры
-    if source_game_obj:
-        similar_games_data, total_count = get_similar_games_for_game(
-            source_game_obj, selected_criteria['platforms']
-        )
-    else:
-        similar_games_data, total_count = get_similar_games_for_criteria(selected_criteria)
-
-    # Форматируем
-    games_with_similarity = _format_similar_games_data(similar_games_data)
-    _sort_similar_games(games_with_similarity, current_sort)
-
-    # Пагинация
-    page_obj, paginator, is_paginated = _paginate_results(
-        games_with_similarity, page_number, 16
-    )
-
-    # Создаем source game объект
-    source_game = SimpleSourceGame(
-        source_game_obj,
-        selected_criteria,
-        source_game_obj.name if source_game_obj else "Search Criteria"
-    )
-
-    return {
-        'games_with_similarity': page_obj.object_list,
-        'page_obj': page_obj,
-        'paginator': paginator,
-        'is_paginated': is_paginated,
-        'total_count': total_count,
-        'show_similarity': True,
-        'find_similar': True,
-        'source_game': source_game,
-        'source_game_obj': source_game_obj,
-    }
-
