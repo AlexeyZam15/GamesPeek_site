@@ -123,7 +123,7 @@
 
                 <!-- Кнопка Compare (только в режиме show_similarity) -->
                 {% if show_similarity and source_game %}
-                    <a href="{% get_card_comparison_url source_game game selected_genres selected_keywords selected_themes selected_perspectives selected_developers selected_game_modes %}"
+                    <a href="{% get_card_comparison_url source_game=source_game target_game=game selected_genres=selected_genres selected_keywords=selected_keywords selected_themes=selected_themes selected_perspectives=selected_perspectives selected_developers=selected_developers selected_game_modes=selected_game_modes %}"
                        class="btn btn-sm btn-outline-warning">
                         <i class="bi bi-arrow-left-right"></i> Compare
                     </a>

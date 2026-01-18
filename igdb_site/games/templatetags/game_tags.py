@@ -122,38 +122,85 @@ def get_card_comparison_url(source_game, target_game, selected_genres=None, sele
                             selected_game_modes=None):
     """
     Упрощенная версия: генерирует URL для сравнения из карточки игры.
+    Полностью поддерживает SimpleSourceGame.
     """
     params = {}
 
-    # Проверяем тип source_game
-    if isinstance(source_game, dict):
-        # Если source_game - это словарь с критериями
-        if 'id' in source_game:
-            params['source_game'] = source_game['id']
+    # Определяем ID исходной игры
+    source_game_id = None
+
+    if source_game is None:
+        # Если source_game не передан, используем критерии фильтрации
+        pass
+    elif hasattr(source_game, 'is_game'):
+        # Это SimpleSourceGame объект
+        if source_game.is_game and hasattr(source_game, 'id'):
+            source_game_id = source_game.id
     elif hasattr(source_game, 'id') and source_game.id is not None:
-        # Если source_game - это объект Game
-        params['source_game'] = source_game.id
-    elif source_game is not None:
-        # Если source_game существует, но не Game объект
+        # Это обычный Game объект
+        source_game_id = source_game.id
+    elif isinstance(source_game, dict) and 'id' in source_game:
+        # Это словарь с ID
+        source_game_id = source_game['id']
+    else:
+        # Пробуем получить ID другим способом
         try:
-            params['source_game'] = str(source_game)
-        except:
+            source_game_id = int(str(source_game))
+        except (ValueError, TypeError):
             pass
+
+    # Если есть ID исходной игры, добавляем в параметры
+    if source_game_id:
+        params['source_game'] = source_game_id
 
     # Если нет source_game, используем текущие критерии фильтрации
     if not params.get('source_game'):
-        if selected_genres:
-            params['g'] = ','.join(str(g) for g in selected_genres)
-        if selected_keywords:
-            params['k'] = ','.join(str(k) for k in selected_keywords)
-        if selected_themes:
-            params['t'] = ','.join(str(t) for t in selected_themes)
-        if selected_perspectives:
-            params['pp'] = ','.join(str(pp) for pp in selected_perspectives)
-        if selected_developers:
-            params['d'] = ','.join(str(d) for d in selected_developers)
-        if selected_game_modes:
-            params['gm'] = ','.join(str(gm) for gm in selected_game_modes)
+        # Если у нас есть SimpleSourceGame с критериями
+        if hasattr(source_game, 'is_game') and not source_game.is_game:
+            # Виртуальная игра - используем ее критерии
+            if hasattr(source_game, 'genres_list'):
+                genres = source_game.genres_list()
+                if genres:
+                    params['g'] = ','.join(str(g) for g in genres)
+
+            if hasattr(source_game, 'keywords_list'):
+                keywords = source_game.keywords_list()
+                if keywords:
+                    params['k'] = ','.join(str(k) for k in keywords)
+
+            if hasattr(source_game, 'themes_list'):
+                themes = source_game.themes_list()
+                if themes:
+                    params['t'] = ','.join(str(t) for t in themes)
+
+            if hasattr(source_game, 'perspectives_list'):
+                perspectives = source_game.perspectives_list()
+                if perspectives:
+                    params['pp'] = ','.join(str(pp) for pp in perspectives)
+
+            if hasattr(source_game, 'developers_list'):
+                developers = source_game.developers_list()
+                if developers:
+                    params['d'] = ','.join(str(d) for d in developers)
+
+            if hasattr(source_game, 'game_modes_list'):
+                game_modes = source_game.game_modes_list()
+                if game_modes:
+                    params['gm'] = ','.join(str(gm) for gm in game_modes)
+        else:
+            # Используем переданные критерии
+            if selected_genres:
+                params['g'] = ','.join(str(g) for g in selected_genres)
+            if selected_keywords:
+                params['k'] = ','.join(str(k) for k in selected_keywords)
+            if selected_themes:
+                params['t'] = ','.join(str(t) for t in selected_themes)
+            if selected_perspectives:
+                params['pp'] = ','.join(str(pp) for pp in selected_perspectives)
+            if selected_developers:
+                params['d'] = ','.join(str(d) for d in selected_developers)
+            if selected_game_modes:
+                params['gm'] = ','.join(str(gm) for gm in selected_game_modes)
 
     base_url = reverse('game_comparison', args=[target_game.id])
     return f"{base_url}?{urlencode(params)}"
