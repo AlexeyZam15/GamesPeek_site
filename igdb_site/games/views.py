@@ -497,7 +497,7 @@ def game_list(request: HttpRequest) -> HttpResponse:
 
     selected_criteria = convert_params_to_lists(params)
 
-    # 4. Получаем объекты для всех выбранных критериев - ОБНОВЛЕНО
+    # 4. Получаем объекты для всех выбранных критериев
     selected_criteria_objects = _get_selected_criteria_objects(selected_criteria)
 
     # 5. Получаем диапазон годов выпуска
@@ -544,6 +544,17 @@ def game_list(request: HttpRequest) -> HttpResponse:
     if should_use_similar_mode:
         mode_result = _get_similar_games_mode(params, selected_criteria, source_game_obj)
         mode = 'similar'
+
+        # ДОБАВЛЯЕМ: Создаем словарь со схожестями для всех игр на странице
+        similarity_map = {}
+        if mode_result.get('games_with_similarity'):
+            for game_data in mode_result['games_with_similarity']:
+                game = game_data.get('game')
+                similarity = game_data.get('similarity', 0)
+                if game and hasattr(game, 'id'):
+                    similarity_map[game.id] = similarity
+        mode_result['similarity_map'] = similarity_map
+
     else:
         mode_result = _get_all_games_mode(
             selected_criteria,
@@ -551,12 +562,13 @@ def game_list(request: HttpRequest) -> HttpResponse:
             params.get('page', '1')
         )
         mode = 'regular'
+        mode_result['similarity_map'] = {}  # Пустой словарь для обычного режима
 
     # 8. БЫСТРАЯ загрузка фильтров из кэша
     filter_data = _get_cached_filter_data()
     genres_list = cache.get('genres_list_v3') or list(Genre.objects.only('id', 'name').order_by('name'))
 
-    # 9. Минимальный контекст для скорости - ОБНОВЛЕНО: добавлены все необходимые поля
+    # 9. Минимальный контекст для скорости
     context = {
         'games': mode_result.get('games', []),
         'games_with_similarity': mode_result.get('games_with_similarity', []),
@@ -568,6 +580,9 @@ def game_list(request: HttpRequest) -> HttpResponse:
         'show_similarity': mode_result.get('show_similarity', False),
         'source_game': mode_result.get('source_game'),
         'source_game_obj': mode_result.get('source_game_obj'),
+
+        # ДОБАВЛЯЕМ: словарь схожестей в контекст
+        'similarity_map': mode_result.get('similarity_map', {}),
 
         'genres': genres_list,
         'platforms': filter_data['platforms'],
@@ -581,7 +596,7 @@ def game_list(request: HttpRequest) -> HttpResponse:
         'years_range': years_range,
         'current_year': timezone.now().year,
 
-        # Selected criteria IDs - ОБЯЗАТЕЛЬНО для работы тега get_card_comparison_url
+        # Selected criteria IDs
         'selected_genres': selected_criteria['genres'],
         'selected_keywords': selected_criteria['keywords'],
         'selected_platforms': selected_criteria['platforms'],
@@ -695,6 +710,16 @@ def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
         # Convert parameters
         selected_criteria = convert_params_to_lists(request.GET)
 
+        # Получаем сохраненный процент схожести из параметров (если есть)
+        saved_similarity = request.GET.get('similarity')
+        if saved_similarity:
+            try:
+                similarity_score = float(saved_similarity)
+            except (ValueError, TypeError):
+                similarity_score = 0
+        else:
+            similarity_score = 0
+
         # Получаем объекты для отображения критериев на карточке
         criteria_genres_objs = Genre.objects.filter(id__in=selected_criteria['genres']).only('id', 'name') if \
             selected_criteria['genres'] else []
@@ -726,64 +751,66 @@ def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
                 game_mode_ids=selected_criteria['game_modes']
             )
 
-        # КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: используем тот же метод расчета схожести как на карточках
-        similarity_engine = GameSimilarity()
+        # Если процент схожести не был сохранен в параметрах, рассчитываем его
+        if similarity_score == 0:
+            similarity_engine = GameSimilarity()
 
-        # Рассчитываем схожесть ТАК ЖЕ, как на странице поиска похожих игр
-        if is_criteria_comparison:
-            # Для критериев vs игры - используем метод find_similar_games
-            virtual_game = VirtualGame(
-                genre_ids=selected_criteria['genres'],
-                keyword_ids=selected_criteria['keywords'],
-                theme_ids=selected_criteria['themes'],
-                perspective_ids=selected_criteria['perspectives'],
-                developer_ids=selected_criteria['developers'],
-                game_mode_ids=selected_criteria['game_modes']
-            )
+            if is_criteria_comparison:
+                # Для критериев vs игры - используем метод find_similar_games
+                virtual_game = VirtualGame(
+                    genre_ids=selected_criteria['genres'],
+                    keyword_ids=selected_criteria['keywords'],
+                    theme_ids=selected_criteria['themes'],
+                    perspective_ids=selected_criteria['perspectives'],
+                    developer_ids=selected_criteria['developers'],
+                    game_mode_ids=selected_criteria['game_modes']
+                )
 
-            # Находим похожие игры (как на странице списка)
-            similar_games = similarity_engine.find_similar_games(
-                source_game=virtual_game,
-                min_similarity=0,  # Минимальный порог
-                limit=1000
-            )
+                # Находим похожие игры (как на странице списка)
+                similar_games = similarity_engine.find_similar_games(
+                    source_game=virtual_game,
+                    min_similarity=0,  # Минимальный порог
+                    limit=1000
+                )
 
-            # Ищем game2 в результатах
-            similarity_score = 0
-            for game_data in similar_games:
-                if isinstance(game_data, dict) and game_data.get('game') and game_data['game'].id == game2.id:
-                    similarity_score = game_data.get('similarity', 0)
-                    break
-                elif hasattr(game_data, 'id') and game_data.id == game2.id:
-                    similarity_score = getattr(game_data, 'similarity', 0)
-                    break
+                # Ищем game2 в результатах
+                for game_data in similar_games:
+                    if isinstance(game_data, dict) and game_data.get('game') and game_data['game'].id == game2.id:
+                        similarity_score = game_data.get('similarity', 0)
+                        break
+                    elif hasattr(game_data, 'id') and game_data.id == game2.id:
+                        similarity_score = getattr(game_data, 'similarity', 0)
+                        break
 
-            # Если не нашли в результатах, рассчитываем напрямую
-            if similarity_score == 0:
-                similarity_score = similarity_engine.calculate_similarity(virtual_game, game2)
-        else:
-            # Для game1 vs game2 - находим через поиск похожих игр для game1
-            similar_games = similarity_engine.find_similar_games(
-                source_game=game1,
-                min_similarity=0,
-                limit=1000
-            )
+                # Если не нашли в результатах, рассчитываем напрямую
+                if similarity_score == 0:
+                    similarity_score = similarity_engine.calculate_similarity(virtual_game, game2)
+            else:
+                # Для game1 vs game2 - находим через поиск похожих игр для game1
+                similar_games = similarity_engine.find_similar_games(
+                    source_game=game1,
+                    min_similarity=0,
+                    limit=1000
+                )
 
-            # Ищем game2 в результатах
-            similarity_score = 0
-            for game_data in similar_games:
-                if isinstance(game_data, dict) and game_data.get('game') and game_data['game'].id == game2.id:
-                    similarity_score = game_data.get('similarity', 0)
-                    break
-                elif hasattr(game_data, 'id') and game_data.id == game2.id:
-                    similarity_score = getattr(game_data, 'similarity', 0)
-                    break
+                # Ищем game2 в результатах
+                for game_data in similar_games:
+                    if isinstance(game_data, dict) and game_data.get('game') and game_data['game'].id == game2.id:
+                        similarity_score = game_data.get('similarity', 0)
+                        break
+                    elif hasattr(game_data, 'id') and game_data.id == game2.id:
+                        similarity_score = getattr(game_data, 'similarity', 0)
+                        break
 
-            # Если не нашли в результатах, рассчитываем напрямую
-            if similarity_score == 0:
-                similarity_score = similarity_engine.calculate_similarity(game1, game2)
+                # Если не нашли в результатах, рассчитываем напрямую
+                if similarity_score == 0:
+                    similarity_score = similarity_engine.calculate_similarity(game1, game2)
 
-        breakdown = similarity_engine.get_similarity_breakdown(source if is_criteria_comparison else game1, game2)
+        # Получаем breakdown только если нужно его показывать
+        breakdown = None
+        if similarity_score > 0:  # Получаем breakdown только если есть схожесть
+            similarity_engine = GameSimilarity()
+            breakdown = similarity_engine.get_similarity_breakdown(source if is_criteria_comparison else game1, game2)
 
         # Calculate shared items
         shared_items = {}
@@ -826,7 +853,7 @@ def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
 
                 shared_items[field] = list(field1 & field2)
 
-        # Подготовка контекста - ОБНОВЛЕНО
+        # Подготовка контекста
         context = {
             'game1': game1,
             'game2': game2,

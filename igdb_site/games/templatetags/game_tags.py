@@ -84,6 +84,12 @@ def get_find_similar_url(game):
 
 
 @register.simple_tag
+def get_similarity_percent(game_id, similarity_map):
+    """Получить процент схожести для игры из готового словаря."""
+    return similarity_map.get(game_id, 0)
+
+
+@register.simple_tag
 def get_comparison_url(source_game, target_game):
     """Генерирует URL для сравнения двух конкретных игр."""
     params = {
@@ -117,12 +123,12 @@ def get_comparison_url(source_game, target_game):
 
 
 @register.simple_tag
-def get_card_comparison_url(source_game, target_game, selected_genres=None, selected_keywords=None,
-                            selected_themes=None, selected_perspectives=None, selected_developers=None,
-                            selected_game_modes=None):
+def get_card_comparison_url(source_game, target_game, similarity_percent=0, selected_genres=None,
+                            selected_keywords=None, selected_themes=None, selected_perspectives=None,
+                            selected_developers=None, selected_game_modes=None):
     """
     Упрощенная версия: генерирует URL для сравнения из карточки игры.
-    Полностью поддерживает SimpleSourceGame.
+    Полностью поддерживает SimpleSourceGame и передает сохраненный процент схожести.
     """
     params = {}
 
@@ -152,6 +158,10 @@ def get_card_comparison_url(source_game, target_game, selected_genres=None, sele
     # Если есть ID исходной игры, добавляем в параметры
     if source_game_id:
         params['source_game'] = source_game_id
+
+    # Добавляем сохраненный процент схожести в параметры URL
+    if similarity_percent:
+        params['similarity'] = str(round(float(similarity_percent), 1))
 
     # Если нет source_game, используем текущие критерии фильтрации
     if not params.get('source_game'):
@@ -201,6 +211,9 @@ def get_card_comparison_url(source_game, target_game, selected_genres=None, sele
                 params['d'] = ','.join(str(d) for d in selected_developers)
             if selected_game_modes:
                 params['gm'] = ','.join(str(gm) for gm in selected_game_modes)
+
+    # Добавляем флаг поиска похожих игр
+    params['find_similar'] = '1'
 
     base_url = reverse('game_comparison', args=[target_game.id])
     return f"{base_url}?{urlencode(params)}"

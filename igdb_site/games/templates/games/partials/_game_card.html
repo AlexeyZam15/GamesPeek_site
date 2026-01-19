@@ -39,10 +39,13 @@
             {% endif %}
 
             <!-- Процент похожести (только в режиме show_similarity) -->
-            {% if show_similarity and similarity_percent %}
-                <div class="position-absolute top-0 end-0 p-1">
-                    {% similarity_pattern_svg similarity_percent 60 %}
-                </div>
+            {% if show_similarity %}
+                {% get_similarity_percent game.id similarity_map as similarity_percent %}
+                {% if similarity_percent %}
+                    <div class="position-absolute top-0 end-0 p-1">
+                        {% similarity_pattern_svg similarity_percent 60 %}
+                    </div>
+                {% endif %}
             {% endif %}
 
             <!-- Платформы - используем prefetched данные -->
@@ -123,7 +126,8 @@
 
                 <!-- Кнопка Compare (только в режиме show_similarity) -->
                 {% if show_similarity and source_game %}
-                    <a href="{% get_card_comparison_url source_game=source_game target_game=game selected_genres=selected_genres selected_keywords=selected_keywords selected_themes=selected_themes selected_perspectives=selected_perspectives selected_developers=selected_developers selected_game_modes=selected_game_modes %}"
+                    {% get_similarity_percent game.id similarity_map as similarity_percent %}
+                    <a href="{% get_card_comparison_url source_game=source_game target_game=game similarity_percent=similarity_percent selected_genres=selected_genres selected_keywords=selected_keywords selected_themes=selected_themes selected_perspectives=selected_perspectives selected_developers=selected_developers selected_game_modes=selected_game_modes %}"
                        class="btn btn-sm btn-outline-warning">
                         <i class="bi bi-arrow-left-right"></i> Compare
                     </a>
