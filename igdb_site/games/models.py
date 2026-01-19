@@ -1605,6 +1605,7 @@ class GameSimilarityDetail(models.Model):
             models.Index(fields=['source_game', 'calculated_similarity']),
             models.Index(fields=['calculated_similarity']),
             models.Index(fields=['updated_at']),
+            models.Index(fields=['source_game', 'common_genres', 'calculated_similarity']),
         ]
         verbose_name = "Game similarity detail"
         verbose_name_plural = "Game similarity details"
