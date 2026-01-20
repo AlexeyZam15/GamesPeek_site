@@ -3,26 +3,30 @@
 const FilterSearch = {
     // Настройка поиска по фильтрам
     setupSearchFilters() {
-            console.log('Setting up search filters...');
+        console.log('Setting up search filters...');
 
-            // Поиск в Search Filters (не влияют на find_similar)
-            this.setupSearchInput('platform-search', '.platform-item', 'data-platform-name');
-            this.setupSearchInput('game-type-search', '.game-type-item', 'data-game-type-name');
+        // Поиск в Search Filters (не влияют на find_similar)
+        this.setupSearchInput('platform-search', '.platform-item', 'data-platform-name');
+        this.setupSearchInput('game-type-search', '.game-type-item', 'data-game-type-name');
 
-            // Поиск в Similarity Filters (влияют на find_similar)
-            this.setupSearchInput('genre-search', '.genre-item', 'data-genre-name');
-            this.setupSearchInput('keyword-search', '.keyword-item', 'data-keyword-name');
-            this.setupSearchInput('theme-search', '.theme-item', 'data-theme-name');
-            this.setupSearchInput('perspective-search', '.perspective-item', 'data-perspective-name');
-            this.setupSearchInput('game-mode-search', '.game-mode-item', 'data-game-mode-name');
-        },
+        // Поиск в Similarity Filters (влияют на find_similar)
+        this.setupSearchInput('genre-search', '.genre-item', 'data-genre-name');
+        this.setupSearchInput('keyword-search', '.keyword-item', 'data-keyword-name');
+        this.setupSearchInput('theme-search', '.theme-item', 'data-theme-name');
+        this.setupSearchInput('perspective-search', '.perspective-item', 'data-perspective-name');
+        this.setupSearchInput('game-mode-search', '.game-mode-item', 'data-game-mode-name');
+    },
 
     // Настройка одного поля поиска
     setupSearchInput(inputId, itemSelector, dataAttribute) {
         const searchInput = document.getElementById(inputId);
         if (!searchInput) return;
 
-        searchInput.addEventListener('input', (e) => {
+        // Удаляем старые обработчики
+        const newInput = searchInput.cloneNode(true);
+        searchInput.parentNode.replaceChild(newInput, searchInput);
+
+        newInput.addEventListener('input', (e) => {
             const searchTerm = e.target.value.toLowerCase().trim();
             const items = document.querySelectorAll(itemSelector);
 
@@ -40,19 +44,25 @@ const FilterSearch = {
                 }
             });
 
-            // Сортируем после фильтрации
-            this.triggerSortAfterSearch();
+            // Сортируем после фильтрации с задержкой
+            setTimeout(() => {
+                this.triggerSortAfterSearch();
+            }, 150);
         });
 
         // Обработчик очистки поиска
-        searchInput.addEventListener('search', () => {
-            if (searchInput.value === '') {
+        newInput.addEventListener('search', () => {
+            if (newInput.value === '') {
                 setTimeout(() => {
                     const items = document.querySelectorAll(itemSelector);
                     items.forEach(item => {
                         item.style.display = 'block';
                     });
-                    this.triggerSortAfterSearch();
+
+                    // Сортируем после очистки
+                    setTimeout(() => {
+                        this.triggerSortAfterSearch();
+                    }, 100);
                 }, 10);
             }
         });
@@ -60,17 +70,13 @@ const FilterSearch = {
 
     // Триггер сортировки после поиска
     triggerSortAfterSearch() {
-        // Используем глобальную функцию сортировки
+        console.log('Triggering sort after search...');
+
         if (window.FilterManager && window.FilterManager.sort) {
-            window.FilterManager.sort.sortFilterLists();
+            // Используем forceSortAllLists для гарантированной сортировки
+            window.FilterManager.sort.forceSortAllLists();
         } else {
-            // Fallback на прямую сортировку
-            setTimeout(() => {
-                const sortModule = document.querySelector('script[src*="filters-sort"]');
-                if (sortModule && sortModule.dataset.module) {
-                    eval(sortModule.dataset.module).sortFilterLists();
-                }
-            }, 50);
+            console.error('FilterManager or sort not found');
         }
     },
 

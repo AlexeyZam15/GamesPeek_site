@@ -7,14 +7,6 @@ const FilterHandlers = {
     init() {
         console.log('FilterHandlers init...');
         this.form = document.getElementById('main-search-form');
-        // Убираем автоматическое восстановление прокрутки здесь
-        // чтобы не было конфликта с filters_script.js
-    },
-
-    // Инициализация восстановления прокрутки - теперь в filters_script.js
-    initializeScrollRestoration() {
-        // Пустая функция - восстановление теперь в filters_script.js
-        console.log('Scroll restoration moved to filters_script.js');
     },
 
     // Сохранение позиции прокрутки
@@ -31,11 +23,6 @@ const FilterHandlers = {
         } catch (e) {
             console.warn('Could not save scroll position:', e);
         }
-    },
-
-    // Восстановление позиции прокрутки - теперь в filters_script.js
-    restoreScrollPosition() {
-        // Пустая функция - восстановление теперь в filters_script.js
     },
 
     // Восстановление выбранных чекбоксов
@@ -142,10 +129,15 @@ const FilterHandlers = {
         );
 
         allCheckboxes.forEach(checkbox => {
-            checkbox.addEventListener('change', () => {
-                console.log(`Checkbox changed: ${checkbox.value}, checked: ${checkbox.checked}`);
+            // Удаляем старые обработчики
+            const newCheckbox = checkbox.cloneNode(true);
+            checkbox.parentNode.replaceChild(newCheckbox, checkbox);
+
+            // Добавляем новый обработчик
+            newCheckbox.addEventListener('change', () => {
+                console.log(`Checkbox changed: ${newCheckbox.value}, checked: ${newCheckbox.checked}`);
                 this.updateHiddenFields();
-                this.triggerSort();
+                this.triggerSortWithDelay();
             });
         });
 
@@ -194,7 +186,11 @@ const FilterHandlers = {
         clearButtons.forEach(({ selector, param }) => {
             const button = document.querySelector(selector);
             if (button) {
-                button.addEventListener('click', (e) => {
+                // Удаляем старые обработчики
+                const newButton = button.cloneNode(true);
+                button.parentNode.replaceChild(newButton, button);
+
+                newButton.addEventListener('click', (e) => {
                     e.preventDefault();
                     e.stopPropagation();
 
@@ -362,7 +358,11 @@ const FilterHandlers = {
 
         const sortSelect = document.querySelector('select[name="sort"]');
         if (sortSelect && this.form) {
-            sortSelect.addEventListener('change', () => {
+            // Удаляем старые обработчики
+            const newSortSelect = sortSelect.cloneNode(true);
+            sortSelect.parentNode.replaceChild(newSortSelect, sortSelect);
+
+            newSortSelect.addEventListener('change', () => {
                 // Сохраняем позицию прокрутки перед отправкой формы
                 this.saveScrollPosition();
                 this.form.submit();
@@ -370,19 +370,30 @@ const FilterHandlers = {
         }
     },
 
-    // Триггер сортировки с debounce
+    // Триггер сортировки с debounce и принудительной сортировкой
     triggerSort() {
+        console.log('Triggering sort...');
+
         // Используем debounce для предотвращения множественных сортировок
         if (this.debounceTimer) {
             clearTimeout(this.debounceTimer);
         }
 
         this.debounceTimer = setTimeout(() => {
-            if (window.FilterManager && window.FilterManager.sort &&
-                typeof window.FilterManager.sort.sortFilterLists === 'function') {
+            if (window.FilterManager && window.FilterManager.sort) {
+                console.log('Calling sortFilterLists from FilterManager');
                 window.FilterManager.sort.sortFilterLists();
+            } else {
+                console.error('FilterManager or sort not found');
             }
             this.debounceTimer = null;
+        }, 100);
+    },
+
+    // Триггер с задержкой для гарантии отработки
+    triggerSortWithDelay() {
+        setTimeout(() => {
+            this.triggerSort();
         }, 50);
     },
 
@@ -399,28 +410,28 @@ const FilterHandlers = {
         if (minSlider) {
             minSlider.addEventListener('input', () => {
                 this.updateDateFields();
-                this.triggerSort();
+                this.triggerSortWithDelay();
             });
         }
 
         if (maxSlider) {
             maxSlider.addEventListener('input', () => {
                 this.updateDateFields();
-                this.triggerSort();
+                this.triggerSortWithDelay();
             });
         }
 
         if (manualStart) {
             manualStart.addEventListener('change', () => {
                 this.updateDateFields();
-                this.triggerSort();
+                this.triggerSortWithDelay();
             });
         }
 
         if (manualEnd) {
             manualEnd.addEventListener('change', () => {
                 this.updateDateFields();
-                this.triggerSort();
+                this.triggerSortWithDelay();
             });
         }
 
@@ -431,7 +442,7 @@ const FilterHandlers = {
                 button.addEventListener('click', () => {
                     setTimeout(() => {
                         this.updateDateFields();
-                        this.triggerSort();
+                        this.triggerSortWithDelay();
                     }, 100);
                 });
             }
@@ -450,6 +461,14 @@ const FilterHandlers = {
             this.setupAutoSubmit();
             this.restoreSelectedCheckboxes();
             this.updateHiddenFields();
+
+            // Инициализируем сортировку после загрузки страницы
+            setTimeout(() => {
+                if (window.FilterManager && window.FilterManager.sort) {
+                    console.log('Initial sort after page load');
+                    window.FilterManager.sort.sortFilterLists();
+                }
+            }, 500);
 
             console.log('All filter handlers initialized successfully');
         } catch (error) {

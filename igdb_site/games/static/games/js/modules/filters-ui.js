@@ -67,12 +67,12 @@ const FilterUI = {
                         this.saveShowAllState(list, true);
                     }
 
-                    // Даем время на изменение DOM перед сортировкой
+                    // Сортируем после изменения высоты
                     setTimeout(() => {
                         if (window.FilterManager && window.FilterManager.sort) {
                             window.FilterManager.sort.sortFilterLists();
                         }
-                    }, 100);
+                    }, 200);
                 });
             }
         });
@@ -136,6 +136,29 @@ const FilterUI = {
 
         // Переключение главных секций
         document.querySelectorAll('.toggle-section').forEach(section => {
+            const targetId = section.getAttribute('data-target');
+            const targetContent = document.getElementById(targetId);
+            const icon = section.querySelector('i');
+
+            // Восстанавливаем состояние перед добавлением обработчика
+            const savedState = getSectionState(targetId);
+            if (targetContent && icon) {
+                if (savedState === 'open') {
+                    targetContent.style.display = 'block';
+                    icon.classList.remove('bi-chevron-right');
+                    icon.classList.add('bi-chevron-down');
+                } else if (savedState === 'closed') {
+                    targetContent.style.display = 'none';
+                    icon.classList.remove('bi-chevron-down');
+                    icon.classList.add('bi-chevron-right');
+                } else {
+                    // По умолчанию главные секции закрыты
+                    targetContent.style.display = 'none';
+                    icon.classList.remove('bi-chevron-down');
+                    icon.classList.add('bi-chevron-right');
+                }
+            }
+
             section.addEventListener('click', function() {
                 const targetId = this.getAttribute('data-target');
                 const targetContent = document.getElementById(targetId);
@@ -155,17 +178,40 @@ const FilterUI = {
                     saveSectionState(targetId, false);
                 }
 
-                // Триггер сортировки после переключения секции
+                // Сортируем после переключения секции
                 setTimeout(() => {
                     if (window.FilterManager && window.FilterManager.sort) {
                         window.FilterManager.sort.sortFilterLists();
                     }
-                }, 50);
+                }, 100);
             });
         });
 
         // Переключение подсекций
         document.querySelectorAll('.toggle-subsection').forEach(subsection => {
+            const targetId = subsection.getAttribute('data-target');
+            const targetContent = document.getElementById(targetId);
+            const icon = subsection.querySelector('i');
+
+            // Восстанавливаем состояние перед добавлением обработчика
+            const savedState = getSubsectionState(targetId);
+            if (targetContent && icon) {
+                if (savedState === 'open') {
+                    targetContent.style.display = 'block';
+                    icon.classList.remove('bi-chevron-right');
+                    icon.classList.add('bi-chevron-down');
+                } else if (savedState === 'closed') {
+                    targetContent.style.display = 'none';
+                    icon.classList.remove('bi-chevron-down');
+                    icon.classList.add('bi-chevron-right');
+                } else {
+                    // По умолчанию подсекции открыты
+                    targetContent.style.display = 'block';
+                    icon.classList.remove('bi-chevron-right');
+                    icon.classList.add('bi-chevron-down');
+                }
+            }
+
             subsection.addEventListener('click', function() {
                 const targetId = this.getAttribute('data-target');
                 const targetContent = document.getElementById(targetId);
@@ -185,68 +231,14 @@ const FilterUI = {
                     saveSubsectionState(targetId, false);
                 }
 
-                // Триггер сортировки после переключения подсекции
+                // Сортируем после переключения подсекции
                 setTimeout(() => {
                     if (window.FilterManager && window.FilterManager.sort) {
                         window.FilterManager.sort.sortFilterLists();
                     }
-                }, 50);
+                }, 100);
             });
         });
-
-        // Восстановление сохраненных состояний
-        setTimeout(() => {
-            // Главные секции
-            document.querySelectorAll('.toggle-section').forEach(section => {
-                const targetId = section.getAttribute('data-target');
-                const savedState = getSectionState(targetId);
-                const targetContent = document.getElementById(targetId);
-                const icon = section.querySelector('i');
-
-                if (targetContent && icon) {
-                    if (savedState === 'open') {
-                        targetContent.style.display = 'block';
-                        icon.classList.remove('bi-chevron-right');
-                        icon.classList.add('bi-chevron-down');
-                    } else if (savedState === 'closed') {
-                        targetContent.style.display = 'none';
-                        icon.classList.remove('bi-chevron-down');
-                        icon.classList.add('bi-chevron-right');
-                    } else {
-                        // Если состояние не сохранено, используем умолчания
-                        // Главные секции закрыты по умолчанию
-                        targetContent.style.display = 'none';
-                        icon.classList.remove('bi-chevron-down');
-                        icon.classList.add('bi-chevron-right');
-                    }
-                }
-            });
-
-            // Подсекции
-            document.querySelectorAll('.toggle-subsection').forEach(subsection => {
-                const targetId = subsection.getAttribute('data-target');
-                const savedState = getSubsectionState(targetId);
-                const targetContent = document.getElementById(targetId);
-                const icon = subsection.querySelector('i');
-
-                if (targetContent && icon) {
-                    if (savedState === 'open') {
-                        targetContent.style.display = 'block';
-                        icon.classList.remove('bi-chevron-right');
-                        icon.classList.add('bi-chevron-down');
-                    } else if (savedState === 'closed') {
-                        targetContent.style.display = 'none';
-                        icon.classList.remove('bi-chevron-down');
-                        icon.classList.add('bi-chevron-right');
-                    } else {
-                        // Если состояние не сохранено, подсекции открыты по умолчанию
-                        targetContent.style.display = 'block';
-                        icon.classList.remove('bi-chevron-right');
-                        icon.classList.add('bi-chevron-down');
-                    }
-                }
-            });
-        }, 100);
     },
 
     // Восстановление состояний секций
@@ -358,7 +350,7 @@ const FilterUI = {
                         if (window.FilterManager && window.FilterManager.sort) {
                             window.FilterManager.sort.sortFilterLists();
                         }
-                    }, 100);
+                    }, 150);
                 });
 
                 // Скрыть кнопку при потере фокуса если поле пустое
