@@ -19,7 +19,24 @@ const GameListScript = {
         this.setupCheckboxListeners();
         this.setupDateFilterListeners();
 
+        // Инициализация пагинации ключевых слов
+        this.setupKeywordsPagination();
+
         console.log('GameListScript initialization completed');
+    },
+
+    // Инициализация пагинации ключевых слов
+    setupKeywordsPagination() {
+        // Проверяем, нужно ли показывать пагинацию
+        const keywordItems = document.querySelectorAll('.keyword-item');
+        if (keywordItems.length > 30 && window.KeywordsPagination) {
+            // Инициализируем с небольшой задержкой
+            setTimeout(() => {
+                if (window.KeywordsPagination && typeof window.KeywordsPagination.init === 'function') {
+                    window.KeywordsPagination.init();
+                }
+            }, 200);
+        }
     },
 
     // Инициализация полей поиска
@@ -47,8 +64,12 @@ const GameListScript = {
         const searchInput = document.getElementById(inputId);
         if (!searchInput) return;
 
-        searchInput.addEventListener('input', () => {
-            const searchTerm = searchInput.value.toLowerCase().trim();
+        // Удаляем старые обработчики
+        const newInput = searchInput.cloneNode(true);
+        searchInput.parentNode.replaceChild(newInput, searchInput);
+
+        newInput.addEventListener('input', (e) => {
+            const searchTerm = e.target.value.toLowerCase().trim();
             const items = document.querySelectorAll(itemSelector);
 
             items.forEach(item => {
@@ -56,12 +77,28 @@ const GameListScript = {
                 const isMatch = itemName.includes(searchTerm);
                 item.style.display = isMatch ? 'block' : 'none';
             });
+
+            // Особый случай: для ключевых слов обновляем пагинацию
+            if (inputId === 'keyword-search' && window.KeywordsPagination) {
+                if (window.KeywordsPagination.updateAfterSearch) {
+                    window.KeywordsPagination.updateAfterSearch();
+                }
+            }
         });
 
         // Обработчик для очистки поля
-        searchInput.addEventListener('search', () => {
-            if (searchInput.value === '') {
-                searchInput.dispatchEvent(new Event('input'));
+        newInput.addEventListener('search', () => {
+            if (newInput.value === '') {
+                // Особый случай: для ключевых слов восстанавливаем пагинацию
+                if (inputId === 'keyword-search' && window.KeywordsPagination) {
+                    if (window.KeywordsPagination.forceUpdate) {
+                        setTimeout(() => {
+                            window.KeywordsPagination.forceUpdate();
+                        }, 50);
+                    }
+                }
+
+                newInput.dispatchEvent(new Event('input'));
             }
         });
     },
@@ -151,6 +188,15 @@ const GameListScript = {
                 if (showText) showText.style.display = 'inline';
                 if (hideText) hideText.style.display = 'none';
             }
+
+            // Особый случай: для ключевых слов обновляем пагинацию
+            if (listSelector === '.keyword-list' && window.KeywordsPagination) {
+                setTimeout(() => {
+                    if (window.KeywordsPagination.forceUpdate) {
+                        window.KeywordsPagination.forceUpdate();
+                    }
+                }, 100);
+            }
         });
     },
 
@@ -178,11 +224,15 @@ const GameListScript = {
     // Настройка удаления тегов для одного типа
     setupTagRemovalForType(tagClass, attr, checkboxClass) {
         document.querySelectorAll(`.${tagClass}`).forEach(tag => {
-            tag.addEventListener('click', (e) => {
+            // Удаляем старые обработчики
+            const newTag = tag.cloneNode(true);
+            tag.parentNode.replaceChild(newTag, tag);
+
+            newTag.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
 
-                const id = tag.getAttribute(attr);
+                const id = newTag.getAttribute(attr);
                 let checkbox = null;
 
                 if (checkboxClass) {
@@ -291,7 +341,11 @@ const GameListScript = {
 
         similarityCheckboxes.forEach(selector => {
             document.querySelectorAll(selector).forEach(checkbox => {
-                checkbox.addEventListener('change', () => {
+                // Удаляем старые обработчики
+                const newCheckbox = checkbox.cloneNode(true);
+                checkbox.parentNode.replaceChild(newCheckbox, checkbox);
+
+                newCheckbox.addEventListener('change', () => {
                     // Автоматически включаем find_similar
                     const findSimilarField = document.getElementById('find_similar_field');
                     if (findSimilarField) {
@@ -311,7 +365,11 @@ const GameListScript = {
 
         searchFilterCheckboxes.forEach(selector => {
             document.querySelectorAll(selector).forEach(checkbox => {
-                checkbox.addEventListener('change', () => {
+                // Удаляем старые обработчики
+                const newCheckbox = checkbox.cloneNode(true);
+                checkbox.parentNode.replaceChild(newCheckbox, checkbox);
+
+                newCheckbox.addEventListener('change', () => {
                     this.updateHiddenFields(); // Только обновляем поля
                     // find_similar остается без изменений
                 });
@@ -321,7 +379,11 @@ const GameListScript = {
         // Сортировка - отправляем форму
         const sortSelect = document.querySelector('select[name="sort"]');
         if (sortSelect) {
-            sortSelect.addEventListener('change', () => {
+            // Удаляем старые обработчики
+            const newSortSelect = sortSelect.cloneNode(true);
+            sortSelect.parentNode.replaceChild(newSortSelect, sortSelect);
+
+            newSortSelect.addEventListener('change', () => {
                 // Сохраняем позицию прокрутки
                 if (window.FilterManager && window.FilterManager.handlers) {
                     window.FilterManager.handlers.saveScrollPosition();
@@ -343,9 +405,22 @@ const GameListScript = {
         );
 
         allCheckboxes.forEach(checkbox => {
-            checkbox.addEventListener('change', () => {
+            // Удаляем старые обработчики
+            const newCheckbox = checkbox.cloneNode(true);
+            checkbox.parentNode.replaceChild(newCheckbox, checkbox);
+
+            newCheckbox.addEventListener('change', () => {
                 // Обновляем скрытые поля при любом изменении чекбокса
                 this.updateHiddenFields();
+
+                // Особый случай: для ключевых слов обновляем пагинацию
+                if (newCheckbox.classList.contains('keyword-checkbox') && window.KeywordsPagination) {
+                    if (window.KeywordsPagination.forceUpdate) {
+                        setTimeout(() => {
+                            window.KeywordsPagination.forceUpdate();
+                        }, 50);
+                    }
+                }
 
                 // Обновляем сортировку в UI, если доступен FilterManager
                 if (window.FilterManager && window.FilterManager.sort) {
@@ -368,7 +443,11 @@ const GameListScript = {
         const manualEnd = document.getElementById('manual-year-end');
 
         if (minSlider) {
-            minSlider.addEventListener('input', () => {
+            // Удаляем старые обработчики
+            const newMinSlider = minSlider.cloneNode(true);
+            minSlider.parentNode.replaceChild(newMinSlider, minSlider);
+
+            newMinSlider.addEventListener('input', () => {
                 this.updateHiddenFields();
                 if (window.FilterManager && window.FilterManager.sort) {
                     setTimeout(() => {
@@ -379,7 +458,11 @@ const GameListScript = {
         }
 
         if (maxSlider) {
-            maxSlider.addEventListener('input', () => {
+            // Удаляем старые обработчики
+            const newMaxSlider = maxSlider.cloneNode(true);
+            maxSlider.parentNode.replaceChild(newMaxSlider, maxSlider);
+
+            newMaxSlider.addEventListener('input', () => {
                 this.updateHiddenFields();
                 if (window.FilterManager && window.FilterManager.sort) {
                     setTimeout(() => {
@@ -390,7 +473,11 @@ const GameListScript = {
         }
 
         if (manualStart) {
-            manualStart.addEventListener('change', () => {
+            // Удаляем старые обработчики
+            const newManualStart = manualStart.cloneNode(true);
+            manualStart.parentNode.replaceChild(newManualStart, manualStart);
+
+            newManualStart.addEventListener('change', () => {
                 this.updateHiddenFields();
                 if (window.FilterManager && window.FilterManager.sort) {
                     setTimeout(() => {
@@ -401,7 +488,11 @@ const GameListScript = {
         }
 
         if (manualEnd) {
-            manualEnd.addEventListener('change', () => {
+            // Удаляем старые обработчики
+            const newManualEnd = manualEnd.cloneNode(true);
+            manualEnd.parentNode.replaceChild(newManualEnd, manualEnd);
+
+            newManualEnd.addEventListener('change', () => {
                 this.updateHiddenFields();
                 if (window.FilterManager && window.FilterManager.sort) {
                     setTimeout(() => {
@@ -415,7 +506,11 @@ const GameListScript = {
         const quickButtons = document.querySelectorAll('#release-date-content .btn-outline-secondary');
         quickButtons.forEach(button => {
             if (button.textContent.includes('Years') || button.textContent.includes('s')) {
-                button.addEventListener('click', () => {
+                // Удаляем старые обработчики
+                const newButton = button.cloneNode(true);
+                button.parentNode.replaceChild(newButton, button);
+
+                newButton.addEventListener('click', () => {
                     setTimeout(() => {
                         this.updateHiddenFields();
                         if (window.FilterManager && window.FilterManager.sort) {
@@ -532,6 +627,11 @@ const GameListScript = {
 
         // Обновляем скрытые поля после восстановления
         this.updateHiddenFields();
+
+        // Особый случай: для ключевых слов инициализируем пагинацию после восстановления
+        setTimeout(() => {
+            this.setupKeywordsPagination();
+        }, 200);
     }
 };
 

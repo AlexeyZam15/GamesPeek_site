@@ -147,9 +147,9 @@
                                 <span class="badge bg-success me-1 mb-1 active-keyword-tag"
                                       data-keyword-id="{{ keyword.id }}"
                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
-                                    {{ keyword.name }} <i class="bi bi-x ms-1"
-                                                          style="font-size: 0.9rem;"></i>
-                                </span>
+                        {{ keyword.name }} <i class="bi bi-x ms-1"
+                                              style="font-size: 0.9rem;"></i>
+                    </span>
                             {% endfor %}
                         </div>
 
@@ -160,9 +160,9 @@
                                     <span class="badge bg-success me-1 mb-1 active-keyword-tag"
                                           data-keyword-id="{{ keyword.id }}"
                                           style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
-                                        {{ keyword.name }} <i class="bi bi-x ms-1"
-                                                              style="font-size: 0.9rem;"></i>
-                                    </span>
+                            {{ keyword.name }} <i class="bi bi-x ms-1"
+                                                  style="font-size: 0.9rem;"></i>
+                        </span>
                                 {% endfor %}
                             </div>
 
@@ -184,9 +184,9 @@
                         {% endif %}
                     </div>
 
-                    <!-- Список ключевых слов -->
+                    <!-- Список ключевых слов с фиксированной высотой для 30 элементов -->
                     <div class="keyword-list border rounded p-2"
-                         style="max-height: 200px; overflow-y: auto;">
+                         style="height: 400px; overflow-y: auto; min-height: 400px;">
                         <div class="keyword-grid"
                              style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
                             {% for keyword in keywords %}  <!-- ЗДЕСЬ ИСПОЛЬЗУЕМ keywords, а не popular_keywords -->
@@ -207,6 +207,41 @@
                             {% endfor %}
                         </div>
                     </div>
+
+                    <!-- Пагинация для ключевых слов с простой навигацией -->
+                    {% if keywords|length > 30 %}
+                        <div class="keyword-pagination mt-3">
+                            <nav aria-label="Keyword pagination" class="d-flex flex-column align-items-center">
+                                <div class="d-flex align-items-center justify-content-center gap-2 mb-2">
+                                    <!-- Кнопка "Предыдущая" -->
+                                    <button type="button" class="btn btn-sm btn-outline-primary" id="keyword-prev">
+                                        <i class="bi bi-chevron-left"></i>
+                                    </button>
+
+                                    <!-- Номера страниц (создаются JavaScript) -->
+                                    <div id="keyword-page-numbers" class="d-flex flex-wrap gap-1 justify-content-center"
+                                         style="min-width: 200px; max-width: 300px;">
+                                        <!-- Страницы будут созданы JavaScript -->
+                                    </div>
+
+                                    <!-- Кнопка "Следующая" -->
+                                    <button type="button" class="btn btn-sm btn-outline-primary" id="keyword-next">
+                                        <i class="bi bi-chevron-right"></i>
+                                    </button>
+                                </div>
+
+                                <!-- Информация о странице -->
+                                <div class="text-center">
+                                    <small class="text-muted">
+                                        Page <span id="keyword-current">1</span> of <span
+                                            id="keyword-total-pages">1</span>
+                                        (<span id="keyword-start">1</span>-<span id="keyword-end">30</span>
+                                        of <span id="keyword-total">{{ keywords|length }}</span> keywords)
+                                    </small>
+                                </div>
+                            </nav>
+                        </div>
+                    {% endif %}
 
                     <!-- Кнопка "Show all features" -->
                     <div class="text-center mt-2">

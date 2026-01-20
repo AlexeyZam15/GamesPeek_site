@@ -4,6 +4,7 @@ import FilterSearch from './modules/filters-search.js';
 import FilterUI from './modules/filters-ui.js';
 import FilterHandlers from './modules/filters-handlers.js';
 import FilterSticky from './modules/filters-sticky.js';
+import KeywordsPagination from './modules/keywords-pagination.js';
 
 // Создаем глобальный объект FilterManager для доступа из других скриптов
 window.FilterManager = {
@@ -11,8 +12,12 @@ window.FilterManager = {
     search: FilterSearch,
     ui: FilterUI,
     handlers: FilterHandlers,
-    sticky: FilterSticky
+    sticky: FilterSticky,
+    keywordsPagination: KeywordsPagination
 };
+
+// Сделаем доступным глобально для других модулей
+window.KeywordsPagination = KeywordsPagination;
 
 // Флаг чтобы скрипт не запускался несколько раз
 let initialized = false;
@@ -42,6 +47,33 @@ document.addEventListener('DOMContentLoaded', function() {
             if (FilterSearch && typeof FilterSearch.setupSearchFilters === 'function') {
                 console.log('Setting up search filters...');
                 FilterSearch.setupSearchFilters();
+            }
+
+            // Инициализация пагинации ключевых слов с задержкой
+            if (KeywordsPagination && typeof KeywordsPagination.init === 'function') {
+                console.log('Initializing keywords pagination...');
+                setTimeout(() => {
+                    try {
+                        KeywordsPagination.init();
+
+                        // Проверяем высоту контейнера
+                        const keywordList = document.querySelector('.keyword-list');
+                        if (keywordList) {
+                            // Рассчитываем нужную высоту для 30 элементов
+                            const items = document.querySelectorAll('.keyword-item');
+                            const firstItem = items[0];
+                            if (firstItem) {
+                                const itemHeight = firstItem.offsetHeight || 30;
+                                const neededHeight = Math.min(itemHeight * 30 + 50, 400);
+                                keywordList.style.height = `${neededHeight}px`;
+                                keywordList.style.minHeight = `${neededHeight}px`;
+                                console.log(`Set keyword list height to ${neededHeight}px for 30 items`);
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Error initializing keywords pagination:', error);
+                    }
+                }, 300);
             }
 
             // Sticky кнопки инициализируем с задержкой
@@ -95,5 +127,6 @@ export {
     FilterSearch,
     FilterUI,
     FilterHandlers,
-    FilterSticky
+    FilterSticky,
+    KeywordsPagination
 };
