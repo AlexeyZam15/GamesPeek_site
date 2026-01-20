@@ -44,6 +44,11 @@ const FilterSearch = {
                 }
             });
 
+            // ОСОБЫЙ СЛУЧАЙ: для ключевых слов обновляем пагинацию
+            if (inputId === 'keyword-search') {
+                this.handleKeywordSearchUpdate();
+            }
+
             // Сортируем после фильтрации с задержкой
             setTimeout(() => {
                 this.triggerSortAfterSearch();
@@ -59,6 +64,11 @@ const FilterSearch = {
                         item.style.display = 'block';
                     });
 
+                    // ОСОБЫЙ СЛУЧАЙ: для ключевых слов восстанавливаем пагинацию
+                    if (inputId === 'keyword-search') {
+                        this.handleKeywordSearchClear();
+                    }
+
                     // Сортируем после очистки
                     setTimeout(() => {
                         this.triggerSortAfterSearch();
@@ -66,6 +76,20 @@ const FilterSearch = {
                 }, 10);
             }
         });
+    },
+
+    // Обработка обновления поиска по ключевым словам
+    handleKeywordSearchUpdate() {
+        if (window.KeywordsPagination && typeof window.KeywordsPagination.updateAfterSearch === 'function') {
+            window.KeywordsPagination.updateAfterSearch();
+        }
+    },
+
+    // Обработка очистки поиска по ключевым словам
+    handleKeywordSearchClear() {
+        if (window.KeywordsPagination && typeof window.KeywordsPagination.forceUpdate === 'function') {
+            window.KeywordsPagination.forceUpdate();
+        }
     },
 
     // Триггер сортировки после поиска
