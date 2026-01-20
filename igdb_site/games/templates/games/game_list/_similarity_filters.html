@@ -15,9 +15,6 @@
                     </label>
                 </div>
                 <div id="genres-content">
-                    <input type="text" class="form-control mb-2" id="genre-search"
-                           placeholder="Search genres..." autocomplete="off">
-
                     <!-- Активные жанры -->
                     <div id="active-genres" class="mb-2">
                         {% if selected_genres %}
@@ -79,6 +76,10 @@
                         {% endif %}
                     </div>
 
+                    <!-- Поле поиска для жанров -->
+                    <input type="text" class="form-control mb-2" id="genre-search"
+                           placeholder="Search genres..." autocomplete="off">
+
                     <!-- Список жанров -->
                     <div class="genre-list border rounded p-2"
                          style="max-height: 200px; overflow-y: auto;">
@@ -120,9 +121,6 @@
                     </label>
                 </div>
                 <div id="features-content">
-                    <input type="text" class="form-control mb-2" id="keyword-search"
-                           placeholder="Search features..." autocomplete="off">
-
                     <!-- Активные ключевые слова -->
                     <div id="active-keywords" class="mb-2">
                         {% if selected_keywords %}
@@ -183,6 +181,10 @@
                             </div>
                         {% endif %}
                     </div>
+
+                    <!-- Поле поиска для ключевых слов -->
+                    <input type="text" class="form-control mb-2" id="keyword-search"
+                           placeholder="Search features..." autocomplete="off">
 
                     <!-- Список ключевых слов с фиксированной высотой для 30 элементов -->
                     <div class="keyword-list border rounded p-2"
@@ -262,9 +264,6 @@
                     </label>
                 </div>
                 <div id="themes-content">
-                    <input type="text" class="form-control mb-2" id="theme-search"
-                           placeholder="Search themes..." autocomplete="off">
-
                     <!-- Активные темы -->
                     <div id="active-themes" class="mb-2">
                         {% if selected_themes %}
@@ -326,6 +325,10 @@
                         {% endif %}
                     </div>
 
+                    <!-- Поле поиска для тем -->
+                    <input type="text" class="form-control mb-2" id="theme-search"
+                           placeholder="Search themes..." autocomplete="off">
+
                     <!-- Список тем -->
                     <div class="theme-list border rounded p-2"
                          style="max-height: 200px; overflow-y: auto;">
@@ -367,9 +370,6 @@
                     </label>
                 </div>
                 <div id="perspectives-content">
-                    <input type="text" class="form-control mb-2" id="perspective-search"
-                           placeholder="Search perspectives..." autocomplete="off">
-
                     <!-- Активные перспективы -->
                     <div id="active-perspectives" class="mb-2">
                         {% if selected_perspectives %}
@@ -431,6 +431,10 @@
                         {% endif %}
                     </div>
 
+                    <!-- Поле поиска для перспектив -->
+                    <input type="text" class="form-control mb-2" id="perspective-search"
+                           placeholder="Search perspectives..." autocomplete="off">
+
                     <!-- Список перспектив -->
                     <div class="perspective-list border rounded p-2"
                          style="max-height: 200px; overflow-y: auto;">
@@ -474,9 +478,6 @@
                     </label>
                 </div>
                 <div id="game-modes-content">
-                    <input type="text" class="form-control mb-2" id="game-mode-search"
-                           placeholder="Search game modes..." autocomplete="off">
-
                     <!-- Активные режимы игры -->
                     <div id="active-game-modes" class="mb-2">
                         {% if selected_game_modes %}
@@ -507,6 +508,10 @@
                             {% endfor %}
                         </div>
                     </div>
+
+                    <!-- Поле поиска для режимов игры -->
+                    <input type="text" class="form-control mb-2" id="game-mode-search"
+                           placeholder="Search game modes..." autocomplete="off">
 
                     <!-- Список режимов игры -->
                     <div class="game-mode-list border rounded p-2"

@@ -39,7 +39,7 @@ const GameListScript = {
         }
     },
 
-    // Инициализация полей поиска
+    // Инициализация полей поиска (исправленная версия)
     initializeSearchInputs() {
         console.log('Initializing search inputs...');
 
@@ -59,16 +59,16 @@ const GameListScript = {
         });
     },
 
-    // Настройка одного поля поиска
+    // Настройка одного поля поиска (исправленная версия)
     setupSearchInput(inputId, itemSelector, nameAttribute) {
         const searchInput = document.getElementById(inputId);
         if (!searchInput) return;
 
-        // Удаляем старые обработчики
-        const newInput = searchInput.cloneNode(true);
-        searchInput.parentNode.replaceChild(newInput, searchInput);
+        // Сохраняем исходный элемент
+        const originalInput = searchInput;
 
-        newInput.addEventListener('input', (e) => {
+        // Функция обработки ввода
+        const handleInput = (e) => {
             const searchTerm = e.target.value.toLowerCase().trim();
             const items = document.querySelectorAll(itemSelector);
 
@@ -84,9 +84,21 @@ const GameListScript = {
                     window.KeywordsPagination.updateAfterSearch();
                 }
             }
-        });
+        };
 
-        // Обработчик для очистки поля
+        // Создаем новый элемент с обработчиками
+        const newInput = originalInput.cloneNode(false);
+
+        // Копируем все атрибуты
+        for (let attr of originalInput.attributes) {
+            newInput.setAttribute(attr.name, attr.value);
+        }
+
+        // Копируем значение
+        newInput.value = originalInput.value;
+
+        // Добавляем обработчики
+        newInput.addEventListener('input', handleInput);
         newInput.addEventListener('search', () => {
             if (newInput.value === '') {
                 // Особый случай: для ключевых слов восстанавливаем пагинацию
@@ -101,6 +113,9 @@ const GameListScript = {
                 newInput.dispatchEvent(new Event('input'));
             }
         });
+
+        // Заменяем элемент в том же месте
+        originalInput.parentNode.replaceChild(newInput, originalInput);
     },
 
     // Инициализация переключателей "Show All"

@@ -15,9 +15,6 @@
                     </label>
                 </div>
                 <div id="platforms-content">
-                    <input type="text" class="form-control mb-2" id="platform-search"
-                           placeholder="Search platforms..." autocomplete="off">
-
                     <!-- Активные платформы -->
                     <div id="active-platforms" class="mb-2">
                         {% if selected_platforms %}
@@ -79,6 +76,10 @@
                         {% endif %}
                     </div>
 
+                    <!-- Поле поиска для платформ -->
+                    <input type="text" class="form-control mb-2" id="platform-search"
+                           placeholder="Search platforms..." autocomplete="off">
+
                     <!-- Список платформ -->
                     <div class="platform-list border rounded p-2"
                          style="max-height: 200px; overflow-y: auto;">
@@ -123,9 +124,6 @@
                     </label>
                 </div>
                 <div id="game-types-content">
-                    <input type="text" class="form-control mb-2" id="game-type-search"
-                           placeholder="Search game types..." autocomplete="off">
-
                     <!-- Активные типы игр -->
                     <div id="active-game-types" class="mb-2">
                         {% if selected_game_types %}
@@ -156,6 +154,10 @@
                             {% endfor %}
                         </div>
                     </div>
+
+                    <!-- Поле поиска для типов игр -->
+                    <input type="text" class="form-control mb-2" id="game-type-search"
+                           placeholder="Search game types..." autocomplete="off">
 
                     <!-- Список типов игр -->
                     <div class="game-type-list border rounded p-2"
