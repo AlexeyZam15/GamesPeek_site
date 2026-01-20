@@ -17,16 +17,16 @@ const FilterSearch = {
         this.setupSearchInput('game-mode-search', '.game-mode-item', 'data-game-mode-name');
     },
 
-    // Настройка одного поля поиска
+    // Настройка одного поля поиска (исправленная версия - не заменяем элемент)
     setupSearchInput(inputId, itemSelector, dataAttribute) {
         const searchInput = document.getElementById(inputId);
         if (!searchInput) return;
 
-        // Удаляем старые обработчики
-        const newInput = searchInput.cloneNode(true);
-        searchInput.parentNode.replaceChild(newInput, searchInput);
+        // Удаляем все существующие обработчики (но сохраняем элемент на месте)
+        const originalInput = searchInput;
 
-        newInput.addEventListener('input', (e) => {
+        // Создаем новый обработчик поверх существующего
+        const handleInput = (e) => {
             const searchTerm = e.target.value.toLowerCase().trim();
             const items = document.querySelectorAll(itemSelector);
 
@@ -53,9 +53,21 @@ const FilterSearch = {
             setTimeout(() => {
                 this.triggerSortAfterSearch();
             }, 150);
-        });
+        };
 
-        // Обработчик очистки поиска
+        // Очистка всех обработчиков
+        const newInput = originalInput.cloneNode(false);
+
+        // Копируем все атрибуты
+        for (let attr of originalInput.attributes) {
+            newInput.setAttribute(attr.name, attr.value);
+        }
+
+        // Копируем значение
+        newInput.value = originalInput.value;
+
+        // Добавляем обработчики
+        newInput.addEventListener('input', handleInput);
         newInput.addEventListener('search', () => {
             if (newInput.value === '') {
                 setTimeout(() => {
@@ -76,6 +88,9 @@ const FilterSearch = {
                 }, 10);
             }
         });
+
+        // Заменяем элемент, но в том же месте в DOM
+        originalInput.parentNode.replaceChild(newInput, originalInput);
     },
 
     // Обработка обновления поиска по ключевым словам
