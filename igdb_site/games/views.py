@@ -592,6 +592,10 @@ def game_list(request: HttpRequest) -> HttpResponse:
         game_modes_list = list(GameMode.objects.all().only('id', 'name').order_by('name'))
         cache.set('game_modes_list_full_v1', game_modes_list, CACHE_TIMES['genres_list'])
 
+    # Получаем все ключевые слова (для чекбоксов)
+    # Используем уже загруженные из filter_data['keywords'] которые теперь ВСЕ
+    keywords_list = filter_data['keywords']
+
     # 9. Минимальный контекст для скорости
     context = {
         'games': mode_result.get('games', []),
@@ -615,7 +619,7 @@ def game_list(request: HttpRequest) -> HttpResponse:
         'game_modes': game_modes_list,  # ВСЕ режимы игры
 
         # ВСЕ ключевые слова (для чекбоксов)
-        'keywords': filter_data['keywords'],  # ВСЕ ключевые слова
+        'keywords': keywords_list,  # ВСЕ ключевые слова
 
         # Платформы и популярные ключевые слова (для отображения вверху)
         'platforms': filter_data['platforms'],
@@ -655,8 +659,8 @@ def game_list(request: HttpRequest) -> HttpResponse:
             'genre_count': len(selected_criteria['genres']),
             'has_keywords': bool(selected_criteria['keywords']),
             'keyword_count': len(selected_criteria['keywords']),
-            'keywords_total': len(filter_data['keywords']),  # Добавляем для отладки
-            'popular_keywords_total': len(filter_data['popular_keywords']),  # Добавляем для отладки
+            'keywords_total': len(keywords_list),  # Исправлено: используем keywords_list
+            'popular_keywords_total': len(filter_data['popular_keywords']),
             'has_themes': bool(selected_criteria['themes']),
             'theme_count': len(selected_criteria['themes']),
             'has_perspectives': bool(selected_criteria['perspectives']),
@@ -1966,7 +1970,7 @@ def handle_regular_mode(
 
 def _get_cached_filter_data() -> Dict[str, List]:
     """Получаем кэшированные данные для всех фильтров."""
-    filter_data = cache.get('optimized_filter_data_v5')  # Увеличиваем версию кэша
+    filter_data = cache.get('optimized_filter_data_v6')  # Увеличиваем версию кэша до v6
 
     if not filter_data:
         # Получаем ВСЕ данные, не только популярные
@@ -1977,11 +1981,11 @@ def _get_cached_filter_data() -> Dict[str, List]:
             ).filter(game_count__gt=0).only('id', 'name', 'slug')
                               .order_by('-game_count', 'name')),
 
-            # Ключевые слова - все, а не только популярные
+            # Ключевые слова - ВСЕ без ограничений
             'keywords': list(Keyword.objects.all()
                              .select_related('category').only(
                 'id', 'name', 'category__id', 'category__name'
-            ).order_by('name')[:200]),  # Ограничиваем для производительности
+            ).order_by('name')),  # УБРАЛИ [:200] - теперь ВСЕ ключевые слова
 
             # Популярные ключевые слова для отображения вверху
             'popular_keywords': list(Keyword.objects.filter(
@@ -2009,7 +2013,7 @@ def _get_cached_filter_data() -> Dict[str, List]:
                 developed_game_count=Count('developed_games', distinct=True)
             ).filter(developed_game_count__gt=0).only('id', 'name').order_by('name')),
         }
-        cache.set('optimized_filter_data_v5', filter_data, 7200)  # 2 часа кэша
+        cache.set('optimized_filter_data_v6', filter_data, 7200)  # 2 часа кэша
 
     return filter_data
 
@@ -2317,6 +2321,9 @@ def _fetch_filter_data_from_db() -> Dict[str, List]:
         game_count=Count('game', distinct=True)
     ).filter(game_count__gt=0).order_by('-game_count', 'name')
 
+    # ВСЕ ключевые слова без ограничений
+    keywords = Keyword.objects.all().select_related('category').order_by('name')
+
     popular_keywords = Keyword.objects.filter(
         cached_usage_count__gt=0
     ).select_related('category').order_by('-cached_usage_count')
@@ -2339,6 +2346,7 @@ def _fetch_filter_data_from_db() -> Dict[str, List]:
 
     return {
         'platforms': list(platforms),
+        'keywords': list(keywords),  # ВСЕ ключевые слова
         'popular_keywords': list(popular_keywords),
         'game_modes': list(game_modes),
         'themes': list(themes),

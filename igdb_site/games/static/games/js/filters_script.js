@@ -5,6 +5,15 @@ import FilterUI from './modules/filters-ui.js';
 import FilterHandlers from './modules/filters-handlers.js';
 import FilterSticky from './modules/filters-sticky.js';
 
+// Создаем глобальный объект FilterManager для доступа из других скриптов
+window.FilterManager = {
+    sort: FilterSort,
+    search: FilterSearch,
+    ui: FilterUI,
+    handlers: FilterHandlers,
+    sticky: FilterSticky
+};
+
 // Флаг чтобы скрипт не запускался несколько раз
 let initialized = false;
 
@@ -17,38 +26,47 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function initializeAll() {
         try {
+            console.log('=== FILTERS SCRIPT INITIALIZATION START ===');
+
             // Инициализация основных модулей
             if (FilterUI && typeof FilterUI.initializeAllUI === 'function') {
+                console.log('Initializing UI...');
                 FilterUI.initializeAllUI();
             }
 
             if (FilterHandlers && typeof FilterHandlers.initializeAllHandlers === 'function') {
+                console.log('Initializing handlers...');
                 FilterHandlers.initializeAllHandlers();
             }
 
             if (FilterSearch && typeof FilterSearch.setupSearchFilters === 'function') {
+                console.log('Setting up search filters...');
                 FilterSearch.setupSearchFilters();
             }
 
             // Sticky кнопки инициализируем с задержкой
             setTimeout(() => {
                 if (FilterSticky && typeof FilterSticky.init === 'function') {
+                    console.log('Initializing sticky buttons...');
                     FilterSticky.init();
                 }
             }, 800);
 
-            // Сортировка фильтров
+            // Сортировка фильтров - вызываем после всех инициализаций
             setTimeout(() => {
                 if (FilterSort && typeof FilterSort.sortFilterLists === 'function') {
+                    console.log('Initial sort of filter lists...');
                     FilterSort.sortFilterLists();
                 }
 
                 // Восстановление прокрутки
                 restoreScrollPosition();
-            }, 300);
+            }, 1000);
+
+            console.log('=== FILTERS SCRIPT INITIALIZATION COMPLETE ===');
 
         } catch (error) {
-            // Тихий фейл
+            console.error('Error in filters script initialization:', error);
         }
     }
 
@@ -61,11 +79,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     setTimeout(() => {
                         window.scrollTo({ top: y, behavior: 'smooth' });
                         sessionStorage.removeItem('filterScrollY');
+                        console.log('Scroll position restored to:', y);
                     }, 300);
                 }
             }
         } catch (e) {
-            // Игнорируем ошибки
+            console.warn('Could not restore scroll position:', e);
         }
     }
 });
