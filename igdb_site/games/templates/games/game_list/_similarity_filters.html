@@ -189,7 +189,7 @@
                          style="max-height: 200px; overflow-y: auto;">
                         <div class="keyword-grid"
                              style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
-                            {% for keyword in popular_keywords %}
+                            {% for keyword in keywords %}  <!-- ЗДЕСЬ ИСПОЛЬЗУЕМ keywords, а не popular_keywords -->
                                 <div class="keyword-item"
                                      data-keyword-name="{{ keyword.name|lower }}">
                                     <div class="form-check">

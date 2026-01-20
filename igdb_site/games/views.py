@@ -566,7 +566,31 @@ def game_list(request: HttpRequest) -> HttpResponse:
 
     # 8. БЫСТРАЯ загрузка фильтров из кэша
     filter_data = _get_cached_filter_data()
-    genres_list = cache.get('genres_list_v3') or list(Genre.objects.only('id', 'name').order_by('name'))
+
+    # ВАЖНОЕ ИСПРАВЛЕНИЕ: Получаем полные списки для чекбоксов
+    genres_list = cache.get('genres_list_full_v1')
+    if not genres_list:
+        # Получаем ВСЕ жанры, не только популярные
+        genres_list = list(Genre.objects.all().only('id', 'name').order_by('name'))
+        cache.set('genres_list_full_v1', genres_list, CACHE_TIMES['genres_list'])
+
+    # Получаем все темы
+    themes_list = cache.get('themes_list_full_v1')
+    if not themes_list:
+        themes_list = list(Theme.objects.all().only('id', 'name').order_by('name'))
+        cache.set('themes_list_full_v1', themes_list, CACHE_TIMES['genres_list'])
+
+    # Получаем все перспективы
+    perspectives_list = cache.get('perspectives_list_full_v1')
+    if not perspectives_list:
+        perspectives_list = list(PlayerPerspective.objects.all().only('id', 'name').order_by('name'))
+        cache.set('perspectives_list_full_v1', perspectives_list, CACHE_TIMES['genres_list'])
+
+    # Получаем все режимы игры
+    game_modes_list = cache.get('game_modes_list_full_v1')
+    if not game_modes_list:
+        game_modes_list = list(GameMode.objects.all().only('id', 'name').order_by('name'))
+        cache.set('game_modes_list_full_v1', game_modes_list, CACHE_TIMES['genres_list'])
 
     # 9. Минимальный контекст для скорости
     context = {
@@ -584,12 +608,18 @@ def game_list(request: HttpRequest) -> HttpResponse:
         # ДОБАВЛЯЕМ: словарь схожестей в контекст
         'similarity_map': mode_result.get('similarity_map', {}),
 
-        'genres': genres_list,
+        # ВАЖНОЕ ИСПРАВЛЕНИЕ: Используем полные списки для чекбоксов
+        'genres': genres_list,  # ВСЕ жанры
+        'themes': themes_list,  # ВСЕ темы
+        'perspectives': perspectives_list,  # ВСЕ перспективы
+        'game_modes': game_modes_list,  # ВСЕ режимы игры
+
+        # ВСЕ ключевые слова (для чекбоксов)
+        'keywords': filter_data['keywords'],  # ВСЕ ключевые слова
+
+        # Платформы и популярные ключевые слова (для отображения вверху)
         'platforms': filter_data['platforms'],
-        'themes': filter_data['themes'],
-        'perspectives': filter_data['perspectives'],
-        'game_modes': filter_data['game_modes'],
-        'popular_keywords': filter_data['popular_keywords'],
+        'popular_keywords': filter_data['popular_keywords'],  # Для бейджей или другого отображения
         'game_types': GameTypeEnum.CHOICES,
 
         # Диапазон годов
@@ -625,6 +655,8 @@ def game_list(request: HttpRequest) -> HttpResponse:
             'genre_count': len(selected_criteria['genres']),
             'has_keywords': bool(selected_criteria['keywords']),
             'keyword_count': len(selected_criteria['keywords']),
+            'keywords_total': len(filter_data['keywords']),  # Добавляем для отладки
+            'popular_keywords_total': len(filter_data['popular_keywords']),  # Добавляем для отладки
             'has_themes': bool(selected_criteria['themes']),
             'theme_count': len(selected_criteria['themes']),
             'has_perspectives': bool(selected_criteria['perspectives']),
@@ -633,6 +665,10 @@ def game_list(request: HttpRequest) -> HttpResponse:
             'game_mode_count': len(selected_criteria['game_modes']),
             'find_similar_param': find_similar,
             'has_source_game': bool(source_game_obj),
+            'genres_total': len(genres_list),
+            'themes_total': len(themes_list),
+            'perspectives_total': len(perspectives_list),
+            'game_modes_total': len(game_modes_list),
         }
     }
 
@@ -1930,29 +1966,41 @@ def handle_regular_mode(
 
 def _get_cached_filter_data() -> Dict[str, List]:
     """Получаем кэшированные данные для всех фильтров."""
-    filter_data = cache.get('optimized_filter_data_v4')  # Увеличиваем версию кэша
+    filter_data = cache.get('optimized_filter_data_v5')  # Увеличиваем версию кэша
 
     if not filter_data:
+        # Получаем ВСЕ данные, не только популярные
         filter_data = {
+            # Платформы - с количеством игр для сортировки
             'platforms': list(Platform.objects.annotate(
                 game_count=Count('game', distinct=True)
             ).filter(game_count__gt=0).only('id', 'name', 'slug')
                               .order_by('-game_count', 'name')),
 
+            # Ключевые слова - все, а не только популярные
+            'keywords': list(Keyword.objects.all()
+                             .select_related('category').only(
+                'id', 'name', 'category__id', 'category__name'
+            ).order_by('name')[:200]),  # Ограничиваем для производительности
+
+            # Популярные ключевые слова для отображения вверху
             'popular_keywords': list(Keyword.objects.filter(
                 cached_usage_count__gt=0
             ).select_related('category').only(
                 'id', 'name', 'category__id', 'category__name', 'cached_usage_count'
             ).order_by('-cached_usage_count')[:50]),
 
+            # ВСЕ режимы игры
             'game_modes': list(GameMode.objects.annotate(
                 game_count=Count('game', distinct=True)
             ).filter(game_count__gt=0).only('id', 'name').order_by('name')),
 
+            # ВСЕ темы
             'themes': list(Theme.objects.annotate(
                 game_count=Count('game', distinct=True)
             ).filter(game_count__gt=0).only('id', 'name').order_by('name')),
 
+            # ВСЕ перспективы
             'perspectives': list(PlayerPerspective.objects.annotate(
                 game_count=Count('game', distinct=True)
             ).filter(game_count__gt=0).only('id', 'name').order_by('name')),
@@ -1961,7 +2009,7 @@ def _get_cached_filter_data() -> Dict[str, List]:
                 developed_game_count=Count('developed_games', distinct=True)
             ).filter(developed_game_count__gt=0).only('id', 'name').order_by('name')),
         }
-        cache.set('optimized_filter_data_v4', filter_data, 7200)  # 2 часа кэша
+        cache.set('optimized_filter_data_v5', filter_data, 7200)  # 2 часа кэша
 
     return filter_data
 
