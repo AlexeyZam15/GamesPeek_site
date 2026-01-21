@@ -77,20 +77,16 @@ class TopProgressBar(BaseProgressBar):
             return True
 
     def update(self, total_games=None, total_loaded=None, current_iteration=None,
-               iterations_without_new=None):
-        """Обновляет прогресс"""
+               iterations_without_new=None, updated_count=0, failed_count=0, skipped_count=0):
+        """Обновляет прогресс со статистикой"""
         if total_games is not None:
             self.total_games = total_games
         if total_loaded is not None:
             self.total_loaded = total_loaded
-        if current_iteration is not None:
-            self.current_iteration = current_iteration
-        if iterations_without_new is not None:
-            self.iterations_without_new = iterations_without_new
 
-        self._display()
+        self._display(updated_count, failed_count, skipped_count)
 
-    def _display(self):
+    def _display(self, updated_count=0, failed_count=0, skipped_count=0):
         """Отображает прогресс вверху терминала"""
         if not self.is_tty:
             return
@@ -108,16 +104,26 @@ class TopProgressBar(BaseProgressBar):
         if self.total_games > 0:
             percentage = (self.total_loaded / self.total_games * 100) if self.total_games > 0 else 0
             progress_bar = self._create_progress_bar(percentage, 30)
+
+            # Основная строка прогресса
             progress_text = f"📊 Прогресс: {self.total_loaded}/{self.total_games} ({percentage:.1f}%) {progress_bar}"
+
+            # Статистика обновлений
+            stats_text = f" | ✅ {updated_count} | ❌ {failed_count} | ⏭️  {skipped_count}"
+
+            # Итерации (если есть)
+            if hasattr(self, 'iterations_without_new') and self.iterations_without_new > 0:
+                stats_text += f" | 🚫 {self.iterations_without_new}"
+
+            if hasattr(self, 'current_iteration') and self.current_iteration > 0:
+                stats_text += f" | 🔄 {self.current_iteration}"
+
+            progress_text += stats_text
         else:
+            # Если нет общего количества
             progress_text = f"📊 Загружено: {self.total_loaded} игр"
-
-        # Добавляем информацию об итерациях
-        if self.iterations_without_new > 0:
-            progress_text += f" | 🚫 Итераций без новых игр: {self.iterations_without_new}"
-
-        if self.current_iteration > 0:
-            progress_text += f" | 🔄 Итерация: {self.current_iteration}"
+            if updated_count > 0 or failed_count > 0 or skipped_count > 0:
+                progress_text += f" | ✅ {updated_count} | ❌ {failed_count} | ⏭️  {skipped_count}"
 
         # Выводим прогресс
         sys.stdout.write(progress_text)
@@ -131,17 +137,6 @@ class TopProgressBar(BaseProgressBar):
         filled = int(width * percentage / 100)
         bar = '█' * filled + '░' * (width - filled)
         return f"[{bar}]"
-
-    def clear(self):
-        """Очищает прогресс-бар"""
-        if not self.is_tty:
-            return
-
-        sys.stdout.write('\x1b[s')
-        sys.stdout.write('\x1b[1;1H')
-        sys.stdout.write('\x1b[2K')
-        sys.stdout.write('\x1b[u')
-        sys.stdout.flush()
 
     def final_message(self, message):
         """Выводит финальное сообщение"""
@@ -164,44 +159,61 @@ class SimpleProgressBar(BaseProgressBar):
     def __init__(self, stdout, total_games=0, total_loaded=0):
         super().__init__(stdout, total_games, total_loaded)
         self.last_update_time = time.time()
-        self.update_interval = 5
+        self.update_interval = 2  # Чаще обновляем
+        self.last_printed_length = 0
 
     def update(self, total_games=None, total_loaded=None, current_iteration=None,
-               iterations_without_new=None):
+               iterations_without_new=None, updated_count=0, failed_count=0, skipped_count=0):
         """Обновляет прогресс"""
         if total_games is not None:
             self.total_games = total_games
         if total_loaded is not None:
             self.total_loaded = total_loaded
-        if current_iteration is not None:
-            self.current_iteration = current_iteration
-        if iterations_without_new is not None:
-            self.iterations_without_new = iterations_without_new
 
         # Обновляем только каждые N секунд
         current_time = time.time()
         if current_time - self.last_update_time >= self.update_interval:
-            self._display()
+            self._display(updated_count, failed_count, skipped_count)
             self.last_update_time = current_time
 
-    def _display(self):
-        """Отображает прогресс"""
+    def _display(self, updated_count=0, failed_count=0, skipped_count=0):
+        """Отображает прогресс в одной строке"""
+        # Очищаем предыдущую строку
+        if hasattr(self, 'last_printed_length') and self.last_printed_length > 0:
+            sys.stdout.write('\r' + ' ' * self.last_printed_length + '\r')
+
         if self.total_games > 0:
             percentage = (self.total_loaded / self.total_games * 100) if self.total_games > 0 else 0
-            progress_text = f"\n📊 Прогресс: {self.total_loaded}/{self.total_games} ({percentage:.1f}%)"
+
+            # Формируем строку
+            progress_text = f"📊 {self.total_loaded}/{self.total_games} ({percentage:.1f}%)"
+            progress_text += f" | ✅ {updated_count} | ❌ {failed_count} | ⏭️  {skipped_count}"
+
+            # Итерации если есть
+            if hasattr(self, 'iterations_without_new') and self.iterations_without_new > 0:
+                progress_text += f" | 🚫 {self.iterations_without_new}"
+
+            if hasattr(self, 'current_iteration') and self.current_iteration > 0:
+                progress_text += f" | 🔄 {self.current_iteration}"
         else:
-            progress_text = f"\n📊 Загружено: {self.total_loaded} игр"
+            progress_text = f"📊 {self.total_loaded} игр"
+            if updated_count > 0 or failed_count > 0 or skipped_count > 0:
+                progress_text += f" | ✅ {updated_count} | ❌ {failed_count} | ⏭️  {skipped_count}"
 
-        # Добавляем информацию об итерациях
-        if self.iterations_without_new > 0:
-            progress_text += f" | 🚫 Итераций без новых игр: {self.iterations_without_new}"
+        # Сохраняем длину для следующей очистки
+        self.last_printed_length = len(progress_text)
 
-        if self.current_iteration > 0:
-            progress_text += f" | 🔄 Итерация: {self.current_iteration}"
+        # Выводим без перевода строки
+        sys.stdout.write('\r' + progress_text)
+        sys.stdout.flush()
 
-        # Выводим прогресс
-        self.stdout.write(progress_text)
-        self.stdout.flush()
+    def final_message(self, message):
+        """Выводит финальное сообщение"""
+        # Очищаем прогресс-бар
+        if hasattr(self, 'last_printed_length') and self.last_printed_length > 0:
+            sys.stdout.write('\r' + ' ' * self.last_printed_length + '\r')
+
+        self.stdout.write('\n' + message + '\n')
 
 
 class BaseGamesCommand(BaseCommand):

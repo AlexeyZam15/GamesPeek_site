@@ -41,9 +41,74 @@ class DataCollector:
         self.stdout = stdout
         self.stderr = stderr
 
+    def _load_single_game_by_exact_name_for_update(self, where_clause, debug=False, skip_existing=True,
+                                                   count_only=False):
+        """Загружает САМУЮ ПОПУЛЯРНУЮ игру по точному имени - ВСЕГДА возвращает найденную игру"""
+        # Загружаем существующие ID игр для фильтрации
+        from games.models import Game
+        existing_game_ids = set()
+        if skip_existing:
+            existing_game_ids = set(Game.objects.values_list('igdb_id', flat=True))
+            if debug:
+                self.stdout.write(f'   📊 Игр в базе для фильтрации: {len(existing_game_ids)}')
+
+        try:
+            if debug:
+                self.stdout.write(f'   🎯 Запрос самой популярной игры...')
+
+            # ЗАПРОС ДОЛЖЕН ВКЛЮЧАТЬ screenshots!
+            query = f'''
+                fields id,name,summary,storyline,genres,keywords,rating,rating_count,first_release_date,platforms,cover,game_type,screenshots;
+                where {where_clause};
+                sort rating_count desc;
+                limit 1;
+            '''.strip()
+
+            games = make_igdb_request('games', query, debug=False)
+
+            if not games:
+                if debug:
+                    self.stdout.write('   ❌ Игра с таким названием не найдена')
+                return self._empty_result()
+
+            game = games[0]
+            game_id = game.get('id')
+
+            if debug:
+                self.stdout.write(
+                    f'   ✅ Найдена игра: "{game.get("name")}" (ID: {game_id}, rating_count: {game.get("rating_count", 0)})')
+                if game.get('screenshots'):
+                    self.stdout.write(f'   📸 Скриншотов у игры: {len(game.get("screenshots", []))}')
+
+            # ВАЖНОЕ ИЗМЕНЕНИЕ: В режиме обновления мы ВСЕГДА возвращаем найденную игру
+            # но отмечаем, существует ли она уже в базе
+            game_exists = game_id in existing_game_ids
+
+            if game_exists:
+                if debug:
+                    self.stdout.write(f'   ⏭️  Игра уже есть в базе, но будет использована для обновления')
+
+            # ВОЗВРАЩАЕМ ВСЕГДА игру, даже если она уже есть в базе
+            return {
+                'new_games': [] if game_exists and skip_existing else [game],
+                'all_found_games': [game],  # ВАЖНО: возвращаем ВСЕ найденные игры
+                'total_games_checked': 1,
+                'new_games_count': 0 if game_exists and skip_existing else 1,
+                'existing_games_skipped': 1 if game_exists else 0,
+                'last_checked_offset': 0,
+                'limit_reached': False,
+                'limit_reached_at_offset': None,
+                'interrupted': False,
+            }
+
+        except Exception as e:
+            if debug:
+                self.stderr.write(f'   ❌ Ошибка при запросе игры: {str(e)}')
+            return self._empty_result()
+
     def load_games_by_names(self, game_names_str, debug=False, limit=0, offset=0, min_rating_count=0,
                             skip_existing=True, count_only=False, game_types_str='0,1,2,4,5,8,9,10,11'):
-        """Загрузка САМОЙ ПОПУЛЯРНОЙ игры по точному названию"""
+        """Загрузка САМОЙ ПОПУЛЯРНОЙ игры по точному названию - ВСЕГДА возвращает найденную игру"""
         game_names = [name.strip() for name in game_names_str.split(',') if name.strip()]
 
         if not game_names:
@@ -54,7 +119,6 @@ class DataCollector:
             self.stdout.write(f'🔍 Поиск САМОЙ ПОПУЛЯРНОЙ игры по имени: "{game_names[0]}"')
 
         # Формируем условие для поиска игры по ТОЧНОМУ названию (без wildcard)
-        # Используем точное сравнение name = "..." вместо name ~ *"..."*
         where_clause = f'name = "{game_names[0]}"'
 
         if min_rating_count > 0:
@@ -74,7 +138,7 @@ class DataCollector:
             self.stdout.write(f'🎯 Условие поиска (точное название): {where_clause}')
 
         # Вместо load_games_by_query используем прямой запрос за ОДНОЙ игрой
-        return self._load_single_game_by_exact_name(where_clause, debug, skip_existing, count_only)
+        return self._load_single_game_by_exact_name_for_update(where_clause, debug, skip_existing, count_only)
 
     def _load_single_game_by_exact_name(self, where_clause, debug=False, skip_existing=True, count_only=False):
         """Загружает САМУЮ ПОПУЛЯРНУЮ игру по точному имени С СОБИРАНИЕМ ID СКРИНШОТОВ"""

@@ -21,107 +21,139 @@ class GameLoader:
         self.max_consecutive_no_new_games = 3
         self.debug_mode = False
 
-    def _get_saved_offset(self, options):
-        """Получает сохраненный offset для текущих параметров"""
-        params = self._get_offset_params(options)
-        return OffsetManager.load_offset(params)
+    def update_all_games_missing_data(self, options, debug=False):
+        """Обновляет недостающие данные для всех игр в базе"""
+        from games.models import Game
 
-    def _save_offset_for_continuation(self, options, current_offset):
-        """Сохраняет offset для продолжения"""
-        params = self._get_offset_params(options)
-        saved = OffsetManager.save_offset(params, current_offset)
+        # Получаем все игры из базы
+        all_games = Game.objects.all().order_by('-rating_count')
+        total_games = all_games.count()
 
-        if saved and options.get('debug', False):
-            self.stdout.write(f'   💾 Сохранен offset для параметров: {current_offset}')
+        if total_games == 0:
+            self.stdout.write('❌ В базе нет игр для обновления')
+            return 0, []
 
-        return saved
+        # Создаем прогресс-бар
+        progress_bar = self._create_progress_bar()
+        progress_bar.total_games = total_games
 
-    def _handle_reset_offset(self, options, debug):
-        """Обрабатывает сброс сохраненного offset"""
-        params = self._get_offset_params(options)
-        cleared = OffsetManager.clear_offset(params)
+        # Инициализируем статистику
+        updated_count = 0
+        failed_count = 0
+        skipped_count = 0
+        update_details = []
+        start_time = time.time()
 
-        if cleared:
-            self.stdout.write('🔄 Сброшен сохраненный offset для текущих параметров')
-        else:
-            self.stdout.write('⚠️  Не удалось сбросить offset или offset не существует')
-
-    def _get_offset_params(self, options):
-        """Получает параметры для создания ключа offset"""
-        # ВСЕГДА в одном порядке для одинаковых параметров
-        return {
-            'game_modes': options.get('game_modes', ''),
-            'game_names': options.get('game_names', ''),
-            'genres': options.get('genres', ''),
-            'description_contains': options.get('description_contains', ''),
-            'keywords': options.get('keywords', ''),
-            'game_types': options.get('game_types', ''),
-            'min_rating_count': options.get('min_rating_count', 0),
-            'mode': self._get_loading_mode(options),
-        }
-
-    def load_games_by_game_mode(self, game_mode_name, debug=False, limit=0, offset=0, min_rating_count=0,
-                                skip_existing=True, count_only=False, game_types_str='0,1,2,4,5,8,9,10,11'):
-        """Загрузка игр по режиму игры (например, Battle Royale)"""
-        collector = DataCollector(self.stdout, self.stderr)
-
-        if debug:
-            self.stdout.write(f'🔍 Поиск режима игры: "{game_mode_name}"')
-
-        # Получаем ID режима игры по имени
-        query = f'fields id,name; where name = "{game_mode_name}";'
-
-        try:
-            result = make_igdb_request('game_modes', query, debug=False)
-        except Exception as e:
+        for i, game in enumerate(all_games, 1):
             if debug:
-                self.stderr.write(f'❌ Ошибка при поиске режима игры: {e}')
-            return collector._empty_result()
+                self.stdout.write(f'\n   🔄 [{i}/{total_games}] Проверка: {game.name} (ID: {game.igdb_id})')
 
-        if not result:
-            if debug:
-                self.stdout.write(f'❌ Режим игры "{game_mode_name}" не найден')
-            return collector._empty_result()
+            # Проверяем, какие данные отсутствуют
+            missing_data, missing_count = self.check_missing_game_data(game)
 
-        game_mode_id = result[0]['id']
-        found_mode_name = result[0].get('name', game_mode_name)
-
-        if debug:
-            self.stdout.write(f'✅ Режим игры "{found_mode_name}" найден: ID {game_mode_id}')
-
-        # Формируем условие для поиска игр - сразу по ID режима
-        where_conditions = [f'game_modes = ({game_mode_id})']
-
-        if min_rating_count > 0:
-            where_conditions.append(f'rating_count >= {min_rating_count}')
-        else:
-            where_conditions.append('rating_count > 0')
-
-        where_conditions.append('name != null')
-
-        # Добавляем фильтр по game_type если указаны типы
-        if game_types_str:
-            try:
-                game_types = [int(gt.strip()) for gt in game_types_str.split(',') if gt.strip()]
-                if game_types:
-                    game_types_str_query = ','.join(map(str, game_types))
-                    where_conditions.append(f'game_type = ({game_types_str_query})')
-            except ValueError:
+            if missing_count == 0:
+                skipped_count += 1
                 if debug:
-                    self.stderr.write(f'   ⚠️  Ошибка парсинга game-types: "{game_types_str}"')
+                    self.stdout.write(f'   ✅ Все данные уже есть')
+                # Обновляем прогресс-бар
+                progress_bar.update(
+                    total_loaded=i,
+                    updated_count=updated_count,
+                    failed_count=failed_count,
+                    skipped_count=skipped_count
+                )
+                continue
 
-        where_clause = ' & '.join(where_conditions)
+            if debug:
+                self.stdout.write(f'   ⚠️  Отсутствует данных: {missing_count}')
 
-        if debug:
-            self.stdout.write(f'🎯 Условие поиска: {where_clause}')
+            # Обновляем недостающие данные
+            success, details = self.update_missing_game_data(game.igdb_id, debug)
 
-        # Используем существующий метод загрузки по запросу
-        # Передаем контекст что это специфический поиск
-        return collector.load_games_by_query(
-            where_clause, debug, limit, offset,
-            skip_existing, count_only,
-            query_context={'is_specific_search': True, 'mode_id': game_mode_id}
+            if success:
+                updated_count += 1
+                update_details.append({
+                    'game_name': game.name,
+                    'game_id': game.igdb_id,
+                    'details': details
+                })
+
+                if debug:
+                    self.stdout.write(f'   ✅ Успешно обновлено')
+            else:
+                failed_count += 1
+                if debug:
+                    self.stdout.write(f'   ❌ Не удалось обновить')
+
+            # Обновляем прогресс-бар каждые 10 игр или после каждой игры в debug
+            if debug or i % 10 == 0:
+                progress_bar.update(
+                    total_loaded=i,
+                    updated_count=updated_count,
+                    failed_count=failed_count,
+                    skipped_count=skipped_count
+                )
+
+            # Пауза между играми чтобы не перегружать API
+            if i < total_games:
+                time.sleep(0.5)
+
+        total_time = time.time() - start_time
+
+        # Финальное обновление прогресс-бара
+        progress_bar.update(
+            total_loaded=total_games,
+            updated_count=updated_count,
+            failed_count=failed_count,
+            skipped_count=skipped_count
         )
+
+        # Финальное сообщение прогресс-бара
+        progress_bar.final_message(
+            f"✅ Обновлено: {updated_count} | ❌ Ошибок: {failed_count} | ⏭️  Пропущено: {skipped_count}"
+        )
+
+        # Очищаем прогресс-бар
+        progress_bar.clear()
+
+        # Выводим итоговую статистику
+        self.stdout.write(f'\n' + '=' * 60)
+        self.stdout.write(f'📊 ИТОГОВАЯ СТАТИСТИКА ОБНОВЛЕНИЯ ВСЕХ ИГР')
+        self.stdout.write('=' * 60)
+        self.stdout.write(f'🎮 Всего проверено игр: {total_games}')
+        self.stdout.write(f'✅ Успешно обновлено: {updated_count}')
+        self.stdout.write(f'❌ Не удалось обновить: {failed_count}')
+        self.stdout.write(f'⏭️  Пропущено (все данные есть): {skipped_count}')
+        self.stdout.write(f'⏱️  Общее время: {total_time:.2f}с')
+
+        if total_time > 0:
+            games_per_second = total_games / total_time
+            self.stdout.write(f'🚀 Скорость: {games_per_second:.1f} игр/сек')
+
+        if update_details:
+            self.stdout.write(f'\n🎮 ОБНОВЛЕННЫЕ ИГРЫ:')
+            self.stdout.write('─' * 40)
+
+            # Показываем только первые 10 игр в деталях
+            for detail in update_details[:10]:
+                game_name = detail['game_name']
+                details = detail['details']
+
+                updates = []
+                if details.get('updated_fields'):
+                    updates.append(f'поля: {", ".join(details["updated_fields"])}')
+                if details.get('updated_relations'):
+                    updates.append(f'связи: {", ".join(details["updated_relations"])}')
+                if details.get('screenshots_added', 0) > 0:
+                    updates.append(f'скриншотов: {details["screenshots_added"]}')
+
+                if updates:
+                    self.stdout.write(f'🎯 {game_name}: {", ".join(updates)}')
+
+            if len(update_details) > 10:
+                self.stdout.write(f'📊 ... и ещё {len(update_details) - 10} игр')
+
+        return updated_count, update_details
 
     def load_games_by_names(self, game_names_str, debug=False, limit=0, offset=0, min_rating_count=0,
                             skip_existing=True, count_only=False, game_types_str='0,1,2,4,5,8,9,10,11'):
@@ -131,465 +163,23 @@ class GameLoader:
         # Для режима game-names используем лимит 1 - только самую популярную игру
         effective_limit = 1
 
+        # ПЕРЕДАЕМ skip_existing=false если режим update-missing-data
+        # чтобы получить ВСЕ найденные игры
+        skip_for_update = skip_existing
+
+        # Если это режим обновления, не пропускаем существующие игры
+        if hasattr(self, 'current_options') and self.current_options.get('update_missing_data'):
+            skip_for_update = False
+            if debug:
+                self.stdout.write(f'   🔄 РЕЖИМ ОБНОВЛЕНИЯ: не пропускаем существующие игры')
+
         return collector.load_games_by_names(
             game_names_str, debug, effective_limit, offset, min_rating_count,
-            skip_existing, count_only, game_types_str
+            skip_for_update, count_only, game_types_str
         )
 
-    def execute_command(self, options):
-        """Основной метод выполнения команды"""
-        # Инициализация параметров
-        repeat_count = options['repeat']
-        original_offset = options['offset']
-        limit = options['limit']
-        iteration_limit = options['iteration_limit']
-        debug = options['debug']
-        overwrite = options['overwrite']
-        count_only = options['count_only']
-        clear_cache = options.get('clear_cache', False)
-        reset_offset = options.get('reset_offset', False)
-
-        # Сохраняем режим отладки
-        self.debug_mode = debug
-
-        # Очищаем кэш если нужно
-        if clear_cache:
-            self.clear_game_cache()
-
-        # Сбрасываем offset если нужно
-        if reset_offset:
-            self._handle_reset_offset(options, debug)
-
-        # Определяем режим выполнения
-        execution_mode = self._determine_execution_mode(repeat_count)
-
-        # Инициализируем прогресс-бар
-        progress_bar = self._create_progress_bar()
-
-        # Если есть общий лимит, показываем его как цель
-        if limit > 0:
-            progress_bar.total_games = limit
-            progress_bar.update()
-
-        # Выводим информацию о запуске
-        self._display_startup_info(execution_mode, iteration_limit, limit)
-
-        # Инициализация статистики
-        current_offset = original_offset
-
-        # Загружаем сохраненный offset если не указан явно
-        if original_offset == 0 and not reset_offset:
-            saved_offset = self._get_saved_offset(options)
-            if saved_offset is not None:
-                current_offset = saved_offset
-                self.stdout.write(f'📍 Начинаем с сохраненного offset: {current_offset}')
-
-        total_stats = self._initialize_total_stats(original_offset)
-
-        # Если это TTY терминал, оставляем место для прогресс-бара
-        if (hasattr(progress_bar, 'is_tty') and progress_bar.is_tty and not count_only):
-            self.stdout.write('\n' * 2)
-
-        # ОСНОВНОЙ ЦИКЛ ИТЕРАЦИЙ
-        iteration = 1
-        try:
-            while True:
-                # Выполняем одну итерацию
-                should_continue, current_offset, total_stats = self._execute_single_iteration(
-                    iteration, current_offset, total_stats, execution_mode,
-                    limit, iteration_limit, options, progress_bar
-                )
-
-                if not should_continue:
-                    break
-
-                # Пауза между итерациями
-                if iteration < execution_mode['repeat_count'] or execution_mode['infinite_mode']:
-                    pause_time = 2
-                    if self.debug_mode:
-                        self.stdout.write(f'   ⏸️  Пауза {pause_time} секунд...')
-                    time.sleep(pause_time)
-
-                iteration += 1
-
-        except KeyboardInterrupt:
-            # Глобальное прерывание команды
-            self._handle_global_interrupt(total_stats, execution_mode,
-                                          original_offset, current_offset,
-                                          limit, progress_bar)
-            if not reset_offset:
-                self._save_offset_for_continuation(options, current_offset)
-
-            # УДАЛЕНО: лишний вывод статистики
-            # if debug:
-            #     self.stdout.write(f'\n🛑 Команда прервана, статистика: {total_stats}')
-            return  # Просто выходим
-
-        except Exception as e:
-            # Обработка других исключений
-            self.stderr.write(f'\n❌ Неожиданная ошибка: {str(e)}')
-            if debug:
-                import traceback
-                self.stderr.write(f'📋 Трассировка ошибки:')
-                self.stderr.write(traceback.format_exc())
-
-            # Все равно сохраняем offset если нужно
-            if not reset_offset:
-                self._save_offset_for_continuation(options, current_offset)
-
-            # УДАЛЕНО: лишний вывод статистики
-            # if debug:
-            #     self.stdout.write(f'\n❌ Завершено с ошибкой, статистика: {total_stats}')
-            return  # Просто выходим
-
-        # ФИНАЛЬНЫЙ ЭТАП
-        self._finalize_execution(total_stats, limit, progress_bar,
-                                 execution_mode, original_offset,
-                                 current_offset, limit, overwrite)
-
-        # Итоговый статус
-        self._display_final_status(total_stats, limit)
-
-        # УДАЛЕНО: лишний вывод отладочной статистики
-        # if debug:
-        #     self.stdout.write(f'\n✅ Команда завершена успешно, статистика: {total_stats}')
-
-    def _execute_single_iteration(self, iteration, current_offset, total_stats, execution_mode,
-                                  limit, iteration_limit, options, progress_bar):
-        """Выполняет одну итерацию загрузки"""
-        # Проверяем, следует ли продолжать
-        should_continue = self._should_continue_iteration(
-            iteration, execution_mode, total_stats, limit, self.max_consecutive_no_new_games
-        )
-
-        if not should_continue:
-            return False, current_offset, total_stats
-
-        # Выводим информацию о текущей итерации
-        if execution_mode['repeat_count'] > 1 or execution_mode['infinite_mode']:
-            self.stdout.write(f'\n🌀 ИТЕРАЦИЯ {iteration}')
-            if execution_mode['infinite_mode']:
-                self.stdout.write(
-                    f'🌀 (бесконечный режим, итераций без новых игр: {total_stats["iterations_with_no_new_games"]}/{self.max_consecutive_no_new_games})')
-            self.stdout.write('=' * 40)
-
-            if current_offset > options['offset']:
-                self.stdout.write(f'📊 Начинаем с offset: {current_offset}')
-
-        # Рассчитываем лимит для этой итерации
-        iteration_limit_actual, can_continue = self._calculate_iteration_limit(
-            limit, iteration_limit, total_stats
-        )
-
-        if not can_continue or iteration_limit_actual <= 0:
-            self.stdout.write(f'\n✅ ДОСТИГНУТ ОБЩИЙ ЛИМИТ: {limit} игр загружено')
-            return False, current_offset, total_stats
-
-        self.stdout.write(f'🎯 Цель итерации: найти {iteration_limit_actual} новых игр')
-        if limit > 0:
-            remaining_limit = limit - total_stats['total_games_created']
-            self.stdout.write(f'   (осталось до лимита: {remaining_limit})')
-
-        try:
-            # Выполняем итерацию
-            iteration_result = self.handle_single_iteration(
-                iteration=iteration,
-                current_offset=current_offset,
-                iteration_limit_actual=iteration_limit_actual,
-                options=options
-            )
-
-            if iteration_result.get('success', True):
-                # Обновляем общую статистику
-                current_offset = self._update_total_stats(
-                    total_stats, iteration_result, iteration,
-                    current_offset, execution_mode, progress_bar
-                )
-            else:
-                # Если итерация не вернула результат
-                if self.debug_mode:
-                    self.stdout.write(f'   ⚠️  Итерация {iteration} не вернула результат')
-                total_stats['iterations'] += 1
-                total_stats['iterations_with_no_new_games'] += 1
-
-                # Обновляем прогресс-бар
-                if progress_bar:
-                    progress_bar.update(
-                        total_loaded=total_stats['total_games_created'],
-                        current_iteration=iteration,
-                        iterations_without_new=total_stats['iterations_with_no_new_games']
-                    )
-
-        except KeyboardInterrupt:
-            raise
-        except Exception as e:
-            self._handle_iteration_error(e, iteration, execution_mode, total_stats, progress_bar)
-
-        return True, current_offset, total_stats
-
-    def handle_single_iteration(self, iteration, current_offset, iteration_limit_actual, options):
-        """Обработка одной итерации команды"""
-        # Подготовка параметров
-        params = self._get_execution_parameters(options)
-
-        # Информация об итерации
-        iteration_info = {
-            'iteration_number': iteration,
-            'repeat_count': options.get('repeat', 1),
-            'iteration_offset': current_offset,
-            'iteration_limit_actual': iteration_limit_actual,
-        }
-
-        # Отображение заголовка
-        self.stdout.write('🎮 ЗАГРУЗКА ИГР ИЗ IGDB')
-        self.stdout.write('=' * 60)
-
-        # Определяем тип загрузки
-        self._display_loading_type(params)
-
-        # Информация об итерации
-        self._display_iteration_info(params, iteration_info)
-
-        # Используем offset и limit для этой конкретной итерации
-        actual_offset = current_offset
-        actual_limit = iteration_limit_actual
-
-        # Определение режимов
-        skip_existing = self._determine_skip_mode(params)
-        debug = params['debug']
-        errors = 0
-        iteration_start_time = time.time()
-
-        # Загрузка игр
-        result = self._load_games_for_iteration(params, actual_limit, actual_offset, skip_existing, debug)
-
-        # Обработка результатов загрузки
-        if result is None:
-            return self._handle_failed_loading(iteration_start_time, errors, actual_offset)
-
-        # Проверка наличия игр
-        if not result.get('new_games'):
-            return self._handle_empty_results(result, errors, params, actual_offset, iteration_start_time)
-
-        # Обработка режима count-only
-        if params['count_only']:
-            return self._handle_count_only_mode(result, errors, iteration_start_time, actual_offset)
-
-        # Обработка данных игр
-        result_stats, errors = self._process_game_data_for_iteration(
-            result, params, iteration_start_time, errors
-        )
-
-        # Подготовка финальной статистики
-        final_stats = self._prepare_final_iteration_stats(
-            result, result_stats, actual_offset, actual_limit,
-            errors, iteration_info, params, iteration_start_time
-        )
-
-        # Отображение статистики итерации
-        return self._display_iteration_statistics_complete(
-            final_stats, result, actual_offset, actual_limit,
-            params, iteration_info, errors, result_stats
-        )
-
-    def _display_loading_type(self, params):
-        """Отображает тип загрузки"""
-        game_modes_str = params.get('game_modes_str', '')  # НОВОЕ
-        game_names_str = params.get('game_names_str', '')
-        genres_str = params['genres_str']
-        description_contains = params['description_contains']
-        keywords_str = params['keywords_str']
-        game_types_str = params['game_types_str']
-
-        if params['count_only']:
-            self.stdout.write('🔢 РЕЖИМ: ПОДСЧЕТ НОВЫХ ИГР (которых нет в базе)')
-            self.stdout.write('⚠️  Игры не будут сохранены в базу данных!')
-
-        # НОВАЯ ВЕТКА: поиск по режимам игры (ВЫСШИЙ ПРИОРИТЕТ)
-        if game_modes_str:
-            mode_list = [m.strip() for m in game_modes_str.split(',') if m.strip()]
-            if mode_list:
-                self.stdout.write(f'🎮 РЕЖИМ: Игры с режимом: "{mode_list[0]}"')
-                self.stdout.write(f'   🔍 Поиск самых популярных игр с указанным режимом')
-
-                if len(mode_list) > 1:
-                    self.stdout.write(
-                        f'   ⚠️  Указано {len(mode_list)} режимов, используется только первый: "{mode_list[0]}"')
-
-    def _display_iteration_info(self, params, iteration_info):
-        """Отображает информацию об итерации"""
-        game_names_str = params.get('game_names_str', '')
-        game_types_str = params['game_types_str']
-        iteration_number = iteration_info['iteration_number']
-        repeat_count = iteration_info['repeat_count']
-        actual_limit = iteration_info['iteration_limit_actual']
-        actual_offset = iteration_info['iteration_offset']
-
-        # Показываем информацию о типах игр
-        if game_types_str:
-            try:
-                game_types = [int(gt.strip()) for gt in game_types_str.split(',') if gt.strip()]
-                self.stdout.write(f'🎮 ФИЛЬТР ПО ТИПАМ ИГР: {game_types}')
-            except ValueError:
-                self.stderr.write(f'   ⚠️  Ошибка парсинга game-types: "{game_types_str}"')
-
-        # Специальное сообщение для режима поиска по имени
-        if game_names_str:
-            name_list = [n.strip() for n in game_names_str.split(',') if n.strip()]
-            if name_list:
-                self.stdout.write(f'🔎 Будет загружена САМАЯ ПОПУЛЯРНАЯ игра с названием: "{name_list[0]}"')
-        elif repeat_count > 1:
-            self.stdout.write(f'🔄 Итерация {iteration_number}/{repeat_count}')
-
-        # Для режима поиска по имени показываем специальный лимит
-        if game_names_str:
-            self.stdout.write(f'📊 ЛИМИТ: 1 игра (самая популярная с указанным названием)')
-        elif actual_limit > 0:
-            self.stdout.write(f'📊 ЛИМИТ ИТЕРАЦИИ: {actual_limit} НОВЫХ игр')
-        else:
-            self.stdout.write(f'📊 ИТЕРАЦИЯ: загрузка без лимита')
-
-        if actual_offset > 0:
-            self.stdout.write(f'⏭️  OFFSET: начинаем с позиции {actual_offset} в результатах поиска')
-
-        if params['min_rating_count'] > 0:
-            self.stdout.write(f'⭐ ФИЛЬТР: игры с не менее {params["min_rating_count"]} оценками')
-
-        if params['overwrite'] and not params['count_only']:
-            self.stdout.write('🔄 OVERWRITE: найденные игры будут удалены и загружены заново')
-
-        if params['count_only'] and params['overwrite']:
-            self.stdout.write('⚠️  Overwrite игнорируется в режиме count-only')
-
-        if params['debug']:
-            self.stdout.write('🐛 РЕЖИМ ОТЛАДКИ ВКЛЮЧЕН')
-            self.stdout.write('-' * 40)
-
-    def _determine_skip_mode(self, params):
-        """Определяет режим пропуска существующих игр"""
-        if params['overwrite']:
-            return False
-        else:
-            return True
-
-    def _load_games_for_iteration(self, params, actual_limit, actual_offset, skip_existing, debug):
-        """Загружает игры для итерации"""
-        try:
-            # НОВАЯ ВЕТКА: поиск по режимам игры (ВЫСШИЙ ПРИОРИТЕТ)
-            if params.get('game_modes_str'):
-                return self.load_games_by_game_mode(
-                    params['game_modes_str'], debug, actual_limit, actual_offset,
-                    params['min_rating_count'], skip_existing, params['count_only'], params['game_types_str']
-                )
-            # Поиск по именам игр
-            elif params.get('game_names_str'):
-                return self.load_games_by_names(
-                    params['game_names_str'], debug, actual_limit, actual_offset,
-                    params['min_rating_count'], skip_existing, params['count_only'], params['game_types_str']
-                )
-            elif params['genres_str'] and params['description_contains']:
-                return self.load_games_by_genres_and_description(
-                    params['genres_str'], params['description_contains'], debug, actual_limit, actual_offset,
-                    params['min_rating_count'], skip_existing, params['count_only'], params['game_types_str']
-                )
-            elif params['genres_str']:
-                return self.load_games_by_genres(
-                    params['genres_str'], debug, actual_limit, actual_offset,
-                    params['min_rating_count'], skip_existing, params['count_only'], params['game_types_str']
-                )
-            elif params['description_contains']:
-                return self.load_games_by_description(
-                    params['description_contains'], debug, actual_limit, actual_offset,
-                    params['min_rating_count'], skip_existing, params['count_only'], params['game_types_str']
-                )
-            elif params['keywords_str']:
-                return self.load_games_by_keywords(
-                    params['keywords_str'], debug, actual_limit, actual_offset,
-                    params['min_rating_count'], skip_existing, params['count_only'], params['game_types_str']
-                )
-            else:
-                return self.load_all_popular_games(
-                    debug, actual_limit, actual_offset, params['min_rating_count'],
-                    skip_existing, params['count_only'], params['game_types_str']
-                )
-        except Exception as e:
-            self.stderr.write(f'❌ ОШИБКА при загрузке игр: {str(e)}')
-            if debug:
-                import traceback
-                self.stderr.write(f'📋 Трассировка ошибки:')
-                self.stderr.write(traceback.format_exc())
-            return None
-
-    def _handle_failed_loading(self, iteration_start_time, errors, actual_offset):
-        """Обрабатывает неудачную загрузку"""
-        iteration_time = time.time() - iteration_start_time
-        self.stdout.write('❌ Ошибка при загрузке игр, результат None')
-
-        return {
-            'total_games_found': 0,
-            'total_games_checked': 0,
-            'created_count': 0,
-            'skipped_count': 0,
-            'total_time': iteration_time,
-            'errors': errors,
-            'last_checked_offset': actual_offset,
-            'limit_reached': False,
-            'limit_reached_at_offset': None,
-        }
-
-    def _handle_empty_results(self, result, errors, params, actual_offset, iteration_start_time):
-        """Обрабатывает пустые результаты"""
-        iteration_time = time.time() - iteration_start_time
-
-        if result and result.get('total_games_checked', 0) > 0:
-            if params['overwrite']:
-                self.stdout.write(f'ℹ️  Найдено {result.get("total_games_checked", 0)} игр для перезаписи')
-            else:
-                self.stdout.write(
-                    f'❌ Найдено {result.get("total_games_checked", 0)} игр, но все они уже есть в базе')
-        else:
-            if errors == 0:
-                self.stdout.write('❌ Не найдено игр для загрузки')
-
-        last_checked = result.get('last_checked_offset', actual_offset) if result else actual_offset
-
-        return {
-            'total_games_found': 0,
-            'total_games_checked': result.get('total_games_checked', 0) if result else 0,
-            'created_count': 0,
-            'skipped_count': result.get('existing_games_skipped', 0) if result else 0,
-            'total_time': iteration_time,
-            'errors': errors,
-            'last_checked_offset': last_checked,
-            'limit_reached': result.get('limit_reached', False) if result else False,
-            'limit_reached_at_offset': result.get('limit_reached_at_offset'),
-        }
-
-    def _handle_count_only_mode(self, result, errors, iteration_start_time, actual_offset):
-        """Обрабатывает режим только подсчета"""
-        iteration_time = time.time() - iteration_start_time
-
-        self.stdout.write('\n' + '=' * 60)
-        self.stdout.write('✅ ПОДСЧЕТ ЗАВЕРШЕН!')
-        self.stdout.write(f'🎮 Игр можно загрузить (которых нет в базе): {result["new_games_count"]}')
-
-        if errors > 0:
-            self.stdout.write(f'❌ Ошибок при подсчете: {errors}')
-
-        return {
-            'total_games_found': result['new_games_count'],
-            'total_games_checked': result['total_games_checked'],
-            'created_count': 0,
-            'skipped_count': result['existing_games_skipped'],
-            'total_time': iteration_time,
-            'errors': errors,
-            'last_checked_offset': result.get('last_checked_offset', actual_offset),
-            'limit_reached': result.get('limit_reached', False),
-            'limit_reached_at_offset': result.get('limit_reached_at_offset'),
-        }
-
-    def _process_game_data_for_iteration(self, result, params, iteration_start_time, errors):
-        """Обрабатывает данные игр для итерации"""
+    def _process_standard_game_data(self, result, params, iteration_start_time, errors):
+        """Обрабатывает стандартную загрузку игр (не update-missing-data)"""
         # Обработка режима перезаписи
         if params['overwrite'] and result['new_games']:
             try:
@@ -602,7 +192,30 @@ class GameLoader:
                     self.stderr.write(f'📋 Трассировка ошибки:')
                     self.stderr.write(traceback.format_exc())
 
-        # Обработка данных
+        # Обработка режима только подсчета
+        if params['count_only']:
+            iteration_time = time.time() - iteration_start_time
+
+            self.stdout.write('\n' + '=' * 60)
+            self.stdout.write('✅ ПОДСЧЕТ ЗАВЕРШЕН!')
+            self.stdout.write(f'🎮 Игр можно загрузить (которых нет в базе): {result["new_games_count"]}')
+
+            if errors > 0:
+                self.stdout.write(f'❌ Ошибок при подсчете: {errors}')
+
+            return {
+                'total_games_found': result['new_games_count'],
+                'total_games_checked': result['total_games_checked'],
+                'created_count': 0,
+                'skipped_count': result['existing_games_skipped'],
+                'total_time': iteration_time,
+                'errors': errors,
+                'last_checked_offset': result.get('last_checked_offset', 0),
+                'limit_reached': result.get('limit_reached', False),
+                'limit_reached_at_offset': result.get('limit_reached_at_offset'),
+            }
+
+        # Обработка данных (стандартная загрузка)
         result_stats = None
         try:
             # Создаем экземпляры классов для обработки данных
@@ -825,6 +438,1048 @@ class GameLoader:
 
         return result_stats, errors
 
+    def _update_existing_game_data(self, result, params, iteration_start_time, errors):
+        """Обновляет данные существующих игр (для режима --update-missing-data)"""
+        try:
+            updated_count = 0
+            failed_count = 0
+            update_details = []  # Детали обновлений
+
+            # В режиме update-missing-data мы используем все найденные игры
+            games_to_process = []
+
+            if result.get('all_found_games'):
+                games_to_process = result['all_found_games']
+                if params['debug']:
+                    self.stdout.write(f'   📥 Используем all_found_games: {len(games_to_process)} игр')
+            elif result.get('new_games'):
+                games_to_process = result['new_games']
+                if params['debug']:
+                    self.stdout.write(f'   📥 Используем new_games: {len(games_to_process)} игр')
+            else:
+                if params['debug']:
+                    self.stdout.write(f'   ⚠️  Нет игр для обработки')
+                games_to_process = []
+
+            if params['debug']:
+                self.stdout.write(f'\n🔄 ОБНОВЛЕНИЕ ДАННЫХ ДЛЯ СУЩЕСТВУЮЩИХ ИГР')
+                self.stdout.write(f'   • Всего найдено игр для обработки: {len(games_to_process)}')
+
+            for i, game_data in enumerate(games_to_process, 1):
+                game_id = game_data.get('id')
+                game_name = game_data.get('name', f'ID {game_id}')
+
+                if params['debug']:
+                    self.stdout.write(f'\n   🔄 [{i}/{len(games_to_process)}] Обновление: {game_name}')
+
+                if game_id:
+                    success, details = self.update_missing_game_data(game_id, params['debug'])
+                    if success:
+                        updated_count += 1
+                        update_details.append({
+                            'game_name': game_name,
+                            'game_id': game_id,
+                            'details': details
+                        })
+                        if params['debug']:
+                            self.stdout.write(f'   ✅ Успешно обновлена: {game_name}')
+                    else:
+                        failed_count += 1
+                        if params['debug']:
+                            self.stdout.write(f'   ❌ Не удалось обновить: {game_name}')
+                else:
+                    failed_count += 1
+                    if params['debug']:
+                        self.stdout.write(f'   ❌ Нет ID у игры: {game_name}')
+
+            iteration_time = time.time() - iteration_start_time
+
+            # ВЫВОД ФИНАЛЬНОЙ СТАТИСТИКИ ОБНОВЛЕНИЙ
+            self.stdout.write(f'\n' + '=' * 60)
+            self.stdout.write(f'📊 ФИНАЛЬНАЯ СТАТИСТИКА ОБНОВЛЕНИЯ ДАННЫХ')
+            self.stdout.write('=' * 60)
+            self.stdout.write(f'🔄 ОБРАБОТАНО ИГР: {len(games_to_process)}')
+            self.stdout.write(f'✅ УСПЕШНО ОБНОВЛЕНО: {updated_count}')
+            self.stdout.write(f'❌ НЕ УДАЛОСЬ ОБНОВИТЬ: {failed_count}')
+            self.stdout.write(f'⏱️  ВРЕМЯ: {iteration_time:.2f}с')
+
+            # Вывод деталей по каждой обновленной игре
+            if update_details:
+                self.stdout.write(f'\n🎮 ДЕТАЛИ ОБНОВЛЕННЫХ ИГР:')
+                self.stdout.write('─' * 40)
+
+                for detail in update_details:
+                    game_name = detail['game_name']
+                    details = detail['details']
+
+                    self.stdout.write(f'🎯 {game_name} (ID: {detail["game_id"]}):')
+
+                    if details.get('updated_fields'):
+                        self.stdout.write(f'   📝 Обновленные поля:')
+                        for field in details['updated_fields']:
+                            if field == 'cover_url':
+                                self.stdout.write(f'      • Обложка: {details.get("cover_url", "N/A")}')
+                            elif field == 'summary':
+                                self.stdout.write(f'      • Описание: {len(details.get("summary", ""))} симв.')
+                            elif field == 'rating':
+                                self.stdout.write(f'      • Рейтинг: {details.get("rating")}')
+                            elif field == 'first_release_date':
+                                self.stdout.write(f'      • Дата релиза: {details.get("release_date", "N/A")}')
+                            else:
+                                self.stdout.write(f'      • {field}')
+
+                    if details.get('updated_relations'):
+                        self.stdout.write(f'   🔗 Добавленные связи:')
+                        for relation in details['updated_relations']:
+                            self.stdout.write(f'      • {relation}')
+
+                    if details.get('screenshots_added', 0) > 0:
+                        self.stdout.write(f'   📸 Скриншотов добавлено: {details["screenshots_added"]}')
+
+                    # Показываем что осталось отсутствующим
+                    if details.get('still_missing'):
+                        self.stdout.write(f'   ⚠️  Все еще отсутствует:')
+                        for missing in details['still_missing']:
+                            self.stdout.write(f'      • {missing}')
+
+                    self.stdout.write('')
+
+            # Если не удалось обновить ни одной игры
+            if updated_count == 0 and games_to_process:
+                self.stdout.write(f'\n⚠️  НИЧЕГО НЕ ОБНОВЛЕНО! Возможные причины:')
+                self.stdout.write(f'   1. Все данные уже есть в базе')
+                self.stdout.write(f'   2. Не удалось получить данные из IGDB')
+                self.stdout.write(f'   3. Ошибки при обработке данных')
+
+            self.stdout.write('=' * 60)
+
+            return {
+                'total_games_checked': result['total_games_checked'],
+                'total_games_found': len(games_to_process),
+                'created_count': 0,
+                'skipped_count': result.get('existing_games_skipped', 0),
+                'updated_count': updated_count,
+                'update_details': update_details,  # Добавляем детали
+                'total_time': iteration_time,
+                'errors': errors + failed_count,
+                'last_checked_offset': result.get('last_checked_offset', 0),
+                'limit_reached': result.get('limit_reached', False),
+                'limit_reached_at_offset': result.get('limit_reached_at_offset'),
+            }
+
+        except Exception as e:
+            errors += 1
+            self.stderr.write(f'❌ ОШИБКА при обновлении данных: {str(e)}')
+            if params['debug']:
+                import traceback
+                self.stderr.write(f'📋 Трассировка ошибки:')
+                self.stderr.write(traceback.format_exc())
+
+            iteration_time = time.time() - iteration_start_time
+            return {
+                'total_games_checked': result['total_games_checked'],
+                'total_games_found': result.get('new_games_count', 0),
+                'created_count': 0,
+                'skipped_count': result.get('existing_games_skipped', 0),
+                'updated_count': 0,
+                'update_details': [],
+                'total_time': iteration_time,
+                'errors': errors,
+                'last_checked_offset': result.get('last_checked_offset', 0),
+                'limit_reached': result.get('limit_reached', False),
+                'limit_reached_at_offset': result.get('limit_reached_at_offset'),
+            }
+
+    def update_missing_game_data(self, game_id, debug=False):
+        """Обновляет недостающие данные для конкретной игры - возвращает (успех, детали)"""
+        from games.models import Game
+        from games.igdb_api import make_igdb_request
+
+        details = {
+            'updated_fields': [],
+            'updated_relations': [],
+            'screenshots_added': 0,
+            'still_missing': [],
+            'cover_url': None,
+            'summary': None,
+            'rating': None,
+            'release_date': None
+        }
+
+        try:
+            # Получаем игру из базы
+            game = Game.objects.filter(igdb_id=game_id).first()
+            if not game:
+                if debug:
+                    self.stdout.write(f'   ❌ Игра с ID {game_id} не найдена в базе')
+                return False, details
+
+            if debug:
+                self.stdout.write(f'\n   🔍 ПРОВЕРКА НЕДОСТАЮЩИХ ДАННЫХ ДЛЯ: {game.name} (ID: {game_id})')
+
+            # Проверяем, каких данных не хватает
+            missing_data, missing_count = self.check_missing_game_data(game)
+
+            if debug:
+                self.stdout.write(f'   📊 СТАТУС ДАННЫХ:')
+                self.stdout.write(
+                    f'      • Обложка: {"✅ ЕСТЬ" if missing_data["has_cover"] else "❌ ОТСУТСТВУЕТ"} ({game.cover_url})')
+                self.stdout.write(
+                    f'      • Скриншоты: {"✅ ЕСТЬ" if missing_data["has_screenshots"] else "❌ ОТСУТСТВУЕТ"} ({game.screenshots.count()})')
+                self.stdout.write(
+                    f'      • Жанры: {"✅ ЕСТЬ" if missing_data["has_genres"] else "❌ ОТСУТСТВУЕТ"} ({game.genres.count()})')
+                self.stdout.write(
+                    f'      • Платформы: {"✅ ЕСТЬ" if missing_data["has_platforms"] else "❌ ОТСУТСТВУЕТ"} ({game.platforms.count()})')
+                self.stdout.write(
+                    f'      • Описание: {"✅ ЕСТЬ" if missing_data["has_description"] else "❌ ОТСУТСТВУЕТ"} ({len(game.summary or "")} симв.)')
+                self.stdout.write(
+                    f'      • Рейтинг: {"✅ ЕСТЬ" if missing_data["has_rating"] else "❌ ОТСУТСТВУЕТ"} ({game.rating})')
+
+            if missing_count == 0:
+                if debug:
+                    self.stdout.write(f'   ✅ У игры "{game.name}" все данные уже есть')
+                return True, details
+
+            if debug:
+                self.stdout.write(f'   📊 Недостающих данных: {missing_count} из {len(missing_data)}')
+
+            # Загружаем данные игры из IGDB
+            query = f'''
+                fields id,name,summary,storyline,genres,keywords,rating,rating_count,
+                       first_release_date,platforms,cover,game_type,screenshots,
+                       collections,franchises,involved_companies.company,
+                       involved_companies.developer,involved_companies.publisher,
+                       themes,player_perspectives,game_modes;
+                where id = {game_id};
+            '''.strip()
+
+            games_data = make_igdb_request('games', query, debug=False)
+            if not games_data:
+                if debug:
+                    self.stdout.write(f'   ❌ Данные игры {game_id} не найдены в IGDB')
+                return False, details
+
+            game_data = games_data[0]
+
+            if debug:
+                self.stdout.write(f'   📥 ДАННЫЕ ИЗ IGDB:')
+                self.stdout.write(f'      • ID обложки в IGDB: {game_data.get("cover")}')
+                self.stdout.write(f'      • Скриншотов в IGDB: {len(game_data.get("screenshots", []))}')
+                self.stdout.write(f'      • Жанров в IGDB: {len(game_data.get("genres", []))}')
+                self.stdout.write(f'      • Платформ в IGDB: {len(game_data.get("platforms", []))}')
+
+            # Создаем экземпляры для обработки данных
+            collector = DataCollector(self.stdout, self.stderr)
+            loader = DataLoader(self.stdout, self.stderr)
+            handler = RelationsHandler(self.stdout, self.stderr)
+
+            # Собираем все ID данных
+            collected_data = collector.collect_all_data_ids([game_data], debug)
+
+            # Загружаем все типы данных
+            data_maps, step_times = loader.load_all_data_types_sequentially(
+                collected_data, debug
+            )
+
+            # 1. Обновляем обложку если отсутствует
+            if not missing_data['has_cover'] and game_data.get('cover'):
+                cover_id = game_data['cover']
+                if cover_id in data_maps.get('cover_map', {}):
+                    new_cover_url = data_maps['cover_map'][cover_id]
+                    if game.cover_url != new_cover_url:
+                        game.cover_url = new_cover_url
+                        details['updated_fields'].append('cover_url')
+                        details['cover_url'] = new_cover_url
+                        if debug:
+                            self.stdout.write(f'   🖼️  Обновлена обложка: {new_cover_url}')
+
+            # 2. Обновляем описание если отсутствует
+            if not missing_data['has_description'] and game_data.get('summary'):
+                if not game.summary or not game.summary.strip():
+                    game.summary = game_data.get('summary', '')
+                    details['updated_fields'].append('summary')
+                    details['summary'] = game.summary
+                    if debug:
+                        self.stdout.write(f'   📝 Обновлено описание ({len(game.summary)} симв.)')
+
+            # 3. Обновляем рейтинг если отсутствует
+            if not missing_data['has_rating'] and 'rating' in game_data:
+                if game.rating != game_data.get('rating'):
+                    game.rating = game_data.get('rating')
+                    details['updated_fields'].append('rating')
+                    details['rating'] = game.rating
+                    if debug:
+                        self.stdout.write(f'   ⭐ Обновлен рейтинг: {game.rating}')
+
+            # 4. Обновляем дату релиза если отсутствует
+            if not missing_data['has_release_date'] and game_data.get('first_release_date'):
+                from datetime import datetime
+                from django.utils import timezone
+                naive_datetime = datetime.fromtimestamp(game_data['first_release_date'])
+                new_date = timezone.make_aware(naive_datetime)
+                if game.first_release_date != new_date:
+                    game.first_release_date = new_date
+                    details['updated_fields'].append('first_release_date')
+                    details['release_date'] = new_date
+                    if debug:
+                        self.stdout.write(f'   📅 Обновлена дата релиза: {new_date}')
+
+            # 5. Сохраняем обновленные поля игры
+            if details['updated_fields']:
+                game.save(update_fields=details['updated_fields'])
+                if debug:
+                    self.stdout.write(f'   💾 Сохранены обновленные поля: {", ".join(details["updated_fields"])}')
+
+            # 6. Загружаем скриншоты если отсутствуют
+            if not missing_data['has_screenshots'] and game_data.get('screenshots'):
+                screenshots_info = collected_data.get('screenshots_info', {})
+                screenshots_loaded = loader.load_screenshots_parallel(
+                    [game_id], collected_data['game_data_map'],
+                    screenshots_info, debug
+                )
+                if screenshots_loaded > 0:
+                    details['screenshots_added'] = screenshots_loaded
+                    if debug:
+                        self.stdout.write(f'   📸 Загружено скриншотов: {screenshots_loaded}')
+
+            # 7. Подготавливаем связи для обновления
+            game_basic_map = {game_id: game}
+            additional_data_map = {game_id: game_data}
+
+            all_game_relations, relations_prep_time = handler.prepare_game_relations(
+                game_basic_map, collected_data['game_data_map'],
+                additional_data_map, data_maps, debug
+            )
+
+            # 8. Создаем только недостающие связи
+            if all_game_relations:
+                # Жанры
+                if not missing_data['has_genres'] and game_data.get('genres'):
+                    genre_count, platform_count, keyword_count = handler.create_relations_batch(
+                        all_game_relations, debug
+                    )
+                    if genre_count > 0:
+                        details['updated_relations'].append(f'жанры ({genre_count})')
+                    if platform_count > 0:
+                        details['updated_relations'].append(f'платформы ({platform_count})')
+                    if keyword_count > 0:
+                        details['updated_relations'].append(f'ключевые слова ({keyword_count})')
+
+                # Дополнительные связи
+                additional_results = handler.create_all_additional_relations(
+                    all_game_relations, debug
+                )
+
+                # Добавляем информацию о дополнительных связях
+                for rel_type, count in additional_results.items():
+                    if count > 0:
+                        rel_name = rel_type.replace('_relations', '').replace('_', ' ')
+                        details['updated_relations'].append(f'{rel_name} ({count})')
+
+            # 9. Проверяем что осталось отсутствующим
+            new_missing_data, new_missing_count = self.check_missing_game_data(game)
+            for data_type, has_data in new_missing_data.items():
+                if not has_data:
+                    details['still_missing'].append(data_type.replace('has_', ''))
+
+            if debug:
+                self.stdout.write(f'   ✅ Обновление завершено для игры "{game.name}"')
+
+                if details['updated_fields'] or details['updated_relations'] or details['screenshots_added'] > 0:
+                    self.stdout.write(f'   📈 ОБНОВЛЕНО:')
+                    if details['updated_fields']:
+                        self.stdout.write(f'      • Поля: {", ".join(details["updated_fields"])}')
+                    if details['updated_relations']:
+                        self.stdout.write(f'      • Связи: {", ".join(details["updated_relations"])}')
+                    if details['screenshots_added'] > 0:
+                        self.stdout.write(f'      • Скриншотов: {details["screenshots_added"]}')
+
+                if new_missing_count < missing_count:
+                    self.stdout.write(f'   📊 УЛУЧШЕНИЕ: было {missing_count} недостающих → стало {new_missing_count}')
+                else:
+                    self.stdout.write(f'   ⚠️  Недостающих данных осталось: {new_missing_count}')
+
+            return True, details
+
+        except Exception as e:
+            if debug:
+                self.stderr.write(f'   ❌ Ошибка при обновлении игры {game_id}: {str(e)}')
+                import traceback
+                self.stderr.write(f'   📋 Трассировка: {traceback.format_exc()}')
+            return False, details
+
+    def check_missing_game_data(self, game_obj):
+        """Проверяет, каких данных не хватает у игры"""
+        missing_data = {
+            'has_cover': bool(game_obj.cover_url and game_obj.cover_url.strip()),
+            'has_screenshots': game_obj.screenshots.exists(),
+            'has_genres': game_obj.genres.exists(),
+            'has_platforms': game_obj.platforms.exists(),
+            'has_keywords': game_obj.keywords.exists(),
+            'has_description': bool(game_obj.summary and game_obj.summary.strip()),
+            'has_rating': game_obj.rating is not None,
+            'has_release_date': game_obj.first_release_date is not None,
+            'has_series': game_obj.series.exists(),
+            'has_developers': game_obj.developers.exists(),
+            'has_publishers': game_obj.publishers.exists(),
+            'has_themes': game_obj.themes.exists(),
+            'has_perspectives': game_obj.player_perspectives.exists(),
+            'has_modes': game_obj.game_modes.exists(),
+        }
+
+        # Считаем, сколько данных отсутствует
+        missing_count = sum(1 for has_data in missing_data.values() if not has_data)
+
+        return missing_data, missing_count
+
+    def _get_saved_offset(self, options):
+        """Получает сохраненный offset для текущих параметров"""
+        params = self._get_offset_params(options)
+        return OffsetManager.load_offset(params)
+
+    def _save_offset_for_continuation(self, options, current_offset):
+        """Сохраняет offset для продолжения"""
+        params = self._get_offset_params(options)
+        saved = OffsetManager.save_offset(params, current_offset)
+
+        if saved and options.get('debug', False):
+            self.stdout.write(f'   💾 Сохранен offset для параметров: {current_offset}')
+
+        return saved
+
+    def _handle_reset_offset(self, options, debug):
+        """Обрабатывает сброс сохраненного offset"""
+        params = self._get_offset_params(options)
+        cleared = OffsetManager.clear_offset(params)
+
+        if cleared:
+            self.stdout.write('🔄 Сброшен сохраненный offset для текущих параметров')
+        else:
+            self.stdout.write('⚠️  Не удалось сбросить offset или offset не существует')
+
+    def _get_offset_params(self, options):
+        """Получает параметры для создания ключа offset"""
+        # ВСЕГДА в одном порядке для одинаковых параметров
+        return {
+            'game_modes': options.get('game_modes', ''),
+            'game_names': options.get('game_names', ''),
+            'genres': options.get('genres', ''),
+            'description_contains': options.get('description_contains', ''),
+            'keywords': options.get('keywords', ''),
+            'game_types': options.get('game_types', ''),
+            'min_rating_count': options.get('min_rating_count', 0),
+            'mode': self._get_loading_mode(options),
+        }
+
+    def load_games_by_game_mode(self, game_mode_name, debug=False, limit=0, offset=0, min_rating_count=0,
+                                skip_existing=True, count_only=False, game_types_str='0,1,2,4,5,8,9,10,11'):
+        """Загрузка игр по режиму игры (например, Battle Royale)"""
+        collector = DataCollector(self.stdout, self.stderr)
+
+        if debug:
+            self.stdout.write(f'🔍 Поиск режима игры: "{game_mode_name}"')
+
+        # Получаем ID режима игры по имени
+        query = f'fields id,name; where name = "{game_mode_name}";'
+
+        try:
+            result = make_igdb_request('game_modes', query, debug=False)
+        except Exception as e:
+            if debug:
+                self.stderr.write(f'❌ Ошибка при поиске режима игры: {e}')
+            return collector._empty_result()
+
+        if not result:
+            if debug:
+                self.stdout.write(f'❌ Режим игры "{game_mode_name}" не найден')
+            return collector._empty_result()
+
+        game_mode_id = result[0]['id']
+        found_mode_name = result[0].get('name', game_mode_name)
+
+        if debug:
+            self.stdout.write(f'✅ Режим игры "{found_mode_name}" найден: ID {game_mode_id}')
+
+        # Формируем условие для поиска игр - сразу по ID режима
+        where_conditions = [f'game_modes = ({game_mode_id})']
+
+        if min_rating_count > 0:
+            where_conditions.append(f'rating_count >= {min_rating_count}')
+        else:
+            where_conditions.append('rating_count > 0')
+
+        where_conditions.append('name != null')
+
+        # Добавляем фильтр по game_type если указаны типы
+        if game_types_str:
+            try:
+                game_types = [int(gt.strip()) for gt in game_types_str.split(',') if gt.strip()]
+                if game_types:
+                    game_types_str_query = ','.join(map(str, game_types))
+                    where_conditions.append(f'game_type = ({game_types_str_query})')
+            except ValueError:
+                if debug:
+                    self.stderr.write(f'   ⚠️  Ошибка парсинга game-types: "{game_types_str}"')
+
+        where_clause = ' & '.join(where_conditions)
+
+        if debug:
+            self.stdout.write(f'🎯 Условие поиска: {where_clause}')
+
+        # Используем существующий метод загрузки по запросу
+        # Передаем контекст что это специфический поиск
+        return collector.load_games_by_query(
+            where_clause, debug, limit, offset,
+            skip_existing, count_only,
+            query_context={'is_specific_search': True, 'mode_id': game_mode_id}
+        )
+
+    def execute_command(self, options):
+        """Основной метод выполнения команды"""
+        # Сохраняем options для доступа в других методах
+        self.current_options = options
+
+        # Инициализация параметров
+        repeat_count = options['repeat']
+        original_offset = options['offset']
+        limit = options['limit']
+        iteration_limit = options['iteration_limit']
+        debug = options['debug']
+        overwrite = options['overwrite']
+        count_only = options['count_only']
+        clear_cache = options.get('clear_cache', False)
+        reset_offset = options.get('reset_offset', False)
+        update_missing_data = options.get('update_missing_data', False)
+
+        # Если режим обновления данных с game-names, корректируем параметры
+        if update_missing_data and options['game_names']:
+            # Для режима обновления одной игры по имени:
+            # - только одна итерация
+            # - лимит 1 игра
+            # - не используем общий лимита
+            repeat_count = -1  # одна итерация
+            limit = 0  # без общего лимита
+            iteration_limit = 1  # только одна игра за итерацию
+            if debug:
+                self.stdout.write(f'   🎯 РЕЖИМ ОБНОВЛЕНИЯ ДАННЫХ: 1 игра за итерацию')
+
+        # Проверяем, нужно ли обновлять все игры в базе
+        update_all_games = False
+        if update_missing_data and not any([
+            options['game_names'],
+            options['game_modes'],
+            options['genres'],
+            options['description_contains'],
+            options['keywords']
+        ]):
+            update_all_games = True
+            if debug:
+                self.stdout.write(f'   🎯 РЕЖИМ ОБНОВЛЕНИЯ: ВСЕ игры в базе')
+
+        # Если режим обновления всех игр (без конкретных фильтров)
+        if update_all_games:
+            if debug:
+                self.stdout.write(f'\n🎯 ЗАПУСК ОБНОВЛЕНИЯ ДАННЫХ ДЛЯ ВСЕХ ИГР В БАЗЕ')
+
+            # Вызываем специальный метод для обновления всех игр
+            updated_count, update_details = self.update_all_games_missing_data(options, debug)
+
+            self.stdout.write(f'\n' + '=' * 60)
+            self.stdout.write(f'✅ ОБНОВЛЕНИЕ ВСЕХ ИГР ЗАВЕРШЕНО!')
+            self.stdout.write(f'🎯 Обновлено игр: {updated_count}')
+
+            return
+
+        # Сохраняем режим отладки
+        self.debug_mode = debug
+
+        # Очищаем кэш если нужно
+        if clear_cache:
+            self.clear_game_cache()
+
+        # Сбрасываем offset если нужно
+        if reset_offset:
+            self._handle_reset_offset(options, debug)
+
+        # Определяем режим выполнения
+        execution_mode = self._determine_execution_mode(repeat_count)
+
+        # Инициализируем прогресс-бар
+        progress_bar = self._create_progress_bar()
+
+        # Если есть общий лимит, показываем его как цель
+        if limit > 0:
+            progress_bar.total_games = limit
+            progress_bar.update()
+        # Для режима обновления одной игры показываем 1 как цель
+        elif update_missing_data and options['game_names']:
+            progress_bar.total_games = 1
+            progress_bar.update()
+        # Для бесконечного режима не показываем общий прогресс
+        elif execution_mode['infinite_mode']:
+            progress_bar.total_games = 0
+            progress_bar.update()
+
+        # Выводим информацию о запуске
+        self._display_startup_info(execution_mode, iteration_limit, limit)
+
+        # Инициализация статистики
+        current_offset = original_offset
+
+        # Загружаем сохраненный offset если не указан явно
+        if original_offset == 0 and not reset_offset:
+            saved_offset = self._get_saved_offset(options)
+            if saved_offset is not None:
+                current_offset = saved_offset
+                self.stdout.write(f'📍 Начинаем с сохраненного offset: {current_offset}')
+
+        total_stats = self._initialize_total_stats(original_offset)
+
+        # Если это TTY терминал, оставляем место для прогресс-бара
+        if (hasattr(progress_bar, 'is_tty') and progress_bar.is_tty and not count_only and not debug):
+            self.stdout.write('\n' * 2)
+
+        # ОСНОВНОЙ ЦИКЛ ИТЕРАЦИЙ
+        iteration = 1
+        try:
+            while True:
+                # Выполняем одну итерацию
+                should_continue, current_offset, total_stats = self._execute_single_iteration(
+                    iteration, current_offset, total_stats, execution_mode,
+                    limit, iteration_limit, options, progress_bar
+                )
+
+                if not should_continue:
+                    break
+
+                # Пауза между итерациями
+                if iteration < execution_mode['repeat_count'] or execution_mode['infinite_mode']:
+                    pause_time = 2
+                    if self.debug_mode:
+                        self.stdout.write(f'   ⏸️  Пауза {pause_time} секунд...')
+                    time.sleep(pause_time)
+
+                iteration += 1
+
+        except KeyboardInterrupt:
+            # Глобальное прерывание команды
+            self._handle_global_interrupt(total_stats, execution_mode,
+                                          original_offset, current_offset,
+                                          limit, progress_bar)
+            if not reset_offset:
+                self._save_offset_for_continuation(options, current_offset)
+
+            return  # Просто выходим
+
+        except Exception as e:
+            # Обработка других исключений
+            self.stderr.write(f'\n❌ Неожиданная ошибка: {str(e)}')
+            if debug:
+                import traceback
+                self.stderr.write(f'📋 Трассировка ошибки:')
+                self.stderr.write(traceback.format_exc())
+
+            # Все равно сохраняем offset если нужно
+            if not reset_offset:
+                self._save_offset_for_continuation(options, current_offset)
+
+            return  # Просто выходим
+
+        # ФИНАЛЬНЫЙ ЭТАП
+        self._finalize_execution(total_stats, limit, progress_bar,
+                                 execution_mode, original_offset,
+                                 current_offset, limit, overwrite)
+
+        # Итоговый статус
+        self._display_final_status(total_stats, limit)
+
+    def _execute_single_iteration(self, iteration, current_offset, total_stats, execution_mode,
+                                  limit, iteration_limit, options, progress_bar):
+        """Выполняет одну итерацию загрузки"""
+        # Проверяем, следует ли продолжать
+        should_continue = self._should_continue_iteration(
+            iteration, execution_mode, total_stats, limit, self.max_consecutive_no_new_games
+        )
+
+        if not should_continue:
+            return False, current_offset, total_stats
+
+        # Выводим информацию о текущей итерации только в debug режиме
+        if self.debug_mode:
+            if execution_mode['repeat_count'] > 1 or execution_mode['infinite_mode']:
+                self.stdout.write(f'\n🌀 ИТЕРАЦИЯ {iteration}')
+                if execution_mode['infinite_mode']:
+                    self.stdout.write(
+                        f'🌀 (бесконечный режим, итераций без новых игр: {total_stats["iterations_with_no_new_games"]}/{self.max_consecutive_no_new_games})')
+                self.stdout.write('=' * 40)
+
+                if current_offset > options['offset']:
+                    self.stdout.write(f'📊 Начинаем с offset: {current_offset}')
+
+            # Рассчитываем лимит для этой итерации
+            iteration_limit_actual, can_continue = self._calculate_iteration_limit(
+                limit, iteration_limit, total_stats
+            )
+
+            if not can_continue or iteration_limit_actual <= 0:
+                self.stdout.write(f'\n✅ ДОСТИГНУТ ОБЩИЙ ЛИМИТ: {limit} игр загружено')
+                return False, current_offset, total_stats
+
+            self.stdout.write(f'🎯 Цель итерации: найти {iteration_limit_actual} новых игр')
+            if limit > 0:
+                remaining_limit = limit - total_stats['total_games_created']
+                self.stdout.write(f'   (осталось до лимита: {remaining_limit})')
+        else:
+            # В не-debug режиме просто обновляем прогресс-бар
+            iteration_limit_actual, can_continue = self._calculate_iteration_limit(
+                limit, iteration_limit, total_stats
+            )
+
+            if not can_continue or iteration_limit_actual <= 0:
+                if limit > 0 and total_stats['total_games_created'] >= limit:
+                    progress_bar.final_message(f"✅ ДОСТИГНУТ ОБЩИЙ ЛИМИТ: {limit} игр загружено")
+                return False, current_offset, total_stats
+
+        try:
+            # Выполняем итерацию
+            iteration_result = self.handle_single_iteration(
+                iteration=iteration,
+                current_offset=current_offset,
+                iteration_limit_actual=iteration_limit_actual,
+                options=options
+            )
+
+            if iteration_result.get('success', True):
+                # Обновляем общую статистику
+                current_offset = self._update_total_stats(
+                    total_stats, iteration_result, iteration,
+                    current_offset, execution_mode, progress_bar
+                )
+            else:
+                # Если итерация не вернула результат
+                if self.debug_mode:
+                    self.stdout.write(f'   ⚠️  Итерация {iteration} не вернула результат')
+                total_stats['iterations'] += 1
+                total_stats['iterations_with_no_new_games'] += 1
+
+                # Обновляем прогресс-бар
+                if progress_bar:
+                    progress_bar.update(
+                        total_loaded=total_stats['total_games_created'],
+                        current_iteration=iteration,
+                        iterations_without_new=total_stats['iterations_with_no_new_games']
+                    )
+
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:
+            self._handle_iteration_error(e, iteration, execution_mode, total_stats, progress_bar)
+
+        return True, current_offset, total_stats
+
+    def handle_single_iteration(self, iteration, current_offset, iteration_limit_actual, options):
+        """Обработка одной итерации команды"""
+        debug = options.get('debug', False)
+
+        # Подготовка параметров
+        params = self._get_execution_parameters(options)
+
+        # Передаем options в params для доступа к update_missing_data
+        params['update_missing_data'] = options.get('update_missing_data', False)
+
+        # Только в debug режиме показываем заголовок
+        if debug:
+            self.stdout.write('🎮 ЗАГРУЗКА ИГР ИЗ IGDB')
+            self.stdout.write('=' * 60)
+
+            # Определяем тип загрузки
+            self._display_loading_type(params)
+
+            # Информация об итерации
+            iteration_info = {
+                'iteration_number': iteration,
+                'repeat_count': options.get('repeat', 1),
+                'iteration_offset': current_offset,
+                'iteration_limit_actual': iteration_limit_actual,
+            }
+            self._display_iteration_info(params, iteration_info)
+
+        # Используем offset и limit для этой конкретной итерации
+        actual_offset = current_offset
+        actual_limit = iteration_limit_actual
+
+        # Определение режимов
+        skip_existing = self._determine_skip_mode(params)
+
+        errors = 0
+        iteration_start_time = time.time()
+
+        # Если режим обновления, показываем специальное сообщение (только в debug)
+        if params.get('update_missing_data') and debug:
+            self.stdout.write(f'🔄 РЕЖИМ ОБНОВЛЕНИЯ ДАННЫХ: проверка и дополнение недостающих данных')
+            # В режиме обновления не пропускаем существующие игры
+            skip_existing = False
+
+        # Загрузка игр
+        result = self._load_games_for_iteration(params, actual_limit, actual_offset, skip_existing, debug)
+
+        # Обработка результатов загрузки
+        if result is None:
+            return self._handle_failed_loading(iteration_start_time, errors, actual_offset)
+
+        # Проверка наличия игр
+        if not result.get('all_found_games') and not result.get('new_games'):
+            return self._handle_empty_results(result, errors, params, actual_offset, iteration_start_time)
+
+        # Обработка режима обновления недостающих данных
+        if params.get('update_missing_data'):
+            return self._update_existing_game_data(result, params, iteration_start_time, errors)
+
+        # Обработка режима count-only
+        if params['count_only']:
+            return self._handle_count_only_mode(result, errors, iteration_start_time, actual_offset)
+
+        # Обработка данных игр (стандартная загрузка)
+        result_stats, errors = self._process_standard_game_data(
+            result, params, iteration_start_time, errors
+        )
+
+        # Подготовка финальной статистики (только в debug)
+        if debug:
+            iteration_info = {
+                'iteration_number': iteration,
+                'repeat_count': options.get('repeat', 1),
+            }
+
+            final_stats = self._prepare_final_iteration_stats(
+                result, result_stats, actual_offset, actual_limit,
+                errors, iteration_info, params, iteration_start_time
+            )
+
+            # Отображение статистики итерации
+            return self._display_iteration_statistics_complete(
+                final_stats, result, actual_offset, actual_limit,
+                params, iteration_info, errors, result_stats
+            )
+        else:
+            # В не-debug режиме возвращаем только базовую статистику
+            return {
+                'total_games_checked': result['total_games_checked'],
+                'total_games_found': result['new_games_count'],
+                'created_count': result_stats.get('created_count', 0),
+                'skipped_count': result['existing_games_skipped'],
+                'total_time': result_stats.get('total_time', time.time() - iteration_start_time),
+                'errors': errors,
+                'last_checked_offset': result.get('last_checked_offset', actual_offset),
+                'limit_reached': result.get('limit_reached', False),
+                'limit_reached_at_offset': result.get('limit_reached_at_offset'),
+            }
+
+    def _display_loading_type(self, params):
+        """Отображает тип загрузки"""
+        game_modes_str = params.get('game_modes_str', '')  # НОВОЕ
+        game_names_str = params.get('game_names_str', '')
+        genres_str = params['genres_str']
+        description_contains = params['description_contains']
+        keywords_str = params['keywords_str']
+        game_types_str = params['game_types_str']
+
+        if params['count_only']:
+            self.stdout.write('🔢 РЕЖИМ: ПОДСЧЕТ НОВЫХ ИГР (которых нет в базе)')
+            self.stdout.write('⚠️  Игры не будут сохранены в базу данных!')
+
+        # НОВАЯ ВЕТКА: поиск по режимам игры (ВЫСШИЙ ПРИОРИТЕТ)
+        if game_modes_str:
+            mode_list = [m.strip() for m in game_modes_str.split(',') if m.strip()]
+            if mode_list:
+                self.stdout.write(f'🎮 РЕЖИМ: Игры с режимом: "{mode_list[0]}"')
+                self.stdout.write(f'   🔍 Поиск самых популярных игр с указанным режимом')
+
+                if len(mode_list) > 1:
+                    self.stdout.write(
+                        f'   ⚠️  Указано {len(mode_list)} режимов, используется только первый: "{mode_list[0]}"')
+
+    def _display_iteration_info(self, params, iteration_info):
+        """Отображает информацию об итерации"""
+        game_names_str = params.get('game_names_str', '')
+        game_types_str = params['game_types_str']
+        iteration_number = iteration_info['iteration_number']
+        repeat_count = iteration_info['repeat_count']
+        actual_limit = iteration_info['iteration_limit_actual']
+        actual_offset = iteration_info['iteration_offset']
+
+        # Показываем информацию о типах игр
+        if game_types_str:
+            try:
+                game_types = [int(gt.strip()) for gt in game_types_str.split(',') if gt.strip()]
+                self.stdout.write(f'🎮 ФИЛЬТР ПО ТИПАМ ИГР: {game_types}')
+            except ValueError:
+                self.stderr.write(f'   ⚠️  Ошибка парсинга game-types: "{game_types_str}"')
+
+        # Специальное сообщение для режима поиска по имени
+        if game_names_str:
+            name_list = [n.strip() for n in game_names_str.split(',') if n.strip()]
+            if name_list:
+                self.stdout.write(f'🔎 Будет загружена САМАЯ ПОПУЛЯРНАЯ игра с названием: "{name_list[0]}"')
+        elif repeat_count > 1:
+            self.stdout.write(f'🔄 Итерация {iteration_number}/{repeat_count}')
+
+        # Для режима поиска по имени показываем специальный лимит
+        if game_names_str:
+            self.stdout.write(f'📊 ЛИМИТ: 1 игра (самая популярная с указанным названием)')
+        elif actual_limit > 0:
+            self.stdout.write(f'📊 ЛИМИТ ИТЕРАЦИИ: {actual_limit} НОВЫХ игр')
+        else:
+            self.stdout.write(f'📊 ИТЕРАЦИЯ: загрузка без лимита')
+
+        if actual_offset > 0:
+            self.stdout.write(f'⏭️  OFFSET: начинаем с позиции {actual_offset} в результатах поиска')
+
+        if params['min_rating_count'] > 0:
+            self.stdout.write(f'⭐ ФИЛЬТР: игры с не менее {params["min_rating_count"]} оценками')
+
+        if params['overwrite'] and not params['count_only']:
+            self.stdout.write('🔄 OVERWRITE: найденные игры будут удалены и загружены заново')
+
+        if params['count_only'] and params['overwrite']:
+            self.stdout.write('⚠️  Overwrite игнорируется в режиме count-only')
+
+        if params['debug']:
+            self.stdout.write('🐛 РЕЖИМ ОТЛАДКИ ВКЛЮЧЕН')
+            self.stdout.write('-' * 40)
+
+    def _determine_skip_mode(self, params):
+        """Определяет режим пропуска существующих игр"""
+        if params['overwrite']:
+            return False
+        else:
+            return True
+
+    def _load_games_for_iteration(self, params, actual_limit, actual_offset, skip_existing, debug):
+        """Загружает игры для итерации"""
+        try:
+            # НОВАЯ ВЕТКА: поиск по режимам игры (ВЫСШИЙ ПРИОРИТЕТ)
+            if params.get('game_modes_str'):
+                return self.load_games_by_game_mode(
+                    params['game_modes_str'], debug, actual_limit, actual_offset,
+                    params['min_rating_count'], skip_existing, params['count_only'], params['game_types_str']
+                )
+            # Поиск по именам игр
+            elif params.get('game_names_str'):
+                return self.load_games_by_names(
+                    params['game_names_str'], debug, actual_limit, actual_offset,
+                    params['min_rating_count'], skip_existing, params['count_only'], params['game_types_str']
+                )
+            elif params['genres_str'] and params['description_contains']:
+                return self.load_games_by_genres_and_description(
+                    params['genres_str'], params['description_contains'], debug, actual_limit, actual_offset,
+                    params['min_rating_count'], skip_existing, params['count_only'], params['game_types_str']
+                )
+            elif params['genres_str']:
+                return self.load_games_by_genres(
+                    params['genres_str'], debug, actual_limit, actual_offset,
+                    params['min_rating_count'], skip_existing, params['count_only'], params['game_types_str']
+                )
+            elif params['description_contains']:
+                return self.load_games_by_description(
+                    params['description_contains'], debug, actual_limit, actual_offset,
+                    params['min_rating_count'], skip_existing, params['count_only'], params['game_types_str']
+                )
+            elif params['keywords_str']:
+                return self.load_games_by_keywords(
+                    params['keywords_str'], debug, actual_limit, actual_offset,
+                    params['min_rating_count'], skip_existing, params['count_only'], params['game_types_str']
+                )
+            else:
+                return self.load_all_popular_games(
+                    debug, actual_limit, actual_offset, params['min_rating_count'],
+                    skip_existing, params['count_only'], params['game_types_str']
+                )
+        except Exception as e:
+            self.stderr.write(f'❌ ОШИБКА при загрузке игр: {str(e)}')
+            if debug:
+                import traceback
+                self.stderr.write(f'📋 Трассировка ошибки:')
+                self.stderr.write(traceback.format_exc())
+            return None
+
+    def _handle_failed_loading(self, iteration_start_time, errors, actual_offset):
+        """Обрабатывает неудачную загрузку"""
+        iteration_time = time.time() - iteration_start_time
+        self.stdout.write('❌ Ошибка при загрузке игр, результат None')
+
+        return {
+            'total_games_found': 0,
+            'total_games_checked': 0,
+            'created_count': 0,
+            'skipped_count': 0,
+            'total_time': iteration_time,
+            'errors': errors,
+            'last_checked_offset': actual_offset,
+            'limit_reached': False,
+            'limit_reached_at_offset': None,
+        }
+
+    def _handle_empty_results(self, result, errors, params, actual_offset, iteration_start_time):
+        """Обрабатывает пустые результаты"""
+        iteration_time = time.time() - iteration_start_time
+
+        if result and result.get('total_games_checked', 0) > 0:
+            if params['overwrite']:
+                self.stdout.write(f'ℹ️  Найдено {result.get("total_games_checked", 0)} игр для перезаписи')
+            else:
+                self.stdout.write(
+                    f'❌ Найдено {result.get("total_games_checked", 0)} игр, но все они уже есть в базе')
+        else:
+            if errors == 0:
+                self.stdout.write('❌ Не найдено игр для загрузки')
+
+        last_checked = result.get('last_checked_offset', actual_offset) if result else actual_offset
+
+        return {
+            'total_games_found': 0,
+            'total_games_checked': result.get('total_games_checked', 0) if result else 0,
+            'created_count': 0,
+            'skipped_count': result.get('existing_games_skipped', 0) if result else 0,
+            'total_time': iteration_time,
+            'errors': errors,
+            'last_checked_offset': last_checked,
+            'limit_reached': result.get('limit_reached', False) if result else False,
+            'limit_reached_at_offset': result.get('limit_reached_at_offset'),
+        }
+
+    def _handle_count_only_mode(self, result, errors, iteration_start_time, actual_offset):
+        """Обрабатывает режим только подсчета"""
+        iteration_time = time.time() - iteration_start_time
+
+        self.stdout.write('\n' + '=' * 60)
+        self.stdout.write('✅ ПОДСЧЕТ ЗАВЕРШЕН!')
+        self.stdout.write(f'🎮 Игр можно загрузить (которых нет в базе): {result["new_games_count"]}')
+
+        if errors > 0:
+            self.stdout.write(f'❌ Ошибок при подсчете: {errors}')
+
+        return {
+            'total_games_found': result['new_games_count'],
+            'total_games_checked': result['total_games_checked'],
+            'created_count': 0,
+            'skipped_count': result['existing_games_skipped'],
+            'total_time': iteration_time,
+            'errors': errors,
+            'last_checked_offset': result.get('last_checked_offset', actual_offset),
+            'limit_reached': result.get('limit_reached', False),
+            'limit_reached_at_offset': result.get('limit_reached_at_offset'),
+        }
+
+    def _process_game_data_for_iteration(self, result, params, iteration_start_time, errors):
+        """Обрабатывает данные игр для итерации"""
+        # Если режим обновления недостающих данных - вызываем специальную функцию
+        if params.get('update_missing_data'):
+            return self._update_existing_game_data(result, params, iteration_start_time, errors)
+
+        # Стандартная обработка (существующая логика)
+        return self._process_standard_game_data(result, params, iteration_start_time, errors)
+
     def _prepare_final_iteration_stats(self, result, result_stats, actual_offset, actual_limit,
                                        errors, iteration_info, params, iteration_start_time):
         """Подготавливает финальную статистику итерации"""
@@ -854,7 +1509,7 @@ class GameLoader:
     def _display_iteration_statistics_complete(self, final_stats, result, actual_offset, actual_limit,
                                                params, iteration_info, errors, result_stats):
         """Отображает полную статистику итерации"""
-        all_games = result['new_games']
+        all_games = result.get('all_found_games', result.get('new_games', []))
         total_games_checked = result['total_games_checked']
         new_games_count = result['new_games_count']
         existing_games_skipped = result['existing_games_skipped']
@@ -873,27 +1528,45 @@ class GameLoader:
                                           existing_games_skipped, last_checked_offset,
                                           actual_limit, limit_reached)
 
-        # Вывод краткой или подробной статистики
-        if not params['debug']:
-            self._display_short_iteration_stats(result_stats, iteration_info, errors,
-                                                limit_reached, last_checked_offset, params)
-        else:
-            self._display_detailed_iteration_stats(result_stats, iteration_info, actual_offset,
-                                                   last_checked_offset, total_games_checked,
-                                                   new_games_count, errors, limit_reached)
+        # Если режим обновления данных, показываем специальную статистику
+        if params.get('update_missing_data'):
+            self.stdout.write('\n' + '=' * 60)
+            self.stdout.write('🔄 СТАТИСТИКА ОБНОВЛЕНИЯ ДАННЫХ')
+            self.stdout.write('=' * 60)
 
-        # Возвращаем статистику, но НЕ выводим здесь общую статистику
-        return {
-            'total_games_checked': total_games_checked,
-            'total_games_found': new_games_count,
-            'created_count': result_stats.get('created_count', 0),
-            'skipped_count': existing_games_skipped,
-            'total_time': result_stats.get('total_time', 0),
-            'errors': errors,
-            'last_checked_offset': last_checked_offset,
-            'limit_reached': limit_reached,
-            'limit_reached_at_offset': limit_reached_at_offset,
-        }
+            updated_count = final_stats.get('updated_count', 0)
+            update_details = final_stats.get('update_details', [])
+
+            self.stdout.write(f'👀 Всего найдено игр в IGDB: {len(all_games)}')
+            self.stdout.write(f'✅ Успешно обновлено: {updated_count}')
+
+            if update_details:
+                for detail in update_details:
+                    game_name = detail['game_name']
+                    details = detail['details']
+
+                    self.stdout.write(f'\n🎯 {game_name}:')
+                    if details.get('updated_fields'):
+                        self.stdout.write(f'   📝 Обновленные поля: {", ".join(details["updated_fields"])}')
+                    if details.get('updated_relations'):
+                        self.stdout.write(f'   🔗 Добавленные связи: {", ".join(details["updated_relations"])}')
+                    if details.get('screenshots_added', 0) > 0:
+                        self.stdout.write(f'   📸 Добавлено скриншотов: {details["screenshots_added"]}')
+
+            self.stdout.write(f'⏱️  Время: {final_stats["total_time"]:.2f}с')
+
+        else:
+            # Вывод краткой или подробной статистики для стандартного режима
+            if not params['debug']:
+                self._display_short_iteration_stats(result_stats, iteration_info, errors,
+                                                    limit_reached, last_checked_offset, params)
+            else:
+                self._display_detailed_iteration_stats(result_stats, iteration_info, actual_offset,
+                                                       last_checked_offset, total_games_checked,
+                                                       new_games_count, errors, limit_reached)
+
+        # Возвращаем статистику
+        return final_stats
 
     def _display_main_iteration_info(self, params, new_games_count, total_games_checked,
                                      existing_games_skipped, last_checked_offset,
@@ -1313,7 +1986,7 @@ class GameLoader:
     def _get_execution_parameters(self, options):
         """Получает параметры выполнения из options"""
         return {
-            'game_modes_str': options['game_modes'],  # НОВЫЙ ПАРАМЕТР
+            'game_modes_str': options['game_modes'],
             'game_names_str': options['game_names'],
             'genres_str': options['genres'],
             'description_contains': options['description_contains'],
@@ -1326,6 +1999,8 @@ class GameLoader:
             'count_only': options['count_only'],
             'game_types_str': options['game_types'],
             'iteration_limit': options['iteration_limit'],
+            # ДОБАВЛЯЕМ:
+            'update_missing_data': options.get('update_missing_data', False),
         }
 
     def _calculate_iteration_limit(self, limit, iteration_limit, total_stats):
