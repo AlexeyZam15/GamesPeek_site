@@ -1,62 +1,109 @@
+<!-- games/templates/games/game_list/_games_results.html -->
 <div class="row">
     <div class="col-12">
         <div class="d-flex justify-content-between align-items-center mb-3">
             {% if show_similarity %}
-                <h5>Found {{ total_count }} similar games</h5>
+                <h5>Found <span id="games-total">{{ total_count }}</span> similar games</h5>
             {% else %}
-                <h5>Found {{ total_count }} games</h5>
+                <h5>Found <span id="games-total">{{ total_count }}</span> games</h5>
             {% endif %}
         </div>
 
-        {% if show_similarity and games_with_similarity %}
-            {% include 'games/game_list/_games_grid.html' with games=games_with_similarity show_similarity=show_similarity source_game=source_game %}
-        {% elif games %}
-            {% include 'games/game_list/_games_grid.html' with games=games %}
-        {% else %}
-            {% include 'games/game_list/_no_games_found.html' %}
+        <!-- Контейнер для игр -->
+        <div class="games-container">
+            {% if show_similarity and games_with_similarity %}
+                {% include 'games/game_list/_games_grid.html' with games=games_with_similarity show_similarity=show_similarity source_game=source_game %}
+            {% elif games %}
+                {% include 'games/game_list/_games_grid.html' with games=games %}
+            {% else %}
+                {% include 'games/game_list/_no_games_found.html' %}
+            {% endif %}
+        </div>
+
+        <!-- КЛИЕНТСКАЯ ПАГИНАЦИЯ ДЛЯ ИГР -->
+        {% if games or games_with_similarity %}
+            <div class="games-pagination mt-4">
+                <nav aria-label="Games pagination" class="d-flex flex-column align-items-center">
+                    <div class="d-flex align-items-center justify-content-center gap-2 mb-2">
+                        <!-- Кнопка "Предыдущая" -->
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="games-prev">
+                            <i class="bi bi-chevron-left"></i> Prev
+                        </button>
+
+                        <!-- Номера страниц (создаются JavaScript) -->
+                        <div id="games-page-numbers" class="d-flex flex-wrap gap-1 justify-content-center"
+                             style="min-width: 200px; max-width: 300px;">
+                            <!-- Страницы будут созданы JavaScript -->
+                        </div>
+
+                        <!-- Кнопка "Следующая" -->
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="games-next">
+                            Next <i class="bi bi-chevron-right"></i>
+                        </button>
+                    </div>
+
+                    <!-- Информация о странице -->
+                    <div class="text-center">
+                        <div class="page-info">
+                            <small class="text-muted">
+                                Page <span id="games-current">1</span> of <span id="games-total-pages">1</span>
+                                (<span id="games-start">1</span>-<span id="games-end">16</span>
+                                of <span id="games-total-all">{{ total_count }}</span> games)
+                            </small>
+                        </div>
+                    </div>
+                </nav>
+            </div>
         {% endif %}
 
-        <!-- ПАГИНАЦИЯ -->
+        <!-- ОРИГИНАЛЬНАЯ СЕРВЕРНАЯ ПАГИНАЦИЯ (СКРЫВАЕМ) -->
         {% if is_paginated %}
-            <nav aria-label="Page navigation" class="mt-4">
-                <ul class="pagination justify-content-center">
-                    {% if page_obj.has_previous %}
-                        <li class="page-item">
-                            <a class="page-link" href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=1
-                                    {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">First</a>
-                        </li>
-                        <li class="page-item">
-                            <a class="page-link" href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-                                    {{ page_obj.previous_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Previous</a>
-                        </li>
-                    {% endif %}
-
-                    {% for num in page_obj.paginator.page_range %}
-                        {% if page_obj.number == num %}
-                            <li class="page-item active">
-                                <span class="page-link">{{ num }}</span>
-                            </li>
-                        {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+            <div style="display: none;">
+                <nav aria-label="Page navigation" class="mt-4">
+                    <ul class="pagination justify-content-center">
+                        {% if page_obj.has_previous %}
                             <li class="page-item">
-                                <a class="page-link"
-                                   href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-                                           {{ num }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">{{ num }}</a>
+                                <a class="page-link" href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=1
+
+                                        {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">First</a>
+                            </li>
+                            <li class="page-item">
+                                <a class="page-link" href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
+
+                                        {{ page_obj.previous_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Previous</a>
                             </li>
                         {% endif %}
-                    {% endfor %}
 
-                    {% if page_obj.has_next %}
-                        <li class="page-item">
-                            <a class="page-link" href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-                                    {{ page_obj.next_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Next</a>
-                        </li>
-                        <li class="page-item">
-                            <a class="page-link" href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-                                    {{ page_obj.paginator.num_pages }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Last</a>
-                        </li>
-                    {% endif %}
-                </ul>
-            </nav>
+                        {% for num in page_obj.paginator.page_range %}
+                            {% if page_obj.number == num %}
+                                <li class="page-item active">
+                                    <span class="page-link">{{ num }}</span>
+                                </li>
+                            {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+                                <li class="page-item">
+                                    <a class="page-link"
+                                       href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
+
+                                               {{ num }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">{{ num }}</a>
+                                </li>
+                            {% endif %}
+                        {% endfor %}
+
+                        {% if page_obj.has_next %}
+                            <li class="page-item">
+                                <a class="page-link" href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
+
+                                        {{ page_obj.next_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Next</a>
+                            </li>
+                            <li class="page-item">
+                                <a class="page-link" href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
+
+                                        {{ page_obj.paginator.num_pages }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Last</a>
+                            </li>
+                        {% endif %}
+                    </ul>
+                </nav>
+            </div>
         {% endif %}
     </div>
 </div>
