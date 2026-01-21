@@ -203,11 +203,11 @@ class TopProgressBar(BaseProgressBar):
         message += f"❌{spacing}{self.stats['errors']:>{self.stat_width}} "
         message += f"⏭️{spacing}{self.stats['skipped_total']:>{self.stat_width}} "
 
-        # Если есть итерации
+        # Если есть итерации (убрали 🚫)
         if self.current_iteration > 0:
             message += f"🔄{spacing}{self.current_iteration:>{self.stat_width}} "
         if self.iterations_without_new > 0:
-            message += f"🚫{spacing}{self.iterations_without_new:>{self.stat_width}} "
+            message += f"⏸️{spacing}{self.iterations_without_new:>{self.stat_width}} "  # Изменено с 🚫 на ⏸️
 
         message += f"({time_str})"
 
@@ -304,11 +304,11 @@ class SimpleProgressBar(BaseProgressBar):
         message += f"❌{spacing}{self.stats['errors']:>{self.stat_width}} "
         message += f"⏭️{spacing}{self.stats['skipped_total']:>{self.stat_width}} "
 
-        # Если есть итерации
+        # Если есть итерации (убрали 🚫)
         if self.current_iteration > 0:
             message += f"🔄{spacing}{self.current_iteration:>{self.stat_width}} "
         if self.iterations_without_new > 0:
-            message += f"🚫{spacing}{self.iterations_without_new:>{self.stat_width}} "
+            message += f"⏸️{spacing}{self.iterations_without_new:>{self.stat_width}} "  # Изменено с 🚫 на ⏸️
 
         message += f"({time_str})"
 
