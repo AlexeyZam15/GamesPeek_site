@@ -42,14 +42,49 @@ class Command(BaseCommand):
                             help='Очистить кэш проверенных игр перед началом')
         parser.add_argument('--reset-offset', action='store_true',
                             help='Сбросить сохраненный offset и начать с начала')
+        parser.add_argument('--update-missing-data', action='store_true',
+                            help='Обновить отсутствующие данные у существующих игр. Можно использовать с --game-names или без для обновления всех игр')
 
     def handle(self, *args, **options):
         """Основной метод выполнения команды"""
-        # Если используется --game-modes, показываем информацию
-        if options['game_modes']:
+        # Если используется --update-missing-data
+        if options['update_missing_data']:
+            self.stdout.write('🔄 РЕЖИМ: ОБНОВЛЕНИЕ ОТСУТСТВУЮЩИХ ДАННЫХ')
+
+            # Отключаем overwrite и count-only в этом режиме
+            options['overwrite'] = False
+            options['count_only'] = False
+
+            # Определяем, какие игры будут обновляться
+            update_all_games = not any([
+                options['game_names'],
+                options['game_modes'],
+                options['genres'],
+                options['description_contains'],
+                options['keywords']
+            ])
+
+            if update_all_games:
+                self.stdout.write('🎮 Обновление данных для ВСЕХ игр в базе')
+            elif options['game_names']:
+                self.stdout.write(f'🎮 Обновление данных для указанных игр: {options["game_names"]}')
+            elif options['game_modes']:
+                self.stdout.write(f'🎮 Обновление данных для игр с режимами: {options["game_modes"]}')
+            elif options['genres']:
+                self.stdout.write(f'🎮 Обновление данных для игр с жанрами: {options["genres"]}')
+            elif options['description_contains']:
+                self.stdout.write(f'🎮 Обновление данных для игр с текстом: {options["description_contains"]}')
+            elif options['keywords']:
+                self.stdout.write(f'🎮 Обновление данных для игр с ключевыми словами: {options["keywords"]}')
+
+            # Устанавливаем специальный флаг для режима обновления всех игр
+            options['update_all_games'] = update_all_games
+
+        # Если используется --game-modes без update-missing-data
+        elif options['game_modes']:
             self.stdout.write(f'🎮 РЕЖИМ ЗАГРУЗКИ ПО РЕЖИМАМ ИГРЫ: {options["game_modes"]}')
 
-        # Если используется --game-names
+        # Если используется --game-names без update-missing-data
         elif options['game_names']:
             self.stdout.write(f'🎮 РЕЖИМ ЗАГРУЗКИ ПО ИМЕНАМ ИГР: {options["game_names"]}')
             # Принудительно устанавливаем однократное выполнение без лимитов
