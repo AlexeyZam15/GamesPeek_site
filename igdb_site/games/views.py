@@ -300,8 +300,8 @@ def _get_selected_criteria_objects(selected_criteria: Dict[str, List[int]]) -> D
 
 
 def _get_all_games_mode(selected_criteria: Dict[str, List[int]], sort_field: str, page_number: str) -> Dict[str, Any]:
-    """Режим отображения ВСЕХ игр с фильтрами."""
-    # Оптимизированный запрос для всех игр
+    """Режим отображения ВСЕХ игр с фильтрами для клиентской пагинации."""
+    # Оптимизированный запрос для ВСЕХ игр (без лимита)
     games_qs = Game.objects.all().prefetch_related(
         Prefetch('genres', queryset=Genre.objects.only('id', 'name')),
         Prefetch('platforms', queryset=Platform.objects.only('id', 'name', 'slug')),
@@ -321,22 +321,18 @@ def _get_all_games_mode(selected_criteria: Dict[str, List[int]], sort_field: str
     else:
         games_qs = games_qs.order_by('-rating_count')
 
-    # Пагинация
-    paginator = Paginator(games_qs, ITEMS_PER_PAGE['regular'])
+    # Загружаем ВСЕ игры для клиентской пагинации
+    # Но ограничим для производительности (например, 500 игр)
+    all_games = list(games_qs[:500])  # Ограничиваем 500 для производительности
+    total_count = min(games_qs.count(), 500)
 
-    try:
-        page_obj = paginator.page(int(page_number))
-    except PageNotAnInteger:
-        page_obj = paginator.page(1)
-    except EmptyPage:
-        page_obj = paginator.page(paginator.num_pages)
-
+    # Возвращаем все игры (клиентская пагинация будет разбивать их)
     return {
-        'games': page_obj.object_list,
-        'page_obj': page_obj,
-        'paginator': paginator,
-        'is_paginated': paginator.num_pages > 1,
-        'total_count': paginator.count,
+        'games': all_games,  # ВСЕ игры, не только одна страница
+        'page_obj': None,  # Не используем серверную пагинацию
+        'paginator': None,
+        'is_paginated': False,  # Отключаем серверную пагинацию
+        'total_count': total_count,
         'show_similarity': False,
         'find_similar': False,
         'source_game': None,
@@ -345,7 +341,7 @@ def _get_all_games_mode(selected_criteria: Dict[str, List[int]], sort_field: str
 
 def _get_similar_games_mode(params: Dict[str, str], selected_criteria: Dict[str, List[int]],
                             source_game_obj: Optional[Game]) -> Dict[str, Any]:
-    """Режим похожих игр с поддержкой поиска без жанров."""
+    """Режим похожих игр с поддержкой поиска без жанров для клиентской пагинации."""
     current_sort = params.get('sort', '-similarity')
     page_number = params.get('page', '1')
 
@@ -442,26 +438,21 @@ def _get_similar_games_mode(params: Dict[str, str], selected_criteria: Dict[str,
 
     logger.info(f"Найдено {len(similar_games_data)} игр до форматирования")
 
-    # Форматируем
-    games_with_similarity = _format_similar_games_data(similar_games_data)
+    # Форматируем (но не ограничиваем 500, а все)
+    games_with_similarity = _format_similar_games_data(similar_games_data, limit=500)  # Увеличили лимит
+
     logger.info(f"После форматирования: {len(games_with_similarity)} игр")
 
     # Сортируем
     _sort_similar_games(games_with_similarity, current_sort)
 
-    # Пагинация
-    page_obj, paginator, is_paginated = _paginate_results(
-        games_with_similarity, page_number, 16
-    )
-
-    logger.info(f"Режим похожих игр завершен. Результатов: {total_count}, показано: {len(page_obj.object_list)}")
-
+    # Возвращаем ВСЕ игры для клиентской пагинации
     return {
-        'games_with_similarity': page_obj.object_list,
-        'page_obj': page_obj,
-        'paginator': paginator,
-        'is_paginated': is_paginated,
-        'total_count': total_count,
+        'games_with_similarity': games_with_similarity,  # ВСЕ игры
+        'page_obj': None,  # Не используем серверную пагинацию
+        'paginator': None,
+        'is_paginated': False,  # Отключаем серверную пагинацию
+        'total_count': len(games_with_similarity),
         'show_similarity': True,
         'find_similar': True,
         'source_game': source_game,
@@ -993,6 +984,7 @@ def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
         logger.error(f"Details: {error_details}")
         return HttpResponseServerError(f"Error in comparison: {str(e)}")
 
+
 def get_similar_games_for_criteria(selected_criteria: Dict[str, List[int]]) -> Tuple[List, int]:
     """Get similar games for criteria - с поддержкой поиска без жанров."""
     import json
@@ -1005,7 +997,7 @@ def get_similar_games_for_criteria(selected_criteria: Dict[str, List[int]]) -> T
         'pp': selected_criteria['perspectives'],
         'd': selected_criteria['developers'],
         'gm': selected_criteria['game_modes'],
-        'version': 'v15_similar_no_genres_final'  # Обновляем версию
+        'version': 'v16_clientside_pagination'  # Обновляем версию
     }, sort_keys=True)
 
     cache_key = f'virtual_search_full_{hashlib.md5(cache_data.encode()).hexdigest()}'
@@ -1060,10 +1052,11 @@ def get_similar_games_for_criteria(selected_criteria: Dict[str, List[int]]) -> T
         min_similarity = 0  # Минимальный порог
         logger.info(f"Нет критериев похожести, порог схожести: {min_similarity}%")
 
+    # Увеличиваем лимит для клиентской пагинации
     similar_games = similarity_engine.find_similar_games(
         source_game=virtual_game,
         min_similarity=min_similarity,
-        limit=1000
+        limit=500  # Увеличили лимит с 1000 до 500 (для производительности)
     )
 
     total_count = len(similar_games)
@@ -1467,7 +1460,7 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int]) ->
     cache_key_data = {
         'game_id': game_obj.id,
         'platforms': sorted(selected_platforms) if selected_platforms else [],
-        'version': 'v_no_limits_prefetch',
+        'version': 'v_clientside_pagination',
         'game_cached_counts': {
             'genres': game_obj.cached_genre_count,
             'keywords': game_obj.cached_keyword_count,
@@ -1487,7 +1480,7 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int]) ->
         similar_games = similarity_engine.find_similar_games(
             source_game=game_obj,
             min_similarity=0,
-            limit=None
+            limit=500  # Увеличили лимит
         )
         total_count = len(similar_games)
 
@@ -1620,9 +1613,9 @@ def _format_similar_games_data(similar_games_data: List, limit: int = 500) -> Li
     if not similar_games_data:
         return []  # Всегда возвращаем пустой список, а не None
 
-    # Ограничиваем для начальной загрузки
-    if len(similar_games_data) > limit:
-        similar_games_data = similar_games_data[:limit]
+    # Убрали ограничение для начальной загрузки
+    # if len(similar_games_data) > limit:
+    #     similar_games_data = similar_games_data[:limit]
 
     game_ids = []
     similarity_map = {}
@@ -1642,7 +1635,7 @@ def _format_similar_games_data(similar_games_data: List, limit: int = 500) -> Li
 
     games_dict = {}
     if game_ids:
-        # ЗАГРУЖАЕМ ВСЕ 1000 игр одним запросом
+        # Загружаем все игры одним запросом
         games_with_prefetch = Game.objects.filter(id__in=game_ids).prefetch_related(
             Prefetch('genres', queryset=Genre.objects.only('id', 'name')),
             Prefetch('platforms', queryset=Platform.objects.only('id', 'name', 'slug')),

@@ -5,6 +5,7 @@ import FilterUI from './modules/filters-ui.js';
 import FilterHandlers from './modules/filters-handlers.js';
 import FilterSticky from './modules/filters-sticky.js';
 import KeywordsPagination from './modules/keywords-pagination.js';
+import GamePagination from './modules/game-pagination.js';
 
 // Создаем глобальный объект FilterManager для доступа из других скриптов
 window.FilterManager = {
@@ -13,11 +14,13 @@ window.FilterManager = {
     ui: FilterUI,
     handlers: FilterHandlers,
     sticky: FilterSticky,
-    keywordsPagination: KeywordsPagination
+    keywordsPagination: KeywordsPagination,
+    gamePagination: GamePagination
 };
 
 // Сделаем доступным глобально для других модулей
 window.KeywordsPagination = KeywordsPagination;
+window.GamePagination = GamePagination;
 
 // Флаг чтобы скрипт не запускался несколько раз
 let initialized = false;
@@ -76,6 +79,28 @@ document.addEventListener('DOMContentLoaded', function() {
                 }, 300);
             }
 
+            // Инициализация пагинации игр с задержкой
+            if (GamePagination && typeof GamePagination.init === 'function') {
+                console.log('Initializing games pagination...');
+                setTimeout(() => {
+                    try {
+                        // Проверяем, есть ли контейнер с играми
+                        const gamesContainer = document.querySelector('.games-container');
+                        if (gamesContainer) {
+                            // Добавляем CSS класс ко всем игровым карточкам для селектора
+                            const gameCards = document.querySelectorAll('.col-xl-3.col-lg-4.col-md-6.mb-4');
+                            gameCards.forEach((card, index) => {
+                                card.classList.add('game-card-container');
+                            });
+
+                            GamePagination.init();
+                        }
+                    } catch (error) {
+                        console.error('Error initializing games pagination:', error);
+                    }
+                }, 500);
+            }
+
             // Sticky кнопки инициализируем с задержкой
             setTimeout(() => {
                 if (FilterSticky && typeof FilterSticky.init === 'function') {
@@ -128,5 +153,6 @@ export {
     FilterUI,
     FilterHandlers,
     FilterSticky,
-    KeywordsPagination
+    KeywordsPagination,
+    GamePagination
 };
