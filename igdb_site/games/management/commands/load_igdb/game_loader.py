@@ -23,22 +23,35 @@ class GameLoader:
         self._last_processed_count = 0  # Добавить эту строку
 
     def _get_cover_ids_batch(self, game_ids, debug=False):
-        """Получает cover_id для батча игр одним запросом"""
+        """Получает cover_id для батча игр с rate limiting"""
+        from games.igdb_api import make_igdb_request
+        import time
+
         if not game_ids:
             return {}
 
-        from games.igdb_api import make_igdb_request
+        # Оптимальные настройки
+        MAX_RETRIES = 2
+        RETRY_DELAYS = [1.0, 3.0]
 
         id_list = ','.join(map(str, game_ids[:10]))
-        query = f'fields id,cover; where id = ({id_list});'
+        query = f'fields id,cover.image_id; where id = ({id_list});'
 
-        try:
-            games_data = make_igdb_request('games', query, debug=False)
-            return {gd['id']: gd.get('cover') for gd in games_data if 'id' in gd}
-        except Exception as e:
-            if debug:
-                self.stderr.write(f'   ❌ Ошибка batch запроса к IGDB: {e}')
-            return {}
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                games_data = make_igdb_request('games', query, debug=False)
+                return {gd['id']: gd.get('cover') for gd in games_data if 'id' in gd}
+            except Exception as e:
+                if attempt < MAX_RETRIES:
+                    delay = RETRY_DELAYS[attempt] if attempt < len(RETRY_DELAYS) else 5.0
+                    if debug:
+                        self.stdout.write(f'      ⏸️  Пауза {delay:.1f} сек...')
+                    time.sleep(delay)
+                else:
+                    if debug:
+                        self.stderr.write(f'      ❌ Ошибка запроса к IGDB: {e}')
+
+        return {}
 
     def _get_saved_offset_for_update_covers(self, options):
         """Получает сохраненный offset для режима обновления обложек"""
@@ -267,7 +280,7 @@ class GameLoader:
             }
 
     def _setup_update_covers_environment(self, options, debug, original_offset):
-        """Настройка окружения для режима обновления обложек"""
+        """Настройка окружения для режима обновления обложек - оптимизированная"""
         from games.models import Game
         import time
 
@@ -275,6 +288,11 @@ class GameLoader:
         self.stdout.write(f'\n🖼️  ЗАПУСК ОБНОВЛЕНИЯ ОБЛОЖЕК ДЛЯ ИГР В БАЗЕ')
         self.stdout.write('=' * 60)
         self.stdout.write(f'📍 Начинаем с offset: {original_offset}')
+
+        # Быстрая проверка общего количества
+        total_in_db = Game.objects.count()
+        if debug:
+            self.stdout.write(f'📊 Всего игр в базе: {total_in_db}')
 
         # Определяем, нужно ли обновлять обложки всех игр или только по фильтрам
         update_all_covers = not any([
@@ -285,156 +303,287 @@ class GameLoader:
             options.get('keywords')
         ])
 
-        if update_all_covers:
-            # Обновление обложек для всех игр
-            updated_count = self.update_all_game_covers(options, debug)
-        else:
-            # Обновление обложек по фильтрам
-            updated_count = self.update_filtered_game_covers(options, debug)
+        start_time = time.time()
 
-        # Выводим финальное сообщение
-        self.stdout.write(f'\n' + '=' * 60)
-        self.stdout.write(f'✅ ОБНОВЛЕНИЕ ОБЛОЖЕК ЗАВЕРШЕНО!')
-        self.stdout.write(f'🖼️  Обновлено обложек: {updated_count}')
+        try:
+            if update_all_covers:
+                # Обновление обложек для всех игр
+                if debug:
+                    self.stdout.write(f'🎯 РЕЖИМ: ОБНОВЛЕНИЕ ВСЕХ ОБЛОЖЕК')
+                updated_count = self.update_all_game_covers(options, debug)
+            else:
+                # Обновление обложек по фильтрам
+                if debug:
+                    self.stdout.write(f'🎯 РЕЖИМ: ОБНОВЛЕНИЕ ПО ФИЛЬТРАМ')
+                updated_count = self.update_filtered_game_covers(options, debug)
 
-        return None, None, None, None, None, None, True
+            total_time = time.time() - start_time
+
+            # Выводим финальное сообщение
+            self.stdout.write(f'\n' + '=' * 60)
+            self.stdout.write(f'✅ ОБНОВЛЕНИЕ ОБЛОЖЕК ЗАВЕРШЕНО!')
+            self.stdout.write(f'🖼️  Обновлено обложек: {updated_count}')
+            self.stdout.write(f'⏱️  Общее время: {total_time:.2f}с')
+
+            if total_time > 0 and updated_count > 0:
+                speed = updated_count / total_time
+                self.stdout.write(f'🚀 Скорость обновления: {speed:.1f} обложек/сек')
+
+            return None, None, None, None, None, None, True
+
+        except KeyboardInterrupt:
+            total_time = time.time() - start_time
+            self.stdout.write(f'\n🛑 ОБНОВЛЕНИЕ ОБЛОЖЕК ПРЕРВАНО')
+            self.stdout.write(f'⏱️  Время выполнения: {total_time:.2f}с')
+            raise
+
+        except Exception as e:
+            total_time = time.time() - start_time
+            self.stderr.write(f'\n❌ Ошибка при обновлении обложек: {str(e)}')
+            self.stderr.write(f'⏱️  Время до ошибки: {total_time:.2f}с')
+            if debug:
+                import traceback
+                self.stderr.write(f'📋 Трассировка ошибки:')
+                self.stderr.write(traceback.format_exc())
+            return None, None, None, None, None, None, True
 
     def update_all_game_covers(self, options, debug=False):
-        """Обновляет обложки для всех игр в базе - упрощенная версия"""
+        """Обновляет обложки для всех игр в базе - с прогресс-баром"""
         from games.models import Game
         import time
+        import concurrent.futures
+
+        # ОПТИМАЛЬНЫЕ НАСТРОЙКИ
+        MAX_WORKERS = 3
+        BATCH_SIZE = 10
+        DELAY_BETWEEN_BATCHES = 0.4
 
         offset = options.get('offset', 0)
         limit = options.get('limit', 0)
 
+        # Загружаем сохраненный offset если он 0
         if offset == 0 and not options.get('reset_offset', False):
             saved_offset = self._get_saved_offset_for_update_covers(options)
             if saved_offset is not None:
                 offset = saved_offset
-                self.stdout.write(f'📍 Используем сохраненный offset для обновления обложек: {offset}')
 
+        # Получаем все игры из базы
         all_games_query = Game.objects.all().order_by('id')
         total_in_db = Game.objects.count()
 
         if offset > 0:
             all_games_query = all_games_query[offset:]
-            remaining_games = total_in_db - offset
-            self.stdout.write(f'📍 Игр осталось для обновления обложек: {remaining_games}')
 
-        games = list(all_games_query)
+        all_game_ids = list(all_games_query.values_list('igdb_id', flat=True))
 
         if limit > 0:
-            games = games[:limit]
+            all_game_ids = all_game_ids[:limit]
 
-        total_games = len(games)
+        total_games = len(all_game_ids)
 
         if total_games == 0:
             self.stdout.write('❌ В базе нет игр для обновления обложек')
             return 0
 
+        # ====== СОЗДАЕМ ПРОГРЕСС-БАР ТОЛЬКО В НЕ-DEBUG РЕЖИМЕ ======
         progress_bar = None
         if not debug:
             progress_bar = self._create_progress_bar()
             progress_bar.total_games = total_games
             progress_bar.desc = "Обновление обложек"
-            progress_bar.update(total_loaded=0)
+            progress_bar.update(
+                total_loaded=0,
+                current_iteration=1,
+                iterations_without_new=0,
+                created_count=0,
+                updated_count=0,
+                skipped_count=0,
+                processed_count=0,
+                errors=0
+            )
+
+        # Выводим заголовок ТОЛЬКО В DEBUG
+        if debug:
+            self.stdout.write(f'\n🎯 ЗАПУСК ОБНОВЛЕНИЯ ОБЛОЖЕК')
+            self.stdout.write('=' * 60)
+            self.stdout.write(f'🎮 Всего игр в базе: {total_in_db}')
+            self.stdout.write(f'📍 Будет обновлено: {total_games} игр')
+            self.stdout.write(f'⚡ Параллельных воркеров: {MAX_WORKERS}')
+            self.stdout.write(f'📦 Размер пачки: {BATCH_SIZE} игр')
+            self.stdout.write(f'⏸️  Задержка между пачками: {DELAY_BETWEEN_BATCHES} сек')
+            self.stdout.write('=' * 60)
+        else:
+            # В НЕ-debug режиме тоже показываем базовую инфо
+            self.stdout.write(f'\n🖼️  ОБНОВЛЕНИЕ ОБЛОЖЕК ДЛЯ ИГР')
+            self.stdout.write('=' * 60)
+            self.stdout.write(f'🎮 Всего игр в базе: {total_in_db}')
+            self.stdout.write(f'📍 Будет обновлено: {total_games} игр')
+            if offset > 0:
+                self.stdout.write(f'📍 Начинаем с offset: {offset}')
+            self.stdout.write('=' * 60)
 
         start_time = time.time()
         updated_count = 0
         processed_count = 0
+        error_count = 0
 
-        BATCH_SIZE = 10
-        total_batches = (total_games + BATCH_SIZE - 1) // BATCH_SIZE
+        # Создаем мапу всех игр
+        games_by_igdb_id = {}
+        try:
+            games = Game.objects.filter(igdb_id__in=all_game_ids).only('id', 'igdb_id', 'cover_url', 'name')
+            for game in games:
+                games_by_igdb_id[game.igdb_id] = game
+        except Exception as e:
+            self.stderr.write(f'❌ Ошибка загрузки игр из базы: {e}')
+            if progress_bar:
+                progress_bar.final_message("❌ Ошибка загрузки игр из базы")
+                progress_bar.clear()
+            return 0
+
+        # Разбиваем на пачки
+        all_batches = []
+        for i in range(0, len(all_game_ids), BATCH_SIZE):
+            batch = all_game_ids[i:i + BATCH_SIZE]
+            if batch:
+                all_batches.append(batch)
+
+        total_batches = len(all_batches)
+
+        # Главный цикл обработки
+        all_updates = {}
 
         try:
-            for batch_num in range(total_batches):
-                batch_start = batch_num * BATCH_SIZE
-                batch_end = min(batch_start + BATCH_SIZE, total_games)
-                batch_games = games[batch_start:batch_end]
+            for group_start in range(0, total_batches, MAX_WORKERS):
+                group_end = min(group_start + MAX_WORKERS, total_batches)
+                current_group = all_batches[group_start:group_end]
 
+                # В DEBUG: текстовый прогресс
                 if debug:
-                    self.stdout.write(f'\n📦 Пачка {batch_num + 1}/{total_batches}: {len(batch_games)} игр')
+                    progress_percent = (group_end / total_batches) * 100
+                    games_processed = group_end * BATCH_SIZE
+                    self.stdout.write(f'📊 Прогресс: {progress_percent:.1f}% ({games_processed}/{total_games} игр)')
 
-                # Получаем cover_id для батча
-                game_ids = [game.igdb_id for game in batch_games]
-                cover_id_map = self._get_cover_ids_batch(game_ids, debug)
+                # Обрабатываем группу
+                with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                    futures = []
+                    for i, batch in enumerate(current_group):
+                        future = executor.submit(
+                            self._load_single_update_batch,
+                            group_start + i + 1,
+                            batch,
+                            games_by_igdb_id,
+                            debug
+                        )
+                        futures.append(future)
 
-                if debug:
-                    self.stdout.write(f'   📥 Получено cover_id: {len(cover_id_map)}/{len(batch_games)}')
+                    # Собираем результаты
+                    for future in concurrent.futures.as_completed(futures):
+                        try:
+                            batch_updated, batch_updates = future.result(timeout=20)
+                            updated_count += batch_updated
 
-                # Обновляем обложки
-                games_to_update = []
-                for game in batch_games:
-                    game_id = game.igdb_id
-                    cover_id = cover_id_map.get(game_id)
+                            # Собираем обновления
+                            for update in batch_updates:
+                                if isinstance(update, dict) and 'id' in update and 'cover_url' in update:
+                                    all_updates[update['id']] = update['cover_url']
 
-                    if not cover_id:
-                        continue
+                        except concurrent.futures.TimeoutError:
+                            error_count += 1
+                        except Exception as e:
+                            error_count += 1
+                            if debug:
+                                self.stderr.write(f'   ❌ Ошибка future: {e}')
 
-                    new_cover_url = f"https://images.igdb.com/igdb/image/upload/t_cover_big/{cover_id}.jpg"
-                    current_cover_url = game.cover_url or ""
+                # Обновляем счетчики
+                for batch in current_group:
+                    processed_count += len(batch)
 
-                    if current_cover_url != new_cover_url:
-                        game.cover_url = new_cover_url
-                        games_to_update.append(game)
-                        updated_count += 1
-
-                        if debug:
-                            self.stdout.write(f'   ✅ Обновлена обложка: {game.name}')
-
-                # Сохраняем обновленные игры
-                if games_to_update:
-                    Game.objects.bulk_update(games_to_update, ['cover_url'])
-
-                processed_count += len(batch_games)
-
+                # ====== ОБНОВЛЯЕМ ПРОГРЕСС-БАР ======
                 if progress_bar and not debug:
                     progress_bar.update(
                         total_loaded=processed_count,
+                        current_iteration=1,
+                        iterations_without_new=0,
+                        created_count=0,
                         updated_count=updated_count,
-                        skipped_count=processed_count - updated_count
+                        skipped_count=processed_count - updated_count,
+                        processed_count=processed_count,
+                        errors=error_count
                     )
 
-                current_total_offset = offset + processed_count
-                self._save_offset_for_update_covers(options, current_total_offset)
-
-                if batch_end < total_games:
-                    time.sleep(0.5)
-
-            total_time = time.time() - start_time
-
-            if progress_bar and not debug:
-                progress_bar.final_message(f"✅ Обновлено {updated_count}/{total_games} обложек")
-                progress_bar.clear()
-
-            self._display_update_covers_final_stats(offset, processed_count, total_games,
-                                                    updated_count, total_time)
-
-            if total_time > 0:
-                games_per_second = processed_count / total_time
-                self.stdout.write(f'🚀 Скорость: {games_per_second:.1f} игр/сек')
-                self.stdout.write(f'📈 Обновлений в секунду: {updated_count / total_time:.1f}/сек')
-
-            return updated_count
+                # Пауза для rate limiting
+                if group_end < total_batches:
+                    time.sleep(DELAY_BETWEEN_BATCHES)
 
         except KeyboardInterrupt:
-            current_total_offset = offset + processed_count
-            self._save_offset_for_update_covers(options, current_total_offset)
+            # Сохраняем offset при прерывании
+            next_offset = offset + processed_count
+            self._save_offset_for_update_covers(options, next_offset)
 
-            self.stdout.write(f'\n🛑 ОБНОВЛЕНИЕ ОБЛОЖЕК ПРЕРВАНО')
-            self.stdout.write(f'📍 Обработано игр: {processed_count}/{total_games}')
-            self.stdout.write(f'📍 Обновлено обложек: {updated_count}')
-            self.stdout.write(f'📍 Следующий offset: {current_total_offset}')
+            if progress_bar:
+                progress_bar.final_message(f"🛑 Прервано на {processed_count}/{total_games} игр")
+                progress_bar.clear()
 
+            self.stdout.write(f'\n🛑 ОБНОВЛЕНИЕ ПРЕРВАНО')
+            self.stdout.write(f'📍 Обработано: {processed_count}/{total_games} игр')
+            self.stdout.write(f'📍 Обновлено: {updated_count} обложек')
+            self.stdout.write(f'📍 Следующий offset: {next_offset}')
             raise
 
+        # Массовое сохранение
+        if all_updates:
+            try:
+                from django.db.models import Case, When, Value
+                from django.db.models import CharField
+
+                when_conditions = []
+                for game_id, cover_url in all_updates.items():
+                    when_conditions.append(When(id=game_id, then=Value(cover_url)))
+
+                Game.objects.filter(id__in=all_updates.keys()).update(
+                    cover_url=Case(*when_conditions, default=Value(''), output_field=CharField())
+                )
+
+            except Exception as e:
+                if debug:
+                    self.stderr.write(f'❌ Ошибка массового сохранения: {e}')
+
+        # Сохраняем offset
+        next_offset = offset + processed_count
+        self._save_offset_for_update_covers(options, next_offset)
+
+        total_time = time.time() - start_time
+
+        # ====== ФИНАЛЬНОЕ СООБЩЕНИЕ ПРОГРЕСС-БАРА ======
+        if progress_bar and not debug:
+            if updated_count > 0:
+                progress_bar.final_message(f"✅ Обновлено {updated_count}/{total_games} обложек")
+            else:
+                progress_bar.final_message(f"⚠️  Нет обновлений ({processed_count} игр проверено)")
+            progress_bar.clear()
+
+        # Статистика
+        self.stdout.write(f'\n📊 ИТОГОВАЯ СТАТИСТИКА')
+        self.stdout.write('=' * 60)
+        self.stdout.write(f'👀 Обработано игр: {processed_count}/{total_games}')
+        self.stdout.write(f'✅ Успешно обновлено: {updated_count}')
+        self.stdout.write(f'⏭️  Пропущено (уже актуальны): {processed_count - updated_count}')
+        self.stdout.write(f'❌ Ошибок: {error_count}')
+        self.stdout.write(f'⏱️  Время: {total_time:.2f}с')
+
+        if total_time > 0:
+            games_per_second = processed_count / total_time
+            self.stdout.write(f'🚀 Скорость: {games_per_second:.1f} игр/сек')
+
+        return updated_count
+
     def update_filtered_game_covers(self, options, debug=False):
-        """Обновляет обложки для игр по фильтрам - оптимизированная версия"""
+        """Обновляет обложки для игр по фильтрам - максимально оптимизированная версия"""
         from games.models import Game
         from django.db.models import Q
-        from games.igdb_api import make_igdb_request
         import time
         import concurrent.futures
+        from games.igdb_api import make_igdb_request
 
         offset = options.get('offset', 0)
         limit = options.get('limit', 0)
@@ -473,8 +622,8 @@ class GameLoader:
 
         query = query.order_by('id')
 
-        # Получаем только ID и текущие обложки
-        games = list(query.only('id', 'igdb_id', 'cover_url', 'name'))
+        # Получаем только ID игр
+        games = list(query.values_list('id', 'igdb_id', 'cover_url', 'name'))
         total_games = len(games)
 
         if total_games == 0:
@@ -487,115 +636,177 @@ class GameLoader:
 
         start_time = time.time()
         updated_count = 0
+        error_count = 0
 
-        def get_covers_batch_parallel(game_ids_chunk):
-            """Параллельная загрузка обложек для чанка игр"""
-            if not game_ids_chunk:
-                return {}
+        # 1. Подготавливаем данные для быстрого доступа
+        games_by_id = {}
+        games_by_igdb_id = {}
+        for game_id, igdb_id, cover_url, name in games:
+            games_by_id[game_id] = {
+                'igdb_id': igdb_id,
+                'cover_url': cover_url,
+                'name': name
+            }
+            games_by_igdb_id[igdb_id] = game_id
 
-            id_list = ','.join(map(str, game_ids_chunk))
-            query = f'fields id,cover.image_id; where id = ({id_list});'
+        # 2. Получаем все IGDB ID
+        all_igdb_ids = [igdb_id for _, igdb_id, _, _ in games]
 
-            try:
-                games_data = make_igdb_request('games', query, debug=False)
-                result = {}
-                for game_data in games_data:
-                    if 'id' in game_data and 'cover' in game_data:
-                        cover_data = game_data['cover']
-                        image_id = cover_data.get('image_id')
-                        if image_id:
-                            result[game_data[
-                                'id']] = f"https://images.igdb.com/igdb/image/upload/t_cover_big/{image_id}.jpg"
-                return result
-            except Exception:
-                return {}
-
-        try:
-            # Разбиваем игры на чанки для параллельной обработки
-            CHUNK_SIZE = 10
-            MAX_WORKERS = 4  # Можно увеличить до 5-6 если API позволяет
-
-            all_game_ids = [game.igdb_id for game in games]
-            total_chunks = (len(all_game_ids) + CHUNK_SIZE - 1) // CHUNK_SIZE
-
-            # Создаем мапу для быстрого доступа к играм по igdb_id
-            games_by_igdb_id = {game.igdb_id: game for game in games}
-
-            # Параллельная загрузка всех обложек
-            covers_map = {}
-            with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-                future_to_chunk = {}
-
-                # Запускаем загрузку чанков параллельно
-                for chunk_idx in range(total_chunks):
-                    start_idx = chunk_idx * CHUNK_SIZE
-                    end_idx = min(start_idx + CHUNK_SIZE, len(all_game_ids))
-                    chunk_ids = all_game_ids[start_idx:end_idx]
-
-                    future = executor.submit(get_covers_batch_parallel, chunk_ids)
-                    future_to_chunk[future] = chunk_idx
-
-                # Собираем результаты
-                for future in concurrent.futures.as_completed(future_to_chunk):
-                    chunk_idx = future_to_chunk[future]
-                    try:
-                        chunk_covers = future.result(timeout=10)
-                        covers_map.update(chunk_covers)
-                    except Exception as e:
-                        if debug:
-                            self.stderr.write(f'   ❌ Ошибка в чанке {chunk_idx}: {e}')
-
-            if debug:
-                self.stdout.write(f'📥 Получено обложек: {len(covers_map)}/{len(games)}')
-
-            # Массовое обновление игр
-            games_to_update = []
-            update_details = []
-
-            for game_id, new_cover_url in covers_map.items():
-                game = games_by_igdb_id.get(game_id)
-                if not game:
-                    continue
-
-                current_cover_url = game.cover_url or ""
-
-                if current_cover_url != new_cover_url:
-                    game.cover_url = new_cover_url
-                    games_to_update.append(game)
-                    updated_count += 1
-
-                    if debug and updated_count <= 5:  # Показываем только первые 5 обновлений
-                        self.stdout.write(f'✅ Обновлена обложка: {game.name}')
-                        self.stdout.write(
-                            f'   Старая: {current_cover_url[:80]}...' if current_cover_url else '   Старая: не было')
-                        self.stdout.write(f'   Новая: {new_cover_url[:80]}...')
-
-            # Массовое сохранение всех обновлений одним запросом
-            if games_to_update:
-                Game.objects.bulk_update(games_to_update, ['cover_url'])
-                if debug:
-                    self.stdout.write(f'💾 Сохранено обновлений: {len(games_to_update)}')
-
-            total_time = time.time() - start_time
-
-            # Финальная статистика
-            self.stdout.write(f'\n' + '=' * 60)
-            self.stdout.write(f'📊 ИТОГОВАЯ СТАТИСТИКА')
+        if debug:
+            self.stdout.write(f'\n🎯 ОБНОВЛЕНИЕ ОБЛОЖЕК ПО ФИЛЬТРАМ')
             self.stdout.write('=' * 60)
-            self.stdout.write(f'📍 Обработано игр: {len(games)}')
-            self.stdout.write(f'✅ Успешно обновлено: {updated_count}')
-            self.stdout.write(f'⏭️  Пропущено (обложки актуальны): {len(games) - updated_count}')
-            self.stdout.write(f'⏱️  Общее время: {total_time:.2f}с')
+            self.stdout.write(f'👀 Найдено игр по фильтрам: {total_games}')
+            self.stdout.write(f'⚡ Параллельных воркеров: 8')
+            self.stdout.write(f'📦 Размер пачки: 10 игр')
+            self.stdout.write('=' * 60)
 
-            if total_time > 0:
-                games_per_second = len(games) / total_time
-                self.stdout.write(f'🚀 Скорость обработки: {games_per_second:.1f} игр/сек')
+        # 3. Разбиваем на пачки по 10 игр
+        BATCH_SIZE = 10
+        MAX_WORKERS = 8
+        all_batches = []
 
-            return updated_count
+        for i in range(0, len(all_igdb_ids), BATCH_SIZE):
+            batch = all_igdb_ids[i:i + BATCH_SIZE]
+            if batch:
+                all_batches.append(batch)
 
-        except Exception as e:
-            self.stderr.write(f'\n❌ Ошибка при обновлении обложек: {str(e)}')
-            return 0
+        total_batches = len(all_batches)
+
+        if debug:
+            self.stdout.write(f'📊 Создано {total_batches} пачек')
+
+        # 4. Функция обработки одной пачки
+        def process_batch(batch_num, batch_igdb_ids):
+            try:
+                # Запрос к IGDB
+                id_list = ','.join(map(str, batch_igdb_ids))
+                query = f'fields id,cover.image_id; where id = ({id_list});'
+
+                games_data = make_igdb_request('games', query, debug=False)
+                if not games_data:
+                    return batch_num, [], 0
+
+                # Собираем обновления
+                updates = []
+                local_updated = 0
+
+                for game_data in games_data:
+                    igdb_id = game_data.get('id')
+                    if not igdb_id or igdb_id not in games_by_igdb_id:
+                        continue
+
+                    game_id = games_by_igdb_id[igdb_id]
+                    game_info = games_by_id[game_id]
+
+                    cover_data = game_data.get('cover', {})
+                    image_id = cover_data.get('image_id')
+
+                    if not image_id:
+                        continue
+
+                    new_cover_url = f"https://images.igdb.com/igdb/image/upload/t_cover_big/{image_id}.jpg"
+                    current_cover_url = game_info['cover_url'] or ""
+
+                    if current_cover_url != new_cover_url:
+                        updates.append({
+                            'id': game_id,
+                            'cover_url': new_cover_url
+                        })
+                        local_updated += 1
+
+                return batch_num, updates, len(batch_igdb_ids), local_updated
+
+            except Exception as e:
+                if debug:
+                    self.stderr.write(f'      ❌ Ошибка в пачке {batch_num}: {e}')
+                return batch_num, [], len(batch_igdb_ids), 0
+
+        # 5. Параллельная обработка
+        all_updates = []
+        processed_count = 0
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            # Запускаем задачи
+            future_to_batch = {}
+            for batch_num, batch_ids in enumerate(all_batches, 1):
+                future = executor.submit(process_batch, batch_num, batch_ids)
+                future_to_batch[future] = batch_num
+
+            # Собираем результаты
+            completed = 0
+
+            for future in concurrent.futures.as_completed(future_to_batch):
+                batch_num = future_to_batch[future]
+                try:
+                    batch_num, updates, processed, local_updated = future.result(timeout=15)
+
+                    all_updates.extend(updates)
+                    updated_count += local_updated
+                    processed_count += processed
+                    completed += 1
+
+                    if debug and completed % 10 == 0:
+                        progress = (completed / total_batches) * 100
+                        self.stdout.write(f'   📊 Прогресс: {progress:.1f}% ({completed}/{total_batches})')
+
+                except concurrent.futures.TimeoutError:
+                    error_count += 1
+                    if debug:
+                        self.stdout.write(f'   ⏱️  Таймаут пачки {batch_num}')
+                except Exception as e:
+                    error_count += 1
+                    if debug:
+                        self.stderr.write(f'   ❌ Ошибка пачки {batch_num}: {e}')
+
+        # 6. Массовое обновление
+        if all_updates:
+            try:
+                # Группируем обновления
+                update_dict = {}
+                for update in all_updates:
+                    update_dict[update['id']] = update['cover_url']
+
+                # Обновляем игры через bulk_update
+                games_to_update = []
+                for game_id, cover_url in update_dict.items():
+                    # Нужно получить объекты Game
+                    try:
+                        game = Game.objects.get(id=game_id)
+                        game.cover_url = cover_url
+                        games_to_update.append(game)
+                    except Game.DoesNotExist:
+                        continue
+
+                if games_to_update:
+                    Game.objects.bulk_update(games_to_update, ['cover_url'])
+
+            except Exception as e:
+                if debug:
+                    self.stderr.write(f'   ❌ Ошибка массового обновления: {e}')
+                # Fallback: обновляем по одной
+                for update in all_updates:
+                    try:
+                        Game.objects.filter(id=update['id']).update(cover_url=update['cover_url'])
+                    except Exception:
+                        continue
+
+        total_time = time.time() - start_time
+
+        # 7. Вывод статистики
+        self.stdout.write(f'\n' + '=' * 60)
+        self.stdout.write(f'📊 ИТОГОВАЯ СТАТИСТИКА')
+        self.stdout.write('=' * 60)
+        self.stdout.write(f'👀 Обработано игр: {processed_count}/{total_games}')
+        self.stdout.write(f'✅ Успешно обновлено: {updated_count}')
+        self.stdout.write(f'⏭️  Пропущено (уже актуальны): {processed_count - updated_count}')
+        self.stdout.write(f'❌ Ошибок: {error_count}')
+        self.stdout.write(f'⏱️  Общее время: {total_time:.2f}с')
+
+        if total_time > 0:
+            games_per_second = processed_count / total_time
+            self.stdout.write(f'🚀 Скорость обработки: {games_per_second:.1f} игр/сек')
+
+        return updated_count
 
     def _display_update_covers_final_stats(self, offset, processed_count, total_games,
                                            updated_count, total_time):
@@ -1402,88 +1613,110 @@ class GameLoader:
         return updated_count, all_update_details
 
     def _load_single_update_batch(self, batch_num, batch_ids, games_map, debug=False):
-        """Загружает и обновляет одну пачку из 10 игр - УПРОЩЕННАЯ ВЕРСИЯ ДЛЯ ОБЛОЖЕК"""
+        """Загружает и обновляет одну пачку из 10 игр - с rate limiting"""
+        from games.igdb_api import make_igdb_request
+        from games.models import Game
+        import time
+
         if not batch_ids:
             return 0, []
 
-        from games.igdb_api import make_igdb_request
-
-        # Запрос к IGDB для 10 игр
-        id_list = ','.join(map(str, batch_ids))
-        query = f'fields id,cover; where id = ({id_list});'
-
         try:
-            games_data = make_igdb_request('games', query, debug=False)
+            # Оптимальные настройки для IGDB API
+            MAX_RETRIES = 2
+            RETRY_DELAYS = [1.0, 3.0]  # Экспоненциальная backoff
+
+            # 1. Запрос с правильными rate limits
+            id_list = ','.join(map(str, batch_ids))
+            query = f'fields id,cover.image_id; where id = ({id_list});'
+
+            games_data = None
+            last_error = None
+
+            for attempt in range(MAX_RETRIES + 1):
+                try:
+                    games_data = make_igdb_request('games', query, debug=False)
+                    break
+                except Exception as e:
+                    last_error = e
+                    if attempt < MAX_RETRIES:
+                        delay = RETRY_DELAYS[attempt] if attempt < len(RETRY_DELAYS) else 5.0
+                        if debug:
+                            error_msg = str(e).lower()
+                            if "429" in str(e) or "too many" in error_msg or "rate limit" in error_msg:
+                                self.stdout.write(f'      ⏸️  Rate limit, пауза {delay:.1f} сек...')
+                            else:
+                                self.stdout.write(f'      ⏸️  Ошибка API, пауза {delay:.1f} сек...')
+                        time.sleep(delay)
+
+            if not games_data:
+                if debug and last_error:
+                    error_msg = str(last_error)[:100]
+                    self.stdout.write(f'      ⚠️  Пачка {batch_num}: ошибка после ретраев: {error_msg}')
+                return 0, []
+
+            # 2. Быстрое создание мапы cover_id
+            cover_map = {}
+            for gd in games_data:
+                if 'id' in gd and 'cover' in gd:
+                    cover_data = gd['cover']
+                    image_id = cover_data.get('image_id')
+                    if image_id:
+                        cover_map[gd['id']] = f"https://images.igdb.com/igdb/image/upload/t_cover_big/{image_id}.jpg"
+
+            # 3. Остальной код без изменений...
+            batch_updated = 0
+            updates_dict = {}
+
+            for game_id in batch_ids:
+                if game_id not in games_map:
+                    continue
+
+                game = games_map[game_id]
+                new_cover_url = cover_map.get(game_id)
+
+                if not new_cover_url:
+                    continue
+
+                current_cover_url = game.cover_url or ""
+
+                if current_cover_url != new_cover_url:
+                    updates_dict[game.id] = new_cover_url
+                    batch_updated += 1
+
+            # 4. Массовое обновление
+            if updates_dict:
+                try:
+                    from django.db.models import Case, When, Value
+                    from django.db.models import CharField
+
+                    when_conditions = []
+                    for game_db_id, new_url in updates_dict.items():
+                        when_conditions.append(When(id=game_db_id, then=Value(new_url)))
+
+                    Game.objects.filter(id__in=updates_dict.keys()).update(
+                        cover_url=Case(*when_conditions, default=Value(''), output_field=CharField())
+                    )
+
+                    if debug and batch_updated > 0:
+                        self.stdout.write(f'      💾 Пачка {batch_num}: {batch_updated} обновлений')
+
+                except Exception as e:
+                    if debug:
+                        self.stderr.write(f'      ❌ Ошибка сохранения пачки {batch_num}: {e}')
+                    # Fallback
+                    for game_db_id, new_url in updates_dict.items():
+                        try:
+                            Game.objects.filter(id=game_db_id).update(cover_url=new_url)
+                        except Exception:
+                            continue
+
+            return batch_updated, []
+
         except Exception as e:
             if debug:
-                self.stderr.write(f'      ❌ Ошибка запроса пачки {batch_num + 1}: {e}')
+                self.stderr.write(f'      ❌ Критическая ошибка пачки {batch_num}: {e}')
             return 0, []
-
-        if not games_data:
-            return 0, []
-
-        # Создаем карту данных игр
-        games_data_map = {gd['id']: gd for gd in games_data if 'id' in gd}
-
-        batch_updated = 0
-        batch_details = []
-
-        for game_id in batch_ids:
-            # Проверяем, есть ли игра в базе и в данных IGDB
-            if game_id not in games_map or game_id not in games_data_map:
-                continue
-
-            game = games_map[game_id]
-            game_data = games_data_map[game_id]
-
-            # Получаем cover_id из данных игры
-            cover_id = game_data.get('cover')
-            if not cover_id:
-                continue
-
-            # Формируем новый URL обложки
-            new_cover_url = f"https://images.igdb.com/igdb/image/upload/t_cover_big/{cover_id}.jpg"
-
-            # Получаем текущий URL обложки
-            current_cover_url = game.cover_url or ""
-
-            # Если URL совпадают - пропускаем
-            if current_cover_url == new_cover_url:
-                if debug:
-                    self.stdout.write(f'      ⏭️  Обложка уже актуальна: {game.name}')
-                continue
-
-            # Обновляем обложку без проверки доступности
-            game.cover_url = new_cover_url
-            batch_updated += 1
-
-            batch_details.append({
-                'game_name': game.name,
-                'game_id': game_id,
-                'details': {
-                    'updated_fields': ['cover_url'],
-                    'old_cover': current_cover_url,
-                    'new_cover': new_cover_url
-                }
-            })
-
-            if debug:
-                self.stdout.write(f'      ✅ Обновлена обложка: {game.name}')
-
-        # Сохраняем все обновленные игры одним запросом
-        if batch_updated > 0:
-            try:
-                from games.models import Game
-                game_ids_to_update = [games_map[game_id].id for game_id in games_data_map.keys()
-                                      if game_id in games_map]
-                Game.objects.filter(id__in=game_ids_to_update).update(cover_url=new_cover_url)
-                if debug:
-                    self.stdout.write(f'      💾 Сохранено обновлений: {batch_updated}')
-            except Exception as e:
-                if debug:
-                    self.stderr.write(f'      ❌ Ошибка сохранения обновлений: {e}')
-
-        return batch_updated, batch_details
 
     def _update_single_game_with_existing_data(self, game, game_data, data_maps, collected_data, debug):
         """Обновляет одну игру используя уже загруженные данные"""
