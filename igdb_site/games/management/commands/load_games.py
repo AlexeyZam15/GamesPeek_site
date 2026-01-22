@@ -44,11 +44,50 @@ class Command(BaseCommand):
                             help='Сбросить сохраненный offset и начать с начала')
         parser.add_argument('--update-missing-data', action='store_true',
                             help='Обновить отсутствующие данные у существующих игр. Можно использовать с --game-names или без для обновления всех игр')
+        # НОВЫЙ АРГУМЕНТ
+        parser.add_argument('--update-covers', action='store_true',
+                            help='Обновить только обложки у существующих игр')
 
     def handle(self, *args, **options):
         """Основной метод выполнения команды"""
+        # Если используется --update-covers
+        if options['update_covers']:
+            self.stdout.write('🖼️  РЕЖИМ: ОБНОВЛЕНИЕ ОБЛОЖЕК')
+
+            # Отключаем другие режимы
+            options['overwrite'] = False
+            options['count_only'] = False
+            options['update_missing_data'] = False
+
+            # Определяем, какие игры будут обновляться
+            update_all_covers = not any([
+                options['game_names'],
+                options['game_modes'],
+                options['genres'],
+                options['description_contains'],
+                options['keywords']
+            ])
+
+            if update_all_covers:
+                self.stdout.write('🎮 Обновление обложек для ВСЕХ игр в базе')
+            elif options['game_names']:
+                self.stdout.write(f'🎮 Обновление обложек для указанных игр: {options["game_names"]}')
+            elif options['game_modes']:
+                self.stdout.write(f'🎮 Обновление обложек для игр с режимами: {options["game_modes"]}')
+            elif options['genres']:
+                self.stdout.write(f'🎮 Обновление обложек для игр с жанрами: {options["genres"]}')
+            elif options['description_contains']:
+                self.stdout.write(f'🎮 Обновление обложек для игр с текстом: {options["description_contains"]}')
+            elif options['keywords']:
+                self.stdout.write(f'🎮 Обновление обложек для игр с ключевыми словами: {options["keywords"]}')
+
+            # Создаем экземпляр GameLoader и делегируем ему работу
+            loader = GameLoader(self.stdout, self.stderr)
+            loader.execute_command(options)
+            return
+
         # Если используется --update-missing-data
-        if options['update_missing_data']:
+        elif options['update_missing_data']:
             self.stdout.write('🔄 РЕЖИМ: ОБНОВЛЕНИЕ ОТСУТСТВУЮЩИХ ДАННЫХ')
 
             # Отключаем overwrite и count-only в этом режиме

@@ -22,10 +22,608 @@ class GameLoader:
         self.debug_mode = False
         self._last_processed_count = 0  # Добавить эту строку
 
-    def update_game_cover(self, game, game_data, data_maps, details, debug=False):
-        """Обновляет обложку игры с проверкой доступности"""
-        import requests
+    def _get_cover_ids_batch(self, game_ids, debug=False):
+        """Получает cover_id для батча игр одним запросом"""
+        if not game_ids:
+            return {}
 
+        from games.igdb_api import make_igdb_request
+
+        id_list = ','.join(map(str, game_ids[:10]))
+        query = f'fields id,cover; where id = ({id_list});'
+
+        try:
+            games_data = make_igdb_request('games', query, debug=False)
+            return {gd['id']: gd.get('cover') for gd in games_data if 'id' in gd}
+        except Exception as e:
+            if debug:
+                self.stderr.write(f'   ❌ Ошибка batch запроса к IGDB: {e}')
+            return {}
+
+    def _get_saved_offset_for_update_covers(self, options):
+        """Получает сохраненный offset для режима обновления обложек"""
+        params = self._get_offset_params_for_update_covers(options)
+        return OffsetManager.load_offset(params)
+
+    def _save_offset_for_update_covers(self, options, current_offset):
+        """Сохраняет offset для режима обновления обложек"""
+        params = self._get_offset_params_for_update_covers(options)
+        saved = OffsetManager.save_offset(params, current_offset)
+
+        if saved:
+            if options.get('debug', False):
+                self.stdout.write(f'   💾 Offset для обновления обложек сохранен: {current_offset}')
+        return saved
+
+    def _get_offset_params_for_update_covers(self, options):
+        """Получает параметры для создания ключа offset для режима обновления обложек"""
+        # Создаем отдельные параметры для update_covers
+        params = {
+            'update_covers': True,  # Главный маркер режима
+            'game_modes': options.get('game_modes', ''),
+            'game_names': options.get('game_names', ''),
+            'genres': options.get('genres', ''),
+            'description_contains': options.get('description_contains', ''),
+            'keywords': options.get('keywords', ''),
+            'game_types': options.get('game_types', ''),
+            'min_rating_count': options.get('min_rating_count', 0),
+            'mode': 'update_covers',  # Явно указываем режим
+        }
+
+        # Добавляем информацию о фильтрах для уникальности ключа
+        has_filters = any([
+            options.get('game_names'),
+            options.get('game_modes'),
+            options.get('genres'),
+            options.get('description_contains'),
+            options.get('keywords')
+        ])
+
+        if has_filters:
+            params['has_filters'] = True
+        else:
+            params['has_filters'] = False
+
+        return params
+
+    def _update_game_covers(self, result, params, iteration_start_time, errors):
+        """Обновляет обложки для найденных игр"""
+        try:
+            updated_count = 0
+            failed_count = 0
+            update_details = []
+
+            games_to_process = []
+            if result.get('all_found_games'):
+                games_to_process = result['all_found_games']
+            elif result.get('new_games'):
+                games_to_process = result['new_games']
+
+            if params['debug']:
+                self.stdout.write(f'\n🖼️  ОБНОВЛЕНИЕ ОБЛОЖЕК ДЛЯ НАЙДЕННЫХ ИГР')
+                self.stdout.write(f'   • Всего найдено игр для обработки: {len(games_to_process)}')
+
+            if not games_to_process:
+                if params['debug']:
+                    self.stdout.write(f'   ⚠️  Нет игр для обновления обложек')
+
+                iteration_time = time.time() - iteration_start_time
+                return {
+                    'total_games_checked': result['total_games_checked'],
+                    'total_games_found': result.get('new_games_count', 0),
+                    'created_count': 0,
+                    'skipped_count': result.get('existing_games_skipped', 0),
+                    'updated_count': 0,
+                    'total_time': iteration_time,
+                    'errors': errors,
+                    'last_checked_offset': result.get('last_checked_offset', 0),
+                    'limit_reached': result.get('limit_reached', False),
+                    'limit_reached_at_offset': result.get('limit_reached_at_offset'),
+                }
+
+            # Создаем экземпляры для обработки данных
+            collector = DataCollector(self.stdout, self.stderr)
+            loader = DataLoader(self.stdout, self.stderr)
+
+            # Собираем все ID данных
+            collected_data = collector.collect_all_data_ids(games_to_process, params['debug'])
+
+            # Загружаем данные об обложках
+            cover_ids = collected_data.get('all_cover_ids', [])
+            if params['debug']:
+                self.stdout.write(f'   📥 Загрузка данных об обложках: {len(cover_ids)} ID')
+
+            # Загружаем данные обложек
+            cover_map = loader.load_covers_parallel(cover_ids, params['debug'])
+
+            if params['debug']:
+                self.stdout.write(f'   ✅ Загружено обложек: {len(cover_map)}')
+
+            # Для каждой игры обновляем обложку
+            for i, game_data in enumerate(games_to_process, 1):
+                game_id = game_data.get('id')
+                game_name = game_data.get('name', f'ID {game_id}')
+
+                if params['debug']:
+                    self.stdout.write(f'\n   🔄 [{i}/{len(games_to_process)}] Обновление обложки: {game_name}')
+
+                if not game_id:
+                    failed_count += 1
+                    if params['debug']:
+                        self.stdout.write(f'      ❌ Нет ID у игры: {game_name}')
+                    continue
+
+                # Получаем cover_id из данных игры
+                cover_id = game_data.get('cover')
+                if not cover_id:
+                    failed_count += 1
+                    if params['debug']:
+                        self.stdout.write(f'      ❌ Нет cover_id у игры: {game_name}')
+                    continue
+
+                # Проверяем, есть ли обложка в загруженных данных
+                if cover_id not in cover_map:
+                    failed_count += 1
+                    if params['debug']:
+                        self.stdout.write(f'      ❌ Обложка {cover_id} не найдена в загруженных данных')
+                    continue
+
+                # Получаем новый URL обложки
+                new_cover_url = cover_map[cover_id]
+
+                # Находим игру в базе
+                from games.models import Game
+                game = Game.objects.filter(igdb_id=game_id).first()
+                if not game:
+                    failed_count += 1
+                    if params['debug']:
+                        self.stdout.write(f'      ❌ Игра {game_id} не найдена в базе данных')
+                    continue
+
+                # Проверяем текущую обложку
+                current_cover_url = game.cover_url or ""
+
+                # Если URL одинаковые, пропускаем
+                if current_cover_url == new_cover_url:
+                    if params['debug']:
+                        self.stdout.write(f'      ⏭️  Обложка уже актуальна')
+                    continue
+
+                # Обновляем обложку
+                try:
+                    game.cover_url = new_cover_url
+                    game.save(update_fields=['cover_url'])
+                    updated_count += 1
+
+                    update_details.append({
+                        'game_name': game.name,
+                        'game_id': game_id,
+                        'old_cover': current_cover_url,
+                        'new_cover': new_cover_url
+                    })
+
+                    if params['debug']:
+                        self.stdout.write(f'      ✅ Обновлена обложка')
+                        self.stdout.write(
+                            f'      📍 Старая: {current_cover_url[:50]}...' if current_cover_url else '      📍 Старая: не было')
+                        self.stdout.write(f'      📍 Новая: {new_cover_url[:50]}...')
+
+                except Exception as e:
+                    failed_count += 1
+                    if params['debug']:
+                        self.stderr.write(f'      ❌ Ошибка обновления обложки: {e}')
+
+            iteration_time = time.time() - iteration_start_time
+
+            # Вывод финальной статистики
+            if params['debug']:
+                self.stdout.write(f'\n' + '=' * 60)
+                self.stdout.write(f'📊 ФИНАЛЬНАЯ СТАТИСТИКА ОБНОВЛЕНИЯ ОБЛОЖЕК')
+                self.stdout.write('=' * 60)
+                self.stdout.write(f'🔄 ОБРАБОТАНО ИГР: {len(games_to_process)}')
+                self.stdout.write(f'✅ УСПЕШНО ОБНОВЛЕНО: {updated_count}')
+                self.stdout.write(f'❌ НЕ УДАЛОСЬ ОБНОВИТЬ: {failed_count}')
+                self.stdout.write(f'⏱️  ВРЕМЯ: {iteration_time:.2f}с')
+
+                if iteration_time > 0:
+                    speed = len(games_to_process) / iteration_time
+                    self.stdout.write(f'🚀 Скорость: {speed:.1f} игр/сек')
+
+            return {
+                'total_games_checked': result['total_games_checked'],
+                'total_games_found': len(games_to_process),
+                'created_count': 0,
+                'skipped_count': result.get('existing_games_skipped', 0),
+                'updated_count': updated_count,
+                'update_details': update_details,
+                'total_time': iteration_time,
+                'errors': errors + failed_count,
+                'last_checked_offset': result.get('last_checked_offset', 0),
+                'limit_reached': result.get('limit_reached', False),
+                'limit_reached_at_offset': result.get('limit_reached_at_offset'),
+            }
+
+        except Exception as e:
+            errors += 1
+            self.stderr.write(f'❌ ОШИБКА при обновлении обложек: {str(e)}')
+            if params['debug']:
+                import traceback
+                self.stderr.write(f'📋 Трассировка ошибки:')
+                self.stderr.write(traceback.format_exc())
+
+            iteration_time = time.time() - iteration_start_time
+            return {
+                'total_games_checked': result['total_games_checked'],
+                'total_games_found': result.get('new_games_count', 0),
+                'created_count': 0,
+                'skipped_count': result.get('existing_games_skipped', 0),
+                'updated_count': 0,
+                'update_details': [],
+                'total_time': iteration_time,
+                'errors': errors,
+                'last_checked_offset': result.get('last_checked_offset', 0),
+                'limit_reached': result.get('limit_reached', False),
+                'limit_reached_at_offset': result.get('limit_reached_at_offset'),
+            }
+
+    def _setup_update_covers_environment(self, options, debug, original_offset):
+        """Настройка окружения для режима обновления обложек"""
+        from games.models import Game
+        import time
+
+        # НЕМЕДЛЕННО выводим только заголовок
+        self.stdout.write(f'\n🖼️  ЗАПУСК ОБНОВЛЕНИЯ ОБЛОЖЕК ДЛЯ ИГР В БАЗЕ')
+        self.stdout.write('=' * 60)
+        self.stdout.write(f'📍 Начинаем с offset: {original_offset}')
+
+        # Определяем, нужно ли обновлять обложки всех игр или только по фильтрам
+        update_all_covers = not any([
+            options.get('game_names'),
+            options.get('game_modes'),
+            options.get('genres'),
+            options.get('description_contains'),
+            options.get('keywords')
+        ])
+
+        if update_all_covers:
+            # Обновление обложек для всех игр
+            updated_count = self.update_all_game_covers(options, debug)
+        else:
+            # Обновление обложек по фильтрам
+            updated_count = self.update_filtered_game_covers(options, debug)
+
+        # Выводим финальное сообщение
+        self.stdout.write(f'\n' + '=' * 60)
+        self.stdout.write(f'✅ ОБНОВЛЕНИЕ ОБЛОЖЕК ЗАВЕРШЕНО!')
+        self.stdout.write(f'🖼️  Обновлено обложек: {updated_count}')
+
+        return None, None, None, None, None, None, True
+
+    def update_all_game_covers(self, options, debug=False):
+        """Обновляет обложки для всех игр в базе - упрощенная версия"""
+        from games.models import Game
+        import time
+
+        offset = options.get('offset', 0)
+        limit = options.get('limit', 0)
+
+        if offset == 0 and not options.get('reset_offset', False):
+            saved_offset = self._get_saved_offset_for_update_covers(options)
+            if saved_offset is not None:
+                offset = saved_offset
+                self.stdout.write(f'📍 Используем сохраненный offset для обновления обложек: {offset}')
+
+        all_games_query = Game.objects.all().order_by('id')
+        total_in_db = Game.objects.count()
+
+        if offset > 0:
+            all_games_query = all_games_query[offset:]
+            remaining_games = total_in_db - offset
+            self.stdout.write(f'📍 Игр осталось для обновления обложек: {remaining_games}')
+
+        games = list(all_games_query)
+
+        if limit > 0:
+            games = games[:limit]
+
+        total_games = len(games)
+
+        if total_games == 0:
+            self.stdout.write('❌ В базе нет игр для обновления обложек')
+            return 0
+
+        progress_bar = None
+        if not debug:
+            progress_bar = self._create_progress_bar()
+            progress_bar.total_games = total_games
+            progress_bar.desc = "Обновление обложек"
+            progress_bar.update(total_loaded=0)
+
+        start_time = time.time()
+        updated_count = 0
+        processed_count = 0
+
+        BATCH_SIZE = 10
+        total_batches = (total_games + BATCH_SIZE - 1) // BATCH_SIZE
+
+        try:
+            for batch_num in range(total_batches):
+                batch_start = batch_num * BATCH_SIZE
+                batch_end = min(batch_start + BATCH_SIZE, total_games)
+                batch_games = games[batch_start:batch_end]
+
+                if debug:
+                    self.stdout.write(f'\n📦 Пачка {batch_num + 1}/{total_batches}: {len(batch_games)} игр')
+
+                # Получаем cover_id для батча
+                game_ids = [game.igdb_id for game in batch_games]
+                cover_id_map = self._get_cover_ids_batch(game_ids, debug)
+
+                if debug:
+                    self.stdout.write(f'   📥 Получено cover_id: {len(cover_id_map)}/{len(batch_games)}')
+
+                # Обновляем обложки
+                games_to_update = []
+                for game in batch_games:
+                    game_id = game.igdb_id
+                    cover_id = cover_id_map.get(game_id)
+
+                    if not cover_id:
+                        continue
+
+                    new_cover_url = f"https://images.igdb.com/igdb/image/upload/t_cover_big/{cover_id}.jpg"
+                    current_cover_url = game.cover_url or ""
+
+                    if current_cover_url != new_cover_url:
+                        game.cover_url = new_cover_url
+                        games_to_update.append(game)
+                        updated_count += 1
+
+                        if debug:
+                            self.stdout.write(f'   ✅ Обновлена обложка: {game.name}')
+
+                # Сохраняем обновленные игры
+                if games_to_update:
+                    Game.objects.bulk_update(games_to_update, ['cover_url'])
+
+                processed_count += len(batch_games)
+
+                if progress_bar and not debug:
+                    progress_bar.update(
+                        total_loaded=processed_count,
+                        updated_count=updated_count,
+                        skipped_count=processed_count - updated_count
+                    )
+
+                current_total_offset = offset + processed_count
+                self._save_offset_for_update_covers(options, current_total_offset)
+
+                if batch_end < total_games:
+                    time.sleep(0.5)
+
+            total_time = time.time() - start_time
+
+            if progress_bar and not debug:
+                progress_bar.final_message(f"✅ Обновлено {updated_count}/{total_games} обложек")
+                progress_bar.clear()
+
+            self._display_update_covers_final_stats(offset, processed_count, total_games,
+                                                    updated_count, total_time)
+
+            if total_time > 0:
+                games_per_second = processed_count / total_time
+                self.stdout.write(f'🚀 Скорость: {games_per_second:.1f} игр/сек')
+                self.stdout.write(f'📈 Обновлений в секунду: {updated_count / total_time:.1f}/сек')
+
+            return updated_count
+
+        except KeyboardInterrupt:
+            current_total_offset = offset + processed_count
+            self._save_offset_for_update_covers(options, current_total_offset)
+
+            self.stdout.write(f'\n🛑 ОБНОВЛЕНИЕ ОБЛОЖЕК ПРЕРВАНО')
+            self.stdout.write(f'📍 Обработано игр: {processed_count}/{total_games}')
+            self.stdout.write(f'📍 Обновлено обложек: {updated_count}')
+            self.stdout.write(f'📍 Следующий offset: {current_total_offset}')
+
+            raise
+
+    def update_filtered_game_covers(self, options, debug=False):
+        """Обновляет обложки для игр по фильтрам - оптимизированная версия"""
+        from games.models import Game
+        from django.db.models import Q
+        from games.igdb_api import make_igdb_request
+        import time
+        import concurrent.futures
+
+        offset = options.get('offset', 0)
+        limit = options.get('limit', 0)
+        game_names = options.get('game_names', '')
+        game_modes = options.get('game_modes', '')
+        genres = options.get('genres', '')
+        description_contains = options.get('description_contains', '')
+        keywords = options.get('keywords', '')
+
+        # Если указаны конкретные имена игр - игнорируем offset
+        if game_names:
+            offset = 0
+
+        query = Game.objects.all()
+
+        if game_names:
+            name_list = [n.strip() for n in game_names.split(',') if n.strip()]
+            name_filters = Q()
+            for name in name_list:
+                name_filters |= Q(name__icontains=name)
+            query = query.filter(name_filters)
+
+        if genres:
+            genre_list = [g.strip() for g in genres.split(',') if g.strip()]
+            for genre in genre_list:
+                query = query.filter(genres__name__icontains=genre)
+
+        if description_contains:
+            text = description_contains
+            query = query.filter(Q(summary__icontains=text) | Q(storyline__icontains=text))
+
+        if keywords:
+            keyword_list = [k.strip() for k in keywords.split(',') if k.strip()]
+            for keyword in keyword_list:
+                query = query.filter(keywords__name__icontains=keyword)
+
+        query = query.order_by('id')
+
+        # Получаем только ID и текущие обложки
+        games = list(query.only('id', 'igdb_id', 'cover_url', 'name'))
+        total_games = len(games)
+
+        if total_games == 0:
+            self.stdout.write('❌ Не найдено игр для обновления обложек')
+            return 0
+
+        if limit > 0:
+            games = games[:limit]
+            total_games = len(games)
+
+        start_time = time.time()
+        updated_count = 0
+
+        def get_covers_batch_parallel(game_ids_chunk):
+            """Параллельная загрузка обложек для чанка игр"""
+            if not game_ids_chunk:
+                return {}
+
+            id_list = ','.join(map(str, game_ids_chunk))
+            query = f'fields id,cover.image_id; where id = ({id_list});'
+
+            try:
+                games_data = make_igdb_request('games', query, debug=False)
+                result = {}
+                for game_data in games_data:
+                    if 'id' in game_data and 'cover' in game_data:
+                        cover_data = game_data['cover']
+                        image_id = cover_data.get('image_id')
+                        if image_id:
+                            result[game_data[
+                                'id']] = f"https://images.igdb.com/igdb/image/upload/t_cover_big/{image_id}.jpg"
+                return result
+            except Exception:
+                return {}
+
+        try:
+            # Разбиваем игры на чанки для параллельной обработки
+            CHUNK_SIZE = 10
+            MAX_WORKERS = 4  # Можно увеличить до 5-6 если API позволяет
+
+            all_game_ids = [game.igdb_id for game in games]
+            total_chunks = (len(all_game_ids) + CHUNK_SIZE - 1) // CHUNK_SIZE
+
+            # Создаем мапу для быстрого доступа к играм по igdb_id
+            games_by_igdb_id = {game.igdb_id: game for game in games}
+
+            # Параллельная загрузка всех обложек
+            covers_map = {}
+            with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                future_to_chunk = {}
+
+                # Запускаем загрузку чанков параллельно
+                for chunk_idx in range(total_chunks):
+                    start_idx = chunk_idx * CHUNK_SIZE
+                    end_idx = min(start_idx + CHUNK_SIZE, len(all_game_ids))
+                    chunk_ids = all_game_ids[start_idx:end_idx]
+
+                    future = executor.submit(get_covers_batch_parallel, chunk_ids)
+                    future_to_chunk[future] = chunk_idx
+
+                # Собираем результаты
+                for future in concurrent.futures.as_completed(future_to_chunk):
+                    chunk_idx = future_to_chunk[future]
+                    try:
+                        chunk_covers = future.result(timeout=10)
+                        covers_map.update(chunk_covers)
+                    except Exception as e:
+                        if debug:
+                            self.stderr.write(f'   ❌ Ошибка в чанке {chunk_idx}: {e}')
+
+            if debug:
+                self.stdout.write(f'📥 Получено обложек: {len(covers_map)}/{len(games)}')
+
+            # Массовое обновление игр
+            games_to_update = []
+            update_details = []
+
+            for game_id, new_cover_url in covers_map.items():
+                game = games_by_igdb_id.get(game_id)
+                if not game:
+                    continue
+
+                current_cover_url = game.cover_url or ""
+
+                if current_cover_url != new_cover_url:
+                    game.cover_url = new_cover_url
+                    games_to_update.append(game)
+                    updated_count += 1
+
+                    if debug and updated_count <= 5:  # Показываем только первые 5 обновлений
+                        self.stdout.write(f'✅ Обновлена обложка: {game.name}')
+                        self.stdout.write(
+                            f'   Старая: {current_cover_url[:80]}...' if current_cover_url else '   Старая: не было')
+                        self.stdout.write(f'   Новая: {new_cover_url[:80]}...')
+
+            # Массовое сохранение всех обновлений одним запросом
+            if games_to_update:
+                Game.objects.bulk_update(games_to_update, ['cover_url'])
+                if debug:
+                    self.stdout.write(f'💾 Сохранено обновлений: {len(games_to_update)}')
+
+            total_time = time.time() - start_time
+
+            # Финальная статистика
+            self.stdout.write(f'\n' + '=' * 60)
+            self.stdout.write(f'📊 ИТОГОВАЯ СТАТИСТИКА')
+            self.stdout.write('=' * 60)
+            self.stdout.write(f'📍 Обработано игр: {len(games)}')
+            self.stdout.write(f'✅ Успешно обновлено: {updated_count}')
+            self.stdout.write(f'⏭️  Пропущено (обложки актуальны): {len(games) - updated_count}')
+            self.stdout.write(f'⏱️  Общее время: {total_time:.2f}с')
+
+            if total_time > 0:
+                games_per_second = len(games) / total_time
+                self.stdout.write(f'🚀 Скорость обработки: {games_per_second:.1f} игр/сек')
+
+            return updated_count
+
+        except Exception as e:
+            self.stderr.write(f'\n❌ Ошибка при обновлении обложек: {str(e)}')
+            return 0
+
+    def _display_update_covers_final_stats(self, offset, processed_count, total_games,
+                                           updated_count, total_time):
+        self.stdout.write(f'\n' + '=' * 60)
+        self.stdout.write(f'📊 ИТОГОВАЯ СТАТИСТИКА ОБНОВЛЕНИЯ ОБЛОЖЕК')
+        self.stdout.write('=' * 60)
+
+        if offset > 0:
+            self.stdout.write(f'📍 Начальный offset: {offset}')
+            next_offset = offset + processed_count
+            self.stdout.write(f'📍 Следующий offset для продолжения: {next_offset}')
+        else:
+            self.stdout.write(f'📍 Обработано игр: {processed_count}/{total_games}')
+
+        self.stdout.write(f'✅ Успешно обновлено: {updated_count}')
+        self.stdout.write(f'⏭️  Пропущено (обложки актуальны): {processed_count - updated_count}')
+        self.stdout.write(f'⏱️  Общее время: {total_time:.2f}с')
+
+        if total_time > 0:
+            games_per_second = processed_count / total_time
+            self.stdout.write(f'🚀 Скорость обработки: {games_per_second:.1f} игр/сек')
+
+            if updated_count > 0:
+                updates_per_second = updated_count / total_time
+                self.stdout.write(f'📈 Скорость обновления: {updates_per_second:.1f} обложек/сек')
+
+    def update_game_cover(self, game, game_data, data_maps, details, debug=False):
+        """Обновляет обложку игры без проверки доступности"""
         if not game_data.get('cover'):
             return False
 
@@ -34,74 +632,40 @@ class GameLoader:
             return False
 
         new_cover_url = data_maps['cover_map'][cover_id]
+
+        # Заменяем t_thumb на t_cover_big если есть
+        if 't_thumb' in new_cover_url:
+            new_cover_url = new_cover_url.replace('t_thumb', 't_cover_big')
+
+        # Убеждаемся, что это JPG формат
+        if not new_cover_url.endswith('.jpg'):
+            if new_cover_url.endswith('.webp'):
+                new_cover_url = new_cover_url.replace('.webp', '.jpg')
+            else:
+                new_cover_url += '.jpg'
+
         current_url = game.cover_url or ""
 
         if debug:
-            self.stdout.write(f'   🔍 Проверка обложки для {game.name}:')
+            self.stdout.write(f'   🔍 Обновление обложки для {game.name}:')
             self.stdout.write(f'      Текущая URL: {current_url}')
             self.stdout.write(f'      Новая URL: {new_cover_url}')
 
-        # Проверяем текущую обложку
-        current_accessible = False
-        if current_url:
-            try:
-                response = requests.head(current_url, timeout=3, allow_redirects=True)
-                current_accessible = response.status_code == 200
-                if debug:
-                    self.stdout.write(f'      Текущая обложка: статус {response.status_code}')
-            except Exception as e:
-                if debug:
-                    self.stdout.write(f'      Ошибка проверки текущей обложки: {e}')
-
-        # Проверяем новую обложку
-        new_accessible = False
-        try:
-            response = requests.head(new_cover_url, timeout=3, allow_redirects=True)
-            new_accessible = response.status_code == 200
+        # Если URL совпадают - пропускаем
+        if current_url == new_cover_url:
             if debug:
-                self.stdout.write(f'      Новая обложка: статус {response.status_code}')
-        except Exception as e:
-            if debug:
-                self.stdout.write(f'      Ошибка проверки новой обложки: {e}')
-
-        # Логика обновления:
-        # 1. Если текущая недоступна (404/ошибка) И новая доступна - обновляем
-        # 2. Если у игры нет обложки И новая доступна - обновляем
-        # 3. Если текущая доступна, но URL отличается - тоже обновляем (на всякий случай)
-
-        should_update = False
-        update_reason = ""
-
-        if not current_url and new_accessible:
-            should_update = True
-            update_reason = "у игры не было обложки"
-        elif current_url and not current_accessible and new_accessible:
-            should_update = True
-            update_reason = "текущая обложка недоступна"
-        elif current_url != new_cover_url and new_accessible:
-            should_update = True
-            update_reason = "URL обложки изменился"
-
-        if should_update:
-            game.cover_url = new_cover_url
-            if 'cover_url' not in details['updated_fields']:
-                details['updated_fields'].append('cover_url')
-            details['cover_url'] = new_cover_url
-
-            if debug:
-                self.stdout.write(f'   🖼️  Обновляем обложку: {update_reason}')
-            return True
-        elif debug:
-            if current_url == new_cover_url:
                 self.stdout.write(f'   ⏭️  Обложка уже актуальна: {current_url}')
-            else:
-                self.stdout.write(f'   ⚠️  Не обновляем обложку')
-                if current_url:
-                    self.stdout.write(f'      Текущая: {current_url}')
-                if new_cover_url:
-                    self.stdout.write(f'      Новая: {new_cover_url}')
+            return False
 
-        return False
+        # Обновляем обложку без проверки доступности
+        game.cover_url = new_cover_url
+        if 'cover_url' not in details['updated_fields']:
+            details['updated_fields'].append('cover_url')
+        details['cover_url'] = new_cover_url
+
+        if debug:
+            self.stdout.write(f'   🖼️  Обновляем обложку')
+        return True
 
     def _setup_execution_environment(self, options):
         """Основная настройка окружения выполнения команды"""
@@ -119,6 +683,7 @@ class GameLoader:
         clear_cache = options.get('clear_cache', False)
         reset_offset = options.get('reset_offset', False)
         update_missing_data = options.get('update_missing_data', False)
+        update_covers = options.get('update_covers', False)  # НОВОЕ
 
         # ВЫВОДИМ ИНФОРМАЦИЮ О OFFSET В НАЧАЛЕ
         self.stdout.write(f'📍 Указанный offset: {original_offset}')
@@ -126,8 +691,12 @@ class GameLoader:
         # Получаем фактический offset (с учетом сохраненного)
         actual_offset = self._display_offset_info(options, original_offset)
 
+        # Проверяем режим обновления обложек (ВЫСШИЙ ПРИОРИТЕТ)
+        if update_covers:
+            return self._setup_update_covers_environment(options, debug, actual_offset)
+
         # Проверяем режим обновления данных
-        if update_missing_data:
+        elif update_missing_data:
             return self._setup_update_mode_environment(options, debug, actual_offset)
 
         # Если не режим обновления, продолжаем стандартную настройку
@@ -833,25 +1402,15 @@ class GameLoader:
         return updated_count, all_update_details
 
     def _load_single_update_batch(self, batch_num, batch_ids, games_map, debug=False):
-        """Загружает и обновляет одну пачку из 10 игр"""
+        """Загружает и обновляет одну пачку из 10 игр - УПРОЩЕННАЯ ВЕРСИЯ ДЛЯ ОБЛОЖЕК"""
         if not batch_ids:
             return 0, []
 
         from games.igdb_api import make_igdb_request
-        from datetime import datetime
-        from django.utils import timezone
 
         # Запрос к IGDB для 10 игр
         id_list = ','.join(map(str, batch_ids))
-
-        # ВАЖНО: Загружаем ВСЕ данные, включая связи
-        query = f'''
-            fields id,name,summary,cover,rating,rating_count,first_release_date,
-                   genres,keywords,platforms,screenshots,collections,
-                   involved_companies.company,involved_companies.developer,
-                   involved_companies.publisher,themes,player_perspectives,game_modes;
-            where id = ({id_list});
-        '''
+        query = f'fields id,cover; where id = ({id_list});'
 
         try:
             games_data = make_igdb_request('games', query, debug=False)
@@ -863,117 +1422,66 @@ class GameLoader:
         if not games_data:
             return 0, []
 
+        # Создаем карту данных игр
         games_data_map = {gd['id']: gd for gd in games_data if 'id' in gd}
 
-        # Обработка игр в пачке
         batch_updated = 0
         batch_details = []
 
         for game_id in batch_ids:
+            # Проверяем, есть ли игра в базе и в данных IGDB
             if game_id not in games_map or game_id not in games_data_map:
                 continue
 
             game = games_map[game_id]
             game_data = games_data_map[game_id]
 
-            # ШАГ 1: Проверяем, каких данных не хватает у игры
-            missing_data, missing_count = self.check_missing_game_data(game)
-
-            if debug:
-                self.stdout.write(f'      🔍 Проверка игры {game.name} (ID: {game_id}):')
-                self.stdout.write(f'         • Недостающих данных: {missing_count}')
-
-            # Если нет недостающих данных - пропускаем
-            if missing_count == 0:
-                if debug:
-                    self.stdout.write(f'         ⏭️  Все данные уже есть, пропускаем')
+            # Получаем cover_id из данных игры
+            cover_id = game_data.get('cover')
+            if not cover_id:
                 continue
 
-            update_fields = []
-            details = {'updated_fields': [], 'updated_relations': [], 'screenshots_added': 0}
+            # Формируем новый URL обложки
+            new_cover_url = f"https://images.igdb.com/igdb/image/upload/t_cover_big/{cover_id}.jpg"
 
-            # ШАГ 2: Обновляем основные поля игры если отсутствуют
-            # Обложка
-            if not missing_data['has_cover'] and game_data.get('cover'):
-                cover_id = game_data['cover']
-                if cover_id:
-                    game.cover_url = f"https://images.igdb.com/igdb/image/upload/t_cover_big/{cover_id}.jpg"
-                    update_fields.append('cover_url')
-                    details['updated_fields'].append('cover_url')
-                    if debug:
-                        self.stdout.write(f'         🖼️  Обновляем обложку')
+            # Получаем текущий URL обложки
+            current_cover_url = game.cover_url or ""
 
-            # Описание
-            if not missing_data['has_description'] and game_data.get('summary'):
-                if not game.summary or not game.summary.strip():
-                    game.summary = game_data.get('summary', '')
-                    update_fields.append('summary')
-                    details['updated_fields'].append('summary')
-                    if debug:
-                        self.stdout.write(f'         📝 Обновляем описание')
+            # Если URL совпадают - пропускаем
+            if current_cover_url == new_cover_url:
+                if debug:
+                    self.stdout.write(f'      ⏭️  Обложка уже актуальна: {game.name}')
+                continue
 
-            # Рейтинг
-            if not missing_data['has_rating'] and 'rating' in game_data:
-                if game.rating is None:
-                    game.rating = game_data.get('rating')
-                    update_fields.append('rating')
-                    details['updated_fields'].append('rating')
-                    if debug:
-                        self.stdout.write(f'         ⭐ Обновляем рейтинг: {game.rating}')
+            # Обновляем обложку без проверки доступности
+            game.cover_url = new_cover_url
+            batch_updated += 1
 
-            # Дата релиза
-            if not missing_data['has_release_date'] and game_data.get('first_release_date'):
-                if game.first_release_date is None:
-                    naive_datetime = datetime.fromtimestamp(game_data['first_release_date'])
-                    game.first_release_date = timezone.make_aware(naive_datetime)
-                    update_fields.append('first_release_date')
-                    details['updated_fields'].append('first_release_date')
-                    if debug:
-                        self.stdout.write(f'         📅 Обновляем дату релиза')
+            batch_details.append({
+                'game_name': game.name,
+                'game_id': game_id,
+                'details': {
+                    'updated_fields': ['cover_url'],
+                    'old_cover': current_cover_url,
+                    'new_cover': new_cover_url
+                }
+            })
 
-            # ШАГ 3: Сохраняем обновленные поля игры
-            if update_fields:
-                try:
-                    game.save(update_fields=update_fields)
-                    batch_updated += 1
-                    if debug:
-                        self.stdout.write(f'         💾 Сохранены поля: {", ".join(update_fields)}')
-                except Exception as e:
-                    if debug:
-                        self.stderr.write(f'      ❌ Ошибка сохранения игры {game_id}: {e}')
-                    continue
+            if debug:
+                self.stdout.write(f'      ✅ Обновлена обложка: {game.name}')
 
-            # ШАГ 4: Загружаем скриншоты если отсутствуют
-            if not missing_data['has_screenshots'] and game_data.get('screenshots'):
-                # Здесь должен быть код загрузки скриншотов
-                # Для простоты показываем, что скриншоты нужно загрузить
-                details['screenshots_added'] = len(game_data.get('screenshots', []))
-                if debug and details['screenshots_added'] > 0:
-                    self.stdout.write(f'         📸 Нужно загрузить скриншотов: {details["screenshots_added"]}')
-
-            # ШАГ 5: Проверяем и добавляем M2M связи если отсутствуют
-            # Жанры
-            if not missing_data['has_genres'] and game_data.get('genres'):
-                # Здесь должен быть код добавления жанров
-                pass
-
-            # Платформы
-            if not missing_data['has_platforms'] and game_data.get('platforms'):
-                # Здесь должен быть код добавления платформ
-                pass
-
-            # Ключевые слова
-            if not missing_data['has_keywords'] and game_data.get('keywords'):
-                # Здесь должен быть код добавления ключевых слов
-                pass
-
-            # Добавляем в детали только если что-то было обновлено
-            if update_fields or details['screenshots_added'] > 0:
-                batch_details.append({
-                    'game_name': game.name,
-                    'game_id': game_id,
-                    'details': details
-                })
+        # Сохраняем все обновленные игры одним запросом
+        if batch_updated > 0:
+            try:
+                from games.models import Game
+                game_ids_to_update = [games_map[game_id].id for game_id in games_data_map.keys()
+                                      if game_id in games_map]
+                Game.objects.filter(id__in=game_ids_to_update).update(cover_url=new_cover_url)
+                if debug:
+                    self.stdout.write(f'      💾 Сохранено обновлений: {batch_updated}')
+            except Exception as e:
+                if debug:
+                    self.stderr.write(f'      ❌ Ошибка сохранения обновлений: {e}')
 
         return batch_updated, batch_details
 
@@ -1972,7 +2480,7 @@ class GameLoader:
     def _get_offset_params(self, options):
         """Получает параметры для создания ключа offset"""
         # ВСЕГДА в одном порядке для одинаковых параметров
-        return {
+        params = {
             'game_modes': options.get('game_modes', ''),
             'game_names': options.get('game_names', ''),
             'genres': options.get('genres', ''),
@@ -1982,6 +2490,12 @@ class GameLoader:
             'min_rating_count': options.get('min_rating_count', 0),
             'mode': self._get_loading_mode(options),
         }
+
+        # НОВОЕ: добавляем параметр update_covers для отдельного offset
+        if options.get('update_covers', False):
+            params['update_covers'] = True
+
+        return params
 
     def load_games_by_game_mode(self, game_mode_name, debug=False, limit=0, offset=0, min_rating_count=0,
                                 skip_existing=True, count_only=False, game_types_str='0,1,2,4,5,8,9,10,11'):
@@ -2372,8 +2886,9 @@ class GameLoader:
         # Подготовка параметров
         params = self._get_execution_parameters(options)
 
-        # Передаем options в params для доступа к update_missing_data
+        # Передаем options в params для доступа к update_missing_data и update_covers
         params['update_missing_data'] = options.get('update_missing_data', False)
+        params['update_covers'] = options.get('update_covers', False)  # НОВОЕ
 
         # Только в debug режиме показываем заголовок
         if debug:
@@ -2401,6 +2916,22 @@ class GameLoader:
 
         errors = 0
         iteration_start_time = time.time()
+
+        # Если режим обновления обложек (НОВОЕ)
+        if params.get('update_covers'):
+            if debug:
+                self.stdout.write(f'🖼️  РЕЖИМ ОБНОВЛЕНИЯ ОБЛОЖЕК: проверка и обновление недоступных обложек')
+            # В режиме обновления обложек не пропускаем существующие игры
+            skip_existing = False
+
+            # Загрузка игр для обновления обложек
+            result = self._load_games_for_iteration(params, actual_limit, actual_offset, skip_existing, debug)
+
+            if result is None:
+                return self._handle_failed_loading(iteration_start_time, errors, actual_offset)
+
+            # Обновляем обложки для найденных игр
+            return self._update_game_covers(result, params, iteration_start_time, errors)
 
         # Если режим обновления всех игр (без конкретных фильтров)
         if params.get('update_missing_data'):
@@ -2431,11 +2962,10 @@ class GameLoader:
                     'limit_reached_at_offset': None,
                 }
 
-        # Если режим обновления, показываем специальное сообщение (только в debug)
-        if params.get('update_missing_data') and debug:
-            self.stdout.write(f'🔄 РЕЖИМ ОБНОВЛЕНИЯ ДАННЫХ: проверка и дополнение недостающих данных')
-            # В режиме обновления не пропускаем существующие игры
-            skip_existing = False
+            if debug:
+                self.stdout.write(f'🔄 РЕЖИМ ОБНОВЛЕНИЯ ДАННЫХ: проверка и дополнение недостающих данных')
+                # В режиме обновления не пропускаем существующие игры
+                skip_existing = False
 
         # Загрузка игр
         result = self._load_games_for_iteration(params, actual_limit, actual_offset, skip_existing, debug)
@@ -2447,6 +2977,10 @@ class GameLoader:
         # Проверка наличия игр
         if not result.get('all_found_games') and not result.get('new_games'):
             return self._handle_empty_results(result, errors, params, actual_offset, iteration_start_time)
+
+        # Обработка режима обновления обложек (НОВОЕ)
+        if params.get('update_covers'):
+            return self._update_game_covers(result, params, iteration_start_time, errors)
 
         # Обработка режима обновления недостающих данных для конкретных игр
         if params.get('update_missing_data'):
@@ -2494,12 +3028,17 @@ class GameLoader:
 
     def _display_loading_type(self, params):
         """Отображает тип загрузки"""
-        game_modes_str = params.get('game_modes_str', '')  # НОВОЕ
+        game_modes_str = params.get('game_modes_str', '')
         game_names_str = params.get('game_names_str', '')
         genres_str = params['genres_str']
         description_contains = params['description_contains']
         keywords_str = params['keywords_str']
         game_types_str = params['game_types_str']
+
+        if params.get('update_covers'):  # НОВОЕ
+            self.stdout.write('🖼️  РЕЖИМ: ОБНОВЛЕНИЕ ОБЛОЖЕК')
+            self.stdout.write('⚠️  Будут проверены и обновлены обложки у существующих игр')
+            return
 
         if params['count_only']:
             self.stdout.write('🔢 РЕЖИМ: ПОДСЧЕТ НОВЫХ ИГР (которых нет в базе)')
@@ -3234,8 +3773,8 @@ class GameLoader:
             'count_only': options['count_only'],
             'game_types_str': options['game_types'],
             'iteration_limit': options['iteration_limit'],
-            # ДОБАВЛЯЕМ:
             'update_missing_data': options.get('update_missing_data', False),
+            'update_covers': options.get('update_covers', False),  # НОВОЕ
         }
 
     def _calculate_iteration_limit(self, limit, iteration_limit, total_stats):
@@ -3529,8 +4068,16 @@ class GameLoader:
         genres_str = options.get('genres', '')
         description_contains = options.get('description_contains', '')
         keywords_str = options.get('keywords', '')
+        update_covers = options.get('update_covers', False)
+        update_missing_data = options.get('update_missing_data', False)
 
-        if game_modes_str:
+        # ПРИОРИТЕТ 1: режимы обновления данных
+        if update_covers:
+            return 'update_covers'
+        elif update_missing_data:
+            return 'update_missing_data'
+        # ПРИОРИТЕТ 2: режимы загрузки по фильтрам
+        elif game_modes_str:
             return 'game_modes'
         elif game_names_str:
             return 'game_names'

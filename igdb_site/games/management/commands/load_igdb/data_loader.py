@@ -910,7 +910,7 @@ class DataLoader:
         return self._batch_processor_regular(ids_list, process_batch, emoji, name, debug)
 
     def _process_covers_batch(self, batch_num, batch_ids, cover_map, lock, total_batches, name, debug):
-        """Обрабатывает пачку обложек"""
+        """Обрабатывает пачку обложек - упрощенная версия"""
         if debug:
             with lock:
                 self.stdout.write(f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_ids)} объектов')
@@ -932,70 +932,40 @@ class DataLoader:
                 return None
 
             cover_data = data_by_id[cover_id]
+            url = cover_data.get('url', '')
 
-            # СПОСОБ 1: Используем image_id (самый надежный способ)
-            if cover_data.get('image_id'):
-                image_id = cover_data['image_id']
+            if url:
+                # Заменяем t_thumb на t_cover_big
+                if 't_thumb' in url:
+                    url = url.replace('t_thumb', 't_cover_big')
 
-                # Проверяем формат image_id
-                if image_id.startswith('co'):
-                    # Это новый формат типа 'coaaqr' - всегда используем JPG
-                    return (cover_id, f"https://images.igdb.com/igdb/image/upload/t_cover_big/{image_id}.jpg")
-                else:
-                    # Это старый числовой формат типа '480483'
-                    return (cover_id, f"https://images.igdb.com/igdb/image/upload/t_cover_big/{image_id}.jpg")
+                # Всегда используем JPG формат
+                if url.endswith('.webp'):
+                    url = url.replace('.webp', '.jpg')
+                elif not url.endswith('.jpg'):
+                    url += '.jpg'
 
-            # СПОСОБ 2: Используем url если есть
-            elif cover_data.get('url'):
-                url = cover_data['url']
-
-                # Проверяем формат URL
+                # Добавляем https если нужно
                 if url.startswith('//'):
                     url = f"https:{url}"
 
-                # Заменяем 't_thumb' на 't_cover_big' и всегда используем .jpg
-                if 't_thumb' in url:
-                    # Всегда используем JPG для надежности
-                    jpg_url = url.replace('t_thumb', 't_cover_big').replace('.webp', '.jpg')
-                    # Если в URL уже есть .jpg, оставляем его
-                    if not jpg_url.endswith('.jpg'):
-                        jpg_url += '.jpg'
-                    return (cover_id, jpg_url)
+                return (cover_id, url)
 
-                # Если URL уже содержит t_cover_big, используем его
-                elif 't_cover_big' in url:
-                    # Убедимся, что это JPG
-                    if not url.endswith('.jpg'):
-                        url = url.replace('.webp', '.jpg')
-                    return (cover_id, url)
+            # Если нет URL, используем image_id
+            elif cover_data.get('image_id'):
+                image_id = cover_data['image_id']
+                return (cover_id, f"https://images.igdb.com/igdb/image/upload/t_cover_big/{image_id}.jpg")
 
-                # Если URL другой формат, пробуем преобразовать
-                else:
-                    return (cover_id, f"https://images.igdb.com/igdb/image/upload/t_cover_big/{cover_id}.jpg")
-
-            # СПОСОБ 3: Формируем URL по ID (запасной вариант)
+            # Запасной вариант
             else:
                 return (cover_id, f"https://images.igdb.com/igdb/image/upload/t_cover_big/{cover_id}.jpg")
 
         batch_map = {}
-        with ThreadPoolExecutor(max_workers=min(len(batch_ids), 10)) as executor:
-            futures = {executor.submit(process_single_cover, cover_id): cover_id for cover_id in batch_ids}
-
-            for future in as_completed(futures):
-                cover_id = futures[future]
-                try:
-                    result = future.result()
-                    if result:
-                        cover_id, url = result
-                        batch_map[cover_id] = url
-
-                        if debug and batch_num == 1:  # Выводим только для первой пачки в дебаге
-                            with lock:
-                                self.stdout.write(f'            📸 Обложка {cover_id}: {url}')
-                except Exception as e:
-                    if debug:
-                        with lock:
-                            self.stderr.write(f'            ❌ Ошибка future для обложки {cover_id}: {e}')
+        for cover_id in batch_ids:
+            result = process_single_cover(cover_id)
+            if result:
+                cover_id, url = result
+                batch_map[cover_id] = url
 
         with lock:
             cover_map.update(batch_map)
@@ -1003,6 +973,8 @@ class DataLoader:
         if debug:
             with lock:
                 self.stdout.write(f'         ✅ Пачка {name} {batch_num}/{total_batches}: {len(batch_data)} объектов')
+                if batch_map:
+                    self.stdout.write(f'            📸 Пример URL: {list(batch_map.values())[0][:50]}...')
 
         return batch_map
 
