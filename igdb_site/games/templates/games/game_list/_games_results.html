@@ -9,6 +9,39 @@
             {% endif %}
         </div>
 
+        <!-- Пагинация вверху (если есть игры) -->
+        {% if games or games_with_similarity %}
+            <div class="games-pagination games-pagination-top mb-4">
+                <nav aria-label="Games pagination">
+                    <div class="nav-container">
+                        <!-- Кнопка "Предыдущая" -->
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="games-prev-top">
+                            <i class="bi bi-chevron-left"></i> Prev
+                        </button>
+
+                        <!-- Номера страниц -->
+                        <div id="games-page-numbers-top" class="d-flex gap-1 align-items-center"></div>
+
+                        <!-- Кнопка "Следующая" -->
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="games-next-top">
+                            Next <i class="bi bi-chevron-right"></i>
+                        </button>
+                    </div>
+
+                    <!-- Информация о странице -->
+                    <div class="text-center mt-2">
+                        <div class="page-info">
+                            <small class="text-muted">
+                                Page <span id="games-current-top">1</span> of <span id="games-total-pages-top">1</span>
+                                (<span id="games-start-top">1</span>-<span id="games-end-top">16</span>
+                                of <span id="games-total-all-top">{{ total_count }}</span> games)
+                            </small>
+                        </div>
+                    </div>
+                </nav>
+            </div>
+        {% endif %}
+
         <!-- Контейнер для игр -->
         <div class="games-container">
             {% if show_similarity and games_with_similarity %}
@@ -20,21 +53,18 @@
             {% endif %}
         </div>
 
-        <!-- КЛИЕНТСКАЯ ПАГИНАЦИЯ ДЛЯ ИГР -->
+        <!-- Пагинация внизу -->
         {% if games or games_with_similarity %}
-            <div class="games-pagination mt-4">
-                <nav aria-label="Games pagination" class="d-flex flex-column align-items-center">
-                    <div class="d-flex align-items-center justify-content-center gap-2 mb-2">
+            <div class="games-pagination games-pagination-bottom mt-4">
+                <nav aria-label="Games pagination">
+                    <div class="nav-container">
                         <!-- Кнопка "Предыдущая" -->
                         <button type="button" class="btn btn-sm btn-outline-primary" id="games-prev">
                             <i class="bi bi-chevron-left"></i> Prev
                         </button>
 
-                        <!-- Номера страниц (создаются JavaScript) -->
-                        <div id="games-page-numbers" class="d-flex flex-wrap gap-1 justify-content-center"
-                             style="min-width: 200px; max-width: 300px;">
-                            <!-- Страницы будут созданы JavaScript -->
-                        </div>
+                        <!-- Номера страниц -->
+                        <div id="games-page-numbers" class="d-flex gap-1 align-items-center"></div>
 
                         <!-- Кнопка "Следующая" -->
                         <button type="button" class="btn btn-sm btn-outline-primary" id="games-next">
@@ -43,7 +73,7 @@
                     </div>
 
                     <!-- Информация о странице -->
-                    <div class="text-center">
+                    <div class="text-center mt-2">
                         <div class="page-info">
                             <small class="text-muted">
                                 Page <span id="games-current">1</span> of <span id="games-total-pages">1</span>

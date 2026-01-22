@@ -5,383 +5,297 @@
 .games-pagination {
     margin-top: 2rem;
     margin-bottom: 2rem;
-    padding: 1.5rem;
+    padding: 1rem;
     background: linear-gradient(135deg, rgba(26, 26, 26, 0.4), rgba(40, 40, 40, 0.4));
-    border-radius: var(--border-radius-lg);
+    border-radius: var(--border-radius);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: var(--box-shadow-lg);
-    backdrop-filter: blur(10px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
     transition: all 0.3s ease;
     position: relative;
     overflow: hidden;
 }
 
-.games-pagination::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: linear-gradient(90deg, var(--secondary-color), var(--accent-color));
-    z-index: 1;
-}
-
 .games-pagination:hover {
     border-color: var(--secondary-color);
-    box-shadow: 0 8px 32px rgba(255, 107, 53, 0.2);
-    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(255, 107, 53, 0.2);
 }
 
 .games-pagination nav {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 1.5rem;
+    gap: 0.5rem;
     position: relative;
     z-index: 2;
 }
 
+/* Основной контейнер навигации */
+.games-pagination .nav-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    width: 100%;
+    flex-wrap: nowrap; /* Гарантируем, что все в одной строке */
+}
+
 /* Контейнер для номеров страниц */
+#games-page-numbers-top,
 #games-page-numbers {
     display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
+    flex-wrap: nowrap; /* Запрещаем перенос на новую строку */
     align-items: center;
-    gap: 0.75rem;
-    margin: 0.75rem 0;
-    min-height: 3rem;
-}
-
-/* Пагинация Bootstrap */
-.games-pagination .pagination {
-    margin-bottom: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-    width: 100%;
-}
-
-.games-pagination .page-item {
+    gap: 0.25rem;
     margin: 0;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    animation: fadeIn 0.5s ease;
+    min-height: 2.5rem;
+    overflow-x: auto; /* Добавляем горизонтальную прокрутку если много страниц */
+    overflow-y: hidden;
+    padding: 0 0.5rem;
+    scrollbar-width: thin;
+    scrollbar-color: var(--secondary-color) rgba(255, 255, 255, 0.05);
 }
 
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+#games-page-numbers-top::-webkit-scrollbar,
+#games-page-numbers::-webkit-scrollbar {
+    height: 4px;
 }
 
-.games-pagination .page-item.active .page-link {
+#games-page-numbers-top::-webkit-scrollbar-track,
+#games-page-numbers::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 2px;
+}
+
+#games-page-numbers-top::-webkit-scrollbar-thumb,
+#games-page-numbers::-webkit-scrollbar-thumb {
+    background: var(--secondary-color);
+    border-radius: 2px;
+}
+
+/* Кнопки номеров страниц */
+.page-number-btn {
+    background: rgba(40, 40, 40, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-light);
+    min-width: 2.5rem;
+    height: 2.5rem;
+    padding: 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    flex-shrink: 0; /* Предотвращаем сжатие кнопок */
+}
+
+.page-number-btn:hover {
+    background: rgba(255, 107, 53, 0.15);
+    border-color: var(--secondary-color);
+    color: var(--secondary-color);
+    transform: translateY(-1px);
+}
+
+.page-number-btn.btn-primary {
     background: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
     border: none;
     color: var(--text-light);
     font-weight: 700;
-    box-shadow: 0 6px 20px rgba(255, 107, 53, 0.4);
-    transform: scale(1.1);
-    position: relative;
-    overflow: hidden;
 }
 
-.games-pagination .page-item.active .page-link::before {
-    content: '';
-    position: absolute;
-    top: -50%;
-    left: -50%;
-    width: 200%;
-    height: 200%;
-    background: linear-gradient(
-        45deg,
-        transparent 30%,
-        rgba(255, 255, 255, 0.1) 50%,
-        transparent 70%
-    );
-    animation: shimmer 2s infinite linear;
-}
-
-@keyframes shimmer {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
-}
-
-.games-pagination .page-link {
-    background-color: rgba(40, 40, 40, 0.8);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: var(--text-light);
-    padding: 0.75rem 1.25rem;
-    font-size: 1rem;
-    font-weight: 600;
-    min-width: 3rem;
-    height: 3rem;
-    text-align: center;
-    border-radius: 8px;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: relative;
-    overflow: hidden;
-}
-
-.games-pagination .page-link:hover {
-    background-color: rgba(255, 107, 53, 0.15);
-    border-color: var(--secondary-color);
-    color: var(--secondary-color);
-    transform: translateY(-3px) scale(1.05);
-    box-shadow: 0 8px 25px rgba(255, 107, 53, 0.3);
-}
-
-.games-pagination .page-link:focus {
-    box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.2);
-    outline: none;
-}
-
-.games-pagination .page-item.disabled .page-link {
-    background-color: rgba(30, 30, 30, 0.6);
-    border-color: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.3);
-    cursor: not-allowed;
-    opacity: 0.5;
-}
-
-/* Кнопки номеров страниц (кастомные) */
-.games-pagination .page-number-btn {
-    background: linear-gradient(135deg, rgba(40, 40, 40, 0.8), rgba(50, 50, 50, 0.8));
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: var(--text-light);
-    min-width: 3rem;
-    height: 3rem;
-    padding: 0.75rem 1.25rem;
-    font-size: 1rem;
-    font-weight: 600;
-    border-radius: 8px;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    position: relative;
-    overflow: hidden;
-    backdrop-filter: blur(10px);
-}
-
-.games-pagination .page-number-btn:hover {
-    background: linear-gradient(135deg, rgba(255, 107, 53, 0.2), rgba(255, 140, 83, 0.2));
-    border-color: var(--secondary-color);
-    color: var(--secondary-color);
-    transform: translateY(-3px) scale(1.05);
-    box-shadow: 0 8px 25px rgba(255, 107, 53, 0.3);
-}
-
-.games-pagination .page-number-btn.btn-primary {
-    background: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
-    border: none;
-    color: var(--text-light);
-    font-weight: 700;
-    box-shadow: 0 6px 20px rgba(255, 107, 53, 0.4);
-    transform: scale(1.1);
-}
-
-.games-pagination .page-number-btn.btn-primary:hover {
+.page-number-btn.btn-primary:hover {
     background: linear-gradient(135deg, #ff8e53, #ff6b35);
-    transform: translateY(-3px) scale(1.15);
-    box-shadow: 0 10px 30px rgba(255, 107, 53, 0.5);
+    transform: translateY(-2px);
+}
+
+/* Элемент многоточия */
+#games-page-numbers-top .text-muted,
+#games-page-numbers .text-muted {
+    color: rgba(255, 255, 255, 0.4) !important;
+    font-weight: 600;
+    padding: 0 0.5rem;
+    flex-shrink: 0;
+}
+
+/* Кнопки Previous/Next */
+#games-prev-top, #games-next-top,
+#games-prev, #games-next {
+    background: rgba(40, 40, 40, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-light);
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+#games-prev-top:hover:not(.disabled),
+#games-next-top:hover:not(.disabled),
+#games-prev:hover:not(.disabled),
+#games-next:hover:not(.disabled) {
+    background: rgba(255, 107, 53, 0.15);
+    border-color: var(--secondary-color);
+    color: var(--secondary-color);
+    transform: translateY(-1px);
+}
+
+#games-prev-top.disabled,
+#games-next-top.disabled,
+#games-prev.disabled,
+#games-next.disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+#games-prev-top.disabled:hover,
+#games-next-top.disabled:hover,
+#games-prev.disabled:hover,
+#games-next.disabled:hover {
+    background: rgba(40, 40, 40, 0.8);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: var(--text-light);
+    transform: none;
 }
 
 /* Информация о странице */
-.games-pagination .text-center {
-    margin-top: 1rem;
+.games-pagination .page-info {
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.7);
+    font-weight: 500;
+    background: rgba(0, 0, 0, 0.2);
+    padding: 0.4rem 0.8rem;
+    border-radius: 15px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.games-pagination .text-center .page-info {
-    font-size: 0.95rem;
-    color: var(--text-light);
-    font-weight: 600;
-    background: rgba(0, 0, 0, 0.3);
-    padding: 0.75rem 1.5rem;
-    border-radius: 20px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    display: inline-block;
-    backdrop-filter: blur(5px);
-    transition: all 0.3s ease;
-}
-
-.games-pagination .text-center .page-info:hover {
-    background: rgba(255, 107, 53, 0.1);
-    border-color: var(--secondary-color);
-}
-
-.games-pagination .text-center strong {
+.games-pagination .page-info strong {
     color: var(--secondary-color);
     font-weight: 700;
-    font-size: 1.1rem;
 }
 
-.games-pagination .text-center small {
-    font-size: 0.9rem;
-    color: rgba(255, 255, 255, 0.8);
-    font-weight: 500;
-}
-
-/* Контейнер игр */
-.games-container {
-    transition: all 0.3s ease;
-    animation: fadeInGames 0.5s ease;
-}
-
-@keyframes fadeInGames {
-    from {
-        opacity: 0;
-        transform: translateY(20px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
+/* Вторая пагинация вверху */
+.games-pagination-top {
+    margin-bottom: 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    padding-top: 1rem;
 }
 
 /* Адаптивные стили */
-@media (max-width: 1200px) {
-    .games-pagination {
-        padding: 1.25rem;
-    }
-
-    .games-pagination .page-link,
-    .games-pagination .page-number-btn {
-        min-width: 2.75rem;
-        height: 2.75rem;
-        padding: 0.65rem 1rem;
-        font-size: 0.95rem;
-    }
-}
-
 @media (max-width: 992px) {
     .games-pagination {
-        margin-top: 1.5rem;
-        margin-bottom: 1.5rem;
-        padding: 1rem;
+        padding: 0.75rem;
     }
 
-    .games-pagination .page-link,
-    .games-pagination .page-number-btn {
-        min-width: 2.5rem;
-        height: 2.5rem;
-        padding: 0.55rem 0.85rem;
-        font-size: 0.9rem;
-    }
-
-    #games-page-numbers {
+    .games-pagination .nav-container {
         gap: 0.5rem;
     }
 
-    .games-pagination .text-center .page-info {
-        padding: 0.5rem 1rem;
+    #games-page-numbers-top,
+    #games-page-numbers {
+        gap: 0.15rem;
+        padding: 0 0.25rem;
+    }
+
+    .page-number-btn {
+        min-width: 2.2rem;
+        height: 2.2rem;
+        font-size: 0.85rem;
+    }
+
+    #games-prev-top, #games-next-top,
+    #games-prev, #games-next {
+        padding: 0.4rem 0.8rem;
         font-size: 0.85rem;
     }
 }
 
 @media (max-width: 768px) {
-    .games-pagination .pagination {
-        flex-direction: row;
+    .games-pagination {
+        margin-top: 1.5rem;
+        margin-bottom: 1.5rem;
+        padding: 0.5rem;
+    }
+
+    .games-pagination .nav-container {
         flex-wrap: wrap;
+        justify-content: center;
         gap: 0.5rem;
     }
 
+    #games-page-numbers-top,
     #games-page-numbers {
-        order: 0;
-        margin: 0.5rem 0;
-        gap: 0.35rem;
+        order: 1;
+        width: 100%;
+        justify-content: center;
+        margin-top: 0.5rem;
     }
 
-    .games-pagination .page-link,
-    .games-pagination .page-number-btn {
-        min-width: 2.25rem;
-        height: 2.25rem;
-        padding: 0.45rem 0.75rem;
-        font-size: 0.85rem;
-    }
-
-    .games-pagination .text-center .page-info {
-        padding: 0.4rem 0.8rem;
+    .page-number-btn {
+        min-width: 2rem;
+        height: 2rem;
         font-size: 0.8rem;
+    }
+
+    #games-prev-top, #games-next-top,
+    #games-prev, #games-next {
+        order: 0;
     }
 }
 
 @media (max-width: 576px) {
     .games-pagination {
-        padding: 0.75rem;
-        border-radius: 12px;
+        padding: 0.5rem;
+        border-radius: 8px;
     }
 
-    .games-pagination .pagination {
+    .games-pagination .nav-container {
         flex-direction: column;
         gap: 0.75rem;
     }
 
+    #games-prev-top, #games-next-top,
+    #games-prev, #games-next {
+        width: 100%;
+        justify-content: center;
+    }
+
+    #games-page-numbers-top,
     #games-page-numbers {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(2.5rem, 1fr));
-        gap: 0.5rem;
-        margin: 0.5rem 0;
+        order: 2;
+        justify-content: center;
+        max-width: 100%;
     }
 
-    .games-pagination .page-link,
-    .games-pagination .page-number-btn {
-        width: 100%;
-        min-width: auto;
-        height: 2.25rem;
+    .page-number-btn {
+        min-width: 1.8rem;
+        height: 1.8rem;
+        font-size: 0.75rem;
     }
 
-    .games-pagination .text-center .page-info {
-        width: 100%;
-        text-align: center;
+    .games-pagination .page-info {
+        font-size: 0.8rem;
+        padding: 0.3rem 0.6rem;
     }
 }
 
 /* Анимация переключения страниц */
-.page-transition-enter {
-    opacity: 0;
-    transform: translateY(30px);
+@keyframes pageFadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
-.page-transition-enter-active {
-    opacity: 1;
-    transform: translateY(0);
-    transition: all 0.5s ease;
+.games-container .row {
+    animation: pageFadeIn 0.3s ease;
 }
 
-/* Стили для сообщения "Нет игр" */
-.no-games-message {
-    text-align: center;
-    padding: 3rem;
-    background: rgba(26, 26, 26, 0.3);
-    border-radius: var(--border-radius);
-    border: 1px dashed rgba(255, 255, 255, 0.1);
-    margin: 2rem 0;
-}
-
-.no-games-message h5 {
-    color: var(--text-light);
-    margin-bottom: 1rem;
-    font-weight: 600;
-}
-
-.no-games-message p {
-    color: rgba(255, 255, 255, 0.6);
-    margin-bottom: 1.5rem;
-}
-
-.no-games-message .btn {
-    background: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
-    border: none;
-    padding: 0.75rem 2rem;
-    font-weight: 600;
-    transition: all 0.3s ease;
-}
-
-.no-games-message .btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(255, 107, 53, 0.4);
+/* Уменьшаем высоту блока информации для компактности */
+.games-pagination-top .page-info {
+    margin-bottom: 0;
+    font-size: 0.8rem;
 }
