@@ -8,7 +8,8 @@ from games.models import (
     Game, Genre, Keyword, Platform, Series,
     Company, Theme, PlayerPerspective, GameMode, Screenshot
 )
-
+import requests
+from urllib.parse import urlparse
 
 class DataLoader:
     """Класс для загрузки данных из IGDB"""
@@ -23,6 +24,55 @@ class DataLoader:
         self._retry_delay = 2.0
         self._interrupted = threading.Event()
         self.debug_mode = False  # Добавляем атрибут
+
+    def debug_cover_format(self, cover_id, debug=False):
+        """Отладочный метод для проверки формата обложки"""
+        query = f'fields id,url,image_id; where id = {cover_id};'
+
+        try:
+            cover_data = self._rate_limited_request('covers', query, debug=debug)
+
+            if not cover_data:
+                if debug:
+                    self.stdout.write(f'   ❌ Обложка {cover_id} не найдена')
+                return None
+
+            cover = cover_data[0]
+
+            if debug:
+                self.stdout.write(f'\n🔍 ДЕБАГ ОБЛОЖКИ ID: {cover_id}')
+                self.stdout.write(f'   • Полные данные: {cover}')
+                self.stdout.write(f'   • image_id: {cover.get("image_id")}')
+                self.stdout.write(f'   • url: {cover.get("url")}')
+
+                # Пробуем разные форматы URL
+                if cover.get('image_id'):
+                    image_id = cover['image_id']
+                    self.stdout.write(f'\n   🔗 Варианты URL через image_id:')
+                    self.stdout.write(
+                        f'      • JPG: https://images.igdb.com/igdb/image/upload/t_cover_big/{image_id}.jpg')
+                    self.stdout.write(
+                        f'      • WebP: https://images.igdb.com/igdb/image/upload/t_cover_big/{image_id}.webp')
+
+                if cover.get('url'):
+                    url = cover['url']
+                    self.stdout.write(f'\n   🔗 Варианты URL через url:')
+                    self.stdout.write(f'      • Исходный: {url}')
+                    if url.startswith('//'):
+                        url = f"https:{url}"
+                        self.stdout.write(f'      • С https: {url}')
+
+                    if 't_thumb' in url:
+                        self.stdout.write(f'      • Cover Big JPG: {url.replace("t_thumb", "t_cover_big")}')
+                        self.stdout.write(
+                            f'      • Cover Big WebP: {url.replace("t_thumb", "t_cover_big").replace(".jpg", ".webp")}')
+
+            return cover
+
+        except Exception as e:
+            if debug:
+                self.stderr.write(f'   ❌ Ошибка запроса обложки {cover_id}: {e}')
+            return None
 
     def create_basic_games(self, games_data_list, debug=False):
         """Создает игры с основными данными, избегая дубликатов"""
@@ -880,14 +930,52 @@ class DataLoader:
         def process_single_cover(cover_id):
             if cover_id not in data_by_id:
                 return None
+
             cover_data = data_by_id[cover_id]
+
+            # СПОСОБ 1: Используем image_id (самый надежный способ)
             if cover_data.get('image_id'):
-                return (cover_id,
-                        f"https://images.igdb.com/igdb/image/upload/t_cover_big/{cover_data['image_id']}.jpg")
+                image_id = cover_data['image_id']
+
+                # Проверяем формат image_id
+                if image_id.startswith('co'):
+                    # Это новый формат типа 'coaaqr' - всегда используем JPG
+                    return (cover_id, f"https://images.igdb.com/igdb/image/upload/t_cover_big/{image_id}.jpg")
+                else:
+                    # Это старый числовой формат типа '480483'
+                    return (cover_id, f"https://images.igdb.com/igdb/image/upload/t_cover_big/{image_id}.jpg")
+
+            # СПОСОБ 2: Используем url если есть
             elif cover_data.get('url'):
                 url = cover_data['url']
-                return (cover_id, f"https:{url.replace('thumb', 'cover_big')}")
-            return None
+
+                # Проверяем формат URL
+                if url.startswith('//'):
+                    url = f"https:{url}"
+
+                # Заменяем 't_thumb' на 't_cover_big' и всегда используем .jpg
+                if 't_thumb' in url:
+                    # Всегда используем JPG для надежности
+                    jpg_url = url.replace('t_thumb', 't_cover_big').replace('.webp', '.jpg')
+                    # Если в URL уже есть .jpg, оставляем его
+                    if not jpg_url.endswith('.jpg'):
+                        jpg_url += '.jpg'
+                    return (cover_id, jpg_url)
+
+                # Если URL уже содержит t_cover_big, используем его
+                elif 't_cover_big' in url:
+                    # Убедимся, что это JPG
+                    if not url.endswith('.jpg'):
+                        url = url.replace('.webp', '.jpg')
+                    return (cover_id, url)
+
+                # Если URL другой формат, пробуем преобразовать
+                else:
+                    return (cover_id, f"https://images.igdb.com/igdb/image/upload/t_cover_big/{cover_id}.jpg")
+
+            # СПОСОБ 3: Формируем URL по ID (запасной вариант)
+            else:
+                return (cover_id, f"https://images.igdb.com/igdb/image/upload/t_cover_big/{cover_id}.jpg")
 
         batch_map = {}
         with ThreadPoolExecutor(max_workers=min(len(batch_ids), 10)) as executor:
@@ -900,6 +988,10 @@ class DataLoader:
                     if result:
                         cover_id, url = result
                         batch_map[cover_id] = url
+
+                        if debug and batch_num == 1:  # Выводим только для первой пачки в дебаге
+                            with lock:
+                                self.stdout.write(f'            📸 Обложка {cover_id}: {url}')
                 except Exception as e:
                     if debug:
                         with lock:
@@ -910,8 +1002,9 @@ class DataLoader:
 
         if debug:
             with lock:
-                self.stdout.write(
-                    f'         ✅ Пачка {name} {batch_num}/{total_batches}: {len(batch_data)} объектов')
+                self.stdout.write(f'         ✅ Пачка {name} {batch_num}/{total_batches}: {len(batch_data)} объектов')
+
+        return batch_map
 
     def load_covers_parallel(self, cover_ids, debug=False):
         """Параллельная загрузка обложек"""
@@ -1245,21 +1338,82 @@ class DataLoader:
         return self._batch_processor_regular(company_ids, self._process_companies_batch, '🏢', 'компаний', debug)
 
     def update_games_with_covers(self, game_basic_map, cover_map, game_data_map, debug=False):
-        """Обновляет игры обложками"""
+        """Обновляет игры обложками с проверкой доступности изображения"""
+        import requests
+        from urllib.parse import urlparse
+
         with self._db_lock:
             games = list(Game.objects.filter(igdb_id__in=game_basic_map.keys()))
+
+        def check_image_accessible(url):
+            """Проверяет доступность изображения по URL"""
+            try:
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+                response = requests.head(url, headers=headers, timeout=5, allow_redirects=True)
+
+                # ЯВНО проверяем статус код - если 404 или другие ошибки, изображение недоступно
+                if response.status_code != 200:
+                    if debug:
+                        self.stdout.write(f'      ⚠️  Изображение недоступно, статус: {response.status_code}')
+                    return False
+
+                # Проверяем content-type
+                content_type = response.headers.get('content-type', '').lower()
+                if 'image' not in content_type:
+                    if debug:
+                        self.stdout.write(f'      ⚠️  Не изображение, content-type: {content_type}')
+                    return False
+
+                return True
+            except Exception as e:
+                if debug:
+                    self.stdout.write(f'      ❌ Ошибка проверки изображения {url}: {e}')
+                return False
 
         def process_single_game(game):
             game_data = game_data_map.get(game.igdb_id)
             if game_data and game_data.get('cover'):
                 cover_id = game_data['cover']
-                if cover_id in cover_map and cover_map[cover_id] != game.cover_url:
-                    game.cover_url = cover_map[cover_id]
-                    return game
+                if cover_id in cover_map:
+                    new_cover_url = cover_map[cover_id]
+                    current_url = game.cover_url or ""
+
+                    if debug:
+                        self.stdout.write(f'\n   🔍 Проверка обложки для {game.name}:')
+                        self.stdout.write(f'      Текущая: {current_url}')
+                        self.stdout.write(f'      Новая: {new_cover_url}')
+
+                    # Всегда проверяем доступность текущей обложки
+                    if current_url:
+                        current_accessible = check_image_accessible(current_url)
+                        if not current_accessible:
+                            # Текущая обложка недоступна (404 или другая ошибка)
+                            new_accessible = check_image_accessible(new_cover_url)
+                            if new_accessible:
+                                if debug:
+                                    self.stdout.write(f'   🔄 Обновление недоступной обложки: {game.name}')
+                                game.cover_url = new_cover_url
+                                return game
+                            elif debug:
+                                self.stdout.write(f'   ⚠️  Новая обложка тоже недоступна: {game.name}')
+                        elif debug:
+                            self.stdout.write(f'   ✅ Текущая обложка доступна: {game.name}')
+                    else:
+                        # У игры нет обложки - устанавливаем новую
+                        new_accessible = check_image_accessible(new_cover_url)
+                        if new_accessible:
+                            if debug:
+                                self.stdout.write(f'   🖼️  Установка новой обложки: {game.name}')
+                            game.cover_url = new_cover_url
+                            return game
+                        elif debug:
+                            self.stdout.write(f'   ⚠️  Новая обложка недоступна: {game.name}')
             return None
 
         games_to_update = []
-        with ThreadPoolExecutor(max_workers=min(len(games), 10)) as executor:
+        with ThreadPoolExecutor(max_workers=min(len(games), 5)) as executor:
             futures = [executor.submit(process_single_game, game) for game in games]
 
             for future in as_completed(futures):
@@ -1274,6 +1428,8 @@ class DataLoader:
         if games_to_update:
             with self._db_lock:
                 Game.objects.bulk_update(games_to_update, ['cover_url'], batch_size=50)
+            if debug:
+                self.stdout.write(f'\n   💾 Обновлено обложек в базе: {len(games_to_update)}')
 
         return len(games_to_update)
 
