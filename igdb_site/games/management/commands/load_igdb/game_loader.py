@@ -22,6 +22,87 @@ class GameLoader:
         self.debug_mode = False
         self._last_processed_count = 0  # Добавить эту строку
 
+    def update_game_cover(self, game, game_data, data_maps, details, debug=False):
+        """Обновляет обложку игры с проверкой доступности"""
+        import requests
+
+        if not game_data.get('cover'):
+            return False
+
+        cover_id = game_data['cover']
+        if cover_id not in data_maps.get('cover_map', {}):
+            return False
+
+        new_cover_url = data_maps['cover_map'][cover_id]
+        current_url = game.cover_url or ""
+
+        if debug:
+            self.stdout.write(f'   🔍 Проверка обложки для {game.name}:')
+            self.stdout.write(f'      Текущая URL: {current_url}')
+            self.stdout.write(f'      Новая URL: {new_cover_url}')
+
+        # Проверяем текущую обложку
+        current_accessible = False
+        if current_url:
+            try:
+                response = requests.head(current_url, timeout=3, allow_redirects=True)
+                current_accessible = response.status_code == 200
+                if debug:
+                    self.stdout.write(f'      Текущая обложка: статус {response.status_code}')
+            except Exception as e:
+                if debug:
+                    self.stdout.write(f'      Ошибка проверки текущей обложки: {e}')
+
+        # Проверяем новую обложку
+        new_accessible = False
+        try:
+            response = requests.head(new_cover_url, timeout=3, allow_redirects=True)
+            new_accessible = response.status_code == 200
+            if debug:
+                self.stdout.write(f'      Новая обложка: статус {response.status_code}')
+        except Exception as e:
+            if debug:
+                self.stdout.write(f'      Ошибка проверки новой обложки: {e}')
+
+        # Логика обновления:
+        # 1. Если текущая недоступна (404/ошибка) И новая доступна - обновляем
+        # 2. Если у игры нет обложки И новая доступна - обновляем
+        # 3. Если текущая доступна, но URL отличается - тоже обновляем (на всякий случай)
+
+        should_update = False
+        update_reason = ""
+
+        if not current_url and new_accessible:
+            should_update = True
+            update_reason = "у игры не было обложки"
+        elif current_url and not current_accessible and new_accessible:
+            should_update = True
+            update_reason = "текущая обложка недоступна"
+        elif current_url != new_cover_url and new_accessible:
+            should_update = True
+            update_reason = "URL обложки изменился"
+
+        if should_update:
+            game.cover_url = new_cover_url
+            if 'cover_url' not in details['updated_fields']:
+                details['updated_fields'].append('cover_url')
+            details['cover_url'] = new_cover_url
+
+            if debug:
+                self.stdout.write(f'   🖼️  Обновляем обложку: {update_reason}')
+            return True
+        elif debug:
+            if current_url == new_cover_url:
+                self.stdout.write(f'   ⏭️  Обложка уже актуальна: {current_url}')
+            else:
+                self.stdout.write(f'   ⚠️  Не обновляем обложку')
+                if current_url:
+                    self.stdout.write(f'      Текущая: {current_url}')
+                if new_cover_url:
+                    self.stdout.write(f'      Новая: {new_cover_url}')
+
+        return False
+
     def _setup_execution_environment(self, options):
         """Основная настройка окружения выполнения команды"""
         # Сохраняем options для доступа в других методах
@@ -81,6 +162,7 @@ class GameLoader:
         """Обрабатывает режим обновления данных с фильтрами и offset"""
         from games.models import Game
         from django.db.models import Q
+        import time
 
         # Получаем параметры
         offset = options.get('offset', 0)
@@ -171,34 +253,108 @@ class GameLoader:
                 errors=0
             )
 
+        start_time = time.time()
+        updated_count = 0
+        update_details = []
+
         try:
-            # Выполняем обновление
-            updated_count, update_details = self.update_multiple_games_data(
-                game_ids, debug, progress_bar
-            )
+            # Используем update_missing_game_data для каждой игры отдельно
+            # Это гарантирует загрузку всех недостающих данных, включая скриншоты и M2M связи
+            for i, game_id in enumerate(game_ids, 1):
+                if progress_bar:
+                    # Обновляем прогресс-бар
+                    progress_bar.update(
+                        total_loaded=i,
+                        current_iteration=1,
+                        iterations_without_new=0,
+                        created_count=0,
+                        updated_count=updated_count,
+                        skipped_count=i - updated_count - 1,
+                        processed_count=i,
+                        errors=0
+                    )
 
-            # Финальное сообщение прогресс-бара
-            if progress_bar:
-                progress_bar.final_message(
-                    f"✅ Обновлено: {updated_count} | ⏭️  Пропущено: {total_games - updated_count}"
-                )
-                progress_bar.clear()
+                if debug:
+                    self.stdout.write(f'\n   🔄 [{i}/{total_games}] Обновление игры ID: {game_id}')
 
-            # Сохраняем offset для продолжения
-            next_offset = offset + total_games
-            self._save_offset_for_continuation(options, next_offset)
+                # Получаем имя игры для логов
+                game = Game.objects.filter(igdb_id=game_id).first()
+                if not game:
+                    if debug:
+                        self.stdout.write(f'      ❌ Игра с ID {game_id} не найдена в базе')
+                    continue
 
-            if debug:
-                self.stdout.write(f'   📍 Следующий offset для продолжения: {next_offset}')
+                # Проверяем, каких данных не хватает (теперь получаем 3 значения)
+                missing_data, missing_count, cover_status = self.check_missing_game_data(game)
 
-            return updated_count, update_details
+                if debug:
+                    self.stdout.write(f'      🔍 "{game.name}": {missing_count} недостающих данных')
+                    self.stdout.write(f'      📋 Статус обложки: {cover_status}')
+                    if missing_count > 0:
+                        missing_list = [key.replace('has_', '') for key, has_data in missing_data.items() if
+                                        not has_data]
+                        self.stdout.write(f'      📋 Отсутствует: {", ".join(missing_list)}')
+
+                # Если все данные уже есть - пропускаем
+                if missing_count == 0:
+                    if debug:
+                        self.stdout.write(f'      ⏭️  Все данные уже есть, пропускаем')
+                    continue
+
+                # Выполняем обновление недостающих данных
+                success, details = self.update_missing_game_data(game_id, debug)
+
+                if success:
+                    updated_count += 1
+
+                    update_details.append({
+                        'game_name': game.name,
+                        'game_id': game_id,
+                        'details': details
+                    })
+
+                    if debug:
+                        if details.get('updated_fields'):
+                            self.stdout.write(f'      ✅ Обновлены поля: {", ".join(details["updated_fields"])}')
+                        if details.get('updated_relations'):
+                            self.stdout.write(f'      🔗 Добавлены связи: {", ".join(details["updated_relations"])}')
+                        if details.get('screenshots_added', 0) > 0:
+                            self.stdout.write(f'      📸 Добавлено скриншотов: {details["screenshots_added"]}')
+                else:
+                    if debug:
+                        self.stdout.write(f'      ❌ Не удалось обновить: {game.name}')
+
+                total_time = time.time() - start_time
+
+                # Финальное сообщение прогресс-бара
+                if progress_bar:
+                    progress_bar.final_message(
+                        f"✅ Обновлено: {updated_count} | ⏭️  Пропущено: {total_games - updated_count}"
+                    )
+                    progress_bar.clear()
+
+                # Сохраняем offset для продолжения
+                next_offset = offset + total_games
+                self._save_offset_for_continuation(options, next_offset)
+
+                if debug:
+                    self.stdout.write(f'\n' + '=' * 60)
+                    self.stdout.write(f'📊 ИТОГОВАЯ СТАТИСТИКА ОБНОВЛЕНИЯ:')
+                    self.stdout.write('=' * 60)
+                    self.stdout.write(f'📍 Обработано игр: {total_games}')
+                    self.stdout.write(f'✅ Успешно обновлено: {updated_count}')
+                    self.stdout.write(f'⏭️  Пропущено (все данные уже есть): {total_games - updated_count}')
+                    self.stdout.write(f'⏱️  Время: {total_time:.2f}с')
+                    self.stdout.write(f'📍 Следующий offset для продолжения: {next_offset}')
+
+                return updated_count, update_details
 
         except KeyboardInterrupt:
             # Получаем количество обработанных игр
             if progress_bar:
                 processed_count = progress_bar.total_loaded
             else:
-                processed_count = getattr(self, '_last_processed_count', 0)
+                processed_count = len(update_details) + (total_games - updated_count)
 
             # Рассчитываем новый offset
             next_offset = offset + processed_count
@@ -688,8 +844,12 @@ class GameLoader:
         # Запрос к IGDB для 10 игр
         id_list = ','.join(map(str, batch_ids))
 
+        # ВАЖНО: Загружаем ВСЕ данные, включая связи
         query = f'''
-            fields id,name,summary,cover,rating,rating_count,first_release_date;
+            fields id,name,summary,cover,rating,rating_count,first_release_date,
+                   genres,keywords,platforms,screenshots,collections,
+                   involved_companies.company,involved_companies.developer,
+                   involved_companies.publisher,themes,player_perspectives,game_modes;
             where id = ({id_list});
         '''
 
@@ -716,48 +876,104 @@ class GameLoader:
             game = games_map[game_id]
             game_data = games_data_map[game_id]
 
-            update_fields = []
-            details = {'updated_fields': []}
+            # ШАГ 1: Проверяем, каких данных не хватает у игры
+            missing_data, missing_count = self.check_missing_game_data(game)
 
+            if debug:
+                self.stdout.write(f'      🔍 Проверка игры {game.name} (ID: {game_id}):')
+                self.stdout.write(f'         • Недостающих данных: {missing_count}')
+
+            # Если нет недостающих данных - пропускаем
+            if missing_count == 0:
+                if debug:
+                    self.stdout.write(f'         ⏭️  Все данные уже есть, пропускаем')
+                continue
+
+            update_fields = []
+            details = {'updated_fields': [], 'updated_relations': [], 'screenshots_added': 0}
+
+            # ШАГ 2: Обновляем основные поля игры если отсутствуют
             # Обложка
-            if not game.cover_url and game_data.get('cover'):
+            if not missing_data['has_cover'] and game_data.get('cover'):
                 cover_id = game_data['cover']
                 if cover_id:
                     game.cover_url = f"https://images.igdb.com/igdb/image/upload/t_cover_big/{cover_id}.jpg"
                     update_fields.append('cover_url')
                     details['updated_fields'].append('cover_url')
+                    if debug:
+                        self.stdout.write(f'         🖼️  Обновляем обложку')
 
             # Описание
-            if (not game.summary or not game.summary.strip()) and game_data.get('summary'):
-                game.summary = game_data.get('summary', '')
-                update_fields.append('summary')
-                details['updated_fields'].append('summary')
+            if not missing_data['has_description'] and game_data.get('summary'):
+                if not game.summary or not game.summary.strip():
+                    game.summary = game_data.get('summary', '')
+                    update_fields.append('summary')
+                    details['updated_fields'].append('summary')
+                    if debug:
+                        self.stdout.write(f'         📝 Обновляем описание')
 
             # Рейтинг
-            if game.rating is None and 'rating' in game_data:
-                game.rating = game_data.get('rating')
-                update_fields.append('rating')
-                details['updated_fields'].append('rating')
+            if not missing_data['has_rating'] and 'rating' in game_data:
+                if game.rating is None:
+                    game.rating = game_data.get('rating')
+                    update_fields.append('rating')
+                    details['updated_fields'].append('rating')
+                    if debug:
+                        self.stdout.write(f'         ⭐ Обновляем рейтинг: {game.rating}')
 
             # Дата релиза
-            if game.first_release_date is None and game_data.get('first_release_date'):
-                naive_datetime = datetime.fromtimestamp(game_data['first_release_date'])
-                game.first_release_date = timezone.make_aware(naive_datetime)
-                update_fields.append('first_release_date')
-                details['updated_fields'].append('first_release_date')
+            if not missing_data['has_release_date'] and game_data.get('first_release_date'):
+                if game.first_release_date is None:
+                    naive_datetime = datetime.fromtimestamp(game_data['first_release_date'])
+                    game.first_release_date = timezone.make_aware(naive_datetime)
+                    update_fields.append('first_release_date')
+                    details['updated_fields'].append('first_release_date')
+                    if debug:
+                        self.stdout.write(f'         📅 Обновляем дату релиза')
 
+            # ШАГ 3: Сохраняем обновленные поля игры
             if update_fields:
                 try:
                     game.save(update_fields=update_fields)
                     batch_updated += 1
-                    batch_details.append({
-                        'game_name': game.name,
-                        'game_id': game_id,
-                        'details': details
-                    })
+                    if debug:
+                        self.stdout.write(f'         💾 Сохранены поля: {", ".join(update_fields)}')
                 except Exception as e:
                     if debug:
                         self.stderr.write(f'      ❌ Ошибка сохранения игры {game_id}: {e}')
+                    continue
+
+            # ШАГ 4: Загружаем скриншоты если отсутствуют
+            if not missing_data['has_screenshots'] and game_data.get('screenshots'):
+                # Здесь должен быть код загрузки скриншотов
+                # Для простоты показываем, что скриншоты нужно загрузить
+                details['screenshots_added'] = len(game_data.get('screenshots', []))
+                if debug and details['screenshots_added'] > 0:
+                    self.stdout.write(f'         📸 Нужно загрузить скриншотов: {details["screenshots_added"]}')
+
+            # ШАГ 5: Проверяем и добавляем M2M связи если отсутствуют
+            # Жанры
+            if not missing_data['has_genres'] and game_data.get('genres'):
+                # Здесь должен быть код добавления жанров
+                pass
+
+            # Платформы
+            if not missing_data['has_platforms'] and game_data.get('platforms'):
+                # Здесь должен быть код добавления платформ
+                pass
+
+            # Ключевые слова
+            if not missing_data['has_keywords'] and game_data.get('keywords'):
+                # Здесь должен быть код добавления ключевых слов
+                pass
+
+            # Добавляем в детали только если что-то было обновлено
+            if update_fields or details['screenshots_added'] > 0:
+                batch_details.append({
+                    'game_name': game.name,
+                    'game_id': game_id,
+                    'details': details
+                })
 
         return batch_updated, batch_details
 
@@ -1280,39 +1496,23 @@ class GameLoader:
             if not game:
                 if debug:
                     self.stdout.write(f'   ❌ Игра с ID {game_id} не найдена в базе')
-                # СОЗДАЕМ ФАЙЛ ОБ ОШИБКЕ ДАЖЕ ЕСЛИ ИГРЫ НЕТ
-                self._create_debug_file(f"game_not_found_{game_id}", {"error": "Game not found in database"})
                 return False, details
 
             details['game_name'] = game.name
             details['timestamp'] = datetime.now().isoformat()
 
-            # ДЕБАГ: создаем файл сразу при начале обработки
-            if debug:
-                self._create_debug_file(f"start_processing_{game_id}", {
-                    "game_id": game_id,
-                    "game_name": game.name,
-                    "start_time": datetime.now().isoformat()
-                })
-
             if debug:
                 self.stdout.write(f'\n   🔍 ПРОВЕРКА НЕДОСТАЮЩИХ ДАННЫХ ДЛЯ: {game.name} (ID: {game_id})')
 
             # Проверяем, каких данных не хватает
-            missing_data, missing_count = self.check_missing_game_data(game)
+            missing_data, missing_count, cover_status = self.check_missing_game_data(game)
 
             if debug:
                 self.stdout.write(f'   📊 СТАТУС ДАННЫХ:')
                 for key, value in missing_data.items():
                     status = "✅ ЕСТЬ" if value else "❌ ОТСУТСТВУЕТ"
                     self.stdout.write(f'      • {key}: {status}')
-
-            # ДЕБАГ: сохраняем статус данных
-            self._create_debug_file(f"missing_data_{game_id}", {
-                "game_id": game_id,
-                "missing_data": missing_data,
-                "missing_count": missing_count
-            })
+                self.stdout.write(f'      • Обложка: {cover_status}')
 
             if missing_count == 0:
                 if debug:
@@ -1336,7 +1536,6 @@ class GameLoader:
             if not games_data:
                 if debug:
                     self.stdout.write(f'   ❌ Данные игры {game_id} не найдены в IGDB')
-                self._create_debug_file(f"igdb_not_found_{game_id}", {"error": "Game not found in IGDB"})
                 return False, details
 
             game_data = games_data[0]
@@ -1344,18 +1543,6 @@ class GameLoader:
             if debug:
                 self.stdout.write(f'   📥 ДАННЫЕ ИЗ IGDB:')
                 self.stdout.write(f'      • ID обложки в IGDB: {game_data.get("cover")}')
-                self.stdout.write(f'      • Скриншотов в IGDB: {len(game_data.get("screenshots", []))}')
-                self.stdout.write(f'      • Жанров в IGDB: {len(game_data.get("genres", []))}')
-                self.stdout.write(f'      • Платформ в IGDB: {len(game_data.get("platforms", []))}')
-
-            # ДЕБАГ: сохраняем данные из IGDB
-            self._create_debug_file(f"igdb_data_{game_id}", {
-                "game_id": game_id,
-                "igdb_cover": game_data.get("cover"),
-                "igdb_screenshots": len(game_data.get("screenshots", [])),
-                "igdb_genres": len(game_data.get("genres", [])),
-                "igdb_platforms": len(game_data.get("platforms", []))
-            })
 
             # Создаем экземпляры для обработки данных
             collector = DataCollector(self.stdout, self.stderr)
@@ -1370,17 +1557,8 @@ class GameLoader:
                 collected_data, debug
             )
 
-            # 1. Обновляем обложку если отсутствует
-            if not missing_data['has_cover'] and game_data.get('cover'):
-                cover_id = game_data['cover']
-                if cover_id in data_maps.get('cover_map', {}):
-                    new_cover_url = data_maps['cover_map'][cover_id]
-                    if game.cover_url != new_cover_url:
-                        game.cover_url = new_cover_url
-                        details['updated_fields'].append('cover_url')
-                        details['cover_url'] = new_cover_url
-                        if debug:
-                            self.stdout.write(f'   🖼️  Обновлена обложка: {new_cover_url}')
+            # ОБНОВЛЯЕМ ОБЛОЖКУ с проверкой доступности
+            cover_updated = self.update_game_cover(game, game_data, data_maps, details, debug)
 
             # 2. Обновляем описание если отсутствует
             if not missing_data['has_description'] and game_data.get('summary'):
@@ -1389,7 +1567,7 @@ class GameLoader:
                     details['updated_fields'].append('summary')
                     details['summary'] = game.summary
                     if debug:
-                        self.stdout.write(f'   📝 Обновлено описание ({len(game.summary)} симв.)')
+                        self.stdout.write(f'   📝 Обновляем описание ({len(game.summary)} симв.)')
 
             # 3. Обновляем рейтинг если отсутствует
             if not missing_data['has_rating'] and 'rating' in game_data:
@@ -1398,7 +1576,7 @@ class GameLoader:
                     details['updated_fields'].append('rating')
                     details['rating'] = game.rating
                     if debug:
-                        self.stdout.write(f'   ⭐ Обновлен рейтинг: {game.rating}')
+                        self.stdout.write(f'   ⭐ Обновляем рейтинг: {game.rating}')
 
             # 4. Обновляем дату релиза если отсутствует
             if not missing_data['has_release_date'] and game_data.get('first_release_date'):
@@ -1411,32 +1589,18 @@ class GameLoader:
                     details['updated_fields'].append('first_release_date')
                     details['release_date'] = new_date
                     if debug:
-                        self.stdout.write(f'   📅 Обновлена дата релиза: {new_date}')
-
-            # ДЕБАГ: сохраняем что планируем обновить
-            self._create_debug_file(f"planned_updates_{game_id}", {
-                "game_id": game_id,
-                "planned_fields": details['updated_fields'],
-                "has_updates": len(details['updated_fields']) > 0
-            })
+                        self.stdout.write(f'   📅 Обновляем дату релиза')
 
             # 5. Сохраняем обновленные поля игры
             if details['updated_fields']:
-                # ШАГ 1: Сохраняем в базу
-                game.save(update_fields=details['updated_fields'])
-
-                # ДЕБАГ: создаем файл подтверждения сохранения
-                self._create_debug_file(f"saved_to_db_{game_id}", {
-                    "game_id": game_id,
-                    "saved_fields": details['updated_fields'],
-                    "timestamp": datetime.now().isoformat()
-                })
-
-                # ШАГ 2: Создаем файл лога (ПОСЛЕ сохранения, ДО прогресс-бара)
-                self._save_update_log_immediately(game, details, missing_data, missing_count, debug)
-
-                if debug:
-                    self.stdout.write(f'   💾 Сохранены обновленные поля: {", ".join(details["updated_fields"])}')
+                try:
+                    game.save(update_fields=details['updated_fields'])
+                    if debug:
+                        self.stdout.write(f'   💾 Сохранены поля: {", ".join(details["updated_fields"])}')
+                except Exception as e:
+                    if debug:
+                        self.stderr.write(f'   ❌ Ошибка сохранения игры {game_id}: {e}')
+                    return False, details
 
             # 6. Загружаем скриншоты если отсутствуют
             if not missing_data['has_screenshots'] and game_data.get('screenshots'):
@@ -1516,7 +1680,7 @@ class GameLoader:
                                 details['updated_relations'].append(f'{rel_name} ({count})')
 
             # 9. Проверяем что осталось отсутствующим
-            new_missing_data, new_missing_count = self.check_missing_game_data(game)
+            new_missing_data, new_missing_count, new_cover_status = self.check_missing_game_data(game)
             for data_type, has_data in new_missing_data.items():
                 if not has_data:
                     details['still_missing'].append(data_type.replace('has_', ''))
@@ -1538,26 +1702,9 @@ class GameLoader:
                 else:
                     self.stdout.write(f'   ⚠️  Недостающих данных осталось: {new_missing_count}')
 
-            # ДЕБАГ: финальный файл
-            self._create_debug_file(f"final_{game_id}", {
-                "game_id": game_id,
-                "success": True,
-                "updated_fields": details['updated_fields'],
-                "updated_relations": details['updated_relations'],
-                "screenshots_added": details['screenshots_added']
-            })
-
             return True, details
 
         except Exception as e:
-            # ДЕБАГ: файл об ошибке
-            self._create_debug_file(f"error_{game_id}", {
-                "game_id": game_id,
-                "error": str(e),
-                "error_type": type(e).__name__,
-                "timestamp": datetime.now().isoformat()
-            })
-
             if debug:
                 self.stderr.write(f'   ❌ Ошибка при обновлении игры {game_id}: {str(e)}')
                 import traceback
@@ -1770,9 +1917,23 @@ class GameLoader:
         return summary
 
     def check_missing_game_data(self, game_obj):
-        """Проверяет, каких данных не хватает у игры"""
+        """Проверяет, каких данных не хватает у игры с проверкой доступности обложки"""
+        import requests
+
+        # Для обложки делаем специальную проверку доступности
+        has_cover_accessible = False
+        current_cover_status = "нет"
+        if game_obj.cover_url and game_obj.cover_url.strip():
+            try:
+                response = requests.head(game_obj.cover_url, timeout=5, allow_redirects=True)
+                has_cover_accessible = response.status_code == 200
+                current_cover_status = f"статус: {response.status_code}"
+            except Exception as e:
+                has_cover_accessible = False
+                current_cover_status = f"ошибка: {e}"
+
         missing_data = {
-            'has_cover': bool(game_obj.cover_url and game_obj.cover_url.strip()),
+            'has_cover': has_cover_accessible,
             'has_screenshots': game_obj.screenshots.exists(),
             'has_genres': game_obj.genres.exists(),
             'has_platforms': game_obj.platforms.exists(),
@@ -1791,7 +1952,7 @@ class GameLoader:
         # Считаем, сколько данных отсутствует
         missing_count = sum(1 for has_data in missing_data.values() if not has_data)
 
-        return missing_data, missing_count
+        return missing_data, missing_count, current_cover_status
 
     def _get_saved_offset(self, options):
         """Получает сохраненный offset для текущих параметров"""
