@@ -1,4 +1,4 @@
-// games/static/games/js/filters_script.js
+// games/static/games/js/game_list.js
 import FilterSort from './game_list/filters-sort.js';
 import FilterSearch from './game_list/filters-search.js';
 import FilterUI from './game_list/filters-ui.js';
@@ -7,7 +7,6 @@ import FilterSticky from './game_list/filters-sticky.js';
 import KeywordsPagination from './game_list/keywords-pagination.js';
 import GamePagination from './game_list/game-pagination.js';
 
-// Создаем глобальный объект FilterManager для доступа из других скриптов
 window.FilterManager = {
     sort: FilterSort,
     search: FilterSearch,
@@ -18,25 +17,21 @@ window.FilterManager = {
     gamePagination: GamePagination
 };
 
-// Сделаем доступным глобально для других модулей
 window.KeywordsPagination = KeywordsPagination;
 window.GamePagination = GamePagination;
 
-// Флаг чтобы скрипт не запускался несколько раз
 let initialized = false;
 
 document.addEventListener('DOMContentLoaded', function() {
     if (initialized) return;
     initialized = true;
 
-    // Инициализация с задержкой для полной загрузки DOM
-    setTimeout(initializeAll, 500);
+    setTimeout(initializeAll, 800);
 
     function initializeAll() {
         try {
             console.log('=== FILTERS SCRIPT INITIALIZATION START ===');
 
-            // Инициализация основных модулей
             if (FilterUI && typeof FilterUI.initializeAllUI === 'function') {
                 console.log('Initializing UI...');
                 FilterUI.initializeAllUI();
@@ -52,79 +47,120 @@ document.addEventListener('DOMContentLoaded', function() {
                 FilterSearch.setupSearchFilters();
             }
 
-            // Инициализация пагинации ключевых слов с задержкой
             if (KeywordsPagination && typeof KeywordsPagination.init === 'function') {
                 console.log('Initializing keywords pagination...');
                 setTimeout(() => {
                     try {
                         KeywordsPagination.init();
-
-                        // Проверяем высоту контейнера
-                        const keywordList = document.querySelector('.keyword-list');
-                        if (keywordList) {
-                            // Рассчитываем нужную высоту для 30 элементов
-                            const items = document.querySelectorAll('.keyword-item');
-                            const firstItem = items[0];
-                            if (firstItem) {
-                                const itemHeight = firstItem.offsetHeight || 30;
-                                const neededHeight = Math.min(itemHeight * 30 + 50, 400);
-                                keywordList.style.height = `${neededHeight}px`;
-                                keywordList.style.minHeight = `${neededHeight}px`;
-                                console.log(`Set keyword list height to ${neededHeight}px for 30 items`);
-                            }
-                        }
                     } catch (error) {
                         console.error('Error initializing keywords pagination:', error);
                     }
                 }, 300);
             }
 
-            // Инициализация пагинации игр с задержкой
             if (GamePagination && typeof GamePagination.init === 'function') {
-                console.log('Initializing games pagination...');
+                console.log('Initializing LAZY games pagination...');
+
                 setTimeout(() => {
                     try {
-                        // Проверяем, есть ли контейнер с играми
                         const gamesContainer = document.querySelector('.games-container');
                         if (gamesContainer) {
-                            // Добавляем CSS класс ко всем игровым карточкам для селектора
-                            const gameCards = document.querySelectorAll('.col-xl-3.col-lg-4.col-md-6.mb-4');
-                            gameCards.forEach((card, index) => {
-                                card.classList.add('game-card-container');
+                            // Убедимся что все карточки имеют правильный класс
+                            const existingCards = document.querySelectorAll('.col-xl-3.col-lg-4.col-md-6.mb-4');
+                            existingCards.forEach((card, index) => {
+                                if (!card.classList.contains('game-card-container')) {
+                                    card.classList.add('game-card-container');
+                                }
                             });
 
                             GamePagination.init();
+                            console.log('Lazy games pagination initialized successfully');
+
+                            // Показываем сообщение о фоновой загрузке
+                            showBackgroundLoadingMessage();
+
+                            // Сохраняем первую страницу в кэш
+                            saveCurrentPageToCache();
+                        } else {
+                            console.warn('Games container not found');
                         }
                     } catch (error) {
-                        console.error('Error initializing games pagination:', error);
+                        console.error('Error initializing lazy games pagination:', error);
                     }
-                }, 500);
+                }, 1000);
             }
 
-            // Sticky кнопки инициализируем с задержкой
             setTimeout(() => {
                 if (FilterSticky && typeof FilterSticky.init === 'function') {
                     console.log('Initializing sticky buttons...');
                     FilterSticky.init();
                 }
-            }, 800);
+            }, 1200);
 
-            // Сортировка фильтров - вызываем после всех инициализаций
             setTimeout(() => {
                 if (FilterSort && typeof FilterSort.sortFilterLists === 'function') {
                     console.log('Initial sort of filter lists...');
                     FilterSort.sortFilterLists();
                 }
 
-                // Восстановление прокрутки
                 restoreScrollPosition();
-            }, 1000);
+            }, 1500);
 
             console.log('=== FILTERS SCRIPT INITIALIZATION COMPLETE ===');
 
         } catch (error) {
             console.error('Error in filters script initialization:', error);
         }
+    }
+
+    function saveCurrentPageToCache() {
+        try {
+            const gamesContainer = document.querySelector('.games-container');
+            if (!gamesContainer) return;
+
+            const gameElements = gamesContainer.querySelectorAll('.game-card-container');
+            const games = Array.from(gameElements).map(el => el.outerHTML);
+
+            sessionStorage.setItem('page_1_games', JSON.stringify(games));
+            console.log('Saved current page (page 1) to cache');
+        } catch (error) {
+            console.error('Error saving current page to cache:', error);
+        }
+    }
+
+    function showBackgroundLoadingMessage() {
+        const gamesContainer = document.querySelector('.games-container');
+        if (!gamesContainer) return;
+
+        const message = document.createElement('div');
+        message.className = 'page-loading-message';
+        message.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Остальные страницы загружаются в фоне...';
+        message.style.cssText = `
+            font-size: 0.85rem;
+            color: rgba(255, 107, 53, 0.8);
+            margin-top: 1rem;
+            text-align: center;
+            font-style: italic;
+            background: rgba(255, 107, 53, 0.05);
+            padding: 0.5rem 1rem;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 107, 53, 0.2);
+            animation: fadeIn 0.5s ease;
+        `;
+
+        gamesContainer.parentNode.insertBefore(message, gamesContainer.nextSibling);
+
+        setTimeout(() => {
+            if (message.parentNode) {
+                message.style.opacity = '0';
+                message.style.transition = 'opacity 0.5s';
+                setTimeout(() => {
+                    if (message.parentNode) {
+                        message.parentNode.removeChild(message);
+                    }
+                }, 500);
+            }
+        }, 5000);
     }
 
     function restoreScrollPosition() {
@@ -146,7 +182,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-// Экспорт для использования в других модулях
 export {
     FilterSort,
     FilterSearch,

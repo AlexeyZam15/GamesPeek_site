@@ -36,19 +36,19 @@
     justify-content: center;
     gap: 1rem;
     width: 100%;
-    flex-wrap: nowrap; /* Гарантируем, что все в одной строке */
+    flex-wrap: nowrap;
 }
 
 /* Контейнер для номеров страниц */
 #games-page-numbers-top,
 #games-page-numbers {
     display: flex;
-    flex-wrap: nowrap; /* Запрещаем перенос на новую строку */
+    flex-wrap: nowrap;
     align-items: center;
     gap: 0.25rem;
     margin: 0;
     min-height: 2.5rem;
-    overflow-x: auto; /* Добавляем горизонтальную прокрутку если много страниц */
+    overflow-x: auto;
     overflow-y: hidden;
     padding: 0 0.5rem;
     scrollbar-width: thin;
@@ -88,7 +88,9 @@
     align-items: center;
     justify-content: center;
     white-space: nowrap;
-    flex-shrink: 0; /* Предотвращаем сжатие кнопок */
+    flex-shrink: 0;
+    position: relative;
+    cursor: pointer;
 }
 
 .page-number-btn:hover {
@@ -108,6 +110,83 @@
 .page-number-btn.btn-primary:hover {
     background: linear-gradient(135deg, #ff8e53, #ff6b35);
     transform: translateY(-2px);
+}
+
+.page-number-btn.btn-outline-primary {
+    border-color: rgba(255, 107, 53, 0.5);
+    color: rgba(255, 107, 53, 0.9);
+    background: rgba(255, 107, 53, 0.05);
+}
+
+.page-number-btn.btn-outline-primary:hover {
+    border-color: var(--secondary-color);
+    background: rgba(255, 107, 53, 0.15);
+    color: var(--secondary-color);
+}
+
+.page-number-btn.btn-outline-secondary {
+    border-color: rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.5);
+    background: rgba(255, 255, 255, 0.02);
+    position: relative;
+}
+
+.page-number-btn.btn-outline-secondary:hover {
+    border-color: rgba(255, 107, 53, 0.5);
+    color: rgba(255, 107, 53, 0.8);
+    background: rgba(255, 107, 53, 0.1);
+}
+
+/* Индикатор для незагруженных страниц */
+.page-number-btn.btn-outline-secondary::after {
+    content: '';
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    width: 8px;
+    height: 8px;
+    background-color: #ff6b35;
+    border-radius: 50%;
+    opacity: 0.7;
+    animation: pulse 2s infinite;
+}
+
+.page-number-btn.btn-secondary {
+    background: rgba(100, 100, 100, 0.8);
+    border-color: rgba(150, 150, 150, 0.5);
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.page-number-btn.btn-secondary:hover {
+    background: rgba(120, 120, 120, 0.9);
+    border-color: rgba(170, 170, 170, 0.6);
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.page-number-btn.btn-outline-danger {
+    border-color: rgba(220, 53, 69, 0.5);
+    color: rgba(220, 53, 69, 0.8);
+    background: rgba(220, 53, 69, 0.05);
+}
+
+.page-number-btn.btn-outline-danger:hover {
+    border-color: rgba(220, 53, 69, 0.8);
+    background: rgba(220, 53, 69, 0.1);
+    color: rgba(220, 53, 69, 1);
+}
+
+/* Спиннер загрузки */
+.page-number-btn .spinner-border {
+    width: 1rem;
+    height: 1rem;
+    border-width: 0.15em;
+    border-color: rgba(255, 255, 255, 0.3) rgba(255, 255, 255, 0.3) rgba(255, 255, 255, 0.3) var(--secondary-color);
+}
+
+@keyframes pulse {
+    0% { opacity: 0.3; }
+    50% { opacity: 0.7; }
+    100% { opacity: 0.3; }
 }
 
 /* Элемент многоточия */
@@ -132,6 +211,7 @@
     transition: all 0.2s ease;
     white-space: nowrap;
     flex-shrink: 0;
+    cursor: pointer;
 }
 
 #games-prev-top:hover:not(.disabled),
@@ -184,6 +264,54 @@
     margin-bottom: 1.5rem;
     border-top: 1px solid rgba(255, 255, 255, 0.05);
     padding-top: 1rem;
+}
+
+/* Сообщение о фоновой загрузке */
+.page-loading-message {
+    font-size: 0.85rem;
+    color: rgba(255, 107, 53, 0.8);
+    margin-top: 0.5rem;
+    text-align: center;
+    font-style: italic;
+    background: rgba(255, 107, 53, 0.05);
+    padding: 0.5rem 1rem;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 107, 53, 0.2);
+    animation: fadeIn 0.5s ease;
+}
+
+.page-loading-message .bi {
+    margin-right: 0.5rem;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Placeholder для игр */
+.game-card.placeholder {
+    opacity: 0.7;
+    animation: pulsePlaceholder 1.5s infinite;
+}
+
+.game-card.placeholder .card {
+    min-height: 300px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+@keyframes pulsePlaceholder {
+    0% { opacity: 0.5; }
+    50% { opacity: 0.8; }
+    100% { opacity: 0.5; }
 }
 
 /* Адаптивные стили */
@@ -242,9 +370,21 @@
         font-size: 0.8rem;
     }
 
+    .page-number-btn.btn-outline-secondary::after {
+        width: 6px;
+        height: 6px;
+        top: -2px;
+        right: -2px;
+    }
+
     #games-prev-top, #games-next-top,
     #games-prev, #games-next {
         order: 0;
+    }
+
+    .page-loading-message {
+        font-size: 0.8rem;
+        padding: 0.4rem 0.8rem;
     }
 }
 
@@ -282,6 +422,11 @@
         font-size: 0.8rem;
         padding: 0.3rem 0.6rem;
     }
+
+    .page-loading-message {
+        font-size: 0.75rem;
+        padding: 0.3rem 0.6rem;
+    }
 }
 
 /* Анимация переключения страниц */
@@ -298,4 +443,25 @@
 .games-pagination-top .page-info {
     margin-bottom: 0;
     font-size: 0.8rem;
+}
+
+/* Стили для загрузки */
+.games-container.loading {
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+.games-container.loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(255, 107, 53, 0.2);
+    border-top: 3px solid var(--secondary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    z-index: 10;
 }
