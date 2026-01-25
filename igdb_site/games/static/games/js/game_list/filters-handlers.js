@@ -1,4 +1,4 @@
-// games/static/games/js/modules/filters-handlers.js
+// games/static/games/js/game_list/filters-handlers.js
 const FilterHandlers = {
     // Глобальные переменные
     form: null,

@@ -1,4 +1,4 @@
-// games/static/games/js/modules/filters-sort.js
+// games/static/games/js/game_list/filters-sort.js
 
 const FilterSort = {
     // Список всех типов фильтров для обработки
