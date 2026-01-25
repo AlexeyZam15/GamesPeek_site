@@ -22,15 +22,28 @@ const GameListScript = {
         // Инициализация пагинации ключевых слов
         this.setupKeywordsPagination();
 
+        // Обновление пагинации игр после всех изменений
+        setTimeout(() => {
+            this.updateGamesPagination();
+        }, 1500);
+
         console.log('GameListScript initialization completed');
+    },
+
+    // Обновление пагинации игр
+    updateGamesPagination() {
+        if (window.GamePagination && typeof window.GamePagination.updateAfterChanges === 'function') {
+            console.log('Updating games pagination...');
+            setTimeout(() => {
+                window.GamePagination.updateAfterChanges();
+            }, 200);
+        }
     },
 
     // Инициализация пагинации ключевых слов
     setupKeywordsPagination() {
-        // Проверяем, нужно ли показывать пагинацию
         const keywordItems = document.querySelectorAll('.keyword-item');
         if (keywordItems.length > 30 && window.KeywordsPagination) {
-            // Инициализируем с небольшой задержкой
             setTimeout(() => {
                 if (window.KeywordsPagination && typeof window.KeywordsPagination.init === 'function') {
                     window.KeywordsPagination.init();
@@ -39,7 +52,7 @@ const GameListScript = {
         }
     },
 
-    // Инициализация полей поиска (исправленная версия)
+    // Инициализация полей поиска
     initializeSearchInputs() {
         console.log('Initializing search inputs...');
 
@@ -59,15 +72,13 @@ const GameListScript = {
         });
     },
 
-    // Настройка одного поля поиска (исправленная версия)
+    // Настройка одного поля поиска
     setupSearchInput(inputId, itemSelector, nameAttribute) {
         const searchInput = document.getElementById(inputId);
         if (!searchInput) return;
 
-        // Сохраняем исходный элемент
         const originalInput = searchInput;
 
-        // Функция обработки ввода
         const handleInput = (e) => {
             const searchTerm = e.target.value.toLowerCase().trim();
             const items = document.querySelectorAll(itemSelector);
@@ -78,7 +89,6 @@ const GameListScript = {
                 item.style.display = isMatch ? 'block' : 'none';
             });
 
-            // Особый случай: для ключевых слов обновляем пагинацию
             if (inputId === 'keyword-search' && window.KeywordsPagination) {
                 if (window.KeywordsPagination.updateAfterSearch) {
                     window.KeywordsPagination.updateAfterSearch();
@@ -86,22 +96,17 @@ const GameListScript = {
             }
         };
 
-        // Создаем новый элемент с обработчиками
         const newInput = originalInput.cloneNode(false);
 
-        // Копируем все атрибуты
         for (let attr of originalInput.attributes) {
             newInput.setAttribute(attr.name, attr.value);
         }
 
-        // Копируем значение
         newInput.value = originalInput.value;
 
-        // Добавляем обработчики
         newInput.addEventListener('input', handleInput);
         newInput.addEventListener('search', () => {
             if (newInput.value === '') {
-                // Особый случай: для ключевых слов восстанавливаем пагинацию
                 if (inputId === 'keyword-search' && window.KeywordsPagination) {
                     if (window.KeywordsPagination.forceUpdate) {
                         setTimeout(() => {
@@ -114,7 +119,6 @@ const GameListScript = {
             }
         });
 
-        // Заменяем элемент в том же месте
         originalInput.parentNode.replaceChild(newInput, originalInput);
     },
 
@@ -204,7 +208,6 @@ const GameListScript = {
                 if (hideText) hideText.style.display = 'none';
             }
 
-            // Особый случай: для ключевых слов обновляем пагинацию
             if (listSelector === '.keyword-list' && window.KeywordsPagination) {
                 setTimeout(() => {
                     if (window.KeywordsPagination.forceUpdate) {
@@ -228,7 +231,7 @@ const GameListScript = {
             { class: 'active-developer-tag', attr: 'data-developer-id', checkboxClass: '.developer-checkbox' },
             { class: 'active-game-mode-tag', attr: 'data-game-mode-id', checkboxClass: '.game-mode-checkbox' },
             { class: 'active-game-type-tag', attr: 'data-game-type-id', checkboxClass: '.game-type-checkbox' },
-            { class: 'active-date-filter-tag', attr: 'data-date-range', checkboxClass: '' } // Для даты нет чекбокса
+            { class: 'active-date-filter-tag', attr: 'data-date-range', checkboxClass: '' }
         ];
 
         tagConfigs.forEach(({ class: tagClass, attr, checkboxClass }) => {
@@ -239,7 +242,6 @@ const GameListScript = {
     // Настройка удаления тегов для одного типа
     setupTagRemovalForType(tagClass, attr, checkboxClass) {
         document.querySelectorAll(`.${tagClass}`).forEach(tag => {
-            // Удаляем старые обработчики
             const newTag = tag.cloneNode(true);
             tag.parentNode.replaceChild(newTag, tag);
 
@@ -258,18 +260,19 @@ const GameListScript = {
                     checkbox.checked = false;
                 }
 
-                // Обновляем скрытые поля и отправляем форму
                 this.updateHiddenFields();
 
-                // Сохраняем позицию прокрутки перед отправкой
                 if (window.FilterManager && window.FilterManager.handlers) {
                     window.FilterManager.handlers.saveScrollPosition();
                 }
 
-                // Небольшая задержка для гарантии сохранения позиции
+                setTimeout(() => {
+                    this.updateGamesPagination();
+                }, 50);
+
                 setTimeout(() => {
                     this.form.submit();
-                }, 50);
+                }, 100);
             });
         });
     },
@@ -278,7 +281,6 @@ const GameListScript = {
     updateHiddenFields() {
         console.log('Updating hidden fields...');
 
-        // Маппинг полей
         const fieldMapping = [
             { selector: '.genre-checkbox:checked', field: 'genres-field' },
             { selector: '.keyword-checkbox:checked', field: 'keywords-field' },
@@ -290,7 +292,6 @@ const GameListScript = {
             { selector: '.game-type-checkbox:checked', field: 'game-types-field' }
         ];
 
-        // Обновляем каждое поле
         fieldMapping.forEach(({ selector, field }) => {
             const checkboxes = document.querySelectorAll(selector);
             const ids = Array.from(checkboxes).map(cb => cb.value);
@@ -300,7 +301,6 @@ const GameListScript = {
             }
         });
 
-        // Обновляем поля даты
         const yearStartField = document.getElementById('year-start-field');
         const yearEndField = document.getElementById('year-end-field');
         const yearRangeField = document.getElementById('year-range-field');
@@ -316,17 +316,14 @@ const GameListScript = {
             }
         }
 
-        // Обновляем поле поиска похожих игр (только для критериев похожести)
         this.updateFindSimilarField();
     },
 
-    // Обновление поля find_similar (только для критериев похожести)
+    // Обновление поля find_similar
     updateFindSimilarField() {
         const findSimilarField = document.getElementById('find_similar_field');
         if (!findSimilarField) return;
 
-        // Критерии похожести (только Genres, Keywords, Themes, Perspectives, Game Modes)
-        // ИСКЛЮЧАЕМ: Platforms, Developers, Game Types, Release Date
         const similarityCriteria = [
             document.querySelectorAll('.genre-checkbox:checked').length,
             document.querySelectorAll('.keyword-checkbox:checked').length,
@@ -345,7 +342,6 @@ const GameListScript = {
     setupAutoSubmit() {
         console.log('Setting up auto-submit...');
 
-        // Для критериев похожести - включаем режим похожих игр при изменении
         const similarityCheckboxes = [
             '.genre-checkbox',
             '.keyword-checkbox',
@@ -356,22 +352,19 @@ const GameListScript = {
 
         similarityCheckboxes.forEach(selector => {
             document.querySelectorAll(selector).forEach(checkbox => {
-                // Удаляем старые обработчики
                 const newCheckbox = checkbox.cloneNode(true);
                 checkbox.parentNode.replaceChild(newCheckbox, checkbox);
 
                 newCheckbox.addEventListener('change', () => {
-                    // Автоматически включаем find_similar
                     const findSimilarField = document.getElementById('find_similar_field');
                     if (findSimilarField) {
                         findSimilarField.value = '1';
                     }
-                    this.updateHiddenFields(); // Только обновляем поля, не отправляем
+                    this.updateHiddenFields();
                 });
             });
         });
 
-        // Для поисковых фильтров (Platforms, Developers, Game Types, Release Date) - не включаем find_similar
         const searchFilterCheckboxes = [
             '.platform-checkbox',
             '.developer-checkbox',
@@ -380,26 +373,21 @@ const GameListScript = {
 
         searchFilterCheckboxes.forEach(selector => {
             document.querySelectorAll(selector).forEach(checkbox => {
-                // Удаляем старые обработчики
                 const newCheckbox = checkbox.cloneNode(true);
                 checkbox.parentNode.replaceChild(newCheckbox, checkbox);
 
                 newCheckbox.addEventListener('change', () => {
-                    this.updateHiddenFields(); // Только обновляем поля
-                    // find_similar остается без изменений
+                    this.updateHiddenFields();
                 });
             });
         });
 
-        // Сортировка - отправляем форму
         const sortSelect = document.querySelector('select[name="sort"]');
         if (sortSelect) {
-            // Удаляем старые обработчики
             const newSortSelect = sortSelect.cloneNode(true);
             sortSelect.parentNode.replaceChild(newSortSelect, sortSelect);
 
             newSortSelect.addEventListener('change', () => {
-                // Сохраняем позицию прокрутки
                 if (window.FilterManager && window.FilterManager.handlers) {
                     window.FilterManager.handlers.saveScrollPosition();
                 }
@@ -409,7 +397,7 @@ const GameListScript = {
         }
     },
 
-    // Настройка слушателей чекбоксов (для мгновенного обновления UI)
+    // Настройка слушателей чекбоксов
     setupCheckboxListeners() {
         console.log('Setting up checkbox listeners...');
 
@@ -420,15 +408,12 @@ const GameListScript = {
         );
 
         allCheckboxes.forEach(checkbox => {
-            // Удаляем старые обработчики
             const newCheckbox = checkbox.cloneNode(true);
             checkbox.parentNode.replaceChild(newCheckbox, checkbox);
 
             newCheckbox.addEventListener('change', () => {
-                // Обновляем скрытые поля при любом изменении чекбокса
                 this.updateHiddenFields();
 
-                // Особый случай: для ключевых слов обновляем пагинацию
                 if (newCheckbox.classList.contains('keyword-checkbox') && window.KeywordsPagination) {
                     if (window.KeywordsPagination.forceUpdate) {
                         setTimeout(() => {
@@ -437,12 +422,15 @@ const GameListScript = {
                     }
                 }
 
-                // Обновляем сортировку в UI, если доступен FilterManager
                 if (window.FilterManager && window.FilterManager.sort) {
                     setTimeout(() => {
                         window.FilterManager.sort.sortFilterLists();
                     }, 50);
                 }
+
+                setTimeout(() => {
+                    this.updateGamesPagination();
+                }, 100);
             });
         });
     },
@@ -451,14 +439,12 @@ const GameListScript = {
     setupDateFilterListeners() {
         console.log('Setting up date filter listeners...');
 
-        // Слушатели изменения ползунков
         const minSlider = document.getElementById('year-range-slider-min');
         const maxSlider = document.getElementById('year-range-slider-max');
         const manualStart = document.getElementById('manual-year-start');
         const manualEnd = document.getElementById('manual-year-end');
 
         if (minSlider) {
-            // Удаляем старые обработчики
             const newMinSlider = minSlider.cloneNode(true);
             minSlider.parentNode.replaceChild(newMinSlider, minSlider);
 
@@ -473,7 +459,6 @@ const GameListScript = {
         }
 
         if (maxSlider) {
-            // Удаляем старые обработчики
             const newMaxSlider = maxSlider.cloneNode(true);
             maxSlider.parentNode.replaceChild(newMaxSlider, maxSlider);
 
@@ -488,7 +473,6 @@ const GameListScript = {
         }
 
         if (manualStart) {
-            // Удаляем старые обработчики
             const newManualStart = manualStart.cloneNode(true);
             manualStart.parentNode.replaceChild(newManualStart, manualStart);
 
@@ -503,7 +487,6 @@ const GameListScript = {
         }
 
         if (manualEnd) {
-            // Удаляем старые обработчики
             const newManualEnd = manualEnd.cloneNode(true);
             manualEnd.parentNode.replaceChild(newManualEnd, manualEnd);
 
@@ -517,11 +500,9 @@ const GameListScript = {
             });
         }
 
-        // Кнопки быстрого выбора диапазона
         const quickButtons = document.querySelectorAll('#release-date-content .btn-outline-secondary');
         quickButtons.forEach(button => {
             if (button.textContent.includes('Years') || button.textContent.includes('s')) {
-                // Удаляем старые обработчики
                 const newButton = button.cloneNode(true);
                 button.parentNode.replaceChild(newButton, button);
 
@@ -545,7 +526,6 @@ const GameListScript = {
 
         const urlParams = new URLSearchParams(window.location.search);
 
-        // Маппинг параметров URL на селекторы чекбоксов
         const paramMapping = [
             { param: 'g', selector: '.genre-checkbox' },
             { param: 'k', selector: '.keyword-checkbox' },
@@ -570,7 +550,6 @@ const GameListScript = {
             }
         });
 
-        // Восстанавливаем фильтр даты
         const yearRange = urlParams.get('yr');
         const yearStart = urlParams.get('ys');
         const yearEnd = urlParams.get('ye');
@@ -584,19 +563,16 @@ const GameListScript = {
                     yearStartField.value = parts[0];
                     yearEndField.value = parts[1];
 
-                    // Обновляем ползунки
                     const minSlider = document.getElementById('year-range-slider-min');
                     const maxSlider = document.getElementById('year-range-slider-max');
                     if (minSlider) minSlider.value = parts[0];
                     if (maxSlider) maxSlider.value = parts[1];
 
-                    // Обновляем отображаемые значения
                     const minValueSpan = document.getElementById('min-year-value');
                     const maxValueSpan = document.getElementById('max-year-value');
                     if (minValueSpan) minValueSpan.textContent = parts[0];
                     if (maxValueSpan) maxValueSpan.textContent = parts[1];
 
-                    // Обновляем поля ручного ввода
                     const manualStart = document.getElementById('manual-year-start');
                     const manualEnd = document.getElementById('manual-year-end');
                     if (manualStart) manualStart.value = parts[0];
@@ -609,7 +585,6 @@ const GameListScript = {
             if (yearStartField) yearStartField.value = yearStart;
             if (yearEndField) yearEndField.value = yearEnd;
 
-            // Обновляем ползунки если значения есть
             if (yearStart) {
                 const minSlider = document.getElementById('year-range-slider-min');
                 if (minSlider) minSlider.value = yearStart;
@@ -633,17 +608,14 @@ const GameListScript = {
             }
         }
 
-        // Восстанавливаем find_similar
         const findSimilar = urlParams.get('find_similar');
         const findSimilarField = document.getElementById('find_similar_field');
         if (findSimilarField) {
             findSimilarField.value = findSimilar === '1' ? '1' : '0';
         }
 
-        // Обновляем скрытые поля после восстановления
         this.updateHiddenFields();
 
-        // Особый случай: для ключевых слов инициализируем пагинацию после восстановления
         setTimeout(() => {
             this.setupKeywordsPagination();
         }, 200);
@@ -652,13 +624,10 @@ const GameListScript = {
 
 // Автоматическая инициализация при загрузке DOM
 document.addEventListener('DOMContentLoaded', () => {
-    // Инициализируем с задержкой для гарантии полной загрузки DOM
     setTimeout(() => {
         GameListScript.init();
-        // Восстанавливаем выбранные чекбоксы из URL
         GameListScript.restoreSelectedCheckboxes();
 
-        // Связываем с FilterManager если он существует
         if (window.FilterManager) {
             window.FilterManager.gameList = GameListScript;
         }

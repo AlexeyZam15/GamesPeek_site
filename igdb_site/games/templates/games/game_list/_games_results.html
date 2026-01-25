@@ -9,38 +9,38 @@
             {% endif %}
         </div>
 
-        <!-- Пагинация вверху (если есть игры) -->
-        {% if games or games_with_similarity %}
-            <div class="games-pagination games-pagination-top mb-4">
-                <nav aria-label="Games pagination">
-                    <div class="nav-container">
-                        <!-- Кнопка "Предыдущая" -->
-                        <button type="button" class="btn btn-sm btn-outline-primary" id="games-prev-top">
-                            <i class="bi bi-chevron-left"></i> Prev
-                        </button>
+        <!-- Пагинация вверху (показываем всегда) -->
+        <div class="games-pagination games-pagination-top mb-4">
+            <nav aria-label="Games pagination">
+                <div class="nav-container">
+                    <!-- Кнопка "Предыдущая" -->
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="games-prev-top">
+                        <i class="bi bi-chevron-left"></i> Prev
+                    </button>
 
-                        <!-- Номера страниц -->
-                        <div id="games-page-numbers-top" class="d-flex gap-1 align-items-center"></div>
+                    <!-- Номера страниц -->
+                    <div id="games-page-numbers-top" class="d-flex gap-1 align-items-center"></div>
 
-                        <!-- Кнопка "Следующая" -->
-                        <button type="button" class="btn btn-sm btn-outline-primary" id="games-next-top">
-                            Next <i class="bi bi-chevron-right"></i>
-                        </button>
+                    <!-- Кнопка "Следующая" -->
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="games-next-top">
+                        Next <i class="bi bi-chevron-right"></i>
+                    </button>
+                </div>
+
+                <!-- Информация о странице -->
+                <div class="text-center mt-2">
+                    <div class="page-info">
+                        <small class="text-muted">
+                            Page <span id="games-current-top">{{ current_page }}</span>
+                            of <span id="games-total-pages-top">{{ total_pages }}</span>
+                            (<span id="games-start-top">{{ start_index }}</span>-<span
+                                id="games-end-top">{{ end_index }}</span>
+                            of <span id="games-total-all-top">{{ total_count }}</span> games)
+                        </small>
                     </div>
-
-                    <!-- Информация о странице -->
-                    <div class="text-center mt-2">
-                        <div class="page-info">
-                            <small class="text-muted">
-                                Page <span id="games-current-top">1</span> of <span id="games-total-pages-top">1</span>
-                                (<span id="games-start-top">1</span>-<span id="games-end-top">16</span>
-                                of <span id="games-total-all-top">{{ total_count }}</span> games)
-                            </small>
-                        </div>
-                    </div>
-                </nav>
-            </div>
-        {% endif %}
+                </div>
+            </nav>
+        </div>
 
         <!-- Контейнер для игр -->
         <div class="games-container">
@@ -54,37 +54,36 @@
         </div>
 
         <!-- Пагинация внизу -->
-        {% if games or games_with_similarity %}
-            <div class="games-pagination games-pagination-bottom mt-4">
-                <nav aria-label="Games pagination">
-                    <div class="nav-container">
-                        <!-- Кнопка "Предыдущая" -->
-                        <button type="button" class="btn btn-sm btn-outline-primary" id="games-prev">
-                            <i class="bi bi-chevron-left"></i> Prev
-                        </button>
+        <div class="games-pagination games-pagination-bottom mt-4">
+            <nav aria-label="Games pagination">
+                <div class="nav-container">
+                    <!-- Кнопка "Предыдущая" -->
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="games-prev">
+                        <i class="bi bi-chevron-left"></i> Prev
+                    </button>
 
-                        <!-- Номера страниц -->
-                        <div id="games-page-numbers" class="d-flex gap-1 align-items-center"></div>
+                    <!-- Номера страниц -->
+                    <div id="games-page-numbers" class="d-flex gap-1 align-items-center"></div>
 
-                        <!-- Кнопка "Следующая" -->
-                        <button type="button" class="btn btn-sm btn-outline-primary" id="games-next">
-                            Next <i class="bi bi-chevron-right"></i>
-                        </button>
+                    <!-- Кнопка "Следующая" -->
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="games-next">
+                        Next <i class="bi bi-chevron-right"></i>
+                    </button>
+                </div>
+
+                <!-- Информация о странице -->
+                <div class="text-center mt-2">
+                    <div class="page-info">
+                        <small class="text-muted">
+                            Page <span id="games-current">{{ current_page }}</span>
+                            of <span id="games-total-pages">{{ total_pages }}</span>
+                            (<span id="games-start">{{ start_index }}</span>-<span id="games-end">{{ end_index }}</span>
+                            of <span id="games-total-all">{{ total_count }}</span> games)
+                        </small>
                     </div>
-
-                    <!-- Информация о странице -->
-                    <div class="text-center mt-2">
-                        <div class="page-info">
-                            <small class="text-muted">
-                                Page <span id="games-current">1</span> of <span id="games-total-pages">1</span>
-                                (<span id="games-start">1</span>-<span id="games-end">16</span>
-                                of <span id="games-total-all">{{ total_count }}</span> games)
-                            </small>
-                        </div>
-                    </div>
-                </nav>
-            </div>
-        {% endif %}
+                </div>
+            </nav>
+        </div>
 
         <!-- ОРИГИНАЛЬНАЯ СЕРВЕРНАЯ ПАГИНАЦИЯ (СКРЫВАЕМ) -->
         {% if is_paginated %}
