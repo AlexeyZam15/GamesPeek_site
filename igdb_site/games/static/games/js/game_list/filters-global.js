@@ -1,4 +1,4 @@
-// games/static/games/js/modules/filters-global.js
+// games/static/games/js/game_list/filters-global.js
 
 const FilterGlobal = {
     // Глобальные функции для кнопок Show More/Less

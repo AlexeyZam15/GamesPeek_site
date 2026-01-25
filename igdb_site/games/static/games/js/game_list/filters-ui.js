@@ -1,4 +1,4 @@
-// games/static/games/js/modules/filters-ui.js
+// games/static/games/js/game_listfilters-ui.js
 
 const FilterUI = {
     // Инициализация секций

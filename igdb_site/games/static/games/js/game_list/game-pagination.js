@@ -1,61 +1,90 @@
-// games/static/games/js/modules/keywords-pagination.js
+// games/static/games/js/game_list/game-pagination.js
 
-const KeywordsPagination = {
+const GamePagination = {
     // Конфигурация
     config: {
-        itemsPerPage: 30,
+        itemsPerPage: 16,
         currentPage: 1,
-        itemsSelector: '.keyword-item',
-        containerSelector: '.keyword-grid',
-        paginationSelector: '#keyword-pagination',
-        prevButtonId: '#keyword-prev',
-        nextButtonId: '#keyword-next',
-        startElementId: '#keyword-start',
-        endElementId: '#keyword-end',
-        currentElementId: '#keyword-current',
-        totalElementId: '#keyword-total',
-        maxVisiblePages: 7 // Максимум показываем 7 страниц
+        itemsSelector: '.game-card-container',
+        containerSelector: '.games-container',
+        // Элементы для пагинации вверху
+        paginationTopSelector: '.games-pagination-top',
+        prevButtonTopId: '#games-prev-top',
+        nextButtonTopId: '#games-next-top',
+        startElementTopId: '#games-start-top',
+        endElementTopId: '#games-end-top',
+        currentElementTopId: '#games-current-top',
+        totalElementTopId: '#games-total-all-top',
+        totalPagesElementTopId: '#games-total-pages-top',
+        pageNumbersContainerTopId: '#games-page-numbers-top',
+        // Элементы для пагинации внизу
+        paginationBottomSelector: '.games-pagination-bottom',
+        prevButtonBottomId: '#games-prev',
+        nextButtonBottomId: '#games-next',
+        startElementBottomId: '#games-start',
+        endElementBottomId: '#games-end',
+        currentElementBottomId: '#games-current',
+        totalElementBottomId: '#games-total-all',
+        totalPagesElementBottomId: '#games-total-pages',
+        pageNumbersContainerBottomId: '#games-page-numbers',
+        maxVisiblePages: 7
     },
 
     // Инициализация
     init() {
-        console.log('Initializing keywords pagination...');
+        console.log('Initializing games pagination...');
 
-        this.keywordItems = document.querySelectorAll(this.config.itemsSelector);
-        this.totalItems = this.keywordItems.length;
+        this.gameItems = document.querySelectorAll(this.config.itemsSelector);
+        this.totalItems = this.gameItems.length;
         this.totalPages = Math.ceil(this.totalItems / this.config.itemsPerPage);
 
         if (this.totalItems <= this.config.itemsPerPage) {
-            console.log(`Only ${this.totalItems} keywords, no pagination needed.`);
+            console.log(`Only ${this.totalItems} games, no pagination needed.`);
             this.hidePagination();
             // Показываем все элементы
-            this.keywordItems.forEach(item => item.style.display = 'block');
+            this.gameItems.forEach(item => item.style.display = 'block');
             return;
         }
 
-        // Создаем контейнер для страниц
-        this.createPageNumbersContainer();
+        // Создаем контейнеры для номеров страниц (верх и низ)
+        this.createPageNumbersContainer('top');
+        this.createPageNumbersContainer('bottom');
 
         this.setupPagination();
         this.showPage(1);
 
-        console.log(`Pagination initialized: ${this.totalItems} items, ${this.totalPages} pages`);
+        console.log(`Games pagination initialized: ${this.totalItems} items, ${this.totalPages} pages`);
     },
 
     // Создаем контейнер для номеров страниц
-    createPageNumbersContainer() {
-        const paginationContainer = document.querySelector(this.config.paginationSelector);
+    createPageNumbersContainer(position) {
+        const containerId = position === 'top' ?
+            this.config.pageNumbersContainerTopId :
+            this.config.pageNumbersContainerBottomId;
+
+        const buttonId = position === 'top' ?
+            this.config.prevButtonTopId :
+            this.config.prevButtonBottomId;
+
+        // Уже существует?
+        if (document.querySelector(containerId)) return;
+
+        const paginationContainer = document.querySelector(
+            position === 'top' ?
+            this.config.paginationTopSelector :
+            this.config.paginationBottomSelector
+        );
         if (!paginationContainer) return;
 
-        // Находим кнопку "предыдущая"
-        const prevButton = document.querySelector(this.config.prevButtonId);
+        const prevButton = document.querySelector(buttonId);
         if (!prevButton) return;
 
         // Создаем контейнер для номеров страниц
         const pageNumbersContainer = document.createElement('div');
-        pageNumbersContainer.id = 'keyword-page-numbers';
-        pageNumbersContainer.className = 'd-flex flex-wrap gap-1 mx-2 align-items-center';
-        pageNumbersContainer.style.minWidth = '150px';
+        pageNumbersContainer.id = containerId.substring(1); // Убираем #
+        pageNumbersContainer.className = 'd-flex gap-1 align-items-center';
+        pageNumbersContainer.style.minWidth = '200px';
+        pageNumbersContainer.style.justifyContent = 'center';
 
         // Вставляем контейнер после кнопки "предыдущая"
         prevButton.parentNode.insertBefore(pageNumbersContainer, prevButton.nextSibling);
@@ -68,9 +97,19 @@ const KeywordsPagination = {
         this.updatePageInfo();
     },
 
-    // Обновить номера страниц
+    // Обновить номера страниц для обеих пагинаций
     updatePageNumbers() {
-        const pageNumbersContainer = document.getElementById('keyword-page-numbers');
+        this.updateSinglePageNumbers('top');
+        this.updateSinglePageNumbers('bottom');
+    },
+
+    // Обновить номера страниц для одной пагинации
+    updateSinglePageNumbers(position) {
+        const containerId = position === 'top' ?
+            this.config.pageNumbersContainerTopId :
+            this.config.pageNumbersContainerBottomId;
+
+        const pageNumbersContainer = document.querySelector(containerId);
         if (!pageNumbersContainer) return;
 
         // Очищаем контейнер
@@ -81,7 +120,7 @@ const KeywordsPagination = {
 
         // Добавляем первую страницу если она не в диапазоне
         if (startPage > 1) {
-            this.createPageNumberButton(pageNumbersContainer, 1);
+            this.createPageNumberButton(pageNumbersContainer, 1, position);
 
             // Добавляем многоточие если нужно
             if (startPage > 2) {
@@ -91,7 +130,7 @@ const KeywordsPagination = {
 
         // Добавляем страницы в диапазоне
         for (let i = startPage; i <= endPage; i++) {
-            this.createPageNumberButton(pageNumbersContainer, i);
+            this.createPageNumberButton(pageNumbersContainer, i, position);
         }
 
         // Добавляем последнюю страницу если она не в диапазоне
@@ -101,12 +140,12 @@ const KeywordsPagination = {
                 this.createEllipsis(pageNumbersContainer);
             }
 
-            this.createPageNumberButton(pageNumbersContainer, this.totalPages);
+            this.createPageNumberButton(pageNumbersContainer, this.totalPages, position);
         }
     },
 
     // Создать кнопку номера страницы
-    createPageNumberButton(container, pageNumber) {
+    createPageNumberButton(container, pageNumber, position) {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'btn btn-sm page-number-btn';
@@ -119,6 +158,7 @@ const KeywordsPagination = {
 
         button.textContent = pageNumber;
         button.dataset.page = pageNumber;
+        button.dataset.position = position;
 
         button.addEventListener('click', (e) => {
             e.preventDefault();
@@ -163,8 +203,19 @@ const KeywordsPagination = {
 
     // Настройка кнопок навигации
     setupNavigationButtons() {
-        const prevBtn = document.querySelector(this.config.prevButtonId);
-        const nextBtn = document.querySelector(this.config.nextButtonId);
+        // Верхние кнопки
+        this.setupNavigationButtonPair('top');
+        // Нижние кнопки
+        this.setupNavigationButtonPair('bottom');
+    },
+
+    // Настройка пары кнопок (prev/next)
+    setupNavigationButtonPair(position) {
+        const prevBtnId = position === 'top' ? this.config.prevButtonTopId : this.config.prevButtonBottomId;
+        const nextBtnId = position === 'top' ? this.config.nextButtonTopId : this.config.nextButtonBottomId;
+
+        const prevBtn = document.querySelector(prevBtnId);
+        const nextBtn = document.querySelector(nextBtnId);
 
         if (prevBtn) {
             // Удаляем старые обработчики
@@ -203,7 +254,7 @@ const KeywordsPagination = {
         const startIndex = (pageNumber - 1) * this.config.itemsPerPage;
         const endIndex = Math.min(startIndex + this.config.itemsPerPage, this.totalItems);
 
-        this.keywordItems.forEach((item, index) => {
+        this.gameItems.forEach((item, index) => {
             if (index >= startIndex && index < endIndex) {
                 item.style.display = 'block';
             } else {
@@ -220,18 +271,7 @@ const KeywordsPagination = {
         // Обновляем кнопки навигации
         this.updateNavigationButtons();
 
-        // Обновляем сортировку для текущей страницы
-        setTimeout(() => {
-            if (window.FilterManager && window.FilterManager.sort) {
-                window.FilterManager.sort.quickSortFilterList(
-                    '.keyword-grid',
-                    '.keyword-item',
-                    '.keyword-checkbox'
-                );
-            }
-        }, 100);
-
-        console.log(`Showing keywords page ${pageNumber} (items ${startIndex + 1}-${endIndex})`);
+        console.log(`Showing games page ${pageNumber} (items ${startIndex + 1}-${endIndex})`);
     },
 
     // Обновить информацию о странице
@@ -239,21 +279,48 @@ const KeywordsPagination = {
         const startIndex = (this.config.currentPage - 1) * this.config.itemsPerPage + 1;
         const endIndex = Math.min(this.config.currentPage * this.config.itemsPerPage, this.totalItems);
 
-        const startElement = document.querySelector(this.config.startElementId);
-        const endElement = document.querySelector(this.config.endElementId);
-        const currentElement = document.querySelector(this.config.currentElementId);
-        const totalElement = document.querySelector(this.config.totalElementId);
+        // Обновляем верхнюю пагинацию
+        this.updateSinglePageInfo('top', startIndex, endIndex);
+        // Обновляем нижнюю пагинацию
+        this.updateSinglePageInfo('bottom', startIndex, endIndex);
+    },
+
+    updateSinglePageInfo(position, startIndex, endIndex) {
+        const startElement = document.querySelector(
+            position === 'top' ? this.config.startElementTopId : this.config.startElementBottomId
+        );
+        const endElement = document.querySelector(
+            position === 'top' ? this.config.endElementTopId : this.config.endElementBottomId
+        );
+        const currentElement = document.querySelector(
+            position === 'top' ? this.config.currentElementTopId : this.config.currentElementBottomId
+        );
+        const totalElement = document.querySelector(
+            position === 'top' ? this.config.totalElementTopId : this.config.totalElementBottomId
+        );
+        const totalPagesElement = document.querySelector(
+            position === 'top' ? this.config.totalPagesElementTopId : this.config.totalPagesElementBottomId
+        );
 
         if (startElement) startElement.textContent = startIndex;
         if (endElement) endElement.textContent = endIndex;
         if (currentElement) currentElement.textContent = this.config.currentPage;
         if (totalElement) totalElement.textContent = this.totalItems;
+        if (totalPagesElement) totalPagesElement.textContent = this.totalPages;
     },
 
     // Обновить кнопки навигации
     updateNavigationButtons() {
-        const prevBtn = document.querySelector(this.config.prevButtonId);
-        const nextBtn = document.querySelector(this.config.nextButtonId);
+        this.updateNavigationButtonPair('top');
+        this.updateNavigationButtonPair('bottom');
+    },
+
+    updateNavigationButtonPair(position) {
+        const prevBtnId = position === 'top' ? this.config.prevButtonTopId : this.config.prevButtonBottomId;
+        const nextBtnId = position === 'top' ? this.config.nextButtonTopId : this.config.nextButtonBottomId;
+
+        const prevBtn = document.querySelector(prevBtnId);
+        const nextBtn = document.querySelector(nextBtnId);
 
         if (prevBtn) {
             if (this.config.currentPage === 1) {
@@ -274,74 +341,38 @@ const KeywordsPagination = {
 
     // Скрыть пагинацию
     hidePagination() {
-        const paginationContainer = document.querySelector(this.config.paginationSelector);
-        if (paginationContainer) {
-            paginationContainer.style.display = 'none';
-        }
+        const topContainer = document.querySelector(this.config.paginationTopSelector);
+        const bottomContainer = document.querySelector(this.config.paginationBottomSelector);
 
-        const paginationNav = document.querySelector('.keyword-pagination');
-        if (paginationNav) {
-            paginationNav.style.display = 'none';
+        if (topContainer) {
+            topContainer.style.display = 'none';
+        }
+        if (bottomContainer) {
+            bottomContainer.style.display = 'none';
         }
     },
 
-    // Обновить пагинацию после поиска/фильтрации
-    updateAfterSearch() {
-        // Получаем видимые элементы после поиска
-        const allItems = document.querySelectorAll(this.config.itemsSelector);
-        const visibleItems = Array.from(allItems).filter(item =>
-            item.style.display !== 'none' &&
-            window.getComputedStyle(item).display !== 'none'
-        );
+    // Обновить пагинацию после изменений
+    updateAfterChanges() {
+        // Получаем текущие видимые элементы
+        this.gameItems = document.querySelectorAll(this.config.itemsSelector);
+        this.totalItems = this.gameItems.length;
+        this.totalPages = Math.ceil(this.totalItems / this.config.itemsPerPage);
 
-        if (visibleItems.length <= this.config.itemsPerPage) {
-            // Показываем все видимые элементы
-            allItems.forEach(item => {
-                if (visibleItems.includes(item)) {
-                    item.style.display = 'block';
-                } else {
-                    item.style.display = 'none';
-                }
-            });
-
-            // Обновляем данные
-            this.keywordItems = visibleItems;
-            this.totalItems = visibleItems.length;
-            this.totalPages = Math.ceil(this.totalItems / this.config.itemsPerPage);
-
-            if (this.totalItems <= this.config.itemsPerPage) {
-                this.hidePagination();
-            } else {
-                // Показываем пагинацию
-                const paginationContainer = document.querySelector(this.config.paginationSelector);
-                if (paginationContainer) {
-                    paginationContainer.style.display = 'flex';
-                }
-
-                const paginationNav = document.querySelector('.keyword-pagination');
-                if (paginationNav) {
-                    paginationNav.style.display = 'block';
-                }
-
-                // Перестраиваем пагинацию
-                this.setupPagination();
-                this.showPage(1);
-            }
+        if (this.totalItems <= this.config.itemsPerPage) {
+            this.hidePagination();
+            // Показываем все элементы
+            this.gameItems.forEach(item => item.style.display = 'block');
         } else {
-            // Обновляем данные
-            this.keywordItems = allItems;
-            this.totalItems = visibleItems.length;
-            this.totalPages = Math.ceil(this.totalItems / this.config.itemsPerPage);
-
             // Показываем пагинацию
-            const paginationContainer = document.querySelector(this.config.paginationSelector);
-            if (paginationContainer) {
-                paginationContainer.style.display = 'flex';
-            }
+            const topContainer = document.querySelector(this.config.paginationTopSelector);
+            const bottomContainer = document.querySelector(this.config.paginationBottomSelector);
 
-            const paginationNav = document.querySelector('.keyword-pagination');
-            if (paginationNav) {
-                paginationNav.style.display = 'block';
+            if (topContainer) {
+                topContainer.style.display = 'block';
+            }
+            if (bottomContainer) {
+                bottomContainer.style.display = 'block';
             }
 
             // Перестраиваем пагинацию
@@ -358,19 +389,18 @@ const KeywordsPagination = {
     // Принудительно обновить после изменений DOM
     forceUpdate() {
         // Пересчитываем элементы
-        this.keywordItems = document.querySelectorAll(this.config.itemsSelector);
-        this.totalItems = this.keywordItems.length;
+        this.gameItems = document.querySelectorAll(this.config.itemsSelector);
+        this.totalItems = this.gameItems.length;
         this.totalPages = Math.ceil(this.totalItems / this.config.itemsPerPage);
 
         if (this.totalItems <= this.config.itemsPerPage) {
             this.hidePagination();
             // Показываем все элементы
-            this.keywordItems.forEach(item => item.style.display = 'block');
+            this.gameItems.forEach(item => item.style.display = 'block');
         } else {
-            // Создаем контейнер если его нет
-            if (!document.getElementById('keyword-page-numbers')) {
-                this.createPageNumbersContainer();
-            }
+            // Создаем контейнеры если их нет
+            this.createPageNumbersContainer('top');
+            this.createPageNumbersContainer('bottom');
 
             this.setupPagination();
             this.showPage(1);
@@ -379,4 +409,4 @@ const KeywordsPagination = {
 };
 
 // Экспорт для использования в других модулях
-export default KeywordsPagination;
+export default GamePagination;

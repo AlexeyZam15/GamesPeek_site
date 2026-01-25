@@ -1,11 +1,11 @@
 // games/static/games/js/filters_script.js
-import FilterSort from './modules/filters-sort.js';
-import FilterSearch from './modules/filters-search.js';
-import FilterUI from './modules/filters-ui.js';
-import FilterHandlers from './modules/filters-handlers.js';
-import FilterSticky from './modules/filters-sticky.js';
-import KeywordsPagination from './modules/keywords-pagination.js';
-import GamePagination from './modules/game-pagination.js';
+import FilterSort from './game_list/filters-sort.js';
+import FilterSearch from './game_list/filters-search.js';
+import FilterUI from './game_list/filters-ui.js';
+import FilterHandlers from './game_list/filters-handlers.js';
+import FilterSticky from './game_list/filters-sticky.js';
+import KeywordsPagination from './game_list/keywords-pagination.js';
+import GamePagination from './game_list/game-pagination.js';
 
 // Создаем глобальный объект FilterManager для доступа из других скриптов
 window.FilterManager = {

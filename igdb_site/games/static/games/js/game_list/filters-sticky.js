@@ -1,4 +1,4 @@
-// games/static/games/js/modules/filters-sticky.js
+// games/static/games/js/game_list/filters-sticky.js
 
 const FilterSticky = {
     // Элементы

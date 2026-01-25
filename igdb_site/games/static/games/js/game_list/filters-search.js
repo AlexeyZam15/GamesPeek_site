@@ -1,4 +1,4 @@
-// games/static/games/js/modules/filters-search.js
+// games/static/games/js/game_list/filters-search.js
 
 const FilterSearch = {
     // Настройка поиска по фильтрам

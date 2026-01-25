@@ -1,4 +1,4 @@
-// games/static/games/js/modules/game_list_script.js
+// games/static/games/js/game_list/game_list_script.js
 
 const GameListScript = {
     // Инициализация
