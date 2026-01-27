@@ -1,12 +1,12 @@
 <!-- games/templates/games/game_list/_games_grid.html -->
-<div class="row">
+<div class="row" id="games-grid-row">
     {% for game_item in games %}
         {% if show_similarity %}
             <!-- Режим похожих игр -->
-            {% include 'games/partials/_game_card.html' with game=game_item.game similarity_percent=game_item.similarity show_similarity=show_similarity source_game=source_game page_number=current_page game_index=forloop.counter0 %}
+            {% include 'games/partials/_game_card.html' with game=game_item.game similarity_percent=game_item.similarity show_similarity=show_similarity source_game=source_game page_number=game_item.page_number|default:current_page|default:1 game_index=game_item.game_index|default:forloop.counter0 %}
         {% else %}
             <!-- Обычный режим -->
-            {% include 'games/partials/_game_card.html' with game=game_item page_number=current_page game_index=forloop.counter0 %}
+            {% include 'games/partials/_game_card.html' with game=game_item page_number=game_item.page_number|default:current_page|default:1 game_index=game_item.game_index|default:forloop.counter0 %}
         {% endif %}
     {% endfor %}
 </div>

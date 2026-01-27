@@ -677,6 +677,78 @@ const GameListScript = {
         setTimeout(() => {
             this.setupKeywordsPagination();
         }, 200);
+    },
+
+    // Обработчик для кнопки Apply Filters
+    setupApplyFilterButton() {
+        const applyButton = document.querySelector('.apply-filters-main');
+        if (applyButton) {
+            const newApplyButton = applyButton.cloneNode(true);
+            applyButton.parentNode.replaceChild(newApplyButton, applyButton);
+
+            newApplyButton.addEventListener('click', (e) => {
+                e.preventDefault();
+
+                // Очищаем кэш пагинации
+                if (window.GamePagination && typeof window.GamePagination.clearAllCache === 'function') {
+                    console.log('Clearing pagination cache before applying filters');
+                    window.GamePagination.clearAllCache();
+                }
+
+                // Сохраняем позицию прокрутки
+                if (window.FilterManager && window.FilterManager.handlers) {
+                    window.FilterManager.handlers.saveScrollPosition();
+                }
+
+                // Очищаем состояние пагинации
+                if (window.GamePagination) {
+                    window.GamePagination.clearPageState();
+                }
+
+                // Создаем событие для уведомления о применении фильтров
+                const filterAppliedEvent = new CustomEvent('filterApplied');
+                document.dispatchEvent(filterAppliedEvent);
+
+                // Отправляем форму
+                setTimeout(() => {
+                    this.form.submit();
+                }, 100);
+            });
+        }
+    },
+
+    // Обработчик для кнопки Show All Games
+    setupShowAllButton() {
+        const showAllButton = document.querySelector('a[href*="game_list"]:not(.btn-secondary)');
+        if (showAllButton) {
+            const newShowAllButton = showAllButton.cloneNode(true);
+            showAllButton.parentNode.replaceChild(newShowAllButton, showAllButton);
+
+            newShowAllButton.addEventListener('click', (e) => {
+                e.preventDefault();
+
+                // Очищаем кэш пагинации
+                if (window.GamePagination && typeof window.GamePagination.clearAllCache === 'function') {
+                    console.log('Clearing pagination cache before showing all games');
+                    window.GamePagination.clearAllCache();
+                }
+
+                // Сохраняем позицию прокрутки
+                if (window.FilterManager && window.FilterManager.handlers) {
+                    window.FilterManager.handlers.saveScrollPosition();
+                }
+
+                // Очищаем состояние пагинации
+                if (window.GamePagination) {
+                    window.GamePagination.clearPageState();
+                }
+
+                // Переходим по ссылке
+                setTimeout(() => {
+                    window.location.href = newShowAllButton.getAttribute('href');
+                }, 100);
+            });
+        }
     }
 };
 
@@ -691,78 +763,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }, 100);
 });
-
-// Обработчик для кнопки Apply Filters
-setupApplyFilterButton() {
-    const applyButton = document.querySelector('.apply-filters-main');
-    if (applyButton) {
-        const newApplyButton = applyButton.cloneNode(true);
-        applyButton.parentNode.replaceChild(newApplyButton, applyButton);
-
-        newApplyButton.addEventListener('click', (e) => {
-            e.preventDefault();
-
-            // Очищаем кэш пагинации
-            if (window.GamePagination && typeof window.GamePagination.clearAllCache === 'function') {
-                console.log('Clearing pagination cache before applying filters');
-                window.GamePagination.clearAllCache();
-            }
-
-            // Сохраняем позицию прокрутки
-            if (window.FilterManager && window.FilterManager.handlers) {
-                window.FilterManager.handlers.saveScrollPosition();
-            }
-
-            // Очищаем состояние пагинации
-            if (window.GamePagination) {
-                window.GamePagination.clearPageState();
-            }
-
-            // Создаем событие для уведомления о применении фильтров
-            const filterAppliedEvent = new CustomEvent('filterApplied');
-            document.dispatchEvent(filterAppliedEvent);
-
-            // Отправляем форму
-            setTimeout(() => {
-                this.form.submit();
-            }, 100);
-        });
-    }
-},
-
-// Обработчик для кнопки Show All Games
-setupShowAllButton() {
-    const showAllButton = document.querySelector('a[href*="game_list"]:not(.btn-secondary)');
-    if (showAllButton) {
-        const newShowAllButton = showAllButton.cloneNode(true);
-        showAllButton.parentNode.replaceChild(newShowAllButton, showAllButton);
-
-        newShowAllButton.addEventListener('click', (e) => {
-            e.preventDefault();
-
-            // Очищаем кэш пагинации
-            if (window.GamePagination && typeof window.GamePagination.clearAllCache === 'function') {
-                console.log('Clearing pagination cache before showing all games');
-                window.GamePagination.clearAllCache();
-            }
-
-            // Сохраняем позицию прокрутки
-            if (window.FilterManager && window.FilterManager.handlers) {
-                window.FilterManager.handlers.saveScrollPosition();
-            }
-
-            // Очищаем состояние пагинации
-            if (window.GamePagination) {
-                window.GamePagination.clearPageState();
-            }
-
-            // Переходим по ссылке
-            setTimeout(() => {
-                window.location.href = newShowAllButton.getAttribute('href');
-            }, 100);
-        });
-    }
-},
 
 // Глобальный обработчик события filterApplied
 document.addEventListener('filterApplied', () => {

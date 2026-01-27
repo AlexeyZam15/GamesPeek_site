@@ -1,8 +1,8 @@
 {% load game_tags platform_icons color_tags game_type_tags %}
 
 <div class="col-xl-3 col-lg-4 col-md-6 mb-4 game-card-container"
-     data-page="{{ page_number|default:1 }}"
-     data-index="{{ game_index|default:0 }}">
+     data-page="{{ game.page_number|default:current_page|default:1 }}"
+     data-index="{{ game.game_index|default:forloop.counter0|add:game_index_offset|default:forloop.counter0 }}">
     <div class="card h-100 game-card d-flex flex-column">
         <!-- Контейнер для обложки с наложенными элементами -->
         <div class="card-img-top-container position-relative" style="height: 250px; overflow: hidden;">
@@ -42,10 +42,9 @@
 
             <!-- Процент похожести (только в режиме show_similarity) -->
             {% if show_similarity %}
-                {% get_similarity_percent game.id similarity_map as similarity_percent %}
-                {% if similarity_percent %}
+                {% if game.similarity %}
                     <div class="position-absolute top-0 end-0 p-1">
-                        {% similarity_pattern_svg similarity_percent 60 %}
+                        {% similarity_pattern_svg game.similarity 60 %}
                     </div>
                 {% endif %}
             {% endif %}
@@ -128,11 +127,12 @@
 
                 <!-- Кнопка Compare (только в режиме show_similarity) -->
                 {% if show_similarity and source_game %}
-                    {% get_similarity_percent game.id similarity_map as similarity_percent %}
-                    <a href="{% get_card_comparison_url source_game=source_game target_game=game similarity_percent=similarity_percent selected_genres=selected_genres selected_keywords=selected_keywords selected_themes=selected_themes selected_perspectives=selected_perspectives selected_developers=selected_developers selected_game_modes=selected_game_modes %}"
-                       class="btn btn-sm btn-outline-warning">
-                        <i class="bi bi-arrow-left-right"></i> Compare
-                    </a>
+                    {% if game.similarity %}
+                        <a href="{% get_card_comparison_url source_game=source_game target_game=game similarity_percent=game.similarity selected_genres=selected_genres selected_keywords=selected_keywords selected_themes=selected_themes selected_perspectives=selected_perspectives selected_developers=selected_developers selected_game_modes=selected_game_modes %}"
+                           class="btn btn-sm btn-outline-warning">
+                            <i class="bi bi-arrow-left-right"></i> Compare
+                        </a>
+                    {% endif %}
                 {% endif %}
             </div>
         </div>

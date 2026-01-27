@@ -205,9 +205,9 @@ window.addEventListener('popstate', (event) => {
         console.log(`Restoring page ${pageNumber} from browser history`);
 
         if (window.GamePagination.state.loadedPages.has(pageNumber)) {
-            window.GamePagination.showPage(pageNumber, false);
+            window.GamePagination._showPageFromCache(pageNumber);
         } else {
-            window.GamePagination.forceLoadPage(pageNumber);
+            window.GamePagination.showPage(pageNumber, false);
         }
     }
 });
@@ -237,6 +237,53 @@ const observer = new MutationObserver((mutations) => {
 observer.observe(document.body, {
     childList: true,
     subtree: true
+});
+
+// Обработчик для предотвращения дублирования загрузки страниц
+document.addEventListener('pageAlreadyLoaded', (e) => {
+    console.log('Page already loaded event received, skipping duplicate load');
+});
+
+// Глобальная функция для проверки загруженности страницы
+window.isPageLoaded = function(pageNumber) {
+    if (window.GamePagination && window.GamePagination.state) {
+        return window.GamePagination.state.loadedPages.has(pageNumber);
+    }
+    return false;
+};
+
+// Глобальная функция для принудительного показа страницы без перезагрузки
+window.showPageDirectly = function(pageNumber) {
+    if (window.GamePagination && typeof window.GamePagination._showPageFromCache === 'function') {
+        window.GamePagination._showPageFromCache(pageNumber);
+        return true;
+    }
+    return false;
+};
+
+// Глобальная функция для проверки наличия игр в DOM
+window.areGamesInDOM = function(pageNumber) {
+    if (window.GamePagination && typeof window.GamePagination.arePageGamesInDOM === 'function') {
+        return window.GamePagination.arePageGamesInDOM(pageNumber);
+    }
+    return false;
+};
+
+// Инициализация после полной загрузки страницы
+window.addEventListener('load', () => {
+    setTimeout(() => {
+        // Проверяем, правильно ли инициализирована пагинация
+        if (window.GamePagination && !window.GamePagination.state.loadedPages.size) {
+            console.log('GamePagination not properly initialized, forcing update');
+            window.GamePagination.forceUpdate();
+        }
+
+        // Запускаем фоновую загрузку соседних страниц
+        if (window.GamePagination && window.GamePagination.hasPagination()) {
+            console.log('Starting background loading of adjacent pages...');
+            window.GamePagination.preloadAdjacentPages(window.GamePagination.getCurrentPage());
+        }
+    }, 1500);
 });
 
 export {
