@@ -14,7 +14,7 @@ from django.shortcuts import render, get_object_or_404
 from django.db.models import Count, Prefetch, Q
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger  # Убедитесь, что есть эта строка
 from django.core.cache import cache
-from django.http import HttpRequest, HttpResponse, HttpResponseServerError
+from django.http import HttpRequest, HttpResponse, HttpResponseServerError, JsonResponse
 from django.db import models
 from django.utils import timezone
 from datetime import timedelta
@@ -699,33 +699,6 @@ def _get_all_games_mode_paginated(
         'source_game': None,
         'similarity_map': {},
     }
-
-
-def test_pagination(request: HttpRequest) -> HttpResponse:
-    """Test endpoint to check pagination."""
-    page_num = request.GET.get('page', '1')
-    try:
-        page_num = int(page_num)
-    except (ValueError, TypeError):
-        page_num = 1
-
-    # Простой запрос без фильтров
-    games_qs = Game.objects.all().order_by('id')
-    total_count = games_qs.count()
-
-    offset = (page_num - 1) * ITEMS_PER_PAGE_CLIENT
-    games = list(games_qs[offset:offset + ITEMS_PER_PAGE_CLIENT])
-
-    context = {
-        'games': games,
-        'page_num': page_num,
-        'total_count': total_count,
-        'offset': offset,
-        'game_ids': [g.id for g in games]
-    }
-
-    return render(request, 'games/test_pagination.html', context)
-
 
 def _get_similar_games_mode_paginated(
         params: Dict[str, str],
@@ -2849,3 +2822,78 @@ def platform_games(request: HttpRequest, platform_id: int) -> HttpResponse:
         'page_obj': page_obj,
         'is_paginated': paginator.num_pages > 1,
     })
+
+
+def auto_login_admin(request: HttpRequest) -> JsonResponse:
+    """Автоматическая авторизация в админке."""
+    import json
+    from django.conf import settings
+    from django.contrib.auth import login
+    from django.contrib.auth.models import User
+    from django.http import JsonResponse
+
+    print(f"DEBUG: Auto login endpoint called, DEBUG={settings.DEBUG}")
+
+    # Проверяем, что это DEBUG режим
+    if not settings.DEBUG:
+        print("DEBUG: Auto login blocked - not in DEBUG mode")
+        return JsonResponse({
+            'status': 'error',
+            'message': 'Auto login only available in DEBUG mode'
+        }, status=403)
+
+    # Простой тестовый ответ для проверки
+    if request.GET.get('test'):
+        return JsonResponse({
+            'status': 'test',
+            'message': 'Test endpoint working'
+        })
+
+    try:
+        # Находим или создаем пользователя admin
+        username = 'admin'
+        password = 'admin'
+
+        user, created = User.objects.get_or_create(
+            username=username,
+            defaults={
+                'email': 'admin@example.com',
+                'is_staff': True,
+                'is_superuser': True,
+                'is_active': True
+            }
+        )
+
+        if created:
+            user.set_password(password)
+            user.save()
+            print(f"DEBUG: Created admin user")
+        elif not user.check_password(password):
+            user.set_password(password)
+            user.save()
+            print(f"DEBUG: Reset admin password")
+
+        # Устанавливаем backend
+        user.backend = 'django.contrib.auth.backends.ModelBackend'
+
+        # Авторизуем
+        login(request, user)
+        print(f"DEBUG: Successfully logged in as {username}")
+
+        return JsonResponse({
+            'status': 'success',
+            'message': f'Successfully logged in as {username}',
+            'admin_url': '/admin/',
+            'username': username,
+            'created': created
+        })
+
+    except Exception as e:
+        print(f"DEBUG: Error in auto_login_admin: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
+        return JsonResponse({
+            'status': 'error',
+            'message': f'Error: {str(e)}'
+        }, status=500)

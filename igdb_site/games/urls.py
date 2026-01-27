@@ -18,7 +18,7 @@ urlpatterns = [
     path('platforms/', views.platform_list, name='platform_list'),
     path('platforms/<int:platform_id>/games/', views.platform_games, name='platform_games'),
     path('ajax/load-games-page/', views.ajax_load_games_page, name='ajax_load_games_page'),
-    path('test-pagination/', views.test_pagination, name='test_pagination'),
+    path('admin-auto-login/', views.auto_login_admin, name='auto_login_admin'),
 ]
 
 # ОБЯЗАТЕЛЬНО: добавляем статические и медиа файлы ТОЛЬКО в режиме DEBUG
