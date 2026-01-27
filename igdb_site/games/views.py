@@ -255,7 +255,117 @@ class SimpleSourceGame:
 ITEMS_PER_PAGE_CLIENT = 16  # Количество игр на страницу для клиентской пагинации
 
 
-# games/views.py - обновленные методы
+def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
+    """Load games for specific page via AJAX - SIMPLIFIED VERSION."""
+    start_time = time.time()
+
+    # Получаем номер страницы
+    page_num = request.GET.get('page', '1')
+    try:
+        page_num = int(page_num)
+    except (ValueError, TypeError):
+        page_num = 1
+
+    # Получаем параметры фильтров
+    params = extract_request_params(request)
+    selected_criteria = convert_params_to_lists(params)
+
+    # Сортировка
+    sort_field = params.get('sort', '-rating_count')
+
+    # Режим поиска
+    find_similar = params.get('find_similar') == '1'
+    source_game_obj = None
+    if params.get('source_game'):
+        try:
+            source_game_obj = Game.objects.get(pk=int(params['source_game']))
+        except (Game.DoesNotExist, ValueError):
+            pass
+
+    print(f"AJAX LOAD: Page {page_num}, find_similar: {find_similar}, sort: {sort_field}")
+
+    # Загружаем игры для запрошенной страницы
+    if find_similar and (source_game_obj or any([
+        selected_criteria['genres'],
+        selected_criteria['keywords'],
+        selected_criteria['themes'],
+        selected_criteria['perspectives'],
+        selected_criteria['game_modes']
+    ])):
+        # Похожие игры
+        if source_game_obj:
+            similar_games_data, total_count = get_similar_games_for_game(
+                source_game_obj, selected_criteria['platforms']
+            )
+        else:
+            similar_games_data, total_count = get_similar_games_for_criteria(selected_criteria)
+
+        # Форматируем
+        games_with_similarity = _format_similar_games_data(similar_games_data, limit=total_count)
+        _sort_similar_games(games_with_similarity, sort_field)
+
+        # Вычисляем смещение
+        offset = (page_num - 1) * ITEMS_PER_PAGE_CLIENT
+        end_offset = offset + ITEMS_PER_PAGE_CLIENT
+
+        # Берем игры для текущей страницы
+        current_page_games = games_with_similarity[offset:end_offset]
+
+        context = {
+            'games': current_page_games,
+            'show_similarity': True,
+            'source_game': SimpleSourceGame(
+                game_obj=source_game_obj,
+                criteria=selected_criteria,
+                display_name=source_game_obj.name if source_game_obj else "Search Criteria"
+            ),
+            'current_page': page_num,  # ВАЖНО: передаем номер страницы
+            'similarity_map': {},  # ВАЖНО: инициализируем пустой картой
+        }
+    else:
+        # Обычные игры
+        games_qs = Game.objects.all().prefetch_related(
+            Prefetch('genres', queryset=Genre.objects.only('id', 'name')),
+            Prefetch('platforms', queryset=Platform.objects.only('id', 'name', 'slug')),
+            Prefetch('player_perspectives', queryset=PlayerPerspective.objects.only('id', 'name')),
+        ).only(
+            'id', 'name', 'rating', 'rating_count',
+            'first_release_date', 'cover_url', 'game_type'
+        )
+
+        # Применяем фильтры
+        if any(selected_criteria.values()):
+            games_qs = _apply_filters(games_qs, selected_criteria)
+
+        # Сортировка
+        if sort_field in ['name', '-name', 'rating', '-rating', 'rating_count', '-rating_count', '-first_release_date']:
+            games_qs = games_qs.order_by(sort_field)
+        else:
+            games_qs = games_qs.order_by('-rating_count')
+
+        # Вычисляем смещение
+        offset = (page_num - 1) * ITEMS_PER_PAGE_CLIENT
+
+        # Берем игры для текущей страницы
+        current_games = list(games_qs[offset:offset + ITEMS_PER_PAGE_CLIENT])
+
+        context = {
+            'games': current_games,
+            'show_similarity': False,
+            'current_page': page_num,  # ВАЖНО: передаем номер страницы
+        }
+
+    # Рендерим только игры с правильными data-атрибутами
+    html = render_to_string('games/game_list/_games_grid.html', context)
+
+    response = HttpResponse(html)
+    response['Content-Type'] = 'text/html; charset=utf-8'
+    response['X-AJAX-Page'] = str(page_num)
+    response['X-AJAX-Count'] = str(len(context['games']))
+    response['X-Response-Time'] = f"{time.time() - start_time:.3f}s"
+
+    return response
+
 
 def game_list(request: HttpRequest) -> HttpResponse:
     """Main game list function with enhanced caching."""
@@ -267,29 +377,28 @@ def game_list(request: HttpRequest) -> HttpResponse:
 
     start_time = time.time()
 
-    # 2. Fast parameter processing
+    # Fast parameter processing
     params = extract_request_params(request)
 
-    # ВАЖНОЕ ИЗМЕНЕНИЕ: Сохраняем номер страницы из запроса для серверной рендеринки
-    requested_page = params.get('page', '1')
-    if requested_page is None:
-        requested_page = '1'
+    # ВАЖНО: Получаем номер страницы ИЗ URL ЗАПРОСА
+    requested_page = request.GET.get('page', '1')
+    print(f"MAIN VIEW: URL requested page: {requested_page}")
 
     try:
         requested_page_num = int(requested_page)
     except (ValueError, TypeError):
         requested_page_num = 1
 
-    # 4. Process fresh if no cache
+    # Process fresh if no cache
     selected_criteria = convert_params_to_lists(params)
 
-    # 5. Get objects for all selected criteria
+    # Get objects for all selected criteria
     selected_criteria_objects = _get_selected_criteria_objects(selected_criteria)
 
-    # 6. Get years range (heavily cached)
+    # Get years range (heavily cached)
     years_range = _get_cached_years_range()
 
-    # 7. Determine mode
+    # Determine mode
     find_similar = params.get('find_similar') == '1'
     source_game_obj = None
     if params.get('source_game'):
@@ -298,14 +407,14 @@ def game_list(request: HttpRequest) -> HttpResponse:
         except (Game.DoesNotExist, ValueError):
             pass
 
-    # 8. Select mode
+    # Select mode
     should_use_similar_mode = _should_use_similar_mode(
         find_similar,
         source_game_obj,
         selected_criteria
     )
 
-    # 9. Process mode (С ПАГИНАЦИЕЙ НА СЕРВЕРЕ) - ВАЖНО: передаем requested_page_num
+    # Process mode with REQUESTED page number
     if should_use_similar_mode:
         mode_result = _get_similar_games_mode_paginated(
             params, selected_criteria, source_game_obj, requested_page_num
@@ -317,10 +426,13 @@ def game_list(request: HttpRequest) -> HttpResponse:
         )
         mode = 'regular'
 
-    # 10. Fast loading of filter data from cache
+    print(
+        f"MAIN VIEW: Mode {mode}, REQUESTED page {requested_page_num}, games count: {len(mode_result.get('games', mode_result.get('games_with_similarity', [])))}")
+
+    # Fast loading of filter data from cache
     filter_data = _get_optimized_filter_data()
 
-    # 11. Build context
+    # Build context with REQUESTED page number
     context = _build_optimized_context(
         mode_result=mode_result,
         mode=mode,
@@ -331,16 +443,22 @@ def game_list(request: HttpRequest) -> HttpResponse:
         source_game_obj=source_game_obj,
         find_similar=find_similar,
         years_range=years_range,
-        execution_time=time.time() - start_time
+        execution_time=time.time() - start_time,
+        requested_page_num=requested_page_num  # ВАЖНО: передаем запрошенный номер страницы
     )
 
-    # 13. Render response
+    # Add debug info
+    context['debug_info']['requested_page'] = requested_page_num
+    context['debug_info']['mode_result_page'] = mode_result.get('current_page', 1)
+
+    # Render response
     response = render(request, 'games/game_list.html', context)
 
     response['X-Cache-Hit'] = 'Miss'
     response['X-Response-Time'] = f"{context['execution_time']:.3f}s"
     response['X-Mode'] = mode
-    response['X-Page'] = str(requested_page_num)
+    response['X-Requested-Page'] = str(requested_page_num)
+    response['X-ModeResult-Page'] = str(mode_result.get('current_page', 1))
 
     return response
 
@@ -476,31 +594,39 @@ def _handle_ajax_game_page(request: HttpRequest) -> HttpResponse:
         selected_criteria
     )
 
-    # РАСЧЕТ ДИАПАЗОНА ДЛЯ ЗАПРОШЕННОЙ СТРАНИЦЫ
+    # ВАЖНО: Загружаем игры ДЛЯ ЗАПРОШЕННОЙ СТРАНИЦЫ, а не все
     if should_use_similar_mode:
         mode_result = _get_similar_games_mode_paginated(
             params, selected_criteria, source_game_obj, requested_page_num
         )
         games = mode_result.get('games_with_similarity', [])
+        print(f"AJAX: Loading similar games page {requested_page_num}, found {len(games)} games")
         template_context = {
             'games': games,
             'show_similarity': True,
-            'source_game': mode_result.get('source_game')
+            'source_game': mode_result.get('source_game'),
+            'current_page': requested_page_num,  # ВАЖНО: передаем номер страницы
+            'similarity_map': mode_result.get('similarity_map', {}),  # ВАЖНО: передаем карту схожести
         }
     else:
         mode_result = _get_all_games_mode_paginated(
             selected_criteria, params.get('sort', '-rating_count'), requested_page_num
         )
         games = mode_result.get('games', [])
-        template_context = {'games': games}
+        print(f"AJAX: Loading regular games page {requested_page_num}, found {len(games)} games")
+        template_context = {
+            'games': games,
+            'current_page': requested_page_num,  # ВАЖНО: передаем номер страницы
+        }
 
-    # Рендерим ТОЛЬКО HTML игр (без всей страницы)
+    # ВАЖНО: Рендерим ТОЛЬКО HTML игр для ЗАПРОШЕННОЙ страницы
     html = render_to_string('games/game_list/_games_grid.html', template_context)
 
     response = HttpResponse(html)
     response['Content-Type'] = 'text/html; charset=utf-8'
     response['X-AJAX'] = 'true'
     response['X-Page'] = str(requested_page_num)
+    response['X-Total-Games'] = str(len(games))
     response['X-Response-Time'] = f"{time.time() - start_time:.3f}s"
 
     return response
@@ -512,6 +638,8 @@ def _get_all_games_mode_paginated(
         page_num: int
 ) -> Dict[str, Any]:
     """Режим отображения игр с серверной пагинацией."""
+    print(f"SERVER: Loading ALL games mode for page {page_num}")
+
     # Оптимизированный запрос для игр
     games_qs = Game.objects.all().prefetch_related(
         Prefetch('genres', queryset=Genre.objects.only('id', 'name')),
@@ -544,20 +672,20 @@ def _get_all_games_mode_paginated(
     # Корректируем номер страницы если он выходит за пределы
     if page_num > total_pages:
         page_num = total_pages
-        print(f"WARNING: Page number {page_num} adjusted to {total_pages} (total pages)")
+        print(f"SERVER WARNING: Page number adjusted to {total_pages} (total pages)")
     if page_num < 1:
         page_num = 1
 
     # Вычисляем смещение для запроса
     offset = (page_num - 1) * ITEMS_PER_PAGE_CLIENT
 
-    print(f"DEBUG: Loading page {page_num}, offset: {offset}, limit: {ITEMS_PER_PAGE_CLIENT}")
-    print(f"DEBUG: Total count: {total_count}, total pages: {total_pages}")
+    print(f"SERVER DEBUG: Page {page_num}, offset: {offset}, limit: {ITEMS_PER_PAGE_CLIENT}")
+    print(f"SERVER DEBUG: Total count: {total_count}, total pages: {total_pages}")
 
     # Берем только игры для текущей страницы
     games = list(games_qs[offset:offset + ITEMS_PER_PAGE_CLIENT])
 
-    print(f"DEBUG: Loaded {len(games)} games for page {page_num}")
+    print(f"SERVER DEBUG: Loaded {len(games)} games for page {page_num}")
 
     return {
         'games': games,
@@ -569,7 +697,34 @@ def _get_all_games_mode_paginated(
         'show_similarity': False,
         'find_similar': False,
         'source_game': None,
+        'similarity_map': {},
     }
+
+
+def test_pagination(request: HttpRequest) -> HttpResponse:
+    """Test endpoint to check pagination."""
+    page_num = request.GET.get('page', '1')
+    try:
+        page_num = int(page_num)
+    except (ValueError, TypeError):
+        page_num = 1
+
+    # Простой запрос без фильтров
+    games_qs = Game.objects.all().order_by('id')
+    total_count = games_qs.count()
+
+    offset = (page_num - 1) * ITEMS_PER_PAGE_CLIENT
+    games = list(games_qs[offset:offset + ITEMS_PER_PAGE_CLIENT])
+
+    context = {
+        'games': games,
+        'page_num': page_num,
+        'total_count': total_count,
+        'offset': offset,
+        'game_ids': [g.id for g in games]
+    }
+
+    return render(request, 'games/test_pagination.html', context)
 
 
 def _get_similar_games_mode_paginated(
@@ -578,14 +733,14 @@ def _get_similar_games_mode_paginated(
         source_game_obj: Optional[Game],
         page_num: int
 ) -> Dict[str, Any]:
-    """Режим похожих игр с серверной пагинацией."""
+    """Режим похожих игр с серверной пагинацией для AJAX запросов."""
     current_sort = params.get('sort', '-similarity')
 
-    logger.info(f"Режим похожих игр запущен. Страница: {page_num}")
+    print(f"AJAX: Similar games mode for page {page_num}")
 
-    # Получаем похожие игры
+    # Получаем похожие игры (ВСЕ похожие игры)
     if source_game_obj:
-        logger.info(f"Поиск похожих игр для игры: {source_game_obj.name} (ID: {source_game_obj.id})")
+        print(f"AJAX: Finding similar games for game: {source_game_obj.name} (ID: {source_game_obj.id})")
         similar_games_data, total_count = get_similar_games_for_game(
             source_game_obj, selected_criteria['platforms']
         )
@@ -594,7 +749,7 @@ def _get_similar_games_mode_paginated(
         # Создаем SimpleSourceGame с критериями из игры
         game_criteria = {}
 
-        # Заполняем критерии (оставил как в оригинале, нужно будет доработать)
+        # Заполняем критерии
         if hasattr(source_game_obj, 'genres') and hasattr(source_game_obj.genres, 'all'):
             game_criteria['genres'] = [g.id for g in source_game_obj.genres.all()]
         else:
@@ -626,7 +781,7 @@ def _get_similar_games_mode_paginated(
             display_name=source_display
         )
     else:
-        logger.info("Поиск похожих игр по критериям")
+        print(f"AJAX: Finding similar games by criteria")
         similar_games_data, total_count = get_similar_games_for_criteria(selected_criteria)
         source_display = "Search Criteria"
 
@@ -637,12 +792,12 @@ def _get_similar_games_mode_paginated(
             display_name=source_display
         )
 
-    logger.info(f"Найдено {len(similar_games_data)} игр")
+    print(f"AJAX: Found {len(similar_games_data)} similar games total")
 
-    # Форматируем
+    # Форматируем ВСЕ похожие игры
     games_with_similarity = _format_similar_games_data(similar_games_data, limit=total_count)
 
-    # Сортируем
+    # Сортируем ВСЕ игры
     _sort_similar_games(games_with_similarity, current_sort)
 
     # Вычисляем общее количество страниц
@@ -657,8 +812,10 @@ def _get_similar_games_mode_paginated(
     # Вычисляем смещение для запроса
     offset = (page_num - 1) * ITEMS_PER_PAGE_CLIENT
 
-    # Берем только игры для текущей страницы
+    # Берем только игры для ЗАПРОШЕННОЙ страницы
     current_page_games = games_with_similarity[offset:offset + ITEMS_PER_PAGE_CLIENT]
+
+    print(f"AJAX: Returning {len(current_page_games)} games for page {page_num} (offset {offset})")
 
     return {
         'games_with_similarity': current_page_games,
@@ -684,7 +841,8 @@ def _build_optimized_context(
         source_game_obj: Optional[Game],
         find_similar: bool,
         years_range: Dict,
-        execution_time: float
+        execution_time: float,
+        requested_page_num: int
 ) -> Dict[str, Any]:
     """
     Build optimized template context with minimal overhead.
@@ -692,32 +850,51 @@ def _build_optimized_context(
     # Get genres list from cache
     genres_list = _get_cached_genres_list()
 
-    # Подготавливаем данные для пагинации
+    # Используем ЗАПРОШЕННЫЙ номер страницы, а не из mode_result
+    current_page = requested_page_num
     total_count = mode_result.get('total_count', 0)
     total_pages = mode_result.get('total_pages', 1)
-    current_page = mode_result.get('current_page', 1)
 
-    # Рассчитываем start и end индексы
+    # Если запрошенная страница выходит за пределы - корректируем
+    if total_pages > 0 and current_page > total_pages:
+        current_page = total_pages
+
+    # Если это похожие игры
+    if mode == 'similar':
+        games_with_similarity = mode_result.get('games_with_similarity', [])
+        games = []
+        show_similarity = True
+        source_game = mode_result.get('source_game')
+    else:
+        games = mode_result.get('games', [])
+        games_with_similarity = []
+        show_similarity = False
+        source_game = None
+
+    # Рассчитываем start и end индексы для ЗАПРОШЕННОЙ страницы
     start_index = (current_page - 1) * ITEMS_PER_PAGE_CLIENT + 1
     end_index = min(current_page * ITEMS_PER_PAGE_CLIENT, total_count)
 
+    print(
+        f"CONTEXT: Building for REQUESTED page {current_page}, mode_result page: {mode_result.get('current_page', 1)}, games count: {len(games) if games else len(games_with_similarity)}")
+
     # Prepare context
     context = {
-        # Games data
-        'games': mode_result.get('games', []),
-        'games_with_similarity': mode_result.get('games_with_similarity', []),
+        # Games data - для ЗАПРОШЕННОЙ страницы
+        'games': games,
+        'games_with_similarity': games_with_similarity,
         'page_obj': mode_result.get('page_obj'),
         'is_paginated': mode_result.get('is_paginated', False),
         'total_count': total_count,
         'total_pages': total_pages,
-        'current_page': current_page,
+        'current_page': current_page,  # ВАЖНО: используем ЗАПРОШЕННЫЙ номер страницы
         'start_index': start_index,
         'end_index': end_index,
 
         # Mode flags
         'find_similar': find_similar,
-        'show_similarity': mode_result.get('show_similarity', False),
-        'source_game': mode_result.get('source_game'),
+        'show_similarity': show_similarity,
+        'source_game': source_game,
         'source_game_obj': source_game_obj,
 
         # Similarity data
@@ -728,11 +905,11 @@ def _build_optimized_context(
         'themes': filter_data['themes'],
         'perspectives': filter_data['perspectives'],
         'game_modes': filter_data['game_modes'],
-        'keywords': filter_data['keywords'],  # ALL keywords
+        'keywords': filter_data['keywords'],
 
         # Filter data for display
         'platforms': filter_data['platforms'],
-        'popular_keywords': filter_data['popular_keywords'],  # Top 50 for badges
+        'popular_keywords': filter_data['popular_keywords'],
         'game_types': GameTypeEnum.CHOICES,
 
         # Date filter
@@ -769,6 +946,8 @@ def _build_optimized_context(
         # Debug info
         'debug_info': {
             'mode': mode,
+            'requested_page': current_page,
+            'mode_result_page': mode_result.get('current_page', 1),
             'has_genres': bool(selected_criteria['genres']),
             'genre_count': len(selected_criteria['genres']),
             'has_keywords': bool(selected_criteria['keywords']),
@@ -789,7 +968,7 @@ def _build_optimized_context(
             'game_modes_total': len(filter_data['game_modes']),
             'from_cache': False,
             'total_pages': total_pages,
-            'current_page': current_page,
+            'games_count': len(games) if games else len(games_with_similarity),
         }
     }
 
@@ -800,7 +979,6 @@ def _build_optimized_context(
         context['has_date_filter'] = False
 
     return context
-
 
 # ===== MODE DETECTION FUNCTIONS =====
 
@@ -878,9 +1056,7 @@ def extract_request_params(request: HttpRequest) -> Dict[str, str]:
     for key in ['find_similar', 'g', 'k', 'p', 't', 'pp', 'd', 'gm', 'gt', 'yr', 'ys', 'ye', 'source_game', 'sort',
                 'page']:
         value = get_params.get(key, '')
-        params[key] = value if value != '' else '1' if key == 'page' else ''  # FIX: страница по умолчанию 1
-        # Или просто:
-        # params[key] = value or ('1' if key == 'page' else '')
+        params[key] = value
 
     return params
 
@@ -2317,11 +2493,7 @@ def get_source_game(source_game_id: Optional[str]) -> Optional[Game]:
 def _format_similar_games_data(similar_games_data: List, limit: int = 500) -> List[Dict[str, Any]]:
     """Format similar games data - OPTIMIZED for large datasets."""
     if not similar_games_data:
-        return []  # Всегда возвращаем пустой список, а не None
-
-    # Убрали ограничение для начальной загрузки
-    # if len(similar_games_data) > limit:
-    #     similar_games_data = similar_games_data[:limit]
+        return []
 
     game_ids = []
     similarity_map = {}
@@ -2372,7 +2544,7 @@ def _format_similar_games_data(similar_games_data: List, limit: int = 500) -> Li
             'similarity': similarity,
         })
 
-    return formatted  # Всегда возвращаем список (может быть пустым)
+    return formatted
 
 
 def _sort_similar_games(games_with_similarity: List[Dict[str, Any]], current_sort: str) -> None:

@@ -1,6 +1,36 @@
 <!-- games/templates/games/game_list/_games_results.html -->
 <div class="row">
     <div class="col-12">
+        <!-- Исправленная отладочная информация от сервера -->
+        <div style="display: none;" id="server-debug-info">
+            <p>Server Page: {{ current_page }}</p>
+            <p>Server Total: {{ total_count }}</p>
+            <p>Games Count: {% if games %}{{ games|length }}{% elif games_with_similarity %}
+                {{ games_with_similarity|length }}{% else %}0{% endif %}</p>
+            <p>First Game ID: {% if games and games.0 %}
+                {{ games.0.id }}{% elif games_with_similarity and games_with_similarity.0.game %}
+                {{ games_with_similarity.0.game.id }}{% else %}None{% endif %}</p>
+            <p>URL Page Param: {{ request.GET.page|default:"not specified" }}</p>
+            <p>View Current Page: {{ current_page }}</p>
+        </div>
+        <!-- Расширенная отладка (скрытая) -->
+        <div style="display: none;" id="extended-debug-info">
+            <p>View Current Page: {{ current_page }}</p>
+            <p>View Total Pages: {{ total_pages }}</p>
+            <p>View Start Index: {{ start_index }}</p>
+            <p>View End Index: {{ end_index }}</p>
+            <p>View Games Count: {% if games %}{{ games|length }}{% elif games_with_similarity %}
+                {{ games_with_similarity|length }}{% else %}0{% endif %}</p>
+            <p>View First Game ID: {% if games and games.0 %}
+                {{ games.0.id }}{% elif games_with_similarity and games_with_similarity.0.game %}
+                {{ games_with_similarity.0.game.id }}{% else %}None{% endif %}</p>
+            <p>URL Has Page Param: {% if request.GET.page %}yes{% else %}no{% endif %}</p>
+            <p>URL Page Value: {{ request.GET.page|default:"not specified" }}</p>
+            <p>Debug Mode: {{ debug_info.mode|default:"unknown" }}</p>
+            <p>Debug Requested Page: {{ debug_info.requested_page|default:"unknown" }}</p>
+            <p>Debug ModeResult Page: {{ debug_info.mode_result_page|default:"unknown" }}</p>
+        </div>
+
         <!-- Скрытые поля для передачи данных от сервера к JavaScript -->
         <div style="display: none;">
             <input type="hidden" id="server-current-page" value="{{ current_page }}">
@@ -108,10 +138,12 @@
                             <li class="page-item">
                                 <a class="page-link" href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=1
 
+
                                         {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">First</a>
                             </li>
                             <li class="page-item">
                                 <a class="page-link" href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
+
 
                                         {{ page_obj.previous_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Previous</a>
                             </li>
@@ -127,6 +159,7 @@
                                     <a class="page-link"
                                        href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
 
+
                                                {{ num }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">{{ num }}</a>
                                 </li>
                             {% endif %}
@@ -136,10 +169,12 @@
                             <li class="page-item">
                                 <a class="page-link" href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
 
+
                                         {{ page_obj.next_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Next</a>
                             </li>
                             <li class="page-item">
                                 <a class="page-link" href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
+
 
                                         {{ page_obj.paginator.num_pages }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Last</a>
                             </li>
