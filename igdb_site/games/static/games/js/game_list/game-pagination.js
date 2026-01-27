@@ -44,17 +44,12 @@ const GamePagination = {
     init() {
         console.log('Initializing lazy games pagination...');
 
-        // Инициализация состояния загрузки страниц
+        // Полностью очищаем state
+        this.state.gameItems = [];
+        this.state.loadedPages.clear();
+
         if (!this.state.loadingPages) {
             this.state.loadingPages = new Set();
-            console.log('Initialized loadingPages Set');
-        }
-
-        // Очищаем sessionStorage чтобы избежать старых данных
-        try {
-            sessionStorage.removeItem('serverPageData');
-        } catch (e) {
-            console.warn('Could not clear sessionStorage:', e);
         }
 
         // Получаем информацию о пагинации из DOM
@@ -62,56 +57,44 @@ const GamePagination = {
 
         // Определяем текущую страницу из URL
         const urlPage = this.getPageFromURL();
-        console.log(`Page from URL: ${urlPage}`);
+        console.log(`URL requests page: ${urlPage}`);
 
-        // Проверяем, есть ли игры уже в DOM
+        // Получаем контейнер
         const container = document.querySelector(this.config.containerSelector);
-        let gamesInDOM = [];
 
+        // ВАЖНО: ВСЕГДА очищаем DOM при инициализации
         if (container) {
             const rowElement = container.querySelector('.row');
             if (rowElement) {
-                gamesInDOM = Array.from(rowElement.querySelectorAll('.game-card-container'));
+                const existingGames = rowElement.querySelectorAll('.game-card-container');
+                console.log(`Found ${existingGames.length} games in DOM before initialization`);
+
+                // Определяем, для какой страницы эти игры
+                let domPage = null;
+                if (existingGames.length > 0 && existingGames[0].dataset.page) {
+                    domPage = parseInt(existingGames[0].dataset.page);
+                    console.log(`DOM games have data-page="${domPage}"`);
+                }
+
+                // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ:
+                // Если игры в DOM принадлежат НЕ запрошенной странице - очищаем их
+                if (domPage !== null && domPage !== urlPage) {
+                    console.log(`CLEARING DOM: Games belong to page ${domPage}, but URL requests page ${urlPage}`);
+                    rowElement.innerHTML = '';
+
+                    // Также очищаем соответствующие игры из state
+                    const startIndex = (domPage - 1) * this.config.itemsPerPage;
+                    const endIndex = startIndex + this.config.itemsPerPage;
+                    for (let i = startIndex; i < endIndex; i++) {
+                        if (this.state.gameItems[i]) {
+                            delete this.state.gameItems[i];
+                        }
+                    }
+                }
             }
         }
 
-        console.log(`Found ${gamesInDOM.length} games already in DOM`);
-
-        // ВАЖНО: Если игры есть в DOM, значит страница уже загружена сервером
-        if (gamesInDOM.length > 0) {
-            console.log('Games already in DOM, page loaded by server');
-
-            // Определяем номер страницы
-            let pageNumber = 1;
-
-            // Пробуем получить из data-атрибутов
-            if (gamesInDOM[0] && gamesInDOM[0].dataset.page) {
-                pageNumber = parseInt(gamesInDOM[0].dataset.page) || 1;
-            } else {
-                // Или из URL
-                pageNumber = urlPage;
-            }
-
-            // Устанавливаем текущую страницу
-            this.config.currentPage = pageNumber;
-
-            // Сохраняем игры в кэш
-            const startIndex = (pageNumber - 1) * this.config.itemsPerPage;
-            gamesInDOM.forEach((gameElement, index) => {
-                const gameIndex = startIndex + index;
-                this.state.gameItems[gameIndex] = gameElement;
-                gameElement.dataset.page = pageNumber;
-            });
-
-            // Помечаем страницу как загруженную
-            this.state.loadedPages.add(pageNumber);
-
-            console.log(`Page ${pageNumber} already loaded with ${gamesInDOM.length} games`);
-        } else {
-            // Если игр нет в DOM
-            console.log('No games in DOM, will use default page');
-            this.config.currentPage = urlPage;
-        }
+        this.config.currentPage = urlPage;
 
         // Проверяем корректность текущей страницы
         if (this.state.totalPages > 0 && this.config.currentPage > this.state.totalPages) {
@@ -125,41 +108,131 @@ const GamePagination = {
 
         this.setupPagination();
 
-        // ВАЖНО: Проверяем, нужно ли показывать индикатор загрузки
-        const urlParams = new URLSearchParams(window.location.search);
-        const hasPageParam = urlParams.has('page');
-        const pageParamValue = hasPageParam ? urlParams.get('page') : null;
-
-        console.log(`URL params: hasPage=${hasPageParam}, pageValue=${pageParamValue}, currentPage=${this.config.currentPage}`);
-
-        // Показываем страницу - БЕЗ ИНДИКАТОРА ЗАГРУЗКИ для первой страницы
-        if (this.config.currentPage === 1) {
-            // Для первой страницы НИКОГДА не показываем индикатор загрузки
-            console.log('Showing page 1 (no loading indicator)');
-            this.showPage(1, false);
-        } else if (this.state.loadedPages.has(this.config.currentPage)) {
-            // Если страница уже загружена (например, из DOM)
-            console.log(`Page ${this.config.currentPage} already loaded, showing directly`);
-            this._showPageAfterLoad(this.config.currentPage);
-        } else {
-            // Только для страниц > 1, которые еще не загружены
-            console.log(`Page ${this.config.currentPage} needs loading, showing indicator`);
-            this.showLoadingIndicator(this.config.currentPage);
-            this.forceLoadPage(this.config.currentPage).then(() => {
-                this.showPage(this.config.currentPage, false);
-            }).catch(error => {
-                console.error(`Error loading page ${this.config.currentPage}:`, error);
-                // Убираем индикатор при ошибке
-                this.removeLoadingIndicator(this.config.currentPage);
-                // Показываем первую страницу
-                this.showPage(1, false);
-            });
-        }
+        // ВСЕГДА загружаем страницу через AJAX, даже если она уже в DOM
+        // Это гарантирует, что у нас будут правильные игры с правильными data-атрибутами
+        console.log(`Loading page ${this.config.currentPage} via AJAX...`);
+        this.showPage(this.config.currentPage, false);
 
         console.log(`Pagination initialized: ${this.state.totalItems} items, ${this.state.totalPages} pages, current: ${this.config.currentPage}`);
 
         // Сохраняем состояние
         this.saveCurrentPageToStorage(this.config.currentPage);
+    },
+
+    // Проверить, что игры в DOM принадлежат правильной странице
+    verifyDOMGames(expectedPage) {
+        const container = document.querySelector(this.config.containerSelector);
+        if (!container) return false;
+
+        const rowElement = container.querySelector('.row');
+        if (!rowElement) return false;
+
+        const gameElements = rowElement.querySelectorAll('.game-card-container');
+        if (gameElements.length === 0) return false;
+
+        // Проверяем data-page атрибуты у всех игр
+        for (const gameElement of gameElements) {
+            const gamePage = parseInt(gameElement.dataset.page);
+            if (isNaN(gamePage) || gamePage !== expectedPage) {
+                console.log(`DOM verification failed: game has data-page="${gamePage}", expected ${expectedPage}`);
+                return false;
+            }
+        }
+
+        console.log(`DOM verification passed for page ${expectedPage}`);
+        return true;
+    },
+
+    // Проверить и очистить неправильные игры из DOM
+    validateAndCleanDOM(expectedPage) {
+        const container = document.querySelector(this.config.containerSelector);
+        if (!container) return;
+
+        const rowElement = container.querySelector('.row');
+        if (!rowElement) return;
+
+        const gameElements = rowElement.querySelectorAll('.game-card-container');
+        let hasWrongGames = false;
+        let needsCleaning = false;
+
+        gameElements.forEach((game, index) => {
+            if (game.dataset.page) {
+                const gamePage = parseInt(game.dataset.page);
+                if (gamePage !== expectedPage) {
+                    console.log(`Found game with wrong data-page: ${gamePage}, expected: ${expectedPage}`);
+                    hasWrongGames = true;
+                }
+            } else {
+                console.log(`Found game without data-page attribute`);
+                needsCleaning = true;
+            }
+        });
+
+        if (hasWrongGames || needsCleaning) {
+            console.log(`Cleaning DOM because of wrong/missing data-page attributes`);
+            rowElement.innerHTML = '';
+            return true;
+        }
+
+        return false;
+    },
+
+    // Полная очистка кэша
+    clearAllCache() {
+        console.log('Clearing all pagination cache...');
+
+        this.state.gameItems = [];
+        this.state.loadedPages.clear();
+
+        if (this.state.loadingPages) {
+            this.state.loadingPages.clear();
+        }
+
+        // Очищаем sessionStorage
+        try {
+            const keysToRemove = [];
+            for (let i = 0; i < sessionStorage.length; i++) {
+                const key = sessionStorage.key(i);
+                if (key.startsWith('page_') || key.startsWith('gamePagination')) {
+                    keysToRemove.push(key);
+                }
+            }
+
+            keysToRemove.forEach(key => {
+                sessionStorage.removeItem(key);
+            });
+
+            console.log(`Removed ${keysToRemove.length} cache keys`);
+        } catch (e) {
+            console.warn('Error clearing sessionStorage:', e);
+        }
+
+        // Очищаем DOM контейнер
+        const container = document.querySelector(this.config.containerSelector);
+        if (container) {
+            const rowElement = container.querySelector('.row');
+            if (rowElement) {
+                rowElement.innerHTML = '';
+            }
+        }
+
+        console.log('All cache cleared');
+    },
+
+    // Очистить все игровые элементы из DOM
+    clearAllGameElements() {
+        const container = document.querySelector(this.config.containerSelector);
+        if (!container) return;
+
+        const rowElement = container.querySelector('.row');
+        if (rowElement) {
+            // Сохраняем только скрытые поля и отладочную информацию
+            const hiddenElements = rowElement.querySelectorAll('input[type="hidden"], #server-debug-info, #extended-debug-info');
+            const hiddenElementsHTML = Array.from(hiddenElements).map(el => el.outerHTML).join('');
+
+            rowElement.innerHTML = hiddenElementsHTML;
+            console.log('Cleared all game elements from DOM, kept hidden fields');
+        }
     },
 
     getServerPage() {
@@ -233,6 +306,17 @@ const GamePagination = {
                 return parsedPage;
             }
         }
+
+        // ВАЖНО: Если в URL нет параметра page, проверяем скрытое поле от сервера
+        const serverPageElement = document.getElementById('server-current-page');
+        if (serverPageElement) {
+            const serverPage = parseInt(serverPageElement.value);
+            if (!isNaN(serverPage) && serverPage >= 1) {
+                console.log(`Using server page from hidden field: ${serverPage}`);
+                return serverPage;
+            }
+        }
+
         return 1;
     },
 
@@ -694,16 +778,21 @@ const GamePagination = {
     // Загрузить страницу с сервера
     loadPageFromServer(pageNumber) {
         return new Promise((resolve, reject) => {
-            // Проверяем, не превышен ли лимит попыток
-            const maxRetries = 2;
-            let retries = 0;
-
             const attemptLoad = () => {
+                // Используем тот же URL что и для основной страницы
                 const url = new URL(window.location.href);
+
+                // Удаляем старые параметры пагинации
+                url.searchParams.delete('page');
+                url.searchParams.delete('_ajax');
+                url.searchParams.delete('_scroll');
+
+                // Добавляем новые параметры
                 url.searchParams.set('page', pageNumber);
                 url.searchParams.set('_ajax', '1');
+                url.searchParams.set('_force', '1'); // Добавляем флаг принудительной загрузки
 
-                console.log(`Fetching page ${pageNumber} from: ${url.toString()}`);
+                console.log(`Loading page ${pageNumber} from: ${url.toString()}`);
 
                 fetch(url.toString())
                     .then(response => {
@@ -713,46 +802,61 @@ const GamePagination = {
                         return response.text();
                     })
                     .then(html => {
+                        console.log(`Received HTML for page ${pageNumber}, length: ${html.length}`);
+
+                        if (!html || html.trim().length === 0) {
+                            reject(new Error('Empty response from server'));
+                            return;
+                        }
+
                         const parser = new DOMParser();
                         const doc = parser.parseFromString(html, 'text/html');
 
-                        const gamesContainer = doc.querySelector(this.config.containerSelector);
-                        const rowElement = gamesContainer ? gamesContainer.querySelector('.row') : null;
+                        // Ищем контейнер с играми
+                        const gamesContainer = doc.querySelector('.games-container .row');
+                        if (!gamesContainer) {
+                            console.warn('Games container not found in response');
+                            // Попробуем найти игры другим способом
+                            const allGames = doc.querySelectorAll('.game-card-container');
+                            if (allGames.length > 0) {
+                                const games = Array.from(allGames).map(el => {
+                                    const cloned = el.cloneNode(true);
+                                    cloned.dataset.page = pageNumber;
+                                    return cloned.outerHTML;
+                                });
+                                console.log(`Found ${games.length} games via alternative selector`);
+                                resolve(games);
+                                return;
+                            }
+                            reject(new Error('Games container not found'));
+                            return;
+                        }
 
-                        if (rowElement) {
-                            const gameElements = rowElement.querySelectorAll('.game-card-container');
-                            const games = Array.from(gameElements).map(el => el.outerHTML);
+                        // Получаем игры из контейнера
+                        const gameElements = gamesContainer.querySelectorAll('.game-card-container');
 
-                            this.savePageToStorage(pageNumber, games);
+                        if (gameElements.length > 0) {
+                            const games = Array.from(gameElements).map(el => {
+                                const cloned = el.cloneNode(true);
+                                cloned.dataset.page = pageNumber;
+                                cloned.classList.add('loaded-via-ajax');
+                                return cloned.outerHTML;
+                            });
+
                             console.log(`Got ${games.length} games for page ${pageNumber}`);
-
                             resolve(games);
                         } else {
-                            console.warn('Row element not found in response');
-                            // Пробуем найти игры другим способом
-                            const games = [];
-                            const gameElements = doc.querySelectorAll('.game-card-container');
-                            gameElements.forEach(el => games.push(el.outerHTML));
+                            console.warn('No game elements found in container');
 
-                            if (games.length > 0) {
-                                this.savePageToStorage(pageNumber, games);
-                                console.log(`Got ${games.length} games via alternative method`);
-                                resolve(games);
-                            } else {
-                                reject(new Error('No games found in response'));
-                            }
+                            // Посмотрим что есть в контейнере
+                            console.log(`Container HTML: ${gamesContainer.innerHTML.substring(0, 300)}`);
+
+                            reject(new Error('No games found in response'));
                         }
                     })
                     .catch(error => {
-                        console.error(`Error loading page ${pageNumber} (attempt ${retries + 1}/${maxRetries + 1}):`, error);
-
-                        retries++;
-                        if (retries <= maxRetries) {
-                            console.log(`Retrying page ${pageNumber} (${retries}/${maxRetries})...`);
-                            setTimeout(attemptLoad, 1000 * retries); // Экспоненциальная задержка
-                        } else {
-                            reject(error);
-                        }
+                        console.error(`Error loading page ${pageNumber}:`, error);
+                        reject(error);
                     });
             };
 
@@ -764,6 +868,13 @@ const GamePagination = {
     processPageGames(pageNumber, games) {
         const startIndex = (pageNumber - 1) * this.config.itemsPerPage;
 
+        console.log(`Processing page ${pageNumber}, start index: ${startIndex}, games to process: ${games.length}`);
+
+        // Убедимся, что gameItems существует
+        if (!Array.isArray(this.state.gameItems)) {
+            this.state.gameItems = [];
+        }
+
         games.forEach((gameHtml, index) => {
             const gameIndex = startIndex + index;
 
@@ -772,18 +883,21 @@ const GamePagination = {
             const gameElement = tempDiv.firstChild;
 
             if (gameElement) {
-                gameElement.style.display = 'none';
+                // Устанавливаем правильные атрибуты
                 gameElement.dataset.page = pageNumber;
+                gameElement.dataset.index = gameIndex;
+                gameElement.style.display = 'none'; // Скрываем по умолчанию
 
-                if (!this.state.gameItems[gameIndex]) {
-                    this.state.gameItems[gameIndex] = gameElement;
-                }
+                // Сохраняем в state
+                this.state.gameItems[gameIndex] = gameElement;
+
+                console.log(`Processed game at index ${gameIndex} for page ${pageNumber}`);
             }
         });
 
         this.state.loadedPages.add(pageNumber);
         this.updatePageButtonState(pageNumber, 'loaded');
-        console.log(`Page ${pageNumber} processed (${games.length} games)`);
+        console.log(`Page ${pageNumber} processed (${games.length} games), total loaded pages: ${this.state.loadedPages.size}`);
     },
 
     // Сохранить страницу в хранилище
@@ -898,31 +1012,65 @@ const GamePagination = {
             return;
         }
 
-        console.log(`showPage called for page ${pageNumber}, isBackground: ${isBackground}`);
+        console.log(`showPage called for page ${pageNumber}, isBackground: ${isBackground}, already loaded: ${this.state.loadedPages.has(pageNumber)}`);
 
-        // НИКОГДА не показываем индикатор загрузки для фоновой загрузки
-        if (!isBackground) {
-            // Проверяем, загружена ли страница
-            if (this.state.loadedPages.has(pageNumber)) {
-                console.log(`Page ${pageNumber} already loaded, showing directly`);
-                this._showPageAfterLoad(pageNumber);
+        // Проверяем, загружена ли страница
+        if (this.state.loadedPages.has(pageNumber)) {
+            console.log(`Page ${pageNumber} already loaded, showing directly`);
+
+            // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: убедимся, что в DOM правильные игры
+            if (!this.verifyDOMGames(pageNumber)) {
+                console.log(`DOM verification failed for page ${pageNumber}, reloading...`);
+                this.state.loadedPages.delete(pageNumber);
+                this.showPage(pageNumber, isBackground);
                 return;
             }
 
-            // Убираем старые индикаторы перед показом нового
-            this.removeLoadingIndicator(pageNumber);
-
-            // Для страниц > 1 показываем индикатор
-            if (pageNumber > 1) {
-                console.log(`Page ${pageNumber} not loaded, showing indicator`);
-                this.showLoadingIndicator(pageNumber);
-            }
+            this._showPageAfterLoad(pageNumber);
+            return;
         }
 
-        // Если страница еще не загружена, загружаем ее
-        if (!this.state.loadedPages.has(pageNumber)) {
-            console.log(`Page ${pageNumber} not loaded, loading now...`);
-            this.forceLoadPage(pageNumber);
+        // Проверяем, загружается ли страница
+        if (this.state.loadingPages && this.state.loadingPages.has(pageNumber)) {
+            console.log(`Page ${pageNumber} is already loading, waiting...`);
+            return;
+        }
+
+        // Очищаем DOM
+        this.clearDOMContainer();
+
+        // Показываем индикатор загрузки если это не фоновая загрузка
+        if (!isBackground) {
+            console.log(`Page ${pageNumber} not loaded, showing indicator`);
+            this.showLoadingIndicator(pageNumber);
+        }
+
+        console.log(`Page ${pageNumber} not loaded, loading now...`);
+        this.forceLoadPage(pageNumber).then(() => {
+            // После успешной загрузки показываем страницу
+            if (!isBackground) {
+                this._showPageAfterLoad(pageNumber);
+            }
+        }).catch(error => {
+            console.error(`Error loading page ${pageNumber}:`, error);
+            // Убираем индикатор при ошибке
+            this.removeLoadingIndicator(pageNumber);
+        });
+    },
+
+    // Очистить DOM контейнер
+    clearDOMContainer() {
+        const container = document.querySelector(this.config.containerSelector);
+        if (!container) return;
+
+        const rowElement = container.querySelector('.row');
+        if (rowElement) {
+            // Сохраняем только скрытые поля и отладочную информацию
+            const hiddenElements = rowElement.querySelectorAll('input[type="hidden"], #server-debug-info, #extended-debug-info');
+            const hiddenElementsHTML = Array.from(hiddenElements).map(el => el.outerHTML).join('');
+
+            rowElement.innerHTML = hiddenElementsHTML;
+            console.log('Cleared DOM container, kept hidden fields');
         }
     },
 
@@ -951,7 +1099,7 @@ const GamePagination = {
 
     // Внутренний метод для отображения страницы после загрузки
     _showPageAfterLoad(pageNumber) {
-        console.log(`_showPageAfterLoad for page ${pageNumber}`);
+        console.log(`_showPageAfterLoad for page ${pageNumber}, current gameItems length: ${this.state.gameItems.length}`);
 
         // Убираем индикатор загрузки если он есть
         this.removeLoadingIndicator(pageNumber);
@@ -961,7 +1109,7 @@ const GamePagination = {
         const startIndex = (pageNumber - 1) * this.config.itemsPerPage;
         const endIndex = Math.min(startIndex + this.config.itemsPerPage, this.state.totalItems);
 
-        console.log(`Showing page ${pageNumber}: items ${startIndex + 1}-${endIndex}`);
+        console.log(`Showing page ${pageNumber}: items ${startIndex + 1}-${endIndex} (indices ${startIndex}-${endIndex-1})`);
 
         // Получаем контейнер
         const container = document.querySelector(this.config.containerSelector);
@@ -978,26 +1126,43 @@ const GamePagination = {
             container.appendChild(rowElement);
         }
 
-        // Очищаем row элемент
-        rowElement.innerHTML = '';
+        // Очищаем row элемент (но сохраняем скрытые поля)
+        const hiddenElements = rowElement.querySelectorAll('input[type="hidden"], #server-debug-info, #extended-debug-info');
+        const hiddenElementsHTML = Array.from(hiddenElements).map(el => el.outerHTML).join('');
+        rowElement.innerHTML = hiddenElementsHTML;
 
         // Добавляем игры для текущей страницы в row
         let gamesAdded = 0;
+        let missingGames = 0;
+
         for (let i = startIndex; i < endIndex; i++) {
-            if (this.state.gameItems[i]) {
+            if (this.state.gameItems[i] && this.state.gameItems[i].nodeType === Node.ELEMENT_NODE) {
                 const gameElement = this.state.gameItems[i];
-                gameElement.style.display = 'block';
-                gameElement.style.animation = 'pageFadeIn 0.3s ease';
-                rowElement.appendChild(gameElement);
+
+                // Клонируем элемент чтобы избежать проблем с перемещением
+                const clonedElement = gameElement.cloneNode(true);
+                clonedElement.style.display = 'block';
+                clonedElement.style.animation = 'pageFadeIn 0.3s ease';
+                clonedElement.dataset.page = pageNumber;
+                clonedElement.dataset.index = i;
+
+                rowElement.appendChild(clonedElement);
                 gamesAdded++;
+
+                console.log(`Added game at index ${i} for page ${pageNumber}`);
             } else {
                 // Если игры нет в кэше, создаем placeholder
                 const placeholder = this.createGamePlaceholder(i + 1);
+                placeholder.dataset.page = pageNumber;
+                placeholder.dataset.index = i;
                 rowElement.appendChild(placeholder);
+                missingGames++;
+
+                console.warn(`Missing game at index ${i} for page ${pageNumber}`);
             }
         }
 
-        console.log(`Added ${gamesAdded} games to page ${pageNumber}`);
+        console.log(`Added ${gamesAdded} games, ${missingGames} placeholders to page ${pageNumber}`);
 
         // Обновляем UI
         this.updatePageNumbers();
@@ -1035,32 +1200,45 @@ const GamePagination = {
         console.log(`Updated URL to: ${url.toString()}`);
     },
 
-    // ПРЕДЗАГРУЗКА соседних страниц
+    // Предзагрузка соседних страниц
     preloadAdjacentPages(currentPage) {
         const pagesToPreload = [];
 
         // Предзагружаем следующую страницу
         if (currentPage < this.state.totalPages) {
-            pagesToPreload.push(currentPage + 1);
+            const nextPage = currentPage + 1;
+            if (!this.state.loadedPages.has(nextPage) &&
+                !(this.state.loadingPages && this.state.loadingPages.has(nextPage))) {
+                pagesToPreload.push(nextPage);
+            }
         }
 
-        // Предзагружаем предыдущую страницу (если не загружена)
+        // Предзагружаем предыдущую страницу
         if (currentPage > 1) {
-            pagesToPreload.push(currentPage - 1);
+            const prevPage = currentPage - 1;
+            if (!this.state.loadedPages.has(prevPage) &&
+                !(this.state.loadingPages && this.state.loadingPages.has(prevPage))) {
+                pagesToPreload.push(prevPage);
+            }
         }
 
         // Загружаем в фоне
         pagesToPreload.forEach(page => {
-            if (!this.state.loadedPages.has(page)) {
-                console.log(`Preloading page ${page} in background...`);
-                this.loadPageInBackground(page);
-            }
+            console.log(`Preloading page ${page} in background...`);
+            this.loadPageInBackground(page);
         });
     },
 
     // Загрузить страницу в фоне
     loadPageInBackground(pageNumber) {
         if (this.state.loadedPages.has(pageNumber)) {
+            console.log(`Page ${pageNumber} already loaded, skipping background load`);
+            return;
+        }
+
+        // Проверяем, не загружается ли уже
+        if (this.state.loadingPages && this.state.loadingPages.has(pageNumber)) {
+            console.log(`Page ${pageNumber} already loading, skipping duplicate`);
             return;
         }
 
@@ -1072,14 +1250,30 @@ const GamePagination = {
             return;
         }
 
+        // Помечаем как загружаемую
+        if (!this.state.loadingPages) {
+            this.state.loadingPages = new Set();
+        }
+        this.state.loadingPages.add(pageNumber);
+
         // Загружаем с сервера
         this.loadPageFromServer(pageNumber)
             .then(games => {
                 this.processPageGames(pageNumber, games);
                 console.log(`Page ${pageNumber} loaded in background`);
+
+                // Снимаем флаг загрузки
+                if (this.state.loadingPages) {
+                    this.state.loadingPages.delete(pageNumber);
+                }
             })
             .catch(error => {
                 console.error(`Error loading page ${pageNumber} in background:`, error);
+
+                // Снимаем флаг загрузки при ошибке
+                if (this.state.loadingPages) {
+                    this.state.loadingPages.delete(pageNumber);
+                }
             });
     },
 
@@ -1087,6 +1281,7 @@ const GamePagination = {
     createGamePlaceholder(index) {
         const placeholder = document.createElement('div');
         placeholder.className = 'col-xl-3 col-lg-4 col-md-6 mb-4 game-card-container';
+        placeholder.dataset.index = index;
         placeholder.innerHTML = `
             <div class="game-card placeholder">
                 <div class="card h-100">
@@ -1094,11 +1289,12 @@ const GamePagination = {
                         <div class="spinner-border text-primary mb-3" role="status">
                             <span class="visually-hidden">Loading...</span>
                         </div>
-                        <p class="text-muted">Loading game ${index}...</p>
+                        <p class="text-muted">Loading game ${index + 1}...</p>
                     </div>
                 </div>
             </div>
         `;
+        placeholder.style.display = 'block';
         return placeholder;
     },
 
