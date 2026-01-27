@@ -1,6 +1,16 @@
 <!-- games/templates/games/game_list/_games_results.html -->
 <div class="row">
     <div class="col-12">
+        <!-- Скрытые поля для передачи данных от сервера к JavaScript -->
+        <div style="display: none;">
+            <input type="hidden" id="server-current-page" value="{{ current_page }}">
+            <input type="hidden" id="server-total-pages" value="{{ total_pages }}">
+            <input type="hidden" id="server-total-count" value="{{ total_count }}">
+            <input type="hidden" id="server-start-index" value="{{ start_index }}">
+            <input type="hidden" id="server-end-index" value="{{ end_index }}">
+            <input type="hidden" id="server-items-per-page" value="16">
+        </div>
+
         <div class="d-flex justify-content-between align-items-center mb-3">
             {% if show_similarity %}
                 <h5>Found <span id="games-total">{{ total_count }}</span> similar games</h5>
@@ -42,8 +52,12 @@
             </nav>
         </div>
 
-        <!-- Контейнер для игр -->
-        <div class="games-container">
+        <!-- Контейнер для игр с data-атрибутами для JS -->
+        <div class="games-container"
+             data-current-page="{{ current_page }}"
+             data-total-pages="{{ total_pages }}"
+             data-total-games="{{ total_count }}"
+             data-server-page="{{ current_page }}">
             {% if show_similarity and games_with_similarity %}
                 {% include 'games/game_list/_games_grid.html' with games=games_with_similarity show_similarity=show_similarity source_game=source_game %}
             {% elif games %}
@@ -136,3 +150,33 @@
         {% endif %}
     </div>
 </div>
+
+<!-- JavaScript для инициализации данных -->
+<!-- В конце файла, после основного контента -->
+<script>
+    // Передаем данные сервера в глобальную область видимости
+    (function() {
+        window.ServerData = window.ServerData || {};
+        window.ServerData.pagination = {
+            currentPage: {{ current_page }},
+            totalPages: {{ total_pages }},
+            totalCount: {{ total_count }},
+            startIndex: {{ start_index }},
+            endIndex: {{ end_index }},
+            itemsPerPage: 16,
+            hasGames: {% if games or games_with_similarity %}true{% else %}false{% endif %},
+            gameCount:
+    {% if games %}{{ games|length }}{% elif games_with_similarity %}{{ games_with_similarity|length }}{% else %
+        }0{% endif %}
+    };
+
+    console.log('Server pagination data:', window.ServerData.pagination);
+
+    // Также сохраняем в sessionStorage для использования при инициализации
+    try {
+        sessionStorage.setItem('serverPageData', JSON.stringify(window.ServerData.pagination));
+    } catch (e) {
+        console.warn('Could not save server page data to sessionStorage:', e);
+    }
+})();
+</script>

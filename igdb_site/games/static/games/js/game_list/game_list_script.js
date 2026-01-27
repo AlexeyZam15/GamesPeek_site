@@ -266,6 +266,15 @@ const GameListScript = {
                     window.FilterManager.handlers.saveScrollPosition();
                 }
 
+                // Очищаем состояние пагинации
+                if (window.GamePagination) {
+                    window.GamePagination.clearPageState();
+                }
+
+                // Создаем событие для уведомления о применении фильтров
+                const filterAppliedEvent = new CustomEvent('filterApplied');
+                document.dispatchEvent(filterAppliedEvent);
+
                 setTimeout(() => {
                     this.updateGamesPagination();
                 }, 50);
@@ -390,6 +399,11 @@ const GameListScript = {
             newSortSelect.addEventListener('change', () => {
                 if (window.FilterManager && window.FilterManager.handlers) {
                     window.FilterManager.handlers.saveScrollPosition();
+                }
+
+                // Очищаем состояние пагинации
+                if (window.GamePagination) {
+                    window.GamePagination.clearPageState();
                 }
 
                 this.form.submit();
