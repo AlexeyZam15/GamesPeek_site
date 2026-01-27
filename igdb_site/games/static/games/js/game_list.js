@@ -73,11 +73,16 @@ document.addEventListener('DOMContentLoaded', function() {
                                 }
                             });
 
+                            // ВАЖНО: Сохраняем текущую позицию прокрутки
+                            const scrollBefore = window.scrollY;
+
                             GamePagination.init();
                             console.log('Lazy games pagination initialized successfully');
 
-                            // Показываем сообщение о фоновой загрузке
-                            showBackgroundLoadingMessage();
+                            // Восстанавливаем позицию прокрутки через 100мс
+                            setTimeout(() => {
+                                restoreScrollPosition();
+                            }, 100);
 
                             // Сохраняем первую страницу в кэш
                             saveCurrentPageToCache();
@@ -87,7 +92,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     } catch (error) {
                         console.error('Error initializing lazy games pagination:', error);
                     }
-                }, 1000);
+                }, 500); // Уменьшили задержку с 1000 до 500
             }
 
             setTimeout(() => {
@@ -95,16 +100,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     console.log('Initializing sticky buttons...');
                     FilterSticky.init();
                 }
-            }, 1200);
+            }, 800); // Уменьшили задержку
 
             setTimeout(() => {
                 if (FilterSort && typeof FilterSort.sortFilterLists === 'function') {
                     console.log('Initial sort of filter lists...');
                     FilterSort.sortFilterLists();
                 }
-
-                restoreScrollPosition();
-            }, 1500);
+            }, 1200); // Уменьшили задержку
 
             console.log('=== FILTERS SCRIPT INITIALIZATION COMPLETE ===');
 
@@ -180,6 +183,60 @@ document.addEventListener('DOMContentLoaded', function() {
             console.warn('Could not restore scroll position:', e);
         }
     }
+});
+
+// ОБРАБОТЧИК ДЛЯ ИЗМЕНЕНИЯ ФИЛЬТРОВ
+document.addEventListener('filterApplied', () => {
+    console.log('Filter applied event received');
+    // Сбрасываем пагинацию на первую страницу
+    if (window.GamePagination) {
+        console.log('Resetting pagination to page 1...');
+        window.GamePagination.resetToFirstPage();
+    }
+});
+
+// Обработчик для кнопок браузера "назад/вперед"
+window.addEventListener('popstate', (event) => {
+    console.log('Popstate event detected, state:', event.state);
+
+    if (event.state && event.state.page && window.GamePagination) {
+        // Восстанавливаем страницу из истории
+        const pageNumber = event.state.page;
+        console.log(`Restoring page ${pageNumber} from browser history`);
+
+        if (window.GamePagination.state.loadedPages.has(pageNumber)) {
+            window.GamePagination.showPage(pageNumber, false);
+        } else {
+            window.GamePagination.forceLoadPage(pageNumber);
+        }
+    }
+});
+
+// Обработчик для обновления пагинации при изменении DOM
+const observer = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+        if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+            // Проверяем, добавились ли элементы пагинации
+            const addedPagination = Array.from(mutation.addedNodes).some(node =>
+                node.nodeType === Node.ELEMENT_NODE &&
+                (node.classList?.contains('games-pagination') ||
+                 node.querySelector?.('.games-pagination'))
+            );
+
+            if (addedPagination && window.GamePagination) {
+                console.log('Pagination elements added to DOM, updating...');
+                setTimeout(() => {
+                    window.GamePagination.forceUpdate();
+                }, 100);
+            }
+        }
+    });
+});
+
+// Начинаем наблюдение за изменениями в body
+observer.observe(document.body, {
+    childList: true,
+    subtree: true
 });
 
 export {

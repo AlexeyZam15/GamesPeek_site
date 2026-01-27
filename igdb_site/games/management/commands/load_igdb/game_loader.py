@@ -1664,7 +1664,6 @@ class GameLoader:
                     if image_id:
                         cover_map[gd['id']] = f"https://images.igdb.com/igdb/image/upload/t_cover_big/{image_id}.jpg"
 
-            # 3. Остальной код без изменений...
             batch_updated = 0
             updates_dict = {}
 
