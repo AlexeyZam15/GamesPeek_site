@@ -38,7 +38,7 @@
             <input type="hidden" id="server-total-count" value="{{ total_count }}">
             <input type="hidden" id="server-start-index" value="{{ start_index }}">
             <input type="hidden" id="server-end-index" value="{{ end_index }}">
-            <input type="hidden" id="server-items-per-page" value="16">
+            <input type="hidden" id="server-items-per-page" value="{{ items_per_page|default:16 }}">
         </div>
 
         <div class="d-flex justify-content-between align-items-center mb-3">
@@ -87,6 +87,7 @@
              data-current-page="{{ current_page }}"
              data-total-pages="{{ total_pages }}"
              data-total-games="{{ total_count }}"
+             data-items-per-page="{{ items_per_page|default:16 }}"
              data-server-page="{{ current_page }}">
             {% if show_similarity and games_with_similarity %}
                 {% include 'games/game_list/_games_grid.html' with games=games_with_similarity show_similarity=show_similarity source_game=source_game %}
@@ -139,10 +140,12 @@
                                 <a class="page-link" href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=1
 
 
+
                                         {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">First</a>
                             </li>
                             <li class="page-item">
                                 <a class="page-link" href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
+
 
 
                                         {{ page_obj.previous_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Previous</a>
@@ -160,6 +163,7 @@
                                        href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
 
 
+
                                                {{ num }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">{{ num }}</a>
                                 </li>
                             {% endif %}
@@ -170,10 +174,12 @@
                                 <a class="page-link" href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
 
 
+
                                         {{ page_obj.next_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Next</a>
                             </li>
                             <li class="page-item">
                                 <a class="page-link" href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
+
 
 
                                         {{ page_obj.paginator.num_pages }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Last</a>
@@ -198,7 +204,7 @@
             totalCount: {{ total_count }},
             startIndex: {{ start_index }},
             endIndex: {{ end_index }},
-            itemsPerPage: 16,
+            itemsPerPage: {{ items_per_page|default:16 }},
             hasGames: {% if games or games_with_similarity %}true{% else %}false{% endif %},
             gameCount:
     {% if games %}{{ games|length }}{% elif games_with_similarity %}{{ games_with_similarity|length }}{% else %
