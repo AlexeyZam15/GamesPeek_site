@@ -73,6 +73,12 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
         for i, game_item in enumerate(current_page_games):
             game_item['game_index'] = offset + i
             game_item['page_number'] = page_num
+            # ВАЖНО: Убеждаемся, что у объекта game есть свойство similarity
+            if isinstance(game_item, dict):
+                game_obj = game_item.get('game')
+                similarity = game_item.get('similarity', 0)
+                if game_obj and not hasattr(game_obj, 'similarity'):
+                    game_obj.similarity = similarity
 
         context = {
             'games': current_page_games,
@@ -120,7 +126,7 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
     response = HttpResponse(html)
     response['Content-Type'] = 'text/html; charset=utf-8'
     response['X-AJAX-Page'] = str(page_num)
-    response['X-AJAX-Count'] = str(len(context.get('games', context.get('games_with_similarity', []))))
+    response['X-AJAX-Count'] = str(len(context.get('games', [])))
     response['X-AJAX-Offset'] = str(offset)
     response['X-Response-Time'] = f"{time.time() - start_time:.3f}s"
 
@@ -528,6 +534,13 @@ def _build_optimized_context(
             current_page_games = games_with_similarity[start_idx:end_idx]
 
             for i, game_item in enumerate(current_page_games):
+                # ВАЖНО: Убеждаемся, что у объекта game есть свойство similarity
+                if isinstance(game_item, dict):
+                    game_obj = game_item.get('game')
+                    similarity = game_item.get('similarity', 0)
+                    if game_obj and not hasattr(game_obj, 'similarity'):
+                        game_obj.similarity = similarity
+
                 game_item['game_index'] = offset + i
                 game_item['page_number'] = current_page
 

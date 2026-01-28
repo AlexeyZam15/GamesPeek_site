@@ -530,7 +530,7 @@ def _format_similar_games_data(similar_games_data: List, limit: int = 500) -> Li
         for game in games_with_prefetch:
             games_dict[game.id] = game
 
-    # Форматируем
+    # Форматируем в структуру, ожидаемую шаблоном
     formatted = []
     for item in similar_games_data:
         if isinstance(item, dict):
@@ -543,9 +543,15 @@ def _format_similar_games_data(similar_games_data: List, limit: int = 500) -> Li
         if hasattr(game, 'id') and game.id in games_dict:
             game = games_dict[game.id]
 
+        # ВАЖНО: создаем объект, который имеет свойства game и similarity
+        # Шаблон ожидает, что у game_item есть game.similarity
+        game_obj = game
+        # Добавляем similarity к объекту game
+        game_obj.similarity = similarity
+
         formatted.append({
-            'game': game,
-            'similarity': similarity,
+            'game': game_obj,  # Теперь game имеет свойство similarity
+            'similarity': similarity,  # Оставляем для совместимости
         })
 
     return formatted

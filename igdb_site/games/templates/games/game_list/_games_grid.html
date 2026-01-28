@@ -3,6 +3,7 @@
     {% for game_item in games %}
         {% if show_similarity %}
             <!-- Режим похожих игр -->
+            <!-- ВАЖНО: В режиме похожих игр game_item - это словарь с ключами 'game' и 'similarity' -->
             {% include 'games/partials/_game_card.html' with game=game_item.game similarity_percent=game_item.similarity show_similarity=show_similarity source_game=source_game page_number=game_item.page_number|default:current_page|default:1 game_index=game_item.game_index|default:forloop.counter0 %}
         {% else %}
             <!-- Обычный режим -->
