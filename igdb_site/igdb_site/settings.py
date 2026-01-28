@@ -155,6 +155,9 @@ STATICFILES_DIRS = [
 ]
 STATIC_ROOT = BASE_DIR / 'staticfiles'  # Для сбора статики в production
 
+# Поддержка ES6 модулей
+SECURE_CROSS_ORIGIN_OPENER_POLICY = None  # или 'same-origin'
+
 # Media files
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'

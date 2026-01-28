@@ -1,0 +1,645 @@
+// games/static/games/js/analyze/handlers.js
+/**
+ * Обработчики событий для Game Analyzer
+ */
+
+import { showMessage } from './managers.js';
+import {
+    saveCurrentTab,
+    saveScrollPosition,
+    saveTabScrollPosition,
+    clearTabStorage,
+    clearTabScrollPositions
+} from './utils.js';
+
+/* ============================================
+   TAB HANDLERS
+   ============================================ */
+
+export function bindTabSelect(analyzer) {
+    if (!analyzer.elements.tabSelect) return;
+
+    analyzer.elements.tabSelect.addEventListener('change', (e) => {
+        const tabName = e.target.value;
+        console.log(`Tab select changed to: ${tabName}`);
+
+        if (analyzer.elements.tabInput) {
+            analyzer.elements.tabInput.value = tabName;
+        }
+
+        analyzer.switchTabByName(tabName);
+
+        // СОХРАНЯЕМ ВЫБРАННУЮ ВКЛАДКУ
+        saveCurrentTab(analyzer);
+    });
+}
+
+export function bindTabScrollEvents(analyzer) {
+    // Навешиваем обработчики скролла на все области текста во вкладках
+    const tabPanes = document.querySelectorAll('.tab-pane');
+    tabPanes.forEach(tabPane => {
+        const textDisplayArea = tabPane.querySelector('.text-display-area');
+        if (textDisplayArea) {
+            // Используем debounce для оптимизации
+            let scrollTimeout;
+            textDisplayArea.addEventListener('scroll', () => {
+                clearTimeout(scrollTimeout);
+                scrollTimeout = setTimeout(() => {
+                    const tabName = tabPane.id;
+                    saveTabScrollPosition(analyzer, tabName);
+                }, 150);
+            });
+        }
+    });
+}
+
+export function bindBootstrapTabs(analyzer) {
+    if (!analyzer.elements.analyzeTabLinks || analyzer.elements.analyzeTabLinks.length === 0) return;
+
+    analyzer.elements.analyzeTabLinks.forEach(link => {
+        link.addEventListener('shown.bs.tab', (e) => {
+            const href = e.target.getAttribute('href');
+            if (href) {
+                const tabName = href.substring(1);
+
+                // Сохраняем позицию прокрутки старой вкладки
+                if (analyzer.currentTab && analyzer.currentTab !== tabName) {
+                    saveTabScrollPosition(analyzer, analyzer.currentTab);
+                }
+
+                // Переключаемся на новую вкладку
+                analyzer.onTabSwitch(tabName);
+
+                // Восстанавливаем позицию прокрутки новой вкладки
+                setTimeout(() => {
+                    analyzer.restoreTabScrollPosition(tabName);
+                }, 100);
+
+                // СОХРАНЯЕМ ВЫБРАННУЮ ВКЛАДКУ
+                saveCurrentTab(analyzer);
+            }
+        });
+
+        // Также обрабатываем клик для ручного переключения
+        link.addEventListener('click', (e) => {
+            const href = e.target.getAttribute('href');
+            if (href) {
+                const tabName = href.substring(1);
+
+                // Сохраняем позицию текущей вкладки перед переключением
+                if (analyzer.currentTab && analyzer.currentTab !== tabName) {
+                    saveTabScrollPosition(analyzer, analyzer.currentTab);
+                }
+            }
+        });
+    });
+}
+
+/* ============================================
+   FORM HANDLERS
+   ============================================ */
+
+export function bindAnalyzeButton(analyzer) {
+    if (!analyzer.elements.analyzeButton) {
+        console.error('ANALYZE BUTTON NOT FOUND!');
+        showMessage('Error: Analyze button not found. Please refresh page.', 'error');
+        return;
+    }
+
+    const originalButton = analyzer.elements.analyzeButton;
+    const newButton = originalButton.cloneNode(true);
+    originalButton.parentNode.replaceChild(newButton, originalButton);
+    analyzer.elements.analyzeButton = newButton;
+
+    analyzer.elements.analyzeButton.addEventListener('click', (e) => {
+        console.log('=== ANALYZE BUTTON CLICKED ===');
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (!analyzer.elements.analyzeForm) {
+            console.error('Form element not found');
+            showMessage('Error: Form not found', 'error');
+            return;
+        }
+
+        // СОХРАНЯЕМ ТЕКУЩУЮ ВКЛАДКУ И ПОЗИЦИЮ ПРОКРУТКИ ПЕРЕД ОТПРАВКОЙ
+        saveCurrentTab(analyzer);
+        saveScrollPosition(analyzer);
+        analyzer.saveTabScrollPosition(analyzer.currentTab);
+        analyzer.updateHiddenFields();
+
+        const csrfToken = document.querySelector('[name="csrfmiddlewaretoken"]');
+        if (!csrfToken) {
+            console.error('CSRF token not found');
+            showMessage('Error: Security token missing. Please refresh page.', 'error');
+            return;
+        }
+
+        // Убедимся, что есть поле analyze
+        let analyzeField = analyzer.elements.analyzeForm.querySelector('input[name="analyze"]');
+        if (!analyzeField) {
+            analyzeField = document.createElement('input');
+            analyzeField.type = 'hidden';
+            analyzeField.name = 'analyze';
+            analyzeField.value = 'true';
+            analyzer.elements.analyzeForm.appendChild(analyzeField);
+        }
+
+        const originalHTML = analyzer.elements.analyzeButton.innerHTML;
+        analyzer.elements.analyzeButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Analyzing...';
+        analyzer.elements.analyzeButton.disabled = true;
+
+        setTimeout(() => {
+            try {
+                analyzer.elements.analyzeForm.submit();
+            } catch (error) {
+                console.error('Error submitting form:', error);
+                showMessage('Error submitting form: ' + error.message, 'error');
+
+                analyzer.elements.analyzeButton.innerHTML = originalHTML;
+                analyzer.elements.analyzeButton.disabled = false;
+            }
+        }, 300);
+    });
+}
+
+export function bindSaveButton(analyzer) {
+    if (!analyzer.elements.saveButton) return;
+
+    const newButton = analyzer.elements.saveButton.cloneNode(true);
+    analyzer.elements.saveButton.parentNode.replaceChild(newButton, analyzer.elements.saveButton);
+    analyzer.elements.saveButton = newButton;
+
+    analyzer.elements.saveButton.addEventListener('click', (e) => {
+        e.preventDefault();
+
+        // СОХРАНЯЕМ ТЕКУЩУЮ ВКЛАДКУ И ПОЗИЦИЮ ПРОКРУТКИ ПЕРЕД ОТПРАВКОЙ
+        saveCurrentTab(analyzer);
+        saveScrollPosition(analyzer);
+        analyzer.saveTabScrollPosition(analyzer.currentTab);
+        handleSaveResults(analyzer, e);
+    });
+}
+
+export function bindAddKeywordButton(analyzer) {
+    const addButton = document.getElementById('add-keyword-button');
+    const keywordInput = document.getElementById('new-keyword-input');
+
+    if (!addButton || !keywordInput) return;
+
+    keywordInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+
+            // СОХРАНЯЕМ ТЕКУЩУЮ ВКЛАДКУ И ПОЗИЦИЮ ПРОКРУТКИ ПЕРЕД ОТПРАВКОЙ
+            saveCurrentTab(analyzer);
+            saveScrollPosition(analyzer);
+            analyzer.saveTabScrollPosition(analyzer.currentTab);
+            analyzer.handleAddKeyword();
+        }
+    });
+
+    addButton.addEventListener('click', (e) => {
+        e.preventDefault();
+
+        // СОХРАНЯЕМ ТЕКУЩУЮ ВКЛАДКУ И ПОЗИЦИЮ ПРОКРУТКИ ПЕРЕД ОТПРАВКОЙ
+        saveCurrentTab(analyzer);
+        saveScrollPosition(analyzer);
+        analyzer.saveTabScrollPosition(analyzer.currentTab);
+        analyzer.handleAddKeyword();
+    });
+}
+
+export function bindClearResultsButton(analyzer) {
+    if (!analyzer.elements.clearResultsBtn) return;
+
+    const originalButton = analyzer.elements.clearResultsBtn;
+    const newButton = originalButton.cloneNode(true);
+    originalButton.parentNode.replaceChild(newButton, originalButton);
+    const clearBtn = newButton;
+
+    clearBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (!confirm('Are you sure you want to clear unsaved analysis results?\n\nThis action cannot be undone.')) {
+            console.log('Clear cancelled by user');
+            return;
+        }
+
+        // СОХРАНЯЕМ ТЕКУЩУЮ ВКЛАДКУ И ПОЗИЦИЮ ПРОКРУТКИ ПЕРЕД ОТПРАВКОЙ
+        saveCurrentTab(analyzer);
+        saveScrollPosition(analyzer);
+        analyzer.saveTabScrollPosition(analyzer.currentTab);
+
+        const originalHTML = clearBtn.innerHTML;
+        clearBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Clearing...';
+        clearBtn.disabled = true;
+
+        const clearUrl = clearBtn.getAttribute('href');
+
+        if (!clearUrl) {
+            console.error('Clear URL not found');
+            showMessage('Error: Clear URL not found', 'error');
+            resetClearButton(clearBtn, originalHTML);
+            return;
+        }
+
+        try {
+            const response = await fetch(clearUrl, {
+                method: 'GET',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json',
+                },
+                credentials: 'same-origin'
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+
+                if (data.success) {
+                    showMessage('✅ ' + data.message, 'success');
+
+                    if (data.redirect_url) {
+                        setTimeout(() => {
+                            window.location.href = data.redirect_url;
+                        }, 1500);
+                    } else {
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 1500);
+                    }
+                } else {
+                    throw new Error(data.message || 'Clear error');
+                }
+            } else {
+                throw new Error(`HTTP error: ${response.status}`);
+            }
+        } catch (error) {
+            console.error('Error clearing results:', error);
+            showMessage(`❌ Error clearing results: ${error.message}`, 'error');
+            resetClearButton(clearBtn, originalHTML);
+        }
+    });
+}
+
+export function bindBackToGameButton(analyzer) {
+    if (!analyzer.elements.backToGameBtn) return;
+
+    analyzer.elements.backToGameBtn.addEventListener('click', (e) => {
+        // Очищаем сохраненные данные о вкладках и позициях прокрутки при переходе назад
+        clearTabStorage(analyzer);
+        clearTabScrollPositions(analyzer);
+        saveScrollPosition(analyzer);
+    });
+}
+
+/* ============================================
+   SCROLL HANDLERS
+   ============================================ */
+
+export function bindScrollToTop(analyzer) {
+    if (!analyzer.elements.scrollToTopBtn) return;
+
+    analyzer.elements.scrollToTopBtn.addEventListener('click', () => analyzer.scrollToTop());
+    window.addEventListener('scroll', () => analyzer.handleScroll());
+}
+
+/* ============================================
+   FOUND ITEMS HANDLERS
+   ============================================ */
+
+export function bindFoundItemsClicks(analyzer) {
+    document.addEventListener('click', (e) => {
+        const foundItem = e.target.closest('.found-item-badge');
+        if (foundItem) {
+            e.preventDefault();
+            const elementName = foundItem.dataset.name;
+            if (elementName) {
+                // Убираем выделение с предыдущих элементов в списке
+                const previousSelected = document.querySelectorAll('.found-item-badge.selected');
+                previousSelected.forEach(el => {
+                    el.classList.remove('selected');
+                });
+
+                // Выделяем текущий элемент в списке
+                foundItem.classList.add('selected');
+
+                // Прокручиваем к подсвеченным словам
+                analyzer.scrollToHighlight(elementName);
+            }
+        }
+    });
+}
+
+/* ============================================
+   UI SETUP HANDLERS
+   ============================================ */
+
+export function setupTooltips(analyzer) {
+    // Тулкиты для Bootstrap элементов
+    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    tooltipTriggerList.forEach(tooltipTriggerEl => {
+        const existingTooltip = window.bootstrap && bootstrap.Tooltip.getInstance(tooltipTriggerEl);
+        if (existingTooltip) {
+            existingTooltip.dispose();
+        }
+        if (window.bootstrap) {
+            new bootstrap.Tooltip(tooltipTriggerEl, {
+                trigger: 'hover focus',
+                placement: 'top'
+            });
+        }
+    });
+
+    // Тулкиты для подсвеченных элементов
+    const activePane = document.querySelector(`#${analyzer.currentTab}.tab-pane.active`);
+    if (activePane) {
+        const highlights = activePane.querySelectorAll(`
+            .highlight-genre, .highlight-theme, .highlight-perspective,
+            .highlight-game_mode, .highlight-keyword, .highlight-multi
+        `);
+
+        highlights.forEach(highlight => {
+            if (!highlight.hasAttribute('data-bs-toggle')) {
+                // Для обычных элементов
+                if (highlight.classList.contains('highlight-multi')) {
+                    // Для множественных критериев используем кастомные тултипы
+                    highlight.removeAttribute('data-bs-toggle');
+                    highlight.removeAttribute('data-bs-title');
+                } else {
+                    const elementName = highlight.dataset.elementName || 'Found element';
+                    const category = highlight.dataset.category || 'element';
+                    highlight.setAttribute('data-bs-toggle', 'tooltip');
+                    highlight.setAttribute('data-bs-title', `${category}: ${elementName}`);
+                    highlight.setAttribute('data-bs-placement', 'top');
+
+                    if (window.bootstrap) {
+                        const existingTooltip = bootstrap.Tooltip.getInstance(highlight);
+                        if (existingTooltip) {
+                            existingTooltip.dispose();
+                        }
+                        new bootstrap.Tooltip(highlight, {
+                            trigger: 'hover focus',
+                            placement: 'top'
+                        });
+                    }
+                }
+            }
+        });
+    }
+}
+
+export function setupMultiCriteriaTooltips(analyzer) {
+    // Настраиваем кастомные тултипы для множественных критериев
+    document.addEventListener('mouseenter', (e) => {
+        const multiElement = e.target.closest('.highlight-multi');
+        if (multiElement) {
+            showMultiCriteriaTooltip(analyzer, multiElement, e);
+        }
+    }, true);
+
+    document.addEventListener('mouseleave', (e) => {
+        const multiElement = e.target.closest('.highlight-multi');
+        if (multiElement) {
+            hideMultiCriteriaTooltip(analyzer);
+        }
+    }, true);
+}
+
+export function setupHighlightEvents(analyzer) {
+    // Обработка наведения на подсвеченные элементы (только hover)
+    document.addEventListener('mouseenter', (e) => {
+        const highlightElement = e.target.closest('.highlight-genre, .highlight-theme, .highlight-perspective, .highlight-game_mode, .highlight-keyword, .highlight-multi');
+
+        if (highlightElement) {
+            handleHighlightHover(analyzer, highlightElement, true);
+        }
+    }, true);
+
+    document.addEventListener('mouseleave', (e) => {
+        const highlightElement = e.target.closest('.highlight-genre, .highlight-theme, .highlight-perspective, .highlight-game_mode, .highlight-keyword, .highlight-multi');
+
+        if (highlightElement) {
+            handleHighlightHover(analyzer, highlightElement, false);
+        }
+    }, true);
+}
+
+/* ============================================
+   HELPER FUNCTIONS
+   ============================================ */
+
+function resetClearButton(button, originalHTML) {
+    if (button) {
+        button.innerHTML = originalHTML;
+        button.disabled = false;
+    }
+}
+
+function handleSaveResults(analyzer, e) {
+    e.preventDefault();
+
+    if (!confirm('Are you sure you want to save the analysis results to the game database?\n\nThis will add new elements (genres, themes, keywords, etc.) to the game.')) {
+        console.log('Save cancelled by user');
+        return;
+    }
+
+    if (!analyzer.elements.analyzeForm) {
+        showMessage('Error: Form not found. Cannot save results.', 'error');
+        return;
+    }
+
+    const saveButton = analyzer.elements.analyzeForm.querySelector('button[name="save_results"]');
+    if (saveButton) {
+        const originalHTML = saveButton.innerHTML;
+        saveButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
+        saveButton.disabled = true;
+        saveButton.dataset.originalHTML = originalHTML;
+    }
+
+    showMessage('Saving results to database...', 'info');
+
+    const saveInput = document.createElement('input');
+    saveInput.type = 'hidden';
+    saveInput.name = 'save_results';
+    saveInput.value = 'true';
+    analyzer.elements.analyzeForm.appendChild(saveInput);
+
+    setTimeout(() => {
+        try {
+            analyzer.elements.analyzeForm.submit();
+        } catch (error) {
+            showMessage('❌ Error submitting form: ' + error.message, 'error');
+
+            if (saveButton && saveButton.dataset.originalHTML) {
+                saveButton.innerHTML = saveButton.dataset.originalHTML;
+                saveButton.disabled = false;
+            }
+        }
+    }, 100);
+}
+
+function handleHighlightHover(analyzer, element, isEntering) {
+    if (isEntering) {
+        element.classList.add('highlight-hover');
+    } else {
+        element.classList.remove('highlight-hover');
+    }
+}
+
+function showMultiCriteriaTooltip(analyzer, element, event) {
+    // Удаляем старый тултип
+    hideMultiCriteriaTooltip(analyzer);
+
+    // Получаем данные из элемента
+    const names = element.dataset.elementNames ? element.dataset.elementNames.split(',') : [];
+    const categories = element.dataset.categories ? element.dataset.categories.split(',') : [];
+
+    if (names.length === 0 || categories.length === 0 || names.length !== categories.length) {
+        return;
+    }
+
+    // Создаем кастомный тултип
+    const tooltip = document.createElement('div');
+    tooltip.className = 'multi-criteria-tooltip';
+    tooltip.style.cssText = `
+        position: fixed;
+        background: linear-gradient(135deg, #2c3e50, #4a5568);
+        color: white;
+        padding: 12px;
+        border-radius: 8px;
+        border: 1px solid #4a5568;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        z-index: 9999;
+        max-width: 350px;
+        font-size: 0.9rem;
+        pointer-events: none;
+        animation: tooltipFadeIn 0.2s ease-out;
+    `;
+
+    // Добавляем заголовок
+    const title = document.createElement('strong');
+    title.textContent = `Multiple Criteria Found (${names.length})`;
+    title.style.cssText = `
+        display: block;
+        color: #ff6b35;
+        margin-bottom: 8px;
+        font-size: 0.95rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        padding-bottom: 4px;
+    `;
+    tooltip.appendChild(title);
+
+    // Добавляем список критериев
+    const list = document.createElement('div');
+    list.className = 'multi-criteria-list';
+
+    const categoryNames = {
+        'genres': 'Genre',
+        'themes': 'Theme',
+        'perspectives': 'Perspective',
+        'game_modes': 'Game Mode',
+        'keywords': 'Keyword'
+    };
+
+    const colors = {
+        'genres': '#28a745',
+        'themes': '#dc3545',
+        'perspectives': '#007bff',
+        'game_modes': '#6f42c1',
+        'keywords': '#ffc107'
+    };
+
+    for (let i = 0; i < names.length; i++) {
+        const category = categories[i];
+        const name = names[i];
+        const categoryDisplay = categoryNames[category] || category;
+        const color = colors[category] || '#6c757d';
+
+        const item = document.createElement('div');
+        item.className = 'criteria-item';
+        item.style.cssText = `
+            display: flex;
+            align-items: center;
+            margin-bottom: 6px;
+            padding: 4px 6px;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.05);
+        `;
+
+        const colorDot = document.createElement('span');
+        colorDot.className = 'criteria-color';
+        colorDot.style.cssText = `
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 10px;
+            background: ${color};
+            flex-shrink: 0;
+        `;
+
+        const text = document.createElement('span');
+        text.innerHTML = `<strong>${categoryDisplay}:</strong> ${escapeHtml(name)}`;
+        text.style.cssText = `
+            flex-grow: 1;
+            font-size: 0.85rem;
+            line-height: 1.3;
+        `;
+
+        item.appendChild(colorDot);
+        item.appendChild(text);
+        list.appendChild(item);
+    }
+
+    tooltip.appendChild(list);
+
+    // Добавляем на страницу
+    document.body.appendChild(tooltip);
+    analyzer.currentMultiTooltip = tooltip;
+
+    // Позиционируем тултип
+    positionMultiCriteriaTooltip(analyzer, tooltip, event);
+}
+
+function positionMultiCriteriaTooltip(analyzer, tooltip, event) {
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const tooltipWidth = tooltip.offsetWidth;
+    const tooltipHeight = tooltip.offsetHeight;
+
+    let left = event.pageX + 10;
+    let top = event.pageY + 10;
+
+    // Проверяем, не выходит ли за правый край
+    if (left + tooltipWidth > viewportWidth - 10) {
+        left = event.pageX - tooltipWidth - 10;
+    }
+
+    // Проверяем, не выходит ли за нижний край
+    if (top + tooltipHeight > viewportHeight - 10) {
+        top = event.pageY - tooltipHeight - 10;
+    }
+
+    // Проверяем, не выходит ли за верхний край
+    if (top < 10) {
+        top = 10;
+    }
+
+    tooltip.style.left = left + 'px';
+    tooltip.style.top = top + 'px';
+}
+
+function hideMultiCriteriaTooltip(analyzer) {
+    if (analyzer.currentMultiTooltip && analyzer.currentMultiTooltip.parentNode) {
+        analyzer.currentMultiTooltip.parentNode.removeChild(analyzer.currentMultiTooltip);
+        analyzer.currentMultiTooltip = null;
+    }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}

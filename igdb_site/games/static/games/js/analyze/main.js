@@ -1,10 +1,9 @@
-// games/static/games/js/analyze.js
+// games/static/games/js/analyze/main.js
 /**
- * Главный файл анализатора (объединяет все модули)
+ * Главный файл инициализации Game Analyzer
  */
 
-// Импортируем и инициализируем
-import GameAnalyzerUI from './analyze/GameAnalyzerUI.js';
+import GameAnalyzerUI from './GameAnalyzerUI.js';
 
 /* ============================================
    GLOBAL INITIALIZATION
@@ -23,16 +22,6 @@ document.addEventListener('DOMContentLoaded', function() {
             setTimeout(() => {
                 analyzer.forceTextAlignmentFix();
             }, 100);
-        });
-
-        // Обработка скрытия вкладок
-        const tabLinks = document.querySelectorAll('#analyzeTabs .nav-link');
-        tabLinks.forEach(link => {
-            link.addEventListener('hidden.bs.tab', () => {
-                setTimeout(() => {
-                    analyzer.setupTooltips();
-                }, 50);
-            });
         });
 
         // Обработка перед закрытием страницы
@@ -79,3 +68,6 @@ document.addEventListener('DOMContentLoaded', function() {
         document.body.appendChild(errorAlert);
     }
 });
+
+// Экспортируем для возможного использования в других модулях
+export { GameAnalyzerUI };
