@@ -1,0 +1,1 @@
+# This file makes the views_parts directory a Python package
