@@ -41,6 +41,7 @@
             {% endif %}
 
             <!-- Процент похожести (только в режиме show_similarity) -->
+            <!-- ВАЖНО: Используем similarity_percent, переданный из шаблона _games_grid.html -->
             {% if show_similarity %}
                 {% if game.similarity %}
                     <div class="position-absolute top-0 end-0 p-1">
