@@ -115,6 +115,7 @@
                             <!-- Скрытые поля -->
                             <input type="hidden" id="analyze-tab-input" name="analyze_tab" value="{{ active_tab }}">
                             <input type="hidden" id="analyze-mode-input" name="analyze_mode" value="combined">
+                            <input type="hidden" id="auto-analyze-input" name="auto_analyze" value="false">
 
                             <!-- Группа переключателей режимов -->
                             <div class="col-12">
@@ -557,7 +558,8 @@
 {% endblock %}
 
 {% block extra_js %}
-    <script src="{% static 'games/js/analyze.js' %}"></script>
+    <!-- Заменяем старый файл на новый -->
+    <script src="{% static 'games/js/analyze.js' %}" type="module"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             console.log('=== DOM LOADED ===');
