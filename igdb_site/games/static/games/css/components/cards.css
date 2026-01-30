@@ -162,127 +162,31 @@
   position: relative;
 }
 
-/* ===== GAME TYPE BADGES ===== */
-.game-type-badge {
-    position: absolute;
-    bottom: 8px;
-    right: 8px;
-    z-index: 11;
-    padding: 3px 6px;
-    border-radius: 4px;
-    font-size: 9px;
-    font-weight: bold;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-    min-width: 45px;
-    text-align: center;
-    color: white;
-    background-color: rgba(0, 0, 0, 0.7);
-    backdrop-filter: blur(2px);
-    transition: all 0.2s ease;
-}
-
-/* Цвета для разных типов */
-.type-main { background-color: #28a745; }
-.type-dlc { background-color: #007bff; }
-.type-bundle { background-color: #6c757d; }
-.type-expansion { background-color: #17a2b8; }
-.type-mod { background-color: #343a40; }
-.type-episode { background-color: #7950f2; }
-.type-season { background-color: #6f42c1; }
-.type-remake { background-color: #fd7e14; }
-.type-remaster { background-color: #e83e8c; }
-.type-expanded { background-color: #20c997; }
-.type-port { background-color: #fab005; color: #212529; }
-.type-fork { background-color: #868e96; }
-.type-pack { background-color: #5c7cfa; }
-.type-update { background-color: #ced4da; color: #212529; }
-.type-other { background-color: #6c757d; }
-
-/* Hover эффект */
-.game-type-badge:hover {
-    transform: scale(1.05);
-    opacity: 0.9;
-    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.4);
-}
-
-/* ===== PLATFORM BADGES ===== */
-.platform-badge {
-    display: inline-block;
-    padding: 2px 5px;
-    border-radius: 3px;
-    font-size: 9px;
-    font-weight: bold;
-    text-transform: uppercase;
-    letter-spacing: 0.2px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-    color: white;
-    background-color: rgba(0, 0, 0, 0.7);
-    backdrop-filter: blur(2px);
-    transition: all 0.2s ease;
-    white-space: nowrap;
-    max-width: 48px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    line-height: 1.2;
-    margin-right: 2px;
-    margin-bottom: 2px;
-}
-
-/* Цвета для разных платформ */
-.platform-ps { background-color: #0066cc; } /* PlayStation синий */
-.platform-xbox { background-color: #107c10; } /* Xbox зеленый */
-.platform-nintendo { background-color: #e60012; } /* Nintendo красный */
-.platform-pc { background-color: #005a9e; } /* PC синий */
-.platform-mobile { background-color: #6f42c1; } /* Mobile фиолетовый */
-.platform-sega { background-color: #008cff; } /* Sega голубой */
-.platform-retro { background-color: #7950f2; } /* Retro фиолетовый */
-.platform-vr { background-color: #868e96; } /* VR серый */
-.platform-cloud { background-color: #20c997; } /* Cloud бирюзовый */
-.platform-arcade { background-color: #fd7e14; } /* Arcade оранжевый */
-.platform-legacy { background-color: #6c757d; } /* Legacy серый */
-.platform-other { background-color: #495057; } /* Другие темно-серый */
-
-/* Hover эффект для платформ */
-.platform-badge:hover {
-    transform: scale(1.05);
-    opacity: 0.9;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
-}
-
 /* Контейнер для платформ */
 .platforms-overlay {
-    z-index: 10;
-    max-width: calc(100% - 60px);
-    bottom: 8px !important;
+  z-index: 10;
+  max-width: calc(100% - 60px);
+  bottom: 8px !important;
 }
 
 .platforms-container {
-    max-height: 70px;
-    overflow: hidden;
+  max-height: 70px;
+  overflow: hidden;
 }
 
 /* Отступы между рядами платформ */
 .platform-row + .platform-row {
-    margin-top: 4px;
-}
-
-/* Убираем правый отступ у последнего бейджа в ряду */
-.platform-badge:last-child {
-    margin-right: 0;
+  margin-top: 4px;
 }
 
 /* Место между платформами в ряду */
 .platforms-overlay .d-flex.flex-wrap.gap-1 {
-    gap: 2px !important;
+  gap: 2px !important;
 }
 
 /* Платформы на обложке */
 .game-card .platforms-overlay .platform-badge {
-    filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.8));
+  filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.8));
 }
 
 /* Заголовок игры */
@@ -394,18 +298,6 @@
   }
 
   /* Адаптивность для платформ */
-  .platform-badge {
-    font-size: 8px;
-    padding: 2px 4px;
-    max-width: 42px;
-  }
-
-  .game-type-badge {
-    font-size: 8px;
-    padding: 2px 4px;
-    min-width: 40px;
-  }
-
   .platforms-overlay {
     max-width: calc(100% - 50px);
     padding: 0.25rem !important;
@@ -454,18 +346,6 @@
     max-height: 55px;
   }
 
-  .platform-badge {
-    font-size: 7px;
-    padding: 1px 3px;
-    max-width: 38px;
-  }
-
-  .game-type-badge {
-    font-size: 7px;
-    padding: 2px 3px;
-    min-width: 35px;
-  }
-
   .platforms-overlay {
     max-width: calc(100% - 45px);
     padding: 0.2rem !important;
@@ -500,19 +380,6 @@
     font-size: 10px;
   }
 
-  /* Адаптивность для платформ */
-  .platform-badge {
-    font-size: 6px;
-    padding: 1px 2px;
-    max-width: 34px;
-  }
-
-  .game-type-badge {
-    font-size: 6px;
-    padding: 1px 2px;
-    min-width: 30px;
-  }
-
   .platforms-overlay {
     max-width: calc(100% - 40px);
     padding: 0.15rem !important;
@@ -529,58 +396,9 @@
 }
 
 /* Улучшенная читаемость для темных цветов */
-.platform-ps,
-.platform-xbox,
-.platform-nintendo,
-.platform-pc,
-.platform-mobile,
-.platform-sega,
-.platform-retro,
-.platform-vr,
-.platform-cloud,
-.platform-arcade,
-.platform-legacy,
-.platform-other,
-.type-main,
-.type-dlc,
-.type-bundle,
-.type-expansion,
-.type-mod,
-.type-episode,
-.type-season,
-.type-remake,
-.type-remaster,
-.type-expanded,
-.type-port,
-.type-fork,
-.type-pack,
-.type-update,
-.type-other {
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
-}
-
-/* Для светлых бейджей делаем темный текст */
 .type-port,
 .type-update,
 .platform-badge[style*="color: #212529"],
 .platform-badge[style*="color:#212529"] {
   text-shadow: 0 1px 1px rgba(255, 255, 255, 0.3);
-}
-
-/* Особые стили для Arcade бейджей (оранжевый фон) */
-.platform-arcade {
-  font-weight: 900;
-  border-color: rgba(255, 255, 255, 0.4);
-}
-
-/* Особые стили для Legacy бейджей */
-.platform-legacy {
-  opacity: 0.9;
-  font-style: italic;
-}
-
-/* Особые стили для Retro бейджей */
-.platform-retro {
-  border-color: rgba(255, 255, 255, 0.3);
-  font-weight: 800;
 }

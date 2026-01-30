@@ -134,6 +134,8 @@ def game_search(request: HttpRequest) -> HttpResponse:
         Prefetch('platforms', queryset=Platform.objects.only('id', 'name', 'slug')),
         Prefetch('themes', queryset=Theme.objects.only('id', 'name')),
         Prefetch('developers', queryset=Company.objects.only('id', 'name')),
+        Prefetch('player_perspectives', queryset=PlayerPerspective.objects.only('id', 'name')),
+        Prefetch('game_modes', queryset=GameMode.objects.only('id', 'name')),
     ).only(
         'id', 'name', 'rating', 'rating_count',
         'first_release_date', 'cover_url', 'game_type'
@@ -148,6 +150,16 @@ def game_search(request: HttpRequest) -> HttpResponse:
         'games': list(games),
         'search_query': search_query,
         'total_results': games.count(),
+        # Добавляем параметры для совместимости с карточками
+        'show_similarity': False,
+        'source_game': None,
+        'selected_genres': [],
+        'selected_keywords': [],
+        'selected_themes': [],
+        'selected_perspectives': [],
+        'selected_developers': [],
+        'selected_game_modes': [],
+        'current_page': 1,
     })
 
 
