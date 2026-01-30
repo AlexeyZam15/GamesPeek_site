@@ -41,13 +41,10 @@
             {% endif %}
 
             <!-- Процент похожести (только в режиме show_similarity) -->
-            <!-- ВАЖНО: Используем similarity_percent, переданный из шаблона _games_grid.html -->
-            {% if show_similarity %}
-                {% if game.similarity %}
-                    <div class="position-absolute top-0 end-0 p-1">
-                        {% similarity_pattern_svg game.similarity 60 %}
-                    </div>
-                {% endif %}
+            {% if show_similarity and game.similarity %}
+                <div class="position-absolute top-0 end-0 p-1">
+                    {% similarity_pattern_svg game.similarity 60 %}
+                </div>
             {% endif %}
 
             <!-- Платформы - используем prefetched данные -->
@@ -126,7 +123,7 @@
                     <i class="bi bi-search-heart"></i> Find Similar
                 </a>
 
-                <!-- Кнопка Compare (только в режиме show_similarity) -->
+                <!-- Кнопка Compare (только в режиме show_similarity и когда есть source_game) -->
                 {% if show_similarity and source_game %}
                     {% if game.similarity %}
                         <a href="{% get_card_comparison_url source_game=source_game target_game=game similarity_percent=game.similarity selected_genres=selected_genres selected_keywords=selected_keywords selected_themes=selected_themes selected_perspectives=selected_perspectives selected_developers=selected_developers selected_game_modes=selected_game_modes %}"
