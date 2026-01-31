@@ -11,7 +11,6 @@ const GameListScript = {
             return;
         }
 
-        // Инициализация всех компонентов
         this.initializeSearchInputs();
         this.initializeShowAllToggles();
         this.setupActiveTagRemoval();
@@ -19,52 +18,23 @@ const GameListScript = {
         this.setupCheckboxListeners();
         this.setupDateFilterListeners();
 
-        // Новые методы
         this.setupApplyFilterButton();
         this.setupShowAllButton();
 
-        // Инициализация пагинации ключевых слов
         this.setupKeywordsPagination();
 
-        // ВАЖНО: Сначала очищаем все игры из DOM перед инициализацией пагинации
-        setTimeout(() => {
-            this.clearAllGameElementsFromDOM();
-        }, 100);
-
-        // Обновление пагинации игр после всех изменений
         setTimeout(() => {
             this.updateGamesPagination();
-        }, 1500);
+        }, 500);
 
         console.log('GameListScript initialization completed');
-    },
-
-    // Очистить все игровые элементы из DOM
-    clearAllGameElementsFromDOM() {
-        console.log('Clearing all game elements from DOM...');
-
-        const container = document.querySelector('.games-container');
-        if (!container) return;
-
-        const rowElement = container.querySelector('.row');
-        if (!rowElement) return;
-
-        // Удаляем все game-card-container элементы
-        const gameElements = rowElement.querySelectorAll('.game-card-container');
-        gameElements.forEach(gameElement => {
-            gameElement.remove();
-        });
-
-        console.log(`Cleared ${gameElements.length} game elements from DOM`);
     },
 
     // Обновление пагинации игр
     updateGamesPagination() {
         if (window.GamePagination && typeof window.GamePagination.updateAfterChanges === 'function') {
             console.log('Updating games pagination...');
-            setTimeout(() => {
-                window.GamePagination.updateAfterChanges();
-            }, 200);
+            window.GamePagination.updateAfterChanges();
         }
     },
 
@@ -294,12 +264,10 @@ const GameListScript = {
                     window.FilterManager.handlers.saveScrollPosition();
                 }
 
-                // Очищаем состояние пагинации
                 if (window.GamePagination) {
                     window.GamePagination.clearPageState();
                 }
 
-                // Создаем событие для уведомления о применении фильтров
                 const filterAppliedEvent = new CustomEvent('filterApplied');
                 document.dispatchEvent(filterAppliedEvent);
 
@@ -399,7 +367,6 @@ const GameListScript = {
                     }
                     this.updateHiddenFields();
 
-                    // Очищаем кэш пагинации при изменении фильтров
                     if (window.GamePagination && typeof window.GamePagination.clearAllCache === 'function') {
                         console.log('Clearing pagination cache due to filter change');
                         window.GamePagination.clearAllCache();
@@ -422,7 +389,6 @@ const GameListScript = {
                 newCheckbox.addEventListener('change', () => {
                     this.updateHiddenFields();
 
-                    // Очищаем кэш пагинации при изменении фильтров
                     if (window.GamePagination && typeof window.GamePagination.clearAllCache === 'function') {
                         console.log('Clearing pagination cache due to filter change');
                         window.GamePagination.clearAllCache();
@@ -441,7 +407,6 @@ const GameListScript = {
                     window.FilterManager.handlers.saveScrollPosition();
                 }
 
-                // Очищаем состояние пагинации
                 if (window.GamePagination) {
                     if (window.GamePagination.clearAllCache) {
                         console.log('Clearing pagination cache due to sort change');
@@ -689,27 +654,22 @@ const GameListScript = {
             newApplyButton.addEventListener('click', (e) => {
                 e.preventDefault();
 
-                // Очищаем кэш пагинации
                 if (window.GamePagination && typeof window.GamePagination.clearAllCache === 'function') {
                     console.log('Clearing pagination cache before applying filters');
                     window.GamePagination.clearAllCache();
                 }
 
-                // Сохраняем позицию прокрутки
                 if (window.FilterManager && window.FilterManager.handlers) {
                     window.FilterManager.handlers.saveScrollPosition();
                 }
 
-                // Очищаем состояние пагинации
                 if (window.GamePagination) {
                     window.GamePagination.clearPageState();
                 }
 
-                // Создаем событие для уведомления о применении фильтров
                 const filterAppliedEvent = new CustomEvent('filterApplied');
                 document.dispatchEvent(filterAppliedEvent);
 
-                // Отправляем форму
                 setTimeout(() => {
                     this.form.submit();
                 }, 100);
@@ -727,29 +687,25 @@ const GameListScript = {
             newShowAllButton.addEventListener('click', (e) => {
                 e.preventDefault();
 
-                // Очищаем кэш пагинации
                 if (window.GamePagination && typeof window.GamePagination.clearAllCache === 'function') {
                     console.log('Clearing pagination cache before showing all games');
                     window.GamePagination.clearAllCache();
                 }
 
-                // Сохраняем позицию прокрутки
                 if (window.FilterManager && window.FilterManager.handlers) {
                     window.FilterManager.handlers.saveScrollPosition();
                 }
 
-                // Очищаем состояние пагинации
                 if (window.GamePagination) {
                     window.GamePagination.clearPageState();
                 }
 
-                // Переходим по ссылке
                 setTimeout(() => {
                     window.location.href = newShowAllButton.getAttribute('href');
                 }, 100);
             });
         }
-    }
+    },
 };
 
 // Автоматическая инициализация при загрузке DOM
@@ -768,13 +724,11 @@ document.addEventListener('DOMContentLoaded', () => {
 document.addEventListener('filterApplied', () => {
     console.log('Filter applied event received in GameListScript');
 
-    // Очищаем кэш пагинации
     if (window.GamePagination && typeof window.GamePagination.clearAllCache === 'function') {
         console.log('Clearing pagination cache due to filter applied event');
         window.GamePagination.clearAllCache();
     }
 
-    // Сбрасываем пагинацию на первую страницу
     if (window.GamePagination && typeof window.GamePagination.resetToFirstPage === 'function') {
         console.log('Resetting pagination to page 1');
         window.GamePagination.resetToFirstPage();
