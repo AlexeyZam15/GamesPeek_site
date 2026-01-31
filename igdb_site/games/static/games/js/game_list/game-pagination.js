@@ -42,9 +42,8 @@ const GamePagination = {
 
     // Инициализация
     init() {
-        console.log('=== LAZY GAMES PAGINATION INITIALIZATION ===');
+        console.log('=== LAZY GAMES PAGINATION INITIALIZATION OPTIMIZED ===');
 
-        // Полностью очищаем state
         this.state.gameItems = [];
         this.state.loadedPages.clear();
 
@@ -52,24 +51,19 @@ const GamePagination = {
             this.state.loadingPages = new Set();
         }
 
-        // Шаг 1: Загружаем информацию о пагинации из DOM
         this.loadPaginationInfoFromDOM();
 
-        // Проверяем, что данные загрузились
         if (this.state.totalItems === 0) {
             console.error('ERROR: No items found for pagination!');
             this.hidePagination();
             return;
         }
 
-        // Шаг 2: Определяем текущую страницу
         const urlPage = this.getPageFromURL();
         console.log(`URL requests page: ${urlPage}`);
 
-        // Устанавливаем текущую страницу
         this.config.currentPage = urlPage;
 
-        // Проверяем корректность текущей страницы
         if (this.state.totalPages > 0 && this.config.currentPage > this.state.totalPages) {
             console.log(`Adjusting page ${this.config.currentPage} to ${this.state.totalPages}`);
             this.config.currentPage = Math.max(1, this.state.totalPages);
@@ -77,219 +71,193 @@ const GamePagination = {
 
         console.log(`Initial page set to: ${this.config.currentPage}`);
 
-        // Шаг 3: Создаем контейнеры для пагинации
+        const container = document.querySelector(this.config.containerSelector);
+        const rowElement = container ? container.querySelector('.row') : null;
+        const existingGames = rowElement ? rowElement.querySelectorAll('.game-card-container') : [];
+
+        const hasCorrectGamesInDOM = this.arePageGamesInDOM(this.config.currentPage);
+
+        if (hasCorrectGamesInDOM && existingGames.length > 0) {
+            console.log(`✅ Page ${this.config.currentPage} already has ${existingGames.length} games in DOM, skipping reload`);
+
+            this.cacheGamesFromDOM(this.config.currentPage);
+            this.state.loadedPages.add(this.config.currentPage);
+
+            this.createPageNumbersContainer('top');
+            this.createPageNumbersContainer('bottom');
+
+            this.setupPagination();
+
+            this.updatePageNumbers();
+            this.updatePageInfo();
+            this.updateNavigationButtons();
+
+            this.saveFirstPageToLocalCache();
+
+            this.preloadAdjacentPages(this.config.currentPage);
+
+            return;
+        }
+
+        console.log(`🔄 No correct games in DOM for page ${this.config.currentPage}, loading...`);
+
         this.createPageNumbersContainer('top');
         this.createPageNumbersContainer('bottom');
 
-        // Шаг 4: Настраиваем пагинацию
         this.setupPagination();
 
-        // Шаг 5: ВАЖНО! Проверяем что уже есть в DOM и кэшируем это
-        this.checkAndCacheInitialPage();
-
-        console.log(`=== PAGINATION INITIALIZED ===`);
-        console.log(`Total items: ${this.state.totalItems}`);
-        console.log(`Total pages: ${this.state.totalPages}`);
-        console.log(`Current page: ${this.config.currentPage}`);
-        console.log(`Loaded pages: ${Array.from(this.state.loadedPages)}`);
-    },
-
-    // Проверить и кэшировать начальную страницу из DOM
-    checkAndCacheInitialPage() {
-        const container = document.querySelector(this.config.containerSelector);
-        if (!container) return;
-
-        const rowElement = container.querySelector('.row');
-        if (!rowElement) return;
-
-        // Проверяем, есть ли игры в DOM
-        const existingGames = rowElement.querySelectorAll('.game-card-container');
-        console.log(`Found ${existingGames.length} games in DOM on init`);
-
-        if (existingGames.length === 0) {
-            // Проверяем, есть ли сообщение "No games found"
-            const noGamesElement = rowElement.querySelector('.text-center.py-5');
-            if (noGamesElement && noGamesElement.textContent.includes('No games found')) {
-                console.log('Found "No games found" message, this is really an empty page');
-                this.hidePagination();
+        if (this.config.currentPage === 1) {
+            const cachedFirstPage = this.loadFirstPageFromLocalCache();
+            if (cachedFirstPage && cachedFirstPage.length > 0) {
+                console.log(`✅ Loaded page 1 from browser cache: ${cachedFirstPage.length} games`);
+                this.processPageGames(1, cachedFirstPage);
+                this.showPageFromCache(1);
                 return;
             }
-
-            // Нет игр в DOM - загружаем текущую страницу
-            console.log(`No games in DOM, loading page ${this.config.currentPage}`);
-            this.showPage(this.config.currentPage, false);
-            return;
         }
 
-        // ВАЖНО: Определяем для какой страницы эти игры
-        // 1. Проверяем data-page атрибуты
-        const gamePages = new Set();
-        for (const game of existingGames) {
-            const page = parseInt(game.dataset.page);
-            if (!isNaN(page) && page > 0) {
-                gamePages.add(page);
-            }
-        }
-
-        let pageToCache = this.config.currentPage;
-
-        if (gamePages.size === 1) {
-            // Все игры имеют один data-page
-            const detectedPage = Array.from(gamePages)[0];
-            console.log(`All games have data-page="${detectedPage}"`);
-
-            if (detectedPage !== this.config.currentPage) {
-                console.log(`DOM has page ${detectedPage}, but URL says ${this.config.currentPage}. Using DOM page.`);
-                pageToCache = detectedPage;
-                this.config.currentPage = detectedPage;
-            }
-        } else if (gamePages.size === 0) {
-            // Ни у одной игры нет data-page - это серверная отрисовка
-            // Определяем страницу по количеству игр и индексам
-            const gamesCount = existingGames.length;
-            const itemsPerPage = this.config.itemsPerPage;
-
-            if (gamesCount === itemsPerPage) {
-                // Полная страница - это либо страница 1, либо та, что в URL
-                console.log(`Full page of ${gamesCount} games detected, using URL page: ${this.config.currentPage}`);
-            } else if (gamesCount < itemsPerPage && this.config.currentPage === this.state.totalPages) {
-                // Неполная последняя страница
-                console.log(`Partial page (${gamesCount} games) detected, assuming last page: ${this.config.currentPage}`);
-            }
-        }
-
-        // Удаляем сообщение "No games found" если оно есть
-        const noGamesMsg = rowElement.querySelector('.text-center.py-5');
-        if (noGamesMsg && noGamesMsg.textContent.includes('No games found')) {
-            console.log('Removing "No games found" message');
-            noGamesMsg.remove();
-        }
-
-        // Кешируем игры из DOM для текущей страницы
-        this.cacheGamesFromDOM(pageToCache);
-        this.state.loadedPages.add(pageToCache);
-
-        console.log(`Cached ${existingGames.length} games from DOM for page ${pageToCache}`);
-
-        // Обновляем UI
-        this.updatePageNumbers();
-        this.updatePageInfo();
-        this.updateNavigationButtons();
-
-        // Не обновляем URL при инициализации
-        console.log(`Initial page ${pageToCache} loaded from DOM`);
+        this.checkAndCacheInitialPage();
     },
 
-    // Определить, нужно ли обновлять URL при смене страницы
-    shouldUpdateUrlOnPageChange(pageNumber) {
-        // Если это первая страница и в URL нет параметра page, не обновляем
-        const urlParams = new URLSearchParams(window.location.search);
-        const currentPageInUrl = urlParams.get('page');
-
-        if (pageNumber === 1 && !currentPageInUrl) {
-            return false;
+    // Получить или загрузить страницу с кэшированием
+    getOrLoadPageWithCache(pageNumber) {
+        if (pageNumber < 1 || pageNumber > this.state.totalPages) {
+            console.log(`Page ${pageNumber} out of range (1-${this.state.totalPages})`);
+            return Promise.reject(new Error('Page out of range'));
         }
 
-        // Если страница уже указана в URL, не обновляем
-        if (currentPageInUrl && parseInt(currentPageInUrl) === pageNumber) {
-            return false;
+        console.log(`getOrLoadPageWithCache for page ${pageNumber}`);
+
+        // 1. Проверяем, загружена ли страница в памяти
+        if (this.state.loadedPages.has(pageNumber)) {
+            console.log(`Page ${pageNumber} already loaded in memory`);
+            return Promise.resolve(this._getPageFromMemory(pageNumber));
         }
 
-        return true;
+        // 2. Проверяем локальный кэш браузера (для первой страницы)
+        if (pageNumber === 1) {
+            const cachedFirstPage = this.loadFirstPageFromLocalCache();
+            if (cachedFirstPage && cachedFirstPage.length > 0) {
+                console.log(`Loading page 1 from browser cache`);
+                this.processPageGames(1, cachedFirstPage);
+                return Promise.resolve(cachedFirstPage);
+            }
+        }
+
+        // 3. Проверяем sessionStorage кэш
+        const sessionCacheKey = `page_${pageNumber}_cached`;
+        try {
+            const cachedData = sessionStorage.getItem(sessionCacheKey);
+            if (cachedData) {
+                const data = JSON.parse(cachedData);
+
+                // Проверяем актуальность (не старше 10 минут)
+                const maxAge = 10 * 60 * 1000;
+                if (Date.now() - data.timestamp < maxAge) {
+                    console.log(`Loading page ${pageNumber} from session cache`);
+                    this.processPageGames(pageNumber, data.games);
+                    return Promise.resolve(data.games);
+                }
+            }
+        } catch (e) {
+            console.warn(`Error reading session cache for page ${pageNumber}:`, e);
+        }
+
+        // 4. Загружаем с сервера
+        console.log(`Loading page ${pageNumber} from server...`);
+        return this.forceLoadPage(pageNumber)
+            .then(games => {
+                // Сохраняем в sessionStorage
+                try {
+                    const cacheData = {
+                        games: games,
+                        timestamp: Date.now(),
+                        page: pageNumber
+                    };
+                    sessionStorage.setItem(sessionCacheKey, JSON.stringify(cacheData));
+                    console.log(`Cached page ${pageNumber} in sessionStorage`);
+                } catch (e) {
+                    console.warn(`Could not cache page ${pageNumber} in sessionStorage:`, e);
+                }
+
+                return games;
+            });
     },
 
-    // Показать страницу из кеша (уже загруженную)
-    _showPageFromCache(pageNumber) {
-        console.log(`_showPageFromCache for page ${pageNumber}`);
-
-        // Убираем индикатор загрузки если он есть
-        this.removeLoadingIndicator(pageNumber);
-
-        // Обновляем текущую страницу
-        this.config.currentPage = pageNumber;
-
+    // Получить страницу из памяти
+    _getPageFromMemory(pageNumber) {
         const startIndex = (pageNumber - 1) * this.config.itemsPerPage;
         const endIndex = Math.min(startIndex + this.config.itemsPerPage, this.state.totalItems);
 
-        console.log(`Showing cached page ${pageNumber}: items ${startIndex + 1}-${endIndex}`);
-
-        // Получаем контейнер
-        const container = document.querySelector(this.config.containerSelector);
-        if (!container) {
-            console.error('Games container not found');
-            return;
-        }
-
-        // Находим или создаем row элемент
-        let rowElement = container.querySelector('.row');
-        if (!rowElement) {
-            rowElement = document.createElement('div');
-            rowElement.className = 'row';
-            container.appendChild(rowElement);
-        }
-
-        // Проверяем, есть ли уже правильные игры в DOM
-        const existingGames = rowElement.querySelectorAll('.game-card-container');
-        let needsUpdate = false;
-
-        if (existingGames.length > 0) {
-            // Проверяем, все ли игры имеют правильный data-page
-            for (const game of existingGames) {
-                const gamePage = parseInt(game.dataset.page);
-                if (gamePage !== pageNumber) {
-                    needsUpdate = true;
-                    break;
-                }
+        const games = [];
+        for (let i = startIndex; i < endIndex; i++) {
+            if (this.state.gameItems[i]) {
+                games.push(this.state.gameItems[i].outerHTML);
             }
-        } else {
-            needsUpdate = true;
         }
 
-        // Если нужно обновить DOM
-        if (needsUpdate) {
-            console.log(`Updating DOM for page ${pageNumber}`);
+        return games;
+    },
 
-            // Очищаем только если есть неправильные игры
-            rowElement.innerHTML = '';
+    // Загрузить первую страницу из локального кэша браузера
+    loadFirstPageFromLocalCache() {
+        try {
+            const cachedData = localStorage.getItem('gamepagination_firstpage_cache');
+            if (!cachedData) return null;
 
-            // Добавляем игры из кеша
-            let gamesAdded = 0;
-            for (let i = startIndex; i < endIndex; i++) {
-                if (this.state.gameItems[i] && this.state.gameItems[i].nodeType === Node.ELEMENT_NODE) {
-                    const gameElement = this.state.gameItems[i];
+            const data = JSON.parse(cachedData);
 
-                    // Клонируем элемент чтобы избежать проблем с перемещением
-                    const clonedElement = gameElement.cloneNode(true);
-                    clonedElement.style.display = 'block';
-                    clonedElement.style.animation = 'pageFadeIn 0.3s ease';
-                    clonedElement.dataset.page = pageNumber;
-                    clonedElement.dataset.index = i;
-
-                    rowElement.appendChild(clonedElement);
-                    gamesAdded++;
-                }
+            // Проверяем актуальность (не старше 30 минут)
+            const maxAge = 30 * 60 * 1000; // 30 минут
+            if (Date.now() - data.timestamp > maxAge) {
+                localStorage.removeItem('gamepagination_firstpage_cache');
+                return null;
             }
 
-            console.log(`Added ${gamesAdded} games from cache to page ${pageNumber}`);
-        } else {
-            console.log(`DOM already has correct games for page ${pageNumber}, skipping update`);
+            // Проверяем, что это тот же URL
+            if (data.url !== window.location.href) {
+                localStorage.removeItem('gamepagination_firstpage_cache');
+                return null;
+            }
+
+            console.log(`Found cached page 1 in browser cache (${data.html.length} games)`);
+            return data.html;
+        } catch (error) {
+            console.warn('Could not load first page from cache:', error);
+            localStorage.removeItem('gamepagination_firstpage_cache');
+            return null;
         }
+    },
 
-        // Обновляем UI
-        this.updatePageNumbers();
-        this.updatePageInfo();
-        this.updateNavigationButtons();
+    // Сохранить первую страницу в локальный кэш браузера
+    saveFirstPageToLocalCache() {
+        try {
+            if (this.config.currentPage !== 1) return;
 
-        // ВАЖНО: Обновляем URL только если это не начальная загрузка
-        if (this.shouldUpdateUrlOnPageChange(pageNumber)) {
-            this.updateBrowserUrl(pageNumber);
+            const container = document.querySelector(this.config.containerSelector);
+            if (!container) return;
+
+            const rowElement = container.querySelector('.row');
+            if (!rowElement) return;
+
+            const gameElements = rowElement.querySelectorAll('.game-card-container');
+            if (gameElements.length === 0) return;
+
+            const gamesHTML = Array.from(gameElements).map(el => el.outerHTML);
+
+            const cacheData = {
+                html: gamesHTML,
+                timestamp: Date.now(),
+                totalItems: this.state.totalItems,
+                totalPages: this.state.totalPages,
+                url: window.location.href
+            };
+
+            localStorage.setItem('gamepagination_firstpage_cache', JSON.stringify(cacheData));
+            console.log(`Saved page 1 to browser cache: ${gamesHTML.length} games`);
+        } catch (error) {
+            console.warn('Could not save first page to cache:', error);
         }
-
-        // Сохраняем в storage
-        this.saveCurrentPageToStorage(pageNumber);
-
-        // ПРЕДЗАГРУЖАЕМ соседние страницы в фоне
-        this.preloadAdjacentPages(pageNumber);
     },
 
     // Проверить, есть ли игры страницы в DOM
@@ -320,7 +288,6 @@ const GamePagination = {
 
             if (isNaN(gamePage)) {
                 // Если у игры нет data-page, считаем что это может быть правильная страница
-                // (возможно игры загружены сервером без этого атрибута)
                 continue;
             }
 
@@ -353,70 +320,187 @@ const GamePagination = {
         return false;
     },
 
-    // Проверить, что игры в DOM принадлежат правильной странице
-    verifyDOMGames(expectedPage) {
-        if (!expectedPage || expectedPage < 1) return false;
-
-        const container = document.querySelector(this.config.containerSelector);
-        if (!container) return false;
-
-        const rowElement = container.querySelector('.row');
-        if (!rowElement) return false;
-
-        const gameElements = rowElement.querySelectorAll('.game-card-container');
-        const gameCount = gameElements.length;
-
-        console.log(`Found ${gameCount} game elements in DOM for page check`);
-
-        // Если есть игры в DOM, проверяем соответствует ли их количество запрошенной странице
-        if (gameCount > 0) {
-            // Рассчитываем диапазон индексов для этой страницы
-            const startIndex = (expectedPage - 1) * this.config.itemsPerPage;
-            const endIndex = Math.min(startIndex + this.config.itemsPerPage, this.state.totalItems);
-
-            // Если количество игр соответствует странице или это последняя страница
-            if (gameCount === this.config.itemsPerPage ||
-                (expectedPage === this.state.totalPages && gameCount === (this.state.totalItems % this.config.itemsPerPage || this.config.itemsPerPage))) {
-                console.log(`DOM has ${gameCount} games, which matches page ${expectedPage} (range: ${startIndex + 1}-${endIndex})`);
-                return true;
-            }
-        }
-
-        return false;
-    },
-
-    // Проверить и очистить неправильные игры из DOM
-    validateAndCleanDOM(expectedPage) {
+    // Проверить и кэшировать начальную страницу из DOM
+    checkAndCacheInitialPage() {
         const container = document.querySelector(this.config.containerSelector);
         if (!container) return;
 
         const rowElement = container.querySelector('.row');
         if (!rowElement) return;
 
-        const gameElements = rowElement.querySelectorAll('.game-card-container');
-        let hasWrongGames = false;
-        let needsCleaning = false;
+        const existingGames = rowElement.querySelectorAll('.game-card-container');
+        console.log(`Found ${existingGames.length} games in DOM on init`);
 
-        gameElements.forEach((game, index) => {
-            if (game.dataset.page) {
-                const gamePage = parseInt(game.dataset.page);
-                if (gamePage !== expectedPage) {
-                    console.log(`Found game with wrong data-page: ${gamePage}, expected: ${expectedPage}`);
-                    hasWrongGames = true;
-                }
-            } else {
-                console.log(`Found game without data-page attribute`);
-                needsCleaning = true;
+        if (existingGames.length === 0) {
+            const noGamesElement = rowElement.querySelector('.text-center.py-5');
+            if (noGamesElement && noGamesElement.textContent.includes('No games found')) {
+                console.log('Found "No games found" message, this is really an empty page');
+                this.hidePagination();
+                return;
             }
-        });
 
-        if (hasWrongGames || needsCleaning) {
-            console.log(`Cleaning DOM because of wrong/missing data-page attributes`);
-            rowElement.innerHTML = '';
-            return true;
+            console.log(`No games in DOM, loading page ${this.config.currentPage}`);
+            this.showPage(this.config.currentPage, false);
+            return;
         }
 
-        return false;
+        // Определяем для какой страницы эти игры
+        let pageToCache = this.config.currentPage;
+        const gamePages = new Set();
+
+        for (const game of existingGames) {
+            const page = parseInt(game.dataset.page);
+            if (!isNaN(page) && page > 0) {
+                gamePages.add(page);
+            }
+        }
+
+        if (gamePages.size === 1) {
+            const detectedPage = Array.from(gamePages)[0];
+            console.log(`All games have data-page="${detectedPage}"`);
+
+            if (detectedPage !== this.config.currentPage) {
+                console.log(`DOM has page ${detectedPage}, but URL says ${this.config.currentPage}. Using DOM page.`);
+                pageToCache = detectedPage;
+                this.config.currentPage = detectedPage;
+            }
+        } else if (gamePages.size === 0) {
+            const gamesCount = existingGames.length;
+            const itemsPerPage = this.config.itemsPerPage;
+
+            if (gamesCount === itemsPerPage) {
+                console.log(`Full page of ${gamesCount} games detected, using URL page: ${this.config.currentPage}`);
+            } else if (gamesCount < itemsPerPage && this.config.currentPage === this.state.totalPages) {
+                console.log(`Partial page (${gamesCount} games) detected, assuming last page: ${this.config.currentPage}`);
+            }
+        }
+
+        const noGamesMsg = rowElement.querySelector('.text-center.py-5');
+        if (noGamesMsg && noGamesMsg.textContent.includes('No games found')) {
+            console.log('Removing "No games found" message');
+            noGamesMsg.remove();
+        }
+
+        // Кэшируем игры из DOM
+        this.cacheGamesFromDOM(pageToCache);
+        this.state.loadedPages.add(pageToCache);
+
+        console.log(`Cached ${existingGames.length} games from DOM for page ${pageToCache}`);
+
+        // Сохраняем в локальный кэш если это первая страница
+        if (pageToCache === 1) {
+            this.saveFirstPageToLocalCache();
+        }
+
+        // Обновляем UI
+        this.updatePageNumbers();
+        this.updatePageInfo();
+        this.updateNavigationButtons();
+
+        console.log(`Initial page ${pageToCache} loaded from DOM`);
+    },
+
+    // Определить, нужно ли обновлять URL при смене страницы
+    shouldUpdateUrlOnPageChange(pageNumber) {
+        // Если это первая страница и в URL нет параметра page, не обновляем
+        const urlParams = new URLSearchParams(window.location.search);
+        const currentPageInUrl = urlParams.get('page');
+
+        if (pageNumber === 1 && !currentPageInUrl) {
+            return false;
+        }
+
+        // Если страница уже указана в URL, не обновляем
+        if (currentPageInUrl && parseInt(currentPageInUrl) === pageNumber) {
+            return false;
+        }
+
+        return true;
+    },
+
+    // Показать страницу из кеша (уже загруженную)
+    showPageFromCache(pageNumber) {
+        console.log(`showPageFromCache for page ${pageNumber}`);
+
+        this.removeLoadingIndicator(pageNumber);
+
+        this.config.currentPage = pageNumber;
+
+        const startIndex = (pageNumber - 1) * this.config.itemsPerPage;
+        const endIndex = Math.min(startIndex + this.config.itemsPerPage, this.state.totalItems);
+
+        console.log(`Showing cached page ${pageNumber}: items ${startIndex + 1}-${endIndex}`);
+
+        const container = document.querySelector(this.config.containerSelector);
+        if (!container) {
+            console.error('Games container not found');
+            return;
+        }
+
+        let rowElement = container.querySelector('.row');
+        if (!rowElement) {
+            rowElement = document.createElement('div');
+            rowElement.className = 'row';
+            container.appendChild(rowElement);
+        }
+
+        // Очищаем только если есть неправильные игры
+        let needsUpdate = true;
+        const existingGames = rowElement.querySelectorAll('.game-card-container');
+
+        if (existingGames.length > 0) {
+            needsUpdate = false;
+            for (const game of existingGames) {
+                const gamePage = parseInt(game.dataset.page);
+                if (gamePage !== pageNumber) {
+                    needsUpdate = true;
+                    break;
+                }
+            }
+        }
+
+        if (needsUpdate) {
+            console.log(`Updating DOM for page ${pageNumber}`);
+
+            // Используем DocumentFragment для быстрой вставки
+            const fragment = document.createDocumentFragment();
+            let gamesAdded = 0;
+
+            for (let i = startIndex; i < endIndex; i++) {
+                if (this.state.gameItems[i] && this.state.gameItems[i].nodeType === Node.ELEMENT_NODE) {
+                    const gameElement = this.state.gameItems[i];
+
+                    const clonedElement = gameElement.cloneNode(true);
+                    clonedElement.style.display = 'block';
+                    clonedElement.style.animation = 'pageFadeIn 0.3s ease';
+                    clonedElement.dataset.page = pageNumber;
+                    clonedElement.dataset.index = i;
+
+                    fragment.appendChild(clonedElement);
+                    gamesAdded++;
+                }
+            }
+
+            // Быстрая замена содержимого
+            rowElement.innerHTML = '';
+            rowElement.appendChild(fragment);
+
+            console.log(`Added ${gamesAdded} games from cache to page ${pageNumber}`);
+        } else {
+            console.log(`DOM already has correct games for page ${pageNumber}, skipping update`);
+        }
+
+        this.updatePageNumbers();
+        this.updatePageInfo();
+        this.updateNavigationButtons();
+
+        if (this.shouldUpdateUrlOnPageChange(pageNumber)) {
+            this.updateBrowserUrl(pageNumber);
+        }
+
+        this.saveCurrentPageToStorage(pageNumber);
+
+        this.preloadAdjacentPages(pageNumber);
     },
 
     // Полная очистка кэша
@@ -444,12 +528,19 @@ const GamePagination = {
                 sessionStorage.removeItem(key);
             });
 
-            console.log(`Removed ${keysToRemove.length} cache keys`);
+            console.log(`Removed ${keysToRemove.length} sessionStorage cache keys`);
         } catch (e) {
             console.warn('Error clearing sessionStorage:', e);
         }
 
-        // Очищаем DOM контейнер
+        // Очищаем localStorage
+        try {
+            localStorage.removeItem('gamepagination_firstpage_cache');
+            console.log('Removed localStorage first page cache');
+        } catch (e) {
+            console.warn('Error clearing localStorage:', e);
+        }
+
         const container = document.querySelector(this.config.containerSelector);
         if (container) {
             const rowElement = container.querySelector('.row');
@@ -477,62 +568,6 @@ const GamePagination = {
         }
     },
 
-    getServerPage() {
-        // Пробуем получить из скрытого поля
-        const serverPageElement = document.getElementById('server-current-page');
-        if (serverPageElement) {
-            const page = parseInt(serverPageElement.value);
-            if (!isNaN(page) && page > 0) {
-                return page;
-            }
-        }
-
-        // Пробуем получить из data-атрибута
-        const gamesContainer = document.querySelector(this.config.containerSelector);
-        if (gamesContainer && gamesContainer.dataset.serverPage) {
-            const page = parseInt(gamesContainer.dataset.serverPage);
-            if (!isNaN(page) && page > 0) {
-                return page;
-            }
-        }
-
-        // Пробуем получить из window.ServerData
-        if (window.ServerData && window.ServerData.pagination && window.ServerData.pagination.currentPage) {
-            return window.ServerData.pagination.currentPage;
-        }
-
-        return 0;
-    },
-
-    checkIfPageHasGamesInDOM(pageNumber) {
-        if (!pageNumber || pageNumber < 1) return false;
-
-        const container = document.querySelector(this.config.containerSelector);
-        if (!container) return false;
-
-        // Проверяем, есть ли в контейнере игры
-        const gameElements = container.querySelectorAll('.game-card-container');
-        const gameCount = gameElements.length;
-
-        console.log(`Found ${gameCount} game elements in DOM for page check`);
-
-        // Если есть игры в DOM, проверяем соответствует ли их количество запрошенной странице
-        if (gameCount > 0) {
-            // Рассчитываем диапазон индексов для этой страницы
-            const startIndex = (pageNumber - 1) * this.config.itemsPerPage;
-            const endIndex = Math.min(startIndex + this.config.itemsPerPage, this.state.totalItems);
-
-            // Если количество игр соответствует странице или это последняя страница
-            if (gameCount === this.config.itemsPerPage ||
-                (pageNumber === this.state.totalPages && gameCount === (this.state.totalItems % this.config.itemsPerPage || this.config.itemsPerPage))) {
-                console.log(`DOM has ${gameCount} games, which matches page ${pageNumber} (range: ${startIndex + 1}-${endIndex})`);
-                return true;
-            }
-        }
-
-        return false;
-    },
-
     // Получить номер страницы из URL
     getPageFromURL() {
         const urlParams = new URLSearchParams(window.location.search);
@@ -551,7 +586,6 @@ const GamePagination = {
         }
 
         // ВАЖНО: Если в URL нет параметра page, значит это первая страница
-        // НЕ проверяем серверные поля, так как они могут быть устаревшими после перезагрузки
         console.log(`No page in URL, defaulting to page 1`);
         return 1;
     },
@@ -624,24 +658,6 @@ const GamePagination = {
         this.updatePageNumbers();
         this.updatePageInfo();
         this.updateNavigationButtons();
-    },
-
-    // ЗАГРУЗКА ТЕКУЩЕЙ СТРАНИЦЫ ИЗ URL
-    loadCurrentPageFromURL() {
-        const urlPage = this.getPageFromURL();
-        const serverPageElement = document.getElementById('server-current-page');
-        const serverPage = serverPageElement ? parseInt(serverPageElement.value) : 1;
-
-        // Если в URL есть параметр page, используем его
-        // Иначе используем серверную страницу
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.has('page')) {
-            console.log(`Using page ${urlPage} from URL`);
-            return urlPage;
-        } else {
-            console.log(`No page in URL, using server page ${serverPage}`);
-            return serverPage;
-        }
     },
 
     // Сохранить страницу в storage
@@ -822,44 +838,6 @@ const GamePagination = {
 
         updateElementSet(topElements, this.config.currentPage);
         updateElementSet(bottomElements, this.config.currentPage);
-    },
-
-    // Загрузить текущие игры из DOM (первая страница)
-    loadCurrentGamesFromDOM() {
-        const container = document.querySelector(this.config.containerSelector);
-        if (!container) {
-            console.error('Games container not found');
-            return;
-        }
-
-        const rowElement = container.querySelector('.row');
-        if (!rowElement) {
-            console.error('Row element not found in games container');
-            return;
-        }
-
-        // Получаем все текущие игры
-        const gameElements = rowElement.querySelectorAll('.game-card-container');
-
-        console.log(`Found ${gameElements.length} game elements in DOM`);
-
-        // Определяем, для какой страницы эти игры
-        const serverPage = this.getServerPage();
-        const urlPage = this.getPageFromURL();
-        const targetPage = serverPage > 0 ? serverPage : urlPage;
-
-        // Рассчитываем начальный индекс для страницы
-        const startIndex = (targetPage - 1) * this.config.itemsPerPage;
-
-        // Сохраняем игры для правильной страницы
-        gameElements.forEach((element, index) => {
-            const gameIndex = startIndex + index;
-            this.state.gameItems[gameIndex] = element;
-            element.dataset.page = targetPage;
-            console.log(`Added game at index ${gameIndex} for page ${targetPage}`);
-        });
-
-        console.log(`Loaded ${gameElements.length} games from current page ${targetPage}`);
     },
 
     // Создаем контейнер для номеров страниц
@@ -1355,47 +1333,35 @@ const GamePagination = {
             return;
         }
 
-        console.log(`showPage called for page ${pageNumber}, isBackground: ${isBackground}, already loaded: ${this.state.loadedPages.has(pageNumber)}`);
+        console.log(`showPage called for page ${pageNumber}, isBackground: ${isBackground}`);
 
-        // Если это фоновая загрузка - просто загружаем и выходим
+        // Если это фоновая загрузка - используем оптимизированный метод
         if (isBackground) {
-            if (!this.state.loadedPages.has(pageNumber) &&
-                !(this.state.loadingPages && this.state.loadingPages.has(pageNumber))) {
-                console.log(`Background loading page ${pageNumber}...`);
-                this.forceLoadPage(pageNumber).catch(error => {
+            this.getOrLoadPageWithCache(pageNumber)
+                .then(() => {
+                    console.log(`Background loaded page ${pageNumber}`);
+                })
+                .catch(error => {
                     console.error(`Error background loading page ${pageNumber}:`, error);
                 });
-            }
             return;
         }
 
-        // Проверяем, загружена ли страница В ПАМЯТИ
-        if (this.state.loadedPages.has(pageNumber)) {
-            console.log(`Page ${pageNumber} already loaded in memory, showing from cache`);
-            this._showPageFromCache(pageNumber);
-            return;
-        }
+        // Для обычной загрузки
+        this.getOrLoadPageWithCache(pageNumber)
+            .then(() => {
+                console.log(`Page ${pageNumber} loaded successfully, showing...`);
+                this.showPageFromCache(pageNumber);
+            })
+            .catch(error => {
+                console.error(`Error loading page ${pageNumber}:`, error);
 
-        // Проверяем, загружается ли страница
-        if (this.state.loadingPages && this.state.loadingPages.has(pageNumber)) {
-            console.log(`Page ${pageNumber} is already loading, waiting...`);
-            return;
-        }
-
-        // Загружаем страницу
-        console.log(`Page ${pageNumber} not loaded, loading from server...`);
-        this.forceLoadPage(pageNumber).then(() => {
-            console.log(`Page ${pageNumber} loaded successfully`);
-            this._showPageAfterLoad(pageNumber);
-        }).catch(error => {
-            console.error(`Error loading page ${pageNumber}:`, error);
-
-            // Пробуем показать первую страницу как запасной вариант
-            if (pageNumber !== 1 && this.state.loadedPages.has(1)) {
-                console.log(`Falling back to page 1`);
-                this.showPage(1, false);
-            }
-        });
+                // Пробуем показать первую страницу как запасной вариант
+                if (pageNumber !== 1 && this.state.loadedPages.has(1)) {
+                    console.log(`Falling back to page 1`);
+                    this.showPage(1, false);
+                }
+            });
     },
 
     // Очистить DOM контейнер ТОЛЬКО при необходимости
@@ -1435,12 +1401,10 @@ const GamePagination = {
 
         const gameElements = rowElement.querySelectorAll('.game-card-container');
 
-        // Рассчитываем правильный начальный индекс для страницы
         const startIndex = (pageNumber - 1) * this.config.itemsPerPage;
 
         console.log(`Caching ${gameElements.length} games from DOM for page ${pageNumber}, start index: ${startIndex}`);
 
-        // Сохраняем игры в кэш
         gameElements.forEach((element, index) => {
             const gameIndex = startIndex + index;
 
@@ -1453,102 +1417,9 @@ const GamePagination = {
             clonedElement.style.display = 'none'; // Скрываем в кеше
 
             this.state.gameItems[gameIndex] = clonedElement;
-            console.log(`Cached game at index ${gameIndex} for page ${pageNumber}`);
         });
 
         console.log(`Total cached games after page ${pageNumber}: ${this.state.gameItems.filter(g => g).length}`);
-    },
-
-    // Внутренний метод для отображения страницы после загрузки
-    _showPageAfterLoad(pageNumber) {
-        console.log(`_showPageAfterLoad for page ${pageNumber}`);
-
-        // Убираем индикатор загрузки если он есть
-        this.removeLoadingIndicator(pageNumber);
-
-        this.config.currentPage = pageNumber;
-
-        const startIndex = (pageNumber - 1) * this.config.itemsPerPage;
-        const endIndex = Math.min(startIndex + this.config.itemsPerPage, this.state.totalItems);
-
-        console.log(`Showing page ${pageNumber}: items ${startIndex + 1}-${endIndex}`);
-
-        // Получаем контейнер
-        const container = document.querySelector(this.config.containerSelector);
-        if (!container) {
-            console.error('Games container not found');
-            return;
-        }
-
-        // Находим или создаем row элемент
-        let rowElement = container.querySelector('.row');
-        if (!rowElement) {
-            rowElement = document.createElement('div');
-            rowElement.className = 'row';
-            container.appendChild(rowElement);
-        }
-
-        // Полностью очищаем row элемент
-        rowElement.innerHTML = '';
-
-        // Удаляем любое сообщение "No games found" из контейнера
-        const allNoGamesMessages = container.querySelectorAll('.text-center.py-5');
-        allNoGamesMessages.forEach(msg => {
-            if (msg.textContent.includes('No games found')) {
-                msg.remove();
-                console.log('Removed "No games found" message from container');
-            }
-        });
-
-        // Добавляем игры для текущей страницы в row
-        let gamesAdded = 0;
-        for (let i = startIndex; i < endIndex; i++) {
-            if (this.state.gameItems[i] && this.state.gameItems[i].nodeType === Node.ELEMENT_NODE) {
-                const gameElement = this.state.gameItems[i];
-
-                // Клонируем элемент
-                const clonedElement = gameElement.cloneNode(true);
-                clonedElement.style.display = 'block';
-                clonedElement.style.animation = 'pageFadeIn 0.3s ease';
-                clonedElement.dataset.page = pageNumber;
-                clonedElement.dataset.index = i;
-
-                rowElement.appendChild(clonedElement);
-                gamesAdded++;
-            }
-        }
-
-        console.log(`Added ${gamesAdded} games to page ${pageNumber}`);
-
-        // ВАЖНО: Никогда не показываем "No games found" если у нас уже есть кэшированные игры для этой страницы
-        // Только если это AJAX запрос вернул пустой результат
-        if (gamesAdded === 0 && !this.state.loadedPages.has(pageNumber)) {
-            console.log('No games to show for page ' + pageNumber);
-            const noGamesHtml = `
-                <div class="col-12">
-                    <div class="text-center py-5">
-                        <h5>No games found</h5>
-                        <p class="text-muted">Try changing your search criteria or reset filters</p>
-                        <a href="/games/" class="btn btn-primary">Show All Games</a>
-                    </div>
-                </div>
-            `;
-            rowElement.innerHTML = noGamesHtml;
-        }
-
-        // Обновляем UI
-        this.updatePageNumbers();
-        this.updatePageInfo();
-        this.updateNavigationButtons();
-
-        // Обновляем URL
-        this.updateBrowserUrl(pageNumber);
-
-        // Сохраняем в storage
-        this.saveCurrentPageToStorage(pageNumber);
-
-        // ПРЕДЗАГРУЖАЕМ соседние страницы
-        this.preloadAdjacentPages(pageNumber);
     },
 
     // Обновить URL браузера
@@ -1664,27 +1535,6 @@ const GamePagination = {
                     this.state.loadingPages.delete(pageNumber);
                 }
             });
-    },
-
-    // Создать placeholder для игры
-    createGamePlaceholder(index) {
-        const placeholder = document.createElement('div');
-        placeholder.className = 'col-xl-3 col-lg-4 col-md-6 mb-4 game-card-container';
-        placeholder.dataset.index = index;
-        placeholder.innerHTML = `
-            <div class="game-card placeholder">
-                <div class="card h-100">
-                    <div class="card-body text-center">
-                        <div class="spinner-border text-primary mb-3" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                        <p class="text-muted">Loading game ${index + 1}...</p>
-                    </div>
-                </div>
-            </div>
-        `;
-        placeholder.style.display = 'block';
-        return placeholder;
     },
 
     // Обновить информацию о странице
@@ -1850,7 +1700,7 @@ const GamePagination = {
         // Проверяем, загружена ли страница
         if (this.state.loadedPages.has(initialPage)) {
             console.log(`Page ${initialPage} already loaded, showing from cache`);
-            this._showPageFromCache(initialPage);
+            this.showPageFromCache(initialPage);
         } else {
             console.log(`Loading page ${initialPage}`);
             this.showPage(initialPage, false);
@@ -1868,7 +1718,6 @@ const GamePagination = {
         console.log('Force updating lazy pagination...');
 
         this.loadPaginationInfoFromDOM();
-        this.loadCurrentGamesFromDOM();
 
         console.log(`Force update: ${this.state.totalItems} items, ${this.state.totalPages} pages`);
 
@@ -1880,7 +1729,7 @@ const GamePagination = {
         this.setupPagination();
 
         // Восстанавливаем страницу из URL
-        const initialPage = this.loadCurrentPageFromURL();
+        const initialPage = this.getPageFromURL();
 
         // Если страница не загружена, загружаем её
         if (!this.state.loadedPages.has(initialPage)) {
@@ -1914,23 +1763,6 @@ const GamePagination = {
         return this.state.totalPages > 1;
     },
 
-    // Запустить фоновую загрузку всех страниц
-    startBackgroundLoading() {
-        console.log('Starting background page loading...');
-
-        // Загружаем следующую страницу сразу
-        if (this.state.totalPages > 1) {
-            this.loadPageInBackground(2);
-        }
-
-        // Остальные страницы загружаем с задержкой
-        for (let page = 3; page <= this.state.totalPages; page++) {
-            setTimeout(() => {
-                this.loadPageInBackground(page);
-            }, (page - 2) * 2000);
-        }
-    },
-
     // Деструктор для очистки
     destroy() {
         console.log('Destroying lazy game pagination...');
@@ -1957,7 +1789,7 @@ window.addEventListener('load', () => {
         // Запускаем фоновую загрузку после полной загрузки страницы
         setTimeout(() => {
             if (GamePagination.hasPagination()) {
-                GamePagination.startBackgroundLoading();
+                GamePagination.preloadAdjacentPages(GamePagination.getCurrentPage());
             }
         }, 2000);
     }, 1000);
