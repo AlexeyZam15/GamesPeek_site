@@ -59,17 +59,36 @@ const GamePagination = {
             return;
         }
 
-        const urlPage = this.getPageFromURL();
-        console.log(`URL requests page: ${urlPage}`);
+        // ВАЖНОЕ ИСПРАВЛЕНИЕ: Проверяем серверные данные перед URL
+        const serverPageField = document.getElementById('server-current-page');
+        let initialPage = 1;
 
-        this.config.currentPage = urlPage;
+        if (serverPageField) {
+            const serverPage = parseInt(serverPageField.value);
+            if (!isNaN(serverPage) && serverPage >= 1 && serverPage <= this.state.totalPages) {
+                initialPage = serverPage;
+                console.log(`✅ Using server page from hidden field: ${initialPage}`);
+            } else {
+                console.log(`⚠️ Server page ${serverPage} invalid or out of range (1-${this.state.totalPages})`);
+            }
+        }
 
+        // Если нет валидных серверных данных, используем URL
+        if (initialPage === 1) {
+            const urlPage = this.getPageFromURL();
+            console.log(`🌐 URL requests page: ${urlPage}`);
+            initialPage = urlPage;
+        }
+
+        this.config.currentPage = initialPage;
+
+        // Проверяем границы
         if (this.state.totalPages > 0 && this.config.currentPage > this.state.totalPages) {
-            console.log(`Adjusting page ${this.config.currentPage} to ${this.state.totalPages}`);
+            console.log(`🔄 Adjusting page ${this.config.currentPage} to ${this.state.totalPages}`);
             this.config.currentPage = Math.max(1, this.state.totalPages);
         }
 
-        console.log(`Initial page set to: ${this.config.currentPage}`);
+        console.log(`🎯 Initial page set to: ${this.config.currentPage}`);
 
         const container = document.querySelector(this.config.containerSelector);
         const rowElement = container ? container.querySelector('.row') : null;
@@ -260,7 +279,6 @@ const GamePagination = {
         }
     },
 
-    // Проверить, есть ли игры страницы в DOM
     arePageGamesInDOM(pageNumber) {
         if (!pageNumber || pageNumber < 1) return false;
 
@@ -273,13 +291,17 @@ const GamePagination = {
         const gameElements = rowElement.querySelectorAll('.game-card-container');
         const gameCount = gameElements.length;
 
-        // Если нет игр в DOM
         if (gameCount === 0) {
             console.log(`No games in DOM for page check`);
             return false;
         }
 
-        // Проверяем data-page атрибуты
+        const serverPage = parseInt(container.dataset.serverPage);
+        if (!isNaN(serverPage) && serverPage === pageNumber) {
+            console.log(`✅ Container has data-server-page="${serverPage}" matching requested page ${pageNumber}`);
+            return true;
+        }
+
         let allGamesMatch = true;
         let firstGamePage = null;
 
@@ -287,7 +309,6 @@ const GamePagination = {
             const gamePage = parseInt(gameElement.dataset.page);
 
             if (isNaN(gamePage)) {
-                // Если у игры нет data-page, считаем что это может быть правильная страница
                 continue;
             }
 
@@ -301,13 +322,20 @@ const GamePagination = {
             }
         }
 
-        // Если все игры имеют правильный data-page
         if (allGamesMatch && firstGamePage === pageNumber) {
             console.log(`All ${gameCount} games in DOM have correct data-page="${pageNumber}"`);
             return true;
         }
 
-        // Если некоторые игры не имеют data-page, но количество игр соответствует странице
+        const serverPageField = document.getElementById('server-current-page');
+        if (serverPageField) {
+            const serverPageValue = parseInt(serverPageField.value);
+            if (!isNaN(serverPageValue) && serverPageValue === pageNumber) {
+                console.log(`✅ Server field indicates page ${pageNumber}, accepting DOM as correct`);
+                return true;
+            }
+        }
+
         const expectedCount = (pageNumber === this.state.totalPages)
             ? (this.state.totalItems % this.config.itemsPerPage || this.config.itemsPerPage)
             : this.config.itemsPerPage;
@@ -344,10 +372,21 @@ const GamePagination = {
             return;
         }
 
-        // Определяем для какой страницы эти игры
+        // ВАЖНОЕ ИСПРАВЛЕНИЕ: Сначала проверяем скрытые поля сервера
+        const serverPageField = document.getElementById('server-current-page');
         let pageToCache = this.config.currentPage;
-        const gamePages = new Set();
 
+        if (serverPageField) {
+            const serverPage = parseInt(serverPageField.value);
+            if (!isNaN(serverPage) && serverPage >= 1 && serverPage <= this.state.totalPages) {
+                console.log(`Server indicates page ${serverPage}, using it instead of URL page ${this.config.currentPage}`);
+                pageToCache = serverPage;
+                this.config.currentPage = serverPage;
+            }
+        }
+
+        // Оригинальная логика определения страницы из DOM
+        const gamePages = new Set();
         for (const game of existingGames) {
             const page = parseInt(game.dataset.page);
             if (!isNaN(page) && page > 0) {
@@ -359,22 +398,12 @@ const GamePagination = {
             const detectedPage = Array.from(gamePages)[0];
             console.log(`All games have data-page="${detectedPage}"`);
 
-            if (detectedPage !== this.config.currentPage) {
-                console.log(`DOM has page ${detectedPage}, but URL says ${this.config.currentPage}. Using DOM page.`);
-                pageToCache = detectedPage;
-                this.config.currentPage = detectedPage;
-            }
-        } else if (gamePages.size === 0) {
-            const gamesCount = existingGames.length;
-            const itemsPerPage = this.config.itemsPerPage;
-
-            if (gamesCount === itemsPerPage) {
-                console.log(`Full page of ${gamesCount} games detected, using URL page: ${this.config.currentPage}`);
-            } else if (gamesCount < itemsPerPage && this.config.currentPage === this.state.totalPages) {
-                console.log(`Partial page (${gamesCount} games) detected, assuming last page: ${this.config.currentPage}`);
+            if (detectedPage !== pageToCache) {
+                console.log(`DOM has page ${detectedPage}, but using server/page ${pageToCache}.`);
             }
         }
 
+        // ВАЖНОЕ ИСПРАВЛЕНИЕ: Всегда использовать определенную страницу, не переключать на другую
         const noGamesMsg = rowElement.querySelector('.text-center.py-5');
         if (noGamesMsg && noGamesMsg.textContent.includes('No games found')) {
             console.log('Removing "No games found" message');
@@ -973,7 +1002,7 @@ const GamePagination = {
         // Проверяем, не загружается ли уже эта страница
         if (this.state.loadingPages && this.state.loadingPages.has(pageNumber)) {
             console.log(`Page ${pageNumber} is already loading, skipping duplicate request`);
-            return Promise.reject(new Error(`Page ${pageNumber} is already loading`));
+            return Promise.resolve(); // Возвращаем успешный промис вместо ошибки
         }
 
         console.log(`Force loading page ${pageNumber}...`);
@@ -1335,7 +1364,7 @@ const GamePagination = {
 
         console.log(`showPage called for page ${pageNumber}, isBackground: ${isBackground}`);
 
-        // Если это фоновая загрузка - используем оптимизированный метод
+        // Если это фоновая загрузка - просто загружаем без показа
         if (isBackground) {
             this.getOrLoadPageWithCache(pageNumber)
                 .then(() => {
@@ -1347,7 +1376,14 @@ const GamePagination = {
             return;
         }
 
-        // Для обычной загрузки
+        // Если страница уже загружена - показываем её
+        if (this.state.loadedPages.has(pageNumber)) {
+            console.log(`Page ${pageNumber} already loaded, showing...`);
+            this.showPageFromCache(pageNumber);
+            return;
+        }
+
+        // Если страница не загружена - загружаем и показываем
         this.getOrLoadPageWithCache(pageNumber)
             .then(() => {
                 console.log(`Page ${pageNumber} loaded successfully, showing...`);
@@ -1359,7 +1395,7 @@ const GamePagination = {
                 // Пробуем показать первую страницу как запасной вариант
                 if (pageNumber !== 1 && this.state.loadedPages.has(1)) {
                     console.log(`Falling back to page 1`);
-                    this.showPage(1, false);
+                    this.showPageFromCache(1);
                 }
             });
     },
@@ -1464,28 +1500,35 @@ const GamePagination = {
     preloadAdjacentPages(currentPage) {
         const pagesToPreload = [];
 
-        // Предзагружаем следующую страницу
-        if (currentPage < this.state.totalPages) {
-            const nextPage = currentPage + 1;
-            if (!this.state.loadedPages.has(nextPage) &&
-                !(this.state.loadingPages && this.state.loadingPages.has(nextPage))) {
-                pagesToPreload.push(nextPage);
+        // Загружаем все страницы, кроме уже загруженных
+        for (let page = 1; page <= this.state.totalPages; page++) {
+            // Пропускаем текущую страницу
+            if (page === currentPage) {
+                continue;
             }
+
+            // Пропускаем уже загруженные страницы
+            if (this.state.loadedPages.has(page)) {
+                continue;
+            }
+
+            // Пропускаем страницы, которые уже загружаются
+            if (this.state.loadingPages && this.state.loadingPages.has(page)) {
+                continue;
+            }
+
+            // Добавляем страницу для предзагрузки
+            pagesToPreload.push(page);
         }
 
-        // Предзагружаем предыдущую страницу
-        if (currentPage > 1) {
-            const prevPage = currentPage - 1;
-            if (!this.state.loadedPages.has(prevPage) &&
-                !(this.state.loadingPages && this.state.loadingPages.has(prevPage))) {
-                pagesToPreload.push(prevPage);
-            }
-        }
+        console.log(`Preloading ${pagesToPreload.length} pages in background...`);
 
-        // Загружаем в фоне
-        pagesToPreload.forEach(page => {
-            console.log(`Preloading page ${page} in background...`);
-            this.loadPageInBackground(page);
+        // Загружаем с небольшими задержками, чтобы не перегружать сервер
+        pagesToPreload.forEach((page, index) => {
+            setTimeout(() => {
+                console.log(`Background loading page ${page}...`);
+                this.loadPageInBackground(page);
+            }, index * 500); // Увеличиваем задержку до 500мс
         });
     },
 
@@ -1510,6 +1553,14 @@ const GamePagination = {
             return;
         }
 
+        console.log(`Background loading page ${pageNumber}...`);
+
+        // Используем direct load вместо showPage, чтобы избежать рекурсии
+        this.loadPageInBackgroundDirect(pageNumber);
+    },
+
+    // Прямая фоновая загрузка
+    loadPageInBackgroundDirect(pageNumber) {
         // Помечаем как загружаемую
         if (!this.state.loadingPages) {
             this.state.loadingPages = new Set();
@@ -1520,7 +1571,7 @@ const GamePagination = {
         this.loadPageFromServer(pageNumber)
             .then(games => {
                 this.processPageGames(pageNumber, games);
-                console.log(`Page ${pageNumber} loaded in background`);
+                console.log(`Page ${pageNumber} loaded in background (${games.length} games)`);
 
                 // Снимаем флаг загрузки
                 if (this.state.loadingPages) {
@@ -1529,6 +1580,9 @@ const GamePagination = {
             })
             .catch(error => {
                 console.error(`Error loading page ${pageNumber} in background:`, error);
+
+                // Все равно помечаем как загруженную (пустую)
+                this.processPageGames(pageNumber, []);
 
                 // Снимаем флаг загрузки при ошибке
                 if (this.state.loadingPages) {
