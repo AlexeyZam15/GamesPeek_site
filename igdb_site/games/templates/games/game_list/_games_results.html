@@ -31,7 +31,7 @@
             <p>Debug ModeResult Page: {{ debug_info.mode_result_page|default:"unknown" }}</p>
         </div>
 
-        <!-- Скрытые поля для передачи данных от сервера к JavaScript -->
+        <!-- ВАЖНОЕ ИСПРАВЛЕНИЕ: Добавляем скрытые поля для передачи данных от сервера к JavaScript -->
         <div style="display: none;">
             <input type="hidden" id="server-current-page" value="{{ current_page }}">
             <input type="hidden" id="server-total-pages" value="{{ total_pages }}">
@@ -39,6 +39,7 @@
             <input type="hidden" id="server-start-index" value="{{ start_index }}">
             <input type="hidden" id="server-end-index" value="{{ end_index }}">
             <input type="hidden" id="server-items-per-page" value="{{ items_per_page|default:16 }}">
+            <input type="hidden" id="server-rendered" value="true">
         </div>
 
         <div class="d-flex justify-content-between align-items-center mb-3">
@@ -83,6 +84,7 @@
         </div>
 
         <!-- Контейнер для игр с data-атрибутами для JS -->
+        <!-- ВАЖНОЕ ИСПРАВЛЕНИЕ: добавляем data-server-page -->
         <div class="games-container"
              data-current-page="{{ current_page }}"
              data-total-pages="{{ total_pages }}"
@@ -215,10 +217,7 @@
             endIndex: {{ end_index }},
             itemsPerPage: {{ items_per_page|default:16 }},
             hasGames: {% if games or games_with_similarity %}true{% else %}false{% endif %},
-            gameCount:
-    {% if games %}{{ games|length }}{% elif games_with_similarity %}{{ games_with_similarity|length }}{% else %
-        }0{% endif %},
-            // ВАЖНО: Добавляем информацию о том, есть ли сообщение "No games found"
+            gameCount: {% if games %}{{ games|length }}{% elif games_with_similarity %}{{ games_with_similarity|length }}{% else %}0{% endif %},
             hasNoGamesMessage: {% if not games and not games_with_similarity %}true{% else %}false{% endif %}
     };
 
@@ -226,16 +225,13 @@
     console.log('URL page parameter:', '{{ request.GET.page|default:"not specified" }}');
         console.log('Server rendered page:', {{ current_page }});
 
-        // Также сохраняем в sessionStorage для использования при инициализации
         try {
             sessionStorage.setItem('serverPageData', JSON.stringify(window.ServerData.pagination));
-            // ВАЖНО: Сохраняем также текущий URL с параметрами
             sessionStorage.setItem('currentPageUrl', window.location.href);
         } catch (e) {
             console.warn('Could not save server page data to sessionStorage:', e);
         }
 
-        // ВАЖНО: Устанавливаем data-атрибуты для всех игровых карточек
         document.addEventListener('DOMContentLoaded', function() {
             setTimeout(function() {
                 const gameCards = document.querySelectorAll('.game-card-container');
