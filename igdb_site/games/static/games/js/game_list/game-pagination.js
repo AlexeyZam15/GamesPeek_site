@@ -53,11 +53,17 @@ const GamePagination = {
 
         this.loadPaginationInfoFromDOM();
 
-        if (this.state.totalItems === 0) {
-            console.error('ERROR: No items found for pagination!');
+        // ВАЖНОЕ ИСПРАВЛЕНИЕ: Не скрываем пагинацию при totalItems = 0
+        // Вместо этого проверяем наличие сообщения "No games found"
+        const noGamesElement = document.querySelector('.text-center.py-5');
+        if (noGamesElement && noGamesElement.textContent.includes('No games found')) {
+            console.log('Found "No games found" message, hiding pagination');
             this.hidePagination();
             return;
         }
+
+        // Если нет игр, но и нет сообщения "No games found", продолжаем инициализацию
+        // данные могут быть загружены позже
 
         // ВАЖНОЕ ИСПРАВЛЕНИЕ: Проверяем серверные данные перед URL
         const serverPageField = document.getElementById('server-current-page');
@@ -427,6 +433,9 @@ const GamePagination = {
         this.updateNavigationButtons();
 
         console.log(`Initial page ${pageToCache} loaded from DOM`);
+
+        // ВАЖНОЕ ИСПРАВЛЕНИЕ: Показываем пагинацию после загрузки данных
+        this.showPagination();
     },
 
     // Определить, нужно ли обновлять URL при смене страницы
@@ -831,6 +840,8 @@ const GamePagination = {
 
         console.log(`Pagination info loaded: ${this.state.totalItems} items, ${this.state.totalPages} pages, items per page: ${this.config.itemsPerPage}`);
 
+        // ВАЖНОЕ ИСПРАВЛЕНИЕ: ВСЕГДА показываем пагинацию, даже если totalItems = 0
+        // Потому что данные могут загрузиться позже
         this.showPagination();
     },
 
@@ -1733,6 +1744,15 @@ const GamePagination = {
         console.log(`Current URL: ${currentUrl}, page in URL: ${currentPageInUrl}`);
 
         this.loadPaginationInfoFromDOM();
+
+        // ВАЖНОЕ ИСПРАВЛЕНИЕ: Не скрывать пагинацию автоматически
+        // Проверяем наличие сообщения "No games found"
+        const noGamesElement = document.querySelector('.text-center.py-5');
+        if (noGamesElement && noGamesElement.textContent.includes('No games found')) {
+            console.log('Found "No games found" message, hiding pagination');
+            this.hidePagination();
+            return;
+        }
 
         this.showPagination();
 
