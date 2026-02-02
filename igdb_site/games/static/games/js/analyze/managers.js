@@ -144,12 +144,15 @@ export function scrollToHighlight(analyzer, elementName) {
         // Сначала убираем предыдущее специальное выделение
         const previousSpecial = activePane.querySelectorAll('.highlight-found-element');
         previousSpecial.forEach(el => {
-            el.classList.remove('highlight-found-element', 'highlight-blink', 'highlight-gradient');
+            // ИСПРАВЛЕНИЕ: Проверяем, что элемент существует
+            if (el && el.classList) {
+                el.classList.remove('highlight-found-element', 'highlight-blink', 'highlight-gradient');
+            }
         });
 
         // Прокручиваем к первому элементу внутри текстовой области
         const textDisplayArea = activePane.querySelector('.text-display-area');
-        if (textDisplayArea) {
+        if (textDisplayArea && targetHighlight) {
             const highlightRect = targetHighlight.getBoundingClientRect();
             const areaRect = textDisplayArea.getBoundingClientRect();
             const relativeTop = highlightRect.top - areaRect.top;
@@ -162,6 +165,9 @@ export function scrollToHighlight(analyzer, elementName) {
 
         // Применяем специальное выделение ко ВСЕМ совпадениям
         allHighlights.forEach((h, index) => {
+            // ИСПРАВЛЕНИЕ: Проверяем, что элемент существует
+            if (!h || !h.classList) return;
+
             // Добавляем классы специальной подсветки
             h.classList.add('highlight-found-element', 'highlight-blink', 'highlight-transition');
 
@@ -209,16 +215,26 @@ export function handleScroll(analyzer) {
    ============================================ */
 
 function flashElement(analyzer, element) {
+    // ИСПРАВЛЕНИЕ: Проверяем наличие элемента и его classList
+    if (!element || !element.classList) return;
+
     element.classList.add('highlight-flash');
     setTimeout(() => {
-        element.classList.remove('highlight-flash');
+        if (element && element.classList) {
+            element.classList.remove('highlight-flash');
+        }
     }, 2000);
 }
 
 function createMatchCountIndicator(analyzer, element, count) {
+    // ИСПРАВЛЕНИЕ: Проверяем наличие элемента
+    if (!element) return;
+
     // Удаляем старый индикатор, если есть
     const oldIndicator = element.querySelector('.highlight-match-count');
-    if (oldIndicator) oldIndicator.remove();
+    if (oldIndicator && oldIndicator.parentNode) {
+        oldIndicator.remove();
+    }
 
     if (count > 1) {
         const indicator = document.createElement('span');
