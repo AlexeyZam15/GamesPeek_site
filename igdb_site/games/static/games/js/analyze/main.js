@@ -13,6 +13,20 @@ document.addEventListener('DOMContentLoaded', function() {
     try {
         console.log('=== GAME ANALYZER INITIALIZATION ===');
 
+        // ИСПРАВЛЕНИЕ: Добавляем обработчик ошибок для событий
+        const originalAddEventListener = EventTarget.prototype.addEventListener;
+        EventTarget.prototype.addEventListener = function(type, listener, options) {
+            const wrappedListener = function(e) {
+                try {
+                    return listener.apply(this, arguments);
+                } catch (error) {
+                    console.error(`Error in event listener for ${type}:`, error);
+                    return null;
+                }
+            };
+            return originalAddEventListener.call(this, type, wrappedListener, options);
+        };
+
         // Создаем экземпляр анализатора
         const analyzer = new GameAnalyzerUI();
         window.gameAnalyzer = analyzer;
@@ -22,6 +36,16 @@ document.addEventListener('DOMContentLoaded', function() {
             setTimeout(() => {
                 analyzer.forceTextAlignmentFix();
             }, 100);
+        });
+
+        // Обработка скрытия вкладок
+        const tabLinks = document.querySelectorAll('#analyzeTabs .nav-link');
+        tabLinks.forEach(link => {
+            link.addEventListener('hidden.bs.tab', () => {
+                setTimeout(() => {
+                    analyzer.setupTooltips();
+                }, 50);
+            });
         });
 
         // Обработка перед закрытием страницы

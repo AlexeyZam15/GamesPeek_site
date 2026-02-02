@@ -1,4 +1,3 @@
-// games/static/games/js/analyze/handlers.js
 /**
  * Обработчики событий для Game Analyzer
  */
@@ -312,7 +311,11 @@ export function bindScrollToTop(analyzer) {
 
 export function bindFoundItemsClicks(analyzer) {
     document.addEventListener('click', (e) => {
-        const foundItem = e.target.closest('.found-item-badge');
+        // ИСПРАВЛЕНИЕ: Проверяем, что e.target является DOM элементом
+        const target = e.target;
+        if (!target || !target.closest) return;
+
+        const foundItem = target.closest('.found-item-badge');
         if (foundItem) {
             e.preventDefault();
             const elementName = foundItem.dataset.name;
@@ -394,14 +397,22 @@ export function setupTooltips(analyzer) {
 export function setupMultiCriteriaTooltips(analyzer) {
     // Настраиваем кастомные тултипы для множественных критериев
     document.addEventListener('mouseenter', (e) => {
-        const multiElement = e.target.closest('.highlight-multi');
+        // ИСПРАВЛЕНИЕ: Проверяем, что target является DOM элементом
+        const target = e.target;
+        if (!target || !target.closest) return;
+
+        const multiElement = target.closest('.highlight-multi');
         if (multiElement) {
             showMultiCriteriaTooltip(analyzer, multiElement, e);
         }
     }, true);
 
     document.addEventListener('mouseleave', (e) => {
-        const multiElement = e.target.closest('.highlight-multi');
+        // ИСПРАВЛЕНИЕ: Проверяем, что target является DOM элементом
+        const target = e.target;
+        if (!target || !target.closest) return;
+
+        const multiElement = target.closest('.highlight-multi');
         if (multiElement) {
             hideMultiCriteriaTooltip(analyzer);
         }
@@ -411,7 +422,11 @@ export function setupMultiCriteriaTooltips(analyzer) {
 export function setupHighlightEvents(analyzer) {
     // Обработка наведения на подсвеченные элементы (только hover)
     document.addEventListener('mouseenter', (e) => {
-        const highlightElement = e.target.closest('.highlight-genre, .highlight-theme, .highlight-perspective, .highlight-game_mode, .highlight-keyword, .highlight-multi');
+        // ИСПРАВЛЕНИЕ: Проверяем, что target является DOM элементом
+        const target = e.target;
+        if (!target || !target.closest) return;
+
+        const highlightElement = target.closest('.highlight-genre, .highlight-theme, .highlight-perspective, .highlight-game_mode, .highlight-keyword, .highlight-multi');
 
         if (highlightElement) {
             handleHighlightHover(analyzer, highlightElement, true);
@@ -419,7 +434,11 @@ export function setupHighlightEvents(analyzer) {
     }, true);
 
     document.addEventListener('mouseleave', (e) => {
-        const highlightElement = e.target.closest('.highlight-genre, .highlight-theme, .highlight-perspective, .highlight-game_mode, .highlight-keyword, .highlight-multi');
+        // ИСПРАВЛЕНИЕ: Проверяем, что target является DOM элементом
+        const target = e.target;
+        if (!target || !target.closest) return;
+
+        const highlightElement = target.closest('.highlight-genre, .highlight-theme, .highlight-perspective, .highlight-game_mode, .highlight-keyword, .highlight-multi');
 
         if (highlightElement) {
             handleHighlightHover(analyzer, highlightElement, false);
@@ -599,27 +618,46 @@ function showMultiCriteriaTooltip(analyzer, element, event) {
     document.body.appendChild(tooltip);
     analyzer.currentMultiTooltip = tooltip;
 
+    // ИСПРАВЛЕНИЕ: Безопасное получение координат
+    let pageX, pageY;
+
+    if (event && typeof event.pageX === 'number') {
+        pageX = event.pageX;
+        pageY = event.pageY;
+    } else if (event && event.touches && event.touches.length > 0) {
+        pageX = event.touches[0].pageX;
+        pageY = event.touches[0].pageY;
+    } else if (event && typeof event.clientX === 'number') {
+        pageX = event.clientX + window.scrollX;
+        pageY = event.clientY + window.scrollY;
+    } else {
+        // Если координаты не доступны, используем позицию элемента
+        const rect = element.getBoundingClientRect();
+        pageX = rect.left + rect.width / 2 + window.scrollX;
+        pageY = rect.top + rect.height / 2 + window.scrollY;
+    }
+
     // Позиционируем тултип
-    positionMultiCriteriaTooltip(analyzer, tooltip, event);
+    positionMultiCriteriaTooltip(analyzer, tooltip, pageX, pageY);
 }
 
-function positionMultiCriteriaTooltip(analyzer, tooltip, event) {
+function positionMultiCriteriaTooltip(analyzer, tooltip, pageX, pageY) {
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
     const tooltipWidth = tooltip.offsetWidth;
     const tooltipHeight = tooltip.offsetHeight;
 
-    let left = event.pageX + 10;
-    let top = event.pageY + 10;
+    let left = pageX + 10;
+    let top = pageY + 10;
 
     // Проверяем, не выходит ли за правый край
     if (left + tooltipWidth > viewportWidth - 10) {
-        left = event.pageX - tooltipWidth - 10;
+        left = pageX - tooltipWidth - 10;
     }
 
     // Проверяем, не выходит ли за нижний край
     if (top + tooltipHeight > viewportHeight - 10) {
-        top = event.pageY - tooltipHeight - 10;
+        top = pageY - tooltipHeight - 10;
     }
 
     // Проверяем, не выходит ли за верхний край
