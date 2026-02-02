@@ -32,6 +32,26 @@ class PatternManager:
 
     # Паттерны вынесены в константы для легкого редактирования
     GENRE_PATTERNS = {
+        'Action': [
+            r'\baction[-\s]?packed\b',
+            r'\bintense\s+action\b',
+            r'\bnon[-\s]?stop\s+action\b',
+            r'\bfast[-\s]?paced\s+action\b',
+            r'\bheart[-\s]?pounding\s+action\b',
+            r'\baction[-\s]?oriented\b',
+            r'\baction[-\s]?driven\b',
+            r'\bhigh[-\s]?octane\s+action\b',
+            r'\bexplosive\s+action\b',
+            r'\baction[-\s]?heavy\b',
+            r'\baction[-\s]?focused\b',
+            r'\baction[-\s]?centered\b',
+            r'\baction[-\s]?based\b',
+            r'\baction[-\s]?filled\b',
+            r'\baction[-\s]?laden\b',
+            r'\baction[-\s]?intensive\b',
+            r'\baction[-\s]?rich\b',
+            r'\baction[-\s]?saturated\b',
+        ],
         'Adventure': [
             r'\badventure(\s+game|\s+title|\s+quest)\b',
             r'\bexploration(\s+based|\s+game|\s+focused)\b',
@@ -76,6 +96,11 @@ class PatternManager:
             r'\bmusic(\s+game|\s+rhythm)\b',
             r'\brhythm(\s+game|\s+action)\b',
         ],
+        'Open World': [
+            r'\bopen[-\s]?world(\s+game|\s+title|\s+experience|\s+environment|\s+setting)\b',
+            r'\bopen[-\s]?world(\s+adventure|\s+exploration|\s+rpg|\s+action)?\b',
+            r'\bopen[-\s]?world\s+(sandbox|gameplay|mechanics)\b',
+        ],
         'Pinball': [
             r'\bpinball\b',
             r'\bpin\s+ball\b',
@@ -108,6 +133,10 @@ class PatternManager:
             r'\brole-playing(\s+game|\s+title)\b',
             r'\brpg\b',
         ],
+        'Sandbox': [
+            r'\bsandbox(\s+game)?\b',
+            r'\bsandbox-style\b',
+        ],
         'Shooter': [
             r'\bshooter(\s+game|\s+title)\b',
             r'\bfps(\s+game|\s+title)\b',
@@ -123,6 +152,18 @@ class PatternManager:
         'Strategy': [
             r'\bstrategy(\s+game|\s+title|\s+rpg)\b',
             r'\bstrategic(\s+game|\s+thinking)\b',
+        ],
+        'Survival': [
+            r'\bsurvival(\s+(game|title|experience|horror|elements|mechanics|based|focused|oriented))?\b',
+            r'\b(to\s+)?survive(\s+(the|in|against))?\b',
+            r'\bsurviving\s+(in|against|the)\b',
+            r'\bpost-apocalyptic\s+survival\b',
+            r'\bwilderness\s+survival\b',
+            r'\bsurvival\s+horror\b',
+            r'\bstruggle\s+to\s+survive\b',
+            r'\bfight\s+for\s+survival\b',
+            r'\bbattle\s+for\s+survival\b',
+            r'\bsurvival\s+of\s+the\s+fittest\b',
         ],
         'Tactical': [
             r'\btactical(\s+game|\s+decisions|\s+rpg)\b',
@@ -142,93 +183,14 @@ class PatternManager:
     }
 
     THEME_PATTERNS = {
-        # Найдите тему 'Crafting & Gathering' и измените паттерн:
-        'Crafting & Gathering': [
-            # Основные крафтовые паттерны
-            r'\bcrafting\s+system\b',
-            r'\bcraft(?:ing)?\s+(?:items?|equipment|gear|weapons?|armor|tools)\b',
+        # УДАЛЕНА тема 'Action' (перенесена в жанры)
+        # УДАЛЕНА тема 'Open world' (перенесена в жанры как 'Open World')
+        # УДАЛЕНА тема 'Sandbox' (перенесена в жанры)
+        # УДАЛЕНА тема 'Survival' (перенесена в жанры)
 
-            # Паттерны сбора (ИСПРАВЛЕННЫЕ)
-            r'\bgather(s|ing)?\s+(?:resources?|materials?|supplies?|ingredients?|components?)\b',
-            r'\bcollect(?:ing)?\s+(?:resources?|materials?|items?|components?)\b',
-
-            # Ресурсы и материалы
-            r'\bresource\s+gathering\b',
-            r'\bmaterial\s+collection\b',
-            r'\bgathering\s+materials?\b',
-            r'\bcollecting\s+resources?\b',
-
-            # Конкретные типы крафта
-            r'\bitem\s+crafting\b',
-            r'\bweapon\s+crafting\b',
-            r'\barmor\s+crafting\b',
-            r'\bgear\s+crafting\b',
-            r'\btool\s+crafting\b',
-
-            # Паттерны улучшения (НОВЫЕ)
-            r'\bmakes?\s+(?:their|your)?\s+equipment\b',
-            r'\bupgrades?\s+(?:their|your)?\s+equipment\b',
-            r'\bupgrad(?:ing|e)\s+(?:gear|armor|weapons?|tools|items?|equipment)\b',
-            r'\benhanc(?:ing|e)\s+(?:gear|armor|weapons?|equipment)\b',
-            r'\bimprove(?:ing)?\s+(?:gear|equipment|items?)\b',
-            r'\bmodif(?:ying|y)\s+(?:gear|equipment|weapons?)\b',
-            r'\bcustomiz(?:ing|e)\s+(?:gear|equipment|weapons?)\b',
-
-            # Производство и создание
-            r'\bforge(?:ing)?\s+(?:weapons?|armor|tools|equipment)\b',
-            r'\bsmith(?:ing)?\s+(?:weapons?|armor)\b',
-            r'\bcreate(?:ing)?\s+(?:gear|equipment|items?)\b',
-            r'\bmanufactur(?:ing|e)\s+(?:gear|equipment|items?)\b',
-            r'\bfabricat(?:ing|e)\s+(?:gear|equipment)\b',
-            r'\bbuild(?:ing)?\s+(?:equipment|gear|items?)\b',
-            r'\bassemble(?:ing)?\s+(?:equipment|gear|items?)\b',
-
-            # Различные методы сбора
-            r'\bharvest(?:ing)?\s+(?:resources?|materials?|crops?)\b',
-            r'\bforag(?:ing|e)\s+(?:for|)\s+(?:resources?|materials?|ingredients?)\b',
-            r'\bmining\s+(?:for|)\s+resources?\b',
-            r'\bwoodcutting\b',
-            r'\bfishing\s+(?:for|)\s+(?:materials?|resources?)\b',
-            r'\bscaveng(?:ing|e)\s+(?:for|)\s+supplies?\b',
-            r'\bexcavat(?:ing|e)\s+(?:for|)\s+materials?\b',
-            r'\bprospect(?:ing)?\s+(?:for|)\s+resources?\b',
-
-            # Комбинированные действия
-            r'\bcraft(?:ing)?\s+and\s+gather(?:ing)?\b',
-            r'\bgather(?:ing)?\s+and\s+craft(?:ing)?\b',
-            r'\bcraft(?:ing)?\s+and\s+upgrad(?:ing|e)\b',
-            r'\bcollect(?:ing)?\s+and\s+craft(?:ing)?\b',
-
-            # Системные паттерны
-            r'\bcrafting\s+mechanic\b',
-            r'\bgathering\s+mechanic\b',
-            r'\bresource\s+management\b',
-            r'\bmaterial\s+processing\b',
-            r'\bcrafting\s+station\b',
-            r'\bworkbench\b',
-            r'\bcrafting\s+table\b',
-            r'\bforge\s+station\b',
-            r'\bcrafting\s+recipes?\b',
-            r'\bcrafting\s+ingredients?\b',
-
-            # Дополнительные паттерны
-            r'\brefin(?:ing|e)\s+(?:materials?|resources?)\b',
-            r'\bprocess(?:ing)?\s+(?:materials?|resources?)\b',
-            r'\bdisassemble(?:ing)?\s+items?\b',
-            r'\bbreak\s+down\s+items?\b',
-            r'\brepair(?:ing)?\s+(?:gear|equipment|items?)\b',
-            r'\bmaint(?:ain|enance)\s+(?:gear|equipment)\b',
-
-            # НОВЫЕ ПАТТЕРНЫ ДЛЯ РАЗБЛОКИРОВКИ И ПРОГРЕССИИ
-            r'\bunlock\s+access\s+to\s+more\s+advanced\s+(?:materials|equipment)\b',
-            r'\bunlock(?:ing)?\s+(?:new|advanced|better)\s+(?:materials?|resources?|equipment)\b',
-            r'\baccess\s+(?:new|advanced)\s+(?:materials?|equipment)\b',
-            r'\bprogress\s+to\s+(?:better|advanced)\s+(?:materials?|equipment)\b',
-            r'\badvance(?:ing|e)\s+to\s+(?:better|superior)\s+(?:materials?|equipment)\b',
-            r'\bunlock(?:ing)?\s+(?:higher|tier|level)\s+(?:materials?|equipment)\b',
-            r'\bgain\s+access\s+to\s+(?:advanced|superior|rare)\s+(?:materials?|equipment)\b',
-            r'\bobtain(?:ing)?\s+(?:advanced|better)\s+(?:materials?|equipment)\b',
-            r'\bacquir(?:ing|e)\s+(?:advanced|superior)\s+(?:materials?|equipment)\b',
+        '4X (explore, expand, exploit, and exterminate)': [
+            r'\b4x(\s+game|\s|$)',
+            r'\bexplore.*expand.*exploit.*exterminate',
         ],
         'Base Building': [
             r'\bbase\s+building\b',
@@ -240,10 +202,8 @@ class PatternManager:
             r'\bable\s+to\s+build\b',
             r'\bbuild(?:ing)?\s+(?:structures?|bases?|homes?|buildings?)\b',
             r'\bconstruct(?:ing)?\s+(?:buildings?|structures?)\b',
-            # Добавленные паттерны для Rebuild
             r'\brebuild(?:ing)?\s+(?:bases?|structures?|buildings?|cities?|towns?|settlements?|castle|fortress)\b',
             r'\brebuild(?:ing)?\s+(?:your|their|the)\s+(?:castle|fortress|base|structure|building|city|town|settlement)\b',
-            # ДОБАВЛЕННЫЕ ПАТТЕРНЫ ДЛЯ CASTLE
             r'\bbuilds?\s+a\s+castle\b',
             r'\bconstructs?\s+a\s+castle\b',
             r'\bcastle\s+building\b',
@@ -260,52 +220,12 @@ class PatternManager:
             r'\bstronghold\s+construction\b',
             r'\bbuild(?:ing)?\s+strongholds?\b',
             r'\bconstruct(?:ing)?\s+strongholds?\b',
-            # Паттерны для расширенных вариаций
             r'\bbuild(?:ing)?\s+(?:your|their|a)\s+own\s+castle\b',
             r'\bconstruct(?:ing)?\s+(?:your|their|a)\s+own\s+castle\b',
             r'\bcreate(?:ing)?\s+a\s+castle\b',
             r'\beraise(?:ing)?\s+(?:your|their|a)\s+castle\b',
             r'\bdesign(?:ing)?\s+(?:your|their|a)\s+castle\b',
             r'\bdevelop(?:ing)?\s+a\s+castle\b',
-        ],
-        'Precision Combat': [
-            r'\baim\s+skill[\s-]?shots?\b',
-            r'\bdodge\s+projectiles?\b',
-            r'\bprecise\s+WASD\s+controls\b',
-            r'\bcursor[\s-]?based\s+aiming\b',
-            r'\bno\s+click\s+to\s+move\b',
-            r'\bmanual\s+aiming\b',
-            r'\bdirect\s+control\s+combat\b',
-            r'\bprecision\s+movement\b',
-            r'\bskill[\s-]?based\s+aiming\b',
-            r'\bprojectile\s+dodging\b',
-            r'\breal[\s-]?time\s+aiming\b',
-            r'\btwin[\s-]?stick\s+controls?\b',
-            r'\bmanual\s+targeting\b',
-        ],
-        '4X (explore, expand, exploit, and exterminate)': [
-            r'\b4x(\s+game|\s|$)',
-            r'\bexplore.*expand.*exploit.*exterminate',
-        ],
-        'Action': [
-            r'\baction[-\s]?packed\b',
-            r'\bintense\s+action\b',
-            r'\bnon[-\s]?stop\s+action\b',
-            r'\bfast[-\s]?paced\s+action\b',
-            r'\bheart[-\s]?pounding\s+action\b',
-            r'\baction[-\s]?oriented\b',
-            r'\baction[-\s]?driven\b',
-            r'\bhigh[-\s]?octane\s+action\b',
-            r'\bexplosive\s+action\b',
-            r'\baction[-\s]?heavy\b',
-            r'\baction[-\s]?focused\b',
-            r'\baction[-\s]?centered\b',
-            r'\baction[-\s]?based\b',
-            r'\baction[-\s]?filled\b',
-            r'\baction[-\s]?laden\b',
-            r'\baction[-\s]?intensive\b',
-            r'\baction[-\s]?rich\b',
-            r'\baction[-\s]?saturated\b',
         ],
         'Business': [
             r'\bbusiness\s+simulation\b',
@@ -320,6 +240,72 @@ class PatternManager:
             r'\bfunny\s+game\b',
             r'\bcomic\s+game\b',
             r'\blighthearted\s+comedy\b',
+        ],
+        'Crafting & Gathering': [
+            r'\bcrafting\s+system\b',
+            r'\bcraft(?:ing)?\s+(?:items?|equipment|gear|weapons?|armor|tools)\b',
+            r'\bgather(s|ing)?\s+(?:resources?|materials?|supplies?|ingredients?|components?)\b',
+            r'\bcollect(?:ing)?\s+(?:resources?|materials?|items?|components?)\b',
+            r'\bresource\s+gathering\b',
+            r'\bmaterial\s+collection\b',
+            r'\bgathering\s+materials?\b',
+            r'\bcollecting\s+resources?\b',
+            r'\bitem\s+crafting\b',
+            r'\bweapon\s+crafting\b',
+            r'\barmor\s+crafting\b',
+            r'\bgear\s+crafting\b',
+            r'\btool\s+crafting\b',
+            r'\bmakes?\s+(?:their|your)?\s+equipment\b',
+            r'\bupgrades?\s+(?:their|your)?\s+equipment\b',
+            r'\bupgrad(?:ing|e)\s+(?:gear|armor|weapons?|tools|items?|equipment)\b',
+            r'\benhanc(?:ing|e)\s+(?:gear|armor|weapons?|equipment)\b',
+            r'\bimprove(?:ing)?\s+(?:gear|equipment|items?)\b',
+            r'\bmodif(?:ying|y)\s+(?:gear|equipment|weapons?)\b',
+            r'\bcustomiz(?:ing|e)\s+(?:gear|equipment|weapons?)\b',
+            r'\bforge(?:ing)?\s+(?:weapons?|armor|tools|equipment)\b',
+            r'\bsmith(?:ing)?\s+(?:weapons?|armor)\b',
+            r'\bcreate(?:ing)?\s+(?:gear|equipment|items?)\b',
+            r'\bmanufactur(?:ing|e)\s+(?:gear|equipment|items?)\b',
+            r'\bfabricat(?:ing|e)\s+(?:gear|equipment)\b',
+            r'\bbuild(?:ing)?\s+(?:equipment|gear|items?)\b',
+            r'\bassemble(?:ing)?\s+(?:equipment|gear|items?)\b',
+            r'\bharvest(?:ing)?\s+(?:resources?|materials?|crops?)\b',
+            r'\bforag(?:ing|e)\s+(?:for|)\s+(?:resources?|materials?|ingredients?)\b',
+            r'\bmining\s+(?:for|)\s+resources?\b',
+            r'\bwoodcutting\b',
+            r'\bfishing\s+(?:for|)\s+(?:materials?|resources?)\b',
+            r'\bscaveng(?:ing|e)\s+(?:for|)\s+supplies?\b',
+            r'\bexcavat(?:ing|e)\s+(?:for|)\s+materials?\b',
+            r'\bprospect(?:ing)?\s+(?:for|)\s+resources?\b',
+            r'\bcraft(?:ing)?\s+and\s+gather(?:ing)?\b',
+            r'\bgather(?:ing)?\s+and\s+craft(?:ing)?\b',
+            r'\bcraft(?:ing)?\s+and\s+upgrad(?:ing|e)\b',
+            r'\bcollect(?:ing)?\s+and\s+craft(?:ing)?\b',
+            r'\bcrafting\s+mechanic\b',
+            r'\bgathering\s+mechanic\b',
+            r'\bresource\s+management\b',
+            r'\bmaterial\s+processing\b',
+            r'\bcrafting\s+station\b',
+            r'\bworkbench\b',
+            r'\bcrafting\s+table\b',
+            r'\bforge\s+station\b',
+            r'\bcrafting\s+recipes?\b',
+            r'\bcrafting\s+ingredients?\b',
+            r'\brefin(?:ing|e)\s+(?:materials?|resources?)\b',
+            r'\bprocess(?:ing)?\s+(?:materials?|resources?)\b',
+            r'\bdisassemble(?:ing)?\s+items?\b',
+            r'\bbreak\s+down\s+items?\b',
+            r'\brepair(?:ing)?\s+(?:gear|equipment|items?)\b',
+            r'\bmaint(?:ain|enance)\s+(?:gear|equipment)\b',
+            r'\bunlock\s+access\s+to\s+more\s+advanced\s+(?:materials|equipment)\b',
+            r'\bunlock(?:ing)?\s+(?:new|advanced|better)\s+(?:materials?|resources?|equipment)\b',
+            r'\baccess\s+(?:new|advanced)\s+(?:materials?|equipment)\b',
+            r'\bprogress\s+to\s+(?:better|advanced)\s+(?:materials?|equipment)\b',
+            r'\badvance(?:ing|e)\s+to\s+(?:better|superior)\s+(?:materials?|equipment)\b',
+            r'\bunlock(?:ing)?\s+(?:higher|tier|level)\s+(?:materials?|equipment)\b',
+            r'\bgain\s+access\s+to\s+(?:advanced|superior|rare)\s+(?:materials?|equipment)\b',
+            r'\bobtain(?:ing)?\s+(?:advanced|better)\s+(?:materials?|equipment)\b',
+            r'\bacquir(?:ing|e)\s+(?:advanced|superior)\s+(?:materials?|equipment)\b',
         ],
         'Drama': [
             r'\bdrama(\s+game)?\b',
@@ -373,6 +359,11 @@ class PatternManager:
             r'\byoung\s+protagonists\b',
             r'\bchildhood\s+adventure\b',
         ],
+        'Medieval': [
+            r'\bmedieval\b',
+            r'\bmiddle\s+ages\b',
+            r'\bmiddle-age\b',
+        ],
         'Mystery': [
             r'\bmystery(\s+game)?\b',
             r'\bdetective(\s+story)?\b',
@@ -382,11 +373,6 @@ class PatternManager:
             r'\bnonfiction\b',
             r'\breal(\s+world|\s+life)\b',
         ],
-        'Open world': [
-            r'\bopen[-\s]?world(\s+game|\s+title|\s+experience|\s+environment|\s+setting)\b',
-            r'\bopen[-\s]?world(\s+adventure|\s+exploration|\s+rpg|\s+action)?\b',
-            r'\bopen[-\s]?world\s+(sandbox|gameplay|mechanics)\b',
-        ],
         'Party': [
             r'\bparty\s+(game|games|title|mode)\b',
             r'\bparty-style\s+(game|gaming)\b',
@@ -394,15 +380,31 @@ class PatternManager:
             r'\bcasual\s+party\b',
             r'\bfun\s+party\b',
         ],
+        'Precision Combat': [
+            r'\baim\s+skill[\s-]?shots?\b',
+            r'\bdodge\s+projectiles?\b',
+            r'\bprecise\s+WASD\s+controls\b',
+            r'\bcursor[\s-]?based\s+aiming\b',
+            r'\bno\s+click\s+to\s+move\b',
+            r'\bmanual\s+aiming\b',
+            r'\bdirect\s+control\s+combat\b',
+            r'\bprecision\s+movement\b',
+            r'\bskill[\s-]?based\s+aiming\b',
+            r'\bprojectile\s+dodging\b',
+            r'\breal[\s-]?time\s+aiming\b',
+            r'\btwin[\s-]?stick\s+controls?\b',
+            r'\bmanual\s+targeting\b',
+        ],
+        'Real-time Combat': [
+            r'\breal.time.combat\b',
+            r'\brealtime.combat\b',
+            r'\breal.time.combat\b',
+        ],
         'Romance': [
             r'\bromance(\s+game)?\b',
             r'\bromantic(\s+story)?\b',
             r'\bdating\s+sim\b',
             r'\blove(\s+story|\s+game)\b',
-        ],
-        'Sandbox': [
-            r'\bsandbox(\s+game)?\b',
-            r'\bsandbox-style\b',
         ],
         'Science fiction': [
             r'\bscience\s+fiction(\s+game|\s|$)',
@@ -411,25 +413,6 @@ class PatternManager:
         'Stealth': [
             r'\bstealth(\s+game)?\b',
             r'\bsneaking(\s+game)?\b',
-        ],
-        'Survival': [
-            # Основные ключевые слова
-            r'\bsurvival(\s+(game|title|experience|horror|elements|mechanics|based|focused|oriented))?\b',
-
-            # Глагольные формы
-            r'\b(to\s+)?survive(\s+(the|in|against))?\b',
-            r'\bsurviving\s+(in|against|the)\b',
-
-            # Конкретные типы survival
-            r'\bpost-apocalyptic\s+survival\b',
-            r'\bwilderness\s+survival\b',
-            r'\bsurvival\s+horror\b',
-
-            # Описательные фразы
-            r'\bstruggle\s+to\s+survive\b',
-            r'\bfight\s+for\s+survival\b',
-            r'\bbattle\s+for\s+survival\b',
-            r'\bsurvival\s+of\s+the\s+fittest\b',
         ],
         'Thriller': [
             r'\bpsychological\s+thriller\b',
