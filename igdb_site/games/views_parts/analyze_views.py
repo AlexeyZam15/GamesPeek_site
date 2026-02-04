@@ -381,7 +381,7 @@ def simple_highlight_text(html_text: str, analysis_result: Dict) -> str:
         return html_text
 
     try:
-        # Удаляем существующую подсветку (старые span)
+        # Удаляем существующую подсветку
         html_text = remove_existing_highlights(html_text)
 
         # Собираем ВСЕ совпадения
@@ -399,8 +399,41 @@ def simple_highlight_text(html_text: str, analysis_result: Dict) -> str:
         if not text_positions:
             return html_text
 
+        # ДОПОЛНИТЕЛЬНО: находим частичные совпадения для ключевых слов
+        keyword_matches = []
+        for match in all_matches:
+            if match['category'] == 'keywords':
+                search_text = match['text'].lower()
+                # Ищем частичные вхождения (слово как часть другого слова)
+                pos = 0
+                while True:
+                    found_pos = clean_text.lower().find(search_text, pos)
+                    if found_pos == -1:
+                        break
+
+                    # Проверяем, что это именно частичное совпадение внутри слова
+                    if (found_pos > 0 and clean_text[found_pos - 1].isalnum()) or \
+                            (found_pos + len(search_text) < len(clean_text) and
+                             clean_text[found_pos + len(search_text)].isalnum()):
+                        # Это частичное совпадение внутри слова
+                        keyword_matches.append({
+                            'start': found_pos,
+                            'end': found_pos + len(search_text),
+                            'name': match['name'],
+                            'category': match['category'],
+                            'class_name': match['class_name'],
+                            'color': match['color'],
+                            'text': clean_text[found_pos:found_pos + len(search_text)],
+                            'is_partial': True
+                        })
+
+                    pos = found_pos + 1
+
+        # Объединяем все совпадения
+        all_text_positions = text_positions + keyword_matches
+
         # Группируем пересечения в ЧИСТОМ тексте
-        clean_groups = group_overlapping_positions(text_positions)
+        clean_groups = group_overlapping_positions(all_text_positions)
 
         # Преобразуем группы в формат для замены
         replacements = prepare_replacements_from_groups(clean_text, clean_groups)
@@ -714,18 +747,38 @@ def find_all_text_positions(clean_text: str, all_matches: List[Dict]) -> List[Di
             if found_pos == -1:
                 break
 
-            # Для отдельных слов проверяем границы
-            if ' ' not in search_text:  # Это отдельное слово
-                # Проверяем, что перед словом не буква/цифра
-                if found_pos > 0 and clean_text[found_pos - 1].isalnum():
-                    pos = found_pos + 1
-                    continue
-                # Проверяем, что после слова не буква/цифра
-                if found_pos + len(search_text) < len(clean_text) and clean_text[
-                    found_pos + len(search_text)].isalnum():
-                    pos = found_pos + 1
-                    continue
+            # ДЛЯ КЛЮЧЕВЫХ СЛОВ: ищем множественные формы
+            if match['category'] == 'keywords':
+                # Проверяем следующие символы после найденного слова
+                end_pos = found_pos + len(search_text)
 
+                # Если есть 's' после слова - это множественная форма
+                if end_pos < len(text_lower) and text_lower[end_pos] == 's':
+                    # Расширяем конец для захвата 's'
+                    end_pos += 1
+
+                # Если есть дефис после слова - захватываем его
+                if end_pos < len(text_lower) and text_lower[end_pos] == '-':
+                    end_pos += 1
+
+                # Создаем запись с расширенным текстом
+                extended_text = clean_text[found_pos:end_pos]
+
+                text_positions.append({
+                    'start': found_pos,
+                    'end': end_pos,
+                    'name': match['name'],
+                    'category': match['category'],
+                    'class_name': match['class_name'],
+                    'color': match['color'],
+                    'text': extended_text,
+                    'original_match': search_text
+                })
+
+                pos = found_pos + 1
+                continue
+
+            # Для остальных категорий - обычный поиск
             text_positions.append({
                 'start': found_pos,
                 'end': found_pos + len(search_text),
