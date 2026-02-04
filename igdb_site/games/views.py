@@ -25,6 +25,7 @@ from .views_parts.other_views import (
 from .views_parts.analyze_views import (
     analyze_single_game,
     clear_analysis_results,
+    is_staff_or_superuser,
 )
 from .views_parts.base_views import (
     # Helper classes
@@ -71,6 +72,7 @@ __all__ = [
     'auto_login_admin',
     'analyze_single_game',
     'clear_analysis_results',
+    'is_staff_or_superuser',
 
     # Helper classes
     'SimpleSourceGame',
