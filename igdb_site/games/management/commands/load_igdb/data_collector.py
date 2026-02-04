@@ -251,10 +251,15 @@ class DataCollector:
         if debug:
             self.stdout.write(f'   🎯 Условие поиска популярных игр: {where_clause}')
 
-        return self.load_games_by_query(where_clause, debug, limit, offset, skip_existing, count_only)
+        return self.load_games_by_query(
+            where_clause, debug, limit, offset,
+            skip_existing, count_only,
+            show_progress=False  # НЕ показываем прогресс загрузки
+        )
 
     def load_games_by_query(self, where_clause, debug=False, limit=0, offset=0,
-                            skip_existing=True, count_only=False, query_context=None):
+                            skip_existing=True, count_only=False, query_context=None,
+                            show_progress=True):  # НОВЫЙ ПАРАМЕТР
         """Загрузка игр по запросу с пагинацией и offset"""
         # Инициализация
         self._init_loading_session(debug, limit, offset, count_only)
@@ -282,7 +287,7 @@ class DataCollector:
             result = self._execute_loading_main_loop(
                 where_clause, limit, offset, skip_existing,
                 existing_game_ids, new_games, all_found_games,
-                stats, debug, interrupted
+                stats, debug, interrupted, show_progress  # Передаем show_progress
             )
 
         except KeyboardInterrupt:
@@ -354,7 +359,7 @@ class DataCollector:
 
     def _execute_loading_main_loop(self, where_clause, limit, offset, skip_existing,
                                    existing_game_ids, new_games, all_found_games,
-                                   stats, debug, interrupted):
+                                   stats, debug, interrupted, show_progress=True):  # НОВЫЙ ПАРАМЕТР
         """Выполняет основной цикл загрузки"""
         # Параметры загрузки
         BATCH_SIZE = 100
@@ -408,7 +413,7 @@ class DataCollector:
             # Обработка результатов пачек
             cycle_result = self._process_batch_cycle_results(
                 batch_results, existing_game_ids, skip_existing, limit,
-                new_games, all_found_games, stats, debug
+                new_games, all_found_games, stats, debug, show_progress  # Передаем show_progress
             )
 
             empty_batches_in_a_row = cycle_result['empty_batches']
@@ -418,13 +423,13 @@ class DataCollector:
             if is_specific_search:
                 games_in_this_cycle = sum(len(games) for _, _, games, _, _ in batch_results)
                 games_checked_for_new += games_in_this_cycle
-                if debug:
+                if debug and show_progress:  # Только если показываем прогресс
                     self.stdout.write(
                         f'   📊 Проверено игр в этом цикле: {games_in_this_cycle}, всего: {games_checked_for_new}')
 
             # Проверка достижения лимита
             if limit > 0 and len(new_games) >= limit:
-                if debug:
+                if debug and show_progress:
                     self.stdout.write(f'   🎯 Достигнут лимит {limit} новых игр на offset {last_checked_offset}')
                 break
 
@@ -562,7 +567,7 @@ class DataCollector:
             return []
 
     def _process_batch_cycle_results(self, batch_results, existing_game_ids, skip_existing, limit,
-                                     new_games, all_found_games, stats, debug):
+                                     new_games, all_found_games, stats, debug, show_progress=True):
         """Обрабатывает результаты цикла пачек"""
         game_lock = threading.Lock()
         empty_batches = 0
@@ -583,10 +588,11 @@ class DataCollector:
                     stats['batches_processed'] += 1
                     last_offset = batch_stats['last_offset']
 
-                    # Вывод прогресса
-                    self._display_loading_progress(
-                        limit, len(new_games), stats, last_offset, debug
-                    )
+                    # Вывод прогресса ТОЛЬКО если включен show_progress
+                    if show_progress:
+                        self._display_loading_progress(
+                            limit, len(new_games), stats, last_offset, debug
+                        )
 
                 empty_batches = 0  # Сброс счетчика пустых пачек
             else:
