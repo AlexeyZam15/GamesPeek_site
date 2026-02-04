@@ -32,6 +32,21 @@ class PatternManager:
 
     # Паттерны вынесены в константы для легкого редактирования
     GENRE_PATTERNS = {
+        'Turn-based': [
+            r'\bturn[-\s]?based\b',
+            r'\btbs\b',
+            r'\bturn[-\s]?by[-\s]?turn\b',
+            r'\bturns?\s+(system|mechanic|combat)\b',
+            r'\bplayer\s+turns?\b',
+            r'\benemy\s+turns?\b',
+            r'\balternating\s+turns?\b',
+            r'\bcharacter\s+turns?\b',
+            r'\bwait\s+for\s+your\s+turn\b',
+            r'\btake\s+turns\b',
+            r'\btaking\s+turns\b',
+            r'\bstrategy\s+turn[-\s]?based\b',
+            r'\btactical\s+turn[-\s]?based\b',
+        ],
         'Action': [
             r'\baction[-\s]?packed\b',
             r'\bintense\s+action\b',
