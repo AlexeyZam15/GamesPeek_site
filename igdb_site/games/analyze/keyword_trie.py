@@ -60,7 +60,9 @@ class KeywordTrie:
         node.length = len(word)
 
     def find_all_in_text(self, text: str) -> List[dict]:
-        """Находит все ключевые слова в тексте за O(n*m), где m - максимальная длина ключевого слова"""
+        """
+        Находит все ключевые слова в тексте за O(n*m), где m - максимальная длина ключевого слова
+        """
         text_lower = text.lower()
         n = len(text_lower)
         found_keywords = set()  # Для уникальности
@@ -90,13 +92,52 @@ class KeywordTrie:
                             })
                             # Не прерываем поиск - может быть более длинное ключевое слово
 
-            # Пропускаем текущее слово если оно уже обработано
-            # i будет увеличиваться в цикле for
+            # ДОБАВЛЯЕМ ПОИСК МНОЖЕСТВЕННЫХ ФОРМ
+            # Проверяем, есть ли после текущей позиции 's' или дефис
+            if i < n:
+                # Проверяем все ключевые слова
+                for kw_id, kw_data in self.keywords_cache.items():
+                    keyword_lower = kw_data['name_lower']
+                    keyword_len = len(keyword_lower)
+
+                    # Проверяем, начинается ли с этой позиции ключевое слово
+                    if text_lower.startswith(keyword_lower, i):
+                        end_pos = i + keyword_len
+
+                        # Проверяем множественную форму (слово + 's')
+                        if end_pos < n and text_lower[end_pos] == 's':
+                            # Проверяем границы
+                            if self._is_word_boundary(text_lower, i, end_pos + 1):
+                                if kw_id not in found_keywords:
+                                    found_keywords.add(kw_id)
+                                    results.append({
+                                        'id': kw_id,
+                                        'name': kw_data['name'],
+                                        'position': i,
+                                        'length': keyword_len + 1,  # +1 для 's'
+                                        'text': text_lower[i:end_pos + 1],
+                                        'is_plural': True
+                                    })
+
+                        # Проверяем форму с дефисом (слово + '-')
+                        if end_pos < n and text_lower[end_pos] == '-':
+                            if kw_id not in found_keywords:
+                                found_keywords.add(kw_id)
+                                results.append({
+                                    'id': kw_id,
+                                    'name': kw_data['name'],
+                                    'position': i,
+                                    'length': keyword_len + 1,  # +1 для '-'
+                                    'text': text_lower[i:end_pos + 1],
+                                    'is_hyphen': True
+                                })
 
         return results
 
     def _is_word_boundary(self, text: str, start: int, end: int) -> bool:
-        """Проверяет границы слова (только для буквенных символов)"""
+        """
+        Проверяет границы слова (только для буквенных символов)
+        """
         # Проверяем начало (если есть предыдущий символ)
         if start > 0:
             prev_char = text[start - 1]

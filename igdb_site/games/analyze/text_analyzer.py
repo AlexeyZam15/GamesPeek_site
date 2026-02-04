@@ -60,9 +60,68 @@ class TextAnalyzer:
         if self.verbose:
             print(f"✅ Найдено {len(trie_results)} совпадений за {(time.time() - start_time) * 1000:.1f}ms")
 
+        # ДОБАВЛЯЕМ ПОИСК МНОЖЕСТВЕННЫХ ФОРМ
+        text_lower = text.lower()
+        plural_matches = []
+        hyphen_matches = []  # ИСПРАВЛЕНО: добавляем определение переменной
+
+        # Проверяем каждое ключевое слово на множественные формы
+        for kw_id, kw_data in self._trie.keywords_cache.items():
+            if kw_id in existing_keyword_ids:
+                continue
+
+            keyword_name = kw_data['name_lower']
+
+            # Ищем множественные формы: слово + 's'
+            plural_form = keyword_name + 's'
+            pos = 0
+            while True:
+                found_pos = text_lower.find(plural_form, pos)
+                if found_pos == -1:
+                    break
+
+                # Проверяем границы слова
+                if (found_pos == 0 or not text_lower[found_pos - 1].isalnum()) and \
+                        (found_pos + len(plural_form) >= len(text_lower) or
+                         not text_lower[found_pos + len(plural_form)].isalnum()):
+                    plural_matches.append({
+                        'id': kw_id,
+                        'name': kw_data['name'],
+                        'position': found_pos,
+                        'length': len(plural_form),
+                        'text': text_lower[found_pos:found_pos + len(plural_form)],
+                        'is_plural': True
+                    })
+
+                pos = found_pos + 1
+
+            # Ищем формы с дефисом: слово + '-'
+            hyphen_form = keyword_name + '-'
+            pos = 0
+            while True:
+                found_pos = text_lower.find(hyphen_form, pos)
+                if found_pos == -1:
+                    break
+
+                hyphen_matches.append({
+                    'id': kw_id,
+                    'name': kw_data['name'],
+                    'position': found_pos,
+                    'length': len(hyphen_form),
+                    'text': text_lower[found_pos:found_pos + len(hyphen_form)],
+                    'is_hyphen': True
+                })
+
+                pos = found_pos + 1
+
+        # Объединяем результаты Trie и поиска множественных форм
+        all_results = trie_results.copy()
+        all_results.extend(plural_matches)
+        all_results.extend(hyphen_matches)
+
         # Фильтруем по существующим
         filtered_results = []
-        for result in trie_results:
+        for result in all_results:
             if result['id'] not in existing_keyword_ids:
                 filtered_results.append(result)
 
