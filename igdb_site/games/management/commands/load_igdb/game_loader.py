@@ -2271,7 +2271,18 @@ class GameLoader:
                 'total_time': time.time() - iteration_start_time,
             }
 
-        return result_stats, errors
+        if result_stats is None:
+            result_stats = {
+                'created_count': 0,
+                'skipped_count': 0,
+                'total_time': time.time() - iteration_start_time,
+                'errors': errors
+            }
+        else:
+            # Убедимся, что в result_stats есть ключ errors
+            result_stats['errors'] = errors
+
+        return result_stats
 
     from django.db import transaction
 
@@ -3322,11 +3333,13 @@ class GameLoader:
                 'limit_reached_at_offset': result.get('limit_reached_at_offset'),
             }
 
-        # Обработка данных игр (стандартная загрузка)
-        result_stats, errors = self._process_standard_game_data(
+        # ИСПРАВЛЕНИЕ: метод возвращает один объект, а не два значения
+        result_stats = self._process_standard_game_data(
             result, params, iteration_start_time, errors
         )
 
+        # ИСПРАВЛЕНИЕ: получаем ошибки из результата
+        errors = result_stats.get('errors', 0)
         iteration_time = time.time() - iteration_start_time
 
         return {
