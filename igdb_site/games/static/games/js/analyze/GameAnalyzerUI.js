@@ -75,10 +75,8 @@ class GameAnalyzerUI {
         this.forceTextAlignmentFix();
         this.checkForAutoAnalyze();
 
-        // ВОССТАНАВЛИВАЕМ СОХРАНЕННУЮ ВКЛАДКУ
         const restoredTab = restoreCurrentTab(this);
 
-        // ВОССТАНАВЛИВАЕМ ПОЗИЦИЮ ПРОКРУТКИ ПОСЛЕ ЗАГРУЗКИ ВКЛАДКИ
         if (restoredTab) {
             this.restoreScrollPositionAfterTabLoad(restoredTab);
         } else if (this.currentTab) {
@@ -97,13 +95,9 @@ class GameAnalyzerUI {
 
         this.isRestoringScroll = true;
 
-        // Ждем, чтобы контент вкладки успел загрузиться
         setTimeout(() => {
             try {
-                // Восстанавливаем позицию прокрутки для указанной вкладки
                 restoreTabScrollPosition(this, tabName);
-
-                // Также восстанавливаем глобальную позицию прокрутки окна
                 restoreScrollPosition(this);
             } catch (error) {
                 console.error('Error restoring scroll position:', error);
@@ -112,6 +106,75 @@ class GameAnalyzerUI {
             }
         }, 500);
     }
+
+    /* ============================================
+       ADD KEYWORD METHOD - ДОБАВЛЕН НОВЫЙ МЕТОД
+       ============================================ */
+
+    handleAddKeyword() {
+        const keywordInput = document.getElementById('new-keyword-input');
+        const keyword = keywordInput ? keywordInput.value.trim() : '';
+
+        if (!keyword) {
+            this.showMessage('Please enter a keyword', 'error');
+            return;
+        }
+
+        const csrfToken = this.getCSRFToken();
+        if (!csrfToken) {
+            this.showMessage('Security token missing', 'error');
+            return;
+        }
+
+        const form = this.elements.analyzeForm;
+        if (!form) {
+            this.showMessage('Form not found', 'error');
+            return;
+        }
+
+        const autoAnalyzeInput = document.getElementById('auto-analyze-input');
+        if (autoAnalyzeInput) {
+            autoAnalyzeInput.value = 'true';
+        }
+
+        const newKeywordInput = document.createElement('input');
+        newKeywordInput.type = 'hidden';
+        newKeywordInput.name = 'new_keyword';
+        newKeywordInput.value = keyword;
+        form.appendChild(newKeywordInput);
+
+        const addKeywordInput = document.createElement('input');
+        addKeywordInput.type = 'hidden';
+        addKeywordInput.name = 'add_keyword';
+        addKeywordInput.value = 'true';
+        form.appendChild(addKeywordInput);
+
+        const currentTab = this.currentTab;
+        const analyzeTabInput = document.getElementById('analyze-tab-input');
+        if (analyzeTabInput) {
+            analyzeTabInput.value = currentTab;
+        }
+
+        setTimeout(() => {
+            try {
+                form.submit();
+            } catch (error) {
+                console.error('Error submitting form:', error);
+                this.showMessage('Error adding keyword: ' + error.message, 'error');
+
+                if (newKeywordInput.parentNode === form) {
+                    form.removeChild(newKeywordInput);
+                }
+                if (addKeywordInput.parentNode === form) {
+                    form.removeChild(addKeywordInput);
+                }
+            }
+        }, 100);
+    }
+
+    /* ============================================
+       AUTO ANALYZE CHECK
+       ============================================ */
 
     checkForAutoAnalyze() {
         const urlParams = new URLSearchParams(window.location.search);

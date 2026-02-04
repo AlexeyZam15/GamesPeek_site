@@ -12,6 +12,127 @@ import {
 } from './utils.js';
 
 /* ============================================
+   ADD KEYWORD HANDLER - НОВЫЙ МЕТОД
+   ============================================ */
+
+export function bindAddKeywordButton(analyzer) {
+    const addButton = document.getElementById('add-keyword-button');
+    const keywordInput = document.getElementById('new-keyword-input');
+
+    if (!addButton || !keywordInput) return;
+
+    keywordInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+
+            // СОХРАНЯЕМ ТЕКУЩУЮ ВКЛАДКУ И ПОЗИЦИЮ ПРОКРУТКИ ПЕРЕД ОТПРАВКОЙ
+            saveCurrentTab(analyzer);
+            saveScrollPosition(analyzer);
+            analyzer.saveTabScrollPosition(analyzer.currentTab);
+
+            // Используем локальную функцию вместо analyzer.handleAddKeyword()
+            handleAddKeywordSubmission(analyzer);
+        }
+    });
+
+    addButton.addEventListener('click', (e) => {
+        e.preventDefault();
+
+        // СОХРАНЯЕМ ТЕКУЩУЮ ВКЛАДКУ И ПОЗИЦИЮ ПРОКРУТКИ ПЕРЕД ОТПРАВКОЙ
+        saveCurrentTab(analyzer);
+        saveScrollPosition(analyzer);
+        analyzer.saveTabScrollPosition(analyzer.currentTab);
+
+        // Используем локальную функцию вместо analyzer.handleAddKeyword()
+        handleAddKeywordSubmission(analyzer);
+    });
+}
+
+/* ============================================
+   LOCAL HELPER FUNCTION FOR ADDING KEYWORDS
+   ============================================ */
+
+function handleAddKeywordSubmission(analyzer) {
+    // Получаем значение из поля ввода
+    const keywordInput = document.getElementById('new-keyword-input');
+    const keyword = keywordInput ? keywordInput.value.trim() : '';
+
+    // Проверяем, что ключевое слово не пустое
+    if (!keyword) {
+        showMessage('Please enter a keyword', 'error');
+        return;
+    }
+
+    // Получаем CSRF токен для безопасности
+    const csrfToken = getCSRFToken();
+    if (!csrfToken) {
+        showMessage('Security token missing', 'error');
+        return;
+    }
+
+    // Находим форму для отправки
+    const form = document.getElementById('analyze-form');
+    if (!form) {
+        showMessage('Form not found', 'error');
+        return;
+    }
+
+    // Устанавливаем флаг автоматического анализа
+    const autoAnalyzeInput = document.getElementById('auto-analyze-input');
+    if (autoAnalyzeInput) {
+        autoAnalyzeInput.value = 'true';
+    }
+
+    // Создаем скрытое поле для ключевого слова
+    const newKeywordInput = document.createElement('input');
+    newKeywordInput.type = 'hidden';
+    newKeywordInput.name = 'new_keyword';
+    newKeywordInput.value = keyword;
+    form.appendChild(newKeywordInput);
+
+    // Создаем скрытое поле для флага добавления
+    const addKeywordInput = document.createElement('input');
+    addKeywordInput.type = 'hidden';
+    addKeywordInput.name = 'add_keyword';
+    addKeywordInput.value = 'true';
+    form.appendChild(addKeywordInput);
+
+    // Получаем текущую вкладку
+    const currentTab = analyzer.currentTab;
+    const analyzeTabInput = document.getElementById('analyze-tab-input');
+    if (analyzeTabInput) {
+        analyzeTabInput.value = currentTab;
+    }
+
+    // Отправляем форму
+    setTimeout(() => {
+        try {
+            form.submit();
+        } catch (error) {
+            console.error('Error submitting form:', error);
+            showMessage('Error adding keyword: ' + error.message, 'error');
+
+            // Очищаем добавленные поля в случае ошибки
+            if (newKeywordInput.parentNode === form) {
+                form.removeChild(newKeywordInput);
+            }
+            if (addKeywordInput.parentNode === form) {
+                form.removeChild(addKeywordInput);
+            }
+        }
+    }, 100);
+}
+
+/* ============================================
+   UTILITY FUNCTION TO GET CSRF TOKEN
+   ============================================ */
+
+function getCSRFToken() {
+    const csrfInput = document.querySelector('[name="csrfmiddlewaretoken"]');
+    return csrfInput ? csrfInput.value : null;
+}
+
+/* ============================================
    TAB HANDLERS
    ============================================ */
 
@@ -180,35 +301,6 @@ export function bindSaveButton(analyzer) {
     });
 }
 
-export function bindAddKeywordButton(analyzer) {
-    const addButton = document.getElementById('add-keyword-button');
-    const keywordInput = document.getElementById('new-keyword-input');
-
-    if (!addButton || !keywordInput) return;
-
-    keywordInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-
-            // СОХРАНЯЕМ ТЕКУЩУЮ ВКЛАДКУ И ПОЗИЦИЮ ПРОКРУТКИ ПЕРЕД ОТПРАВКОЙ
-            saveCurrentTab(analyzer);
-            saveScrollPosition(analyzer);
-            analyzer.saveTabScrollPosition(analyzer.currentTab);
-            analyzer.handleAddKeyword();
-        }
-    });
-
-    addButton.addEventListener('click', (e) => {
-        e.preventDefault();
-
-        // СОХРАНЯЕМ ТЕКУЩУЮ ВКЛАДКУ И ПОЗИЦИЮ ПРОКРУТКИ ПЕРЕД ОТПРАВКОЙ
-        saveCurrentTab(analyzer);
-        saveScrollPosition(analyzer);
-        analyzer.saveTabScrollPosition(analyzer.currentTab);
-        analyzer.handleAddKeyword();
-    });
-}
-
 export function bindClearResultsButton(analyzer) {
     if (!analyzer.elements.clearResultsBtn) return;
 
@@ -311,7 +403,6 @@ export function bindScrollToTop(analyzer) {
 
 export function bindFoundItemsClicks(analyzer) {
     document.addEventListener('click', (e) => {
-        // ИСПРАВЛЕНИЕ: Проверяем, что e.target является DOM элементом
         const target = e.target;
         if (!target || !target.closest) return;
 
@@ -397,7 +488,6 @@ export function setupTooltips(analyzer) {
 export function setupMultiCriteriaTooltips(analyzer) {
     // Настраиваем кастомные тултипы для множественных критериев
     document.addEventListener('mouseenter', (e) => {
-        // ИСПРАВЛЕНИЕ: Проверяем, что target является DOM элементом
         const target = e.target;
         if (!target || !target.closest) return;
 
@@ -408,7 +498,6 @@ export function setupMultiCriteriaTooltips(analyzer) {
     }, true);
 
     document.addEventListener('mouseleave', (e) => {
-        // ИСПРАВЛЕНИЕ: Проверяем, что target является DOM элементом
         const target = e.target;
         if (!target || !target.closest) return;
 
@@ -422,7 +511,6 @@ export function setupMultiCriteriaTooltips(analyzer) {
 export function setupHighlightEvents(analyzer) {
     // Обработка наведения на подсвеченные элементы (только hover)
     document.addEventListener('mouseenter', (e) => {
-        // ИСПРАВЛЕНИЕ: Проверяем, что target является DOM элементом
         const target = e.target;
         if (!target || !target.closest) return;
 
@@ -434,7 +522,6 @@ export function setupHighlightEvents(analyzer) {
     }, true);
 
     document.addEventListener('mouseleave', (e) => {
-        // ИСПРАВЛЕНИЕ: Проверяем, что target является DOM элементом
         const target = e.target;
         if (!target || !target.closest) return;
 
@@ -509,10 +596,8 @@ function handleHighlightHover(analyzer, element, isEntering) {
 }
 
 function showMultiCriteriaTooltip(analyzer, element, event) {
-    // Удаляем старый тултип
     hideMultiCriteriaTooltip(analyzer);
 
-    // Получаем данные из элемента
     const names = element.dataset.elementNames ? element.dataset.elementNames.split(',') : [];
     const categories = element.dataset.categories ? element.dataset.categories.split(',') : [];
 
@@ -520,7 +605,6 @@ function showMultiCriteriaTooltip(analyzer, element, event) {
         return;
     }
 
-    // Создаем кастомный тултип
     const tooltip = document.createElement('div');
     tooltip.className = 'multi-criteria-tooltip';
     tooltip.style.cssText = `
@@ -538,7 +622,6 @@ function showMultiCriteriaTooltip(analyzer, element, event) {
         animation: tooltipFadeIn 0.2s ease-out;
     `;
 
-    // Добавляем заголовок
     const title = document.createElement('strong');
     title.textContent = `Multiple Criteria Found (${names.length})`;
     title.style.cssText = `
@@ -551,7 +634,6 @@ function showMultiCriteriaTooltip(analyzer, element, event) {
     `;
     tooltip.appendChild(title);
 
-    // Добавляем список критериев
     const list = document.createElement('div');
     list.className = 'multi-criteria-list';
 
@@ -614,11 +696,9 @@ function showMultiCriteriaTooltip(analyzer, element, event) {
 
     tooltip.appendChild(list);
 
-    // Добавляем на страницу
     document.body.appendChild(tooltip);
     analyzer.currentMultiTooltip = tooltip;
 
-    // ИСПРАВЛЕНИЕ: Безопасное получение координат
     let pageX, pageY;
 
     if (event && typeof event.pageX === 'number') {
@@ -631,13 +711,11 @@ function showMultiCriteriaTooltip(analyzer, element, event) {
         pageX = event.clientX + window.scrollX;
         pageY = event.clientY + window.scrollY;
     } else {
-        // Если координаты не доступны, используем позицию элемента
         const rect = element.getBoundingClientRect();
         pageX = rect.left + rect.width / 2 + window.scrollX;
         pageY = rect.top + rect.height / 2 + window.scrollY;
     }
 
-    // Позиционируем тултип
     positionMultiCriteriaTooltip(analyzer, tooltip, pageX, pageY);
 }
 
@@ -650,17 +728,14 @@ function positionMultiCriteriaTooltip(analyzer, tooltip, pageX, pageY) {
     let left = pageX + 10;
     let top = pageY + 10;
 
-    // Проверяем, не выходит ли за правый край
     if (left + tooltipWidth > viewportWidth - 10) {
         left = pageX - tooltipWidth - 10;
     }
 
-    // Проверяем, не выходит ли за нижний край
     if (top + tooltipHeight > viewportHeight - 10) {
         top = pageY - tooltipHeight - 10;
     }
 
-    // Проверяем, не выходит ли за верхний край
     if (top < 10) {
         top = 10;
     }
