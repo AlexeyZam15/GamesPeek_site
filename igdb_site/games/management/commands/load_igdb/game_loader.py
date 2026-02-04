@@ -3022,7 +3022,7 @@ class GameLoader:
             return
 
         # Распаковываем результаты настройки
-        execution_mode, progress_bar, current_offset, total_stats, options, limit = setup_result
+        execution_mode, progress_bar, current_offset, total_stats, options, limit = setup_result[:6]
 
         # Запускаем основной цикл выполнения
         self._run_execution_loop(execution_mode, progress_bar, current_offset, total_stats, options, limit)
@@ -3389,7 +3389,8 @@ class GameLoader:
                 import traceback
                 self.stderr.write(f'📋 Трассировка ошибки:')
                 self.stderr.write(traceback.format_exc())
-            return None
+            # Возвращаем пустой словарь, а не список
+            return self._empty_result()
 
     def _handle_failed_loading(self, iteration_start_time, errors, actual_offset):
         """Обрабатывает неудачную загрузку"""
@@ -3649,7 +3650,7 @@ class GameLoader:
 
         if not genre_list:
             self.stdout.write('⚠️  Не указаны жанры')
-            return []
+            return self._empty_result()  # Возвращаем пустой результат как словарь
 
         if debug:
             self.stdout.write(f'🔍 Поиск жанров: {", ".join(genre_list)}')
@@ -3669,7 +3670,7 @@ class GameLoader:
 
         if not genre_ids:
             self.stdout.write('❌ Не найдены указанные жанры')
-            return []
+            return self._empty_result()  # Возвращаем пустой результат как словарь
 
         if debug:
             self.stdout.write(f'📋 Найдено ID жанров: {", ".join(genre_ids)}')
@@ -3706,7 +3707,7 @@ class GameLoader:
 
         if not genre_list:
             self.stdout.write('⚠️  Не указаны жанры')
-            return []
+            return self._empty_result()  # Возвращаем пустой результат как словарь
 
         if debug:
             self.stdout.write(f'🔍 Поиск жанров: {", ".join(genre_list)}')
@@ -3727,7 +3728,7 @@ class GameLoader:
 
         if not genre_ids:
             self.stdout.write('❌ Не найдены указанные жанры')
-            return []
+            return self._empty_result()  # Возвращаем пустой результат как словарь
 
         if debug:
             self.stdout.write(f'📋 Найдено ID жанров: {", ".join(genre_ids)}')
@@ -3757,6 +3758,20 @@ class GameLoader:
             self.stdout.write(f'🎯 Итоговое условие поиска: {where_clause}')
 
         return collector.load_games_by_query(where_clause, debug, limit, offset, skip_existing, count_only)
+
+    def _empty_result(self):
+        """Возвращает пустой результат как словарь"""
+        return {
+            'new_games': [],
+            'all_found_games': [],
+            'total_games_checked': 0,
+            'new_games_count': 0,
+            'existing_games_skipped': 0,
+            'last_checked_offset': 0,
+            'limit_reached': False,
+            'limit_reached_at_offset': None,
+            'interrupted': False,
+        }
 
     def load_games_by_description(self, description_text, debug=False, limit=0, offset=0, min_rating_count=0,
                                   skip_existing=True, count_only=False, game_types_str='0,1,2,4,5,8,9,10,11'):
@@ -3801,7 +3816,7 @@ class GameLoader:
 
         if not keyword_list:
             self.stdout.write('⚠️  Не указаны ключевые слова')
-            return []
+            return self._empty_result()  # Возвращаем пустой результат как словарь
 
         if debug:
             self.stdout.write(f'🔍 Поиск ключевых слов: {", ".join(keyword_list)}')
@@ -3821,7 +3836,7 @@ class GameLoader:
 
         if not keyword_ids:
             self.stdout.write('❌ Не найдены указанные ключевые слова')
-            return []
+            return self._empty_result()  # Возвращаем пустой результат как словарь
 
         if debug:
             self.stdout.write(f'📋 Найдено ID ключевых слов: {", ".join(keyword_ids)}')
