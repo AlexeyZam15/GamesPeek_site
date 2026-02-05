@@ -1065,7 +1065,7 @@ class GameSimilarity:
         print(f"  - Режимы игры: {source_game_mode_count}")
         print(f"  - Single player: {has_single_player_in_source}")
 
-        return source_data, single_player_infoв
+        return source_data, single_player_info
 
     def _calculate_and_filter_similarity(self, games_data, source_game, source_data, min_similarity,
                                          single_player_info):
