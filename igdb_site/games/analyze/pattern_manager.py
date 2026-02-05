@@ -471,9 +471,9 @@ class PatternManager:
             r'\baudio-focused\b',
         ],
         'Bird view / Isometric': [
-            r'\bbird\s*view',
+            r'\bbird[\s-]*view\b',
             r'\bisometric(\s+view|\s+game|\s|$)',
-            r'\btop-down(\s+view|\s+game|\s|$)'
+            r'\btop-down(\s+view|\s+game|\s+perspective|\s+camera|\s|$)'
         ],
         'First person': [
             r'\bfirst-person(\s+view|\s+shooter|\s+game|\s|$)',
