@@ -1,4 +1,3 @@
-# games/analyze/__init__.py - ДОБАВЛЯЕМ НОВЫЕ КЛАССЫ
 from .game_analyzer_api import GameAnalyzerAPI
 from .text_analyzer import TextAnalyzer
 from .batch_analyzer import BatchAnalyzer
@@ -7,6 +6,7 @@ from .utils import get_game_text, update_game_criteria, format_game_response, cr
 
 # НОВЫЕ ОПТИМИЗИРОВАННЫЕ КЛАССЫ
 from .keyword_trie import KeywordTrie, KeywordTrieManager
+from .sync_patterns_to_db import PatternAutoSyncer, ensure_patterns_in_db
 
 __all__ = [
     'GameAnalyzerAPI',
@@ -19,5 +19,7 @@ __all__ = [
     'create_error_response',
     # Новые оптимизированные классы
     'KeywordTrie',
-    'KeywordTrieManager'
+    'KeywordTrieManager',
+    'PatternAutoSyncer',
+    'ensure_patterns_in_db'
 ]

@@ -25,8 +25,162 @@ def is_staff_or_superuser(user):
 
 @login_required
 @user_passes_test(is_staff_or_superuser)
+def delete_keyword(request: HttpRequest, game_id: int):
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Invalid request method'}, status=405)
+
+    try:
+        import json
+        data = json.loads(request.body)
+        keyword_name = data.get('keyword', '').strip()
+        tab = data.get('tab', 'summary')
+        auto_analyze = data.get('auto_analyze', False)
+
+        if not keyword_name:
+            return JsonResponse({'success': False, 'message': 'Please enter a keyword'})
+
+        keyword = Keyword.objects.filter(name__iexact=keyword_name).first()
+
+        if not keyword:
+            return JsonResponse({
+                'success': False,
+                'message': f'Keyword "{keyword_name}" not found in database'
+            })
+
+        # Получаем список ID всех игр, которые используют это ключевое слово
+        game_ids_with_keyword = list(keyword.game_set.values_list('id', flat=True))
+
+        # Сохраняем популярность (сколько игр используют этот ключевое слово)
+        popularity = len(game_ids_with_keyword)
+
+        # Удаляем ключевое слово из базы данных
+        keyword.delete()
+
+        # ВАЖНОЕ ИСПРАВЛЕНИЕ: Очищаем кэш Trie после удаления ключевого слова
+        from games.analyze.keyword_trie import KeywordTrieManager
+        KeywordTrieManager().clear_cache()
+        print(f"✅ Кэш Trie очищен после удаления ключевого слова '{keyword_name}'")
+
+        # Обновляем кэш для ВСЕХ игр, которые использовали это ключевое слово
+        if game_ids_with_keyword:
+            # Оптимизация 1: Используем bulk_update для массового обновления
+            from django.db.models import Count
+            games_to_update = []
+
+            # Получаем все игры одним запросом
+            games = Game.objects.filter(id__in=game_ids_with_keyword)
+
+            for game in games:
+                # Пересчитываем количество ключевых слов
+                keyword_count = game.keywords.count()
+
+                # Обновляем кэш только если значение изменилось
+                if game._cached_keyword_count != keyword_count:
+                    game._cached_keyword_count = keyword_count
+                    game._cache_updated_at = timezone.now()
+                    games_to_update.append(game)
+
+            # Массовое обновление
+            if games_to_update:
+                Game.objects.bulk_update(
+                    games_to_update,
+                    ['_cached_keyword_count', '_cache_updated_at'],
+                    batch_size=100
+                )
+
+        response_data = {
+            'success': True,
+            'message': f'Keyword "{keyword_name}" deleted successfully',
+            'popularity': popularity
+        }
+
+        # ВАЖНОЕ ИСПРАВЛЕНИЕ: Добавляем флаг для автоматического анализа
+        if auto_analyze:
+            response_data['analyze_after_delete'] = True
+            response_data['tab'] = tab
+            response_data['message'] += ' и выполняется повторный анализ текста'
+
+            # Сохраняем в сессии информацию для выполнения анализа
+            request.session[f'auto_analyze_after_delete_{game_id}'] = {
+                'tab': tab,
+                'keyword_deleted': keyword_name
+            }
+
+        return JsonResponse(response_data)
+
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Error deleting keyword: {str(e)}'
+        })
+
+
+@login_required
+@user_passes_test(is_staff_or_superuser)
+def get_current_keywords(request: HttpRequest, game_id: int):
+    try:
+        game = get_object_or_404(Game, pk=game_id)
+        keywords = list(game.keywords.values_list('name', flat=True).order_by('name'))
+
+        return JsonResponse({
+            'success': True,
+            'keywords': keywords,
+            'count': len(keywords)
+        })
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Error getting keywords: {str(e)}'
+        })
+
+
+@login_required
+@user_passes_test(is_staff_or_superuser)
+def get_found_keywords(request: HttpRequest, game_id: int):
+    try:
+        game = get_object_or_404(Game, pk=game_id)
+        tab = request.GET.get('tab', 'summary')
+
+        unsaved_results = request.session.get(f'unsaved_results_{game_id}', {})
+        found_items = unsaved_results.get('found_items', {}).get(tab, {})
+
+        keywords = []
+        if found_items.get('keywords'):
+            for item in found_items['keywords']:
+                keywords.append({
+                    'name': item['name'],
+                    'is_new': item.get('is_new', False)
+                })
+
+        return JsonResponse({
+            'success': True,
+            'keywords': keywords,
+            'count': len(keywords)
+        })
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Error getting found keywords: {str(e)}'
+        })
+
+
+@login_required
+@user_passes_test(is_staff_or_superuser)
 def analyze_single_game(request: HttpRequest, game_id: int):
     """Анализ одной игры - ТОЛЬКО комбинированный режим"""
+
+    # Проверяем, нужно ли выполнить автоматический анализ после удаления ключевого слова
+    auto_analyze_key = f'auto_analyze_after_delete_{game_id}'
+    if auto_analyze_key in request.session:
+        auto_analyze_data = request.session.pop(auto_analyze_key)
+        tab = auto_analyze_data.get('tab', 'summary')
+        keyword_deleted = auto_analyze_data.get('keyword_deleted', '')
+
+        # Добавляем сообщение
+        messages.info(request, f'🔄 Выполняем автоматический анализ после удаления ключевого слова "{keyword_deleted}"')
+
+        # Устанавливаем флаг для автоматического анализа
+        request.session[f'auto_analyze_{game_id}'] = True
 
     # Инициализация
     game, original_descriptions, active_tab = _initialize_analysis_context(request, game_id)
@@ -115,6 +269,11 @@ def _handle_add_keyword(request: HttpRequest, game: Game, original_descriptions:
                 cached_usage_count=1
             )
             messages.success(request, f'✅ Created new keyword: "{keyword_name}"')
+
+            # ВАЖНОЕ ИСПРАВЛЕНИЕ: Очищаем кэш Trie после создания нового ключевого слова
+            from games.analyze.keyword_trie import KeywordTrieManager
+            KeywordTrieManager().clear_cache()
+            print(f"✅ Кэш Trie очищен после создания ключевого слова '{keyword_name}'")
         else:
             messages.info(request, f'ℹ️ Keyword "{keyword_name}" already exists')
 
@@ -1735,6 +1894,13 @@ def _prepare_get_context(request: HttpRequest, game: Game, original_descriptions
 
     # Проверяем флаг auto_analyze в URL
     auto_analyze_flag = request.GET.get('auto_analyze', '0') == '1'
+
+    # Проверяем флаг автоматического анализа после удаления ключевого слова
+    auto_analyze_delete_flag = request.session.get(f'auto_analyze_{game.id}', False)
+    if auto_analyze_delete_flag:
+        request.session.pop(f'auto_analyze_{game.id}', None)
+        messages.info(request, '🔍 Текст автоматически проанализирован после удаления ключевого слова.')
+
     if auto_analyze_flag:
         messages.info(request, '🔍 Текст автоматически проанализирован после добавления ключевого слова.')
 

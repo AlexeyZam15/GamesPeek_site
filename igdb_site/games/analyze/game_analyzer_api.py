@@ -34,6 +34,18 @@ class GameAnalyzerAPI:
             # В фоновом режиме предзагружаем Trie
             self._preload_trie_async()
 
+    def mark_new_keywords_added(self):
+        """Вызывать при добавлении новых ключевых слов - очищает кэш Trie"""
+        # Очищаем кэш Trie
+        from .keyword_trie import KeywordTrieManager
+        KeywordTrieManager().clear_cache()
+
+        # Также помечаем критерии как новые
+        self.mark_new_criteria_added('keywords')
+
+        if self.verbose:
+            print("⚠️ Кэш Trie ключевых слов очищен (добавлены новые ключевые слова)")
+
     def _preload_trie_async(self):
         """Асинхронная предзагрузка Trie для быстрого старта"""
         import threading

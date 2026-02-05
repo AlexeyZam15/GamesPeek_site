@@ -21,6 +21,7 @@ import {
     bindAnalyzeButton,
     bindSaveButton,
     bindAddKeywordButton,
+    bindDeleteKeywordButton,
     bindClearResultsButton,
     bindBackToGameButton,
     bindScrollToTop,
@@ -84,6 +85,66 @@ class GameAnalyzerUI {
         }
 
         console.log('Game Analyzer UI initialized');
+    }
+
+    // Обновление текущих ключевых слов игры
+    refreshCurrentKeywords() {
+        const currentKeywordsContainer = document.querySelector('.current-data-category:has(h6:contains("Keywords"))');
+        if (!currentKeywordsContainer) return;
+
+        // Обновляем через AJAX запрос
+        fetch(`/games/${this.options.gameId}/analyze/current-keywords/`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.keywords) {
+                const itemsList = currentKeywordsContainer.querySelector('.current-items-list');
+                if (itemsList) {
+                    itemsList.innerHTML = data.keywords.map(keyword =>
+                        `<span class="current-item">${keyword}</span>`
+                    ).join('');
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error refreshing keywords:', error);
+        });
+    }
+
+    // Обновление найденных элементов
+    refreshFoundItems() {
+        const foundKeywordsContainer = document.querySelector('.found-items-category[data-category="keywords"]');
+        if (!foundKeywordsContainer) return;
+
+        // Обновляем через AJAX запрос
+        const activeTab = this.currentTab;
+        fetch(`/games/${this.options.gameId}/analyze/found-items/?tab=${activeTab}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.keywords) {
+                const itemsList = foundKeywordsContainer.querySelector('.found-items-list');
+                if (itemsList) {
+                    itemsList.innerHTML = data.keywords.map(keyword =>
+                        `<span class="badge ${keyword.is_new ? 'bg-warning text-dark' : 'bg-secondary'} found-item-badge"
+                              data-name="${keyword.name}"
+                              data-bs-toggle="tooltip"
+                              title="${keyword.is_new ? 'New keyword (not saved yet) - Click to scroll to highlight' : 'Already exists in game - Click to scroll to highlight'}">
+                            ${keyword.name}
+                            ${keyword.is_new ? '<i class="bi bi-plus-circle ms-1"></i>' : '<i class="bi bi-check-circle ms-1"></i>'}
+                        </span>`
+                    ).join('');
+
+                    // Обновляем счетчик
+                    const countBadge = foundKeywordsContainer.querySelector('h6 .badge');
+                    if (countBadge) {
+                        const newCount = data.keywords.filter(k => k.is_new).length;
+                        countBadge.textContent = `${newCount} new`;
+                    }
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error refreshing found items:', error);
+        });
     }
 
     /* ============================================
@@ -259,6 +320,7 @@ class GameAnalyzerUI {
         bindAnalyzeButton(this);
         bindSaveButton(this);
         bindAddKeywordButton(this);
+        bindDeleteKeywordButton(this);  // ← УБЕДИТЬСЯ ЧТО ЭТО ЕСТЬ
         bindClearResultsButton(this);
         bindBackToGameButton(this);
         bindBootstrapTabs(this);
