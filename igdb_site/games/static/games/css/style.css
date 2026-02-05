@@ -443,3 +443,41 @@ footer {
     .btn { font-size: 0.85rem; }
     .badge { font-size: 0.75rem; padding: 0.4rem 0.8rem; }
 }
+
+/* Гарантируем, что плавающие элементы не перекрываются */
+#sticky-apply-btn-container {
+    position: fixed;
+    z-index: 999999;
+}
+
+/* Убираем возможные конфликты с другими элементами */
+.toggle-section, .toggle-subsection {
+    position: relative;
+    z-index: 1;
+}
+
+/* Предотвращаем всплытие событий на кнопку */
+.apply-filters-sticky {
+    pointer-events: auto !important;
+    cursor: pointer !important;
+}
+
+/* Гарантируем, что hover эффекты не влияют на дочерние элементы */
+.toggle-section > h6,
+.toggle-subsection > .form-label {
+    position: relative;
+    z-index: 2;
+}
+
+.toggle-section > h6:hover,
+.toggle-subsection > .form-label:hover {
+    cursor: pointer;
+    background: rgba(255, 107, 53, 0.05);
+}
+
+/* Убедитесь, что содержимое секций не перехватывает события мыши */
+#search-filters-content,
+#similarity-filters-content,
+[id$="-content"] {
+    pointer-events: auto;
+}

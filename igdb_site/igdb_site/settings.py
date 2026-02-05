@@ -6,6 +6,11 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 
+import warnings
+
+warnings.filterwarnings("ignore",
+                        message="DateTimeField.*received a naive datetime.*time zone support is active")
+
 # Загружаем переменные окружения из .env файла
 load_dotenv()
 
@@ -61,10 +66,11 @@ ROOT_URLCONF = 'igdb_site.urls'
 # ОПТИМИЗАЦИЯ ШАБЛОНОВ
 # ============================================
 
+# В settings.py измените контекстный процессор на относительный путь:
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'templates'],  # Добавлен глобальный каталог шаблонов
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -72,9 +78,9 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'games.context_processors.debug_context',  # Исправленный путь
             ],
-            'debug': DEBUG,  # Включаем отладку шаблонов
-            # Оптимизация для скорости
+            'debug': DEBUG,
             'string_if_invalid': '' if not DEBUG else 'INVALID',
         },
     },
@@ -148,6 +154,9 @@ STATICFILES_DIRS = [
     os.path.join(BASE_DIR, 'games', 'static'),
 ]
 STATIC_ROOT = BASE_DIR / 'staticfiles'  # Для сбора статики в production
+
+# Поддержка ES6 модулей
+SECURE_CROSS_ORIGIN_OPENER_POLICY = None  # или 'same-origin'
 
 # Media files
 MEDIA_URL = 'media/'

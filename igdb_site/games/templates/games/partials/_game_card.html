@@ -1,6 +1,8 @@
 {% load game_tags platform_icons color_tags game_type_tags %}
 
-<div class="col-xl-3 col-lg-4 col-md-6 mb-4">
+<div class="col-xl-3 col-lg-4 col-md-6 mb-4 game-card-container"
+     data-page="{{ game.page_number|default:current_page|default:1 }}"
+     data-index="{{ game.game_index|default:forloop.counter0|add:game_index_offset|default:forloop.counter0 }}">
     <div class="card h-100 game-card d-flex flex-column">
         <!-- Контейнер для обложки с наложенными элементами -->
         <div class="card-img-top-container position-relative" style="height: 250px; overflow: hidden;">
@@ -39,9 +41,9 @@
             {% endif %}
 
             <!-- Процент похожести (только в режиме show_similarity) -->
-            {% if show_similarity and similarity_percent %}
+            {% if show_similarity and game.similarity %}
                 <div class="position-absolute top-0 end-0 p-1">
-                    {% similarity_pattern_svg similarity_percent 60 %}
+                    {% similarity_pattern_svg game.similarity 60 %}
                 </div>
             {% endif %}
 
@@ -121,12 +123,14 @@
                     <i class="bi bi-search-heart"></i> Find Similar
                 </a>
 
-                <!-- Кнопка Compare (только в режиме show_similarity) -->
+                <!-- Кнопка Compare (только в режиме show_similarity и когда есть source_game) -->
                 {% if show_similarity and source_game %}
-                    <a href="{% get_card_comparison_url source_game game selected_genres selected_keywords selected_themes selected_perspectives selected_developers selected_game_modes %}"
-                       class="btn btn-sm btn-outline-warning">
-                        <i class="bi bi-arrow-left-right"></i> Compare
-                    </a>
+                    {% if game.similarity %}
+                        <a href="{% get_card_comparison_url source_game=source_game target_game=game similarity_percent=game.similarity selected_genres=selected_genres selected_keywords=selected_keywords selected_themes=selected_themes selected_perspectives=selected_perspectives selected_developers=selected_developers selected_game_modes=selected_game_modes %}"
+                           class="btn btn-sm btn-outline-warning">
+                            <i class="bi bi-arrow-left-right"></i> Compare
+                        </a>
+                    {% endif %}
                 {% endif %}
             </div>
         </div>

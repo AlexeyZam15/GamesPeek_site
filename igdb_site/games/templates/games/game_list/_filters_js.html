@@ -1,0 +1,252 @@
+<!-- games/templates/games/game_list/_filters_js.html -->
+<script>
+    // Эти функции должны быть глобальными для работы с HTML onclick
+    window.toggleMoreplatforms = function(button) {
+        const hiddenSection = document.getElementById('hidden-platforms-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleLessplatforms = function(button) {
+        const hiddenSection = document.getElementById('hidden-platforms-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleMoregenres = function(button) {
+        const hiddenSection = document.getElementById('hidden-genres-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleLessgenres = function(button) {
+        const hiddenSection = document.getElementById('hidden-genres-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleMorekeywords = function(button) {
+        const hiddenSection = document.getElementById('hidden-keywords-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleLesskeywords = function(button) {
+        const hiddenSection = document.getElementById('hidden-keywords-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleMorethemes = function(button) {
+        const hiddenSection = document.getElementById('hidden-themes-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleLessthemes = function(button) {
+        const hiddenSection = document.getElementById('hidden-themes-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleMoreperspectives = function(button) {
+        const hiddenSection = document.getElementById('hidden-perspectives-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleLessperspectives = function(button) {
+        const hiddenSection = document.getElementById('hidden-perspectives-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
+    // Функции для управления фильтром даты
+    let minYear = {{ years_range.min_year }};
+    let maxYear = {{ years_range.max_year }};
+    let currentYear = {{ current_year }};
+
+    function updateYearRange(type) {
+        const minSlider = document.getElementById('year-range-slider-min');
+        const maxSlider = document.getElementById('year-range-slider-max');
+        const minValue = parseInt(minSlider.value);
+        const maxValue = parseInt(maxSlider.value);
+
+        // Гарантируем, что min <= max
+        if (type === 'min' && minValue > maxValue) {
+            minSlider.value = maxValue;
+        }
+        if (type === 'max' && maxValue < minValue) {
+            maxSlider.value = minValue;
+        }
+
+        // Обновляем отображаемые значения
+        document.getElementById('min-year-value').textContent = minSlider.value;
+        document.getElementById('max-year-value').textContent = maxSlider.value;
+
+        // Обновляем поля ручного ввода
+        document.getElementById('manual-year-start').value = minSlider.value;
+        document.getElementById('manual-year-end').value = maxSlider.value;
+
+        // Обновляем скрытые поля формы
+        document.getElementById('year-start-field').value = minSlider.value;
+        document.getElementById('year-end-field').value = maxSlider.value;
+
+        // Обновляем комбинированное поле
+        updateCombinedYearField();
+    }
+
+    function updateYearFromInput(type) {
+        const startInput = document.getElementById('manual-year-start');
+        const endInput = document.getElementById('manual-year-end');
+        let startValue = parseInt(startInput.value) || minYear;
+        let endValue = parseInt(endInput.value) || maxYear;
+
+        // Валидация значений
+        if (startValue < minYear) startValue = minYear;
+        if (startValue > maxYear) startValue = maxYear;
+        if (endValue < minYear) endValue = minYear;
+        if (endValue > maxYear) endValue = maxYear;
+        if (startValue > endValue) {
+            if (type === 'start') endValue = startValue;
+            if (type === 'end') startValue = endValue;
+        }
+
+        // Обновляем поля
+        startInput.value = startValue;
+        endInput.value = endValue;
+
+        // Обновляем ползунки
+        document.getElementById('year-range-slider-min').value = startValue;
+        document.getElementById('year-range-slider-max').value = endValue;
+
+        // Обновляем отображаемые значения
+        document.getElementById('min-year-value').textContent = startValue;
+        document.getElementById('max-year-value').textContent = endValue;
+
+        // Обновляем скрытые поля формы
+        document.getElementById('year-start-field').value = startValue;
+        document.getElementById('year-end-field').value = endValue;
+
+        // Обновляем комбинированное поле
+        updateCombinedYearField();
+    }
+
+    function updateCombinedYearField() {
+        const startField = document.getElementById('year-start-field');
+        const endField = document.getElementById('year-end-field');
+        const combinedField = document.getElementById('year-range-field');
+
+        const startValue = startField.value;
+        const endValue = endField.value;
+
+        if (startValue && endValue) {
+            combinedField.value = `${startValue}-${endValue}`;
+        } else {
+            combinedField.value = '';
+        }
+    }
+
+    function setYearRange(rangeType) {
+        let startYear, endYear;
+
+        switch(rangeType) {
+            case 'last5':
+                endYear = currentYear;
+                startYear = currentYear - 4;
+                break;
+            case '2010s':
+                startYear = 2010;
+                endYear = 2019;
+                break;
+            case '2000s':
+                startYear = 2000;
+                endYear = 2009;
+                break;
+            case '1990s':
+                startYear = 1990;
+                endYear = 1999;
+                break;
+            case '1980s':
+                startYear = 1980;
+                endYear = 1989;
+                break;
+            default:
+                return;
+        }
+
+        // Гарантируем, что годы в пределах допустимого диапазона
+        if (startYear < minYear) startYear = minYear;
+        if (endYear > maxYear) endYear = maxYear;
+
+        // Обновляем ползунки
+        document.getElementById('year-range-slider-min').value = startYear;
+        document.getElementById('year-range-slider-max').value = endYear;
+
+        // Обновляем отображаемые значения
+        document.getElementById('min-year-value').textContent = startYear;
+        document.getElementById('max-year-value').textContent = endYear;
+
+        // Обновляем поля ручного ввода
+        document.getElementById('manual-year-start').value = startYear;
+        document.getElementById('manual-year-end').value = endYear;
+
+        // Обновляем скрытые поля формы
+        document.getElementById('year-start-field').value = startYear;
+        document.getElementById('year-end-field').value = endYear;
+
+        // Обновляем комбинированное поле
+        updateCombinedYearField();
+    }
+
+    // Инициализация при загрузке страницы
+    document.addEventListener('DOMContentLoaded', function() {
+        // Инициализируем значения, если они есть
+        const startYear = {{ selected_release_year_start|default:'null' }};
+        const endYear = {{ selected_release_year_end|default:'null' }};
+
+        if (startYear || endYear) {
+            updateCombinedYearField();
+        }
+    });
+</script>

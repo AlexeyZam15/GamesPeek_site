@@ -9,6 +9,8 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="{% static 'games/css/style.css' %}">
+    <!-- ДОБАВЛЯЕМ СТИЛИ ДЛЯ ТЕГОВ -->
+    <link rel="stylesheet" href="{% static 'games/css/game_tags.css' %}">
     {% block extra_css %}{% endblock %}
 </head>
 <body>
@@ -29,16 +31,33 @@
                 </a>
             </div>
 
-            <!-- Поисковая строка -->
-            <form class="d-flex" method="get" action="{% url 'game_search' %}">
-                <div class="input-group input-group-sm">
-                    <input type="text" class="form-control" name="q" placeholder="Search games..."
-                           aria-label="Search games" style="width: 200px;">
-                    <button class="btn btn-outline-light" type="submit">
-                        <i class="bi bi-search"></i>
-                    </button>
-                </div>
-            </form>
+            <div class="d-flex align-items-center gap-3">
+                <!-- Поисковая строка -->
+                <form class="d-flex" method="get" action="{% url 'game_search' %}">
+                    <div class="input-group input-group-sm">
+                        <input type="text" class="form-control" name="q" placeholder="Search games..."
+                               aria-label="Search games" style="width: 200px;">
+                        <button class="btn btn-outline-light" type="submit">
+                            <i class="bi bi-search"></i>
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Кнопка авторизации в админке (только в дебаг режиме) -->
+                {% if debug %}
+                    <div class="nav-item">
+                        <button onclick="autoLoginAndOpenAdmin()"
+                                class="nav-link d-flex align-items-center gap-2 py-1 px-3"
+                                style="color: var(--secondary-color) !important; font-weight: 600; font-size: 0.95rem; border-radius: 6px; background: rgba(255, 107, 53, 0.1); border: 1px solid rgba(255, 107, 53, 0.3); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); cursor: pointer;"
+                                data-bs-toggle="tooltip"
+                                data-bs-placement="bottom"
+                                title="Автоматическая авторизация и открытие админки в новой вкладке">
+                            <i class="bi bi-shield-lock" style="font-size: 0.9rem;"></i>
+                            <span class="d-none d-md-inline">Admin Login</span>
+                        </button>
+                    </div>
+                {% endif %}
+            </div>
         </div>
     </div>
 </nav>
@@ -61,10 +80,108 @@
         tooltipTriggerList.map(function (tooltipTriggerEl) {
             return new bootstrap.Tooltip(tooltipTriggerEl);
         });
+
+        // Анимация при наведении на кнопку админки
+        var adminBtn = document.querySelector('button[onclick="autoLoginAndOpenAdmin()"]');
+        if (adminBtn) {
+            adminBtn.addEventListener('mouseenter', function() {
+                this.style.background = 'rgba(255, 107, 53, 0.2)';
+                this.style.transform = 'translateY(-1px)';
+                this.style.boxShadow = '0 4px 12px rgba(255, 107, 53, 0.2)';
+            });
+
+            adminBtn.addEventListener('mouseleave', function() {
+                this.style.background = 'rgba(255, 107, 53, 0.1)';
+                this.style.transform = 'translateY(0)';
+                this.style.boxShadow = 'none';
+            });
+        }
     });
+
+    function autoLoginAndOpenAdmin() {
+        // Сохраняем текущий URL для последующего обновления
+        var currentUrl = window.location.href;
+
+        // Показываем индикатор загрузки
+        var btn = event.target.closest('button') || event.target;
+        var originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i> Logging in...';
+        btn.disabled = true;
+
+        // Отправляем запрос на авторизацию
+        fetch('{% url "auto_login_admin" %}', {
+            method: 'GET',
+            credentials: 'same-origin',
+            headers: {
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+        .then(response => {
+            // Сначала проверяем тип ответа
+            const contentType = response.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+                return response.text().then(text => {
+                    console.error('Received non-JSON response:', text.substring(0, 200));
+                    throw new Error(`Expected JSON but got HTML. Check if URL '{% url "auto_login_admin" %}' exists.`);
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Login response:', data);
+            if (data.status === 'success') {
+                // Открываем админку в новой вкладке
+                var adminWindow = window.open('/admin/', '_blank');
+
+                // Обновляем кнопку на успех
+                btn.innerHTML = '<i class="bi bi-check-circle me-1"></i> Logged in!';
+
+                // Функция для проверки закрытия админки и обновления страницы
+                function checkAdminWindowClosed() {
+                    if (adminWindow && !adminWindow.closed) {
+                        // Админка еще открыта, проверяем снова через 2 секунды
+                        setTimeout(checkAdminWindowClosed, 2000);
+                    } else {
+                        // Админка закрыта, обновляем текущую страницу
+                        setTimeout(function() {
+                            window.location.reload();
+                        }, 500);
+                    }
+                }
+
+                // Начинаем проверять закрытие админки
+                if (adminWindow) {
+                    setTimeout(checkAdminWindowClosed, 3000);
+                } else {
+                    // Если не удалось открыть новое окно, просто обновляем страницу
+                    setTimeout(function() {
+                        window.location.reload();
+                    }, 1000);
+                }
+
+                // Возвращаем кнопку в исходное состояние через 3 секунды
+                setTimeout(() => {
+                    btn.innerHTML = originalHtml;
+                    btn.disabled = false;
+                }, 3000);
+
+            } else {
+                alert('Ошибка: ' + data.message);
+                btn.innerHTML = originalHtml;
+                btn.disabled = false;
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Ошибка: ' + error.message + '\nПроверьте консоль для подробностей.');
+            btn.innerHTML = originalHtml;
+            btn.disabled = false;
+        });
+    }
 </script>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-{% block extra_js %}{% endblock %}  <!-- ВАЖНО: этот блок должен быть здесь! -->
+{% block extra_js %}{% endblock %}
 </body>
 </html>
