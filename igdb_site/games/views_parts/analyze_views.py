@@ -558,41 +558,8 @@ def simple_highlight_text(html_text: str, analysis_result: Dict) -> str:
         if not text_positions:
             return html_text
 
-        # ДОПОЛНИТЕЛЬНО: находим частичные совпадения для ключевых слов
-        keyword_matches = []
-        for match in all_matches:
-            if match['category'] == 'keywords':
-                search_text = match['text'].lower()
-                # Ищем частичные вхождения (слово как часть другого слова)
-                pos = 0
-                while True:
-                    found_pos = clean_text.lower().find(search_text, pos)
-                    if found_pos == -1:
-                        break
-
-                    # Проверяем, что это именно частичное совпадение внутри слова
-                    if (found_pos > 0 and clean_text[found_pos - 1].isalnum()) or \
-                            (found_pos + len(search_text) < len(clean_text) and
-                             clean_text[found_pos + len(search_text)].isalnum()):
-                        # Это частичное совпадение внутри слова
-                        keyword_matches.append({
-                            'start': found_pos,
-                            'end': found_pos + len(search_text),
-                            'name': match['name'],
-                            'category': match['category'],
-                            'class_name': match['class_name'],
-                            'color': match['color'],
-                            'text': clean_text[found_pos:found_pos + len(search_text)],
-                            'is_partial': True
-                        })
-
-                    pos = found_pos + 1
-
-        # Объединяем все совпадения
-        all_text_positions = text_positions + keyword_matches
-
         # Группируем пересечения в ЧИСТОМ тексте
-        clean_groups = group_overlapping_positions(all_text_positions)
+        clean_groups = group_overlapping_positions(text_positions)
 
         # Преобразуем группы в формат для замены
         replacements = prepare_replacements_from_groups(clean_text, clean_groups)
@@ -605,10 +572,7 @@ def simple_highlight_text(html_text: str, analysis_result: Dict) -> str:
 
         return highlighted_text
 
-    except Exception as e:
-        print(f"❌ Ошибка в simple_highlight_text: {e}")
-        import traceback
-        traceback.print_exc()
+    except Exception:
         return html_text
 
 
@@ -726,46 +690,90 @@ def prepare_replacements_from_groups(clean_text: str, clean_groups: List[Dict]) 
 
 def apply_direct_highlights(html_text: str, replacements: List[Dict]) -> str:
     """
-    Прямая замена текста в HTML
+    Заменяет текст в HTML на основе УЖЕ НАЙДЕННЫХ и ПРОВЕРЕННЫХ совпадений
+    Использует исходный текст для поиска, затем применяет все замены за один проход
     """
-    highlighted_text = html_text
+    if not replacements:
+        return html_text
+
+    # Используем ОРИГИНАЛЬНЫЙ текст для поиска всех позиций
+    # Собираем все позиции для замены из исходного текста
+    all_positions = []
 
     for replacement in replacements:
+        search_text = replacement['text']
+
+        # Ищем все вхождения этого текста в ОРИГИНАЛЬНОМ HTML
+        start_pos = 0
+
+        while True:
+            # Регистронезависимый поиск
+            found_pos = html_text.lower().find(search_text.lower(), start_pos)
+            if found_pos == -1:
+                break
+
+            # Проверяем границы слова в ОРИГИНАЛЬНОМ тексте
+            is_valid = True
+
+            # Проверяем начало
+            if found_pos > 0:
+                prev_char = html_text[found_pos - 1]
+                if prev_char.isalnum():
+                    is_valid = False
+
+            # Проверяем конец
+            end_pos = found_pos + len(search_text)
+            if end_pos < len(html_text):
+                next_char = html_text[end_pos]
+                if next_char.isalnum() and next_char != 's' and next_char != '-':
+                    is_valid = False
+
+            if is_valid:
+                all_positions.append({
+                    'start': found_pos,
+                    'end': end_pos,
+                    'replacement': replacement,
+                    'text': html_text[found_pos:end_pos]
+                })
+
+            start_pos = found_pos + 1
+
+    if not all_positions:
+        return html_text
+
+    # Сортируем позиции от конца к началу для корректной замены
+    all_positions.sort(key=lambda x: x['start'], reverse=True)
+
+    # Применяем все замены за один проход
+    highlighted_text = html_text
+
+    for pos_info in all_positions:
         try:
-            search_text = replacement['text']
+            start = pos_info['start']
+            end = pos_info['end']
+            replacement = pos_info['replacement']
+            original_text = pos_info['text']
 
-            # Экранируем для regex
-            search_escaped = re.escape(search_text)
+            # Пропускаем, если позиции вышли за границы (после предыдущих замен)
+            if start < 0 or end > len(highlighted_text) or start >= end:
+                continue
 
-            # Ищем текст в HTML (регистронезависимо)
-            pattern = re.compile(search_escaped, re.IGNORECASE)
+            # Проверяем, что на этой позиции все еще тот же текст
+            current_text = highlighted_text[start:end]
+            if current_text.lower() != original_text.lower():
+                continue
 
-            def replace_func(match):
-                matched_text = match.group(0)
-
-                # Проверяем, что это не внутри HTML тега
-                start_pos = match.start()
-                if is_inside_html_tag(highlighted_text, start_pos):
-                    return matched_text
-
-                # Проверяем, что это не внутри другого span
-                if is_inside_span(highlighted_text, start_pos):
-                    return matched_text
-
-                # Создаем подсветку
-                if replacement['type'] == 'multi':
-                    span_html = create_multi_highlight_span(matched_text, replacement['matches'],
-                                                            replacement['num_criteria'])
-                else:
-                    span_html = create_single_highlight_span(matched_text, replacement['match'])
-
-                return span_html
+            # Создаем подсветку
+            if replacement['type'] == 'multi':
+                span_html = create_multi_highlight_span(original_text, replacement['matches'],
+                                                        replacement['num_criteria'])
+            else:
+                span_html = create_single_highlight_span(original_text, replacement['match'])
 
             # Заменяем
-            highlighted_text = pattern.sub(replace_func, highlighted_text)
+            highlighted_text = highlighted_text[:start] + span_html + highlighted_text[end:]
 
-        except Exception as e:
-            print(f"Ошибка замены '{replacement.get('text', '')}': {e}")
+        except Exception:
             continue
 
     return highlighted_text
@@ -887,7 +895,7 @@ def get_clean_text_from_html(html_text: str) -> str:
 
 def find_all_text_positions(clean_text: str, all_matches: List[Dict]) -> List[Dict]:
     """
-    Находит все позиции всех совпадений в тексте
+    Находит все позиции всех совпадений в тексте С ПРОВЕРКОЙ ГРАНИЦ
     """
     text_positions = []
     text_lower = clean_text.lower()
@@ -906,52 +914,69 @@ def find_all_text_positions(clean_text: str, all_matches: List[Dict]) -> List[Di
             if found_pos == -1:
                 break
 
-            # ДЛЯ КЛЮЧЕВЫХ СЛОВ: ищем множественные формы
-            if match['category'] == 'keywords':
-                # Проверяем следующие символы после найденного слова
-                end_pos = found_pos + len(search_text)
+            # ПРОВЕРЯЕМ ГРАНИЦЫ СЛОВА
+            is_word_boundary = True
 
-                # Если есть 's' после слова - это множественная форма
-                if end_pos < len(text_lower) and text_lower[end_pos] == 's':
-                    # Расширяем конец для захвата 's'
-                    end_pos += 1
+            # Проверяем начало
+            if found_pos > 0:
+                prev_char = clean_text[found_pos - 1]
+                if prev_char.isalnum():
+                    is_word_boundary = False
 
-                # Если есть дефис после слова - захватываем его
-                if end_pos < len(text_lower) and text_lower[end_pos] == '-':
-                    end_pos += 1
+            # Проверяем конец
+            end_pos = found_pos + len(search_text)
+            if end_pos < len(clean_text):
+                next_char = clean_text[end_pos]
+                # Допускаем 's' для множественного числа и '-' для составных слов
+                if next_char.isalnum() and next_char != 's' and next_char != '-':
+                    is_word_boundary = False
 
-                # Создаем запись с расширенным текстом
-                extended_text = clean_text[found_pos:end_pos]
+            if is_word_boundary:
+                # ДЛЯ КЛЮЧЕВЫХ СЛОВ: ищем множественные формы
+                if match['category'] == 'keywords':
+                    # Проверяем следующие символы после найденного слова
+                    end_pos = found_pos + len(search_text)
 
+                    # Если есть 's' после слова - это множественная форма
+                    if end_pos < len(clean_text) and clean_text[end_pos] == 's':
+                        # Проверяем границу после 's'
+                        if end_pos + 1 >= len(clean_text) or not clean_text[end_pos + 1].isalnum():
+                            end_pos += 1
+
+                    # Если есть дефис после слова - захватываем его
+                    if end_pos < len(clean_text) and clean_text[end_pos] == '-':
+                        end_pos += 1
+
+                    # Создаем запись с расширенным текстом
+                    extended_text = clean_text[found_pos:end_pos]
+
+                    text_positions.append({
+                        'start': found_pos,
+                        'end': end_pos,
+                        'name': match['name'],
+                        'category': match['category'],
+                        'class_name': match['class_name'],
+                        'color': match['color'],
+                        'text': extended_text
+                    })
+
+                    pos = found_pos + 1
+                    continue
+
+                # Для остальных категорий - обычный поиск
                 text_positions.append({
                     'start': found_pos,
-                    'end': end_pos,
+                    'end': found_pos + len(search_text),
                     'name': match['name'],
                     'category': match['category'],
                     'class_name': match['class_name'],
                     'color': match['color'],
-                    'text': extended_text,
-                    'original_match': search_text
+                    'text': clean_text[found_pos:found_pos + len(search_text)]
                 })
-
-                pos = found_pos + 1
-                continue
-
-            # Для остальных категорий - обычный поиск
-            text_positions.append({
-                'start': found_pos,
-                'end': found_pos + len(search_text),
-                'name': match['name'],
-                'category': match['category'],
-                'class_name': match['class_name'],
-                'color': match['color'],
-                'text': clean_text[found_pos:found_pos + len(search_text)]
-            })
 
             pos = found_pos + 1
 
     return text_positions
-
 
 def group_overlapping_positions(text_positions: List[Dict]) -> List[Dict]:
     """
@@ -1135,27 +1160,30 @@ def get_words_to_highlight(pattern_info: Dict) -> Dict[str, List[Dict]]:
             if not matched_text or not name:
                 continue
 
-            # Очищаем текст от лишних символов
+            # Очищаем текст
             clean_text = matched_text.strip().lower()
 
-            # Разбиваем на слова для фраз
-            words = re.findall(r'\b\w+\b', clean_text)
+            # Удаляем начальные/конечные не-буквенные символы
+            clean_text = re.sub(r'^[^\w]*', '', clean_text)
+            clean_text = re.sub(r'[^\w]*$', '', clean_text)
 
-            for word in words:
-                if len(word) < 2:  # Пропускаем слишком короткие слова
-                    continue
+            if not clean_text:
+                continue
 
-                if word not in words_to_highlight:
-                    words_to_highlight[word] = []
+            # Вместо разбивки на слова, сохраняем полный текст как ключ
+            # Это предотвратит поиск частей слов
+            if clean_text not in words_to_highlight:
+                words_to_highlight[clean_text] = []
 
-                # Добавляем информацию о критерии
-                words_to_highlight[word].append({
-                    'name': name,
-                    'category': category,
-                    'class_name': category_classes[category],
-                    'full_phrase': matched_text,
-                    'is_phrase': len(words) > 1
-                })
+            # Добавляем информацию о критерии
+            words_to_highlight[clean_text].append({
+                'name': name,
+                'category': category,
+                'class_name': category_classes[category],
+                'full_phrase': matched_text,
+                'is_phrase': ' ' in clean_text or '-' in clean_text,  # Фраза если содержит пробел или дефис
+                'exact_match': clean_text  # Сохраняем точный текст для поиска
+            })
 
     return words_to_highlight
 
@@ -1226,29 +1254,34 @@ def highlight_phrases_in_html(html_text: str, words_to_highlight: Dict[str, List
 
 def highlight_single_words_in_html(html_text: str, words_to_highlight: Dict[str, List[Dict]]) -> str:
     """
-    Подсвечивает одиночные слова
+    Подсвечивает слова в HTML тексте с точным соответствием
     """
     highlighted_text = html_text
 
-    # Собираем одиночные слова
-    single_words = {}
+    # Группируем по точному тексту для поиска
+    exact_matches = {}
     for word, criteria_list in words_to_highlight.items():
         for criteria in criteria_list:
-            if not criteria['is_phrase']:
-                if word not in single_words:
-                    single_words[word] = []
-                single_words[word].append(criteria)
+            if not criteria.get('is_phrase', False):
+                exact_text = criteria.get('exact_match', word)
+                if exact_text not in exact_matches:
+                    exact_matches[exact_text] = []
+                exact_matches[exact_text].append(criteria)
 
-    # Обрабатываем каждое слово
-    for word, criteria_list in single_words.items():
-        # Ищем слово как отдельное слово (с границами слов)
-        pattern = re.compile(r'\b' + re.escape(word) + r'\b', re.IGNORECASE)
+    # Обрабатываем каждое точное совпадение
+    for exact_text, criteria_list in exact_matches.items():
+        # Ищем точное совпадение с границами слова
+        pattern = re.compile(r'\b' + re.escape(exact_text) + r'\b', re.IGNORECASE)
 
-        def replace_word(match):
+        def replace_exact(match):
             matched_text = match.group(0)
-
-            # Пропускаем, если уже внутри span
             start_pos = match.start()
+
+            # Проверяем, что не внутри HTML тега
+            if is_inside_html_tag(highlighted_text, start_pos):
+                return matched_text
+
+            # Проверяем, что не внутри другого span
             if is_inside_span(highlighted_text, start_pos):
                 return matched_text
 
@@ -1260,8 +1293,8 @@ def highlight_single_words_in_html(html_text: str, words_to_highlight: Dict[str,
                 criteria = criteria_list[0]
                 return create_single_criteria_span(matched_text, criteria)
 
-        # Заменяем слова
-        highlighted_text = pattern.sub(replace_word, highlighted_text)
+        # Заменяем точные совпадения
+        highlighted_text = pattern.sub(replace_exact, highlighted_text)
 
     return highlighted_text
 

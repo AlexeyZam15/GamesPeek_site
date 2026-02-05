@@ -69,6 +69,11 @@ class KeywordTrie:
         results = []
 
         for i in range(n):
+            # Пропускаем, если текущая позиция - часть слова (буква или цифра после буквы/цифры)
+            if i > 0 and text_lower[i - 1].isalnum():
+                # Это продолжение слова, не может быть началом ключевого слова
+                continue
+
             node = self.root
             j = i
 
@@ -92,62 +97,45 @@ class KeywordTrie:
                             })
                             # Не прерываем поиск - может быть более длинное ключевое слово
 
-            # ДОБАВЛЯЕМ ПОИСК МНОЖЕСТВЕННЫХ ФОРМ
-            # Проверяем, есть ли после текущей позиции 's' или дефис
-            if i < n:
-                # Проверяем все ключевые слова
-                for kw_id, kw_data in self.keywords_cache.items():
-                    keyword_lower = kw_data['name_lower']
-                    keyword_len = len(keyword_lower)
-
-                    # Проверяем, начинается ли с этой позиции ключевое слово
-                    if text_lower.startswith(keyword_lower, i):
-                        end_pos = i + keyword_len
-
-                        # Проверяем множественную форму (слово + 's')
-                        if end_pos < n and text_lower[end_pos] == 's':
-                            # Проверяем границы
-                            if self._is_word_boundary(text_lower, i, end_pos + 1):
-                                if kw_id not in found_keywords:
-                                    found_keywords.add(kw_id)
-                                    results.append({
-                                        'id': kw_id,
-                                        'name': kw_data['name'],
-                                        'position': i,
-                                        'length': keyword_len + 1,  # +1 для 's'
-                                        'text': text_lower[i:end_pos + 1],
-                                        'is_plural': True
-                                    })
-
-                        # Проверяем форму с дефисом (слово + '-')
-                        if end_pos < n and text_lower[end_pos] == '-':
-                            if kw_id not in found_keywords:
-                                found_keywords.add(kw_id)
-                                results.append({
-                                    'id': kw_id,
-                                    'name': kw_data['name'],
-                                    'position': i,
-                                    'length': keyword_len + 1,  # +1 для '-'
-                                    'text': text_lower[i:end_pos + 1],
-                                    'is_hyphen': True
-                                })
-
         return results
 
     def _is_word_boundary(self, text: str, start: int, end: int) -> bool:
         """
-        Проверяет границы слова (только для буквенных символов)
+        Проверяет границы слова - только для целых слов
+        Разрешаем:
+        1. Целое слово (границы текста или не буквенно-цифровые символы по краям)
+        2. Множественная форма: слово + 's'
+        3. Слово с дефисом: слово + '-'
+
+        Для множественных форм: проверяем, что после 's' тоже граница
+        Для дефисов: слово может продолжаться после дефиса
         """
         # Проверяем начало (если есть предыдущий символ)
         if start > 0:
             prev_char = text[start - 1]
-            if prev_char.isalpha() or prev_char.isdigit():
+            # Предыдущий символ должен быть не буквенно-цифровым (не частью слова)
+            if prev_char.isalnum():
                 return False
 
-        # Проверяем конец (если есть следующий символ)
+        # Проверяем конец
         if end < len(text):
             next_char = text[end]
-            if next_char.isalpha() or next_char.isdigit():
+
+            # Если следующий символ 's' - это множественная форма
+            if next_char == 's':
+                # Проверяем, что после 's' граница слова
+                if end + 1 < len(text) and text[end + 1].isalnum():
+                    return False
+                # 's' допустим только как окончание множественного числа
+                return True
+
+            # Если следующий символ '-' - это слово с дефисом
+            if next_char == '-':
+                # Дефис допустим, слово может продолжаться
+                return True
+
+            # Любой другой буквенно-цифровой символ не допустим
+            if next_char.isalnum():
                 return False
 
         return True
