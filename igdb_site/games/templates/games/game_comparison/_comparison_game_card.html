@@ -6,19 +6,10 @@
         <!-- ОТОБРАЖЕНИЕ РЕАЛЬНОЙ ИГРЫ -->
         <a href="{% url 'game_detail' game.pk %}" class="game-link text-decoration-none">
             {% if game.cover_url %}
-                <!-- SVG звезда с рейтингом -->
-                <div class="position-absolute top-0 start-0 m-2 z-3">
-                    {% rating_star_svg game.rating 40 %}
-                </div>
-
                 <img src="{{ game.cover_url }}" class="card-img-top comparison-cover"
                      alt="{{ game.name }}">
             {% else %}
                 <div class="comparison-cover bg-light d-flex align-items-center justify-content-center position-relative no-cover-placeholder">
-                    <!-- SVG звезда с рейтингом -->
-                    <div class="position-absolute top-0 start-0 m-2 z-3">
-                        {% rating_star_svg game.rating 40 %}
-                    </div>
                     <span class="text-muted">No Cover</span>
                 </div>
             {% endif %}
@@ -27,8 +18,19 @@
             <!-- Название игры -->
             <a href="{% url 'game_detail' game.pk %}" class="text-decoration-none">
                 <h3 class="game-title text-light mb-3">{{ game.name }}</h3>
-                <!-- ИЗМЕНЕНО: text-light вместо text-warning -->
             </a>
+
+            <!-- ОБЩИЙ ПРОЦЕНТ СХОЖЕСТИ (текстовый) -->
+            {% if similarity_score is not None %}
+                <div class="total-similarity mb-3">
+                    <div class="d-flex flex-column align-items-center">
+                        <div class="similarity-value text-center">
+                            <span class="text-warning fw-bold fs-3">{{ similarity_score }}%</span>
+                            <div class="text-muted small mt-1">Overall Similarity</div>
+                        </div>
+                    </div>
+                </div>
+            {% endif %}
 
             <!-- Рейтинг (текстовый дубль) -->
             {% if game.rating %}
@@ -52,7 +54,6 @@
                     <div class="d-flex flex-wrap gap-1 justify-content-center">
                         {% for genre in game.genres.all %}
                             <span class="badge bg-primary px-2 py-1">{{ genre.name }}</span>
-                            <!-- ИЗМЕНЕНО: bg-primary -->
                         {% endfor %}
                     </div>
                 </div>
@@ -74,7 +75,7 @@
                 <div class="game-developers mb-3">
                     <div class="d-flex flex-wrap gap-1 justify-content-center">
                         {% for developer in game.developers.all|slice:":3" %}
-                            <span class="badge bg-info px-2 py-1">{{ developer.name }}</span> <!-- ИЗМЕНЕНО: bg-info -->
+                            <span class="badge bg-info px-2 py-1">{{ developer.name }}</span>
                         {% endfor %}
                         {% if game.developers.all|length > 3 %}
                             <span class="badge bg-secondary px-2 py-1">+{{ game.developers.all|length|add:"-3" }}</span>
@@ -97,27 +98,18 @@
     {% else %}
         <!-- ОТОБРАЖЕНИЕ КРИТЕРИЕВ -->
         <div class="criteria-header mb-4 position-relative">
-            <!-- SVG узор с процентом схожести -->
-            <div class="position-absolute top-0 start-0 m-2 z-3">
-                {% if average_similarity %}
-                    {% similarity_pattern_svg average_similarity 40 %}
-                {% else %}
-                    {% similarity_pattern_svg 50 40 %}
-                {% endif %}
-            </div>
-
             <div class="d-flex flex-column align-items-center">
                 <i class="bi bi-search text-warning" style="font-size: 4rem;"></i>
-                <h3 class="game-title mt-3 text-light">Search Criteria</h3> <!-- ИЗМЕНЕНО: text-light -->
+                <h3 class="game-title mt-3 text-light">Search Criteria</h3>
             </div>
         </div>
         <div class="card-body p-0">
+
             {% if criteria_genres %}
                 <div class="game-genres mb-3">
                     <div class="d-flex flex-wrap gap-1 justify-content-center">
                         {% for genre in criteria_genres %}
                             <span class="badge bg-primary px-2 py-1">{{ genre.name }}</span>
-                            <!-- ИЗМЕНЕНО: bg-primary -->
                         {% endfor %}
                     </div>
                 </div>
@@ -129,13 +121,11 @@
                         <div class="keywords-collapsible" id="criteria-keywords">
                             {% for keyword in criteria_keywords|slice:":6" %}
                                 <span class="badge bg-success px-2 py-1">{{ keyword.name }}</span>
-                                <!-- ИЗМЕНЕНО: bg-success -->
                             {% endfor %}
                             {% if criteria_keywords|length > 6 %}
                                 <div class="keywords-hidden" id="hidden-keywords" style="display: none;">
                                     {% for keyword in criteria_keywords|slice:"6:" %}
                                         <span class="badge bg-success px-2 py-1">{{ keyword.name }}</span>
-                                        <!-- ИЗМЕНЕНО: bg-success -->
                                     {% endfor %}
                                 </div>
                                 <button type="button" class="btn btn-link btn-sm p-0 mt-1 text-decoration-none"
@@ -164,7 +154,6 @@
                     <div class="d-flex flex-wrap gap-1 justify-content-center">
                         {% for perspective in criteria_perspectives %}
                             <span class="badge bg-info px-2 py-1">{{ perspective.name }}</span>
-                            <!-- ИЗМЕНЕНО: bg-info -->
                         {% endfor %}
                     </div>
                 </div>
@@ -174,7 +163,7 @@
                 <div class="game-developers mb-3">
                     <div class="d-flex flex-wrap gap-1 justify-content-center">
                         {% for developer in criteria_developers %}
-                            <span class="badge bg-info px-2 py-1">{{ developer.name }}</span> <!-- ИЗМЕНЕНО: bg-info -->
+                            <span class="badge bg-info px-2 py-1">{{ developer.name }}</span>
                         {% endfor %}
                     </div>
                 </div>
@@ -186,21 +175,6 @@
                     <div class="d-flex flex-wrap gap-1 justify-content-center">
                         {% for mode in criteria_game_modes %}
                             <span class="badge bg-purple px-2 py-1">{{ mode.name }}</span>
-                        {% endfor %}
-                    </div>
-                </div>
-            {% endif %}
-
-            <!-- Platforms для критериев -->
-            {% if criteria_platforms %}
-                <div class="game-platforms mb-3">
-                    <div class="d-flex flex-wrap gap-1 justify-content-center">
-                        {% for platform in criteria_platforms %}
-                            <span class="badge bg-secondary px-2 py-1"
-                                  data-bs-toggle="tooltip"
-                                  data-bs-title="{{ platform.name }}">
-                                {{ platform.name }}
-                            </span>
                         {% endfor %}
                     </div>
                 </div>

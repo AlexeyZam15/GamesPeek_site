@@ -1,4 +1,4 @@
-// games/static/games/js/modules/filters-global.js
+// games/static/games/js/game_list/filters-global.js
 
 const FilterGlobal = {
     // Глобальные функции для кнопок Show More/Less
@@ -84,6 +84,15 @@ const FilterGlobal = {
             this.saveScrollPositionFallback();
         }
         
+        // Очищаем состояние пагинации
+        if (window.GamePagination) {
+            window.GamePagination.clearPageState();
+        }
+
+        // Создаем событие для уведомления о применении фильтров
+        const filterAppliedEvent = new CustomEvent('filterApplied');
+        document.dispatchEvent(filterAppliedEvent);
+
         // Добавляем параметр _scroll к форме
         const form = document.getElementById('main-search-form');
         if (form) {
@@ -97,13 +106,18 @@ const FilterGlobal = {
             }
         }
     },
-    
+
     handleShowAllGames(e, button) {
         // Сохраняем позицию прокрутки
         if (window.FilterManager && window.FilterManager.handlers) {
             window.FilterManager.handlers.saveScrollPosition();
         } else {
             this.saveScrollPositionFallback();
+        }
+
+        // Очищаем состояние пагинации
+        if (window.GamePagination) {
+            window.GamePagination.clearPageState();
         }
         
         // Добавляем параметр _scroll к URL

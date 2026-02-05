@@ -1774,3 +1774,84 @@
 .text-display-area:hover .scroll-position-indicator {
     opacity: 1;
 }
+
+/* Стили для кнопки удаления */
+#delete-keyword-button {
+    border-color: #dc3545;
+    color: #dc3545;
+    transition: all 0.3s ease;
+}
+
+#delete-keyword-button:hover {
+    background-color: #dc3545;
+    color: #fff;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(220, 53, 69, 0.2);
+}
+
+#delete-keyword-button:active {
+    transform: translateY(0);
+}
+
+#delete-keyword-button:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* Стили для кнопок в группе */
+.input-group .btn {
+    border-radius: 0.375rem;
+    margin-left: 2px;
+}
+
+.input-group .btn:first-child {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.input-group .btn:last-child {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+}
+
+/* Стили для кнопок управления ключевыми словами */
+#delete-keyword-button {
+    border-color: #dc3545;
+    color: #dc3545;
+}
+
+#delete-keyword-button:hover {
+    background-color: #dc3545;
+    color: #fff;
+}
+
+#add-keyword-button {
+    border-color: #28a745;
+    color: #28a745;
+}
+
+#add-keyword-button:hover {
+    background-color: #28a745;
+    color: #fff;
+}
+
+/* Убираем свечение при фокусе */
+#new-keyword-input:focus,
+#add-keyword-button:focus,
+#delete-keyword-button:focus {
+    box-shadow: none !important;
+}
+
+/* Расширение блока по ширине */
+.col-12 .input-group {
+    width: 100%;
+}
+
+.col-12 .input-group .form-control {
+    flex: 1 1 auto;
+}
+
+.col-12 .input-group .btn {
+    min-width: 80px;
+}

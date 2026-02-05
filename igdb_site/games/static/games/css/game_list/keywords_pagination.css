@@ -1,0 +1,352 @@
+/* games/static/games/css/game_list/keywords_pagination.css */
+/* ===== KEYWORDS PAGINATION STYLES ===== */
+
+/* Основной контейнер пагинации */
+.keyword-pagination {
+    margin-top: 1.5rem;
+    padding: 1rem;
+    background-color: var(--surface-dark);
+    border-radius: var(--border-radius);
+    border: 1px solid var(--border);
+    box-shadow: var(--box-shadow);
+    transition: all 0.3s ease;
+}
+
+.keyword-pagination:hover {
+    border-color: var(--secondary-color);
+    box-shadow: 0 6px 25px rgba(255, 107, 53, 0.15);
+}
+
+.keyword-pagination nav {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+}
+
+/* Контейнер для номеров страниц */
+#keyword-page-numbers {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0.5rem 0;
+    min-height: 2.5rem;
+}
+
+/* Пагинация Bootstrap */
+.keyword-pagination .pagination {
+    margin-bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    width: 100%;
+}
+
+.keyword-pagination .page-item {
+    margin: 0;
+    transition: all 0.2s ease;
+}
+
+.keyword-pagination .page-item.active .page-link {
+    background: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
+    border-color: var(--secondary-color);
+    color: var(--text-light);
+    font-weight: 700;
+    box-shadow: 0 4px 12px rgba(255, 107, 53, 0.3);
+}
+
+.keyword-pagination .page-link {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-dark);
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    min-width: 2.5rem;
+    height: 2.5rem;
+    text-align: center;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.keyword-pagination .page-link:hover {
+    background-color: rgba(255, 107, 53, 0.1);
+    border-color: var(--secondary-color);
+    color: var(--secondary-color);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(255, 107, 53, 0.2);
+}
+
+.keyword-pagination .page-link:focus {
+    box-shadow: 0 0 0 2px rgba(255, 107, 53, 0.1);
+    outline: none;
+}
+
+.keyword-pagination .page-item.disabled .page-link {
+    background-color: var(--surface-dark);
+    border-color: var(--border-dark);
+    color: #666;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+/* Кнопки номеров страниц (кастомные) */
+.page-number-btn {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-dark);
+    min-width: 2.5rem;
+    height: 2.5rem;
+    padding: 0.5rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.page-number-btn:hover {
+    background-color: rgba(255, 107, 53, 0.1);
+    border-color: var(--secondary-color);
+    color: var(--secondary-color);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(255, 107, 53, 0.2);
+}
+
+.page-number-btn.btn-primary {
+    background: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
+    border-color: transparent;
+    color: var(--text-light);
+    font-weight: 700;
+    box-shadow: 0 4px 12px rgba(255, 107, 53, 0.3);
+}
+
+.page-number-btn.btn-primary:hover {
+    background: linear-gradient(135deg, #ff8e53, #ff6b35);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(255, 107, 53, 0.4);
+}
+
+/* Информация о странице */
+.keyword-pagination .text-center small {
+    font-size: 0.85rem;
+    color: var(--text-dark);
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.keyword-pagination .text-center strong {
+    color: var(--secondary-color);
+    font-weight: 700;
+}
+
+/* Стили для списка ключевых слов */
+.keyword-list {
+    background: var(--surface-dark);
+    border: 1px solid var(--border);
+    border-radius: var(--border-radius);
+    padding: 15px;
+    max-height: 400px;
+    overflow-y: auto;
+    margin-bottom: 10px;
+    transition: all 0.3s ease;
+    scroll-behavior: smooth;
+}
+
+.keyword-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.keyword-list::-webkit-scrollbar-track {
+    background: var(--surface);
+    border-radius: 3px;
+}
+
+.keyword-list::-webkit-scrollbar-thumb {
+    background: var(--secondary-color);
+    border-radius: 3px;
+}
+
+.keyword-list::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-color);
+}
+
+.keyword-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
+    padding: 5px 0;
+}
+
+.keyword-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 15px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    position: relative;
+}
+
+.keyword-item:hover {
+    border-color: var(--secondary-color);
+    background: rgba(255, 107, 53, 0.08);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(255, 107, 53, 0.15);
+}
+
+.keyword-item .form-check-label {
+    color: var(--text-dark);
+    font-weight: 600;
+    transition: color 0.2s ease;
+    user-select: none;
+    font-size: 0.95rem;
+}
+
+.keyword-item:hover .form-check-label {
+    color: var(--text-light);
+}
+
+.form-check-input:checked ~ .form-check-label {
+    color: var(--secondary-color) !important;
+    font-weight: 700;
+}
+
+/* Адаптивные стили */
+@media (max-width: 1200px) {
+    .keyword-grid {
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 10px;
+    }
+}
+
+@media (max-width: 992px) {
+    .keyword-grid {
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        gap: 8px;
+    }
+
+    .keyword-item {
+        padding: 10px 12px;
+    }
+
+    .keyword-pagination {
+        padding: 0.75rem;
+    }
+
+    .page-link,
+    .page-number-btn {
+        min-width: 2.25rem;
+        height: 2.25rem;
+        font-size: 0.85rem;
+        padding: 0.4rem 0.8rem;
+    }
+}
+
+@media (max-width: 768px) {
+    .keyword-pagination .pagination {
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+    }
+
+    #keyword-page-numbers {
+        order: 0;
+        margin: 0.5rem 0;
+        gap: 0.25rem;
+    }
+
+    .keyword-grid {
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    }
+
+    .page-link,
+    .page-number-btn {
+        min-width: 2rem;
+        height: 2rem;
+        font-size: 0.8rem;
+        padding: 0.25rem 0.5rem;
+    }
+
+    .keyword-pagination .text-center small {
+        font-size: 0.8rem;
+        padding: 0.4rem 0.8rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .keyword-pagination {
+        padding: 0.5rem;
+    }
+
+    .keyword-pagination .pagination {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    #keyword-page-numbers {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(2rem, 1fr));
+        gap: 0.25rem;
+    }
+
+    .keyword-grid {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+
+    .page-link,
+    .page-number-btn {
+        width: 100%;
+        min-width: auto;
+        height: 2rem;
+    }
+}
+
+/* Гарантируем целостность дизайна с другими фильтрами */
+.keyword-pagination {
+    margin-top: 1rem;
+    background: rgba(26, 26, 26, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.keyword-pagination:hover {
+    background: rgba(26, 26, 26, 0.6);
+    border-color: rgba(255, 107, 53, 0.1);
+}
+
+/* Стили для активного тега ключевого слова */
+.active-keyword-tag {
+    background: linear-gradient(135deg, #27ae60, #229954) !important;
+    color: white !important;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px !important;
+    font-size: 0.85rem !important;
+    border-radius: 20px !important;
+    cursor: pointer;
+    border: 2px solid transparent !important;
+    margin: 4px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    font-weight: 600;
+}
+
+.active-keyword-tag:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+    opacity: 0.9;
+}

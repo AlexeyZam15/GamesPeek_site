@@ -1,7 +1,5 @@
-# games/analyze_views.py
-"""
-Views для анализа описаний игр - ТОЛЬКО комбинированный режим
-"""
+"""Views for game analysis."""
+
 from django.utils.safestring import mark_safe
 import json
 from django.shortcuts import render, get_object_or_404, redirect
@@ -11,25 +9,12 @@ from django.contrib import messages
 from django.utils import timezone
 from django.urls import reverse
 
-from typing import Dict, Any, List, Tuple
-from .models import Game, Keyword, KeywordCategory
-from .analyze.game_analyzer_api import GameAnalyzerAPI
-from django.db import models
-from django.utils.html import escape, strip_tags, mark_safe
-import html
-import re
-import html
-from typing import Dict, Any, List, Tuple
-from django.utils.html import escape, strip_tags, mark_safe
-import html
-from typing import Dict, Any, List, Tuple
-from django.utils.html import escape, strip_tags, mark_safe
 from typing import Dict, Any, List, Tuple, Optional
+from ..models import Game, Keyword, KeywordCategory
+from ..analyze.game_analyzer_api import GameAnalyzerAPI
+from django.db import models
 import html
 import re
-from django.utils.html import escape, strip_tags, mark_safe
-from django.utils.text import slugify
-from django.db import models
 
 
 # ===== УТИЛИТЫ ДЛЯ ПРОВЕРКИ ПРАВ =====
@@ -38,8 +23,164 @@ def is_staff_or_superuser(user):
     return user.is_authenticated and (user.is_staff or user.is_superuser)
 
 
+@login_required
+@user_passes_test(is_staff_or_superuser)
+def delete_keyword(request: HttpRequest, game_id: int):
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Invalid request method'}, status=405)
+
+    try:
+        import json
+        data = json.loads(request.body)
+        keyword_name = data.get('keyword', '').strip()
+        tab = data.get('tab', 'summary')
+        auto_analyze = data.get('auto_analyze', False)
+
+        if not keyword_name:
+            return JsonResponse({'success': False, 'message': 'Please enter a keyword'})
+
+        keyword = Keyword.objects.filter(name__iexact=keyword_name).first()
+
+        if not keyword:
+            return JsonResponse({
+                'success': False,
+                'message': f'Keyword "{keyword_name}" not found in database'
+            })
+
+        # Получаем список ID всех игр, которые используют это ключевое слово
+        game_ids_with_keyword = list(keyword.game_set.values_list('id', flat=True))
+
+        # Сохраняем популярность (сколько игр используют этот ключевое слово)
+        popularity = len(game_ids_with_keyword)
+
+        # Удаляем ключевое слово из базы данных
+        keyword.delete()
+
+        # ВАЖНОЕ ИСПРАВЛЕНИЕ: Очищаем кэш Trie после удаления ключевого слова
+        from games.analyze.keyword_trie import KeywordTrieManager
+        KeywordTrieManager().clear_cache()
+        print(f"✅ Кэш Trie очищен после удаления ключевого слова '{keyword_name}'")
+
+        # Обновляем кэш для ВСЕХ игр, которые использовали это ключевое слово
+        if game_ids_with_keyword:
+            # Оптимизация 1: Используем bulk_update для массового обновления
+            from django.db.models import Count
+            games_to_update = []
+
+            # Получаем все игры одним запросом
+            games = Game.objects.filter(id__in=game_ids_with_keyword)
+
+            for game in games:
+                # Пересчитываем количество ключевых слов
+                keyword_count = game.keywords.count()
+
+                # Обновляем кэш только если значение изменилось
+                if game._cached_keyword_count != keyword_count:
+                    game._cached_keyword_count = keyword_count
+                    game._cache_updated_at = timezone.now()
+                    games_to_update.append(game)
+
+            # Массовое обновление
+            if games_to_update:
+                Game.objects.bulk_update(
+                    games_to_update,
+                    ['_cached_keyword_count', '_cache_updated_at'],
+                    batch_size=100
+                )
+
+        response_data = {
+            'success': True,
+            'message': f'Keyword "{keyword_name}" deleted successfully',
+            'popularity': popularity
+        }
+
+        # ВАЖНОЕ ИСПРАВЛЕНИЕ: Добавляем флаг для автоматического анализа
+        if auto_analyze:
+            response_data['analyze_after_delete'] = True
+            response_data['tab'] = tab
+            response_data['message'] += ' и выполняется повторный анализ текста'
+
+            # Сохраняем в сессии информацию для выполнения анализа
+            request.session[f'auto_analyze_after_delete_{game_id}'] = {
+                'tab': tab,
+                'keyword_deleted': keyword_name
+            }
+
+        return JsonResponse(response_data)
+
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Error deleting keyword: {str(e)}'
+        })
+
+
+@login_required
+@user_passes_test(is_staff_or_superuser)
+def get_current_keywords(request: HttpRequest, game_id: int):
+    try:
+        game = get_object_or_404(Game, pk=game_id)
+        keywords = list(game.keywords.values_list('name', flat=True).order_by('name'))
+
+        return JsonResponse({
+            'success': True,
+            'keywords': keywords,
+            'count': len(keywords)
+        })
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Error getting keywords: {str(e)}'
+        })
+
+
+@login_required
+@user_passes_test(is_staff_or_superuser)
+def get_found_keywords(request: HttpRequest, game_id: int):
+    try:
+        game = get_object_or_404(Game, pk=game_id)
+        tab = request.GET.get('tab', 'summary')
+
+        unsaved_results = request.session.get(f'unsaved_results_{game_id}', {})
+        found_items = unsaved_results.get('found_items', {}).get(tab, {})
+
+        keywords = []
+        if found_items.get('keywords'):
+            for item in found_items['keywords']:
+                keywords.append({
+                    'name': item['name'],
+                    'is_new': item.get('is_new', False)
+                })
+
+        return JsonResponse({
+            'success': True,
+            'keywords': keywords,
+            'count': len(keywords)
+        })
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Error getting found keywords: {str(e)}'
+        })
+
+
+@login_required
+@user_passes_test(is_staff_or_superuser)
 def analyze_single_game(request: HttpRequest, game_id: int):
     """Анализ одной игры - ТОЛЬКО комбинированный режим"""
+
+    # Проверяем, нужно ли выполнить автоматический анализ после удаления ключевого слова
+    auto_analyze_key = f'auto_analyze_after_delete_{game_id}'
+    if auto_analyze_key in request.session:
+        auto_analyze_data = request.session.pop(auto_analyze_key)
+        tab = auto_analyze_data.get('tab', 'summary')
+        keyword_deleted = auto_analyze_data.get('keyword_deleted', '')
+
+        # Добавляем сообщение
+        messages.info(request, f'🔄 Выполняем автоматический анализ после удаления ключевого слова "{keyword_deleted}"')
+
+        # Устанавливаем флаг для автоматического анализа
+        request.session[f'auto_analyze_{game_id}'] = True
 
     # Инициализация
     game, original_descriptions, active_tab = _initialize_analysis_context(request, game_id)
@@ -100,13 +241,13 @@ def _handle_add_keyword(request: HttpRequest, game: Game, original_descriptions:
     """Обработка добавления ключевого слова"""
     keyword_name = request.POST.get('new_keyword', '').strip()
 
-    # ИСПРАВЛЕНИЕ: получаем вкладку из POST запроса, а не из active_tab
+    # ИСПРАВЛЕНИЕ: получаем вкладку из POST запроса
     analyze_tab = request.POST.get('analyze_tab', active_tab)
     auto_analyze = request.POST.get('auto_analyze', 'false') == 'true'
 
     if not keyword_name:
         messages.error(request, '❌ Please enter a keyword')
-        return _redirect_to_tab(game.id, analyze_tab)  # ИСПРАВЛЕНИЕ: используем analyze_tab
+        return _redirect_to_tab(game.id, analyze_tab)  # Используем analyze_tab
 
     try:
         # Создаем или получаем ключевое слово
@@ -128,6 +269,11 @@ def _handle_add_keyword(request: HttpRequest, game: Game, original_descriptions:
                 cached_usage_count=1
             )
             messages.success(request, f'✅ Created new keyword: "{keyword_name}"')
+
+            # ВАЖНОЕ ИСПРАВЛЕНИЕ: Очищаем кэш Trie после создания нового ключевого слова
+            from games.analyze.keyword_trie import KeywordTrieManager
+            KeywordTrieManager().clear_cache()
+            print(f"✅ Кэш Trie очищен после создания ключевого слова '{keyword_name}'")
         else:
             messages.info(request, f'ℹ️ Keyword "{keyword_name}" already exists')
 
@@ -142,9 +288,14 @@ def _handle_add_keyword(request: HttpRequest, game: Game, original_descriptions:
         game.refresh_from_db()
         messages.success(request, f'✅ Keyword "{keyword_name}" added to game!')
 
-        # Автоматически анализируем после добавления
-        if auto_analyze and analyze_tab in original_descriptions:  # ИСПРАВЛЕНИЕ: используем analyze_tab
-            text = original_descriptions[analyze_tab]
+        # ВАЖНОЕ ИСПРАВЛЕНИЕ: Обновляем сессию для немедленного отображения
+        # Получаем текущую сессию анализа
+        session_key = f'unsaved_results_{game.id}'
+        unsaved_results = request.session.get(session_key, {})
+
+        # Если есть сохраненные результаты анализа, обновляем их с новым ключевым словом
+        if unsaved_results.get('analysis_data', {}).get(analyze_tab):
+            text = original_descriptions.get(analyze_tab, '')
             if text:
                 try:
                     analyzer = GameAnalyzerAPI(verbose=True)
@@ -156,17 +307,39 @@ def _handle_add_keyword(request: HttpRequest, game: Game, original_descriptions:
                     )
 
                     if analysis_result['success']:
-                        _save_analysis_results(request, game.id, analyze_tab, text,
-                                               analysis_result)  # ИСПРАВЛЕНИЕ: используем analyze_tab
+                        # Сохраняем обновленные результаты
+                        _save_analysis_results(request, game.id, analyze_tab, text, analysis_result)
                         messages.info(request,
-                                      f'🔍 Текст автоматически проанализирован после добавления ключевого слова (вкладка: {analyze_tab}).')
+                                      f'🔍 Text automatically analyzed after adding keyword (tab: {analyze_tab}).')
                 except Exception as e:
-                    messages.warning(request, f'⚠️ Ключевое слово добавлено, но возникла ошибка при анализе: {str(e)}')
+                    messages.warning(request, f'⚠️ Keyword added, but analysis error: {str(e)}')
+        else:
+            # Если нет сохраненного анализа, выполняем автоматический анализ
+            if auto_analyze and analyze_tab in original_descriptions:
+                text = original_descriptions[analyze_tab]
+                if text:
+                    try:
+                        analyzer = GameAnalyzerAPI(verbose=True)
+                        analysis_result = analyzer.analyze_game_text_comprehensive(
+                            text=text,
+                            game_id=game.id,
+                            existing_game=game,
+                            exclude_existing=False
+                        )
+
+                        if analysis_result['success']:
+                            _save_analysis_results(request, game.id, analyze_tab, text, analysis_result)
+                            messages.info(request,
+                                          f'🔍 Text automatically analyzed after adding keyword (tab: {analyze_tab}).')
+                    except Exception as e:
+                        messages.warning(request, f'⚠️ Keyword added, but analysis error: {str(e)}')
 
         # Редирект с параметрами
         redirect_url = reverse('analyze_game', args=[game.id])
+
+        # Правильное формирование параметров
         params = []
-        if analyze_tab and analyze_tab != 'summary':  # ИСПРАВЛЕНИЕ: используем analyze_tab
+        if analyze_tab and analyze_tab != 'summary':
             params.append(f'tab={analyze_tab}')
         params.append('keyword_added=1')
         if auto_analyze:
@@ -179,7 +352,7 @@ def _handle_add_keyword(request: HttpRequest, game: Game, original_descriptions:
 
     except Exception as e:
         messages.error(request, f'❌ Error adding keyword: {str(e)}')
-        return _redirect_to_tab(game.id, analyze_tab)  # ИСПРАВЛЕНИЕ: используем analyze_tab
+        return _redirect_to_tab(game.id, analyze_tab)
 
 
 def _handle_analyze_request(request: HttpRequest, game: Game, original_descriptions: Dict, active_tab: str):
@@ -308,95 +481,6 @@ def _redirect_to_tab(game_id: int, tab: str):
     return redirect(redirect_url)
 
 
-# Также нужно проверить другие места, где формируются URL
-def _handle_add_keyword(request: HttpRequest, game: Game, original_descriptions: Dict, active_tab: str):
-    """Обработка добавления ключевого слова"""
-    keyword_name = request.POST.get('new_keyword', '').strip()
-
-    # ИСПРАВЛЕНИЕ: получаем вкладку из POST запроса, а не из active_tab
-    analyze_tab = request.POST.get('analyze_tab', active_tab)
-    auto_analyze = request.POST.get('auto_analyze', 'false') == 'true'
-
-    if not keyword_name:
-        messages.error(request, '❌ Please enter a keyword')
-        return _redirect_to_tab(game.id, analyze_tab)  # ИСПРАВЛЕНИЕ: используем analyze_tab
-
-    try:
-        # Создаем или получаем ключевое слово
-        keyword = Keyword.objects.filter(name__iexact=keyword_name).first()
-
-        if not keyword:
-            other_category, created = KeywordCategory.objects.get_or_create(
-                name='Other',
-                defaults={'description': 'Manually added keywords'}
-            )
-
-            max_igdb_id = Keyword.objects.aggregate(models.Max('igdb_id'))['igdb_id__max'] or 1000000
-            new_igdb_id = max_igdb_id + 1
-
-            keyword = Keyword.objects.create(
-                name=keyword_name,
-                category=other_category,
-                igdb_id=new_igdb_id,
-                cached_usage_count=1
-            )
-            messages.success(request, f'✅ Created new keyword: "{keyword_name}"')
-        else:
-            messages.info(request, f'ℹ️ Keyword "{keyword_name}" already exists')
-
-        # Добавляем ключевое слово к игре
-        game.keywords.add(keyword)
-
-        # Обновляем кэш
-        keyword.update_cached_count(force=True)
-        game.update_cached_counts(force=True)
-
-        # Обновляем данные игры
-        game.refresh_from_db()
-        messages.success(request, f'✅ Keyword "{keyword_name}" added to game!')
-
-        # Автоматически анализируем после добавления
-        if auto_analyze and analyze_tab in original_descriptions:  # ИСПРАВЛЕНИЕ: используем analyze_tab
-            text = original_descriptions[analyze_tab]
-            if text:
-                try:
-                    analyzer = GameAnalyzerAPI(verbose=True)
-                    analysis_result = analyzer.analyze_game_text_comprehensive(
-                        text=text,
-                        game_id=game.id,
-                        existing_game=game,
-                        exclude_existing=False
-                    )
-
-                    if analysis_result['success']:
-                        _save_analysis_results(request, game.id, analyze_tab, text,
-                                               analysis_result)  # ИСПРАВЛЕНИЕ: используем analyze_tab
-                        messages.info(request,
-                                      f'🔍 Текст автоматически проанализирован после добавления ключевого слова (вкладка: {analyze_tab}).')
-                except Exception as e:
-                    messages.warning(request, f'⚠️ Ключевое слово добавлено, но возникла ошибка при анализе: {str(e)}')
-
-        # Редирект с параметрами
-        redirect_url = reverse('analyze_game', args=[game.id])
-
-        # ФИКС: Правильное формирование параметров
-        params = []
-        if analyze_tab and analyze_tab != 'summary':  # ИСПРАВЛЕНИЕ: используем analyze_tab
-            params.append(f'tab={analyze_tab}')
-        params.append('keyword_added=1')
-        if auto_analyze:
-            params.append('auto_analyze=1')
-
-        if params:
-            redirect_url += '?' + '&'.join(params)
-
-        return redirect(redirect_url)
-
-    except Exception as e:
-        messages.error(request, f'❌ Error adding keyword: {str(e)}')
-        return _redirect_to_tab(game.id, analyze_tab)  # ИСПРАВЛЕНИЕ: используем analyze_tab
-
-
 def _save_analysis_results(request: HttpRequest, game_id: int, tab: str, original_text: str, analysis_result: Dict):
     """Сохранение результатов анализа в сессии"""
     try:
@@ -456,7 +540,7 @@ def simple_highlight_text(html_text: str, analysis_result: Dict) -> str:
         return html_text
 
     try:
-        # Удаляем существующую подсветку (старые span)
+        # Удаляем существующую подсветку
         html_text = remove_existing_highlights(html_text)
 
         # Собираем ВСЕ совпадения
@@ -488,10 +572,7 @@ def simple_highlight_text(html_text: str, analysis_result: Dict) -> str:
 
         return highlighted_text
 
-    except Exception as e:
-        print(f"❌ Ошибка в simple_highlight_text: {e}")
-        import traceback
-        traceback.print_exc()
+    except Exception:
         return html_text
 
 
@@ -609,46 +690,90 @@ def prepare_replacements_from_groups(clean_text: str, clean_groups: List[Dict]) 
 
 def apply_direct_highlights(html_text: str, replacements: List[Dict]) -> str:
     """
-    Прямая замена текста в HTML
+    Заменяет текст в HTML на основе УЖЕ НАЙДЕННЫХ и ПРОВЕРЕННЫХ совпадений
+    Использует исходный текст для поиска, затем применяет все замены за один проход
     """
-    highlighted_text = html_text
+    if not replacements:
+        return html_text
+
+    # Используем ОРИГИНАЛЬНЫЙ текст для поиска всех позиций
+    # Собираем все позиции для замены из исходного текста
+    all_positions = []
 
     for replacement in replacements:
+        search_text = replacement['text']
+
+        # Ищем все вхождения этого текста в ОРИГИНАЛЬНОМ HTML
+        start_pos = 0
+
+        while True:
+            # Регистронезависимый поиск
+            found_pos = html_text.lower().find(search_text.lower(), start_pos)
+            if found_pos == -1:
+                break
+
+            # Проверяем границы слова в ОРИГИНАЛЬНОМ тексте
+            is_valid = True
+
+            # Проверяем начало
+            if found_pos > 0:
+                prev_char = html_text[found_pos - 1]
+                if prev_char.isalnum():
+                    is_valid = False
+
+            # Проверяем конец
+            end_pos = found_pos + len(search_text)
+            if end_pos < len(html_text):
+                next_char = html_text[end_pos]
+                if next_char.isalnum() and next_char != 's' and next_char != '-':
+                    is_valid = False
+
+            if is_valid:
+                all_positions.append({
+                    'start': found_pos,
+                    'end': end_pos,
+                    'replacement': replacement,
+                    'text': html_text[found_pos:end_pos]
+                })
+
+            start_pos = found_pos + 1
+
+    if not all_positions:
+        return html_text
+
+    # Сортируем позиции от конца к началу для корректной замены
+    all_positions.sort(key=lambda x: x['start'], reverse=True)
+
+    # Применяем все замены за один проход
+    highlighted_text = html_text
+
+    for pos_info in all_positions:
         try:
-            search_text = replacement['text']
+            start = pos_info['start']
+            end = pos_info['end']
+            replacement = pos_info['replacement']
+            original_text = pos_info['text']
 
-            # Экранируем для regex
-            search_escaped = re.escape(search_text)
+            # Пропускаем, если позиции вышли за границы (после предыдущих замен)
+            if start < 0 or end > len(highlighted_text) or start >= end:
+                continue
 
-            # Ищем текст в HTML (регистронезависимо)
-            pattern = re.compile(search_escaped, re.IGNORECASE)
+            # Проверяем, что на этой позиции все еще тот же текст
+            current_text = highlighted_text[start:end]
+            if current_text.lower() != original_text.lower():
+                continue
 
-            def replace_func(match):
-                matched_text = match.group(0)
-
-                # Проверяем, что это не внутри HTML тега
-                start_pos = match.start()
-                if is_inside_html_tag(highlighted_text, start_pos):
-                    return matched_text
-
-                # Проверяем, что это не внутри другого span
-                if is_inside_span(highlighted_text, start_pos):
-                    return matched_text
-
-                # Создаем подсветку
-                if replacement['type'] == 'multi':
-                    span_html = create_multi_highlight_span(matched_text, replacement['matches'],
-                                                            replacement['num_criteria'])
-                else:
-                    span_html = create_single_highlight_span(matched_text, replacement['match'])
-
-                return span_html
+            # Создаем подсветку
+            if replacement['type'] == 'multi':
+                span_html = create_multi_highlight_span(original_text, replacement['matches'],
+                                                        replacement['num_criteria'])
+            else:
+                span_html = create_single_highlight_span(original_text, replacement['match'])
 
             # Заменяем
-            highlighted_text = pattern.sub(replace_func, highlighted_text)
+            highlighted_text = highlighted_text[:start] + span_html + highlighted_text[end:]
 
-        except Exception as e:
-            print(f"Ошибка замены '{replacement.get('text', '')}': {e}")
+        except Exception:
             continue
 
     return highlighted_text
@@ -770,7 +895,7 @@ def get_clean_text_from_html(html_text: str) -> str:
 
 def find_all_text_positions(clean_text: str, all_matches: List[Dict]) -> List[Dict]:
     """
-    Находит все позиции всех совпадений в тексте
+    Находит все позиции всех совпадений в тексте С ПРОВЕРКОЙ ГРАНИЦ
     """
     text_positions = []
     text_lower = clean_text.lower()
@@ -789,32 +914,69 @@ def find_all_text_positions(clean_text: str, all_matches: List[Dict]) -> List[Di
             if found_pos == -1:
                 break
 
-            # Для отдельных слов проверяем границы
-            if ' ' not in search_text:  # Это отдельное слово
-                # Проверяем, что перед словом не буква/цифра
-                if found_pos > 0 and clean_text[found_pos - 1].isalnum():
-                    pos = found_pos + 1
-                    continue
-                # Проверяем, что после слова не буква/цифра
-                if found_pos + len(search_text) < len(clean_text) and clean_text[
-                    found_pos + len(search_text)].isalnum():
+            # ПРОВЕРЯЕМ ГРАНИЦЫ СЛОВА
+            is_word_boundary = True
+
+            # Проверяем начало
+            if found_pos > 0:
+                prev_char = clean_text[found_pos - 1]
+                if prev_char.isalnum():
+                    is_word_boundary = False
+
+            # Проверяем конец
+            end_pos = found_pos + len(search_text)
+            if end_pos < len(clean_text):
+                next_char = clean_text[end_pos]
+                # Допускаем 's' для множественного числа и '-' для составных слов
+                if next_char.isalnum() and next_char != 's' and next_char != '-':
+                    is_word_boundary = False
+
+            if is_word_boundary:
+                # ДЛЯ КЛЮЧЕВЫХ СЛОВ: ищем множественные формы
+                if match['category'] == 'keywords':
+                    # Проверяем следующие символы после найденного слова
+                    end_pos = found_pos + len(search_text)
+
+                    # Если есть 's' после слова - это множественная форма
+                    if end_pos < len(clean_text) and clean_text[end_pos] == 's':
+                        # Проверяем границу после 's'
+                        if end_pos + 1 >= len(clean_text) or not clean_text[end_pos + 1].isalnum():
+                            end_pos += 1
+
+                    # Если есть дефис после слова - захватываем его
+                    if end_pos < len(clean_text) and clean_text[end_pos] == '-':
+                        end_pos += 1
+
+                    # Создаем запись с расширенным текстом
+                    extended_text = clean_text[found_pos:end_pos]
+
+                    text_positions.append({
+                        'start': found_pos,
+                        'end': end_pos,
+                        'name': match['name'],
+                        'category': match['category'],
+                        'class_name': match['class_name'],
+                        'color': match['color'],
+                        'text': extended_text
+                    })
+
                     pos = found_pos + 1
                     continue
 
-            text_positions.append({
-                'start': found_pos,
-                'end': found_pos + len(search_text),
-                'name': match['name'],
-                'category': match['category'],
-                'class_name': match['class_name'],
-                'color': match['color'],
-                'text': clean_text[found_pos:found_pos + len(search_text)]
-            })
+                # Для остальных категорий - обычный поиск
+                text_positions.append({
+                    'start': found_pos,
+                    'end': found_pos + len(search_text),
+                    'name': match['name'],
+                    'category': match['category'],
+                    'class_name': match['class_name'],
+                    'color': match['color'],
+                    'text': clean_text[found_pos:found_pos + len(search_text)]
+                })
 
             pos = found_pos + 1
 
     return text_positions
-
 
 def group_overlapping_positions(text_positions: List[Dict]) -> List[Dict]:
     """
@@ -998,27 +1160,30 @@ def get_words_to_highlight(pattern_info: Dict) -> Dict[str, List[Dict]]:
             if not matched_text or not name:
                 continue
 
-            # Очищаем текст от лишних символов
+            # Очищаем текст
             clean_text = matched_text.strip().lower()
 
-            # Разбиваем на слова для фраз
-            words = re.findall(r'\b\w+\b', clean_text)
+            # Удаляем начальные/конечные не-буквенные символы
+            clean_text = re.sub(r'^[^\w]*', '', clean_text)
+            clean_text = re.sub(r'[^\w]*$', '', clean_text)
 
-            for word in words:
-                if len(word) < 2:  # Пропускаем слишком короткие слова
-                    continue
+            if not clean_text:
+                continue
 
-                if word not in words_to_highlight:
-                    words_to_highlight[word] = []
+            # Вместо разбивки на слова, сохраняем полный текст как ключ
+            # Это предотвратит поиск частей слов
+            if clean_text not in words_to_highlight:
+                words_to_highlight[clean_text] = []
 
-                # Добавляем информацию о критерии
-                words_to_highlight[word].append({
-                    'name': name,
-                    'category': category,
-                    'class_name': category_classes[category],
-                    'full_phrase': matched_text,
-                    'is_phrase': len(words) > 1
-                })
+            # Добавляем информацию о критерии
+            words_to_highlight[clean_text].append({
+                'name': name,
+                'category': category,
+                'class_name': category_classes[category],
+                'full_phrase': matched_text,
+                'is_phrase': ' ' in clean_text or '-' in clean_text,  # Фраза если содержит пробел или дефис
+                'exact_match': clean_text  # Сохраняем точный текст для поиска
+            })
 
     return words_to_highlight
 
@@ -1089,29 +1254,34 @@ def highlight_phrases_in_html(html_text: str, words_to_highlight: Dict[str, List
 
 def highlight_single_words_in_html(html_text: str, words_to_highlight: Dict[str, List[Dict]]) -> str:
     """
-    Подсвечивает одиночные слова
+    Подсвечивает слова в HTML тексте с точным соответствием
     """
     highlighted_text = html_text
 
-    # Собираем одиночные слова
-    single_words = {}
+    # Группируем по точному тексту для поиска
+    exact_matches = {}
     for word, criteria_list in words_to_highlight.items():
         for criteria in criteria_list:
-            if not criteria['is_phrase']:
-                if word not in single_words:
-                    single_words[word] = []
-                single_words[word].append(criteria)
+            if not criteria.get('is_phrase', False):
+                exact_text = criteria.get('exact_match', word)
+                if exact_text not in exact_matches:
+                    exact_matches[exact_text] = []
+                exact_matches[exact_text].append(criteria)
 
-    # Обрабатываем каждое слово
-    for word, criteria_list in single_words.items():
-        # Ищем слово как отдельное слово (с границами слов)
-        pattern = re.compile(r'\b' + re.escape(word) + r'\b', re.IGNORECASE)
+    # Обрабатываем каждое точное совпадение
+    for exact_text, criteria_list in exact_matches.items():
+        # Ищем точное совпадение с границами слова
+        pattern = re.compile(r'\b' + re.escape(exact_text) + r'\b', re.IGNORECASE)
 
-        def replace_word(match):
+        def replace_exact(match):
             matched_text = match.group(0)
-
-            # Пропускаем, если уже внутри span
             start_pos = match.start()
+
+            # Проверяем, что не внутри HTML тега
+            if is_inside_html_tag(highlighted_text, start_pos):
+                return matched_text
+
+            # Проверяем, что не внутри другого span
             if is_inside_span(highlighted_text, start_pos):
                 return matched_text
 
@@ -1123,8 +1293,8 @@ def highlight_single_words_in_html(html_text: str, words_to_highlight: Dict[str,
                 criteria = criteria_list[0]
                 return create_single_criteria_span(matched_text, criteria)
 
-        # Заменяем слова
-        highlighted_text = pattern.sub(replace_word, highlighted_text)
+        # Заменяем точные совпадения
+        highlighted_text = pattern.sub(replace_exact, highlighted_text)
 
     return highlighted_text
 
@@ -1750,9 +1920,6 @@ def apply_highlights(html_text: str, replacements: List[Dict]) -> str:
     return highlighted_text
 
 
-from django.utils.safestring import mark_safe
-
-
 def _prepare_get_context(request: HttpRequest, game: Game, original_descriptions: Dict, active_tab: str) -> Dict:
     """Подготовка контекста для GET запроса
     ИСПРАВЛЕНИЕ: Упрощенная логика с сохранением абзацной структуры
@@ -1760,6 +1927,13 @@ def _prepare_get_context(request: HttpRequest, game: Game, original_descriptions
 
     # Проверяем флаг auto_analyze в URL
     auto_analyze_flag = request.GET.get('auto_analyze', '0') == '1'
+
+    # Проверяем флаг автоматического анализа после удаления ключевого слова
+    auto_analyze_delete_flag = request.session.get(f'auto_analyze_{game.id}', False)
+    if auto_analyze_delete_flag:
+        request.session.pop(f'auto_analyze_{game.id}', None)
+        messages.info(request, '🔍 Текст автоматически проанализирован после удаления ключевого слова.')
+
     if auto_analyze_flag:
         messages.info(request, '🔍 Текст автоматически проанализирован после добавления ключевого слова.')
 

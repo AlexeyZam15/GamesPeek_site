@@ -8,7 +8,8 @@ from games.models import (
     Game, Genre, Keyword, Platform, Series,
     Company, Theme, PlayerPerspective, GameMode, Screenshot
 )
-
+import requests
+from urllib.parse import urlparse
 
 class DataLoader:
     """Класс для загрузки данных из IGDB"""
@@ -23,6 +24,132 @@ class DataLoader:
         self._retry_delay = 2.0
         self._interrupted = threading.Event()
         self.debug_mode = False  # Добавляем атрибут
+
+    def debug_cover_format(self, cover_id, debug=False):
+        """Отладочный метод для проверки формата обложки"""
+        query = f'fields id,url,image_id; where id = {cover_id};'
+
+        try:
+            cover_data = self._rate_limited_request('covers', query, debug=debug)
+
+            if not cover_data:
+                if debug:
+                    self.stdout.write(f'   ❌ Обложка {cover_id} не найдена')
+                return None
+
+            cover = cover_data[0]
+
+            if debug:
+                self.stdout.write(f'\n🔍 ДЕБАГ ОБЛОЖКИ ID: {cover_id}')
+                self.stdout.write(f'   • Полные данные: {cover}')
+                self.stdout.write(f'   • image_id: {cover.get("image_id")}')
+                self.stdout.write(f'   • url: {cover.get("url")}')
+
+                # Пробуем разные форматы URL
+                if cover.get('image_id'):
+                    image_id = cover['image_id']
+                    self.stdout.write(f'\n   🔗 Варианты URL через image_id:')
+                    self.stdout.write(
+                        f'      • JPG: https://images.igdb.com/igdb/image/upload/t_cover_big/{image_id}.jpg')
+                    self.stdout.write(
+                        f'      • WebP: https://images.igdb.com/igdb/image/upload/t_cover_big/{image_id}.webp')
+
+                if cover.get('url'):
+                    url = cover['url']
+                    self.stdout.write(f'\n   🔗 Варианты URL через url:')
+                    self.stdout.write(f'      • Исходный: {url}')
+                    if url.startswith('//'):
+                        url = f"https:{url}"
+                        self.stdout.write(f'      • С https: {url}')
+
+                    if 't_thumb' in url:
+                        self.stdout.write(f'      • Cover Big JPG: {url.replace("t_thumb", "t_cover_big")}')
+                        self.stdout.write(
+                            f'      • Cover Big WebP: {url.replace("t_thumb", "t_cover_big").replace(".jpg", ".webp")}')
+
+            return cover
+
+        except Exception as e:
+            if debug:
+                self.stderr.write(f'   ❌ Ошибка запроса обложки {cover_id}: {e}')
+            return None
+
+    def create_basic_games(self, games_data_list, debug=False):
+        """Создает игры с основными данными, избегая дубликатов"""
+        from django.utils import timezone
+        from datetime import datetime
+
+        # Получаем существующие ID за один запрос
+        igdb_ids = [g.get('id') for g in games_data_list if g.get('id')]
+        existing_game_ids = set()
+        skipped_games = 0
+
+        if igdb_ids:
+            with self._db_lock:
+                existing_game_ids = set(Game.objects.filter(
+                    igdb_id__in=igdb_ids
+                ).values_list('igdb_id', flat=True))
+                skipped_games = len([gid for gid in igdb_ids if gid in existing_game_ids])
+
+        def process_single_game(game_data):
+            game_id = game_data.get('id')
+            if not game_id or game_id in existing_game_ids:
+                if debug and game_id in existing_game_ids:
+                    self.stdout.write(f'   ⏭️  Игра уже существует: {game_id}')
+                return None
+
+            # Создаем объект игры напрямую
+            game = Game(
+                igdb_id=game_id,
+                name=game_data.get('name', ''),
+                summary=game_data.get('summary', ''),
+                storyline=game_data.get('storyline', ''),
+                rating=game_data.get('rating'),
+                rating_count=game_data.get('rating_count', 0)
+            )
+
+            # Сохраняем game_type из данных игры
+            game_type = game_data.get('game_type')
+            if game_type is not None:
+                game.game_type = game_type
+
+            if game_data.get('first_release_date'):
+                naive_datetime = datetime.fromtimestamp(game_data['first_release_date'])
+                game.first_release_date = timezone.make_aware(naive_datetime)
+
+            return game
+
+        games_to_create = []
+        # Используем обычный цикл вместо ThreadPoolExecutor для простоты
+        for game_data in games_data_list:
+            try:
+                game = process_single_game(game_data)
+                if game:
+                    games_to_create.append(game)
+            except Exception as e:
+                if debug:
+                    self.stderr.write(f'   ❌ Ошибка создания игры: {e}')
+
+        if games_to_create:
+            try:
+                with self._db_lock:
+                    Game.objects.bulk_create(games_to_create, batch_size=50, ignore_conflicts=True)
+                if debug:
+                    self.stdout.write(f'   ✅ Создано игр: {len(games_to_create)}')
+            except Exception as e:
+                if debug:
+                    self.stderr.write(f'   ❌ Ошибка bulk_create игр: {e}')
+                # Fallback: создаем по одной
+                created_count = 0
+                for game in games_to_create:
+                    try:
+                        game.save()
+                        created_count += 1
+                    except:
+                        pass
+                return created_count, {}, skipped_games
+
+        return len(games_to_create), {game.igdb_id: game for game in games_to_create}, skipped_games
 
     def _bulk_check_existing_objects(self, model_class, igdb_ids):
         """Массовая проверка существующих объектов по igdb_id"""
@@ -783,7 +910,7 @@ class DataLoader:
         return self._batch_processor_regular(ids_list, process_batch, emoji, name, debug)
 
     def _process_covers_batch(self, batch_num, batch_ids, cover_map, lock, total_batches, name, debug):
-        """Обрабатывает пачку обложек"""
+        """Обрабатывает пачку обложек - упрощенная версия"""
         if debug:
             with lock:
                 self.stdout.write(f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_ids)} объектов')
@@ -803,38 +930,53 @@ class DataLoader:
         def process_single_cover(cover_id):
             if cover_id not in data_by_id:
                 return None
+
             cover_data = data_by_id[cover_id]
-            if cover_data.get('image_id'):
-                return (cover_id,
-                        f"https://images.igdb.com/igdb/image/upload/t_cover_big/{cover_data['image_id']}.jpg")
-            elif cover_data.get('url'):
-                url = cover_data['url']
-                return (cover_id, f"https:{url.replace('thumb', 'cover_big')}")
-            return None
+            url = cover_data.get('url', '')
+
+            if url:
+                # Заменяем t_thumb на t_cover_big
+                if 't_thumb' in url:
+                    url = url.replace('t_thumb', 't_cover_big')
+
+                # Всегда используем JPG формат
+                if url.endswith('.webp'):
+                    url = url.replace('.webp', '.jpg')
+                elif not url.endswith('.jpg'):
+                    url += '.jpg'
+
+                # Добавляем https если нужно
+                if url.startswith('//'):
+                    url = f"https:{url}"
+
+                return (cover_id, url)
+
+            # Если нет URL, используем image_id
+            elif cover_data.get('image_id'):
+                image_id = cover_data['image_id']
+                return (cover_id, f"https://images.igdb.com/igdb/image/upload/t_cover_big/{image_id}.jpg")
+
+            # Запасной вариант
+            else:
+                return (cover_id, f"https://images.igdb.com/igdb/image/upload/t_cover_big/{cover_id}.jpg")
 
         batch_map = {}
-        with ThreadPoolExecutor(max_workers=min(len(batch_ids), 10)) as executor:
-            futures = {executor.submit(process_single_cover, cover_id): cover_id for cover_id in batch_ids}
-
-            for future in as_completed(futures):
-                cover_id = futures[future]
-                try:
-                    result = future.result()
-                    if result:
-                        cover_id, url = result
-                        batch_map[cover_id] = url
-                except Exception as e:
-                    if debug:
-                        with lock:
-                            self.stderr.write(f'            ❌ Ошибка future для обложки {cover_id}: {e}')
+        for cover_id in batch_ids:
+            result = process_single_cover(cover_id)
+            if result:
+                cover_id, url = result
+                batch_map[cover_id] = url
 
         with lock:
             cover_map.update(batch_map)
 
         if debug:
             with lock:
-                self.stdout.write(
-                    f'         ✅ Пачка {name} {batch_num}/{total_batches}: {len(batch_data)} объектов')
+                self.stdout.write(f'         ✅ Пачка {name} {batch_num}/{total_batches}: {len(batch_data)} объектов')
+                if batch_map:
+                    self.stdout.write(f'            📸 Пример URL: {list(batch_map.values())[0][:50]}...')
+
+        return batch_map
 
     def load_covers_parallel(self, cover_ids, debug=False):
         """Параллельная загрузка обложек"""
@@ -1167,97 +1309,83 @@ class DataLoader:
         """Параллельная загрузка компаний с логотипами"""
         return self._batch_processor_regular(company_ids, self._process_companies_batch, '🏢', 'компаний', debug)
 
-    def create_basic_games(self, games_data_list, debug=False):
-        """Создает игры с основными данными, избегая дубликатов"""
-        from django.utils import timezone
-        from datetime import datetime
-
-        # Получаем существующие ID за один запрос
-        igdb_ids = [g.get('id') for g in games_data_list if g.get('id')]
-        existing_game_ids = set()
-
-        if igdb_ids:
-            with self._db_lock:
-                existing_game_ids = set(Game.objects.filter(
-                    igdb_id__in=igdb_ids
-                ).values_list('igdb_id', flat=True))
-
-        def process_single_game(game_data):
-            game_id = game_data.get('id')
-            if not game_id or game_id in existing_game_ids:
-                if debug and game_id in existing_game_ids:
-                    self.stdout.write(f'   ⏭️  Игра уже существует: {game_id}')
-                return None
-
-            # Создаем объект игры напрямую
-            game = Game(
-                igdb_id=game_id,
-                name=game_data.get('name', ''),
-                summary=game_data.get('summary', ''),
-                storyline=game_data.get('storyline', ''),
-                rating=game_data.get('rating'),
-                rating_count=game_data.get('rating_count', 0)
-            )
-
-            # Сохраняем game_type из данных игры
-            game_type = game_data.get('game_type')
-            if game_type is not None:
-                game.game_type = game_type
-
-            if game_data.get('first_release_date'):
-                naive_datetime = datetime.fromtimestamp(game_data['first_release_date'])
-                game.first_release_date = timezone.make_aware(naive_datetime)
-
-            return game
-
-        games_to_create = []
-        # Используем обычный цикл вместо ThreadPoolExecutor для простоты
-        for game_data in games_data_list:
-            try:
-                game = process_single_game(game_data)
-                if game:
-                    games_to_create.append(game)
-            except Exception as e:
-                if debug:
-                    self.stderr.write(f'   ❌ Ошибка создания игры: {e}')
-
-        if games_to_create:
-            try:
-                with self._db_lock:
-                    Game.objects.bulk_create(games_to_create, batch_size=50, ignore_conflicts=True)
-                if debug:
-                    self.stdout.write(f'   ✅ Создано игр: {len(games_to_create)}')
-            except Exception as e:
-                if debug:
-                    self.stderr.write(f'   ❌ Ошибка bulk_create игр: {e}')
-                # Fallback: создаем по одной
-                created_count = 0
-                for game in games_to_create:
-                    try:
-                        game.save()
-                        created_count += 1
-                    except:
-                        pass
-                return created_count, {}
-
-        return len(games_to_create), {game.igdb_id: game for game in games_to_create}
-
     def update_games_with_covers(self, game_basic_map, cover_map, game_data_map, debug=False):
-        """Обновляет игры обложками"""
+        """Обновляет игры обложками с проверкой доступности изображения"""
+        import requests
+        from urllib.parse import urlparse
+
         with self._db_lock:
             games = list(Game.objects.filter(igdb_id__in=game_basic_map.keys()))
+
+        def check_image_accessible(url):
+            """Проверяет доступность изображения по URL"""
+            try:
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+                response = requests.head(url, headers=headers, timeout=5, allow_redirects=True)
+
+                # ЯВНО проверяем статус код - если 404 или другие ошибки, изображение недоступно
+                if response.status_code != 200:
+                    if debug:
+                        self.stdout.write(f'      ⚠️  Изображение недоступно, статус: {response.status_code}')
+                    return False
+
+                # Проверяем content-type
+                content_type = response.headers.get('content-type', '').lower()
+                if 'image' not in content_type:
+                    if debug:
+                        self.stdout.write(f'      ⚠️  Не изображение, content-type: {content_type}')
+                    return False
+
+                return True
+            except Exception as e:
+                if debug:
+                    self.stdout.write(f'      ❌ Ошибка проверки изображения {url}: {e}')
+                return False
 
         def process_single_game(game):
             game_data = game_data_map.get(game.igdb_id)
             if game_data and game_data.get('cover'):
                 cover_id = game_data['cover']
-                if cover_id in cover_map and cover_map[cover_id] != game.cover_url:
-                    game.cover_url = cover_map[cover_id]
-                    return game
+                if cover_id in cover_map:
+                    new_cover_url = cover_map[cover_id]
+                    current_url = game.cover_url or ""
+
+                    if debug:
+                        self.stdout.write(f'\n   🔍 Проверка обложки для {game.name}:')
+                        self.stdout.write(f'      Текущая: {current_url}')
+                        self.stdout.write(f'      Новая: {new_cover_url}')
+
+                    # Всегда проверяем доступность текущей обложки
+                    if current_url:
+                        current_accessible = check_image_accessible(current_url)
+                        if not current_accessible:
+                            # Текущая обложка недоступна (404 или другая ошибка)
+                            new_accessible = check_image_accessible(new_cover_url)
+                            if new_accessible:
+                                if debug:
+                                    self.stdout.write(f'   🔄 Обновление недоступной обложки: {game.name}')
+                                game.cover_url = new_cover_url
+                                return game
+                            elif debug:
+                                self.stdout.write(f'   ⚠️  Новая обложка тоже недоступна: {game.name}')
+                        elif debug:
+                            self.stdout.write(f'   ✅ Текущая обложка доступна: {game.name}')
+                    else:
+                        # У игры нет обложки - устанавливаем новую
+                        new_accessible = check_image_accessible(new_cover_url)
+                        if new_accessible:
+                            if debug:
+                                self.stdout.write(f'   🖼️  Установка новой обложки: {game.name}')
+                            game.cover_url = new_cover_url
+                            return game
+                        elif debug:
+                            self.stdout.write(f'   ⚠️  Новая обложка недоступна: {game.name}')
             return None
 
         games_to_update = []
-        with ThreadPoolExecutor(max_workers=min(len(games), 10)) as executor:
+        with ThreadPoolExecutor(max_workers=min(len(games), 5)) as executor:
             futures = [executor.submit(process_single_game, game) for game in games]
 
             for future in as_completed(futures):
@@ -1272,6 +1400,8 @@ class DataLoader:
         if games_to_update:
             with self._db_lock:
                 Game.objects.bulk_update(games_to_update, ['cover_url'], batch_size=50)
+            if debug:
+                self.stdout.write(f'\n   💾 Обновлено обложек в базе: {len(games_to_update)}')
 
         return len(games_to_update)
 

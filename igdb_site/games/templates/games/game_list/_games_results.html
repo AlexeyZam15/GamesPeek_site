@@ -1,62 +1,253 @@
+<!-- games/templates/games/game_list/_games_results.html -->
 <div class="row">
     <div class="col-12">
+        <!-- Исправленная отладочная информация от сервера -->
+        <div style="display: none;" id="server-debug-info">
+            <p>Server Page: {{ current_page }}</p>
+            <p>Server Total: {{ total_count }}</p>
+            <p>Games Count: {% if games %}{{ games|length }}{% elif games_with_similarity %}
+                {{ games_with_similarity|length }}{% else %}0{% endif %}</p>
+            <p>First Game ID: {% if games and games.0 %}
+                {{ games.0.id }}{% elif games_with_similarity and games_with_similarity.0.game %}
+                {{ games_with_similarity.0.game.id }}{% else %}None{% endif %}</p>
+            <p>URL Page Param: {{ request.GET.page|default:"not specified" }}</p>
+            <p>View Current Page: {{ current_page }}</p>
+        </div>
+        <!-- Расширенная отладка (скрытая) -->
+        <div style="display: none;" id="extended-debug-info">
+            <p>View Current Page: {{ current_page }}</p>
+            <p>View Total Pages: {{ total_pages }}</p>
+            <p>View Start Index: {{ start_index }}</p>
+            <p>View End Index: {{ end_index }}</p>
+            <p>View Games Count: {% if games %}{{ games|length }}{% elif games_with_similarity %}
+                {{ games_with_similarity|length }}{% else %}0{% endif %}</p>
+            <p>View First Game ID: {% if games and games.0 %}
+                {{ games.0.id }}{% elif games_with_similarity and games_with_similarity.0.game %}
+                {{ games_with_similarity.0.game.id }}{% else %}None{% endif %}</p>
+            <p>URL Has Page Param: {% if request.GET.page %}yes{% else %}no{% endif %}</p>
+            <p>URL Page Value: {{ request.GET.page|default:"not specified" }}</p>
+            <p>Debug Mode: {{ debug_info.mode|default:"unknown" }}</p>
+            <p>Debug Requested Page: {{ debug_info.requested_page|default:"unknown" }}</p>
+            <p>Debug ModeResult Page: {{ debug_info.mode_result_page|default:"unknown" }}</p>
+        </div>
+
+        <!-- ВАЖНОЕ ИСПРАВЛЕНИЕ: Добавляем скрытые поля для передачи данных от сервера к JavaScript -->
+        <div style="display: none;">
+            <input type="hidden" id="server-current-page" value="{{ current_page }}">
+            <input type="hidden" id="server-total-pages" value="{{ total_pages }}">
+            <input type="hidden" id="server-total-count" value="{{ total_count }}">
+            <input type="hidden" id="server-start-index" value="{{ start_index }}">
+            <input type="hidden" id="server-end-index" value="{{ end_index }}">
+            <input type="hidden" id="server-items-per-page" value="{{ items_per_page|default:16 }}">
+            <input type="hidden" id="server-rendered" value="true">
+        </div>
+
         <div class="d-flex justify-content-between align-items-center mb-3">
             {% if show_similarity %}
-                <h5>Found {{ total_count }} similar games</h5>
+                <h5>Found <span id="games-total">{{ total_count }}</span> similar games</h5>
             {% else %}
-                <h5>Found {{ total_count }} games</h5>
+                <h5>Found <span id="games-total">{{ total_count }}</span> games</h5>
             {% endif %}
         </div>
 
-        {% if show_similarity and games_with_similarity %}
-            {% include 'games/game_list/_games_grid.html' with games=games_with_similarity show_similarity=show_similarity source_game=source_game %}
-        {% elif games %}
-            {% include 'games/game_list/_games_grid.html' with games=games %}
-        {% else %}
-            {% include 'games/game_list/_no_games_found.html' %}
-        {% endif %}
+        <!-- Пагинация вверху (показываем всегда) -->
+        <div class="games-pagination games-pagination-top mb-4">
+            <nav aria-label="Games pagination">
+                <div class="nav-container">
+                    <!-- Кнопка "Предыдущая" -->
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="games-prev-top">
+                        <i class="bi bi-chevron-left"></i> Prev
+                    </button>
 
-        <!-- ПАГИНАЦИЯ -->
+                    <!-- Номера страниц -->
+                    <div id="games-page-numbers-top" class="d-flex gap-1 align-items-center"></div>
+
+                    <!-- Кнопка "Следующая" -->
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="games-next-top">
+                        Next <i class="bi bi-chevron-right"></i>
+                    </button>
+                </div>
+
+                <!-- Информация о странице -->
+                <div class="text-center mt-2">
+                    <div class="page-info">
+                        <small class="text-muted">
+                            Page <span id="games-current-top">{{ current_page }}</span>
+                            of <span id="games-total-pages-top">{{ total_pages }}</span>
+                            (<span id="games-start-top">{{ start_index }}</span>-<span
+                                id="games-end-top">{{ end_index }}</span>
+                            of <span id="games-total-all-top">{{ total_count }}</span> games)
+                        </small>
+                    </div>
+                </div>
+            </nav>
+        </div>
+
+        <!-- Контейнер для игр с data-атрибутами для JS -->
+        <!-- ВАЖНОЕ ИСПРАВЛЕНИЕ: добавляем data-server-page -->
+        <div class="games-container"
+             data-current-page="{{ current_page }}"
+             data-total-pages="{{ total_pages }}"
+             data-total-games="{{ total_count }}"
+             data-items-per-page="{{ items_per_page|default:16 }}"
+             data-server-page="{{ current_page }}">
+            {% if show_similarity and games_with_similarity %}
+                {% include 'games/game_list/_games_grid.html' with games=games_with_similarity show_similarity=show_similarity source_game=source_game %}
+            {% elif games %}
+                {% include 'games/game_list/_games_grid.html' with games=games %}
+            {% else %}
+                <!-- ВАЖНО: Это сообщение показывается только если сервер действительно не нашел игр -->
+                <div class="row" id="games-grid-row">
+                    <div class="col-12">
+                        <div class="text-center py-5">
+                            <h5>No games found</h5>
+                            <p class="text-muted">Try changing your search criteria or reset filters</p>
+                            <a href="{% url 'game_list' %}" class="btn btn-primary">Show All Games</a>
+                        </div>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- Пагинация внизу -->
+        <div class="games-pagination games-pagination-bottom mt-4">
+            <nav aria-label="Games pagination">
+                <div class="nav-container">
+                    <!-- Кнопка "Предыдущая" -->
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="games-prev">
+                        <i class="bi bi-chevron-left"></i> Prev
+                    </button>
+
+                    <!-- Номера страниц -->
+                    <div id="games-page-numbers" class="d-flex gap-1 align-items-center"></div>
+
+                    <!-- Кнопка "Следующая" -->
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="games-next">
+                        Next <i class="bi bi-chevron-right"></i>
+                    </button>
+                </div>
+
+                <!-- Информация о странице -->
+                <div class="text-center mt-2">
+                    <div class="page-info">
+                        <small class="text-muted">
+                            Page <span id="games-current">{{ current_page }}</span>
+                            of <span id="games-total-pages">{{ total_pages }}</span>
+                            (<span id="games-start">{{ start_index }}</span>-<span id="games-end">{{ end_index }}</span>
+                            of <span id="games-total-all">{{ total_count }}</span> games)
+                        </small>
+                    </div>
+                </div>
+            </nav>
+        </div>
+
+        <!-- Скрытый контейнер для сообщения "No games found" (шаблон для JS) -->
+        <div id="no-games-template" style="display: none;">
+            <div class="col-12">
+                <div class="text-center py-5">
+                    <h5>No games found</h5>
+                    <p class="text-muted">Try changing your search criteria or reset filters</p>
+                    <a href="{% url 'game_list' %}" class="btn btn-primary">Show All Games</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- ОРИГИНАЛЬНАЯ СЕРВЕРНАЯ ПАГИНАЦИЯ (СКРЫВАЕМ) -->
         {% if is_paginated %}
-            <nav aria-label="Page navigation" class="mt-4">
-                <ul class="pagination justify-content-center">
-                    {% if page_obj.has_previous %}
-                        <li class="page-item">
-                            <a class="page-link" href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=1
-                                    {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">First</a>
-                        </li>
-                        <li class="page-item">
-                            <a class="page-link" href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-                                    {{ page_obj.previous_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Previous</a>
-                        </li>
-                    {% endif %}
-
-                    {% for num in page_obj.paginator.page_range %}
-                        {% if page_obj.number == num %}
-                            <li class="page-item active">
-                                <span class="page-link">{{ num }}</span>
+            <div style="display: none;">
+                <nav aria-label="Page navigation" class="mt-4">
+                    <ul class="pagination justify-content-center">
+                        {% if page_obj.has_previous %}
+                            <li class="page-item">
+                                <a class="page-link"
+                                   href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=1
+                                           {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">First</a>
                             </li>
-                        {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
                             <li class="page-item">
                                 <a class="page-link"
                                    href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-                                           {{ num }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">{{ num }}</a>
+                                           {{ page_obj.previous_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Previous</a>
                             </li>
                         {% endif %}
-                    {% endfor %}
 
-                    {% if page_obj.has_next %}
-                        <li class="page-item">
-                            <a class="page-link" href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-                                    {{ page_obj.next_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Next</a>
-                        </li>
-                        <li class="page-item">
-                            <a class="page-link" href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-                                    {{ page_obj.paginator.num_pages }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Last</a>
-                        </li>
-                    {% endif %}
-                </ul>
-            </nav>
+                        {% for num in page_obj.paginator.page_range %}
+                            {% if page_obj.number == num %}
+                                <li class="page-item active">
+                                    <span class="page-link">{{ num }}</span>
+                                </li>
+                            {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+                                <li class="page-item">
+                                    <a class="page-link"
+                                       href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
+                                               {{ num }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">{{ num }}</a>
+                                </li>
+                            {% endif %}
+                        {% endfor %}
+
+                        {% if page_obj.has_next %}
+                            <li class="page-item">
+                                <a class="page-link"
+                                   href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
+                                           {{ page_obj.next_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Next</a>
+                            </li>
+                            <li class="page-item">
+                                <a class="page-link"
+                                   href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
+                                           {{ page_obj.paginator.num_pages }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Last</a>
+                            </li>
+                        {% endif %}
+                    </ul>
+                </nav>
+            </div>
         {% endif %}
     </div>
 </div>
+
+<!-- JavaScript для инициализации данных -->
+<!-- В конце файла, после основного контента -->
+<script>
+    // Передаем данные сервера в глобальную область видимости
+    (function() {
+        window.ServerData = window.ServerData || {};
+        window.ServerData.pagination = {
+            currentPage: {{ current_page }},
+            totalPages: {{ total_pages }},
+            totalCount: {{ total_count }},
+            startIndex: {{ start_index }},
+            endIndex: {{ end_index }},
+            itemsPerPage: {{ items_per_page|default:16 }},
+            hasGames: {% if games or games_with_similarity %}true{% else %}false{% endif %},
+            gameCount: {% if games %}{{ games|length }}{% elif games_with_similarity %}{{ games_with_similarity|length }}{% else %}0{% endif %},
+            hasNoGamesMessage: {% if not games and not games_with_similarity %}true{% else %}false{% endif %}
+    };
+
+    console.log('Server pagination data:', window.ServerData.pagination);
+    console.log('URL page parameter:', '{{ request.GET.page|default:"not specified" }}');
+        console.log('Server rendered page:', {{ current_page }});
+
+        try {
+            sessionStorage.setItem('serverPageData', JSON.stringify(window.ServerData.pagination));
+            sessionStorage.setItem('currentPageUrl', window.location.href);
+        } catch (e) {
+            console.warn('Could not save server page data to sessionStorage:', e);
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(function() {
+                const gameCards = document.querySelectorAll('.game-card-container');
+                const currentPage = {{ current_page }};
+                const itemsPerPage = {{ items_per_page|default:16 }};
+                const startIndex = (currentPage - 1) * itemsPerPage;
+
+                console.log(`Setting data attributes for ${gameCards.length} game cards`);
+                console.log(`Current page: ${currentPage}, start index: ${startIndex}`);
+
+                gameCards.forEach(function(card, index) {
+                    card.dataset.page = currentPage;
+                    card.dataset.index = startIndex + index;
+                    console.log(`Card ${index}: page=${currentPage}, index=${startIndex + index}`);
+                });
+            }, 100);
+        });
+    })();
+</script>

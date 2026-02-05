@@ -1,5 +1,4 @@
-// games/static/games/js/modules/filters-handlers.js
-
+// games/static/games/js/game_list/filters-handlers.js
 const FilterHandlers = {
     // Глобальные переменные
     form: null,
@@ -8,37 +7,12 @@ const FilterHandlers = {
     init() {
         console.log('FilterHandlers init...');
         this.form = document.getElementById('main-search-form');
-        this.initializeScrollRestoration();
-    },
-
-    // Инициализация восстановления прокрутки
-    initializeScrollRestoration() {
-        console.log('Initializing scroll restoration...');
-
-        // Сохраняем текущую позицию при выгрузке
-        window.addEventListener('beforeunload', () => {
-            this.saveScrollPosition();
-        });
-
-        // Восстанавливаем при загрузке
-        if (document.readyState === 'complete') {
-            setTimeout(() => {
-                this.restoreScrollPosition();
-            }, 100);
-        } else {
-            window.addEventListener('load', () => {
-                setTimeout(() => {
-                    this.restoreScrollPosition();
-                }, 100);
-            });
-        }
     },
 
     // Сохранение позиции прокрутки
     saveScrollPosition() {
         try {
-            const scrollY = window.scrollY || window.pageYOffset;
-
+            const scrollY = window.scrollY || document.documentElement.scrollTop;
             // Сохраняем только если не в самом верху
             if (scrollY > 100) {
                 sessionStorage.setItem('filterScrollY', scrollY.toString());
@@ -48,30 +22,6 @@ const FilterHandlers = {
             }
         } catch (e) {
             console.warn('Could not save scroll position:', e);
-        }
-    },
-
-    // Восстановление позиции прокрутки
-    restoreScrollPosition() {
-        try {
-            const saved = sessionStorage.getItem('filterScrollY');
-            if (saved) {
-                const y = parseInt(saved);
-                if (!isNaN(y) && y > 0) {
-                    console.log('Restoring scroll to:', y);
-
-                    // Небольшая задержка для гарантии что DOM готов
-                    setTimeout(() => {
-                        window.scrollTo(0, y);
-
-                        // Очищаем сохраненную позицию
-                        sessionStorage.removeItem('filterScrollY');
-                    }, 150);
-                }
-            }
-        } catch (e) {
-            console.warn('Could not restore scroll position:', e);
-            sessionStorage.removeItem('filterScrollY');
         }
     },
 
@@ -85,7 +35,8 @@ const FilterHandlers = {
             { selector: '.platform-checkbox', name: 'Platform' },
             { selector: '.theme-checkbox', name: 'Theme' },
             { selector: '.perspective-checkbox', name: 'Perspective' },
-            { selector: '.game-mode-checkbox', name: 'Game Mode' }
+            { selector: '.game-mode-checkbox', name: 'Game Mode' },
+            { selector: '.game-type-checkbox', name: 'Game Type' }
         ];
 
         checkboxTypes.forEach(({ selector, name }) => {
@@ -108,7 +59,8 @@ const FilterHandlers = {
             { selector: '.platform-checkbox:checked', field: 'platforms-field' },
             { selector: '.theme-checkbox:checked', field: 'themes-field' },
             { selector: '.perspective-checkbox:checked', field: 'perspectives-field' },
-            { selector: '.game-mode-checkbox:checked', field: 'game-modes-field' }
+            { selector: '.game-mode-checkbox:checked', field: 'game-modes-field' },
+            { selector: '.game-type-checkbox:checked', field: 'game-types-field' }
         ];
 
         // Обновляем каждое поле
@@ -122,15 +74,38 @@ const FilterHandlers = {
             }
         });
 
+        // Обновляем поля даты (если они есть)
+        this.updateDateFields();
+
         // Обновляем поле поиска похожих игр
         this.updateFindSimilarField();
+    },
+
+    // Обновление полей даты
+    updateDateFields() {
+        const yearStartField = document.getElementById('year-start-field');
+        const yearEndField = document.getElementById('year-end-field');
+        const yearRangeField = document.getElementById('year-range-field');
+
+        if (yearStartField && yearEndField && yearRangeField) {
+            const startValue = yearStartField.value;
+            const endValue = yearEndField.value;
+
+            if (startValue && endValue) {
+                yearRangeField.value = `${startValue}-${endValue}`;
+            } else {
+                yearRangeField.value = '';
+            }
+
+            console.log(`Date fields updated: ${startValue || 'empty'} - ${endValue || 'empty'}`);
+        }
     },
 
     updateFindSimilarField() {
         const findSimilarField = document.getElementById('find_similar_field');
         if (!findSimilarField) return;
 
-        // Критерии похожести (без платформ)
+        // Критерии похожести (только Similarity Filters)
         const similarityCriteria = [
             document.querySelectorAll('.genre-checkbox:checked').length,
             document.querySelectorAll('.keyword-checkbox:checked').length,
@@ -150,14 +125,19 @@ const FilterHandlers = {
 
         const allCheckboxes = document.querySelectorAll(
             '.genre-checkbox, .keyword-checkbox, .platform-checkbox, ' +
-            '.theme-checkbox, .perspective-checkbox, .game-mode-checkbox'
+            '.theme-checkbox, .perspective-checkbox, .game-mode-checkbox, .game-type-checkbox'
         );
 
         allCheckboxes.forEach(checkbox => {
-            checkbox.addEventListener('change', () => {
-                console.log(`Checkbox changed: ${checkbox.value}, checked: ${checkbox.checked}`);
+            // Удаляем старые обработчики
+            const newCheckbox = checkbox.cloneNode(true);
+            checkbox.parentNode.replaceChild(newCheckbox, checkbox);
+
+            // Добавляем новый обработчик
+            newCheckbox.addEventListener('change', () => {
+                console.log(`Checkbox changed: ${newCheckbox.value}, checked: ${newCheckbox.checked}`);
                 this.updateHiddenFields();
-                this.triggerSort();
+                this.triggerSortWithDelay();
             });
         });
 
@@ -192,13 +172,25 @@ const FilterHandlers = {
             {
                 selector: '.clear-game-modes-btn',
                 param: 'gm'
+            },
+            {
+                selector: '.clear-game-types-btn',
+                param: 'gt'
+            },
+            {
+                selector: '.clear-date-filter-btn',
+                param: 'yr,ys,ye'
             }
         ];
 
         clearButtons.forEach(({ selector, param }) => {
             const button = document.querySelector(selector);
             if (button) {
-                button.addEventListener('click', (e) => {
+                // Удаляем старые обработчики
+                const newButton = button.cloneNode(true);
+                button.parentNode.replaceChild(newButton, button);
+
+                newButton.addEventListener('click', (e) => {
                     e.preventDefault();
                     e.stopPropagation();
 
@@ -218,16 +210,20 @@ const FilterHandlers = {
     clearFilterAndReload(param) {
         const url = new URL(window.location.href);
 
-        // Удаляем параметр из URL
-        if (url.searchParams.has(param)) {
-            url.searchParams.delete(param);
-        }
+        // Обработка нескольких параметров (например, для даты: yr,ys,ye)
+        const paramsToClear = param.split(',');
+
+        paramsToClear.forEach(p => {
+            if (url.searchParams.has(p)) {
+                url.searchParams.delete(p);
+            }
+        });
 
         // Также удаляем find_similar если очищаются жанры, ключевые слова и т.д.
-        if (['g', 'k', 't', 'pp', 'gm'].includes(param)) {
+        if (['g', 'k', 't', 'pp', 'gm', 'gt'].includes(param)) {
             // Проверяем, остались ли другие критерии похожести
-            const otherSimilarityParams = ['g', 'k', 't', 'pp', 'gm']
-                .filter(p => p !== param && url.searchParams.has(p));
+            const otherSimilarityParams = ['g', 'k', 't', 'pp', 'gm', 'gt']
+                .filter(p => !paramsToClear.includes(p) && url.searchParams.has(p));
 
             if (otherSimilarityParams.length === 0) {
                 url.searchParams.set('find_similar', '0');
@@ -277,6 +273,16 @@ const FilterHandlers = {
                     class: 'active-game-mode-tag',
                     attr: 'data-game-mode-id',
                     param: 'gm'
+                },
+                {
+                    class: 'active-game-type-tag',
+                    attr: 'data-game-type-id',
+                    param: 'gt'
+                },
+                {
+                    class: 'active-date-filter-tag',
+                    attr: 'data-date-range',
+                    param: 'yr'
                 }
             ];
 
@@ -312,7 +318,13 @@ const FilterHandlers = {
     removeSingleFilterAndReload(param, id) {
         const url = new URL(window.location.href);
 
-        if (url.searchParams.has(param)) {
+        // Особый случай для фильтра даты
+        if (param === 'yr') {
+            // Удаляем все параметры даты
+            url.searchParams.delete('yr');
+            url.searchParams.delete('ys');
+            url.searchParams.delete('ye');
+        } else if (url.searchParams.has(param)) {
             const currentValues = url.searchParams.get(param).split(',');
             const newValues = currentValues.filter(value => value !== id && value !== '');
 
@@ -322,8 +334,8 @@ const FilterHandlers = {
                 url.searchParams.delete(param);
 
                 // Если это критерий похожести, отключаем find_similar
-                if (['g', 'k', 't', 'pp', 'gm'].includes(param)) {
-                    const otherSimilarityParams = ['g', 'k', 't', 'pp', 'gm']
+                if (['g', 'k', 't', 'pp', 'gm', 'gt'].includes(param)) {
+                    const otherSimilarityParams = ['g', 'k', 't', 'pp', 'gm', 'gt']
                         .filter(p => p !== param && url.searchParams.has(p));
 
                     if (otherSimilarityParams.length === 0) {
@@ -331,13 +343,13 @@ const FilterHandlers = {
                     }
                 }
             }
-
-            console.log(`Removing filter ${param}=${id}, redirecting to:`, url.toString());
-
-            setTimeout(() => {
-                window.location.href = url.toString();
-            }, 50);
         }
+
+        console.log(`Removing filter ${param}=${id || 'date'}, redirecting to:`, url.toString());
+
+        setTimeout(() => {
+            window.location.href = url.toString();
+        }, 50);
     },
 
     // Автоотправка формы для сортировки
@@ -346,7 +358,11 @@ const FilterHandlers = {
 
         const sortSelect = document.querySelector('select[name="sort"]');
         if (sortSelect && this.form) {
-            sortSelect.addEventListener('change', () => {
+            // Удаляем старые обработчики
+            const newSortSelect = sortSelect.cloneNode(true);
+            sortSelect.parentNode.replaceChild(newSortSelect, sortSelect);
+
+            newSortSelect.addEventListener('change', () => {
                 // Сохраняем позицию прокрутки перед отправкой формы
                 this.saveScrollPosition();
                 this.form.submit();
@@ -354,20 +370,83 @@ const FilterHandlers = {
         }
     },
 
-    // Триггер сортировки с debounce
+    // Триггер сортировки с debounce и принудительной сортировкой
     triggerSort() {
+        console.log('Triggering sort...');
+
         // Используем debounce для предотвращения множественных сортировок
         if (this.debounceTimer) {
             clearTimeout(this.debounceTimer);
         }
 
         this.debounceTimer = setTimeout(() => {
-            if (window.FilterManager && window.FilterManager.sort &&
-                typeof window.FilterManager.sort.sortFilterLists === 'function') {
+            if (window.FilterManager && window.FilterManager.sort) {
+                console.log('Calling sortFilterLists from FilterManager');
                 window.FilterManager.sort.sortFilterLists();
+            } else {
+                console.error('FilterManager or sort not found');
             }
             this.debounceTimer = null;
+        }, 100);
+    },
+
+    // Триггер с задержкой для гарантии отработки
+    triggerSortWithDelay() {
+        setTimeout(() => {
+            this.triggerSort();
         }, 50);
+    },
+
+    // Настройка обработчиков для фильтра даты
+    setupDateFilterListeners() {
+        console.log('Setting up date filter listeners...');
+
+        // Слушатели изменения ползунков
+        const minSlider = document.getElementById('year-range-slider-min');
+        const maxSlider = document.getElementById('year-range-slider-max');
+        const manualStart = document.getElementById('manual-year-start');
+        const manualEnd = document.getElementById('manual-year-end');
+
+        if (minSlider) {
+            minSlider.addEventListener('input', () => {
+                this.updateDateFields();
+                this.triggerSortWithDelay();
+            });
+        }
+
+        if (maxSlider) {
+            maxSlider.addEventListener('input', () => {
+                this.updateDateFields();
+                this.triggerSortWithDelay();
+            });
+        }
+
+        if (manualStart) {
+            manualStart.addEventListener('change', () => {
+                this.updateDateFields();
+                this.triggerSortWithDelay();
+            });
+        }
+
+        if (manualEnd) {
+            manualEnd.addEventListener('change', () => {
+                this.updateDateFields();
+                this.triggerSortWithDelay();
+            });
+        }
+
+        // Кнопки быстрого выбора диапазона
+        const quickButtons = document.querySelectorAll('#release-date-content .btn-outline-secondary');
+        quickButtons.forEach(button => {
+            if (button.textContent.includes('Years') || button.textContent.includes('s')) {
+                button.addEventListener('click', () => {
+                    setTimeout(() => {
+                        this.updateDateFields();
+                        this.triggerSortWithDelay();
+                    }, 100);
+                });
+            }
+        });
     },
 
     // Инициализация всех обработчиков
@@ -378,9 +457,18 @@ const FilterHandlers = {
             this.setupCheckboxListeners();
             this.setupClearButtons();
             this.setupActiveTagRemoval();
+            this.setupDateFilterListeners();
             this.setupAutoSubmit();
             this.restoreSelectedCheckboxes();
             this.updateHiddenFields();
+
+            // Инициализируем сортировку после загрузки страницы
+            setTimeout(() => {
+                if (window.FilterManager && window.FilterManager.sort) {
+                    console.log('Initial sort after page load');
+                    window.FilterManager.sort.sortFilterLists();
+                }
+            }, 500);
 
             console.log('All filter handlers initialized successfully');
         } catch (error) {
