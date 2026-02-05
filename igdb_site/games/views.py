@@ -26,6 +26,9 @@ from .views_parts.analyze_views import (
     analyze_single_game,
     clear_analysis_results,
     is_staff_or_superuser,
+    delete_keyword,
+    get_current_keywords,
+    get_found_keywords,
 )
 from .views_parts.base_views import (
     # Helper classes
@@ -73,6 +76,9 @@ __all__ = [
     'analyze_single_game',
     'clear_analysis_results',
     'is_staff_or_superuser',
+    'delete_keyword',
+    'get_current_keywords',
+    'get_found_keywords',
 
     # Helper classes
     'SimpleSourceGame',

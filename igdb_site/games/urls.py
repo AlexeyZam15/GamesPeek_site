@@ -18,6 +18,9 @@ urlpatterns = [
     path('platforms/<int:platform_id>/games/', views.platform_games, name='platform_games'),
     path('ajax/load-games-page/', views.ajax_load_games_page, name='ajax_load_games_page'),
     path('admin-auto-login/', views.auto_login_admin, name='auto_login_admin'),
+    path('games/<int:game_id>/analyze/delete-keyword/', views.delete_keyword, name='delete_keyword'),
+    path('games/<int:game_id>/analyze/current-keywords/', views.get_current_keywords, name='get_current_keywords'),
+    path('games/<int:game_id>/analyze/found-items/', views.get_found_keywords, name='get_found_keywords'),
 ]
 
 # ОБЯЗАТЕЛЬНО: добавляем статические и медиа файлы ТОЛЬКО в режиме DEBUG

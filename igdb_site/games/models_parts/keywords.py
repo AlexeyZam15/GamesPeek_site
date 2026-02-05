@@ -66,6 +66,7 @@ class Keyword(models.Model):
         Обновляет кэшированное значение с оптимизацией.
         """
         from django.conf import settings
+        from games.analyze.keyword_trie import KeywordTrieManager
 
         # Отключаем автоматическое обновление в DEBUG режиме
         if settings.DEBUG and not force:
@@ -94,6 +95,11 @@ class Keyword(models.Model):
 
                 # Обновляем локальный объект
                 self.refresh_from_db(fields=['cached_usage_count', 'last_count_update'])
+
+                # ВАЖНОЕ ИСПРАВЛЕНИЕ: Очищаем кэш Trie при изменении ключевого слова
+                KeywordTrieManager().clear_cache()
+                print(f"✅ Кэш Trie очищен после обновления ключевого слова {self.name} (ID: {self.id})")
+
         except Exception as e:
             # Логируем ошибку, но не падаем
             import logging

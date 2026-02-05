@@ -27,6 +27,14 @@ class TextAnalyzer:
         if self._trie is None:
             self._trie = self._trie_manager.get_trie(verbose=self.verbose)
             self._keywords_count = Keyword.objects.count()
+        else:
+            # Проверяем, не изменилось ли количество ключевых слов
+            current_count = Keyword.objects.count()
+            if current_count != self._keywords_count:
+                print(f"⚠️ Количество ключевых слов изменилось: было {self._keywords_count}, стало {current_count}")
+                print("⚠️ Перезагружаем Trie...")
+                self._trie = self._trie_manager.get_trie(verbose=self.verbose, force_rebuild=True)
+                self._keywords_count = current_count
 
     def _analyze_keywords_fast(
             self,

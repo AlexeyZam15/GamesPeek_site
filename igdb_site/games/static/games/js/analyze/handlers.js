@@ -11,11 +11,328 @@ import {
     clearTabScrollPositions
 } from './utils.js';
 
+// Обработчик кнопки удаления ключевого слова
+class DeleteKeywordHandler {
+    constructor(analyzer) {
+        this.analyzer = analyzer;
+        this.gameId = this._getGameId(); // Получаем gameId при создании
+    }
+
+    _getGameId() {
+        // Пробуем несколько способов получить gameId
+        const gameIdElement = document.getElementById('game-id');
+        if (gameIdElement && gameIdElement.value) {
+            return gameIdElement.value;
+        }
+
+        // Ищем в URL: /games/123/analyze/
+        const urlMatch = window.location.pathname.match(/\/games\/(\d+)\/analyze/);
+        if (urlMatch && urlMatch[1]) {
+            return urlMatch[1];
+        }
+
+        // Ищем в скрытых полях формы
+        const gameIdInput = document.querySelector('input[name="game_id"], input[name="game-id"]');
+        if (gameIdInput && gameIdInput.value) {
+            return gameIdInput.value;
+        }
+
+        console.error('Game ID not found on page');
+        return null;
+    }
+
+    bind() {
+        const deleteButton = document.getElementById('delete-keyword-button');
+        const keywordInput = document.getElementById('new-keyword-input');
+
+        if (!deleteButton) return;
+
+        // Проверяем наличие gameId
+        if (!this.gameId) {
+            console.error('Cannot bind delete button: Game ID not available');
+            deleteButton.disabled = true;
+            deleteButton.title = 'Game ID not available';
+            return;
+        }
+
+        // Обработчик клика на кнопку удаления
+        deleteButton.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.handleDeleteKeyword();
+        });
+
+        // Обработчик Shift+Enter для удаления
+        if (keywordInput) {
+            keywordInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && e.shiftKey) {
+                    e.preventDefault();
+                    this.handleDeleteKeyword();
+                }
+            });
+        }
+    }
+
+    handleDeleteKeyword() {
+        const keywordInput = document.getElementById('new-keyword-input');
+        const keyword = keywordInput ? keywordInput.value.trim() : '';
+
+        if (!keyword) {
+            this.analyzer.showMessage('Please enter a keyword to delete', 'error');
+            return;
+        }
+
+        if (!confirm(`Are you sure you want to delete keyword "${keyword}"?\n\nThis will remove the keyword from all games and delete it from the database.`)) {
+            return;
+        }
+
+        const csrfToken = this.getCSRFToken();
+        if (!csrfToken) {
+            this.analyzer.showMessage('Security token missing', 'error');
+            return;
+        }
+
+        // Используем сохраненный gameId
+        if (!this.gameId) {
+            this.analyzer.showMessage('Game ID not found. Please refresh the page.', 'error');
+            return;
+        }
+
+        const deleteButton = document.getElementById('delete-keyword-button');
+        const originalHTML = deleteButton ? deleteButton.innerHTML : '';
+        if (deleteButton) {
+            deleteButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Deleting...';
+            deleteButton.disabled = true;
+        }
+
+        // Сохраняем текущую вкладку
+        const currentTab = this.analyzer.currentTab || 'summary';
+
+        // Используем this.gameId
+        fetch(`/games/${this.gameId}/analyze/delete-keyword/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: JSON.stringify({
+                keyword: keyword,
+                tab: currentTab, // Передаем текущую вкладку
+                auto_analyze: true // Флаг для автоматического анализа
+            })
+        })
+        .then(response => {
+            // Проверяем статус ответа перед парсингом JSON
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                this.analyzer.showMessage(`✅ ${data.message}`, 'success');
+
+                if (data.popularity !== undefined) {
+                    setTimeout(() => {
+                        this.analyzer.showMessage(`📊 Keyword was used in ${data.popularity} game(s) before deletion.`, 'info', 3000);
+                    }, 500);
+                }
+
+                if (keywordInput) {
+                    keywordInput.value = '';
+                }
+
+                this.refreshCurrentKeywords();
+                this.refreshFoundItems();
+
+                // ВАЖНОЕ ИСПРАВЛЕНИЕ: Выполняем автоматический анализ после удаления
+                if (data.analyze_after_delete) {
+                    this.analyzer.showMessage('🔄 Выполняем повторный анализ текста...', 'info');
+                    this.performAutoAnalysis(currentTab);
+                }
+
+            } else {
+                this.analyzer.showMessage(`❌ ${data.message}`, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error deleting keyword:', error);
+            this.analyzer.showMessage('❌ Error deleting keyword: ' + error.message, 'error');
+        })
+        .finally(() => {
+            if (deleteButton) {
+                deleteButton.innerHTML = originalHTML;
+                deleteButton.disabled = false;
+            }
+        });
+    }
+
+    // Новый метод для автоматического анализа
+    performAutoAnalysis(tabName) {
+        const form = document.getElementById('analyze-form');
+        if (!form) {
+            console.error('Analyze form not found');
+            return;
+        }
+
+        // Устанавливаем параметры для анализа
+        const analyzeTabInput = document.getElementById('analyze-tab-input');
+        if (analyzeTabInput) {
+            analyzeTabInput.value = tabName;
+        }
+
+        const autoAnalyzeInput = document.getElementById('auto-analyze-input');
+        if (autoAnalyzeInput) {
+            autoAnalyzeInput.value = 'true';
+        }
+
+        // Добавляем скрытое поле для анализа
+        let analyzeField = form.querySelector('input[name="analyze"]');
+        if (!analyzeField) {
+            analyzeField = document.createElement('input');
+            analyzeField.type = 'hidden';
+            analyzeField.name = 'analyze';
+            analyzeField.value = 'true';
+            form.appendChild(analyzeField);
+        }
+
+        // Сохраняем позиции прокрутки
+        this.analyzer.saveCurrentTab();
+        this.analyzer.saveScrollPosition();
+        this.analyzer.saveTabScrollPosition(tabName);
+
+        // Отправляем форму
+        setTimeout(() => {
+            try {
+                form.submit();
+            } catch (error) {
+                console.error('Error submitting form for auto-analysis:', error);
+                this.analyzer.showMessage('❌ Error performing auto-analysis: ' + error.message, 'error');
+            }
+        }, 500);
+    }
+
+    refreshCurrentKeywords() {
+        if (!this.gameId) {
+            console.error('Cannot refresh keywords: Game ID not available');
+            return;
+        }
+
+        // Ищем контейнер с ключевыми словами
+        const allCategories = document.querySelectorAll('.current-data-category');
+        let currentKeywordsContainer = null;
+
+        allCategories.forEach(container => {
+            const h6 = container.querySelector('h6');
+            if (h6 && h6.textContent.includes('Keywords')) {
+                currentKeywordsContainer = container;
+            }
+        });
+
+        if (!currentKeywordsContainer) {
+            console.error('Keywords container not found');
+            return;
+        }
+
+        fetch(`/games/${this.gameId}/analyze/current-keywords/`)
+        .then(response => {
+            // Проверяем Content-Type
+            const contentType = response.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+                return response.text().then(text => {
+                    throw new Error(`Expected JSON but got: ${text.substring(0, 100)}...`);
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success && data.keywords) {
+                const itemsList = currentKeywordsContainer.querySelector('.current-items-list');
+                if (itemsList) {
+                    itemsList.innerHTML = data.keywords.map(keyword =>
+                        `<span class="current-item">${keyword}</span>`
+                    ).join('');
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error refreshing keywords:', error);
+            this.analyzer.showMessage('⚠️ Could not refresh keywords: ' + error.message, 'warning');
+        });
+    }
+
+    refreshFoundItems() {
+        if (!this.gameId) {
+            console.error('Cannot refresh found items: Game ID not available');
+            return;
+        }
+
+        // Ищем контейнер с ключевыми словами
+        const allCategories = document.querySelectorAll('.found-items-category');
+        let foundKeywordsContainer = null;
+
+        allCategories.forEach(container => {
+            if (container.getAttribute('data-category') === 'keywords') {
+                foundKeywordsContainer = container;
+            }
+        });
+
+        if (!foundKeywordsContainer) {
+            console.warn('Found keywords container not found');
+            return;
+        }
+
+        const activeTab = this.analyzer.currentTab || 'summary';
+        fetch(`/games/${this.gameId}/analyze/found-items/?tab=${activeTab}`)
+        .then(response => {
+            // Проверяем Content-Type
+            const contentType = response.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+                return response.text().then(text => {
+                    throw new Error(`Expected JSON but got: ${text.substring(0, 100)}...`);
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success && data.keywords) {
+                const itemsList = foundKeywordsContainer.querySelector('.found-items-list');
+                if (itemsList) {
+                    itemsList.innerHTML = data.keywords.map(keyword =>
+                        `<span class="badge ${keyword.is_new ? 'bg-warning text-dark' : 'bg-secondary'} found-item-badge"
+                              data-name="${keyword.name}"
+                              data-bs-toggle="tooltip"
+                              title="${keyword.is_new ? 'New keyword (not saved yet) - Click to scroll to highlight' : 'Already exists in game - Click to scroll to highlight'}">
+                            ${keyword.name}
+                            ${keyword.is_new ? '<i class="bi bi-plus-circle ms-1"></i>' : '<i class="bi bi-check-circle ms-1"></i>'}
+                        </span>`
+                    ).join('');
+
+                    const countBadge = foundKeywordsContainer.querySelector('h6 .badge');
+                    if (countBadge) {
+                        const newCount = data.keywords.filter(k => k.is_new).length;
+                        countBadge.textContent = `${newCount} new`;
+                    }
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error refreshing found items:', error);
+            this.analyzer.showMessage('⚠️ Could not refresh found items: ' + error.message, 'warning');
+        });
+    }
+
+    getCSRFToken() {
+        const csrfInput = document.querySelector('[name="csrfmiddlewaretoken"]');
+        return csrfInput ? csrfInput.value : null;
+    }
+}
+
 /* ============================================
    ADD KEYWORD HANDLER - НОВЫЙ МЕТОД
    ============================================ */
 
-export function bindAddKeywordButton(analyzer) {
+function bindAddKeywordButton(analyzer) {
     const addButton = document.getElementById('add-keyword-button');
     const keywordInput = document.getElementById('new-keyword-input');
 
@@ -25,12 +342,10 @@ export function bindAddKeywordButton(analyzer) {
         if (e.key === 'Enter') {
             e.preventDefault();
 
-            // СОХРАНЯЕМ ТЕКУЩУЮ ВКЛАДКУ И ПОЗИЦИЮ ПРОКРУТКИ ПЕРЕД ОТПРАВКОЙ
             saveCurrentTab(analyzer);
             saveScrollPosition(analyzer);
             analyzer.saveTabScrollPosition(analyzer.currentTab);
 
-            // Используем локальную функцию вместо analyzer.handleAddKeyword()
             handleAddKeywordSubmission(analyzer);
         }
     });
@@ -38,14 +353,32 @@ export function bindAddKeywordButton(analyzer) {
     addButton.addEventListener('click', (e) => {
         e.preventDefault();
 
-        // СОХРАНЯЕМ ТЕКУЩУЮ ВКЛАДКУ И ПОЗИЦИЮ ПРОКРУТКИ ПЕРЕД ОТПРАВКОЙ
         saveCurrentTab(analyzer);
         saveScrollPosition(analyzer);
         analyzer.saveTabScrollPosition(analyzer.currentTab);
 
-        // Используем локальную функцию вместо analyzer.handleAddKeyword()
         handleAddKeywordSubmission(analyzer);
     });
+}
+
+function bindDeleteKeywordButton(analyzer) {
+    console.log('Binding delete keyword button...');
+
+    const deleteButton = document.getElementById('delete-keyword-button');
+    console.log('Delete button found:', deleteButton);
+
+    if (!deleteButton) {
+        console.error('Delete button not found!');
+        return;
+    }
+
+    const deleteHandler = new DeleteKeywordHandler(analyzer);
+    deleteHandler.bind();
+
+    // Проверяем, удалось ли получить gameId
+    if (!deleteHandler.gameId) {
+        console.error('Failed to get game ID. Check HTML for <input id="game-id" value="...">');
+    }
 }
 
 /* ============================================
@@ -53,58 +386,49 @@ export function bindAddKeywordButton(analyzer) {
    ============================================ */
 
 function handleAddKeywordSubmission(analyzer) {
-    // Получаем значение из поля ввода
     const keywordInput = document.getElementById('new-keyword-input');
     const keyword = keywordInput ? keywordInput.value.trim() : '';
 
-    // Проверяем, что ключевое слово не пустое
     if (!keyword) {
         showMessage('Please enter a keyword', 'error');
         return;
     }
 
-    // Получаем CSRF токен для безопасности
     const csrfToken = getCSRFToken();
     if (!csrfToken) {
         showMessage('Security token missing', 'error');
         return;
     }
 
-    // Находим форму для отправки
     const form = document.getElementById('analyze-form');
     if (!form) {
         showMessage('Form not found', 'error');
         return;
     }
 
-    // Устанавливаем флаг автоматического анализа
     const autoAnalyzeInput = document.getElementById('auto-analyze-input');
     if (autoAnalyzeInput) {
         autoAnalyzeInput.value = 'true';
     }
 
-    // Создаем скрытое поле для ключевого слова
     const newKeywordInput = document.createElement('input');
     newKeywordInput.type = 'hidden';
     newKeywordInput.name = 'new_keyword';
     newKeywordInput.value = keyword;
     form.appendChild(newKeywordInput);
 
-    // Создаем скрытое поле для флага добавления
     const addKeywordInput = document.createElement('input');
     addKeywordInput.type = 'hidden';
     addKeywordInput.name = 'add_keyword';
     addKeywordInput.value = 'true';
     form.appendChild(addKeywordInput);
 
-    // Получаем текущую вкладку
     const currentTab = analyzer.currentTab;
     const analyzeTabInput = document.getElementById('analyze-tab-input');
     if (analyzeTabInput) {
         analyzeTabInput.value = currentTab;
     }
 
-    // Отправляем форму
     setTimeout(() => {
         try {
             form.submit();
@@ -112,7 +436,6 @@ function handleAddKeywordSubmission(analyzer) {
             console.error('Error submitting form:', error);
             showMessage('Error adding keyword: ' + error.message, 'error');
 
-            // Очищаем добавленные поля в случае ошибки
             if (newKeywordInput.parentNode === form) {
                 form.removeChild(newKeywordInput);
             }
@@ -136,7 +459,7 @@ function getCSRFToken() {
    TAB HANDLERS
    ============================================ */
 
-export function bindTabSelect(analyzer) {
+function bindTabSelect(analyzer) {
     if (!analyzer.elements.tabSelect) return;
 
     analyzer.elements.tabSelect.addEventListener('change', (e) => {
@@ -149,18 +472,15 @@ export function bindTabSelect(analyzer) {
 
         analyzer.switchTabByName(tabName);
 
-        // СОХРАНЯЕМ ВЫБРАННУЮ ВКЛАДКУ
         saveCurrentTab(analyzer);
     });
 }
 
-export function bindTabScrollEvents(analyzer) {
-    // Навешиваем обработчики скролла на все области текста во вкладках
+function bindTabScrollEvents(analyzer) {
     const tabPanes = document.querySelectorAll('.tab-pane');
     tabPanes.forEach(tabPane => {
         const textDisplayArea = tabPane.querySelector('.text-display-area');
         if (textDisplayArea) {
-            // Используем debounce для оптимизации
             let scrollTimeout;
             textDisplayArea.addEventListener('scroll', () => {
                 clearTimeout(scrollTimeout);
@@ -173,7 +493,7 @@ export function bindTabScrollEvents(analyzer) {
     });
 }
 
-export function bindBootstrapTabs(analyzer) {
+function bindBootstrapTabs(analyzer) {
     if (!analyzer.elements.analyzeTabLinks || analyzer.elements.analyzeTabLinks.length === 0) return;
 
     analyzer.elements.analyzeTabLinks.forEach(link => {
@@ -182,31 +502,25 @@ export function bindBootstrapTabs(analyzer) {
             if (href) {
                 const tabName = href.substring(1);
 
-                // Сохраняем позицию прокрутки старой вкладки
                 if (analyzer.currentTab && analyzer.currentTab !== tabName) {
                     saveTabScrollPosition(analyzer, analyzer.currentTab);
                 }
 
-                // Переключаемся на новую вкладку
                 analyzer.onTabSwitch(tabName);
 
-                // Восстанавливаем позицию прокрутки новой вкладки
                 setTimeout(() => {
                     analyzer.restoreTabScrollPosition(tabName);
                 }, 100);
 
-                // СОХРАНЯЕМ ВЫБРАННУЮ ВКЛАДКУ
                 saveCurrentTab(analyzer);
             }
         });
 
-        // Также обрабатываем клик для ручного переключения
         link.addEventListener('click', (e) => {
             const href = e.target.getAttribute('href');
             if (href) {
                 const tabName = href.substring(1);
 
-                // Сохраняем позицию текущей вкладки перед переключением
                 if (analyzer.currentTab && analyzer.currentTab !== tabName) {
                     saveTabScrollPosition(analyzer, analyzer.currentTab);
                 }
@@ -219,7 +533,7 @@ export function bindBootstrapTabs(analyzer) {
    FORM HANDLERS
    ============================================ */
 
-export function bindAnalyzeButton(analyzer) {
+function bindAnalyzeButton(analyzer) {
     if (!analyzer.elements.analyzeButton) {
         console.error('ANALYZE BUTTON NOT FOUND!');
         showMessage('Error: Analyze button not found. Please refresh page.', 'error');
@@ -242,7 +556,6 @@ export function bindAnalyzeButton(analyzer) {
             return;
         }
 
-        // СОХРАНЯЕМ ТЕКУЩУЮ ВКЛАДКУ И ПОЗИЦИЮ ПРОКРУТКИ ПЕРЕД ОТПРАВКОЙ
         saveCurrentTab(analyzer);
         saveScrollPosition(analyzer);
         analyzer.saveTabScrollPosition(analyzer.currentTab);
@@ -255,7 +568,6 @@ export function bindAnalyzeButton(analyzer) {
             return;
         }
 
-        // Убедимся, что есть поле analyze
         let analyzeField = analyzer.elements.analyzeForm.querySelector('input[name="analyze"]');
         if (!analyzeField) {
             analyzeField = document.createElement('input');
@@ -283,7 +595,7 @@ export function bindAnalyzeButton(analyzer) {
     });
 }
 
-export function bindSaveButton(analyzer) {
+function bindSaveButton(analyzer) {
     if (!analyzer.elements.saveButton) return;
 
     const newButton = analyzer.elements.saveButton.cloneNode(true);
@@ -293,7 +605,6 @@ export function bindSaveButton(analyzer) {
     analyzer.elements.saveButton.addEventListener('click', (e) => {
         e.preventDefault();
 
-        // СОХРАНЯЕМ ТЕКУЩУЮ ВКЛАДКУ И ПОЗИЦИЮ ПРОКРУТКИ ПЕРЕД ОТПРАВКОЙ
         saveCurrentTab(analyzer);
         saveScrollPosition(analyzer);
         analyzer.saveTabScrollPosition(analyzer.currentTab);
@@ -301,7 +612,7 @@ export function bindSaveButton(analyzer) {
     });
 }
 
-export function bindClearResultsButton(analyzer) {
+function bindClearResultsButton(analyzer) {
     if (!analyzer.elements.clearResultsBtn) return;
 
     const originalButton = analyzer.elements.clearResultsBtn;
@@ -318,7 +629,6 @@ export function bindClearResultsButton(analyzer) {
             return;
         }
 
-        // СОХРАНЯЕМ ТЕКУЩУЮ ВКЛАДКУ И ПОЗИЦИЮ ПРОКРУТКИ ПЕРЕД ОТПРАВКОЙ
         saveCurrentTab(analyzer);
         saveScrollPosition(analyzer);
         analyzer.saveTabScrollPosition(analyzer.currentTab);
@@ -375,11 +685,10 @@ export function bindClearResultsButton(analyzer) {
     });
 }
 
-export function bindBackToGameButton(analyzer) {
+function bindBackToGameButton(analyzer) {
     if (!analyzer.elements.backToGameBtn) return;
 
     analyzer.elements.backToGameBtn.addEventListener('click', (e) => {
-        // Очищаем сохраненные данные о вкладках и позициях прокрутки при переходе назад
         clearTabStorage(analyzer);
         clearTabScrollPositions(analyzer);
         saveScrollPosition(analyzer);
@@ -390,7 +699,7 @@ export function bindBackToGameButton(analyzer) {
    SCROLL HANDLERS
    ============================================ */
 
-export function bindScrollToTop(analyzer) {
+function bindScrollToTop(analyzer) {
     if (!analyzer.elements.scrollToTopBtn) return;
 
     analyzer.elements.scrollToTopBtn.addEventListener('click', () => analyzer.scrollToTop());
@@ -401,7 +710,7 @@ export function bindScrollToTop(analyzer) {
    FOUND ITEMS HANDLERS
    ============================================ */
 
-export function bindFoundItemsClicks(analyzer) {
+function bindFoundItemsClicks(analyzer) {
     document.addEventListener('click', (e) => {
         const target = e.target;
         if (!target || !target.closest) return;
@@ -411,16 +720,13 @@ export function bindFoundItemsClicks(analyzer) {
             e.preventDefault();
             const elementName = foundItem.dataset.name;
             if (elementName) {
-                // Убираем выделение с предыдущих элементов в списке
                 const previousSelected = document.querySelectorAll('.found-item-badge.selected');
                 previousSelected.forEach(el => {
                     el.classList.remove('selected');
                 });
 
-                // Выделяем текущий элемент в списке
                 foundItem.classList.add('selected');
 
-                // Прокручиваем к подсвеченным словам
                 analyzer.scrollToHighlight(elementName);
             }
         }
@@ -431,8 +737,7 @@ export function bindFoundItemsClicks(analyzer) {
    UI SETUP HANDLERS
    ============================================ */
 
-export function setupTooltips(analyzer) {
-    // Тулкиты для Bootstrap элементов
+function setupTooltips(analyzer) {
     const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
     tooltipTriggerList.forEach(tooltipTriggerEl => {
         const existingTooltip = window.bootstrap && bootstrap.Tooltip.getInstance(tooltipTriggerEl);
@@ -447,7 +752,6 @@ export function setupTooltips(analyzer) {
         }
     });
 
-    // Тулкиты для подсвеченных элементов
     const activePane = document.querySelector(`#${analyzer.currentTab}.tab-pane.active`);
     if (activePane) {
         const highlights = activePane.querySelectorAll(`
@@ -457,9 +761,7 @@ export function setupTooltips(analyzer) {
 
         highlights.forEach(highlight => {
             if (!highlight.hasAttribute('data-bs-toggle')) {
-                // Для обычных элементов
                 if (highlight.classList.contains('highlight-multi')) {
-                    // Для множественных критериев используем кастомные тултипы
                     highlight.removeAttribute('data-bs-toggle');
                     highlight.removeAttribute('data-bs-title');
                 } else {
@@ -485,8 +787,7 @@ export function setupTooltips(analyzer) {
     }
 }
 
-export function setupMultiCriteriaTooltips(analyzer) {
-    // Настраиваем кастомные тултипы для множественных критериев
+function setupMultiCriteriaTooltips(analyzer) {
     document.addEventListener('mouseenter', (e) => {
         const target = e.target;
         if (!target || !target.closest) return;
@@ -508,8 +809,7 @@ export function setupMultiCriteriaTooltips(analyzer) {
     }, true);
 }
 
-export function setupHighlightEvents(analyzer) {
-    // Обработка наведения на подсвеченные элементы (только hover)
+function setupHighlightEvents(analyzer) {
     document.addEventListener('mouseenter', (e) => {
         const target = e.target;
         if (!target || !target.closest) return;
@@ -756,3 +1056,21 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
+// Экспортируем все функции
+export {
+    bindAddKeywordButton,
+    bindDeleteKeywordButton,  // ← ДОБАВИТЬ ЭТО
+    bindTabSelect,
+    bindTabScrollEvents,
+    bindBootstrapTabs,
+    bindAnalyzeButton,
+    bindSaveButton,
+    bindClearResultsButton,
+    bindBackToGameButton,
+    bindScrollToTop,
+    bindFoundItemsClicks,
+    setupTooltips,
+    setupMultiCriteriaTooltips,
+    setupHighlightEvents
+};
