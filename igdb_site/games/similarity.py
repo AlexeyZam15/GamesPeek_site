@@ -118,46 +118,90 @@ class GameSimilarity:
         single_player_mode_id = single_player_info['single_player_mode_id']
         dynamic_min_common_genres = single_player_info['dynamic_min_common_genres']
 
-        print(f"Критерии: жанры={len(source_genre_ids)}, min_common_genres={dynamic_min_common_genres}")
+        print(
+            f"Критерии: жанры={len(source_genre_ids)}, темы={len(source_theme_ids)}, min_common_genres={dynamic_min_common_genres}")
 
         with connection.cursor() as cursor:
-            # Основной запрос с JOIN вместо подзапросов
-            query_parts = []
-            params = []
-
-            # Базовый FROM
+            # Если есть жанры - ищем по жанрам
             if source_genre_ids:
-                # Если есть жанры - ищем по ним
-                query = """
+                source_genre_ids_str = ','.join(map(str, source_genre_ids))
+
+                query = f"""
                     SELECT ggg.game_id, COUNT(*) as common_count
                     FROM games_game_genres ggg
                     INNER JOIN games_game g ON ggg.game_id = g.id
-                    WHERE ggg.genre_id IN ({genre_placeholders})
+                    WHERE ggg.genre_id IN ({source_genre_ids_str})
                     AND g.first_release_date IS NOT NULL
                     AND g.first_release_date <= %s
                     GROUP BY ggg.game_id
                     HAVING COUNT(*) >= %s
                     ORDER BY common_count DESC
                     LIMIT 1000
-                """.format(
-                    genre_placeholders=','.join(['%s'] * len(source_genre_ids))
-                )
-                params = list(source_genre_ids) + [current_time, dynamic_min_common_genres]
+                """
+                params = [current_time, dynamic_min_common_genres]
                 cursor.execute(query, params)
+                candidate_ids = [row[0] for row in cursor.fetchall()]
+                print(f"Найдено кандидатов по жанрам: {len(candidate_ids)}")
+
+            # Если нет жанров, но есть темы - ищем по темам
+            elif source_theme_ids:
+                source_theme_ids_str = ','.join(map(str, source_theme_ids))
+
+                query = f"""
+                    SELECT ggt.game_id, COUNT(*) as common_count
+                    FROM games_game_themes ggt
+                    INNER JOIN games_game g ON ggt.game_id = g.id
+                    WHERE ggt.theme_id IN ({source_theme_ids_str})
+                    AND g.first_release_date IS NOT NULL
+                    AND g.first_release_date <= %s
+                    GROUP BY ggt.game_id
+                    ORDER BY common_count DESC
+                    LIMIT 1000
+                """
+                cursor.execute(query, [current_time])
+                candidate_ids = [row[0] for row in cursor.fetchall()]
+                print(f"Найдено кандидатов по темам: {len(candidate_ids)}")
+
+            # Если нет жанров и нет тем, но есть другие критерии - ищем по другим критериям
+            elif source_keyword_ids or source_perspective_ids or source_game_mode_ids:
+                # Создаем базовый запрос
+                query = """
+                        SELECT g.id, g.rating_count
+                        FROM games_game g
+                        WHERE g.first_release_date IS NOT NULL
+                          AND g.first_release_date <= %s \
+                        """
+
+                # Фильтруем по Single player если требуется
+                if has_single_player and single_player_mode_id:
+                    query += f"""
+                        AND EXISTS (
+                            SELECT 1 FROM games_game_game_modes ggm
+                            WHERE ggm.game_id = g.id
+                            AND ggm.gamemode_id = {single_player_mode_id}
+                        )
+                    """
+
+                query += " ORDER BY g.rating_count DESC LIMIT 800"
+
+                cursor.execute(query, [current_time])
+                candidate_ids = [row[0] for row in cursor.fetchall()]
+                print(f"Найдено кандидатов по другим критериям: {len(candidate_ids)}")
+
             else:
-                # Если нет жанров - ищем по другим критериям или популярным играм
+                # Если нет критериев вообще - популярные игры
                 query = """
                         SELECT g.id, g.rating_count
                         FROM games_game g
                         WHERE g.first_release_date IS NOT NULL
                           AND g.first_release_date <= %s
-                        ORDER BY g.rating_count DESC LIMIT 800 \
+                        ORDER BY g.rating_count DESC LIMIT 200 \
                         """
                 cursor.execute(query, [current_time])
+                candidate_ids = [row[0] for row in cursor.fetchall()]
+                print(f"Найдено кандидатов (популярные игры): {len(candidate_ids)}")
 
-            candidate_ids = [row[0] for row in cursor.fetchall()]
-
-        print(f"Найдено {len(candidate_ids)} кандидатов за {time.time() - start_time:.2f} сек")
+        print(f"Всего найдено {len(candidate_ids)} кандидатов за {time.time() - start_time:.2f} сек")
         return candidate_ids
 
     def _calculate_common_elements_new(self, games_data, source_data, candidate_ids):
@@ -1008,7 +1052,9 @@ class GameSimilarity:
             'has_single_player': has_single_player_in_source,
             'single_player_mode_id': single_player_mode_id,
             'dynamic_min_common_genres': dynamic_min_common_genres,
-            'has_genres': source_genre_count > 0
+            'has_genres': source_genre_count > 0,
+            'has_themes': source_theme_count > 0,
+            'has_keywords': source_keyword_count > 0
         }
 
         print(f"Данные исходной игры:")
@@ -1019,7 +1065,7 @@ class GameSimilarity:
         print(f"  - Режимы игры: {source_game_mode_count}")
         print(f"  - Single player: {has_single_player_in_source}")
 
-        return source_data, single_player_info
+        return source_data, single_player_infoв
 
     def _calculate_and_filter_similarity(self, games_data, source_game, source_data, min_similarity,
                                          single_player_info):
