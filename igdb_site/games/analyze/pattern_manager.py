@@ -198,11 +198,9 @@ class PatternManager:
     }
 
     THEME_PATTERNS = {
-        # УДАЛЕНА тема 'Action' (перенесена в жанры)
-        # УДАЛЕНА тема 'Open world' (перенесена в жанры как 'Open World')
-        # УДАЛЕНА тема 'Sandbox' (перенесена в жанры)
-        # УДАЛЕНА тема 'Survival' (перенесена в жанры)
-
+        'Fire Emblem': [
+            r'\bfire\s+emblem\b',
+        ],
         '4X (explore, expand, exploit, and exterminate)': [
             r'\b4x(\s+game|\s|$)',
             r'\bexplore.*expand.*exploit.*exterminate',

@@ -79,6 +79,9 @@ class Command(BaseCommand):
             'medieval': 'Medieval',
             'Medieval': 'Medieval',
             'real-time combat': 'Real-time Combat',
+            'realtime combat': 'Real-time Combat',
+            'fire emblem': 'Fire Emblem',
+            'Fire Emblem': 'Fire Emblem',
         }
 
     def handle(self, *args, **options):
@@ -100,199 +103,19 @@ class Command(BaseCommand):
                 savepoint = transaction.savepoint()
 
             try:
-                # 1. Оптимизированный перенос тем в жанры
-                self.stdout.write('=== ПЕРЕНОС ТЕМ В ЖАНРЫ ===')
-
-                themes_to_process = Theme.objects.filter(
-                    name__in=list(theme_to_genre_mapping.keys())
+                # 1. Перенос тем в жанры
+                added_genres, removed_themes = self._process_themes_to_genres(
+                    theme_to_genre_mapping, dry_run, batch_size, keep_old
                 )
+                total_added_genres += added_genres
+                total_removed_themes += removed_themes
 
-                # Кешируем все жанры заранее
-                genres_cache = {}
-                for theme_name, genre_name in theme_to_genre_mapping.items():
-                    genre, created = Genre.objects.get_or_create(
-                        name=genre_name,
-                        defaults={'igdb_id': -abs(hash(genre_name)) % 1000000}
-                    )
-                    genres_cache[theme_name] = genre
-                    if created:
-                        self.stdout.write(f'Создан новый жанр: "{genre_name}"')
-
-                for theme in themes_to_process:
-                    theme_name = theme.name
-                    genre = genres_cache.get(theme_name)
-
-                    if not genre:
-                        continue
-
-                    # Получаем ID игр с этой темой
-                    game_ids = list(Game.objects.filter(themes=theme).values_list('id', flat=True))
-
-                    if not game_ids:
-                        self.stdout.write(f'Для темы "{theme_name}" нет игр')
-                        continue
-
-                    total_games = len(game_ids)
-                    added_genres = 0
-                    removed_themes = 0
-
-                    self.stdout.write(f'Тема "{theme_name}" -> жанр "{genre.name}": {total_games} игр')
-
-                    # Обрабатываем батчами с bulk операциями
-                    for i in range(0, total_games, batch_size):
-                        batch_ids = game_ids[i:i + batch_size]
-
-                        if not dry_run:
-                            # Bulk добавление жанров (только тех, у кого еще нет)
-                            existing_genre_ids = set(
-                                Game.genres.through.objects.filter(
-                                    game_id__in=batch_ids,
-                                    genre_id=genre.id
-                                ).values_list('game_id', flat=True)
-                            )
-
-                            new_relations = [
-                                Game.genres.through(game_id=game_id, genre_id=genre.id)
-                                for game_id in batch_ids
-                                if game_id not in existing_genre_ids
-                            ]
-
-                            if new_relations:
-                                Game.genres.through.objects.bulk_create(
-                                    new_relations,
-                                    ignore_conflicts=True
-                                )
-                                added_genres += len(new_relations)
-
-                            # Bulk удаление тем (если не keep-old)
-                            if not keep_old:
-                                deleted_count, _ = Game.themes.through.objects.filter(
-                                    game_id__in=batch_ids,
-                                    theme_id=theme.id
-                                ).delete()
-                                removed_themes += deleted_count
-                        else:
-                            # Для dry-run просто считаем
-                            added_genres += len(batch_ids)
-                            if not keep_old:
-                                removed_themes += len(batch_ids)
-
-                        # Обновляем прогресс-бар
-                        current = min(i + batch_size, total_games)
-                        self.print_progress_bar(
-                            current, total_games,
-                            prefix=f'Обработка "{theme_name[:15]}..."',
-                            suffix=f'Добавлено: {added_genres}, Удалено: {removed_themes}'
-                        )
-
-                    print()
-                    self.stdout.write(self.style.SUCCESS(
-                        f'  Добавлено жанров: {added_genres}, Удалено тем: {removed_themes}'
-                    ))
-
-                    total_added_genres += added_genres
-                    total_removed_themes += removed_themes
-
-                # 2. Оптимизированный перенос ключевых слов в темы
-                self.stdout.write('\n=== ПЕРЕНОС КЛЮЧЕВЫХ СЛОВ В ТЕМЫ ===')
-
-                keyword_names = list(keyword_to_theme_mapping.keys())
-
-                keywords_to_process = Keyword.objects.filter(
-                    name__iregex=r'^(gothic|medieval|real.time.combat|realtime.combat)$'
+                # 2. Перенос ключевых слов в темы
+                added_themes, removed_keywords = self._process_keywords_to_themes(
+                    keyword_to_theme_mapping, dry_run, batch_size, keep_old
                 )
-
-                # Кешируем все темы заранее
-                themes_cache = {}
-                for keyword_name, theme_name in keyword_to_theme_mapping.items():
-                    theme, created = Theme.objects.get_or_create(
-                        name=theme_name,
-                        defaults={'igdb_id': -abs(hash(theme_name)) % 1000000}
-                    )
-                    themes_cache[keyword_name] = theme
-                    if created:
-                        self.stdout.write(f'Создана новая тема: "{theme_name}"')
-
-                for keyword in keywords_to_process:
-                    keyword_name = keyword.name
-                    theme = themes_cache.get(keyword_name)
-
-                    if not theme:
-                        theme_name = keyword_name.capitalize()
-                        theme, created = Theme.objects.get_or_create(
-                            name=theme_name,
-                            defaults={'igdb_id': -abs(hash(theme_name)) % 1000000}
-                        )
-                        if created:
-                            self.stdout.write(f'Создана новая тема: "{theme_name}"')
-
-                    # Получаем ID игр с этим ключевым словом
-                    game_ids = list(Game.objects.filter(keywords=keyword).values_list('id', flat=True))
-
-                    if not game_ids:
-                        self.stdout.write(f'Для ключ.слова "{keyword_name}" нет игр')
-                        continue
-
-                    total_games = len(game_ids)
-                    added_themes = 0
-                    removed_keywords = 0
-
-                    self.stdout.write(f'Ключ.слово "{keyword_name}" -> тема "{theme.name}": {total_games} игр')
-
-                    # Обрабатываем батчами с bulk операциями
-                    for i in range(0, total_games, batch_size):
-                        batch_ids = game_ids[i:i + batch_size]
-
-                        if not dry_run:
-                            # Bulk добавление тем (только тех, у кого еще нет)
-                            existing_theme_ids = set(
-                                Game.themes.through.objects.filter(
-                                    game_id__in=batch_ids,
-                                    theme_id=theme.id
-                                ).values_list('game_id', flat=True)
-                            )
-
-                            new_relations = [
-                                Game.themes.through(game_id=game_id, theme_id=theme.id)
-                                for game_id in batch_ids
-                                if game_id not in existing_theme_ids
-                            ]
-
-                            if new_relations:
-                                Game.themes.through.objects.bulk_create(
-                                    new_relations,
-                                    ignore_conflicts=True
-                                )
-                                added_themes += len(new_relations)
-
-                            # Bulk удаление ключевых слов (если не keep-old)
-                            if not keep_old:
-                                deleted_count, _ = Game.keywords.through.objects.filter(
-                                    game_id__in=batch_ids,
-                                    keyword_id=keyword.id
-                                ).delete()
-                                removed_keywords += deleted_count
-                        else:
-                            # Для dry-run просто считаем
-                            added_themes += len(batch_ids)
-                            if not keep_old:
-                                removed_keywords += len(batch_ids)
-
-                        # Обновляем прогресс-бар
-                        current = min(i + batch_size, total_games)
-                        self.print_progress_bar(
-                            current, total_games,
-                            prefix=f'Обработка "{keyword_name}"',
-                            suffix=f'Добавлено: {added_themes}, Удалено: {removed_keywords}'
-                        )
-
-                    print()
-                    self.stdout.write(self.style.SUCCESS(
-                        f'  Добавлено тем: {added_themes}, Удалено ключ.слов: {removed_keywords}'
-                    ))
-
-                    total_added_themes += added_themes
-                    total_removed_keywords += removed_keywords
+                total_added_themes += added_themes
+                total_removed_keywords += removed_keywords
 
                 # Откатываем изменения в dry-run режиме
                 if dry_run:
@@ -319,3 +142,209 @@ class Command(BaseCommand):
 
         if keep_old:
             self.stdout.write(self.style.WARNING('СТАРЫЕ КРИТЕРИИ СОХРАНЕНЫ (опция --keep-old)'))
+
+    def _process_themes_to_genres(self, theme_to_genre_mapping, dry_run, batch_size, keep_old):
+        """Перенос тем в жанры"""
+        self.stdout.write('=== ПЕРЕНОС ТЕМ В ЖАНРЫ ===')
+
+        themes_to_process = Theme.objects.filter(
+            name__in=list(theme_to_genre_mapping.keys())
+        )
+
+        # Кешируем все жанры заранее
+        genres_cache = {}
+        for theme_name, genre_name in theme_to_genre_mapping.items():
+            genre, created = Genre.objects.get_or_create(
+                name=genre_name,
+                defaults={'igdb_id': -abs(hash(genre_name)) % 1000000}
+            )
+            genres_cache[theme_name] = genre
+            if created:
+                self.stdout.write(f'Создан новый жанр: "{genre_name}"')
+
+        total_added_genres = 0
+        total_removed_themes = 0
+
+        for theme in themes_to_process:
+            theme_name = theme.name
+            genre = genres_cache.get(theme_name)
+
+            if not genre:
+                continue
+
+            # Получаем ID игр с этой темой
+            game_ids = list(Game.objects.filter(themes=theme).values_list('id', flat=True))
+
+            if not game_ids:
+                self.stdout.write(f'Для темы "{theme_name}" нет игр')
+                continue
+
+            total_games = len(game_ids)
+            added_genres = 0
+            removed_themes = 0
+
+            self.stdout.write(f'Тема "{theme_name}" -> жанр "{genre.name}": {total_games} игр')
+
+            # Обрабатываем батчами с bulk операциями
+            for i in range(0, total_games, batch_size):
+                batch_ids = game_ids[i:i + batch_size]
+
+                if not dry_run:
+                    # Bulk добавление жанров (только тех, у кого еще нет)
+                    existing_genre_ids = set(
+                        Game.genres.through.objects.filter(
+                            game_id__in=batch_ids,
+                            genre_id=genre.id
+                        ).values_list('game_id', flat=True)
+                    )
+
+                    new_relations = [
+                        Game.genres.through(game_id=game_id, genre_id=genre.id)
+                        for game_id in batch_ids
+                        if game_id not in existing_genre_ids
+                    ]
+
+                    if new_relations:
+                        Game.genres.through.objects.bulk_create(
+                            new_relations,
+                            ignore_conflicts=True
+                        )
+                        added_genres += len(new_relations)
+
+                    # Bulk удаление тем (если не keep-old)
+                    if not keep_old:
+                        deleted_count, _ = Game.themes.through.objects.filter(
+                            game_id__in=batch_ids,
+                            theme_id=theme.id
+                        ).delete()
+                        removed_themes += deleted_count
+                else:
+                    # Для dry-run просто считаем
+                    added_genres += len(batch_ids)
+                    if not keep_old:
+                        removed_themes += len(batch_ids)
+
+                # Обновляем прогресс-бар
+                current = min(i + batch_size, total_games)
+                self.print_progress_bar(
+                    current, total_games,
+                    prefix=f'Обработка "{theme_name[:15]}..."',
+                    suffix=f'Добавлено: {added_genres}, Удалено: {removed_themes}'
+                )
+
+            print()
+            self.stdout.write(self.style.SUCCESS(
+                f'  Добавлено жанров: {added_genres}, Удалено тем: {removed_themes}'
+            ))
+
+            total_added_genres += added_genres
+            total_removed_themes += removed_themes
+
+        return total_added_genres, total_removed_themes
+
+    def _process_keywords_to_themes(self, keyword_to_theme_mapping, dry_run, batch_size, keep_old):
+        """Перенос ключевых слов в темы"""
+        self.stdout.write('\n=== ПЕРЕНОС КЛЮЧЕВЫХ СЛОВ В ТЕМЫ ===')
+
+        # Получаем ключевые слова по списку имен
+        keywords_to_process = Keyword.objects.filter(
+            name__in=list(keyword_to_theme_mapping.keys())
+        )
+
+        # Кешируем все темы заранее
+        themes_cache = {}
+        for keyword_name, theme_name in keyword_to_theme_mapping.items():
+            theme, created = Theme.objects.get_or_create(
+                name=theme_name,
+                defaults={'igdb_id': -abs(hash(theme_name)) % 1000000}
+            )
+            themes_cache[keyword_name] = theme
+            if created:
+                self.stdout.write(f'Создана новая тема: "{theme_name}"')
+
+        total_added_themes = 0
+        total_removed_keywords = 0
+
+        for keyword in keywords_to_process:
+            keyword_name = keyword.name
+            theme = themes_cache.get(keyword_name)
+
+            if not theme:
+                continue
+
+            # УДАЛЯЕМ ключевые слова, даже если нет связанных игр
+            if not keep_old and not dry_run:
+                # Удаляем ключевое слово из базы данных
+                deleted_count, _ = Keyword.objects.filter(id=keyword.id).delete()
+                if deleted_count > 0:
+                    total_removed_keywords += 1
+                    self.stdout.write(f'Ключ.слово "{keyword_name}" удалено (нет связанных игр)')
+
+            # Получаем ID игр с этим ключевым словом
+            game_ids = list(Game.objects.filter(keywords=keyword).values_list('id', flat=True))
+
+            if not game_ids:
+                continue
+
+            total_games = len(game_ids)
+            added_themes = 0
+            removed_keywords = 0
+
+            self.stdout.write(f'Ключ.слово "{keyword_name}" -> тема "{theme.name}": {total_games} игр')
+
+            # Обрабатываем батчами с bulk операциями
+            for i in range(0, total_games, batch_size):
+                batch_ids = game_ids[i:i + batch_size]
+
+                if not dry_run:
+                    # Bulk добавление тем (только тех, у кого еще нет)
+                    existing_theme_ids = set(
+                        Game.themes.through.objects.filter(
+                            game_id__in=batch_ids,
+                            theme_id=theme.id
+                        ).values_list('game_id', flat=True)
+                    )
+
+                    new_relations = [
+                        Game.themes.through(game_id=game_id, theme_id=theme.id)
+                        for game_id in batch_ids
+                        if game_id not in existing_theme_ids
+                    ]
+
+                    if new_relations:
+                        Game.themes.through.objects.bulk_create(
+                            new_relations,
+                            ignore_conflicts=True
+                        )
+                        added_themes += len(new_relations)
+
+                    # Bulk удаление ключевых слов (если не keep-old)
+                    if not keep_old:
+                        deleted_count, _ = Game.keywords.through.objects.filter(
+                            game_id__in=batch_ids,
+                            keyword_id=keyword.id
+                        ).delete()
+                        removed_keywords += deleted_count
+                else:
+                    # Для dry-run просто считаем
+                    added_themes += len(batch_ids)
+                    if not keep_old:
+                        removed_keywords += len(batch_ids)
+
+                # Обновляем прогресс-бар
+                current = min(i + batch_size, total_games)
+                self.print_progress_bar(
+                    current, total_games,
+                    prefix=f'Обработка "{keyword_name}"',
+                    suffix=f'Добавлено: {added_themes}, Удалено: {removed_keywords}'
+                )
+
+            print()
+            self.stdout.write(self.style.SUCCESS(
+                f'  Добавлено тем: {added_themes}, Удалено ключ.слов: {removed_keywords}'
+            ))
+
+            total_added_themes += added_themes
+            total_removed_keywords += removed_keywords
+
+        return total_added_themes, total_removed_keywords
