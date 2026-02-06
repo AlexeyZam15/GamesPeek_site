@@ -6,11 +6,20 @@ let modalInstance = null;
 let galleryImages = [];
 let currentImageIndex = 0;
 
-// АДАПТИВНЫЕ РАЗМЕРЫ
-const FIXED_HEIGHT = 220;
-const MIN_WIDTH = 300;
-const MAX_SCALE = 1.8;
+// Константы для размеров скриншотов
+const MIN_WIDTH = 1280;
+const MIN_HEIGHT = 720;
+const SUPPORTED_FORMATS = {
+    '16:9': { width: 1280, height: 720 },
+    '4:3': { width: 960, height: 720 },
+    '3:2': { width: 960, height: 640 },
+    '21:9': { width: 1680, height: 720 },
+    '1:1': { width: 720, height: 720 },
+    '9:16': { width: 720, height: 1280 }
+};
+const MAX_SCALE = 3.0;
 const ASPECT_RATIO = 16/9;
+const FIXED_HEIGHT = 220;
 
 // Основная функция инициализации галереи
 window.initInlineGallery = function() {
@@ -125,24 +134,70 @@ function calculateAndSetImageSizeNoBorder(img, container) {
     img.style.border = 'none';
     img.style.padding = '0';
 
-    if (originalWidth < MIN_WIDTH) {
-        console.log(`📈 Small image detected, enlarging`);
+    // Определяем формат исходного изображения
+    const getClosestFormat = (ratio) => {
+        const formatRatios = {
+            '9:16': 9/16,    // 0.5625
+            '1:1': 1,        // 1.0
+            '4:3': 4/3,      // 1.3333
+            '3:2': 3/2,      // 1.5
+            '16:9': 16/9,    // 1.7778
+            '21:9': 21/9     // 2.3333
+        };
 
-        const scaleFactor = Math.min(MAX_SCALE, MIN_WIDTH / originalWidth);
-        const targetWidth = originalWidth * scaleFactor;
-        const targetHeight = originalHeight * scaleFactor;
+        let closestFormat = '16:9';
+        let minDiff = Infinity;
 
-        img.style.width = `${targetWidth}px`;
-        img.style.height = `${targetHeight}px`;
-        img.style.objectFit = 'scale-down';
-
-        if (originalWidth < 200) {
-            const extraScale = 2.2;
-            img.style.transform = `scale(${extraScale})`;
-            img.style.transformOrigin = 'center center';
+        for (const [format, formatRatio] of Object.entries(formatRatios)) {
+            const diff = Math.abs(ratio - formatRatio);
+            if (diff < minDiff) {
+                minDiff = diff;
+                closestFormat = format;
+            }
         }
 
+        return closestFormat;
+    };
+
+    const imageFormat = getClosestFormat(originalRatio);
+    const targetSize = SUPPORTED_FORMATS[imageFormat];
+
+    console.log(`🎯 Image format: ${imageFormat}, target size: ${targetSize.width}x${targetSize.height}`);
+
+    if (originalWidth < targetSize.width || originalHeight < targetSize.height) {
+        console.log(`📈 Small image detected, scaling up`);
+
+        // Рассчитываем масштаб для соответствия минимальным размерам выбранного формата
+        const widthScale = targetSize.width / originalWidth;
+        const heightScale = targetSize.height / originalHeight;
+        const scaleFactor = Math.min(MAX_SCALE, Math.max(widthScale, heightScale));
+
+        // Рассчитываем целевые размеры с сохранением пропорций исходного изображения
+        let targetWidth = originalWidth * scaleFactor;
+        let targetHeight = originalHeight * scaleFactor;
+
+        // Гарантируем минимальные размеры выбранного формата
+        targetWidth = Math.max(targetSize.width, targetWidth);
+        targetHeight = Math.max(targetSize.height, targetHeight);
+
+        console.log(`🔍 Scaling from ${originalWidth}x${originalHeight} to ${Math.round(targetWidth)}x${Math.round(targetHeight)} (scale: ${scaleFactor.toFixed(2)}x)`);
+
+        // Устанавливаем размеры
+        img.style.width = `${targetWidth}px`;
+        img.style.height = `${targetHeight}px`;
+
+        // Для очень маленьких изображений применяем дополнительное масштабирование
+        if (originalWidth < 200 || originalHeight < 150) {
+            const extraScale = Math.min(3, targetSize.width / originalWidth, targetSize.height / originalHeight);
+            img.style.transform = `scale(${extraScale})`;
+            img.style.transformOrigin = 'center center';
+            console.log(`⚡ Extra scale: ${extraScale.toFixed(2)}x`);
+        }
+
+        img.style.objectFit = 'scale-down';
+
     } else {
+        // Изображение уже достаточно большое
         if (originalRatio > ASPECT_RATIO) {
             img.style.width = '100%';
             img.style.height = 'auto';
@@ -152,6 +207,8 @@ function calculateAndSetImageSizeNoBorder(img, container) {
             img.style.height = '100%';
             img.style.objectFit = 'cover';
         }
+
+        console.log(`✅ Image already meets minimum size for ${imageFormat} format`);
     }
 
     img.style.display = 'block';
@@ -162,6 +219,7 @@ function calculateAndSetImageSizeNoBorder(img, container) {
 function handleImageErrorNoBorder(img, container) {
     console.error('❌ Failed to load image');
 
+    // Показываем сообщение с минимальными размерами
     img.style.width = '100%';
     img.style.height = `${FIXED_HEIGHT}px`;
     img.style.backgroundColor = '#2a2a2a';
@@ -172,9 +230,17 @@ function handleImageErrorNoBorder(img, container) {
     img.style.fontSize = '14px';
     img.style.fontWeight = 'bold';
     img.style.borderRadius = '8px';
+    img.style.flexDirection = 'column';
+    img.style.padding = '20px';
 
     img.alt = 'Failed to load screenshot';
-    img.innerHTML = '<span>❌ Failed to load</span>';
+    img.innerHTML = `
+        <span style="margin-bottom: 10px;">❌ Failed to load</span>
+        <small style="color: #aaa; font-weight: normal; text-align: center;">
+            Min size: 1280×720 (16:9)<br>
+            Other formats also supported
+        </small>
+    `;
 }
 
 // Обработчик клика по изображению
@@ -243,29 +309,80 @@ function updateModalContent() {
     modalImg.onload = null;
     modalImg.onerror = null;
 
+    // Обновленная функция для модального окна
     modalImg.onload = function() {
         console.log(`✅ Modal image loaded: ${this.naturalWidth}x${this.naturalHeight}`);
+
+        const originalWidth = this.naturalWidth;
+        const originalHeight = this.naturalHeight;
+        const originalRatio = originalWidth / originalHeight;
 
         this.style.width = '';
         this.style.height = '';
         this.style.objectFit = '';
+        this.style.transform = '';
         this.style.backgroundColor = 'transparent';
         this.style.border = 'none';
         this.style.padding = '0';
 
-        if (this.naturalWidth < 1000 || this.naturalHeight < 700) {
-            const scaleFactor = Math.min(2.5, 1000 / this.naturalWidth, 700 / this.naturalHeight);
-            this.style.width = `${this.naturalWidth * scaleFactor}px`;
-            this.style.height = `${this.naturalHeight * scaleFactor}px`;
-            this.style.objectFit = 'scale-down';
-        } else {
-            this.style.maxWidth = '90vw';
-            this.style.maxHeight = '85vh';
+        // Определяем формат изображения
+        const getClosestFormat = (ratio) => {
+            const formatRatios = {
+                '9:16': 9/16,
+                '1:1': 1,
+                '4:3': 4/3,
+                '3:2': 3/2,
+                '16:9': 16/9,
+                '21:9': 21/9
+            };
+
+            let closestFormat = '16:9';
+            let minDiff = Infinity;
+
+            for (const [format, formatRatio] of Object.entries(formatRatios)) {
+                const diff = Math.abs(ratio - formatRatio);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    closestFormat = format;
+                }
+            }
+
+            return closestFormat;
+        };
+
+        const imageFormat = getClosestFormat(originalRatio);
+        const targetSize = SUPPORTED_FORMATS[imageFormat];
+
+        console.log(`🎯 Modal image format: ${imageFormat}, target size: ${targetSize.width}x${targetSize.height}`);
+
+        if (originalWidth < targetSize.width || originalHeight < targetSize.height) {
+            // Рассчитываем масштаб для модального окна
+            const widthScale = targetSize.width / originalWidth;
+            const heightScale = targetSize.height / originalHeight;
+            const scaleFactor = Math.min(3.0, Math.max(widthScale, heightScale));  // Увеличено до 3.0
+
+            console.log(`📊 Modal scaling from ${originalWidth}x${originalHeight} to ${Math.round(originalWidth * scaleFactor)}x${Math.round(originalHeight * scaleFactor)} (${scaleFactor.toFixed(2)}x)`);
+
+            // Устанавливаем исходные размеры изображения
+            this.style.width = `${originalWidth}px`;
+            this.style.height = `${originalHeight}px`;
+
+            // Применяем трансформацию масштаба
+            this.style.transform = `scale(${scaleFactor})`;
+            this.style.transformOrigin = 'center center';
             this.style.objectFit = 'contain';
+
+        } else {
+            // Изображение уже достаточно большое
+            this.style.maxWidth = '95vw';      // Увеличено с 90vw
+            this.style.maxHeight = '85vh';     // Увеличено с 85vh
+            this.style.objectFit = 'contain';
+            console.log(`✅ Modal image already meets minimum size`);
         }
 
         this.style.display = 'block';
         this.style.margin = 'auto';
+        this.style.transition = 'transform 0.3s ease';
     };
 
     modalImg.onerror = function() {
