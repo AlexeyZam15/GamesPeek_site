@@ -1,3 +1,4 @@
+<!-- games/templates/games/game_detail/tab_screenshots.html -->
 {% load game_tags %}
 <div class="screenshots-gallery">
     {% if game.screenshots.all %}
@@ -34,20 +35,4 @@
             </div>
         </div>
     {% endif %}
-
-    <!-- Скрипт галереи -->
-    <script>
-        // Инициализация галереи после загрузки DOM
-        document.addEventListener('DOMContentLoaded', function() {
-            setTimeout(function() {
-                if (typeof initInlineGallery === 'function') {
-                    initInlineGallery();
-                } else {
-                    console.error('Gallery function not found');
-                }
-            }, 1000);
-        });
-    </script>
-
-    {% include 'games/game_detail/gallery_script.html' %}
 </div>
