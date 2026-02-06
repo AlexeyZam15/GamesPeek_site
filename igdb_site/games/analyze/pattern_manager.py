@@ -198,9 +198,6 @@ class PatternManager:
     }
 
     THEME_PATTERNS = {
-        'Fire Emblem': [
-            r'\bfire\s+emblem\b',
-        ],
         '4X (explore, expand, exploit, and exterminate)': [
             r'\b4x(\s+game|\s|$)',
             r'\bexplore.*expand.*exploit.*exterminate',
