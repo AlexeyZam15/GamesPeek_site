@@ -1,4 +1,6 @@
 <!-- games/templates/games/game_list/_games_results.html -->
+{% load static %}
+
 <div class="row">
     <div class="col-12">
         <!-- Исправленная отладочная информация от сервера -->
@@ -96,13 +98,14 @@
             {% elif games %}
                 {% include 'games/game_list/_games_grid.html' with games=games %}
             {% else %}
-                <!-- ВАЖНО: Это сообщение показывается только если сервер действительно не нашел игр -->
                 <div class="row" id="games-grid-row">
                     <div class="col-12">
-                        <div class="text-center py-5">
-                            <h5>No games found</h5>
-                            <p class="text-muted">Try changing your search criteria or reset filters</p>
-                            <a href="{% url 'game_list' %}" class="btn btn-primary">Show All Games</a>
+                        <div class="text-center py-5 games-loading-indicator">
+                            <div class="spinner-border text-primary mb-3" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <h5>Loading games...</h5>
+                            <p class="text-muted">Please wait</p>
                         </div>
                     </div>
                 </div>
@@ -161,11 +164,13 @@
                             <li class="page-item">
                                 <a class="page-link"
                                    href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=1
+
                                            {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">First</a>
                             </li>
                             <li class="page-item">
                                 <a class="page-link"
                                    href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
+
                                            {{ page_obj.previous_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Previous</a>
                             </li>
                         {% endif %}
@@ -179,6 +184,7 @@
                                 <li class="page-item">
                                     <a class="page-link"
                                        href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
+
                                                {{ num }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">{{ num }}</a>
                                 </li>
                             {% endif %}
@@ -188,11 +194,13 @@
                             <li class="page-item">
                                 <a class="page-link"
                                    href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
+
                                            {{ page_obj.next_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Next</a>
                             </li>
                             <li class="page-item">
                                 <a class="page-link"
                                    href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
+
                                            {{ page_obj.paginator.num_pages }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Last</a>
                             </li>
                         {% endif %}

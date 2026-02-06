@@ -65,7 +65,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     try {
                         const gamesContainer = document.querySelector('.games-container');
                         if (gamesContainer) {
-                            // Убедимся что все карточки имеют правильный класс
                             const existingCards = document.querySelectorAll('.col-xl-3.col-lg-4.col-md-6.mb-4');
                             existingCards.forEach((card, index) => {
                                 if (!card.classList.contains('game-card-container')) {
@@ -73,18 +72,15 @@ document.addEventListener('DOMContentLoaded', function() {
                                 }
                             });
 
-                            // ВАЖНО: Сохраняем текущую позицию прокрутки
                             const scrollBefore = window.scrollY;
 
                             GamePagination.init();
                             console.log('Lazy games pagination initialized successfully');
 
-                            // Восстанавливаем позицию прокрутки через 100мс
                             setTimeout(() => {
                                 restoreScrollPosition();
                             }, 100);
 
-                            // Сохраняем первую страницу в кэш
                             saveCurrentPageToCache();
                         } else {
                             console.warn('Games container not found');
@@ -92,7 +88,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     } catch (error) {
                         console.error('Error initializing lazy games pagination:', error);
                     }
-                }, 500); // Уменьшили задержку с 1000 до 500
+                }, 500);
             }
 
             setTimeout(() => {
@@ -100,14 +96,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     console.log('Initializing sticky buttons...');
                     FilterSticky.init();
                 }
-            }, 800); // Уменьшили задержку
+            }, 800);
 
             setTimeout(() => {
                 if (FilterSort && typeof FilterSort.sortFilterLists === 'function') {
                     console.log('Initial sort of filter lists...');
                     FilterSort.sortFilterLists();
                 }
-            }, 1200); // Уменьшили задержку
+            }, 1200);
 
             console.log('=== FILTERS SCRIPT INITIALIZATION COMPLETE ===');
 
@@ -185,38 +181,32 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-// ОБРАБОТЧИК ДЛЯ ИЗМЕНЕНИЯ ФИЛЬТРОВ
 document.addEventListener('filterApplied', () => {
     console.log('Filter applied event received');
-    // Сбрасываем пагинацию на первую страницу
     if (window.GamePagination) {
         console.log('Resetting pagination to page 1...');
         window.GamePagination.resetToFirstPage();
     }
 });
 
-// Обработчик для кнопок браузера "назад/вперед"
 window.addEventListener('popstate', (event) => {
     console.log('Popstate event detected, state:', event.state);
 
     if (event.state && event.state.page && window.GamePagination) {
-        // Восстанавливаем страницу из истории
         const pageNumber = event.state.page;
         console.log(`Restoring page ${pageNumber} from browser history`);
 
         if (window.GamePagination.state.loadedPages.has(pageNumber)) {
-            window.GamePagination._showPageFromCache(pageNumber);
+            window.GamePagination.showPageFromCache(pageNumber);
         } else {
             window.GamePagination.showPage(pageNumber, false);
         }
     }
 });
 
-// Обработчик для обновления пагинации при изменении DOM
 const observer = new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
         if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-            // Проверяем, добавились ли элементы пагинации
             const addedPagination = Array.from(mutation.addedNodes).some(node =>
                 node.nodeType === Node.ELEMENT_NODE &&
                 (node.classList?.contains('games-pagination') ||
@@ -233,18 +223,15 @@ const observer = new MutationObserver((mutations) => {
     });
 });
 
-// Начинаем наблюдение за изменениями в body
 observer.observe(document.body, {
     childList: true,
     subtree: true
 });
 
-// Обработчик для предотвращения дублирования загрузки страниц
 document.addEventListener('pageAlreadyLoaded', (e) => {
     console.log('Page already loaded event received, skipping duplicate load');
 });
 
-// Глобальная функция для проверки загруженности страницы
 window.isPageLoaded = function(pageNumber) {
     if (window.GamePagination && window.GamePagination.state) {
         return window.GamePagination.state.loadedPages.has(pageNumber);
@@ -252,16 +239,14 @@ window.isPageLoaded = function(pageNumber) {
     return false;
 };
 
-// Глобальная функция для принудительного показа страницы без перезагрузки
 window.showPageDirectly = function(pageNumber) {
-    if (window.GamePagination && typeof window.GamePagination._showPageFromCache === 'function') {
-        window.GamePagination._showPageFromCache(pageNumber);
+    if (window.GamePagination && typeof window.GamePagination.showPageFromCache === 'function') {
+        window.GamePagination.showPageFromCache(pageNumber);
         return true;
     }
     return false;
 };
 
-// Глобальная функция для проверки наличия игр в DOM
 window.areGamesInDOM = function(pageNumber) {
     if (window.GamePagination && typeof window.GamePagination.arePageGamesInDOM === 'function') {
         return window.GamePagination.arePageGamesInDOM(pageNumber);
@@ -269,16 +254,13 @@ window.areGamesInDOM = function(pageNumber) {
     return false;
 };
 
-// Инициализация после полной загрузки страницы
 window.addEventListener('load', () => {
     setTimeout(() => {
-        // Проверяем, правильно ли инициализирована пагинация
         if (window.GamePagination && !window.GamePagination.state.loadedPages.size) {
             console.log('GamePagination not properly initialized, forcing update');
             window.GamePagination.forceUpdate();
         }
 
-        // Запускаем фоновую загрузку соседних страниц
         if (window.GamePagination && window.GamePagination.hasPagination()) {
             console.log('Starting background loading of adjacent pages...');
             window.GamePagination.preloadAdjacentPages(window.GamePagination.getCurrentPage());

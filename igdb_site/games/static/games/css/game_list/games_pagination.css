@@ -465,3 +465,23 @@
     animation: spin 1s linear infinite;
     z-index: 10;
 }
+
+.games-container.loading {
+    opacity: 0.7;
+    position: relative;
+}
+
+.games-container.loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(255, 107, 53, 0.2);
+    border-top: 3px solid var(--secondary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    z-index: 10;
+}
