@@ -16,7 +16,7 @@ class KeywordTrieNode:
 
 
 class KeywordTrie:
-    """Префиксное дерево для быстрого поиска ключевых слов"""
+    """Префиксное дерево для быстрого поиска ключевых слов с поддержкой множественных форм"""
 
     def __init__(self, verbose: bool = False):
         self.root = KeywordTrieNode()
@@ -33,7 +33,12 @@ class KeywordTrie:
         count = 0
         for keyword in keywords_queryset:
             # Вставляем слово в нижнем регистре
-            self.insert(keyword.name.lower(), keyword.id, keyword.name)
+            keyword_name_lower = keyword.name.lower()
+            self.insert(keyword_name_lower, keyword.id, keyword.name)
+
+            # Автоматически добавляем формы множественного числа
+            self._add_plural_forms(keyword_name_lower, keyword.id, keyword.name)
+
             self.keywords_cache[keyword.id] = {
                 'id': keyword.id,
                 'name': keyword.name,
@@ -45,7 +50,24 @@ class KeywordTrie:
                 print(f"  Загружено {count} ключевых слов...")
 
         if self.verbose:
-            print(f"✅ Trie построен: {count} ключевых слов")
+            print(f"✅ Trie построен: {count} ключевых слов (с формами множественного числа)")
+
+    def _add_plural_forms(self, word: str, keyword_id: int, keyword_name: str):
+        """Добавляет формы множественного числа для слова"""
+        # Правило 1: y → ies (army → armies)
+        if word.endswith('y'):
+            plural_form = word[:-1] + 'ies'
+            self.insert(plural_form, keyword_id, keyword_name)
+
+        # Правило 2: стандартное множественное число с 's'
+        plural_with_s = word + 's'
+        self.insert(plural_with_s, keyword_id, keyword_name)
+
+        # Правило 3: если уже заканчивается на 's', добавляем 'es'
+        if word.endswith('s') or word.endswith('x') or word.endswith('z') or \
+                word.endswith('ch') or word.endswith('sh'):
+            plural_with_es = word + 'es'
+            self.insert(plural_with_es, keyword_id, keyword_name)
 
     def insert(self, word: str, keyword_id: int, keyword_name: str):
         """Вставляет ключевое слово в дерево"""
@@ -59,19 +81,25 @@ class KeywordTrie:
         node.keyword_name = keyword_name
         node.length = len(word)
 
-    def find_all_in_text(self, text: str) -> List[dict]:
+    def find_all_in_text(self, text: str, unique_only: bool = True) -> List[dict]:
         """
-        Находит все ключевые слова в тексте за O(n*m), где m - максимальная длина ключевого слова
+        Находит ключевые слова в тексте
+        unique_only=True: только уникальные ID (для добавления к игре)
+        unique_only=False: все вхождения (для подсветки)
         """
         text_lower = text.lower()
         n = len(text_lower)
-        found_keywords = set()  # Для уникальности
+
+        if unique_only:
+            found_keywords = set()  # Для уникальности
+        else:
+            found_keywords = None  # Не используем для подсветки
+
         results = []
 
         for i in range(n):
-            # Пропускаем, если текущая позиция - часть слова (буква или цифра после буквы/цифры)
+            # Пропускаем, если текущая позиция - часть слова
             if i > 0 and text_lower[i - 1].isalnum():
-                # Это продолжение слова, не может быть началом ключевого слова
                 continue
 
             node = self.root
@@ -86,34 +114,45 @@ class KeywordTrie:
                 if node.is_end and node.keyword_id:
                     # Проверяем границы слова
                     if self._is_word_boundary(text_lower, i, j):
-                        if node.keyword_id not in found_keywords:
-                            found_keywords.add(node.keyword_id)
+                        if unique_only:
+                            # Для добавления к игре - только уникальные
+                            if node.keyword_id not in found_keywords:
+                                found_keywords.add(node.keyword_id)
+                                results.append({
+                                    'id': node.keyword_id,
+                                    'name': node.keyword_name,
+                                    'position': i,
+                                    'length': j - i,
+                                    'text': text_lower[i:j]
+                                })
+                        else:
+                            # Для подсветки - все вхождения
                             results.append({
                                 'id': node.keyword_id,
                                 'name': node.keyword_name,
                                 'position': i,
-                                'length': node.length,
+                                'length': j - i,
                                 'text': text_lower[i:j]
                             })
-                            # Не прерываем поиск - может быть более длинное ключевое слово
 
         return results
 
+    def find_all_occurrences_in_text(self, text: str) -> List[dict]:
+        """
+        Находит ВСЕ вхождения ключевых слов в тексте
+        Используется для подсветки текста и детального анализа
+        Возвращает каждое отдельное вхождение
+        """
+        # Просто вызываем существующий метод с unique_only=False
+        return self.find_all_in_text(text, unique_only=False)
+
     def _is_word_boundary(self, text: str, start: int, end: int) -> bool:
         """
-        Проверяет границы слова - только для целых слов
-        Разрешаем:
-        1. Целое слово (границы текста или не буквенно-цифровые символы по краям)
-        2. Множественная форма: слово + 's'
-        3. Слово с дефисом: слово + '-'
-
-        Для множественных форм: проверяем, что после 's' тоже граница
-        Для дефисов: слово может продолжаться после дефиса
+        Проверяет границы слова
         """
-        # Проверяем начало (если есть предыдущий символ)
+        # Проверяем начало
         if start > 0:
             prev_char = text[start - 1]
-            # Предыдущий символ должен быть не буквенно-цифровым (не частью слова)
             if prev_char.isalnum():
                 return False
 
@@ -121,17 +160,17 @@ class KeywordTrie:
         if end < len(text):
             next_char = text[end]
 
-            # Если следующий символ 's' - это множественная форма
+            # Допускаем множественные формы с 's'
             if next_char == 's':
-                # Проверяем, что после 's' граница слова
-                if end + 1 < len(text) and text[end + 1].isalnum():
-                    return False
-                # 's' допустим только как окончание множественного числа
+                # Проверяем, что после 's' граница
+                if end + 1 < len(text):
+                    char_after_s = text[end + 1]
+                    if char_after_s.isalnum():
+                        return False
                 return True
 
-            # Если следующий символ '-' - это слово с дефисом
+            # Допускаем дефис
             if next_char == '-':
-                # Дефис допустим, слово может продолжаться
                 return True
 
             # Любой другой буквенно-цифровой символ не допустим
