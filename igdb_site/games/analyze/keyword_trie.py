@@ -294,47 +294,84 @@ class KeywordTrie:
         # Базовая форма
         forms.add(word_lower)
 
-        # Прошедшее время
+        # Правила для правильных глаголов
+
+        # 1. Формы прошедшего времени и причастия (-ed, -ing)
         if word_lower.endswith('e'):
-            forms.add(word_lower + 'd')  # divided, created, destroyed
-            forms.add(word_lower[:-1] + 'ing')  # dividing, creating, destroying
+            # Слова на 'e': добавляем 'd' и убираем 'e' для 'ing'
+            forms.add(word_lower + 'd')  # create → created
+            forms.add(word_lower[:-1] + 'ing')  # create → creating
         elif word_lower.endswith('y') and len(word_lower) > 1 and word_lower[-2] not in 'aeiou':
-            forms.add(word_lower[:-1] + 'ied')  # tried, cried
-            forms.add(word_lower[:-1] + 'ies')  # tries, cries
-            forms.add(word_lower + 'ing')  # trying, crying
+            # Слова на согласная + 'y': y → ied
+            forms.add(word_lower[:-1] + 'ied')  # try → tried
+            forms.add(word_lower + 'ing')  # try → trying
+        elif word_lower.endswith('ie'):
+            # Слова на 'ie': ie → ying
+            forms.add(word_lower[:-2] + 'ying')  # die → dying
+            forms.add(word_lower + 'd')  # die → died
         elif self._should_double_consonant(word_lower):
+            # Удвоение согласной
             doubled = word_lower + word_lower[-1]
-            forms.add(doubled + 'ed')  # stopped, planned
-            forms.add(doubled + 'ing')  # stopping, planning
+            forms.add(doubled + 'ed')  # stop → stopped
+            forms.add(doubled + 'ing')  # stop → stopping
         else:
-            forms.add(word_lower + 'ed')  # played, worked, helped
-            forms.add(word_lower + 'ing')  # playing, working, helping
+            # Обычные глаголы
+            forms.add(word_lower + 'ed')  # play → played
+            forms.add(word_lower + 'ing')  # play → playing
 
-        # 3-е лицо единственного числа
+        # 2. Формы 3-го лица единственного числа (Present Simple)
         if word_lower.endswith(('s', 'x', 'z', 'ch', 'sh')):
-            forms.add(word_lower + 'es')  # destroys, catches, fixes
+            forms.add(word_lower + 'es')  # catch → catches, fix → fixes
         elif word_lower.endswith('y') and len(word_lower) > 1 and word_lower[-2] not in 'aeiou':
-            forms.add(word_lower[:-1] + 'ies')  # destroys, tries
+            forms.add(word_lower[:-1] + 'ies')  # try → tries
+        elif word_lower.endswith('o'):
+            forms.add(word_lower + 'es')  # go → goes
         else:
-            forms.add(word_lower + 's')  # divides, creates, plays
+            forms.add(word_lower + 's')  # play → plays
 
-        return list(forms)
+        # 3. Особые случаи для неправильных глаголов, которые имеют одинаковые формы
+        # Для большинства глаголов это работает
+
+        # Для "gather" и подобных глаголов:
+        # gather → gathers, gathering, gathered
+
+        # Убедимся что формы не слишком длинные или короткие
+        result = []
+        for form in forms:
+            if 2 <= len(form) <= 50:  # Увеличил максимальную длину
+                result.append(form)
+
+        return result
 
     def _should_double_consonant(self, word: str) -> bool:
         """
         Проверяет, нужно ли удваивать последнюю согласную перед -ing/-ed
+        Правило: если слово заканчивается на согласную-гласную-согласную (CVC)
+        и ударение на последнем слоге
         """
         if len(word) < 3:
             return False
 
         vowels = set('aeiou')
-        last_three = word[-3:].lower()
+        word_lower = word.lower()
 
-        # Проверяем шаблон: согласная + гласная + согласная
-        if (last_three[0] not in vowels and
-                last_three[1] in vowels and
-                last_three[2] not in vowels):
-            if last_three[2] not in ('w', 'x', 'y'):
+        # Более точное правило для удвоения согласных
+        last_three = word_lower[-3:]
+
+        # Проверяем шаблон CVC (согласная-гласная-согласная)
+        if (last_three[0] not in vowels and  # C - согласная
+                last_three[1] in vowels and  # V - гласная
+                last_three[2] not in vowels and  # C - согласная
+                last_three[2] not in ('w', 'x', 'y')):  # некоторые согласные не удваиваются
+
+            # Проверяем, односложное ли слово или ударение на последнем слоге
+            # Для простоты считаем что если слово короткое (<= 4 буквы), то удваиваем
+            if len(word_lower) <= 4:
+                return True
+
+            # Для более длинных слов проверяем есть ли другие гласные
+            vowel_count = sum(1 for char in word_lower if char in vowels)
+            if vowel_count == 1:  # Одна гласная - односложное слово
                 return True
 
         return False
