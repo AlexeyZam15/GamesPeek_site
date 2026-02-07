@@ -174,6 +174,7 @@ class TextAnalyzer:
     ) -> Tuple[Dict[str, List], Dict[str, List]]:
         """
         ОПТИМИЗИРОВАННЫЙ: Анализ ключевых слов с использованием Trie
+        УЛУЧШЕНО: находит ключевые слова в составных словах (через дефис)
         """
         start_time = time.time()
 
@@ -188,19 +189,29 @@ class TextAnalyzer:
         if existing_game and exclude_existing:
             existing_keyword_ids = set(existing_game.keywords.values_list('id', flat=True))
 
-        # БЫСТРЫЙ ПОИСК через Trie
+        # БЫСТРЫЙ ПОИСК через Trie с улучшенной логикой
         if self.verbose:
             print(f"🔍 Поиск ключевых слов в тексте ({len(text)} символов)...")
 
-        # Используем поиск ВСЕХ вхождений для подсветки
+        # Шаг 1: Поиск через Trie (обычные слова)
         trie_results = self._trie.find_all_in_text(text, unique_only=False)
 
         if self.verbose:
             print(f"✅ Найдено {len(trie_results)} совпадений за {(time.time() - start_time) * 1000:.1f}ms")
 
+        # Шаг 2: Поиск в составных словах через дефис
+        hyphenated_results = self._find_keywords_in_hyphenated_words(
+            text,
+            self._trie.keywords_cache,
+            existing_keyword_ids
+        )
+
+        # Объединяем результаты
+        all_results = trie_results + hyphenated_results
+
         # Фильтруем по существующим
         filtered_results = []
-        for result in trie_results:
+        for result in all_results:
             if result['id'] not in existing_keyword_ids:
                 filtered_results.append(result)
 
@@ -249,12 +260,114 @@ class TextAnalyzer:
                             'matched_word': txt,
                             'context': self._get_context(text, pos, pos + len(txt)),
                             'keyword_id': kw_id,
-                            'count': kw_data['count']
+                            'count': kw_data['count'],
+                            'is_hyphenated_part': result.get('is_hyphenated_part', False)
                         })
             except Keyword.DoesNotExist:
                 continue
 
+        processing_time = time.time() - start_time
+
+        if self.verbose:
+            print(f"⚡ Быстрый анализ ключевых слов завершен за {processing_time:.3f} секунд")
+            print(f"📊 Найдено уникальных ключевых слов: {len(found_keywords)}")
+            print(f"📊 Найдено всего вхождений: {len(filtered_results)}")
+            if hyphenated_results:
+                print(f"📊 Из них в составных словах: {len(hyphenated_results)}")
+
         return {'keywords': found_keywords}, {'keywords': pattern_info}
+
+    def _find_keywords_in_hyphenated_words(
+            self,
+            text: str,
+            keywords_cache: Dict[int, Dict],
+            existing_keyword_ids: Set[int]
+    ) -> List[Dict]:
+        """
+        Находит ключевые слова внутри составных слов через дефис
+        УПРОЩЕНО: рассматривает составные слова как отдельные части
+        """
+        import re
+
+        # Ищем все слова с дефисами в тексте
+        hyphenated_words = re.findall(r'\b[\w]+-[\w]+\b', text.lower())
+
+        if not hyphenated_words:
+            return []
+
+        if self.verbose:
+            print(f"🔍 Найдено {len(hyphenated_words)} составных слов через дефис")
+
+        results = []
+
+        # Для каждого составного слова через дефис
+        for hyphen_word in hyphenated_words:
+            # Разбиваем на части по дефису
+            parts = hyphen_word.split('-')
+
+            # Проверяем каждую часть
+            for part in parts:
+                if len(part) >= 3:  # Только значимые части (не менее 3 символов)
+                    # Ищем часть в кэше ключевых слов
+                    found_keyword = None
+                    for keyword_id, keyword_data in keywords_cache.items():
+                        if keyword_data['name_lower'] == part:
+                            found_keyword = {
+                                'id': keyword_id,
+                                'name': keyword_data['name'],
+                                'name_lower': part
+                            }
+                            break
+
+                    if found_keyword and found_keyword['id'] not in existing_keyword_ids:
+                        # Находим позицию этой части в исходном тексте
+                        # Простой поиск части в тексте (в нижнем регистре)
+                        part_lower = part.lower()
+                        text_lower = text.lower()
+
+                        # Ищем все вхождения этой части
+                        pos = 0
+                        while True:
+                            found_pos = text_lower.find(part_lower, pos)
+                            if found_pos == -1:
+                                break
+
+                            # Проверяем границы
+                            # Допускаем дефис после слова
+                            end_pos = found_pos + len(part_lower)
+                            is_valid = True
+
+                            # Проверяем начало
+                            if found_pos > 0:
+                                prev_char = text[found_pos - 1]
+                                if prev_char.isalnum() and prev_char != '-':
+                                    is_valid = False
+
+                            # Проверяем конец
+                            if end_pos < len(text):
+                                next_char = text[end_pos]
+                                # Допускаем дефис после слова
+                                if next_char.isalnum() and next_char != '-':
+                                    is_valid = False
+
+                            if is_valid:
+                                # Добавляем в результаты
+                                results.append({
+                                    'id': found_keyword['id'],
+                                    'name': found_keyword['name'],
+                                    'position': found_pos,
+                                    'length': len(part_lower),
+                                    'text': text[found_pos:end_pos].lower(),
+                                    'is_hyphenated_part': True
+                                })
+
+                                if self.verbose:
+                                    print(
+                                        f"   ✅ Найдено ключевое слово '{found_keyword['name']}' в составном слове '{hyphen_word}'")
+
+                            pos = found_pos + 1
+
+        return results
 
     def _analyze_keywords_comprehensive(
             self,
@@ -583,7 +696,10 @@ class TextAnalyzer:
         return models.get(criteria_type)
 
     def _get_context(self, text: str, start: int, end: int, context_length: int = 50) -> str:
-        """Получает контекст вокруг найденного совпадения"""
+        """
+        Получает контекст вокруг найденного совпадения
+        УЛУЧШЕНО: лучше обрабатывает дефисы и составные слова
+        """
         context_start = max(0, start - context_length)
         context_end = min(len(text), end + context_length)
 

@@ -195,6 +195,408 @@ def analyze_single_game(request: HttpRequest, game_id: int):
     return render(request, 'games/analyze.html', context)
 
 
+def find_keywords_in_hyphenated_words(text: str, matches: List[Dict]) -> List[Dict]:
+    """
+    Ищет ключевые слова внутри составных слов через дефис
+    Например, "devil" в "devil-worshipping"
+    """
+    hyphenated_matches = []
+    text_lower = text.lower()
+
+    # Собираем только ключевые слова
+    keyword_matches = [m for m in matches if m['category'] == 'keywords']
+
+    # Ищем все слова с дефисами
+    import re
+    hyphenated_words = re.findall(r'\b[\w]+-[\w]+\b', text)
+
+    for hyphen_word in hyphenated_words:
+        hyphen_word_lower = hyphen_word.lower()
+        parts = hyphen_word_lower.split('-')
+
+        # Проверяем каждую часть на соответствие ключевым словам
+        for part in parts:
+            if len(part) >= 3:  # Минимум 3 символа для значимых частей
+                # Ищем ключевое слово, соответствующее этой части
+                for keyword_match in keyword_matches:
+                    if keyword_match['text'].lower() == part:
+                        # Нашли совпадение! Находим позицию этой части в тексте
+                        pos = text_lower.find(part)
+                        while pos != -1:
+                            # Проверяем, что это действительно часть составного слова
+                            if pos + len(part) <= len(text):
+                                # Проверяем соседние символы
+                                has_hyphen_before = pos > 0 and text[pos - 1] == '-'
+                                has_hyphen_after = pos + len(part) < len(text) and text[pos + len(part)] == '-'
+
+                                if has_hyphen_before or has_hyphen_after:
+                                    # Это часть составного слова
+                                    hyphenated_matches.append({
+                                        'start': pos,
+                                        'end': pos + len(part),
+                                        'name': keyword_match['name'],
+                                        'category': keyword_match['category'],
+                                        'class_name': keyword_match['class_name'],
+                                        'color': keyword_match['color'],
+                                        'text': text[pos:pos + len(part)],
+                                        'is_hyphenated_part': True
+                                    })
+
+                            # Ищем следующее вхождение
+                            pos = text_lower.find(part, pos + 1)
+
+    return hyphenated_matches
+
+def highlight_words_in_html(html_text: str, words_to_highlight: Dict[str, List[Dict]]) -> str:
+    """
+    Подсвечивает слова в HTML тексте
+    УПРОЩЕНО: не обращает внимание на дефисы, рассматривает составные слова как отдельные слова
+    """
+    if not html_text or not words_to_highlight:
+        return html_text
+
+    import re
+    import html
+
+    # Создаем копию для изменений
+    result_text = html_text
+
+    # Собираем все слова для подсветки в один паттерн
+    # Сортируем по длине в обратном порядке, чтобы длинные слова обрабатывались первыми
+    words_patterns = []
+    for word_lower, criteria_list in words_to_highlight.items():
+        if len(word_lower) >= 2:  # Игнорируем слишком короткие слова
+            # Экранируем специальные символы в слове
+            escaped_word = re.escape(word_lower)
+            # Ищем слово как отдельное или с дефисом перед/после
+            pattern = re.compile(
+                r'\b' + escaped_word + r'(?=\b|\-)',
+                re.IGNORECASE
+            )
+            words_patterns.append((pattern, criteria_list))
+
+    # Сортируем паттерны по длине слова (длинные слова первыми)
+    words_patterns.sort(key=lambda x: len(x[0].pattern), reverse=True)
+
+    # Обрабатываем каждое слово
+    for pattern, criteria_list in words_patterns:
+        if not criteria_list:
+            continue
+
+        criteria = criteria_list[0]  # Берем первый критерий
+
+        # Находим все вхождения этого слова
+        matches = list(pattern.finditer(result_text))
+
+        # Обрабатываем с конца, чтобы позиции не смещались
+        for match in reversed(matches):
+            start_pos = match.start()
+            matched_text = match.group(0)
+
+            # Проверяем, что не внутри HTML тега
+            if is_inside_html_tag(result_text, start_pos):
+                continue
+
+            # Проверяем, что не внутри другого span
+            if is_inside_span(result_text, start_pos):
+                continue
+
+            # Проверяем границы: если после слова идет дефис, это нормально
+            # Если после слова идет буква (не дефис), то пропускаем
+            end_pos = start_pos + len(matched_text)
+            if end_pos < len(result_text):
+                next_char = result_text[end_pos]
+                if next_char.isalpha() and next_char not in "s'-":
+                    # Это часть более длинного слова, пропускаем
+                    continue
+
+            # Создаем подсветку
+            highlighted_span = create_single_criteria_span(matched_text, criteria)
+
+            # Заменяем
+            result_text = (
+                    result_text[:start_pos] +
+                    highlighted_span +
+                    result_text[start_pos + len(matched_text):]
+            )
+
+    return result_text
+
+
+def create_single_criteria_span(text: str, criteria: Dict) -> str:
+    """
+    Создает span для одиночного критерия
+    """
+    category_display = {
+        'genres': 'Genre',
+        'themes': 'Theme',
+        'perspectives': 'Perspective',
+        'game_modes': 'Game Mode',
+        'keywords': 'Keyword'
+    }.get(criteria['category'], criteria['category'])
+
+    return f'<span class="{criteria["class_name"]}" ' \
+           f'data-element-name="{html.escape(criteria["name"])}" ' \
+           f'data-category="{criteria["category"]}" ' \
+           f'title="{category_display}: {html.escape(criteria["name"])}">' \
+           f'{text}</span>'
+
+
+def is_inside_html_tag(html_text: str, position: int) -> bool:
+    """
+    Проверяет, находится ли позиция внутри HTML тега
+    """
+    if position < 0 or position >= len(html_text):
+        return False
+
+    # Находим последний '<' до этой позиции
+    last_lt = html_text.rfind('<', 0, position)
+    if last_lt == -1:
+        return False
+
+    # Находим следующий '>' после этого '<'
+    next_gt = html_text.find('>', last_lt)
+    if next_gt == -1:
+        return True  # Незакрытый тег
+
+    # Если позиция между '<' и '>', значит внутри тега
+    return last_lt < position < next_gt
+
+
+def is_inside_span(html_text: str, position: int) -> bool:
+    """
+    Проверяет, находится ли позиция внутри span тега
+    """
+    # Находим последний открывающий span до этой позиции
+    last_span_start = html_text.rfind('<span', 0, position)
+    if last_span_start == -1:
+        return False
+
+    # Находим закрывающий '>' для этого span
+    span_end_tag = html_text.find('>', last_span_start)
+    if span_end_tag == -1:
+        return False
+
+    # Находим закрывающий </span> для этого span
+    closing_span = html_text.find('</span>', span_end_tag)
+    if closing_span == -1:
+        return False
+
+    # Если позиция между началом и концом span, значит внутри
+    return span_end_tag < position < closing_span
+
+
+def get_words_to_highlight(pattern_info: Dict) -> Dict[str, List[Dict]]:
+    """
+    Собирает слова для подсветки и информацию о критериях
+    """
+    words_to_highlight = {}
+    categories = ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']
+    category_classes = {
+        'genres': 'highlight-genre',
+        'themes': 'highlight-theme',
+        'perspectives': 'highlight-perspective',
+        'game_modes': 'highlight-game_mode',
+        'keywords': 'highlight-keyword'
+    }
+
+    for category in categories:
+        category_matches = pattern_info.get(category, [])
+        for match_info in category_matches:
+            if match_info.get('status') != 'found':
+                continue
+
+            matched_text = match_info.get('matched_text', '')
+            name = match_info.get('name', '')
+
+            if not matched_text or not name:
+                continue
+
+            # Очищаем текст
+            clean_text = matched_text.strip().lower()
+
+            if len(clean_text) >= 2:
+                if clean_text not in words_to_highlight:
+                    words_to_highlight[clean_text] = []
+
+                # Добавляем информацию о критерии
+                words_to_highlight[clean_text].append({
+                    'name': name,
+                    'category': category,
+                    'class_name': category_classes[category],
+                    'full_phrase': matched_text,
+                    'is_phrase': ' ' in clean_text,
+                    'exact_match': clean_text
+                })
+
+    return words_to_highlight
+
+def highlight_hyphenated_words(html_text: str, words_to_highlight: Dict[str, List[Dict]]) -> str:
+    """
+    Специальная функция для подсветки ключевых слов внутри составных слов через дефис
+    """
+    highlighted_text = html_text
+
+    # Ищем все составные слова через дефис в тексте
+    import re
+    # Ищем слова с дефисами, сохраняем позиции
+    hyphenated_pattern = re.compile(r'(\b[\w]+-[\w]+(?:\-[\w]+)*\b)')
+
+    # Начинаем с конца текста, чтобы позиции не смещались при замене
+    matches = list(hyphenated_pattern.finditer(html_text))
+
+    for match in reversed(matches):  # Идем с конца к началу
+        hyphenated_word = match.group(1)
+        start_pos = match.start()
+        end_pos = match.end()
+
+        # Разбиваем на части
+        parts = hyphenated_word.split('-')
+
+        # Проверяем каждую часть начиная с конца
+        part_end = end_pos
+        for i in range(len(parts) - 1, -1, -1):
+            part = parts[i]
+            part_lower = part.lower()
+
+            # Начало части вычисляем от конца слова
+            part_start = start_pos
+            for j in range(i):
+                part_start += len(parts[j]) + 1  # +1 для дефиса
+
+            part_end = part_start + len(part)
+
+            if part_lower in words_to_highlight:
+                # Нашли ключевое слово в части составного слова
+                criteria_list = words_to_highlight[part_lower]
+
+                # Получаем оригинальный текст части (с правильным регистром)
+                original_part = html_text[part_start:part_end]
+
+                # Проверяем, что еще не подсвечено
+                if not is_inside_span(highlighted_text, part_start):
+                    # Создаем подсветку для первого критерия
+                    if criteria_list:
+                        criteria = criteria_list[0]
+
+                        # Создаем подсвеченную версию
+                        highlighted_part = create_single_criteria_span(original_part, criteria)
+
+                        # Заменяем часть на подсвеченную версию
+                        highlighted_text = (
+                                highlighted_text[:part_start] +
+                                highlighted_part +
+                                highlighted_text[part_end:]
+                        )
+
+    return highlighted_text
+
+
+def create_simple_highlighted_text(html_text: str, analysis_result: Dict) -> str:
+    """
+    ПРОСТОЙ ВАРИАНТ: ищем и заменяем слова прямо в HTML
+    """
+    if not html_text or not analysis_result.get('pattern_info'):
+        return html_text
+
+    try:
+        import re
+        import html
+
+        result_text = html_text
+
+        # Собираем все слова для подсветки
+        words_to_highlight = {}
+        categories = ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']
+        category_classes = {
+            'genres': 'highlight-genre',
+            'themes': 'highlight-theme',
+            'perspectives': 'highlight-perspective',
+            'game_modes': 'highlight-game_mode',
+            'keywords': 'highlight-keyword'
+        }
+
+        for category in categories:
+            category_matches = analysis_result.get('pattern_info', {}).get(category, [])
+            for match_info in category_matches:
+                if match_info.get('status') == 'found':
+                    matched_text = match_info.get('matched_text', '')
+                    name = match_info.get('name', '')
+
+                    if matched_text and name:
+                        word_lower = matched_text.lower()
+                        if word_lower not in words_to_highlight:
+                            words_to_highlight[word_lower] = {
+                                'name': name,
+                                'category': category,
+                                'class_name': category_classes[category],
+                                'patterns': []
+                            }
+
+                        # Создаем паттерн для поиска
+                        # Ищем слово как отдельное, или с дефисом после
+                        pattern = re.compile(
+                            r'\b' + re.escape(word_lower) + r'(?=\b|\-|s\b|\'s\b)',
+                            re.IGNORECASE
+                        )
+                        words_to_highlight[word_lower]['patterns'].append(pattern)
+
+        if not words_to_highlight:
+            return html_text
+
+        # Обрабатываем каждое слово
+        for word_data in words_to_highlight.values():
+            for pattern in word_data['patterns']:
+                # Находим все совпадения
+                matches = list(pattern.finditer(result_text))
+
+                # Обрабатываем с конца
+                for match in reversed(matches):
+                    start_pos = match.start()
+                    matched_text = match.group(0)
+
+                    # Проверяем, что не внутри HTML тега
+                    if is_inside_html_tag(result_text, start_pos):
+                        continue
+
+                    # Проверяем, что не внутри другого span
+                    if is_inside_span(result_text, start_pos):
+                        continue
+
+                    # Создаем span
+                    category_display = {
+                        'genres': 'Genre',
+                        'themes': 'Theme',
+                        'perspectives': 'Perspective',
+                        'game_modes': 'Game Mode',
+                        'keywords': 'Keyword'
+                    }.get(word_data['category'], word_data['category'])
+
+                    highlighted_span = (
+                        f'<span class="{word_data["class_name"]}" '
+                        f'data-element-name="{html.escape(word_data["name"])}" '
+                        f'data-category="{word_data["category"]}" '
+                        f'title="{category_display}: {html.escape(word_data["name"])}">'
+                        f'{matched_text}'
+                        f'</span>'
+                    )
+
+                    # Заменяем
+                    result_text = (
+                            result_text[:start_pos] +
+                            highlighted_span +
+                            result_text[start_pos + len(matched_text):]
+                    )
+
+        return result_text
+
+    except Exception as e:
+        print(f"❌ Error in create_simple_highlighted_text: {e}")
+        import traceback
+        traceback.print_exc()
+        return html_text
+
+
 def _initialize_analysis_context(request: HttpRequest, game_id: int) -> Tuple[Game, Dict, str]:
     """Инициализация контекста анализа"""
     game = get_object_or_404(Game, pk=game_id)
@@ -535,6 +937,7 @@ def _save_analysis_results(request: HttpRequest, game_id: int, tab: str, origina
 def simple_highlight_text(html_text: str, analysis_result: Dict) -> str:
     """
     ПРОСТОЙ метод подсветки текста БЕЗ вложенных тегов
+    УЛУЧШЕНО: Подсвечивает ключевые слова внутри составных слов через дефис
     """
     if not html_text or not analysis_result.get('pattern_info'):
         return html_text
@@ -555,6 +958,10 @@ def simple_highlight_text(html_text: str, analysis_result: Dict) -> str:
         # Находим ВСЕ позиции всех совпадений в ЧИСТОМ тексте
         text_positions = find_all_text_positions(clean_text, all_matches)
 
+        # ДОБАВЛЯЕМ: Поиск ключевых слов внутри составных слов через дефис
+        hyphenated_matches = find_keywords_in_hyphenated_words(clean_text, all_matches)
+        text_positions.extend(hyphenated_matches)
+
         if not text_positions:
             return html_text
 
@@ -572,7 +979,10 @@ def simple_highlight_text(html_text: str, analysis_result: Dict) -> str:
 
         return highlighted_text
 
-    except Exception:
+    except Exception as e:
+        print(f"❌ Error in simple_highlight_text: {e}")
+        import traceback
+        traceback.print_exc()
         return html_text
 
 
@@ -598,6 +1008,7 @@ def remove_existing_highlights(html_text: str) -> str:
 def collect_all_matches(pattern_info: Dict) -> List[Dict]:
     """
     Собирает все совпадения из pattern_info
+    УЛУЧШЕНО: Находит ключевые слова внутри составных слов через дефис
     """
     all_matches = []
     categories = ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']
@@ -779,40 +1190,6 @@ def apply_direct_highlights(html_text: str, replacements: List[Dict]) -> str:
     return highlighted_text
 
 
-def is_inside_html_tag(html_text: str, position: int) -> bool:
-    """
-    Проверяет, находится ли позиция внутри HTML тега
-    """
-    # Находим последний '<' до позиции
-    last_lt = html_text.rfind('<', 0, position)
-    if last_lt == -1:
-        return False
-
-    # Находим следующий '>'
-    next_gt = html_text.find('>', last_lt)
-
-    # Если не нашли '>' или он после позиции, значит внутри тега
-    return next_gt == -1 or next_gt > position
-
-
-def is_inside_span(html_text: str, position: int) -> bool:
-    """
-    Проверяет, находится ли позиция внутри span тега
-    """
-    # Находим последний открывающий span
-    last_span = html_text.rfind('<span', 0, position)
-    if last_span == -1:
-        return False
-
-    # Находим закрывающий span для этого
-    span_end = html_text.find('</span>', last_span)
-    if span_end == -1:
-        return False
-
-    # Проверяем, находится ли позиция между ними
-    return last_span < position < span_end
-
-
 def create_single_highlight_span(text: str, match: Dict) -> str:
     """
     Создает span для одиночного критерия
@@ -896,6 +1273,7 @@ def get_clean_text_from_html(html_text: str) -> str:
 def find_all_text_positions(clean_text: str, all_matches: List[Dict]) -> List[Dict]:
     """
     Находит все позиции всех совпадений в тексте С ПРОВЕРКОЙ ГРАНИЦ
+    УЛУЧШЕНО: Находит ключевые слова внутри составных слов через дефис
     """
     text_positions = []
     text_lower = clean_text.lower()
@@ -914,39 +1292,42 @@ def find_all_text_positions(clean_text: str, all_matches: List[Dict]) -> List[Di
             if found_pos == -1:
                 break
 
-            # ПРОВЕРЯЕМ ГРАНИЦЫ СЛОВА
-            is_word_boundary = True
+            # ПРОВЕРЯЕМ ГРАНИЦЫ СЛОВА (с поддержкой дефисов)
+            is_valid = True
 
             # Проверяем начало
             if found_pos > 0:
                 prev_char = clean_text[found_pos - 1]
-                if prev_char.isalnum():
-                    is_word_boundary = False
+                # Допускаем дефис перед словом (часть составного слова)
+                if prev_char.isalnum() and prev_char != '-':
+                    is_valid = False
 
             # Проверяем конец
             end_pos = found_pos + len(search_text)
             if end_pos < len(clean_text):
                 next_char = clean_text[end_pos]
-                # Допускаем 's' для множественного числа и '-' для составных слов
-                if next_char.isalnum() and next_char != 's' and next_char != '-':
-                    is_word_boundary = False
+                # Допускаем дефис после слова (часть составного слова)
+                if next_char.isalnum() and next_char not in "s'-":
+                    is_valid = False
+                # Разрешаем 's' для множественного числа
+                elif next_char == 's':
+                    # Проверяем границу после 's'
+                    if end_pos + 1 < len(clean_text) and clean_text[end_pos + 1].isalnum():
+                        is_valid = False
 
-            if is_word_boundary:
-                # ДЛЯ КЛЮЧЕВЫХ СЛОВ: ищем множественные формы
+            if is_valid:
+                # ДЛЯ КЛЮЧЕВЫХ СЛОВ: особый случай - можем быть частью составного слова
                 if match['category'] == 'keywords':
-                    # Проверяем следующие символы после найденного слова
-                    end_pos = found_pos + len(search_text)
-
-                    # Если есть 's' после слова - это множественная форма
-                    if end_pos < len(clean_text) and clean_text[end_pos] == 's':
-                        # Проверяем границу после 's'
-                        if end_pos + 1 >= len(clean_text) or not clean_text[end_pos + 1].isalnum():
-                            end_pos += 1
-
-                    # Если есть дефис после слова - захватываем его
+                    # Проверяем, является ли это частью составного слова через дефис
+                    # "devil" в "devil-worshipping" - допустимо
+                    if found_pos > 0 and clean_text[found_pos - 1] == '-':
+                        # Слово после дефиса - валидно
+                        is_valid = True
                     if end_pos < len(clean_text) and clean_text[end_pos] == '-':
-                        end_pos += 1
+                        # Слово перед дефисом - валидно
+                        is_valid = True
 
+                if is_valid:
                     # Создаем запись с расширенным текстом
                     extended_text = clean_text[found_pos:end_pos]
 
@@ -960,23 +1341,10 @@ def find_all_text_positions(clean_text: str, all_matches: List[Dict]) -> List[Di
                         'text': extended_text
                     })
 
-                    pos = found_pos + 1
-                    continue
-
-                # Для остальных категорий - обычный поиск
-                text_positions.append({
-                    'start': found_pos,
-                    'end': found_pos + len(search_text),
-                    'name': match['name'],
-                    'category': match['category'],
-                    'class_name': match['class_name'],
-                    'color': match['color'],
-                    'text': clean_text[found_pos:found_pos + len(search_text)]
-                })
-
             pos = found_pos + 1
 
     return text_positions
+
 
 def group_overlapping_positions(text_positions: List[Dict]) -> List[Dict]:
     """
@@ -1109,98 +1477,6 @@ def find_text_in_html(html_text: str, search_text: str, start_pos: int = 0) -> i
     return pos
 
 
-def create_simple_highlighted_text(html_text: str, analysis_result: Dict) -> str:
-    """
-    Упрощенное создание подсвеченного текста
-    Работает по словам, а не по позициям
-    """
-    if not html_text or not analysis_result.get('pattern_info'):
-        return html_text
-
-    try:
-        # Получаем все слова для подсветки
-        words_to_highlight = get_words_to_highlight(analysis_result['pattern_info'])
-
-        if not words_to_highlight:
-            return html_text
-
-        # Разбиваем текст на слова и теги
-        highlighted_text = highlight_words_in_html(html_text, words_to_highlight)
-
-        return highlighted_text
-
-    except Exception as e:
-        print(f"❌ Error in create_simple_highlighted_text: {e}")
-        return html_text
-
-
-def get_words_to_highlight(pattern_info: Dict) -> Dict[str, List[Dict]]:
-    """
-    Собирает слова для подсветки и информацию о критериях
-    """
-    words_to_highlight = {}
-    categories = ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']
-    category_classes = {
-        'genres': 'highlight-genre',
-        'themes': 'highlight-theme',
-        'perspectives': 'highlight-perspective',
-        'game_modes': 'highlight-game_mode',
-        'keywords': 'highlight-keyword'
-    }
-
-    for category in categories:
-        category_matches = pattern_info.get(category, [])
-        for match_info in category_matches:
-            if match_info.get('status') != 'found':
-                continue
-
-            matched_text = match_info.get('matched_text', '')
-            name = match_info.get('name', '')
-
-            if not matched_text or not name:
-                continue
-
-            # Очищаем текст
-            clean_text = matched_text.strip().lower()
-
-            # Удаляем начальные/конечные не-буквенные символы
-            clean_text = re.sub(r'^[^\w]*', '', clean_text)
-            clean_text = re.sub(r'[^\w]*$', '', clean_text)
-
-            if not clean_text:
-                continue
-
-            # Вместо разбивки на слова, сохраняем полный текст как ключ
-            # Это предотвратит поиск частей слов
-            if clean_text not in words_to_highlight:
-                words_to_highlight[clean_text] = []
-
-            # Добавляем информацию о критерии
-            words_to_highlight[clean_text].append({
-                'name': name,
-                'category': category,
-                'class_name': category_classes[category],
-                'full_phrase': matched_text,
-                'is_phrase': ' ' in clean_text or '-' in clean_text,  # Фраза если содержит пробел или дефис
-                'exact_match': clean_text  # Сохраняем точный текст для поиска
-            })
-
-    return words_to_highlight
-
-
-def highlight_words_in_html(html_text: str, words_to_highlight: Dict[str, List[Dict]]) -> str:
-    """
-    Подсвечивает слова в HTML тексте
-    """
-    # Сначала обрабатываем фразы из нескольких слов
-    highlighted_text = highlight_phrases_in_html(html_text, words_to_highlight)
-
-    # Затем одиночные слова
-    highlighted_text = highlight_single_words_in_html(highlighted_text, words_to_highlight)
-
-    return highlighted_text
-
-
 def highlight_phrases_in_html(html_text: str, words_to_highlight: Dict[str, List[Dict]]) -> str:
     """
     Подсвечивает фразы из нескольких слов
@@ -1255,6 +1531,7 @@ def highlight_phrases_in_html(html_text: str, words_to_highlight: Dict[str, List
 def highlight_single_words_in_html(html_text: str, words_to_highlight: Dict[str, List[Dict]]) -> str:
     """
     Подсвечивает слова в HTML тексте с точным соответствием
+    УЛУЧШЕНО: подсвечивает слова внутри составных слов через дефис
     """
     highlighted_text = html_text
 
@@ -1268,10 +1545,14 @@ def highlight_single_words_in_html(html_text: str, words_to_highlight: Dict[str,
                     exact_matches[exact_text] = []
                 exact_matches[exact_text].append(criteria)
 
-    # Обрабатываем каждое точное совпадение
-    for exact_text, criteria_list in exact_matches.items():
-        # Ищем точное совпадение с границами слова
-        pattern = re.compile(r'\b' + re.escape(exact_text) + r'\b', re.IGNORECASE)
+    # Сортируем по длине (сначала длинные слова)
+    sorted_exact_texts = sorted(exact_matches.keys(), key=len, reverse=True)
+
+    for exact_text in sorted_exact_texts:
+        criteria_list = exact_matches[exact_text]
+
+        # Ищем точное совпадение (учитывая дефисы и апострофы после слова)
+        pattern = re.compile(re.escape(exact_text) + r'(?=[\s\.,;:!\?\'\"\)\]\}]|\-|$)', re.IGNORECASE)
 
         def replace_exact(match):
             matched_text = match.group(0)
@@ -1285,6 +1566,13 @@ def highlight_single_words_in_html(html_text: str, words_to_highlight: Dict[str,
             if is_inside_span(highlighted_text, start_pos):
                 return matched_text
 
+            # Проверяем начало слова
+            if start_pos > 0:
+                prev_char = highlighted_text[start_pos - 1]
+                # Допускаем дефис, пробел, скобку перед словом
+                if prev_char.isalnum() and prev_char not in "-'(\"":
+                    return matched_text
+
             if len(criteria_list) > 1:
                 # Множественные критерии
                 return create_multi_criteria_span(matched_text, criteria_list)
@@ -1297,25 +1585,6 @@ def highlight_single_words_in_html(html_text: str, words_to_highlight: Dict[str,
         highlighted_text = pattern.sub(replace_exact, highlighted_text)
 
     return highlighted_text
-
-
-def create_single_criteria_span(text: str, criteria: Dict) -> str:
-    """
-    Создает span для одиночного критерия
-    """
-    category_display = {
-        'genres': 'Genre',
-        'themes': 'Theme',
-        'perspectives': 'Perspective',
-        'game_modes': 'Game Mode',
-        'keywords': 'Keyword'
-    }.get(criteria['category'], criteria['category'])
-
-    return f'<span class="{criteria["class_name"]}" ' \
-           f'data-element-name="{html.escape(criteria["name"])}" ' \
-           f'data-category="{criteria["category"]}" ' \
-           f'title="{category_display}: {html.escape(criteria["name"])}">' \
-           f'{text}</span>'
 
 
 def create_multi_criteria_span(text: str, criteria_list: List[Dict]) -> str:
@@ -2405,6 +2674,7 @@ def _find_all_occurrences_in_clean_text(clean_text: str, search_text: str, name:
                                         category: str, class_name: str) -> List[Dict]:
     """
     Находит все вхождения текста в чистом тексте (без HTML)
+    УЛУЧШЕНО: находит слова внутри составных слов через дефис
     """
     occurrences = []
     if not search_text or not clean_text:
@@ -2420,25 +2690,38 @@ def _find_all_occurrences_in_clean_text(clean_text: str, search_text: str, name:
         if found_pos == -1:
             break
 
-        # Проверяем границы слова
-        if ' ' not in search_text:
-            if found_pos > 0 and clean_text[found_pos - 1].isalnum():
-                pos = found_pos + 1
-                continue
-            if found_pos + search_len < len(clean_text) and clean_text[found_pos + search_len].isalnum():
-                pos = found_pos + 1
-                continue
+        # Проверяем границы слова с поддержкой дефисов
+        is_valid = True
 
-        occurrences.append({
-            'start': found_pos,
-            'end': found_pos + search_len,
-            'name': name,
-            'category': category,
-            'class_name': class_name,
-            'text': clean_text[found_pos:found_pos + search_len]
-        })
+        # Проверяем начало
+        if found_pos > 0:
+            prev_char = clean_text[found_pos - 1]
+            if prev_char.isalnum() and prev_char != '-':
+                is_valid = False
 
-        pos = found_pos + search_len
+        # Проверяем конец
+        end_pos = found_pos + search_len
+        if end_pos < len(clean_text):
+            next_char = clean_text[end_pos]
+            # Допускаем дефис, апостроф, или конец слова
+            if next_char.isalnum() and next_char not in "s'-":
+                is_valid = False
+            # Разрешаем 's' только если дальше не буква
+            elif next_char == 's':
+                if end_pos + 1 < len(clean_text) and clean_text[end_pos + 1].isalnum():
+                    is_valid = False
+
+        if is_valid:
+            occurrences.append({
+                'start': found_pos,
+                'end': end_pos,
+                'name': name,
+                'category': category,
+                'class_name': class_name,
+                'text': clean_text[found_pos:end_pos]
+            })
+
+        pos = found_pos + 1
 
     return occurrences
 
@@ -2514,44 +2797,71 @@ def _convert_clean_positions_to_html_positions(html_text: str, clean_text: str,
     return html_matches
 
 
-def _find_all_occurrences_in_plain_text(text: str, search_text: str, name: str,
+def _find_all_occurrences_in_plain_text(plain_text: str, search_text: str, name: str,
                                         category: str, class_name: str) -> List[Dict]:
     """
     Находит все вхождения текста в ПРОСТОМ тексте (без HTML)
+    УЛУЧШЕНО: находит слова внутри составных слов через дефис
     """
     occurrences = []
-    if not search_text or not text:
+    if not search_text or not plain_text:
         return occurrences
 
+    text_lower = plain_text.lower()
     search_lower = search_text.lower()
-    text_lower = text.lower()
+
+    # Регистронезависимый поиск
     search_len = len(search_text)
 
+    # Ищем все вхождения напрямую
     pos = 0
     while True:
         found_pos = text_lower.find(search_lower, pos)
         if found_pos == -1:
             break
 
-        # Проверяем границы слова (только для отдельных слов)
-        if ' ' not in search_text:
-            if found_pos > 0 and text[found_pos - 1].isalnum():
-                pos = found_pos + 1
-                continue
-            if found_pos + search_len < len(text) and text[found_pos + search_len].isalnum():
-                pos = found_pos + 1
-                continue
+        # Проверяем, что найденное слово является частью допустимого контекста:
+        # 1. Может быть отдельным словом
+        # 2. Может быть частью составного слова через дефис
+        # 3. Может иметь после себя 's (притяжательный падеж)
 
-        occurrences.append({
-            'start': found_pos,
-            'end': found_pos + search_len,
-            'name': name,
-            'category': category,
-            'class_name': class_name,
-            'text': text[found_pos:found_pos + search_len]
-        })
+        is_valid = True
 
-        pos = found_pos + search_len
+        # Проверяем начало
+        if found_pos > 0:
+            prev_char = plain_text[found_pos - 1]
+            # Допускаем пробел, дефис, скобку, кавычку
+            if prev_char.isalnum() and prev_char not in "-'(\"":
+                is_valid = False
+
+        # Проверяем конец
+        end_pos = found_pos + search_len
+        if end_pos < len(plain_text):
+            next_char = plain_text[end_pos]
+            # Допускаем: дефис, апостроф+s, пробел, пунктуация
+            if next_char.isalnum():
+                # Разрешаем 's для притяжательного падежа
+                if next_char == 's' and end_pos + 1 < len(plain_text) and plain_text[end_pos + 1] in " ,.!?;:'\")":
+                    # "devil's" - допустимо
+                    pass
+                # Разрешаем дефис после слова
+                elif next_char == '-':
+                    # "devil-worshipping" - допустимо
+                    pass
+                else:
+                    is_valid = False
+
+        if is_valid:
+            occurrences.append({
+                'start': found_pos,
+                'end': end_pos,
+                'name': name,
+                'category': category,
+                'class_name': class_name,
+                'text': plain_text[found_pos:end_pos]
+            })
+
+        pos = found_pos + 1
 
     return occurrences
 
@@ -2663,6 +2973,7 @@ def _find_all_occurrences_with_context(text: str, search_text: str, name: str,
                                        category: str, class_name: str) -> List[Dict]:
     """
     Находит все вхождения текста с учетом контекста
+    УЛУЧШЕНО: Разрешает дефисы в составных словах
     """
     occurrences = []
     if not search_text or not text:
@@ -2678,27 +2989,45 @@ def _find_all_occurrences_with_context(text: str, search_text: str, name: str,
         if found_pos == -1:
             break
 
-        # Проверяем границы слова (только для отдельных слов)
-        if ' ' not in search_text:
-            if found_pos > 0 and text[found_pos - 1].isalnum():
-                pos = found_pos + 1
-                continue
-            if found_pos + search_len < len(text) and text[found_pos + search_len].isalnum():
-                pos = found_pos + 1
-                continue
+        # Проверяем границы слова с поддержкой дефисов
+        is_valid = True
+
+        # Проверяем начало
+        if found_pos > 0:
+            prev_char = text[found_pos - 1]
+            # Допускаем дефис, пробел, скобку перед словом
+            if prev_char.isalnum() and prev_char not in "-'(\"":
+                is_valid = False
+
+        # Проверяем конец
+        end_pos = found_pos + search_len
+        if end_pos < len(text):
+            next_char = text[end_pos]
+            # Допускаем: дефис, апостроф, пробел, пунктуация
+            if next_char.isalnum():
+                # Разрешаем 's для притяжательного падежа
+                if next_char == 's' and end_pos + 1 < len(text) and text[end_pos + 1] in " ,.!?;:'\")":
+                    # "devil's" - допустимо
+                    pass
+                # Разрешаем дефис после слова
+                elif next_char == '-':
+                    # "devil-worshipping" - допустимо
+                    pass
+                else:
+                    is_valid = False
 
         # Проверяем, что не внутри HTML тега
-        if not _is_inside_html_tag(text, found_pos):
+        if is_valid and not _is_inside_html_tag(text, found_pos):
             occurrences.append({
                 'start': found_pos,
-                'end': found_pos + search_len,
+                'end': end_pos,
                 'name': name,
                 'category': category,
                 'class_name': class_name,
-                'text': text[found_pos:found_pos + search_len]
+                'text': text[found_pos:end_pos]
             })
 
-        pos = found_pos + search_len
+        pos = found_pos + 1
 
     return occurrences
 
@@ -2940,6 +3269,7 @@ def get_html_position_from_plain_position(html_text: str, plain_text: str, plain
 def find_all_matches_in_text_plain(plain_text: str, results: Dict) -> List[Dict]:
     """
     Простой поиск совпадений в plain text
+    УЛУЧШЕНО: находит слова внутри составных слов через дефис
     """
     matches = []
     text_lower = plain_text.lower()
@@ -2962,37 +3292,44 @@ def find_all_matches_in_text_plain(plain_text: str, results: Dict) -> List[Dict]
     for element_lower, element_info in element_names.items():
         start_pos = 0
 
-        if ' ' in element_lower:
-            # Для фраз из нескольких слов
-            while True:
-                pos = text_lower.find(element_lower, start_pos)
-                if pos == -1:
-                    break
+        # Используем улучшенный поиск с поддержкой дефисов
+        while True:
+            pos = text_lower.find(element_lower, start_pos)
+            if pos == -1:
+                break
 
+            # Проверяем границы слова с поддержкой дефисов
+            is_valid = True
+
+            # Проверяем начало
+            if pos > 0:
+                prev_char = plain_text[pos - 1]
+                if prev_char.isalnum() and prev_char != '-':
+                    is_valid = False
+
+            # Проверяем конец
+            end_pos = pos + len(element_lower)
+            if end_pos < len(plain_text):
+                next_char = plain_text[end_pos]
+                # Допускаем дефис, апостроф, или конец слова
+                if next_char.isalnum() and next_char not in "s'-":
+                    is_valid = False
+                # Разрешаем 's' только если дальше не буква
+                elif next_char == 's':
+                    if end_pos + 1 < len(plain_text) and plain_text[end_pos + 1].isalnum():
+                        is_valid = False
+
+            if is_valid:
                 matches.append({
                     'start': pos,
-                    'end': pos + len(element_lower),
+                    'end': end_pos,
                     'type': element_info['category'][:-1] if element_info['category'] != 'keywords' else 'keyword',
                     'name': element_info['name'],
-                    'text': plain_text[pos:pos + len(element_lower)],
+                    'text': plain_text[pos:end_pos],
                     'category': element_info['category']
                 })
 
-                start_pos = pos + 1
-        else:
-            # Для отдельных слов
-            import re
-            pattern = rf'\b{re.escape(element_lower)}\b'
-
-            for match in re.finditer(pattern, text_lower):
-                matches.append({
-                    'start': match.start(),
-                    'end': match.end(),
-                    'type': element_info['category'][:-1] if element_info['category'] != 'keywords' else 'keyword',
-                    'name': element_info['name'],
-                    'text': plain_text[match.start():match.end()],
-                    'category': element_info['category']
-                })
+            start_pos = pos + 1
 
     return matches
 

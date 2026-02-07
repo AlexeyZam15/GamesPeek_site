@@ -89,6 +89,154 @@ class KeywordTrie:
                 print(f"⚠️ Ошибка WordNet для '{word}': {e}")
             return False
 
+    def _is_word_boundary(self, text: str, start: int, end: int) -> bool:
+        """
+        Проверяет границы слова
+        УЛУЧШЕНО: разрешает дефис и апостроф после слова для составных слов
+        """
+        # Проверяем начало
+        if start > 0:
+            prev_char = text[start - 1]
+            if prev_char.isalnum() or prev_char == '_':
+                return False
+
+        # Проверяем конец
+        if end < len(text):
+            next_char = text[end]
+
+            # Допускаем дефис после слова (для составных слов типа "devil-worshipping")
+            if next_char == '-':
+                return True
+
+            # Допускаем апостроф после слова (для слов типа "devil's")
+            if next_char == '\'':
+                return True
+
+            # Допускаем множественные формы с 's' (но не если дальше буква)
+            if next_char == 's':
+                # Проверяем, что после 's' не идет буква или это конец слова
+                if end + 1 >= len(text):
+                    return True
+                char_after_s = text[end + 1]
+                if not char_after_s.isalnum():
+                    return True
+                return False
+
+            # Любой другой буквенно-цифровой символ или подчеркивание не допустим
+            if next_char.isalnum() or next_char == '_':
+                return False
+
+        return True
+
+    def find_all_in_text(self, text: str, unique_only: bool = True) -> List[dict]:
+        """
+        Находит ключевые слова в тексте
+        УЛУЧШЕНО: находит слова внутри составных слов через дефис
+        """
+        text_lower = text.lower()
+        n = len(text_lower)
+
+        if unique_only:
+            found_keywords = set()  # Для уникальности
+        else:
+            found_keywords = None  # Не используем для подсветки
+
+        results = []
+
+        for i in range(n):
+            # Пропускаем, если текущая позиция - часть слова
+            if i > 0 and text_lower[i - 1].isalnum():
+                continue
+
+            node = self.root
+            j = i
+
+            # Проходим по дереву пока есть совпадения
+            while j < n and text_lower[j] in node.children:
+                node = node.children[text_lower[j]]
+                j += 1
+
+                # Если нашли конец ключевого слова
+                if node.is_end and node.keyword_id:
+                    # Проверяем границы слова с учетом дефисов
+                    if self._is_word_boundary(text_lower, i, j):
+                        if unique_only:
+                            # Для добавления к игре - только уникальные
+                            if node.keyword_id not in found_keywords:
+                                found_keywords.add(node.keyword_id)
+                                results.append({
+                                    'id': node.keyword_id,
+                                    'name': node.keyword_name,
+                                    'position': i,
+                                    'length': j - i,
+                                    'text': text_lower[i:j]
+                                })
+                        else:
+                            # Для подсветки - все вхождения
+                            results.append({
+                                'id': node.keyword_id,
+                                'name': node.keyword_name,
+                                'position': i,
+                                'length': j - i,
+                                'text': text_lower[i:j]
+                            })
+
+        return results
+
+    def find_all_occurrences_in_text(text: str, search_text: str, name: str, category: str) -> List[Dict]:
+        """
+        Находит все вхождения текста в строке
+        УЛУЧШЕНО: Разрешает дефисы в составных словах
+        """
+        occurrences = []
+        if not search_text or not text:
+            return occurrences
+
+        search_lower = search_text.lower()
+        text_lower = text.lower()
+        search_len = len(search_text)
+
+        pos = 0
+        while True:
+            # Ищем вхождение
+            found_pos = text_lower.find(search_lower, pos)
+            if found_pos == -1:
+                break
+
+            # Проверяем границы слова с поддержкой дефисов
+            is_valid = True
+
+            # Проверяем начало
+            if found_pos > 0:
+                prev_char = text[found_pos - 1]
+                if prev_char.isalnum() and prev_char != '-':
+                    is_valid = False
+
+            # Проверяем конец
+            end_pos = found_pos + search_len
+            if end_pos < len(text):
+                next_char = text[end_pos]
+                # Допускаем дефис, апостроф, или конец слова
+                if next_char.isalnum() and next_char not in "s'-":
+                    is_valid = False
+                # Разрешаем 's' только если дальше не буква
+                elif next_char == 's':
+                    if end_pos + 1 < len(text) and text[end_pos + 1].isalnum():
+                        is_valid = False
+
+            if is_valid and not is_inside_html_tag(text, found_pos):
+                occurrences.append({
+                    'start': found_pos,
+                    'end': end_pos,
+                    'name': name,
+                    'category': category,
+                    'text': text[found_pos:end_pos]
+                })
+
+            pos = found_pos + 1
+
+        return occurrences
+
     def build_from_queryset(self, keywords_queryset):
         """Строит дерево из QuerySet ключевых слов"""
         self.keywords_cache.clear()
@@ -151,104 +299,6 @@ class KeywordTrie:
         node.keyword_id = keyword_id
         node.keyword_name = keyword_name
         node.length = len(word)
-
-    def find_all_in_text(self, text: str, unique_only: bool = True) -> List[dict]:
-        """
-        Находит ключевые слова в тексте
-        unique_only=True: только уникальные ID (для добавления к игре)
-        unique_only=False: все вхождения (для подсветки)
-        """
-        text_lower = text.lower()
-        n = len(text_lower)
-
-        if unique_only:
-            found_keywords = set()  # Для уникальности
-        else:
-            found_keywords = None  # Не используем для подсветки
-
-        results = []
-
-        for i in range(n):
-            # Пропускаем, если текущая позиция - часть слова
-            if i > 0 and text_lower[i - 1].isalnum():
-                continue
-
-            node = self.root
-            j = i
-
-            # Проходим по дереву пока есть совпадения
-            while j < n and text_lower[j] in node.children:
-                node = node.children[text_lower[j]]
-                j += 1
-
-                # Если нашли конец ключевого слова
-                if node.is_end and node.keyword_id:
-                    # Проверяем границы слова
-                    if self._is_word_boundary(text_lower, i, j):
-                        if unique_only:
-                            # Для добавления к игре - только уникальные
-                            if node.keyword_id not in found_keywords:
-                                found_keywords.add(node.keyword_id)
-                                results.append({
-                                    'id': node.keyword_id,
-                                    'name': node.keyword_name,
-                                    'position': i,
-                                    'length': j - i,
-                                    'text': text_lower[i:j]
-                                })
-                        else:
-                            # Для подсветки - все вхождения
-                            results.append({
-                                'id': node.keyword_id,
-                                'name': node.keyword_name,
-                                'position': i,
-                                'length': j - i,
-                                'text': text_lower[i:j]
-                            })
-
-        return results
-
-    def find_all_occurrences_in_text(self, text: str) -> List[dict]:
-        """
-        Находит ВСЕ вхождения ключевых слов в тексте
-        Используется для подсветки текста и детального анализа
-        Возвращает каждое отдельное вхождение
-        """
-        # Просто вызываем существующий метод с unique_only=False
-        return self.find_all_in_text(text, unique_only=False)
-
-    def _is_word_boundary(self, text: str, start: int, end: int) -> bool:
-        """
-        Проверяет границы слова
-        """
-        # Проверяем начало
-        if start > 0:
-            prev_char = text[start - 1]
-            if prev_char.isalnum():
-                return False
-
-        # Проверяем конец
-        if end < len(text):
-            next_char = text[end]
-
-            # Допускаем множественные формы с 's'
-            if next_char == 's':
-                # Проверяем, что после 's' граница
-                if end + 1 < len(text):
-                    char_after_s = text[end + 1]
-                    if char_after_s.isalnum():
-                        return False
-                return True
-
-            # Допускаем дефис
-            if next_char == '-':
-                return True
-
-            # Любой другой буквенно-цифровой символ не допустим
-            if next_char.isalnum():
-                return False
-
-        return True
 
     def get_keyword_by_id(self, keyword_id: int) -> Optional[dict]:
         """Быстро получает ключевое слово по ID"""
