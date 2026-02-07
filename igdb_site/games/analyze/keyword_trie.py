@@ -2,6 +2,7 @@
 import re
 from typing import Dict, List, Set, Optional
 from django.core.cache import cache
+from functools import lru_cache
 
 
 class KeywordTrieNode:
@@ -22,10 +23,76 @@ class KeywordTrie:
         self.root = KeywordTrieNode()
         self.keywords_cache: Dict[int, dict] = {}
         self.verbose = verbose
+        self._verb_forms_cache: Dict[str, List[str]] = {}  # Кэш глагольных форм
+
+        # Инициализируем WordNet
+        self.wordnet_available = self._init_wordnet()
+
+        if verbose:
+            if self.wordnet_available:
+                print("✅ WordNet доступен для определения глаголов")
+            else:
+                print("⚠️ WordNet недоступен. Глагольные формы определяться не будут.")
+
+    def _init_wordnet(self) -> bool:
+        """Инициализирует WordNet для определения глаголов"""
+        try:
+            import nltk
+            from nltk.corpus import wordnet as wn
+
+            # Проверяем, есть ли уже данные WordNet
+            try:
+                # Быстрая проверка доступности WordNet
+                wn.synsets('test', pos='n')
+                return True
+            except LookupError:
+                # Скачиваем только если нет
+                if self.verbose:
+                    print("   📥 Загружаем WordNet (только один раз)...")
+
+                # Скачиваем минимально необходимые данные
+                nltk.download('wordnet', quiet=not self.verbose)
+
+                # Проверяем что скачалось
+                wn.synsets('test', pos='n')
+                return True
+
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ WordNet недоступен: {e}")
+            return False
+
+    @lru_cache(maxsize=10000)
+    def _is_verb_wordnet(self, word: str) -> bool:
+        """
+        Использует WordNet для определения, является ли слово глаголом
+        WordNet может определить часть речи без контекста
+        """
+        if not self.wordnet_available:
+            return False
+
+        try:
+            from nltk.corpus import wordnet as wn
+
+            # Получаем все synsets для слова
+            synsets = wn.synsets(word.lower())
+
+            # Проверяем, есть ли среди synsets глаголы
+            for synset in synsets:
+                if synset.pos() == 'v':  # 'v' означает глагол
+                    return True
+
+            return False
+
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️ Ошибка WordNet для '{word}': {e}")
+            return False
 
     def build_from_queryset(self, keywords_queryset):
         """Строит дерево из QuerySet ключевых слов"""
         self.keywords_cache.clear()
+        self._verb_forms_cache.clear()
 
         if self.verbose:
             print(f"🔨 Строим Trie из {keywords_queryset.count()} ключевых слов...")
@@ -50,10 +117,11 @@ class KeywordTrie:
                 print(f"  Загружено {count} ключевых слов...")
 
         if self.verbose:
-            print(f"✅ Trie построен: {count} ключевых слов (с формами множественного числа)")
+            verb_count = len([k for k in self._verb_forms_cache.keys()])
+            print(f"✅ Trie построен: {count} ключевых слов, {verb_count} с глагольными формами")
 
     def _add_plural_forms(self, word: str, keyword_id: int, keyword_name: str):
-        """Добавляет формы множественного числа для слова"""
+        """Добавляет формы множественного числа и глагольные формы для слова"""
         # Правило 1: y → ies (army → armies)
         if word.endswith('y'):
             plural_form = word[:-1] + 'ies'
@@ -68,6 +136,9 @@ class KeywordTrie:
                 word.endswith('ch') or word.endswith('sh'):
             plural_with_es = word + 'es'
             self.insert(plural_with_es, keyword_id, keyword_name)
+
+        # ДОБАВЛЯЕМ: Глагольные формы ТОЛЬКО для глаголов
+        self._add_verb_forms(word, keyword_id, keyword_name)
 
     def insert(self, word: str, keyword_id: int, keyword_name: str):
         """Вставляет ключевое слово в дерево"""
@@ -182,6 +253,91 @@ class KeywordTrie:
     def get_keyword_by_id(self, keyword_id: int) -> Optional[dict]:
         """Быстро получает ключевое слово по ID"""
         return self.keywords_cache.get(keyword_id)
+
+    def _add_verb_forms(self, word: str, keyword_id: int, keyword_name: str):
+        """
+        Добавляет глагольные формы ТОЛЬКО для глаголов
+        Использует WordNet для определения глаголов
+        """
+        # Проверяем через WordNet, является ли слово глаголом
+        if not self._is_verb_wordnet(word):
+            # Не выводим сообщения для каждого слова
+            return
+
+        # Генерируем формы для глагола
+        forms_to_add = self._generate_verb_forms(word)
+
+        if not forms_to_add:
+            return
+
+        # Добавляем формы в Trie
+        forms_added = []
+        for form in forms_to_add:
+            if 3 <= len(form) <= 30:
+                self.insert(form, keyword_id, keyword_name)
+                forms_added.append(form)
+
+        # Кэшируем формы
+        self._verb_forms_cache[word] = forms_added
+
+        # Выводим информацию только в verbose режиме и для примера
+        if self.verbose and forms_added and len(self._verb_forms_cache) % 100 == 0:
+            print(f"   ✅ Обработано {len(self._verb_forms_cache)} глаголов...")
+
+    def _generate_verb_forms(self, word: str) -> List[str]:
+        """
+        Генерирует глагольные формы для слова
+        """
+        word_lower = word.lower()
+        forms = set()
+
+        # Базовая форма
+        forms.add(word_lower)
+
+        # Прошедшее время
+        if word_lower.endswith('e'):
+            forms.add(word_lower + 'd')  # divided, created, destroyed
+            forms.add(word_lower[:-1] + 'ing')  # dividing, creating, destroying
+        elif word_lower.endswith('y') and len(word_lower) > 1 and word_lower[-2] not in 'aeiou':
+            forms.add(word_lower[:-1] + 'ied')  # tried, cried
+            forms.add(word_lower[:-1] + 'ies')  # tries, cries
+            forms.add(word_lower + 'ing')  # trying, crying
+        elif self._should_double_consonant(word_lower):
+            doubled = word_lower + word_lower[-1]
+            forms.add(doubled + 'ed')  # stopped, planned
+            forms.add(doubled + 'ing')  # stopping, planning
+        else:
+            forms.add(word_lower + 'ed')  # played, worked, helped
+            forms.add(word_lower + 'ing')  # playing, working, helping
+
+        # 3-е лицо единственного числа
+        if word_lower.endswith(('s', 'x', 'z', 'ch', 'sh')):
+            forms.add(word_lower + 'es')  # destroys, catches, fixes
+        elif word_lower.endswith('y') and len(word_lower) > 1 and word_lower[-2] not in 'aeiou':
+            forms.add(word_lower[:-1] + 'ies')  # destroys, tries
+        else:
+            forms.add(word_lower + 's')  # divides, creates, plays
+
+        return list(forms)
+
+    def _should_double_consonant(self, word: str) -> bool:
+        """
+        Проверяет, нужно ли удваивать последнюю согласную перед -ing/-ed
+        """
+        if len(word) < 3:
+            return False
+
+        vowels = set('aeiou')
+        last_three = word[-3:].lower()
+
+        # Проверяем шаблон: согласная + гласная + согласная
+        if (last_three[0] not in vowels and
+                last_three[1] in vowels and
+                last_three[2] not in vowels):
+            if last_three[2] not in ('w', 'x', 'y'):
+                return True
+
+        return False
 
 
 class KeywordTrieManager:
