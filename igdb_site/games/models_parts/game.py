@@ -22,6 +22,12 @@ class Game(models.Model):
         db_index=True
     )
 
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Дата последнего обновления",
+        db_index=True
+    )
+
     last_analyzed_date = models.DateTimeField(
         null=True,
         blank=True,
