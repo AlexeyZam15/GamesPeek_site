@@ -44,7 +44,7 @@ class TextAnalyzer:
     ) -> Dict[str, List]:
         """
         Анализ ключевых слов для добавления к игре
-        Возвращает только уникальные ключевые слова, которые существуют в базе
+        Возвращает только НОВЫЕ ключевые слова, которых еще нет у игры
         """
         if not text:
             return {'keywords': []}
@@ -58,7 +58,7 @@ class TextAnalyzer:
             existing_keyword_ids = set(existing_game.keywords.values_list('id', flat=True))
 
         # Поиск через Trie (только уникальные ключевые слова)
-        trie_results = self._trie.find_all_in_text(text)  # По умолчанию unique_only=True
+        trie_results = self._trie.find_all_in_text(text)
 
         # Фильтруем по существующим у игры
         filtered_results = []
@@ -74,7 +74,7 @@ class TextAnalyzer:
         existing_in_db = Keyword.objects.filter(id__in=found_keyword_ids).values_list('id', flat=True)
         existing_in_db_set = set(existing_in_db)
 
-        # Фильтруем результаты - только ключевые слова, существующие в базе
+        # Фильтруем результаты - только ключевые слова, существующие в базе И не связанные с игрой
         valid_results = [r for r in filtered_results if r['id'] in existing_in_db_set]
 
         # Собираем объекты Keyword для уникальных ID
@@ -88,13 +88,12 @@ class TextAnalyzer:
                     kw_obj = Keyword.objects.get(id=result['id'])
                     found_keywords.append(kw_obj)
                 except Keyword.DoesNotExist:
-                    # Не должно происходить, т.к. мы уже проверили существование
                     continue
 
         if self.verbose:
-            print(f"🔍 Найдено ключевых слов: {len(found_keywords)} (из {len(filtered_results)} совпадений)")
-            if found_keyword_ids and len(found_keyword_ids) > len(existing_in_db_set):
-                print(f"⚠️ {len(found_keyword_ids) - len(existing_in_db_set)} ключевых слов не найдено в базе данных")
+            print(f"🔍 Найдено новых ключевых слов: {len(found_keywords)} (из {len(filtered_results)} совпадений)")
+            if len(found_keywords) == 0 and len(trie_results) > 0:
+                print(f"ℹ️ Все найденные ключевые слова уже есть у игры")
 
         return {'keywords': found_keywords}
 
