@@ -38,7 +38,15 @@ class ProgressBar:
 
     def update_stats(self, stats: Dict):
         """Обновить статистику"""
-        self._progress_bar.update_stats(stats)
+        # Исправлено: правильно вызываем метод update_stats у UnifiedProgressBar
+        if hasattr(self._progress_bar, 'stats'):
+            # Обновляем статистику в словаре stats
+            for key, value in stats.items():
+                if key in self._progress_bar.stats:
+                    self._progress_bar.stats[key] = value
+        else:
+            # Если нет атрибута stats, создаем его
+            self._progress_bar.stats = stats
 
     def finish(self):
         """Завершить прогресс-бар - просто останавливаем"""
