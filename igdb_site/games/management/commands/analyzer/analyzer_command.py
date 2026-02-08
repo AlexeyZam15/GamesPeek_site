@@ -325,6 +325,7 @@ class AnalyzerCommand(BaseCommand):
     def _handle_game_without_text(self, game):
         """Обрабатывает игру без текста"""
         self.stats['skipped_no_text'] += 1
+        self.stats['skipped_total'] += 1  # ← ДОБАВИТЬ ЭТО
         self.state_manager.add_processed_game(game.id)
 
         # Обновляем прогресс-бар
@@ -334,6 +335,7 @@ class AnalyzerCommand(BaseCommand):
     def _handle_short_text_game(self, game):
         """Обрабатывает игру с коротким текстом"""
         self.stats['skipped_short_text'] += 1
+        self.stats['skipped_total'] += 1  # ← ДОБАВИТЬ ЭТО
         self.state_manager.add_processed_game(game.id)
 
         # Обновляем прогресс-бар
@@ -425,7 +427,7 @@ class AnalyzerCommand(BaseCommand):
             if self.keywords:
                 self.stats['keywords_not_found'] += 1
             else:
-                self.stats['not_found_count'] += 1
+                self.stats['not_found_count'] += 1  # ← ВАЖНО: учитываем игры без результатов
 
             # Отладочный вывод ТОЛЬКО при --verbose
             if self.verbose and self.original_stdout:
@@ -625,8 +627,6 @@ class AnalyzerCommand(BaseCommand):
         """
         Определяет, нужно ли пропускать игру на основе проверенных критериев.
         Возвращает True если ВСЕ критерии игры уже проверены.
-
-        ВАЖНО: Для ключевых слов эта логика может быть слишком строгой.
         """
         if not checked_criteria or self.force_restart:
             return False
@@ -725,22 +725,22 @@ class AnalyzerCommand(BaseCommand):
             self.original_stdout.flush()
 
     def _update_progress_bar(self):
-        """Обновляет прогресс-бар с учетом пропущенных из-за кэша игр"""
+        """Обновляет прогресс-бар с полной статистикой по всем обработанным играм"""
         if not self.progress_bar:
             return
 
-        # Считаем ВСЕ обработанные игры (включая пропущенные)
-        total_processed_including_skipped = (
+        # Считаем ВСЕ обработанные игры в этом запуске
+        total_processed_in_this_run = (
                 self.stats['processed'] +  # Обработанные с текстом
                 self.stats['skipped_no_text'] +  # Пропущенные без текста
                 self.stats.get('skipped_short_text', 0) +  # Пропущенные с коротким текстом
                 self.stats.get('skipped_cached', 0) +  # Пропущенные по кэшу
-                self.stats.get('skipped_total', 0)  # ← ИСПРАВИТЬ: использовать skipped_total
+                self.stats.get('skipped_by_criteria', 0)  # Пропущенные по проверенным критериям
         )
 
-        # Устанавливаем актуальный прогресс
-        if self.progress_bar.current < total_processed_including_skipped:
-            increment = total_processed_including_skipped - self.progress_bar.current
+        # Устанавливаем актуальный прогресс для этого запуска
+        if self.progress_bar.current < total_processed_in_this_run:
+            increment = total_processed_in_this_run - self.progress_bar.current
             self.progress_bar.update(increment)
 
         # Обновляем статистику в прогресс-баре
@@ -748,7 +748,8 @@ class AnalyzerCommand(BaseCommand):
             self.progress_bar.update_stats({
                 'found_count': self.stats['keywords_found'],
                 'total_criteria_found': self.stats['keywords_count'],
-                'skipped_total': self.stats.get('skipped_total', 0),  # ← ИСПРАВИТЬ
+                'skipped_total': self.stats.get('skipped_total', 0),
+                'not_found_count': self.stats.get('keywords_not_found', 0),  # Добавляем игры без ключевых слов
                 'errors': self.stats['errors'],
                 'updated': self.stats['updated'],
             })
@@ -756,27 +757,28 @@ class AnalyzerCommand(BaseCommand):
             self.progress_bar.update_stats({
                 'found_count': self.stats['found_count'],
                 'total_criteria_found': self.stats['total_criteria_found'],
-                'skipped_total': self.stats.get('skipped_total', 0),  # ← ИСПРАВИТЬ
+                'skipped_total': self.stats.get('skipped_total', 0),
+                'not_found_count': self.stats.get('not_found_count', 0),  # Добавляем игры без критериев
                 'errors': self.stats['errors'],
                 'updated': self.stats['updated'],
             })
 
     def _init_stats(self):
-        """Инициализирует статистику"""
+        """Инициализирует статистику для текущего запуска"""
         self.stats = {
-            'processed': 0,
+            'processed': 0,  # Игры обработанные с текстом в этом запуске
             'processed_with_text': 0,
-            'found_count': 0,
+            'found_count': 0,  # Игры с найденными критериями в этом запуске
             'not_found_count': 0,
-            'total_criteria_found': 0,
-            'skipped_no_text': 0,
-            'skipped_short_text': 0,
-            'skipped_cached': 0,  # Игры пропущенные из-за кэша RangeCacheManager
-            'skipped_by_criteria': 0,  # Игры пропущенные из-за проверенных критериев
-            'skipped_total': 0,  # ← ДОБАВИТЬ ЭТО: ОБЩЕЕ количество пропущенных
-            'games_with_new_criteria': 0,  # Игры, где найдены новые критерии
-            'errors': 0,
-            'updated': 0,
+            'total_criteria_found': 0,  # Всего критериев найдено в этом запуске
+            'skipped_no_text': 0,  # Пропущенные без текста в этом запуске (реальный пропуск)
+            'skipped_short_text': 0,  # Пропущенные с коротким текстом в этом запуске (реальный пропуск)
+            'skipped_cached': 0,  # Пропущенные по кэшу RangeCacheManager в этом запуске (реальный пропуск)
+            'skipped_by_criteria': 0,  # Пропущенные по проверенным критериям в этом запуске (реальный пропуск)
+            'skipped_total': 0,  # ОБЩЕЕ количество реальных пропусков в этом запуске (без учета оффсета)
+            'games_with_new_criteria': 0,  # Игры, где найдены новые критерии в этом запуске
+            'errors': 0,  # Ошибки в этом запуске
+            'updated': 0,  # Обновлено игр в этом запуске
             'displayed_count': 0,
             'keywords_processed': 0,
             'keywords_found': 0,
@@ -1357,9 +1359,15 @@ class AnalyzerCommand(BaseCommand):
                 processed_in_this_run += 1
 
             elif not should_process_all:
-                # Нет новых критериев - обычная логика
+                # Нет новых критерии - обычная логика
                 if game_was_processed_before:
                     skipped_because_already_processed += 1
+                    # НЕ увеличиваем skipped_total для уже обработанных ранее - это не реальный пропуск в этом запуске
+                    self.state_manager.add_processed_game(game.id)
+
+                    # Обновляем прогресс-бар для пропущенных
+                    if self.progress_bar:
+                        self._update_progress_bar()
                     continue
 
                 # Проверяем, можно ли пропустить игру на основе проверенных критериев
@@ -1367,7 +1375,7 @@ class AnalyzerCommand(BaseCommand):
                                                                                                               checked_criteria):
                     skipped_because_criteria_checked += 1
                     self.stats['skipped_by_criteria'] += 1
-                    self.stats['skipped_total'] += 1
+                    self.stats['skipped_total'] += 1  # Увеличиваем общий счетчик пропущенных (реальный пропуск)
                     self.state_manager.add_processed_game(game.id)
 
                     # Обновляем прогресс-бар для пропущенных
@@ -1420,6 +1428,23 @@ class AnalyzerCommand(BaseCommand):
                             self._update_progress_bar()
                 finally:
                     self._in_batch_update = False
+
+        # Выводим статистику обработки
+        if self.verbose and self.original_stdout:
+            self.original_stdout.write("\n📊 Статистика обработки батча:\n")
+            self.original_stdout.write(f"├── Обработано в этом запуске: {processed_in_this_run}\n")
+            if processed_previously_processed_games > 0:
+                self.original_stdout.write(
+                    f"├── Повторно обработано (новые критерии): {processed_previously_processed_games}\n")
+            if skipped_because_already_processed > 0:
+                self.original_stdout.write(
+                    f"├── Пропущено уже обработанных ранее: {skipped_because_already_processed}\n")
+            if skipped_because_criteria_checked > 0:
+                self.original_stdout.write(
+                    f"├── Пропущено по проверенным критериям: {skipped_because_criteria_checked}\n")
+            if new_criteria and self.stats.get('games_with_new_criteria', 0) > 0:
+                self.original_stdout.write(f"└── Игр с новыми критериями: {self.stats['games_with_new_criteria']}\n")
+            self.original_stdout.flush()
 
         return {
             'processed_in_this_run': processed_in_this_run,

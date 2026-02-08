@@ -111,14 +111,17 @@ class UnifiedProgressBar:
         self.terminal = TerminalController()
 
     def get_current_message(self):
-        """Возвращает текущее сообщение прогресс-бара"""
-        # Рассчитываем процент
-        percentage = (self.current / self.total) * 100 if self.total > 0 else 0
+        """Возвращает текущее сообщение прогресс-бара с полной статистикой"""
+        # Рассчитываем процент от ОБЩЕГО количества (обработанные + пропущенные)
+        total_processed_including_skipped = self.current
+
+        percentage = (total_processed_including_skipped / self.total) * 100 if self.total > 0 else 0
         if percentage > 100:
             percentage = 100
 
         # Рассчитываем заполненную часть
-        filled_length = int(self.bar_length * self.current // self.total) if self.total > 0 else self.bar_length
+        filled_length = int(
+            self.bar_length * total_processed_including_skipped // self.total) if self.total > 0 else self.bar_length
         if filled_length > self.bar_length:
             filled_length = self.bar_length
 
@@ -126,24 +129,44 @@ class UnifiedProgressBar:
 
         # Рассчитываем время
         elapsed_time = time.time() - self.start_time
-        if self.current > 0 and self.current < self.total:
-            remaining_time = (elapsed_time / self.current) * (self.total - self.current)
+        if total_processed_including_skipped > 0 and total_processed_including_skipped < self.total:
+            remaining_time = (elapsed_time / total_processed_including_skipped) * (
+                        self.total - total_processed_including_skipped)
             time_str = f"{elapsed_time:.0f}s < {remaining_time:.0f}s"
         else:
             time_str = f"{elapsed_time:.0f}s"
 
         # Форматируем сообщение
         if self.is_batch:
-            message = f"💾 Обновление батча: {percentage:3.0f}% [{self.current}/{self.total}] [{bar}] ({time_str})"
+            message = f"💾 Обновление батча: {percentage:3.0f}% [{total_processed_including_skipped}/{self.total}] [{bar}] ({time_str})"
         else:
-            message = f"{self.desc}: {percentage:3.0f}% [{self.current}/{self.total}] [{bar}] "
+            message = f"{self.desc}: {percentage:3.0f}% [{total_processed_including_skipped}/{self.total}] [{bar}] "
+
+            # Рассчитываем статистику по ВСЕМ обработанным играм
+            found_count = self.stats['found_count']
+            skipped_total = self.stats['skipped_total']
+            errors = self.stats['errors']
+            updated = self.stats['updated']
+
+            # Рассчитываем количество игр без результатов
+            total_processed = found_count + skipped_total + errors + self.stats.get('not_found_count', 0)
 
             spacing = " " * self.emoji_spacing
-            message += f"🎯{spacing}{self.stats['found_count']:>{self.stat_width}} "
+
+            # Показываем статистику по всем обработанным играм:
+            # 🎯 - игры с найденными критериями
+            # 📈 - общее количество найденных элементов
+            # ⏭️ - игры пропущенные (по любым причинам)
+            # 🔍 - игры обработанные без результатов
+            # ❌ - ошибки
+            # 💾 - обновленные игры
+
+            message += f"🎯{spacing}{found_count:>{self.stat_width}} "
             message += f"📈{spacing}{self.stats['total_criteria_found']:>{self.stat_width}} "
-            message += f"⏭️{spacing}{self.stats['skipped_total']:>{self.stat_width}} "
-            message += f"❌{spacing}{self.stats['errors']:>{self.stat_width}} "
-            message += f"💾{spacing}{self.stats['updated']:>{self.stat_width}} "
+            message += f"⏭️{spacing}{skipped_total:>{self.stat_width}} "
+            message += f"🔍{spacing}{self.stats.get('not_found_count', 0):>{self.stat_width}} "
+            message += f"❌{spacing}{errors:>{self.stat_width}} "
+            message += f"💾{spacing}{updated:>{self.stat_width}} "
             message += f"({time_str})"
 
         return message
