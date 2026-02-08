@@ -98,12 +98,14 @@ class UnifiedProgressBar:
         self.last_update_time = time.time()
         self._enabled = True
 
+        # Добавляем статистику для игр в батче
         self.stats = {
             'found_count': 0,
             'total_criteria_found': 0,
             'skipped_total': 0,
             'errors': 0,
             'updated': 0,
+            'in_batch': 0,  # <-- НОВЫЙ СТАТ
         }
 
         self.filled_char = '█'
@@ -131,7 +133,7 @@ class UnifiedProgressBar:
         elapsed_time = time.time() - self.start_time
         if total_processed_including_skipped > 0 and total_processed_including_skipped < self.total:
             remaining_time = (elapsed_time / total_processed_including_skipped) * (
-                        self.total - total_processed_including_skipped)
+                    self.total - total_processed_including_skipped)
             time_str = f"{elapsed_time:.0f}s < {remaining_time:.0f}s"
         else:
             time_str = f"{elapsed_time:.0f}s"
@@ -147,22 +149,14 @@ class UnifiedProgressBar:
             skipped_total = self.stats['skipped_total']
             errors = self.stats['errors']
             updated = self.stats['updated']
-
-            # Рассчитываем количество игр без результатов
-            total_processed = found_count + skipped_total + errors + self.stats.get('not_found_count', 0)
+            in_batch = self.stats['in_batch']  # <-- Игры в батче
 
             spacing = " " * self.emoji_spacing
 
-            # Показываем статистику по всем обработанным играм:
-            # 🎯 - игры с найденными критериями
-            # 📈 - общее количество найденных элементов
-            # ⏭️ - игры пропущенные (по любым причинам)
-            # 🔍 - игры обработанные без результатов
-            # ❌ - ошибки
-            # 💾 - обновленные игры
-
+            # Обновляем формат с новым значком 📦 для игр в батче
             message += f"🎯{spacing}{found_count:>{self.stat_width}} "
             message += f"📈{spacing}{self.stats['total_criteria_found']:>{self.stat_width}} "
+            message += f"📦{spacing}{in_batch:>{self.stat_width}} "  # <-- НОВЫЙ ЗНАЧОК
             message += f"⏭️{spacing}{skipped_total:>{self.stat_width}} "
             message += f"🔍{spacing}{self.stats.get('not_found_count', 0):>{self.stat_width}} "
             message += f"❌{spacing}{errors:>{self.stat_width}} "
@@ -199,9 +193,11 @@ class UnifiedProgressBar:
         # Выводим на фиксированной позиции внизу
         self.terminal.write_at_line(line, message)
 
-    def update_stats(self, stats: Dict):
-        """Обновить статистику"""
-        self.stats.update(stats)
+    def update_stats(self, stats: Dict[str, Any]):
+        """Обновить статистику прогресс-бара"""
+        for key, value in stats.items():
+            if key in self.stats:
+                self.stats[key] = value
 
     def finish(self, final_message: Optional[str] = None):
         """Завершить прогресс-бар"""
@@ -215,3 +211,9 @@ class UnifiedProgressBar:
 
         # НЕ очищаем строки - просто останавливаем обновление
         self._enabled = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.finish()

@@ -348,7 +348,8 @@ class AnalyzerCommand(BaseCommand):
 
         try:
             # Определяем настройки для исключения существующих критериев
-            exclude_existing = not self.ignore_existing and not force_process
+            # ИСПРАВЛЕНИЕ: используем параметр exclude_existing из командной строки
+            exclude_existing = self.exclude_existing or (not self.ignore_existing and not force_process)
 
             # Отладочный вывод ТОЛЬКО при --verbose
             if self.verbose and self.original_stdout:
@@ -357,7 +358,7 @@ class AnalyzerCommand(BaseCommand):
                 self.original_stdout.write(f"⚙️ Настройки: exclude_existing={exclude_existing}\n")
                 self.original_stdout.flush()
 
-            # Анализируем текст
+            # Анализируем текст с поддержкой exclude_existing
             result = self._analyze_game_text(game, text, exclude_existing)
 
             if not result['success']:
@@ -374,15 +375,34 @@ class AnalyzerCommand(BaseCommand):
             self._handle_processing_error(game, e)
 
     def _analyze_game_text(self, game, text, exclude_existing):
-        """Анализирует текст игры с помощью API"""
-        return self.api.force_analyze_game_text(
-            text=text,
-            game_id=game.id,
-            analyze_keywords=self.keywords,
-            existing_game=game,
-            detailed_patterns=self.verbose,
-            exclude_existing=exclude_existing
-        )
+        """Анализирует текст игры с помощью API с поддержкой exclude_existing"""
+        # В зависимости от режима команды выбираем метод API
+        if hasattr(self, 'comprehensive_mode') and self.comprehensive_mode:
+            return self.api.analyze_game_text_comprehensive(
+                text=text,
+                game_id=game.id,
+                existing_game=game,
+                detailed_patterns=self.verbose,
+                exclude_existing=exclude_existing
+            )
+        elif hasattr(self, 'combined_mode') and self.combined_mode:
+            return self.api.analyze_game_text_combined(
+                text=text,
+                game_id=game.id,
+                existing_game=game,
+                detailed_patterns=self.verbose,
+                exclude_existing=exclude_existing
+            )
+        else:
+            # Стандартный анализ (force_analyze_game_text уже поддерживает exclude_existing)
+            return self.api.force_analyze_game_text(
+                text=text,
+                game_id=game.id,
+                analyze_keywords=self.keywords,
+                existing_game=game,
+                detailed_patterns=self.verbose,
+                exclude_existing=exclude_existing
+            )
 
     def _handle_analysis_error(self, game, result):
         """Обрабатывает ошибку анализа"""
@@ -399,32 +419,37 @@ class AnalyzerCommand(BaseCommand):
             self._update_progress_bar()
 
     def _handle_analysis_results(self, game, result, force_process, exclude_existing):
-        """Обрабатывает результаты анализа игры"""
+        """Обрабатывает результаты анализа игры - с отладкой"""
         if result['has_results']:
             found_count = result['summary'].get('found_count', 0)
 
-            # Отладочный вывод ТОЛЬКО при --verbose
-            if self.verbose and self.original_stdout:
-                self.original_stdout.write(f"🎯 Найдено критериев: {found_count}\n")
-                # Выводим детали по ключевым словам если в режиме keywords
-                if self.keywords:
-                    keywords_data = result['results'].get('keywords', {})
-                    items = keywords_data.get('items', [])
-                    if items:
-                        self.original_stdout.write(f"📌 Примеры ключевых слов: {[item['name'] for item in items[:3]]}\n")
-                self.original_stdout.flush()
-
             # Обновляем статистику в зависимости от режима
             if self.keywords:
-                self.stats['keywords_found'] += 1
-                self.stats['keywords_count'] += found_count
+                keywords_data = result['results'].get('keywords', {})
+                items = keywords_data.get('items', [])
+
+                if items:  # Только если есть реальные ключевые слова
+                    self.stats['keywords_found'] += 1
+                    self.stats['keywords_count'] += found_count
+
+                    # ОТЛАДКА: показываем детали ключевых слов
+                    from games.models import Keyword
+                    keyword_ids = [k['id'] for k in items[:3]]  # Проверяем первые 3
+                    existing_count = Keyword.objects.filter(id__in=keyword_ids).count()
+
+                    if self.verbose and self.original_stdout:
+                        self.original_stdout.write(
+                            f"📌 Игра {game.id}: {found_count} ключевых слов, в базе: {existing_count}/{len(keyword_ids)}\n")
+                        self.original_stdout.flush()
+
+                    if existing_count == 0:
+                        # Ключевые слова не существуют в базе
+                        if self.verbose:
+                            self.original_stdout.write(f"⚠️ Игра {game.id}: ключевые слова не найдены в базе данных\n")
+                            self.original_stdout.flush()
             else:
                 self.stats['found_count'] += 1
                 self.stats['total_criteria_found'] += found_count
-
-            # Если мы force_process и нашли критерии - увеличиваем счетчик
-            if force_process and found_count > 0:
-                self.stats['games_with_new_criteria'] = self.stats.get('games_with_new_criteria', 0) + 1
 
             # Обновляем список проверенных критериев
             self._update_checked_criteria_after_analysis(result)
@@ -454,10 +479,14 @@ class AnalyzerCommand(BaseCommand):
         # Добавляем в батч для обновления если нужно
         if self.update_game:
             added_count = self._add_to_batch_if_needed(game, result)
-            if added_count > 0 and self.verbose:
-                if self.original_stdout:
-                    self.original_stdout.write(f"📥 Добавлено в батч: {added_count} элементов для игры {game.id}\n")
-                    self.original_stdout.flush()
+
+            # ОТЛАДКА: показываем добавление в батч
+            if self.verbose and self.original_stdout and added_count > 0:
+                self.original_stdout.write(f"📥 Игра {game.id} добавлена в батч ({added_count} ключ. слов)\n")
+                self.original_stdout.flush()
+            elif self.verbose and self.original_stdout and added_count == 0 and result['has_results']:
+                self.original_stdout.write(f"⏭️ Игра {game.id} не добавлена в батч (0 ключ. слов для обновления)\n")
+                self.original_stdout.flush()
 
         # Всегда добавляем в StateManager
         self.state_manager.add_processed_game(game.id)
@@ -466,53 +495,104 @@ class AnalyzerCommand(BaseCommand):
         if self.progress_bar:
             self._update_progress_bar()
 
-        # Отладочный вывод ТОЛЬКО при --verbose
-        if self.verbose and self.original_stdout:
-            self.original_stdout.write(f"✅ Игра {game.id} обработана успешно\n")
-            self.original_stdout.write("-" * 40 + "\n")
-            self.original_stdout.flush()
-
     def _add_to_batch_if_needed(self, game, result):
         """Добавляет игру в батч для обновления если нужно"""
-        if not self.update_game or not result.get('has_results', False):
+        if not self.update_game:
             return 0
 
         try:
-            # Проверяем наличие результатов для ключевых слов
+            # ДЛЯ КЛЮЧЕВЫХ СЛОВ: проверяем есть ли реальные ключевые слова
             if self.keywords:
                 keywords_data = result.get('results', {}).get('keywords', {})
-                if keywords_data.get('count', 0) > 0:
-                    items = keywords_data.get('items', [])
-                    if items:
-                        # Добавляем игру в батч для обновления
-                        self.batch_updater.add_game_for_update(
-                            game_id=game.id,
-                            results=result['results'],
-                            is_keywords=True
-                        )
-                        return len(items)
+                items = keywords_data.get('items', [])
+
+                if not items:
+                    # Нет ключевых слов - не добавляем в батч
+                    if self.verbose:
+                        print(f"⏭️ Игра {game.id} не добавлена в батч: нет ключевых слов")
+                    return 0
+
+                # Проверяем, существуют ли ключевые слова в базе
+                from games.models import Keyword
+                keyword_ids = [k['id'] for k in items]
+                existing_count = Keyword.objects.filter(id__in=keyword_ids).count()
+
+                if existing_count == 0:
+                    # Ключевые слова не существуют в базе
+                    if self.verbose:
+                        print(f"⏭️ Игра {game.id} не добавлена в батч: ключевые слова не найдены в базе")
+                    return 0
+
+                if existing_count < len(keyword_ids):
+                    # Некоторые ключевые слова не существуют
+                    if self.verbose:
+                        print(f"⚠️ Игра {game.id}: {len(keyword_ids) - existing_count} ключевых слов не найдено в базе")
+
+                # Добавляем в батч
+                added = self.batch_updater.add_game_for_update(
+                    game_id=game.id,
+                    results=result['results'],
+                    is_keywords=True
+                )
+
+                if added > 0:
+                    # ОБНОВЛЯЕМ СТАТИСТИКУ БАТЧА
+                    if self.progress_bar:
+                        games_in_batch = len(self.batch_updater.games_to_update) if hasattr(self.batch_updater,
+                                                                                            'games_to_update') else 0
+                        self.progress_bar.update_stats({'in_batch': games_in_batch})
+
+                    # Отладочный вывод
+                    if self.verbose:
+                        self.original_stdout.write(f"📥 Игра {game.id} добавлена в батч ({len(items)} ключ. слов)\n")
+                        self.original_stdout.flush()
+
+                    return len(items)
+                else:
+                    if self.verbose:
+                        self.original_stdout.write(
+                            f"⏭️ Игра {game.id} не добавлена в батч (add_game_for_update вернул 0)\n")
+                        self.original_stdout.flush()
+                    return 0
             else:
                 # Для обычных критериев проверяем все типы
                 total_found_elements = 0
+                has_any_results = False
+
                 for key, data in result.get('results', {}).items():
                     count = data.get('count', 0)
-                    if count > 0 and data.get('items'):
+                    items = data.get('items', [])
+                    if count > 0 and items:
                         total_found_elements += count
+                        has_any_results = True
 
-                if total_found_elements > 0:
-                    # Добавляем в батч
-                    self.batch_updater.add_game_for_update(
+                if has_any_results:
+                    # Добавляем в батч только если есть результаты
+                    added = self.batch_updater.add_game_for_update(
                         game_id=game.id,
                         results=result['results'],
                         is_keywords=False
                     )
-                    return total_found_elements
+
+                    if added > 0:
+                        # ОБНОВЛЯЕМ СТАТИСТИКУ БАТЧА
+                        if self.progress_bar:
+                            games_in_batch = len(self.batch_updater.games_to_update) if hasattr(self.batch_updater,
+                                                                                                'games_to_update') else 0
+                            self.progress_bar.update_stats({'in_batch': games_in_batch})
+
+                        return total_found_elements
+                    else:
+                        if self.verbose:
+                            print(f"⏭️ Игра {game.id} не добавлена в батч для критериев")
+                        return 0
+
+                return 0
 
         except Exception as e:
             if self.verbose:
                 self.stderr.write(f"⚠️ Ошибка при добавлении в батч: {e}")
-
-        return 0
+            return 0
 
     def _check_batch_update(self):
         """Проверяет и обновляет батч если накопилось много игр"""
@@ -1396,7 +1476,7 @@ class AnalyzerCommand(BaseCommand):
             self.output_file.flush()
 
     def _process_games_batch(self, games, should_process_all, new_criteria, checked_criteria, start_time):
-        """Обрабатывает батч игр"""
+        """Обрабатывает батч игр - оптимизированная версия"""
         processed_in_this_run = 0
         skipped_because_already_processed = 0
         skipped_because_criteria_checked = 0
@@ -1405,6 +1485,9 @@ class AnalyzerCommand(BaseCommand):
         # Сбрасываем счетчик добавленных игр в батч-апдейтере
         if self.batch_updater:
             self.batch_updater.total_games_added = 0
+
+        # Оптимизация: используем bulk итерацию
+        batch_counter = 0
 
         for game in games.iterator(chunk_size=self.batch_size):
             # Проверяем limit
@@ -1423,11 +1506,14 @@ class AnalyzerCommand(BaseCommand):
             skipped_because_criteria_checked = result['skipped_because_criteria_checked']
             processed_previously_processed_games = result['processed_previously_processed_games']
 
-            # Проверяем и обновляем батч если нужно
-            self._check_and_update_batch()
+            batch_counter += 1
 
-            # Сохраняем состояние каждые 500 обработанных игр
-            if processed_in_this_run % 500 == 0 and processed_in_this_run > 0:
+            # Оптимизация: проверяем батч каждые 25 игр (чаще для лучшей отзывчивости)
+            if batch_counter % 25 == 0:
+                self._check_and_update_batch()
+
+            # Оптимизация: сохраняем состояние каждые 1000 игр
+            if processed_in_this_run % 1000 == 0 and processed_in_this_run > 0:
                 try:
                     self.state_manager.save_state(self.stats['processed'])
                 except Exception:
@@ -1524,47 +1610,95 @@ class AnalyzerCommand(BaseCommand):
         """Проверяет и обновляет батч если накопилось много игр"""
         # Проверяем и обновляем батч каждые 100 обработанных игр
         if self.update_game and self.batch_updater and not getattr(self, '_in_batch_update', False):
-            games_in_batch = len(self.batch_updater.games_to_update) if hasattr(self.batch_updater,
-                                                                                'games_to_update') else 0
-            if games_in_batch >= 100:  # Обновляем каждые 100 игр в батче
-                self._in_batch_update = True
-                try:
-                    remaining_updates = self.batch_updater.flush()
-                    if remaining_updates > 0:
-                        self.stats['updated'] += remaining_updates
-                        # Обновляем статистику в прогресс-баре
-                        if self.progress_bar:
-                            self.progress_bar.update_stats({'updated': self.stats['updated']})
-                            self._update_progress_bar()
+            try:
+                games_in_batch = len(self.batch_updater.games_to_update) if hasattr(self.batch_updater,
+                                                                                    'games_to_update') else 0
 
-                        # Выводим отладочное сообщение если verbose
-                        if self.verbose and self.original_stdout:
-                            self.original_stdout.write(f"💾 Обновлен батч: {remaining_updates} игр\n")
-                            self.original_stdout.flush()
-                finally:
-                    self._in_batch_update = False
+                # ОБНОВЛЯЕМ СТАТИСТИКУ ИГР В БАТЧЕ
+                if self.progress_bar:
+                    self.progress_bar.update_stats({'in_batch': games_in_batch})
+
+                if games_in_batch >= 50:  # Обновляем каждые 50 игр в батче
+                    self._in_batch_update = True
+                    try:
+                        # ВЫЗЫВАЕМ flush У БАТЧ-АПДЕЙТЕРА
+                        remaining_updates = self.batch_updater.flush()
+                        if remaining_updates > 0:
+                            self.stats['updated'] += remaining_updates
+                            # Обновляем статистику в прогресс-баре
+                            if self.progress_bar:
+                                self.progress_bar.update_stats({
+                                    'updated': self.stats['updated'],
+                                    'in_batch': 0  # Сбрасываем после обновления
+                                })
+
+                            # Выводим сообщение об обновлении
+                            if self.verbose and self.original_stdout:
+                                self.original_stdout.write(
+                                    f"\n💾 Обновлен батч: {remaining_updates} игр (всего: {self.stats['updated']})\n")
+                                self.original_stdout.flush()
+
+                            # Выводим в файл если нужно
+                            if self.output_file and not self.output_file.closed:
+                                self.stdout.write(
+                                    f"\n💾 Обновлен батч: {remaining_updates} игр (всего: {self.stats['updated']})")
+                        elif games_in_batch > 0:
+                            # Если flush вернул 0, но игры были в батче
+                            if self.verbose and self.original_stdout:
+                                self.original_stdout.write(f"\n⚠️ Батч не обновлен (0 игр обновлено)\n")
+                                self.original_stdout.flush()
+                    finally:
+                        self._in_batch_update = False
+
+            except Exception as e:
+                self._in_batch_update = False
+                if self.verbose and self.original_stderr:
+                    self.original_stderr.write(f"\n❌ Ошибка обновления батча: {e}\n")
+                    self.original_stderr.flush()
 
     def _flush_remaining_batch(self):
         """Обновляет оставшийся батч после завершения цикла"""
-        if self.update_game and self.batch_updater and not getattr(self, '_in_batch_update', False):
+        if not self.update_game or not self.batch_updater or getattr(self, '_in_batch_update', False):
+            return
+
+        try:
             games_in_batch = len(self.batch_updater.games_to_update) if hasattr(self.batch_updater,
                                                                                 'games_to_update') else 0
+
             if games_in_batch > 0:
+                # Выводим информацию о финальном обновлении
+                if self.verbose and self.original_stdout:
+                    self.original_stdout.write(f"\n📦 Финальное обновление: {games_in_batch} игр в батче\n")
+                    self.original_stdout.flush()
+
                 self._in_batch_update = True
                 try:
                     remaining_updates = self.batch_updater.flush()
                     if remaining_updates > 0:
                         self.stats['updated'] += remaining_updates
                         if self.progress_bar:
-                            self.progress_bar.update_stats({'updated': self.stats['updated']})
-                            self._update_progress_bar()
+                            self.progress_bar.update_stats({
+                                'updated': self.stats['updated'],
+                                'in_batch': 0  # Сбрасываем после финального обновления
+                            })
 
-                        # Выводим отладочное сообщение
+                        # Выводим сообщение о финальном обновлении
                         if self.verbose and self.original_stdout:
-                            self.original_stdout.write(f"💾 Финальное обновление батча: {remaining_updates} игр\n")
+                            self.original_stdout.write(
+                                f"💾 Финальный батч обновлен: {remaining_updates} игр (всего: {self.stats['updated']})\n")
+                            self.original_stdout.flush()
+                    elif games_in_batch > 0:
+                        # Если игры были в батче, но не обновились
+                        if self.verbose and self.original_stdout:
+                            self.original_stdout.write(f"⚠️ Финальный батч не обновлен (0 из {games_in_batch} игр)\n")
                             self.original_stdout.flush()
                 finally:
                     self._in_batch_update = False
+        except Exception as e:
+            self._in_batch_update = False
+            if self.verbose and self.original_stderr:
+                self.original_stderr.write(f"\n❌ Ошибка финального обновления батча: {e}\n")
+                self.original_stderr.flush()
 
     def _print_batch_processing_stats(self, processed_in_this_run, processed_previously_processed_games,
                                       skipped_because_already_processed, skipped_because_criteria_checked,

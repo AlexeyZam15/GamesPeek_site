@@ -44,7 +44,7 @@ class TextAnalyzer:
     ) -> Dict[str, List]:
         """
         Анализ ключевых слов для добавления к игре
-        Возвращает только уникальные ключевые слова
+        Возвращает только уникальные ключевые слова, которые существуют в базе
         """
         if not text:
             return {'keywords': []}
@@ -60,24 +60,41 @@ class TextAnalyzer:
         # Поиск через Trie (только уникальные ключевые слова)
         trie_results = self._trie.find_all_in_text(text)  # По умолчанию unique_only=True
 
-        # Фильтруем по существующим
+        # Фильтруем по существующим у игры
         filtered_results = []
         for result in trie_results:
             if result['id'] not in existing_keyword_ids:
                 filtered_results.append(result)
 
-        # Получаем объекты Keyword для уникальных ID
+        # Проверяем, какие ключевые слова существуют в базе данных
+        found_keyword_ids = {result['id'] for result in filtered_results}
+
+        # Получаем объекты Keyword только для существующих в базе
+        from games.models import Keyword
+        existing_in_db = Keyword.objects.filter(id__in=found_keyword_ids).values_list('id', flat=True)
+        existing_in_db_set = set(existing_in_db)
+
+        # Фильтруем результаты - только ключевые слова, существующие в базе
+        valid_results = [r for r in filtered_results if r['id'] in existing_in_db_set]
+
+        # Собираем объекты Keyword для уникальных ID
         found_keywords = []
         seen_ids = set()
 
-        for result in filtered_results:
+        for result in valid_results:
             if result['id'] not in seen_ids:
                 seen_ids.add(result['id'])
                 try:
                     kw_obj = Keyword.objects.get(id=result['id'])
                     found_keywords.append(kw_obj)
                 except Keyword.DoesNotExist:
+                    # Не должно происходить, т.к. мы уже проверили существование
                     continue
+
+        if self.verbose:
+            print(f"🔍 Найдено ключевых слов: {len(found_keywords)} (из {len(filtered_results)} совпадений)")
+            if found_keyword_ids and len(found_keyword_ids) > len(existing_in_db_set):
+                print(f"⚠️ {len(found_keyword_ids) - len(existing_in_db_set)} ключевых слов не найдено в базе данных")
 
         return {'keywords': found_keywords}
 
@@ -541,10 +558,11 @@ class TextAnalyzer:
             text: str,
             existing_game=None,
             detailed_patterns: bool = True,
-            exclude_existing: bool = False
+            exclude_existing: bool = False  # Добавляем параметр
     ) -> Dict[str, Any]:
         """
         ОПТИМИЗИРОВАННЫЙ: Комплексный анализ с быстрыми ключевыми словами
+        Теперь поддерживает exclude_existing параметр
         """
         start_time = time.time()
 
@@ -563,12 +581,12 @@ class TextAnalyzer:
         if len(text) > 10000:
             text = text[:10000]
 
-        # БЫСТРЫЙ анализ ключевых слов через Trie
+        # БЫСТРЫЙ анализ ключевых слов через Trie с поддержкой exclude_existing
         keywords_results, keywords_patterns = self._analyze_keywords_fast(
             text=text,
             existing_game=existing_game,
             collect_patterns=detailed_patterns,
-            exclude_existing=exclude_existing
+            exclude_existing=exclude_existing  # Передаем параметр
         )
 
         # Анализ критериев (существующий алгоритм)
@@ -580,7 +598,7 @@ class TextAnalyzer:
 
         # Существующие критерии игры
         existing_items = {}
-        if existing_game and exclude_existing:
+        if existing_game and exclude_existing:  # ТОЛЬКО если exclude_existing=True
             existing_items = {
                 'genres': set(existing_game.genres.values_list('name', flat=True)),
                 'themes': set(existing_game.themes.values_list('name', flat=True)),
@@ -598,7 +616,7 @@ class TextAnalyzer:
                 pattern_info[criteria_type] = []
 
             for name, pattern_list in patterns_for_type.items():
-                # Пропускаем если уже существует у игры
+                # Пропускаем если уже существует у игры И exclude_existing=True
                 if exclude_existing:
                     existing_names_lower = {n.lower() for n in existing_items.get(criteria_type, set())}
                     if name.lower() in existing_names_lower:
@@ -639,7 +657,7 @@ class TextAnalyzer:
                     'items': [{'id': i.id, 'name': i.name} for i in found_items]
                 }
 
-        # Добавляем ключевые слова
+        # Добавляем ключевые слова (уже отфильтрованные в _analyze_keywords_fast)
         if keywords_results.get('keywords'):
             results['keywords'] = {
                 'count': len(keywords_results['keywords']),
@@ -658,7 +676,8 @@ class TextAnalyzer:
             'found_count': total_found,
             'has_results': total_found > 0,
             'mode': 'comprehensive',
-            'total_matches': total_matches
+            'total_matches': total_matches,
+            'exclude_existing': exclude_existing  # Добавляем информацию о режиме
         }
 
         processing_time = time.time() - start_time
@@ -666,6 +685,8 @@ class TextAnalyzer:
         if self.verbose:
             print(f"⚡ Комплексный анализ завершен за {processing_time:.2f}s")
             print(f"📊 Найдено элементов: {total_found}, совпадений: {total_matches}")
+            if exclude_existing:
+                print(f"🚫 Режим: исключать существующие критерии")
 
         return {
             'success': True,
@@ -674,7 +695,8 @@ class TextAnalyzer:
             'pattern_info': pattern_info,
             'processing_time': processing_time,
             'has_results': total_found > 0,
-            'total_matches': total_matches
+            'total_matches': total_matches,
+            'exclude_existing': exclude_existing
         }
 
     # ============== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ==============
