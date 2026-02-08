@@ -98,14 +98,15 @@ class UnifiedProgressBar:
         self.last_update_time = time.time()
         self._enabled = True
 
-        # Добавляем статистику для игр в батче
+        # Статистика для прогресс-бара (значки)
         self.stats = {
-            'found_count': 0,
-            'total_criteria_found': 0,
-            'skipped_total': 0,
-            'errors': 0,
-            'updated': 0,
-            'in_batch': 0,  # <-- НОВЫЙ СТАТ
+            'found_count': 0,  # 🎯
+            'total_criteria_found': 0,  # 📈
+            'skipped_total': 0,  # ⏭️
+            'errors': 0,  # ❌
+            'updated': 0,  # 💾
+            'in_batch': 0,  # 📦
+            'not_found_count': 0,  # 🔍
         }
 
         self.filled_char = '█'
@@ -114,16 +115,22 @@ class UnifiedProgressBar:
 
     def get_current_message(self):
         """Возвращает текущее сообщение прогресс-бара с полной статистикой"""
-        # Рассчитываем процент от ОБЩЕГО количества (обработанные + пропущенные)
-        total_processed_including_skipped = self.current
+        current_value = self.current
+        total_value = self.total
 
-        percentage = (total_processed_including_skipped / self.total) * 100 if self.total > 0 else 0
-        if percentage > 100:
-            percentage = 100
+        if total_value == 0:
+            percentage = 0
+        else:
+            percentage = (current_value / total_value) * 100
+            if percentage > 100:
+                percentage = 100
 
         # Рассчитываем заполненную часть
-        filled_length = int(
-            self.bar_length * total_processed_including_skipped // self.total) if self.total > 0 else self.bar_length
+        if total_value > 0:
+            filled_length = int(self.bar_length * current_value // total_value)
+        else:
+            filled_length = self.bar_length
+
         if filled_length > self.bar_length:
             filled_length = self.bar_length
 
@@ -131,34 +138,35 @@ class UnifiedProgressBar:
 
         # Рассчитываем время
         elapsed_time = time.time() - self.start_time
-        if total_processed_including_skipped > 0 and total_processed_including_skipped < self.total:
-            remaining_time = (elapsed_time / total_processed_including_skipped) * (
-                    self.total - total_processed_including_skipped)
+        if current_value > 0 and current_value < total_value:
+            remaining_time = (elapsed_time / current_value) * (total_value - current_value)
             time_str = f"{elapsed_time:.0f}s < {remaining_time:.0f}s"
         else:
             time_str = f"{elapsed_time:.0f}s"
 
         # Форматируем сообщение
         if self.is_batch:
-            message = f"💾 Обновление батча: {percentage:3.0f}% [{total_processed_including_skipped}/{self.total}] [{bar}] ({time_str})"
+            message = f"💾 Обновление батча: {percentage:3.0f}% [{current_value}/{total_value}] [{bar}] ({time_str})"
         else:
-            message = f"{self.desc}: {percentage:3.0f}% [{total_processed_including_skipped}/{self.total}] [{bar}] "
+            message = f"{self.desc}: {percentage:3.0f}% [{current_value}/{total_value}] [{bar}] "
 
-            # Рассчитываем статистику по ВСЕМ обработанным играм
-            found_count = self.stats['found_count']
-            skipped_total = self.stats['skipped_total']
-            errors = self.stats['errors']
-            updated = self.stats['updated']
-            in_batch = self.stats['in_batch']  # <-- Игры в батче
+            # ИСПОЛЬЗУЕМ СТАТИСТИКУ ИЗ self.stats
+            found_count = self.stats.get('found_count', 0)
+            total_criteria_found = self.stats.get('total_criteria_found', 0)
+            in_batch = self.stats.get('in_batch', 0)
+            skipped_total = self.stats.get('skipped_total', 0)
+            not_found_count = self.stats.get('not_found_count', 0)
+            errors = self.stats.get('errors', 0)
+            updated = self.stats.get('updated', 0)
 
             spacing = " " * self.emoji_spacing
 
-            # Обновляем формат с новым значком 📦 для игр в батче
+            # Формируем строку со статистикой для каждого значка
             message += f"🎯{spacing}{found_count:>{self.stat_width}} "
-            message += f"📈{spacing}{self.stats['total_criteria_found']:>{self.stat_width}} "
-            message += f"📦{spacing}{in_batch:>{self.stat_width}} "  # <-- НОВЫЙ ЗНАЧОК
+            message += f"📈{spacing}{total_criteria_found:>{self.stat_width}} "
+            message += f"📦{spacing}{in_batch:>{self.stat_width}} "
             message += f"⏭️{spacing}{skipped_total:>{self.stat_width}} "
-            message += f"🔍{spacing}{self.stats.get('not_found_count', 0):>{self.stat_width}} "
+            message += f"🔍{spacing}{not_found_count:>{self.stat_width}} "
             message += f"❌{spacing}{errors:>{self.stat_width}} "
             message += f"💾{spacing}{updated:>{self.stat_width}} "
             message += f"({time_str})"
@@ -193,11 +201,38 @@ class UnifiedProgressBar:
         # Выводим на фиксированной позиции внизу
         self.terminal.write_at_line(line, message)
 
+        # СИНХРОНИЗИРУЕМ stdout/stderr для предотвращения конфликтов
+        if not self.is_batch:
+            sys.stdout.flush()
+            sys.stderr.flush()
+
     def update_stats(self, stats: Dict[str, Any]):
         """Обновить статистику прогресс-бара"""
         for key, value in stats.items():
             if key in self.stats:
                 self.stats[key] = value
+
+        # НЕМЕДЛЕННО ОБНОВЛЯЕМ ОТОБРАЖЕНИЕ
+        self._force_update()
+
+    def _force_update(self):
+        """Принудительно обновить отображение прогресс-бара"""
+        if not self._enabled:
+            return
+
+        # Получаем сообщение
+        message = self.get_current_message()
+
+        # Определяем линию для этого прогресс-бара
+        line = self.terminal.batch_progress_line if self.is_batch else self.terminal.main_progress_line
+
+        # Выводим на фиксированной позиции внизу
+        self.terminal.write_at_line(line, message)
+
+        # СИНХРОНИЗИРУЕМ stdout/stderr
+        if not self.is_batch:
+            sys.stdout.flush()
+            sys.stderr.flush()
 
     def finish(self, final_message: Optional[str] = None):
         """Завершить прогресс-бар"""
@@ -209,7 +244,14 @@ class UnifiedProgressBar:
         if final_message is None:
             final_message = self.get_current_message()  # Используем текущий прогресс
 
-        # НЕ очищаем строки - просто останавливаем обновление
+        # Записываем финальное сообщение
+        line = self.terminal.batch_progress_line if self.is_batch else self.terminal.main_progress_line
+        self.terminal.write_at_line(line, final_message)
+
+        # СИНХРОНИЗИРУЕМ
+        sys.stdout.flush()
+        sys.stderr.flush()
+
         self._enabled = False
 
     def __enter__(self):

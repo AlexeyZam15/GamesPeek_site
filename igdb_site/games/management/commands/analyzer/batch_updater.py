@@ -269,10 +269,19 @@ class BatchUpdater:
 
         # Собираем все ID ключевых слов из всех игр
         all_keyword_ids = []
+        games_with_keywords = []  # Игры, у которых действительно есть ключевые слова для добавления
+
         for game_data in keyword_games:
             keywords_data = game_data['results'].get('keywords', {})
             items = keywords_data.get('items', [])
-            all_keyword_ids.extend([k['id'] for k in items])
+            if items:
+                all_keyword_ids.extend([k['id'] for k in items])
+                games_with_keywords.append(game_data)
+
+        if not games_with_keywords:
+            if self.verbose:
+                print(f"ℹ️ Нет игр с ключевыми словами для обновления")
+            return 0
 
         # Проверяем, какие ключевые слова действительно существуют в базе
         existing_keyword_ids = set(Keyword.objects.filter(id__in=all_keyword_ids).values_list('id', flat=True))
@@ -281,8 +290,8 @@ class BatchUpdater:
             print(
                 f"🔍 В базе найдено {len(existing_keyword_ids)} ключевых слов из {len(set(all_keyword_ids))} запрошенных")
 
-        # Обрабатываем каждую игру
-        for game_data in keyword_games:
+        # Обрабатываем каждую игру с ключевыми словами
+        for game_data in games_with_keywords:
             try:
                 game = games_dict.get(game_data['game_id'])
                 if not game:
@@ -292,11 +301,6 @@ class BatchUpdater:
 
                 keywords_data = game_data['results'].get('keywords', {})
                 items = keywords_data.get('items', [])
-
-                if not items:
-                    if self.verbose:
-                        print(f"⚠️ Для игры {game.id} нет элементов ключевых слов в данных")
-                    continue
 
                 # Получаем ID ключевых слов
                 keyword_ids = [k['id'] for k in items]
@@ -332,17 +336,23 @@ class BatchUpdater:
                 game.keywords.add(*keyword_objects)
                 updated_count += 1
 
+                # УВЕЛИЧИВАЕМ СЧЕТЧИК ДЛЯ ПРОГРЕСС-БАРА (💾)
+                # Это обновление будет подхвачено в analyzer_command._check_and_update_batch
+
                 # Обновляем время модификации
                 game.updated_at = timezone.now()
                 game.save(update_fields=['updated_at'])
 
-                if self.verbose and updated_count % 10 == 0:
-                    print(f"✅ Обновлено {updated_count} игр... добавлено {len(new_ids)} ключевых слов к игре {game.id}")
+                if self.verbose:
+                    print(f"✅ Игра {game.id} обновлена: добавлено {len(new_ids)} ключевых слов")
 
             except Exception as e:
                 if self.verbose:
                     print(f"❌ Ошибка обновления игры {game_data.get('game_id', 'unknown')}: {e}")
                 continue
+
+        if self.verbose:
+            print(f"📊 Обновлено {updated_count} игр из {len(games_with_keywords)} с ключевыми словами")
 
         return updated_count
 
