@@ -5,7 +5,6 @@ import GamePaginationUI from './game-pagination-ui.js';
 const GamePagination = {
     ...GamePaginationCore,
 
-    // Переопределяем методы, которые используют UI
     hidePagination() {
         if (GamePaginationUI && typeof GamePaginationUI.hidePagination === 'function') {
             GamePaginationUI.hidePagination();
@@ -58,7 +57,5 @@ window.GamePagination = GamePagination;
 window.GamePaginationCore = GamePaginationCore;
 window.GamePaginationUI = GamePaginationUI;
 
-// Экспортируем по умолчанию
 export default GamePagination;
-// Именованные экспорты для совместимости
 export { GamePaginationCore, GamePaginationUI };

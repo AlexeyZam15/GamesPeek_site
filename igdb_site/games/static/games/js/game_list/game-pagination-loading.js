@@ -1,10 +1,9 @@
 // games/static/games/js/game_list/game-pagination-loading.js
-// Новый файл с методами для индикаторов загрузки
-
 const GamePaginationLoading = {
     showSimpleLoadingIndicator(pageNumber) {
         const container = document.querySelector('.games-container');
         if (container) {
+            // Только добавляем класс для легкой анимации, без затемнения
             container.classList.add('loading');
             console.log(`Added loading indicator for page ${pageNumber}`);
         }
@@ -19,62 +18,28 @@ const GamePaginationLoading = {
     },
 
     showLoadingIndicator(pageNumber) {
-        const existingIndicator = document.getElementById(`loading-page-${pageNumber}`);
-        if (existingIndicator) {
-            console.log(`Loading indicator for page ${pageNumber} already exists`);
-            return;
-        }
+        // УБРАЛИ создание темного экрана загрузки
+        console.log(`Skipping dark loading screen for page ${pageNumber}`);
 
+        // Вместо этого просто добавляем легкий класс loading
         const container = document.querySelector('.games-container');
-        if (!container) return;
-
-        console.log(`Creating loading indicator for page ${pageNumber}`);
-
-        const loadingDiv = document.createElement('div');
-        loadingDiv.className = 'page-loading-indicator';
-        loadingDiv.id = `loading-page-${pageNumber}`;
-        loadingDiv.innerHTML = `
-            <div class="text-center py-5">
-                <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status">
-                    <span class="visually-hidden">Loading page ${pageNumber}...</span>
-                </div>
-                <h5>Loading page ${pageNumber}...</h5>
-                <p class="text-muted">Please wait while the games are loading</p>
-            </div>
-        `;
-        loadingDiv.style.cssText = `
-            background: rgba(255, 255, 255, 0.9);
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            z-index: 1000;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        `;
-
-        let rowElement = container.querySelector('.row');
-        if (!rowElement) {
-            rowElement = document.createElement('div');
-            rowElement.className = 'row';
-            container.appendChild(rowElement);
+        if (container) {
+            container.classList.add('loading');
         }
-
-        loadingDiv.style.position = 'absolute';
-        loadingDiv.style.zIndex = '1000';
-
-        rowElement.style.position = 'relative';
-
-        rowElement.appendChild(loadingDiv);
     },
 
     removeLoadingIndicator(pageNumber) {
-        const loadingIndicator = document.getElementById(`loading-page-${pageNumber}`);
-        if (loadingIndicator) {
+        // Убираем класс loading
+        const container = document.querySelector('.games-container');
+        if (container) {
+            container.classList.remove('loading');
+        }
+
+        // Также удаляем любые оставшиеся индикаторы (на всякий случай)
+        const existingIndicator = document.getElementById(`loading-page-${pageNumber}`);
+        if (existingIndicator) {
             console.log(`Removing loading indicator for page ${pageNumber}`);
-            loadingIndicator.remove();
+            existingIndicator.remove();
             return true;
         }
 

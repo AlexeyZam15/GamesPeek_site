@@ -370,7 +370,7 @@ const GamePaginationCore = {
         if (window.GamePaginationUI) {
             window.GamePaginationUI.updatePageInfo();
             window.GamePaginationUI.updateNavigationButtons();
-            window.GamePaginationUI.showPagination(); // ВАЖНО: Показываем пагинацию
+            window.GamePaginationUI.showPagination();
         }
 
         console.log(`Initial page ${pageToCache} loaded from DOM`);
@@ -507,8 +507,6 @@ const GamePaginationCore = {
             console.log(`Calculated totalPages: ${this.state.totalPages} from ${this.state.totalItems} items with ${this.config.itemsPerPage} per page`);
         }
 
-        // ВАЖНОЕ ИСПРАВЛЕНИЕ: Не скрывать пагинацию здесь!
-        // Просто логируем если нет игр, но не скрываем пагинацию
         if (this.state.totalItems === 0) {
             console.log('No items found for pagination');
         }
@@ -613,7 +611,6 @@ const GamePaginationCore = {
                     templateClone.style.display = 'block';
                     rowElement.appendChild(templateClone);
                     console.log('Showed "No games found" message');
-                    // Скрываем пагинацию только если действительно нет игр
                     if (window.GamePaginationUI && typeof window.GamePaginationUI.hidePagination === 'function') {
                         window.GamePaginationUI.hidePagination();
                     }
@@ -621,7 +618,6 @@ const GamePaginationCore = {
             } else {
                 rowElement.appendChild(fragment);
                 console.log(`Added ${gamesAdded} games from cache to page ${pageNumber}`);
-                // Показываем пагинацию если есть игры
                 if (window.GamePaginationUI && typeof window.GamePaginationUI.showPagination === 'function') {
                     window.GamePaginationUI.showPagination();
                 }
@@ -1150,7 +1146,7 @@ const GamePaginationCore = {
                 this.forceLoadPage(initialPage).then(() => {
                     this.showPage(initialPage, false);
                 }).catch(() => {
-                    this.showPage(1, false);
+                    this.showPage(initialPage, false);
                 });
             } else {
                 this.showPage(initialPage, false);
@@ -1188,7 +1184,14 @@ const GamePaginationCore = {
         console.log(`showPage called for page ${pageNumber}, isBackground: ${isBackground}`);
 
         if (!isBackground) {
-            this.showSimpleLoadingIndicator(pageNumber);
+            // Убрали создание темного экрана загрузки
+            console.log(`Loading page ${pageNumber}...`);
+
+            // Просто добавляем легкий класс loading к контейнеру (без затемнения)
+            const container = document.querySelector(this.config.containerSelector);
+            if (container) {
+                container.classList.add('loading');
+            }
         }
 
         if (this.state.loadedPages.has(pageNumber)) {
@@ -1196,7 +1199,11 @@ const GamePaginationCore = {
             this.showPageFromCache(pageNumber);
 
             if (!isBackground) {
-                this.removeSimpleLoadingIndicator();
+                // Убираем класс loading
+                const container = document.querySelector(this.config.containerSelector);
+                if (container) {
+                    container.classList.remove('loading');
+                }
             }
             return;
         }
@@ -1207,7 +1214,11 @@ const GamePaginationCore = {
                 this.showPageFromCache(pageNumber);
 
                 if (!isBackground) {
-                    this.removeSimpleLoadingIndicator();
+                    // Убираем класс loading после загрузки
+                    const container = document.querySelector(this.config.containerSelector);
+                    if (container) {
+                        container.classList.remove('loading');
+                    }
                 }
             })
             .catch(error => {
@@ -1219,7 +1230,11 @@ const GamePaginationCore = {
                 }
 
                 if (!isBackground) {
-                    this.removeSimpleLoadingIndicator();
+                    // Убираем класс loading при ошибке
+                    const container = document.querySelector(this.config.containerSelector);
+                    if (container) {
+                        container.classList.remove('loading');
+                    }
                 }
             });
     },
@@ -1245,7 +1260,11 @@ const GamePaginationCore = {
 
         const isCurrentPage = this.config.currentPage === pageNumber;
         if (isCurrentPage) {
-            this.showSimpleLoadingIndicator(pageNumber);
+            // Убираем создание темного экрана, только добавляем класс loading
+            const container = document.querySelector(this.config.containerSelector);
+            if (container) {
+                container.classList.add('loading');
+            }
         }
 
         return this.loadPageFromServer(pageNumber)
@@ -1258,7 +1277,11 @@ const GamePaginationCore = {
 
                 if (isCurrentPage) {
                     this.showPageFromCache(pageNumber);
-                    this.removeSimpleLoadingIndicator();
+                    // Убираем класс loading
+                    const container = document.querySelector(this.config.containerSelector);
+                    if (container) {
+                        container.classList.remove('loading');
+                    }
                 }
 
                 return games;
@@ -1271,7 +1294,11 @@ const GamePaginationCore = {
                 }
 
                 if (isCurrentPage) {
-                    this.removeSimpleLoadingIndicator();
+                    // Убираем класс loading при ошибке
+                    const container = document.querySelector(this.config.containerSelector);
+                    if (container) {
+                        container.classList.remove('loading');
+                    }
                 }
 
                 throw error;
