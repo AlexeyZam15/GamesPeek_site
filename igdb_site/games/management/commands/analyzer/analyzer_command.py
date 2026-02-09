@@ -81,6 +81,7 @@ class AnalyzerCommand(BaseCommand):
         self._in_batch_update = False
         self.total_games_estimate = 0
         self.debug_mode = False
+        self._last_debug_stats = None  # Для кеширования отладочной статистики
 
     def _debug_print(self, message):
         """Выводит отладочное сообщение"""
@@ -137,9 +138,6 @@ class AnalyzerCommand(BaseCommand):
         if not self.progress_bar:
             return
 
-        # Всегда передаем ВСЮ статистику, используя ПРАВИЛЬНЫЕ ключи
-        stats_to_update = {}
-
         # Для режима ключевых слов
         if self.keywords:
             # ВАЖНО: Для ключевых слов используем другие счетчики!
@@ -159,8 +157,12 @@ class AnalyzerCommand(BaseCommand):
 
             # Отладочный вывод ТОЛЬКО с --debug
             if self.debug and self.original_stderr:
+                # Не кешируем - выводим каждый раз
                 self.original_stderr.write(f"\nDEBUG _update_progress_bar_with_stats (keywords): {stats_to_update}\n")
                 self.original_stderr.flush()
+
+            # Всегда обновляем статистику в прогресс-баре
+            self.progress_bar.update_stats(stats_to_update)
         else:
             # Для обычного режима
             stats_to_update = {
@@ -172,8 +174,7 @@ class AnalyzerCommand(BaseCommand):
                 'updated': self.stats.get('updated_games', 0),  # 💾 - обновлено игр
                 'in_batch': self.stats.get('in_batch', 0),  # 📦 - игр в батче
             }
-
-        self.progress_bar.update_stats(stats_to_update)
+            self.progress_bar.update_stats(stats_to_update)
 
     def _save_offset_to_file(self, offset):
         """Сохраняет оффсет в файл для истории"""
@@ -290,7 +291,7 @@ class AnalyzerCommand(BaseCommand):
 
     def _process_single_game_in_batch_with_criteria(self, game, checked_criteria, force_process=False):
         """Обрабатывает одну игру с учетом проверенных критериев (основная логика)"""
-        # Отладочный вывод
+        # Отладочный вывод ТОЛЬКО при --debug
         if self.debug and self.original_stdout:
             self.original_stdout.write(
                 f"\nDEBUG _process_single_game_in_batch_with_criteria: начинаем обработку игры {game.id}: {game.name}\n")
@@ -322,6 +323,9 @@ class AnalyzerCommand(BaseCommand):
 
         # Обрабатываем игру с текстом
         self._process_game_with_text(game, text, checked_criteria, force_process)
+
+        # ВАЖНО: НЕ вызываем _update_progress_bar_with_stats здесь
+        # Прогресс-бар обновляется в других методах при необходимости
 
     def _handle_game_without_text(self, game):
         """Обрабатывает игру без текста"""
@@ -451,12 +455,55 @@ class AnalyzerCommand(BaseCommand):
             self._update_progress_bar_with_stats()
 
     def _handle_analysis_results(self, game, result, force_process, exclude_existing):
-        """Обрабатывает результаты анализа игры"""
+        """Обрабатывает результаты анализа игры (основная функция)"""
         # ОБНОВЛЯЕМ ПРОГРЕСС ДЛЯ ЛЮБОЙ ОБРАБОТАННОЙ ИГРЫ
         if self.progress_bar:
             self.progress_bar.update(1)
 
-        # Проверяем, есть ли РЕАЛЬНЫЕ НОВЫЕ элементы для добавления
+        # Определяем, есть ли новые элементы
+        has_new_elements, new_elements_count = self._calculate_new_elements(game, result)
+
+        # Обновляем статистику
+        self._update_statistics_after_analysis(game, result, has_new_elements, new_elements_count)
+
+        # Вызываем formatter для записи в файл
+        self.output_formatter.print_game_in_batch(
+            game=game,
+            index=self.stats['processed'],
+            result=result,
+            stats=self.stats,
+            only_found=self.only_found,
+            verbose=self.verbose,
+            keywords=self.keywords,
+            ignore_existing=self.ignore_existing,
+            update_game=self.update_game,
+            comprehensive_mode=False,
+            combined_mode=False,
+            exclude_existing=exclude_existing
+        )
+
+        # Добавляем в батч для обновления если нужно
+        if self.update_game and has_new_elements:
+            added_count = self._add_to_batch_if_needed(game, result)
+
+            # ОБНОВЛЯЕМ СТАТИСТИКУ БАТЧА
+            if self.batch_updater:
+                games_in_batch = len(self.batch_updater.games_to_update) if hasattr(self.batch_updater,
+                                                                                    'games_to_update') else 0
+                self.stats['in_batch'] = games_in_batch
+
+        # Всегда добавляем в StateManager
+        self.state_manager.add_processed_game(game.id)
+
+        # Обновляем статистику пропусков
+        total_skipped_now = self.stats['skipped_no_text'] + self.stats.get('skipped_short_text', 0)
+        self.stats['skipped_total'] = total_skipped_now
+
+        # Обновляем статистику прогресс-бара
+        self._update_progress_bar_with_stats()
+
+    def _calculate_new_elements(self, game, result):
+        """Определяет, есть ли новые элементы для добавления и их количество"""
         has_new_elements = False
         new_elements_count = 0
 
@@ -465,31 +512,16 @@ class AnalyzerCommand(BaseCommand):
             items = keywords_data.get('items', [])
             count = keywords_data.get('count', 0)
 
-            if items and count > 0:  # Если есть ключевые слова в результатах
-                # Проверяем, сколько из них действительно новых
+            if items and count > 0:
                 from games.models import Keyword
                 keyword_ids = [k['id'] for k in items]
                 existing_game_ids = set(game.keywords.values_list('id', flat=True))
                 new_ids = [kid for kid in keyword_ids if kid not in existing_game_ids]
 
-                if new_ids:  # Есть новые ключевые слова
+                if new_ids:
                     has_new_elements = True
                     new_elements_count = len(new_ids)
-                    self.stats['found_games'] += 1  # 🎯 ТОЛЬКО если есть новые
-                    self.stats['found_elements'] += new_elements_count  # 📈 Только новые
-                    self.stats['keywords_found'] += 1  # Для режима ключевых слов
-                    self.stats['keywords_count'] += new_elements_count  # Для режима ключевых слов
-                else:  # Все ключевые слова уже есть у игры
-                    has_new_elements = False
-                    # ИГРА БЕЗ НОВЫХ КРИТЕРИЕВ
-                    self.stats['empty_games'] += 1  # 🔍 - для обычного режима
-                    self.stats['keywords_not_found'] += 1  # Для режима ключевых слов
-            else:
-                # Вообще нет ключевых слов в результатах
-                has_new_elements = False
-                # ИГРА БЕЗ НОВЫХ КРИТЕРИЕВ
-                self.stats['empty_games'] += 1  # 🔍 - для обычного режима
-                self.stats['keywords_not_found'] += 1  # Для режима ключевых слов
+
         else:
             # Для обычных критериев
             total_found_elements = 0
@@ -499,7 +531,6 @@ class AnalyzerCommand(BaseCommand):
                 count = data.get('count', 0)
 
                 if items and count > 0:
-                    # Проверяем, какие из них новые
                     existing_ids = set()
                     if key == 'genres':
                         existing_ids = set(game.genres.values_list('id', flat=True))
@@ -518,76 +549,62 @@ class AnalyzerCommand(BaseCommand):
                         total_found_elements += count
                         new_elements_count += len(new_ids)
 
+        return has_new_elements, new_elements_count
+
+    def _update_statistics_after_analysis(self, game, result, has_new_elements, new_elements_count):
+        """Обновляет статистику после анализа игры"""
+        if self.keywords:
+            keywords_data = result['results'].get('keywords', {})
+            items = keywords_data.get('items', [])
+            count = keywords_data.get('count', 0)
+
+            if items and count > 0:
+                if has_new_elements:
+                    self.stats['found_games'] += 1
+                    self.stats['found_elements'] += new_elements_count
+                    self.stats['keywords_found'] += 1
+                    self.stats['keywords_count'] += new_elements_count
+                else:
+                    self.stats['empty_games'] += 1
+                    self.stats['keywords_not_found'] += 1
+            else:
+                self.stats['empty_games'] += 1
+                self.stats['keywords_not_found'] += 1
+        else:
+            # Для обычных критериев
+            total_found_elements = 0
+            for key, data in result['results'].items():
+                count = data.get('count', 0)
+                if count > 0:
+                    total_found_elements += count
+
             if has_new_elements:
-                self.stats['found_games'] += 1  # 🎯
-                self.stats['found_elements'] += new_elements_count  # 📈
-                self.stats['found_count'] += 1  # Общая статистика
-                self.stats['total_criteria_found'] += new_elements_count  # Общая статистика
-            elif total_found_elements > 0:  # Найдены элементы, но все уже есть
-                # ИГРА БЕЗ НОВЫХ КРИТЕРИЕВ
-                self.stats['empty_games'] += 1  # 🔍
-                self.stats['not_found_count'] += 1  # Общая статистика
-            elif not result['has_results']:  # Вообще ничего не найдено
-                # ИГРА БЕЗ НОВЫХ КРИТЕРИЕВ
-                self.stats['empty_games'] += 1  # 🔍
-                self.stats['not_found_count'] += 1  # Общая статистика
+                self.stats['found_games'] += 1
+                self.stats['found_elements'] += new_elements_count
+                self.stats['found_count'] += 1
+                self.stats['total_criteria_found'] += new_elements_count
+            elif total_found_elements > 0:
+                self.stats['empty_games'] += 1
+                self.stats['not_found_count'] += 1
+            elif not result['has_results']:
+                self.stats['empty_games'] += 1
+                self.stats['not_found_count'] += 1
 
         # Обновляем основную статистику
         if result['has_results']:
             found_count = result['summary'].get('found_count', 0)
-            if self.keywords:
-                # Для ключевых слов уже обновили выше
-                pass
-            else:
+            if not self.keywords:
                 self.stats['found_count'] += 1
                 self.stats['total_criteria_found'] += found_count
 
             # Обновляем список проверенных критериев
             self._update_checked_criteria_after_analysis(result)
         elif not has_new_elements and result.get('has_results', False):
-            # Игра была проанализирована, но ничего не найдено
-            # ИГРА БЕЗ НОВЫХ КРИТЕРИЕВ
-            self.stats['empty_games'] += 1  # 🔍
+            self.stats['empty_games'] += 1
             if self.keywords:
                 self.stats['keywords_not_found'] += 1
             else:
                 self.stats['not_found_count'] += 1
-
-        # Вызываем formatter для записи в файл
-        self.output_formatter.print_game_in_batch(
-            game=game,
-            index=self.stats['processed'],
-            result=result,
-            stats=self.stats,
-            only_found=self.only_found,
-            verbose=self.verbose,
-            keywords=self.keywords,
-            ignore_existing=self.ignore_existing,
-            update_game=self.update_game,
-            comprehensive_mode=False,
-            combined_mode=False,
-            exclude_existing=exclude_existing
-        )
-
-        # Добавляем в батч для обновления если нужно (только если есть новые элементы)
-        if self.update_game and has_new_elements:
-            added_count = self._add_to_batch_if_needed(game, result)
-
-            # ОБНОВЛЯЕМ СТАТИСТИКУ БАТЧА
-            if self.batch_updater:
-                games_in_batch = len(self.batch_updater.games_to_update) if hasattr(self.batch_updater,
-                                                                                    'games_to_update') else 0
-                self.stats['in_batch'] = games_in_batch  # 📦
-
-        # Всегда добавляем в StateManager
-        self.state_manager.add_processed_game(game.id)
-
-        # ВАЖНО: Обновляем общую статистику пропусков для прогресс-бара
-        total_skipped_now = self.stats['skipped_no_text'] + self.stats.get('skipped_short_text', 0)
-        self.stats['skipped_total'] = total_skipped_now
-
-        # ВАЖНО: Обновляем статистику прогресс-бара СРАЗУ ПОСЛЕ ОБРАБОТКИ ИГРЫ
-        self._update_progress_bar_with_stats()
 
     def _add_to_batch_if_needed(self, game, result):
         """Добавляет игру в батч для обновления если нужно"""
@@ -1444,6 +1461,7 @@ class AnalyzerCommand(BaseCommand):
         except KeyboardInterrupt:
             # При прерывании передаем начальный оффсет для правильного расчета
             self._handle_batch_interrupt(start_time, already_processed)
+
     def _calculate_processing_parameters(self, games_to_process, already_processed, new_criteria):
         """Рассчитывает параметры обработки"""
         # Если есть новые критерии или force_restart, нужно обработать ВСЕ игры
@@ -1604,6 +1622,135 @@ class AnalyzerCommand(BaseCommand):
             self.original_stdout.flush()
 
         # ВАЖНО: Устанавливаем начальное состояние для прогресс-бара
+        self._initialize_progress_bar_for_batch()
+
+        # Оптимизация: используем bulk итерацию
+        batch_counter = 0
+
+        for game in games.iterator(chunk_size=self.batch_size):
+            # Проверяем limit
+            if self.limit and processed_in_this_run >= self.limit:
+                break
+
+            # Обрабатываем одну игру
+            processing_result = self._process_single_game_in_batch(
+                game, should_process_all, checked_criteria
+            )
+
+            processed_in_this_run += processing_result['processed']
+            skipped_because_already_processed += processing_result['skipped_already_processed']
+
+            batch_counter += 1
+
+            # Оптимизация: проверяем батч каждые 25 игр
+            if batch_counter % 25 == 0:
+                self._check_and_update_batch()
+
+            # Оптимизация: сохраняем состояние каждые 1000 игр
+            if processed_in_this_run % 1000 == 0 and processed_in_this_run > 0:
+                try:
+                    self.state_manager.save_state(self.stats['processed'])
+                except Exception:
+                    pass
+
+        # После завершения цикла обновляем оставшийся батч
+        self._flush_remaining_batch()
+
+        # Выводим статистику обработки
+        self._print_batch_processing_stats(processed_in_this_run, skipped_because_already_processed)
+
+        # Финальный отладочный вывод
+        if self.debug and self.original_stdout:
+            self._print_final_debug_statistics()
+
+        return {
+            'processed_in_this_run': processed_in_this_run,
+            'skipped_because_already_processed': skipped_because_already_processed,
+        }
+
+    def _process_single_game_in_batch(self, game, should_process_all, checked_criteria):
+        """Обрабатывает одну игру в батче"""
+        result = {
+            'processed': 0,
+            'skipped_already_processed': 0
+        }
+
+        # Основная логика: проверяем, была ли игра уже обработана ранее
+        game_was_processed_before = False
+        if not self.force_restart:
+            game_was_processed_before = self.state_manager.is_game_processed(game.id)
+
+        if should_process_all or self.force_restart:
+            # force_restart или есть новые критерии - обрабатываем все игры
+            if self.debug and self.original_stdout:
+                self.original_stdout.write(f"\nDEBUG: Обрабатываем игру {game.id} (force/all режим)\n")
+                self.original_stdout.flush()
+
+            self._process_single_game_in_batch_with_criteria(game, checked_criteria,
+                                                             should_process_all or self.force_restart)
+            result['processed'] = 1
+
+        elif not should_process_all:
+            # Нет новых критерий - обычная логика
+            if game_was_processed_before:
+                # Игра уже была обработана - просто пропускаем
+                result['skipped_already_processed'] = 1
+
+                # ВАЖНО: Увеличиваем счетчики статистики даже для пропущенных игр!
+                self.stats['processed'] += 1
+                self.stats['skipped_games'] += 1  # ⏭️ - пропущена (уже обработана ранее)
+                # НЕ увеличиваем empty_games! Это не игра без критериев, а уже обработанная игра
+
+                if self.debug and self.original_stdout:
+                    self.original_stdout.write(f"\nDEBUG: Игра {game.id} уже обработана, пропускаем\n")
+                    self.original_stdout.write(
+                        f"DEBUG: Статистика после пропуска: processed={self.stats['processed']}, skipped_games={self.stats['skipped_games']}\n")
+                    self.original_stdout.flush()
+
+                self.state_manager.add_processed_game(game.id)
+
+                # Обновляем прогресс-бар для пропущенных игр
+                if self.progress_bar:
+                    self.progress_bar.update(1)
+                    # ВАЖНО: Обновляем статистику даже для пропущенных игр
+                    self._update_progress_bar_with_stats()
+                return result
+
+            # Проверяем, можно ли пропустить игру на основе проверенных критериев
+            if checked_criteria and self._should_skip_game_based_on_criteria(game.id, checked_criteria):
+                # Пропускаем по критериям
+                self.stats['skipped_by_criteria'] += 1
+                self.stats['skipped_games'] += 1  # ⏭️ - пропущена по критериям
+                self.stats['processed'] += 1
+                # НЕ увеличиваем empty_games! Это игра, у которой все критерии уже проверены
+
+                if self.debug and self.original_stdout:
+                    self.original_stdout.write(f"\nDEBUG: Игра {game.id} пропущена по критериям\n")
+                    self.original_stdout.write(
+                        f"DEBUG: Статистика после пропуска по критериям: processed={self.stats['processed']}, skipped_games={self.stats['skipped_games']}\n")
+                    self.original_stdout.flush()
+
+                self.state_manager.add_processed_game(game.id)
+
+                # Обновляем прогресс-бар
+                if self.progress_bar:
+                    self.progress_bar.update(1)
+                    # ВАЖНО: Обновляем статистику
+                    self._update_progress_bar_with_stats()
+                return result
+
+            # Обрабатываем игру
+            if self.debug and self.original_stdout:
+                self.original_stdout.write(f"\nDEBUG: Обрабатываем игру {game.id} (обычный режим)\n")
+                self.original_stdout.flush()
+
+            self._process_single_game_in_batch_with_criteria(game, checked_criteria, False)
+            result['processed'] = 1
+
+        return result
+
+    def _initialize_progress_bar_for_batch(self):
+        """Инициализирует прогресс-бар для обработки батча"""
         if self.progress_bar:
             # Явно сбрасываем current в 0
             self.progress_bar.current = 0
@@ -1627,127 +1774,23 @@ class AnalyzerCommand(BaseCommand):
             if hasattr(self.progress_bar, '_progress_bar'):
                 self.progress_bar._progress_bar._force_update()
 
-        # Оптимизация: используем bulk итерацию
-        batch_counter = 0
-
-        for game in games.iterator(chunk_size=self.batch_size):
-            # Проверяем limit
-            if self.limit and processed_in_this_run >= self.limit:
-                break
-
-            # Основная логика: проверяем, была ли игра уже обработана ранее
-            game_was_processed_before = False
-            if not self.force_restart:
-                game_was_processed_before = self.state_manager.is_game_processed(game.id)
-
-            if should_process_all or self.force_restart:
-                # force_restart или есть новые критерии - обрабатываем все игры
-                if self.debug and self.original_stdout:
-                    self.original_stdout.write(f"\nDEBUG: Обрабатываем игру {game.id} (force/all режим)\n")
-                    self.original_stdout.flush()
-
-                self._process_single_game_in_batch_with_criteria(game, checked_criteria,
-                                                                 should_process_all or self.force_restart)
-                processed_in_this_run += 1
-
-            elif not should_process_all:
-                # Нет новых критерий - обычная логика
-                if game_was_processed_before:
-                    # Игра уже была обработана - просто пропускаем
-                    skipped_because_already_processed += 1
-
-                    # ВАЖНО: Увеличиваем счетчики статистики даже для пропущенных игр!
-                    self.stats['processed'] += 1
-                    self.stats['skipped_games'] += 1  # ⏭️ - пропущена (уже обработана ранее)
-                    # НЕ увеличиваем empty_games! Это не игра без критериев, а уже обработанная игра
-
-                    if self.debug and self.original_stdout:
-                        self.original_stdout.write(f"\nDEBUG: Игра {game.id} уже обработана, пропускаем\n")
-                        self.original_stdout.write(
-                            f"DEBUG: Статистика после пропуска: processed={self.stats['processed']}, skipped_games={self.stats['skipped_games']}\n")
-                        self.original_stdout.flush()
-
-                    self.state_manager.add_processed_game(game.id)
-
-                    # Обновляем прогресс-бар для пропущенных игр
-                    if self.progress_bar:
-                        self.progress_bar.update(1)
-                        # ВАЖНО: Обновляем статистику даже для пропущенных игр
-                        self._update_progress_bar_with_stats()
-                    continue
-
-                # Проверяем, можно ли пропустить игру на основе проверенных критериев
-                if checked_criteria and self._should_skip_game_based_on_criteria(game.id, checked_criteria):
-                    # Пропускаем по критериям
-                    self.stats['skipped_by_criteria'] += 1
-                    self.stats['skipped_games'] += 1  # ⏭️ - пропущена по критериям
-                    self.stats['processed'] += 1
-                    # НЕ увеличиваем empty_games! Это игра, у которой все критерии уже проверены
-
-                    if self.debug and self.original_stdout:
-                        self.original_stdout.write(f"\nDEBUG: Игра {game.id} пропущена по критериям\n")
-                        self.original_stdout.write(
-                            f"DEBUG: Статистика после пропуска по критериям: processed={self.stats['processed']}, skipped_games={self.stats['skipped_games']}\n")
-                        self.original_stdout.flush()
-
-                    self.state_manager.add_processed_game(game.id)
-
-                    # Обновляем прогресс-бар
-                    if self.progress_bar:
-                        self.progress_bar.update(1)
-                        # ВАЖНО: Обновляем статистику
-                        self._update_progress_bar_with_stats()
-                    continue
-
-                # Обрабатываем игру
-                if self.debug and self.original_stdout:
-                    self.original_stdout.write(f"\nDEBUG: Обрабатываем игру {game.id} (обычный режим)\n")
-                    self.original_stdout.flush()
-
-                self._process_single_game_in_batch_with_criteria(game, checked_criteria, False)
-                processed_in_this_run += 1
-
-            batch_counter += 1
-
-            # Оптимизация: проверяем батч каждые 25 игр
-            if batch_counter % 25 == 0:
-                self._check_and_update_batch()
-
-            # Оптимизация: сохраняем состояние каждые 1000 игр
-            if processed_in_this_run % 1000 == 0 and processed_in_this_run > 0:
-                try:
-                    self.state_manager.save_state(self.stats['processed'])
-                except Exception:
-                    pass
-
-        # После завершения цикла обновляем оставшийся батч
-        self._flush_remaining_batch()
-
-        # Выводим статистику обработки
-        self._print_batch_processing_stats(processed_in_this_run, skipped_because_already_processed)
-
-        # Финальный отладочный вывод
-        if self.debug and self.original_stdout:
-            self.original_stdout.write(f"\nDEBUG: Финальная статистика после батча:\n")
-            # Показываем только важные ключи
-            important_stats = {
-                'processed': self.stats.get('processed', 0),
-                'found_games': self.stats.get('found_games', 0),
-                'found_elements': self.stats.get('found_elements', 0),
-                'skipped_games': self.stats.get('skipped_games', 0),
-                'empty_games': self.stats.get('empty_games', 0),
-                'error_games': self.stats.get('error_games', 0),
-                'updated_games': self.stats.get('updated_games', 0),
-                'in_batch': self.stats.get('in_batch', 0),
-            }
-            for key, value in important_stats.items():
-                self.original_stdout.write(f"  {key}: {value}\n")
-            self.original_stdout.flush()
-
-        return {
-            'processed_in_this_run': processed_in_this_run,
-            'skipped_because_already_processed': skipped_because_already_processed,
+    def _print_final_debug_statistics(self):
+        """Выводит финальную отладочную статистику"""
+        self.original_stdout.write(f"\nDEBUG: Финальная статистика после батча:\n")
+        # Показываем только важные ключи
+        important_stats = {
+            'processed': self.stats.get('processed', 0),
+            'found_games': self.stats.get('found_games', 0),
+            'found_elements': self.stats.get('found_elements', 0),
+            'skipped_games': self.stats.get('skipped_games', 0),
+            'empty_games': self.stats.get('empty_games', 0),
+            'error_games': self.stats.get('error_games', 0),
+            'updated_games': self.stats.get('updated_games', 0),
+            'in_batch': self.stats.get('in_batch', 0),
         }
+        for key, value in important_stats.items():
+            self.original_stdout.write(f"  {key}: {value}\n")
+        self.original_stdout.flush()
 
     def _print_batch_processing_stats(self, processed_in_this_run, skipped_because_already_processed):
         """Выводит статистику обработки батча"""
