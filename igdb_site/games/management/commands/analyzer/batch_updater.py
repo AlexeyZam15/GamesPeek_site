@@ -13,73 +13,51 @@ from .output_manager import UnifiedProgressBar
 class BatchUpdater:
     """Батч-апдейтер для обновления игр в базе"""
 
+    BATCH_SIZE_LIMIT = 50  # Максимальный размер батча для обновления
+
     def __init__(self, batch_size: int = 100, verbose: bool = False):
         self.batch_size = batch_size
         self.games_to_update: List[Dict] = []
         self.verbose = verbose
         self.progress_bar = None
         self.last_update_time = 0
+        self.total_games_added = 0  # Для отладки - общее количество добавленных игр
+
+    def get_batch_count(self) -> int:
+        """Возвращает текущее количество игр в батче"""
+        return len(self.games_to_update)
 
     def add_game_for_update(self, game_id: int, results: Dict[str, Any], is_keywords: bool) -> int:
-        """Добавляет игру для обновления - с отладкой"""
+        """Добавляет игру для обновления - проверяет дубликаты"""
         try:
-            # Проверяем, есть ли реальные элементы для добавления
-            has_real_items = False
-
-            if is_keywords:
-                keywords_data = results.get('keywords', {})
-                items = keywords_data.get('items', [])
-                if items:
-                    has_real_items = True
-
-                    # Дополнительная проверка: существуют ли ключевые слова в базе
-                    from games.models import Keyword
-                    keyword_ids = [k['id'] for k in items]
-                    existing_keywords = Keyword.objects.filter(id__in=keyword_ids).count()
-
-                    if self.verbose and existing_keywords == 0:
-                        print(f"⚠️ Для игры {game_id} ключевые слова не найдены в базе данных: {keyword_ids}")
-
-                    if existing_keywords == 0:
-                        # Если ни одно ключевое слово не найдено, не добавляем в батч
-                        if self.verbose:
-                            print(f"⏭️ Игра {game_id} пропущена: ключевые слова не существуют в базе")
-                        return 0
-
+            # Проверяем, не добавлена ли уже эта игра в текущий батч
+            for game_data in self.games_to_update:
+                if game_data['game_id'] == game_id:
                     if self.verbose:
-                        print(f"🔑 Игра {game_id}: найдено {len(items)} ключевых слов, в базе: {existing_keywords}")
-            else:
-                # Для обычных критериев проверяем все типы
-                total_found_elements = 0
-                for key, data in results.items():
-                    count = data.get('count', 0)
-                    items = data.get('items', [])
-                    if count > 0 and items:
-                        total_found_elements += count
-                        has_real_items = True
+                        print(f"⚠️ Игра {game_id} УЖЕ в батче! Пропускаем повторное добавление.")
+                    return 0
 
-            # Добавляем в батч только если есть реальные элементы для обновления
-            if has_real_items:
-                # Отладочная информация
-                if self.verbose and len(self.games_to_update) % 10 == 0:
-                    print(f"📥 Добавлено {len(self.games_to_update)} игр в батч...")
+            # Добавляем игру в батч
+            self.games_to_update.append({
+                'game_id': game_id,
+                'results': results,
+                'is_keywords': is_keywords,
+            })
 
-                # Добавляем игру в батч
-                self.games_to_update.append({
-                    'game_id': game_id,
-                    'results': results,
-                    'is_keywords': is_keywords,
-                })
+            # Отладочная информация
+            if self.verbose:
+                games_in_batch = len(self.games_to_update)
+                if games_in_batch % 25 == 0:  # Показываем только каждые 25 игр
+                    print(f"📥 Игр в батче: {games_in_batch}")
 
-                # Проверяем, не пора ли обновить батч
-                if len(self.games_to_update) >= 50:
-                    return self.flush()
-
-                return 1  # Игра добавлена успешно
-            else:
+            # Проверяем, не пора ли обновить батч
+            if len(self.games_to_update) >= 50:
                 if self.verbose:
-                    print(f"⏭️ Игра {game_id} не добавлена в батч: нет элементов для обновления")
-                return 0
+                    print(f"💾 Батч достиг 50 игр, обновляем...")
+                updated = self.flush()
+                return updated
+
+            return 1
 
         except Exception as e:
             if self.verbose:
@@ -87,12 +65,41 @@ class BatchUpdater:
             return 0
 
     def flush(self) -> int:
-        """Обновляет все накопленные игры - исправленная версия"""
+        """Обновляет все накопленные игры - исправленная версия с правильным выводом"""
         if not self.games_to_update:
             return 0
 
         try:
-            # Отладочная информация
+            # ВАЖНО: Если есть прогресс-бар, временно его скрываем для вывода сообщений
+            if hasattr(self, 'command_instance') and self.command_instance and self.command_instance.progress_bar:
+                # Сохраняем позицию курсора
+                import sys
+                sys.stderr.write("\033[s")  # Сохраняем позицию курсора
+
+            # Проверяем уникальность игр в батче
+            game_ids = [g['game_id'] for g in self.games_to_update]
+            unique_ids = set(game_ids)
+            if len(game_ids) != len(unique_ids):
+                if self.verbose:
+                    from collections import Counter
+                    counter = Counter(game_ids)
+                    duplicates = [game_id for game_id, count in counter.items() if count > 1]
+                    print(f"⚠️ ВНИМАНИЕ: Дубликаты в батче! Всего: {len(game_ids)}, уникальных: {len(unique_ids)}")
+                    print(f"   Дубликаты: {duplicates}")
+
+                # Убираем дубликаты
+                seen = set()
+                unique_games = []
+                for game_data in self.games_to_update:
+                    if game_data['game_id'] not in seen:
+                        seen.add(game_data['game_id'])
+                        unique_games.append(game_data)
+
+                if self.verbose and len(self.games_to_update) > len(unique_games):
+                    print(f"   Убрано {len(self.games_to_update) - len(unique_games)} дубликатов")
+                self.games_to_update = unique_games
+
+            # Выводим информацию о начале обновления
             if self.verbose:
                 print(f"💾 Начинаем обновление батча из {len(self.games_to_update)} игр")
                 print(f"🔄 Режим: {'ключевые слова' if self.games_to_update[0]['is_keywords'] else 'критерии'}")
@@ -116,6 +123,7 @@ class BatchUpdater:
                         keyword_ids_from_batch.extend([k['id'] for k in items])
 
                 # Проверяем, существуют ли ключевые слова в базе
+                existing_keywords = set()
                 if keyword_ids_from_batch:
                     existing_keywords = set(
                         Keyword.objects.filter(id__in=keyword_ids_from_batch).values_list('id', flat=True))
@@ -128,6 +136,7 @@ class BatchUpdater:
                 games_dict = {game.id: game for game in games}
 
                 # Обрабатываем каждую игру в батче
+                processed_count = 0
                 for game_data in self.games_to_update:
                     try:
                         game_id = game_data['game_id']
@@ -170,19 +179,21 @@ class BatchUpdater:
                                         # Добавляем ключевые слова к игре
                                         game.keywords.add(*keyword_objects)
                                         updated_count += 1
+                                        processed_count += 1
 
-                                        if self.verbose and updated_count % 10 == 0:
-                                            print(f"✅ Обновлено {updated_count} игр...")
-
-                                        # Обновляем время модификации
-                                        game.updated_at = timezone.now()
-                                        game.save(update_fields=['updated_at'])
+                                        if self.verbose and processed_count % 10 == 0:
+                                            print(f"✅ Обновлено {processed_count} игр...")
                                     else:
                                         if self.verbose:
                                             print(f"⚠️ Для игры {game_id} не найдены объекты Keyword по ID: {new_ids}")
                                 else:
                                     if self.verbose:
                                         print(f"ℹ️ Игра {game_id} уже имеет все ключевые слова")
+
+                                # Обновляем время модификации
+                                if new_ids and keyword_objects.exists():
+                                    game.updated_at = timezone.now()
+                                    game.save(update_fields=['updated_at'])
 
                     except Exception as e:
                         if self.verbose:
@@ -192,14 +203,18 @@ class BatchUpdater:
             # Очищаем батч
             self.games_to_update.clear()
 
-            # Отладочная информация
+            # Выводим результат
             if self.verbose:
                 print(f"📊 Результат: обновлено {updated_count} игр из {len(game_ids)} в батче")
-                if updated_count == 0 and len(game_ids) > 0:
-                    print("⚠️ ВОЗМОЖНЫЕ ПРИЧИНЫ:")
-                    print("  1. Ключевые слова не найдены в базе данных")
-                    print("  2. У игр уже есть эти ключевые слова")
-                    print("  3. Ошибка в данных ключевых слов")
+
+            # ВАЖНО: Восстанавливаем прогресс-бар если он был
+            if hasattr(self, 'command_instance') and self.command_instance and self.command_instance.progress_bar:
+                import sys
+                sys.stderr.write("\033[u")  # Восстанавливаем позицию курсора
+                sys.stderr.flush()
+
+                # Принудительно обновляем прогресс-бар
+                self.command_instance._update_progress_bar_with_stats()
 
             return updated_count
 
@@ -210,6 +225,13 @@ class BatchUpdater:
                 traceback.print_exc()
             # В случае ошибки очищаем батч, чтобы не зациклиться
             self.games_to_update.clear()
+
+            # Восстанавливаем прогресс-бар если он был
+            if hasattr(self, 'command_instance') and self.command_instance and self.command_instance.progress_bar:
+                import sys
+                sys.stderr.write("\033[u")
+                sys.stderr.flush()
+
             return 0
 
     def _execute_large_batch_update(self) -> int:
@@ -262,6 +284,7 @@ class BatchUpdater:
         from django.utils import timezone
 
         updated_count = 0
+        skipped_count = 0  # Счетчик пропущенных игр
         game_ids = [g['game_id'] for g in keyword_games]
 
         # Получаем все игры одним запросом с префетчингом ключевых слов
@@ -297,6 +320,7 @@ class BatchUpdater:
                 if not game:
                     if self.verbose:
                         print(f"⚠️ Игра {game_data['game_id']} не найдена в базе")
+                    skipped_count += 1
                     continue
 
                 keywords_data = game_data['results'].get('keywords', {})
@@ -311,6 +335,7 @@ class BatchUpdater:
                 if not valid_keyword_ids:
                     if self.verbose:
                         print(f"⚠️ Для игры {game.id} нет валидных ключевых слов в базе")
+                    skipped_count += 1
                     continue
 
                 # Получаем существующие ключевые слова у игры
@@ -320,6 +345,8 @@ class BatchUpdater:
                 new_ids = [kid for kid in valid_keyword_ids if kid not in existing_game_ids]
 
                 if not new_ids:
+                    # Игра уже имеет все ключевые слова - пропускаем
+                    skipped_count += 1
                     if self.verbose:
                         print(f"ℹ️ Игра {game.id} уже имеет все ключевые слова")
                     continue
@@ -330,6 +357,7 @@ class BatchUpdater:
                 if not keyword_objects.exists():
                     if self.verbose:
                         print(f"⚠️ Для игры {game.id} не найдены объекты Keyword по ID: {new_ids}")
+                    skipped_count += 1
                     continue
 
                 # Добавляем ключевые слова к игре
@@ -338,6 +366,8 @@ class BatchUpdater:
 
                 if self.verbose:
                     print(f"✅ Игра {game.id} обновлена: добавлено {len(new_ids)} ключевых слов")
+                elif updated_count % 10 == 0:
+                    print(f"✅ Обновлено {updated_count} игр...")
 
                 # Обновляем время модификации
                 game.updated_at = timezone.now()
@@ -346,10 +376,14 @@ class BatchUpdater:
             except Exception as e:
                 if self.verbose:
                     print(f"❌ Ошибка обновления игры {game_data.get('game_id', 'unknown')}: {e}")
+                skipped_count += 1
                 continue
 
         if self.verbose:
-            print(f"📊 Обновлено {updated_count} игр из {len(games_with_keywords)} с ключевыми словами")
+            print(
+                f"📊 Обновлено {updated_count} игр, пропущено {skipped_count} (всего {len(games_with_keywords)} с ключевыми словами)")
+            if skipped_count > 0:
+                print(f"ℹ️ Из них пропущено {skipped_count} игр (уже имеют все ключевые слова)")
 
         # ВОЗВРАЩАЕМ КОЛИЧЕСТВО ОБНОВЛЕННЫХ ИГР, А НЕ КОЛИЧЕСТВО ЭЛЕМЕНТОВ
         return updated_count
