@@ -51,6 +51,8 @@ class Command(AnalyzerCommand):
                             help='Автоматически обновить найденные критерии в базе данных')
         parser.add_argument('--verbose', action='store_true',
                             help='Подробный вывод с информацией о паттернах')
+        parser.add_argument('--debug', action='store_true',  # ← ДОБАВЛЕНО
+                            help='Включить отладочный вывод (для разработки)')
         parser.add_argument('--only-found', action='store_true',
                             help='Показывать только игры где были найдены критерии')
         parser.add_argument('--ignore-existing', action='store_true',
@@ -117,6 +119,7 @@ class Command(AnalyzerCommand):
         self.comprehensive_mode = options.get('comprehensive', False)
         self.combined_mode = options.get('combined', False)
         self.exclude_existing = options.get('exclude_existing', False)
+        self.debug_mode = options.get('debug', False)  # ← ДОБАВЛЕНО
 
         # Вызываем родительский обработчик
         super().handle(*args, **options)

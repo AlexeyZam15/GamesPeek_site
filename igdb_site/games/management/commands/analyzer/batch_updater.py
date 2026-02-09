@@ -336,15 +336,12 @@ class BatchUpdater:
                 game.keywords.add(*keyword_objects)
                 updated_count += 1
 
-                # УВЕЛИЧИВАЕМ СЧЕТЧИК ДЛЯ ПРОГРЕСС-БАРА (💾)
-                # Это обновление будет подхвачено в analyzer_command._check_and_update_batch
+                if self.verbose:
+                    print(f"✅ Игра {game.id} обновлена: добавлено {len(new_ids)} ключевых слов")
 
                 # Обновляем время модификации
                 game.updated_at = timezone.now()
                 game.save(update_fields=['updated_at'])
-
-                if self.verbose:
-                    print(f"✅ Игра {game.id} обновлена: добавлено {len(new_ids)} ключевых слов")
 
             except Exception as e:
                 if self.verbose:
@@ -354,6 +351,7 @@ class BatchUpdater:
         if self.verbose:
             print(f"📊 Обновлено {updated_count} игр из {len(games_with_keywords)} с ключевыми словами")
 
+        # ВОЗВРАЩАЕМ КОЛИЧЕСТВО ОБНОВЛЕННЫХ ИГР, А НЕ КОЛИЧЕСТВО ЭЛЕМЕНТОВ
         return updated_count
 
     def _update_criteria_batch(self, criteria_games):
