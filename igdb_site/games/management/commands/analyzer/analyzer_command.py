@@ -825,6 +825,11 @@ class AnalyzerCommand(BaseCommand):
         # Загружаем существующие проверенные критерии
         checked_criteria = self.state_manager.get_checked_criteria()
 
+        # Логируем сколько критериев загружено
+        if self.debug and self.original_stdout:
+            self.original_stdout.write(f"\nDEBUG: Загружено {len(checked_criteria)} проверенных критериев\n")
+            self.original_stdout.flush()
+
         if self.force_restart:
             # Принудительный перезапуск - очищаем всё
             self.state_manager.clear_checked_criteria()
@@ -838,6 +843,9 @@ class AnalyzerCommand(BaseCommand):
             from games.models import Keyword
             try:
                 all_criteria = set(str(k.id) for k in Keyword.objects.all())
+                if self.debug and self.original_stdout:
+                    self.original_stdout.write(f"DEBUG: В базе {len(all_criteria)} ключевых слов\n")
+                    self.original_stdout.flush()
             except Exception as e:
                 # Если таблица не существует или есть другие ошибки
                 print(f"⚠️ Ошибка получения ключевых слов: {e}", file=sys.stderr)
@@ -850,39 +858,84 @@ class AnalyzerCommand(BaseCommand):
                 all_criteria.update(str(t.id) for t in Theme.objects.all())
                 all_criteria.update(str(p.id) for p in PlayerPerspective.objects.all())
                 all_criteria.update(str(m.id) for m in GameMode.objects.all())
+                if self.debug and self.original_stdout:
+                    self.original_stdout.write(f"DEBUG: В базе {len(all_criteria)} критериев\n")
+                    self.original_stdout.flush()
             except Exception as e:
                 print(f"⚠️ Ошибка получения критериев: {e}", file=sys.stderr)
 
         # Определяем новые критерии
         new_criteria = all_criteria - checked_criteria
 
+        # Логируем найденные новые критерии
+        if self.debug and self.original_stdout:
+            self.original_stdout.write(f"DEBUG: Найдено {len(new_criteria)} новых критериев\n")
+            self.original_stdout.flush()
+
+        # ВАЖНО: Проверяем, есть ли вообще игры для обработки
+        from games.models import Game
+        games_count = Game.objects.count()
+
+        # Рассчитываем сколько игр осталось для обработки
+        games_after_offset = max(0, games_count - self.offset) if games_count else 0
+        limit_remaining = self.limit if self.limit else games_after_offset
+
         if new_criteria and len(new_criteria) > 0:
-            # ОБНАРУЖЕНЫ НОВЫЕ КРИТЕРИИ
-            if self.original_stdout:
-                self.original_stdout.write(f"\n🎯 ОБНАРУЖЕНО {len(new_criteria)} НОВЫХ КРИТЕРИЕВ ДЛЯ ПРОВЕРКИ!\n")
-                self.original_stdout.write("ℹ️ Новые критерии будут добавлены к проверенным\n")
-                self.original_stdout.flush()
+            # Есть новые критерии, но проверяем, есть ли что обрабатывать
+            if limit_remaining == 0:
+                # Нет игр для обработки - просто добавляем критерии без предупреждения
+                if self.verbose and self.original_stdout:
+                    self.original_stdout.write(
+                        f"ℹ️ Обнаружено {len(new_criteria)} новых критериев, но нет игр для обработки\n")
+                    self.original_stdout.write(f"ℹ️ Критерии добавлены в проверенные\n")
+                    self.original_stdout.flush()
 
-            if self.output_file:
-                self.stdout.write(f"\n🎯 ОБНАРУЖЕНО {len(new_criteria)} НОВЫХ КРИТЕРИЕВ ДЛЯ ПРОВЕРКИ!")
-                self.stdout.write("ℹ️ Новые критерии будут добавлены к проверенным")
+                # Добавляем новые критерии в проверенные
+                self.state_manager.add_checked_criteria(list(new_criteria))
 
-            # Добавляем новые критерии в проверенные
-            self.state_manager.add_checked_criteria(list(new_criteria))
+                # Сохраняем состояние с обновленными критериями
+                try:
+                    processed_count = self.state_manager.get_processed_count()
+                    self.state_manager.save_state(processed_count)
+                except Exception:
+                    pass
 
-            # Устанавливаем флаг, что обнаружены новые критерии
-            self._new_criteria_detected = True
+                # НЕ устанавливаем флаг новых критериев, так как нет игр для обработки
+                self._new_criteria_detected = False
 
-            # Сохраняем состояние с обновленными критериями
-            try:
-                processed_count = self.state_manager.get_processed_count()
-                self.state_manager.save_state(processed_count)
-            except Exception:
-                pass
+                # Возвращаем обновленные проверенные критерии
+                updated_checked_criteria = self.state_manager.get_checked_criteria()
+                return updated_checked_criteria, set()
+            else:
+                # Есть новые критерии И есть игры для обработки
+                if self.original_stdout:
+                    self.original_stdout.write(f"\n🎯 ОБНАРУЖЕНО {len(new_criteria)} НОВЫХ КРИТЕРИЕВ ДЛЯ ПРОВЕРКИ!\n")
+                    self.original_stdout.write("ℹ️ Новые критерии будут добавлены к проверенным\n")
+                    if self.offset > 0:
+                        self.original_stdout.write(
+                            f"ℹ️ Игры после оффсета {self.offset} будут проверены на новые критерии\n")
+                    self.original_stdout.flush()
 
-            # Возвращаем обновленные проверенные критерии (включая новые)
-            updated_checked_criteria = self.state_manager.get_checked_criteria()
-            return updated_checked_criteria, set()
+                if self.output_file:
+                    self.stdout.write(f"\n🎯 ОБНАРУЖЕНО {len(new_criteria)} НОВЫХ КРИТЕРИЕВ ДЛЯ ПРОВЕРКИ!")
+                    self.stdout.write("ℹ️ Новые критерии будут добавлены к проверенным")
+
+                # Добавляем новые критерии в проверенные
+                self.state_manager.add_checked_criteria(list(new_criteria))
+
+                # Устанавливаем флаг, что обнаружены новые критерии
+                self._new_criteria_detected = True
+
+                # Сохраняем состояние с обновленными критериями
+                try:
+                    processed_count = self.state_manager.get_processed_count()
+                    self.state_manager.save_state(processed_count)
+                except Exception:
+                    pass
+
+                # Возвращаем обновленные проверенные критерии (включая новые)
+                updated_checked_criteria = self.state_manager.get_checked_criteria()
+                return updated_checked_criteria, set()
 
         # Сбрасываем флаг если новых критериев нет
         self._new_criteria_detected = False
@@ -1579,9 +1632,40 @@ class AnalyzerCommand(BaseCommand):
             if self.progress_bar:
                 self.progress_bar.finish()
 
+            # ВАЖНО: Рассчитываем и сохраняем оффсет для продолжения
+            # Рассчитываем сколько игр было обработано в этом запуске
+            if self.keywords:
+                # Для ключевых слов: учитываем все типы обработанных игр
+                finalized_games = (
+                        self.stats.get('skipped_no_text', 0) +  # Пропущенные без текста
+                        self.stats.get('skipped_short_text', 0) +  # Пропущенные с коротким текстом
+                        self.stats['updated_games'] +  # Сохраненные игры
+                        self.stats.get('keywords_not_found', 0)  # Игры без найденных ключевых слов
+                )
+            else:
+                # Для обычных критериев
+                finalized_games = (
+                        self.stats.get('skipped_no_text', 0) +
+                        self.stats.get('skipped_short_text', 0) +
+                        self.stats['updated_games'] +
+                        self.stats.get('not_found_count', 0)  # Игры без критериев
+                )
+
+            # Следующий оффсет для продолжения
+            next_offset = self.offset + finalized_games
+
+            # Сохраняем оффсет для продолжения
+            self._save_offset_to_file(next_offset)
+
+            # Выводим информацию об оффсете
+            if self.original_stdout:
+                self.original_stdout.write(f"\n💾 Сохранен оффсет для продолжения: {next_offset}\n")
+                self.original_stdout.write(f"📍 Используйте --offset {next_offset} для продолжения с этого места\n")
+                self.original_stdout.flush()
+
             # Выводим статистику с учетом оффсета
             self.stats['execution_time'] = time.time() - start_time
-            self._display_final_statistics_with_offset(self.stats, already_processed, total_games, self.offset)
+            self._display_final_statistics(self.stats, already_processed, total_games)
 
         except KeyboardInterrupt:
             # При прерывании передаем начальный оффсет для правильного расчета
