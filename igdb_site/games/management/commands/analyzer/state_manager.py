@@ -67,7 +67,9 @@ class StateManager:
             return 0
 
         try:
-            # Загружаем обработанные игры
+            total_processed = 0
+
+            # 1. Загружаем обработанные игры из state_file
             if os.path.exists(self.state_file):
                 with open(self.state_file, 'r', encoding='utf-8') as f:
                     state_data = json.load(f)
@@ -78,24 +80,33 @@ class StateManager:
                 if saved_mode != current_mode:
                     # Режим изменился, начинаем заново
                     self.processed_games.clear()
+                    self.checked_criteria.clear()
                     print(f"♻️ Режим изменился с '{saved_mode}' на '{current_mode}'. Очищаем состояние.",
                           file=sys.stderr)
                 else:
-                    # Загружаем обработанные игры, но НЕ статистику пропусков
+                    # Загружаем обработанные игры
                     self.processed_games = set(state_data.get('processed_games', []))
                     total_processed = len(self.processed_games)
-
-                    # ВАЖНО: выводим информацию только об обработанных играх
                     print(f"📖 Загружено состояние: {total_processed} ранее обработанных игр", file=sys.stderr)
 
-                    # ВАЖНО: НЕ загружаем статистику пропусков из предыдущих запусков
-                    # Она будет рассчитываться заново в текущем запуске
+            # 2. Загружаем проверенные критерии из criteria_state_file
+            if self.criteria_state_file and os.path.exists(self.criteria_state_file):
+                with open(self.criteria_state_file, 'r', encoding='utf-8') as f:
+                    criteria_data = json.load(f)
 
-                    return total_processed
+                saved_criteria_mode = criteria_data.get('mode', '')
+                current_criteria_mode = 'keywords' if self.keywords_mode else 'criteria'
 
-            # Если файл состояния не существует или режим изменился
-            self.processed_games.clear()
-            return 0
+                if saved_criteria_mode == current_criteria_mode:
+                    self.checked_criteria = set(criteria_data.get('checked_criteria', []))
+                    criteria_count = len(self.checked_criteria)
+                    print(f"📊 Загружено проверенных критериев: {criteria_count}", file=sys.stderr)
+                else:
+                    print(f"♻️ Режим критериев изменился: '{saved_criteria_mode}' -> '{current_criteria_mode}'",
+                          file=sys.stderr)
+                    self.checked_criteria.clear()
+
+            return total_processed
 
         except Exception as e:
             print(f"⚠️ Ошибка загрузки состояния: {e}", file=sys.stderr)
@@ -159,6 +170,9 @@ class StateManager:
 
             with open(self.criteria_state_file, 'w', encoding='utf-8') as f:
                 json.dump(criteria_data, f, ensure_ascii=False, indent=2)
+
+            if self.verbose:
+                print(f"💾 Сохранено {len(self.checked_criteria)} проверенных критериев", file=sys.stderr)
 
         except Exception as e:
             print(f"⚠️ Ошибка сохранения состояния критериев: {e}", file=sys.stderr)
