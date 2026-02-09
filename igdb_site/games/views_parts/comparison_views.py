@@ -8,8 +8,12 @@ from django.db.models import Prefetch
 
 from .base_views import (
     convert_params_to_lists, SimpleSourceGame,
-    GameSimilarity, VirtualGame,
-    Game, Genre, Keyword, Theme, PlayerPerspective, Company, GameMode
+    GameSimilarity, VirtualGame
+)
+# Импортируем все нужные модели
+from ..models import (
+    Game, Genre, Keyword, Theme, PlayerPerspective,
+    Company, GameMode, Platform
 )
 
 logger = logging.getLogger(__name__)
