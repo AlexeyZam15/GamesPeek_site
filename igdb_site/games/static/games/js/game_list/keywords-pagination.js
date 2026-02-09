@@ -22,7 +22,7 @@ const KeywordsPagination = {
     totalItems: 0,
     totalPages: 0,
 
-    // Инициализация
+    // Инициализация - ИСПРАВЛЕННАЯ ВЕРСИЯ
     init() {
         console.log('Initializing keywords pagination...');
 
@@ -33,21 +33,115 @@ const KeywordsPagination = {
 
         console.log(`Found ${this.totalItems} keyword items, ${this.totalPages} pages`);
 
-        if (this.totalItems <= this.config.itemsPerPage) {
-            console.log(`Only ${this.totalItems} keywords, no pagination needed.`);
-            this.hidePagination();
-            // Показываем все элементы
-            this.keywordItems.forEach(item => item.style.display = 'block');
+        // ПРОВЕРКА 1: Если нет элементов вообще
+        if (this.totalItems === 0) {
+            console.log('No keyword items found, skipping pagination.');
             return;
         }
 
-        // Создаем контейнер для страниц
+        // ПРОВЕРКА 2: Если меньше или равно itemsPerPage, пагинация не нужна
+        if (this.totalItems <= this.config.itemsPerPage) {
+            console.log(`Only ${this.totalItems} keywords, no pagination needed.`);
+            // Показываем все элементы
+            this.keywordItems.forEach(item => item.style.display = 'block');
+
+            // Скрываем пагинацию, если контейнер существует
+            this.hidePagination();
+            return;
+        }
+
+        // ПОИСК КОНТЕЙНЕРА ПАГИНАЦИИ (сначала ищем по ID, потом по классу)
+        let paginationContainer = document.querySelector(this.config.paginationSelector);
+
+        if (!paginationContainer) {
+            // Если контейнер с ID не найден, ищем по классу
+            const keywordPagination = document.querySelector('.keyword-pagination');
+            if (keywordPagination) {
+                console.log('Found keyword-pagination container without ID, adding ID to it');
+                // Добавляем ID к существующему элементу
+                keywordPagination.id = this.config.paginationSelector.substring(1); // Убираем #
+                paginationContainer = keywordPagination;
+            }
+        }
+
+        if (!paginationContainer) {
+            console.warn(`Pagination container not found in DOM. Skipping initialization.`);
+            return;
+        }
+
+        // ОБНОВЛЯЕМ HTML ЭЛЕМЕНТЫ С ID (если они не имеют ID)
+        this.ensureHtmlElementsHaveIds();
+
+        // Создаем контейнер для номеров страниц (если его еще нет)
         this.createPageNumbersContainer();
 
         this.setupPagination();
         this.showPage(1);
 
         console.log(`Keywords pagination initialized: ${this.totalItems} items, ${this.totalPages} pages`);
+    },
+
+    // НОВЫЙ МЕТОД: Гарантируем, что HTML элементы имеют правильные ID
+    ensureHtmlElementsHaveIds() {
+        // Проверяем и добавляем ID к элементам пагинации, если их нет
+        const elementsToCheck = [
+            { selector: '#keyword-prev', defaultId: 'keyword-prev' },
+            { selector: '#keyword-next', defaultId: 'keyword-next' },
+            { selector: '#keyword-start', defaultId: 'keyword-start' },
+            { selector: '#keyword-end', defaultId: 'keyword-end' },
+            { selector: '#keyword-current', defaultId: 'keyword-current' },
+            { selector: '#keyword-total', defaultId: 'keyword-total' }
+        ];
+
+        elementsToCheck.forEach(({ selector, defaultId }) => {
+            let element = document.querySelector(selector);
+
+            // Если элемент не найден по ID, ищем по другим способам
+            if (!element) {
+                // Ищем по текстовому содержимому для информационных элементов
+                if (defaultId.includes('start') || defaultId.includes('end') ||
+                    defaultId.includes('current') || defaultId.includes('total')) {
+
+                    const allSpans = document.querySelectorAll('.keyword-pagination span');
+                    for (let span of allSpans) {
+                        if (span.id === defaultId) {
+                            element = span;
+                            break;
+                        }
+                        // Если у span нет ID, но он находится в правильном контексте
+                        if (!span.id && span.closest('.keyword-pagination')) {
+                            const parentText = span.parentElement.textContent;
+                            if ((defaultId === 'keyword-start' && parentText.includes('Page')) ||
+                                (defaultId === 'keyword-current' && parentText.includes('Page')) ||
+                                (defaultId === 'keyword-total-pages' && parentText.includes('of'))) {
+                                span.id = defaultId;
+                                element = span;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // Для кнопок ищем по классу и позиции
+                if (!element && (defaultId.includes('prev') || defaultId.includes('next'))) {
+                    const buttons = document.querySelectorAll('.keyword-pagination button');
+                    if (buttons.length >= 2) {
+                        if (defaultId === 'keyword-prev') {
+                            buttons[0].id = defaultId;
+                            element = buttons[0];
+                        } else if (defaultId === 'keyword-next') {
+                            buttons[buttons.length - 1].id = defaultId;
+                            element = buttons[buttons.length - 1];
+                        }
+                    }
+                }
+            }
+
+            // Если элемент все еще не найден, создаем его
+            if (!element) {
+                console.warn(`Element ${defaultId} not found, but continuing anyway`);
+            }
+        });
     },
 
     // Создаем контейнер для номеров страниц
@@ -318,6 +412,19 @@ const KeywordsPagination = {
         }
     },
 
+    // Показать пагинацию
+    showPagination() {
+        const paginationContainer = document.querySelector(this.config.paginationSelector);
+        if (paginationContainer) {
+            paginationContainer.style.display = 'flex';
+        }
+
+        const paginationNav = document.querySelector('.keyword-pagination');
+        if (paginationNav) {
+            paginationNav.style.display = 'block';
+        }
+    },
+
     // Обновить пагинацию после поиска/фильтрации
     updateAfterSearch() {
         // Получаем видимые элементы после поиска
@@ -348,15 +455,7 @@ const KeywordsPagination = {
                 this.hidePagination();
             } else {
                 // Показываем пагинацию
-                const paginationContainer = document.querySelector(this.config.paginationSelector);
-                if (paginationContainer) {
-                    paginationContainer.style.display = 'flex';
-                }
-
-                const paginationNav = document.querySelector('.keyword-pagination');
-                if (paginationNav) {
-                    paginationNav.style.display = 'block';
-                }
+                this.showPagination();
 
                 // Перестраиваем пагинацию
                 this.setupPagination();
@@ -369,15 +468,7 @@ const KeywordsPagination = {
             this.totalPages = Math.ceil(this.totalItems / this.config.itemsPerPage);
 
             // Показываем пагинацию
-            const paginationContainer = document.querySelector(this.config.paginationSelector);
-            if (paginationContainer) {
-                paginationContainer.style.display = 'flex';
-            }
-
-            const paginationNav = document.querySelector('.keyword-pagination');
-            if (paginationNav) {
-                paginationNav.style.display = 'block';
-            }
+            this.showPagination();
 
             // Перестраиваем пагинацию
             this.setupPagination();
@@ -401,11 +492,30 @@ const KeywordsPagination = {
 
         console.log(`Force update: ${this.totalItems} items, ${this.totalPages} pages`);
 
+        // УДАЛЯЕМ ЛИШНИЕ КОНТЕЙНЕРЫ ПАГИНАЦИИ
+        const allPaginationContainers = document.querySelectorAll('.keyword-pagination');
+        if (allPaginationContainers.length > 1) {
+            console.log(`Found ${allPaginationContainers.length} pagination containers, keeping only the one with ID`);
+            // Оставляем только контейнер с ID, остальные удаляем
+            allPaginationContainers.forEach((container, index) => {
+                if (!container.id || container.id !== 'keyword-pagination') {
+                    console.log(`Removing extra pagination container #${index}`);
+                    container.remove();
+                }
+            });
+        }
+
         if (this.totalItems <= this.config.itemsPerPage) {
             this.hidePagination();
             // Показываем все элементы
             this.keywordItems.forEach(item => item.style.display = 'block');
         } else {
+            // Используем существующий контейнер
+            if (!document.querySelector(this.config.paginationSelector)) {
+                console.log('No pagination container found, skipping');
+                return;
+            }
+
             // Создаем контейнер если его нет
             if (!document.getElementById('keyword-page-numbers')) {
                 this.createPageNumbersContainer();
