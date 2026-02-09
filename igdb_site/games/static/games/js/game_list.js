@@ -1,9 +1,9 @@
 // games/static/games/js/game_list.js
-import FilterSort from './game_list/filters-sort.js';
-import FilterSearch from './game_list/filters-search.js';
-import FilterUI from './game_list/filters-ui.js';
-import FilterHandlers from './game_list/filters-handlers.js';
-import FilterSticky from './game_list/filters-sticky.js';
+import FilterSort from './game_list/filters_js/filters-sort.js';
+import FilterSearch from './game_list/filters_js/filters-search.js';
+import FilterUI from './game_list/filters_js/filters-ui.js';
+import FilterHandlers from './game_list/filters_js/filters-handlers.js';
+import FilterSticky from './game_list/filters_js/filters-sticky.js';
 import KeywordsPagination from './game_list/keywords-pagination.js';
 import GamePagination from './game_list/game-pagination.js';
 
@@ -47,15 +47,34 @@ document.addEventListener('DOMContentLoaded', function() {
                 FilterSearch.setupSearchFilters();
             }
 
+            // Инициализируем пагинацию ключевых слов с задержкой и проверкой
             if (KeywordsPagination && typeof KeywordsPagination.init === 'function') {
                 console.log('Initializing keywords pagination...');
                 setTimeout(() => {
                     try {
-                        KeywordsPagination.init();
+                        // Проверяем, что элементы существуют
+                        const keywordItems = document.querySelectorAll('.keyword-item');
+                        console.log(`Found ${keywordItems.length} keyword items`);
+
+                        if (keywordItems.length > 0) {
+                            KeywordsPagination.init();
+                            console.log('Keywords pagination initialized successfully');
+
+                            // Дополнительная проверка: если пагинация не сработала, форсируем
+                            setTimeout(() => {
+                                const paginationContainer = document.querySelector('#keyword-pagination');
+                                if (paginationContainer && paginationContainer.style.display === 'none') {
+                                    console.log('Pagination container is hidden, forcing update...');
+                                    KeywordsPagination.forceUpdate();
+                                }
+                            }, 500);
+                        } else {
+                            console.warn('No keyword items found, skipping keywords pagination');
+                        }
                     } catch (error) {
                         console.error('Error initializing keywords pagination:', error);
                     }
-                }, 300);
+                }, 500); // Увеличил задержку до 500мс
             }
 
             if (GamePagination && typeof GamePagination.init === 'function') {
@@ -71,8 +90,6 @@ document.addEventListener('DOMContentLoaded', function() {
                                     card.classList.add('game-card-container');
                                 }
                             });
-
-                            const scrollBefore = window.scrollY;
 
                             GamePagination.init();
                             console.log('Lazy games pagination initialized successfully');
@@ -127,41 +144,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    function showBackgroundLoadingMessage() {
-        const gamesContainer = document.querySelector('.games-container');
-        if (!gamesContainer) return;
-
-        const message = document.createElement('div');
-        message.className = 'page-loading-message';
-        message.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Остальные страницы загружаются в фоне...';
-        message.style.cssText = `
-            font-size: 0.85rem;
-            color: rgba(255, 107, 53, 0.8);
-            margin-top: 1rem;
-            text-align: center;
-            font-style: italic;
-            background: rgba(255, 107, 53, 0.05);
-            padding: 0.5rem 1rem;
-            border-radius: 10px;
-            border: 1px solid rgba(255, 107, 53, 0.2);
-            animation: fadeIn 0.5s ease;
-        `;
-
-        gamesContainer.parentNode.insertBefore(message, gamesContainer.nextSibling);
-
-        setTimeout(() => {
-            if (message.parentNode) {
-                message.style.opacity = '0';
-                message.style.transition = 'opacity 0.5s';
-                setTimeout(() => {
-                    if (message.parentNode) {
-                        message.parentNode.removeChild(message);
-                    }
-                }, 500);
-            }
-        }, 5000);
-    }
-
     function restoreScrollPosition() {
         try {
             const saved = sessionStorage.getItem('filterScrollY');
@@ -179,6 +161,46 @@ document.addEventListener('DOMContentLoaded', function() {
             console.warn('Could not restore scroll position:', e);
         }
     }
+});
+
+// Также добавь инициализацию при полной загрузке страницы
+window.addEventListener('load', () => {
+    console.log('Page fully loaded, checking keywords pagination...');
+
+    // Проверяем, правильно ли инициализирована пагинация ключевых слов
+    setTimeout(() => {
+        if (window.KeywordsPagination) {
+            const keywordItems = document.querySelectorAll('.keyword-item');
+            const allVisible = Array.from(keywordItems).every(item =>
+                item.style.display === 'block' ||
+                window.getComputedStyle(item).display === 'block'
+            );
+
+            if (allVisible && keywordItems.length > 30) {
+                console.log('All keywords are visible, but there are many items. Forcing pagination update...');
+
+                // Скрываем все элементы кроме первых 30
+                keywordItems.forEach((item, index) => {
+                    if (index >= 30) {
+                        item.style.display = 'none';
+                    }
+                });
+
+                // Форсируем обновление пагинации
+                window.KeywordsPagination.forceUpdate();
+            }
+        }
+
+        if (window.GamePagination && !window.GamePagination.state.loadedPages.size) {
+            console.log('GamePagination not properly initialized, forcing update');
+            window.GamePagination.forceUpdate();
+        }
+
+        if (window.GamePagination && window.GamePagination.hasPagination()) {
+            console.log('Starting background loading of adjacent pages...');
+            window.GamePagination.preloadAdjacentPages(window.GamePagination.getCurrentPage());
+        }
+    }, 1500);
 });
 
 document.addEventListener('filterApplied', () => {
@@ -226,46 +248,6 @@ const observer = new MutationObserver((mutations) => {
 observer.observe(document.body, {
     childList: true,
     subtree: true
-});
-
-document.addEventListener('pageAlreadyLoaded', (e) => {
-    console.log('Page already loaded event received, skipping duplicate load');
-});
-
-window.isPageLoaded = function(pageNumber) {
-    if (window.GamePagination && window.GamePagination.state) {
-        return window.GamePagination.state.loadedPages.has(pageNumber);
-    }
-    return false;
-};
-
-window.showPageDirectly = function(pageNumber) {
-    if (window.GamePagination && typeof window.GamePagination.showPageFromCache === 'function') {
-        window.GamePagination.showPageFromCache(pageNumber);
-        return true;
-    }
-    return false;
-};
-
-window.areGamesInDOM = function(pageNumber) {
-    if (window.GamePagination && typeof window.GamePagination.arePageGamesInDOM === 'function') {
-        return window.GamePagination.arePageGamesInDOM(pageNumber);
-    }
-    return false;
-};
-
-window.addEventListener('load', () => {
-    setTimeout(() => {
-        if (window.GamePagination && !window.GamePagination.state.loadedPages.size) {
-            console.log('GamePagination not properly initialized, forcing update');
-            window.GamePagination.forceUpdate();
-        }
-
-        if (window.GamePagination && window.GamePagination.hasPagination()) {
-            console.log('Starting background loading of adjacent pages...');
-            window.GamePagination.preloadAdjacentPages(window.GamePagination.getCurrentPage());
-        }
-    }, 1500);
 });
 
 export {
