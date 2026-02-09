@@ -14,16 +14,24 @@ const KeywordsPagination = {
         endElementId: '#keyword-end',
         currentElementId: '#keyword-current',
         totalElementId: '#keyword-total',
-        maxVisiblePages: 7 // Максимум показываем 7 страниц
+        maxVisiblePages: 7
     },
+
+    // Состояние
+    keywordItems: null,
+    totalItems: 0,
+    totalPages: 0,
 
     // Инициализация
     init() {
         console.log('Initializing keywords pagination...');
 
+        // Сначала убедимся, что DOM полностью загружен
         this.keywordItems = document.querySelectorAll(this.config.itemsSelector);
         this.totalItems = this.keywordItems.length;
         this.totalPages = Math.ceil(this.totalItems / this.config.itemsPerPage);
+
+        console.log(`Found ${this.totalItems} keyword items, ${this.totalPages} pages`);
 
         if (this.totalItems <= this.config.itemsPerPage) {
             console.log(`Only ${this.totalItems} keywords, no pagination needed.`);
@@ -39,17 +47,29 @@ const KeywordsPagination = {
         this.setupPagination();
         this.showPage(1);
 
-        console.log(`Pagination initialized: ${this.totalItems} items, ${this.totalPages} pages`);
+        console.log(`Keywords pagination initialized: ${this.totalItems} items, ${this.totalPages} pages`);
     },
 
     // Создаем контейнер для номеров страниц
     createPageNumbersContainer() {
         const paginationContainer = document.querySelector(this.config.paginationSelector);
-        if (!paginationContainer) return;
+        if (!paginationContainer) {
+            console.error('Pagination container not found:', this.config.paginationSelector);
+            return;
+        }
 
         // Находим кнопку "предыдущая"
         const prevButton = document.querySelector(this.config.prevButtonId);
-        if (!prevButton) return;
+        if (!prevButton) {
+            console.error('Previous button not found:', this.config.prevButtonId);
+            return;
+        }
+
+        // Проверяем, не существует ли уже контейнер
+        if (document.getElementById('keyword-page-numbers')) {
+            console.log('Page numbers container already exists');
+            return;
+        }
 
         // Создаем контейнер для номеров страниц
         const pageNumbersContainer = document.createElement('div');
@@ -59,6 +79,7 @@ const KeywordsPagination = {
 
         // Вставляем контейнер после кнопки "предыдущая"
         prevButton.parentNode.insertBefore(pageNumbersContainer, prevButton.nextSibling);
+        console.log('Created page numbers container');
     },
 
     // Настройка пагинации
@@ -71,7 +92,10 @@ const KeywordsPagination = {
     // Обновить номера страниц
     updatePageNumbers() {
         const pageNumbersContainer = document.getElementById('keyword-page-numbers');
-        if (!pageNumbersContainer) return;
+        if (!pageNumbersContainer) {
+            console.error('Page numbers container not found');
+            return;
+        }
 
         // Очищаем контейнер
         pageNumbersContainer.innerHTML = '';
@@ -103,6 +127,8 @@ const KeywordsPagination = {
 
             this.createPageNumberButton(pageNumbersContainer, this.totalPages);
         }
+
+        console.log(`Updated page numbers: ${startPage} to ${endPage}`);
     },
 
     // Создать кнопку номера страницы
@@ -197,6 +223,7 @@ const KeywordsPagination = {
     showPage(pageNumber) {
         if (pageNumber < 1 || pageNumber > this.totalPages) return;
 
+        console.log(`Showing keywords page ${pageNumber}`);
         this.config.currentPage = pageNumber;
 
         // Показываем/скрываем элементы
@@ -248,6 +275,8 @@ const KeywordsPagination = {
         if (endElement) endElement.textContent = endIndex;
         if (currentElement) currentElement.textContent = this.config.currentPage;
         if (totalElement) totalElement.textContent = this.totalItems;
+
+        console.log(`Page info: ${startIndex}-${endIndex} of ${this.totalItems}`);
     },
 
     // Обновить кнопки навигации
@@ -258,16 +287,20 @@ const KeywordsPagination = {
         if (prevBtn) {
             if (this.config.currentPage === 1) {
                 prevBtn.classList.add('disabled');
+                prevBtn.disabled = true;
             } else {
                 prevBtn.classList.remove('disabled');
+                prevBtn.disabled = false;
             }
         }
 
         if (nextBtn) {
             if (this.config.currentPage === this.totalPages) {
                 nextBtn.classList.add('disabled');
+                nextBtn.disabled = true;
             } else {
                 nextBtn.classList.remove('disabled');
+                nextBtn.disabled = false;
             }
         }
     },
@@ -293,6 +326,8 @@ const KeywordsPagination = {
             item.style.display !== 'none' &&
             window.getComputedStyle(item).display !== 'none'
         );
+
+        console.log(`After search: ${visibleItems.length} visible items`);
 
         if (visibleItems.length <= this.config.itemsPerPage) {
             // Показываем все видимые элементы
@@ -357,10 +392,14 @@ const KeywordsPagination = {
 
     // Принудительно обновить после изменений DOM
     forceUpdate() {
+        console.log('Force updating keywords pagination...');
+
         // Пересчитываем элементы
         this.keywordItems = document.querySelectorAll(this.config.itemsSelector);
         this.totalItems = this.keywordItems.length;
         this.totalPages = Math.ceil(this.totalItems / this.config.itemsPerPage);
+
+        console.log(`Force update: ${this.totalItems} items, ${this.totalPages} pages`);
 
         if (this.totalItems <= this.config.itemsPerPage) {
             this.hidePagination();
