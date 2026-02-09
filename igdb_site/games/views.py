@@ -7,6 +7,7 @@ from .views_parts.game_list_views import (
     get_similar_games_for_criteria,
     get_similar_games_for_game,
     get_source_game,
+    clear_game_list_cache_specific,
 )
 from .views_parts.game_detail_views import (
     game_detail,
@@ -87,6 +88,7 @@ __all__ = [
     'warm_cache_for_home_page',
     'clear_game_list_cache',
     'get_cache_stats',
+    'clear_game_list_cache_specific',
 
     # Cache decorators
     'cache_view',
