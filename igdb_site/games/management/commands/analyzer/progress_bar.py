@@ -10,7 +10,8 @@ class ProgressBar:
     def __init__(self, total: int, desc: str = "Анализ игр",
                  bar_length: int = 30, update_interval: float = 0.1,
                  stat_width: int = 5, emoji_spacing: int = 1,
-                 terminal_stream=None):
+                 terminal_stream=None):  # terminal_stream не используется, но оставляем для совместимости
+
         # Создаем унифицированный прогресс-бар
         self._progress_bar = UnifiedProgressBar(
             total=total,
@@ -24,12 +25,16 @@ class ProgressBar:
 
         # Публичные атрибуты для обратной совместимости
         self.total = total
-        self.current = 0
+        self.current = 0  # ВАЖНО: явно устанавливаем в 0
         self.desc = desc
+
+        # ВАЖНО: Синхронизируем текущее значение
+        self._progress_bar.current = 0
 
     def update(self, n: int = 1):
         """Обновить прогресс"""
         self.current += n
+        self._progress_bar.current = self.current  # Синхронизируем
         self._progress_bar.update(n)
 
     def set_enabled(self, enabled: bool):
@@ -38,20 +43,11 @@ class ProgressBar:
 
     def update_stats(self, stats: Dict):
         """Обновить статистику"""
-        # Исправлено: правильно вызываем метод update_stats у UnifiedProgressBar
-        if hasattr(self._progress_bar, 'stats'):
-            # Обновляем статистику в словаре stats
-            for key, value in stats.items():
-                if key in self._progress_bar.stats:
-                    self._progress_bar.stats[key] = value
-        else:
-            # Если нет атрибута stats, создаем его
-            self._progress_bar.stats = stats
+        # ВАЖНО: передаем статистику во внутренний прогресс-бар
+        self._progress_bar.update_stats(stats)
 
     def finish(self):
         """Завершить прогресс-бар - просто останавливаем"""
-        # НЕ вызываем finish у внутреннего прогресс-бара
-        # Просто останавливаем обновления
         self.set_enabled(False)
 
     def __enter__(self):

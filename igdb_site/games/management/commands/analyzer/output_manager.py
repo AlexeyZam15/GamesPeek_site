@@ -22,7 +22,7 @@ class TerminalController:
         self.batch_progress_line = self.terminal_height - 1  # Последняя строка
         self.main_progress_line = self.terminal_height - 2  # Предпоследняя строка
 
-        # Сохраняем текущую позицию курсора
+        # ВАЖНО: Сохраняем текущую позицию курсора
         self._save_cursor_position()
 
     def _get_terminal_height(self) -> int:
@@ -35,33 +35,58 @@ class TerminalController:
 
     def _save_cursor_position(self):
         """Сохраняет текущую позицию курсора"""
+        # Сохраняем позицию курсора
         self.terminal.write("\033[s")
         self.terminal.flush()
 
     def _restore_cursor_position(self):
         """Восстанавливает сохраненную позицию курсора"""
+        # Восстанавливаем позицию курсора
         self.terminal.write("\033[u")
         self.terminal.flush()
 
     def move_to_line(self, line: int):
         """Перемещает курсор на указанную строку (0-индексированная)"""
+        # Перемещаем курсор на нужную строку
         self.terminal.write(f"\033[{line + 1};1H")
         self.terminal.flush()
 
     def clear_line(self, line: int):
         """Очищает указанную строку"""
-        self._save_cursor_position()
         self.move_to_line(line)
         self.terminal.write("\033[2K")  # Очистить всю строку
+        self.terminal.flush()
         self._restore_cursor_position()
 
     def write_at_line(self, line: int, text: str):
         """Записывает текст на указанной строке"""
+        # Сохраняем текущую позицию
         self._save_cursor_position()
+
+        # Перемещаемся на нужную строку
         self.move_to_line(line)
+
+        # Очищаем строку
         self.terminal.write("\033[2K")  # Очистить строку
-        self.terminal.write(text[:200])  # Ограничиваем длину
+
+        # Записываем текст (ограничиваем длину)
+        max_width = self._get_terminal_width()
+        if len(text) > max_width:
+            text = text[:max_width - 3] + "..."
+
+        self.terminal.write(text)
+
+        # Восстанавливаем позицию
         self._restore_cursor_position()
+        self.terminal.flush()
+
+    def _get_terminal_width(self) -> int:
+        """Получает ширину терминала"""
+        try:
+            size = shutil.get_terminal_size()
+            return size.columns
+        except:
+            return 80  # Стандартная ширина терминала
 
     def clear_progress_bars(self):
         """Очищает строки прогресс-баров"""
@@ -73,6 +98,12 @@ class TerminalController:
         self.clear_line(self.main_progress_line)
         self.move_to_line(self.main_progress_line)
         self.terminal.write("\033[2K")  # Очистить строку
+
+        # Ограничиваем длину текста
+        max_width = self._get_terminal_width()
+        if len(text) > max_width:
+            text = text[:max_width - 3] + "..."
+
         self.terminal.write(text)
         self.terminal.flush()
 
@@ -93,7 +124,7 @@ class UnifiedProgressBar:
         self.emoji_spacing = emoji_spacing
         self.is_batch = is_batch
 
-        self.current = 0
+        self.current = 0  # ВАЖНО: ВСЕГДА начинаем с 0
         self.start_time = time.time()
         self.last_update_time = time.time()
         self._enabled = True
@@ -112,6 +143,26 @@ class UnifiedProgressBar:
         self.filled_char = '█'
         self.empty_char = '░'
         self.terminal = TerminalController()
+
+    def reset(self):
+        """Сбросить прогресс-бар к начальному состоянию"""
+        self.current = 0  # ВАЖНО: сбрасываем в 0
+        self.start_time = time.time()
+        self.last_update_time = time.time()
+
+        # Сбрасываем статистику
+        self.stats = {
+            'found_count': 0,
+            'total_criteria_found': 0,
+            'skipped_total': 0,
+            'errors': 0,
+            'updated': 0,
+            'in_batch': 0,
+            'not_found_count': 0,
+        }
+
+        # Принудительно обновляем отображение
+        self._force_update()
 
     def get_current_message(self):
         """Возвращает текущее сообщение прогресс-бара с полной статистикой"""
@@ -174,7 +225,7 @@ class UnifiedProgressBar:
         return message
 
     def update(self, n: int = 1):
-        """Обновить прогресс"""
+        """Обновить прогресс - ВСЕГДА обновляем отображение"""
         if not self._enabled:
             return
 
@@ -184,13 +235,8 @@ class UnifiedProgressBar:
         if self.current > self.total:
             self.current = self.total
 
-        current_time = time.time()
-
-        # Обновляем не чаще чем update_interval секунд
-        if current_time - self.last_update_time < self.update_interval and self.current < self.total:
-            return
-
-        self.last_update_time = current_time
+        # ВАЖНО: ОБНОВЛЯЕМ ВСЕГДА, независимо от интервала!
+        self.last_update_time = time.time()
 
         # Получаем сообщение
         message = self.get_current_message()
@@ -201,10 +247,7 @@ class UnifiedProgressBar:
         # Выводим на фиксированной позиции внизу
         self.terminal.write_at_line(line, message)
 
-        # СИНХРОНИЗИРУЕМ stdout/stderr для предотвращения конфликтов
-        if not self.is_batch:
-            sys.stdout.flush()
-            sys.stderr.flush()
+        # ВАЖНО: Не вызываем flush здесь - это делает write_at_line
 
     def update_stats(self, stats: Dict[str, Any]):
         """Обновить статистику прогресс-бара"""
@@ -228,11 +271,6 @@ class UnifiedProgressBar:
 
         # Выводим на фиксированной позиции внизу
         self.terminal.write_at_line(line, message)
-
-        # СИНХРОНИЗИРУЕМ stdout/stderr
-        if not self.is_batch:
-            sys.stdout.flush()
-            sys.stderr.flush()
 
     def finish(self, final_message: Optional[str] = None):
         """Завершить прогресс-бар"""

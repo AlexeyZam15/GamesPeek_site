@@ -78,31 +78,24 @@ class StateManager:
                 if saved_mode != current_mode:
                     # Режим изменился, начинаем заново
                     self.processed_games.clear()
+                    print(f"♻️ Режим изменился с '{saved_mode}' на '{current_mode}'. Очищаем состояние.",
+                          file=sys.stderr)
                 else:
+                    # Загружаем обработанные игры, но НЕ статистику пропусков
                     self.processed_games = set(state_data.get('processed_games', []))
+                    total_processed = len(self.processed_games)
 
-            # Загружаем проверенные критерии
-            if os.path.exists(self.criteria_state_file):
-                with open(self.criteria_state_file, 'r', encoding='utf-8') as f:
-                    criteria_data = json.load(f)
+                    # ВАЖНО: выводим информацию только об обработанных играх
+                    print(f"📖 Загружено состояние: {total_processed} ранее обработанных игр", file=sys.stderr)
 
-                saved_mode = criteria_data.get('mode', '')
-                current_mode = 'keywords' if self.keywords_mode else 'criteria'
+                    # ВАЖНО: НЕ загружаем статистику пропусков из предыдущих запусков
+                    # Она будет рассчитываться заново в текущем запуске
 
-                if saved_mode == current_mode:
-                    self.checked_criteria = set(criteria_data.get('checked_criteria', []))
-                else:
-                    self.checked_criteria.clear()
-            else:
-                self.checked_criteria.clear()
+                    return total_processed
 
-            total_processed = len(self.processed_games)
-
-            # Выводим информацию о загруженных критериях
-            if self.checked_criteria:
-                print(f"📖 Загружено {len(self.checked_criteria)} проверенных критериев", file=sys.stderr)
-
-            return total_processed
+            # Если файл состояния не существует или режим изменился
+            self.processed_games.clear()
+            return 0
 
         except Exception as e:
             print(f"⚠️ Ошибка загрузки состояния: {e}", file=sys.stderr)
@@ -111,24 +104,25 @@ class StateManager:
             return 0
 
     def save_state(self, processed_count: int = 0):
-        """Сохраняет состояние в файлы"""
+        """Сохраняет состояние в файлы - ТОЛЬКО обработанные игры"""
         self._save_games_state(processed_count)
         self._save_criteria_state()
 
     def _save_games_state(self, processed_count: int = 0):
-        """Сохраняет состояние обработанных игр"""
+        """Сохраняет состояние обработанных игр - БЕЗ статистики пропусков"""
         if not self.state_file:
             return
 
         try:
             current_mode = 'keywords' if self.keywords_mode else 'criteria'
 
+            # ВАЖНО: Сохраняем ТОЛЬКО обработанные игры
             state_data = {
                 'processed_games': list(self.processed_games),
                 'timestamp': time.time(),
-                'total_processed': processed_count,
                 'mode': current_mode,
                 'keywords_mode': self.keywords_mode
+                # НЕ сохраняем никакую статистику пропусков!
             }
 
             # Создаем директорию если нужно
