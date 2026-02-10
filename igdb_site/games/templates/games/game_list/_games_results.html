@@ -52,47 +52,126 @@
             {% endif %}
         </div>
 
-        <!-- Пагинация вверху (показываем всегда) -->
-        <div class="games-pagination games-pagination-top mb-4">
-            <nav aria-label="Games pagination">
-                <div class="nav-container">
-                    <!-- Кнопка "Предыдущая" -->
-                    <button type="button" class="btn btn-sm btn-outline-primary" id="games-prev-top">
-                        <i class="bi bi-chevron-left"></i> Prev
-                    </button>
+        <!-- Пагинация вверху (кастомный дизайн как в клиентской версии) -->
+        {% if is_paginated %}
+            <div class="games-pagination games-pagination-top mb-4">
+                <nav aria-label="Games pagination">
+                    <!-- Основной контейнер навигации -->
+                    <div class="d-flex flex-column align-items-center">
+                        <!-- Пагинация Bootstrap с нашими стилями -->
+                        <ul class="pagination mb-2">
+                            {% if page_obj.has_previous %}
+                                <li class="page-item">
+                                    <a class="page-link"
+                                       href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ page_obj.previous_page_number }}
 
-                    <!-- Номера страниц -->
-                    <div id="games-page-numbers-top" class="d-flex gap-1 align-items-center"></div>
+                                               {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                                       aria-label="Previous">
+                                        <i class="bi bi-chevron-left"></i> Prev
+                                    </a>
+                                </li>
+                            {% else %}
+                                <li class="page-item disabled">
+                                    <span class="page-link">
+                                        <i class="bi bi-chevron-left"></i> Prev
+                                    </span>
+                                </li>
+                            {% endif %}
 
-                    <!-- Кнопка "Следующая" -->
-                    <button type="button" class="btn btn-sm btn-outline-primary" id="games-next-top">
-                        Next <i class="bi bi-chevron-right"></i>
-                    </button>
-                </div>
+                            <!-- Контейнер для номеров страниц (имитация клиентского дизайна) -->
+                            <div class="pagination-container">
+                                {% for num in page_obj.paginator.page_range %}
+                                    {% if page_obj.number == num %}
+                                        <li class="page-item active">
+                                            <span class="page-link">{{ num }}</span>
+                                        </li>
+                                    {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+                                        <li class="page-item">
+                                            <a class="page-link"
+                                               href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ num }}
 
-                <!-- Информация о странице -->
-                <div class="text-center mt-2">
-                    <div class="page-info">
-                        <small class="text-muted">
-                            Page <span id="games-current-top">{{ current_page }}</span>
-                            of <span id="games-total-pages-top">{{ total_pages }}</span>
-                            (<span id="games-start-top">{{ start_index }}</span>-<span
-                                id="games-end-top">{{ end_index }}</span>
-                            of <span id="games-total-all-top">{{ total_count }}</span> games)
-                        </small>
+                                                       {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">
+                                                {{ num }}
+                                            </a>
+                                        </li>
+                                    {% elif num == 1 or num == page_obj.paginator.num_pages %}
+                                        <li class="page-item">
+                                            <a class="page-link"
+                                               href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ num }}
+
+                                                       {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">
+                                                {{ num }}
+                                            </a>
+                                        </li>
+                                    {% elif num == page_obj.number|add:'-3' or num == page_obj.number|add:'3' %}
+                                        <li class="page-item disabled">
+                                            <span class="page-link">...</span>
+                                        </li>
+                                    {% endif %}
+                                {% endfor %}
+                            </div>
+
+                            {% if page_obj.has_next %}
+                                <li class="page-item">
+                                    <a class="page-link"
+                                       href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ page_obj.next_page_number }}
+
+                                               {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                                       aria-label="Next">
+                                        Next <i class="bi bi-chevron-right"></i>
+                                    </a>
+                                </li>
+                            {% else %}
+                                <li class="page-item disabled">
+                                    <span class="page-link">
+                                        Next <i class="bi bi-chevron-right"></i>
+                                    </span>
+                                </li>
+                            {% endif %}
+                        </ul>
+
+                        <!-- Кнопки First/Last для мобильных -->
+                        <div class="mobile-pagination-buttons d-md-none">
+                            {% if page_obj.has_previous %}
+                                <a class="btn btn-sm btn-outline-primary"
+                                   href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=1
+
+                                           {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">
+                                    First
+                                </a>
+                            {% else %}
+                                <button class="btn btn-sm btn-outline-primary" disabled>First</button>
+                            {% endif %}
+
+                            {% if page_obj.has_next %}
+                                <a class="btn btn-sm btn-outline-primary"
+                                   href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ page_obj.paginator.num_pages }}
+
+                                           {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">
+                                    Last
+                                </a>
+                            {% else %}
+                                <button class="btn btn-sm btn-outline-primary" disabled>Last</button>
+                            {% endif %}
+                        </div>
+
+                        <!-- Информация о странице -->
+                        <div class="page-info">
+                            <small class="text-muted">
+                                Page <span id="games-current-top">{{ current_page }}</span>
+                                of <span id="games-total-pages-top">{{ total_pages }}</span>
+                                (<span id="games-start-top">{{ start_index }}</span>-<span
+                                    id="games-end-top">{{ end_index }}</span>
+                                of <span id="games-total-all-top">{{ total_count }}</span> games)
+                            </small>
+                        </div>
                     </div>
-                </div>
-            </nav>
-        </div>
+                </nav>
+            </div>
+        {% endif %}
 
-        <!-- Контейнер для игр с data-атрибутами для JS -->
-        <!-- ВАЖНОЕ ИСПРАВЛЕНИЕ: добавляем data-server-page -->
-        <div class="games-container"
-             data-current-page="{{ current_page }}"
-             data-total-pages="{{ total_pages }}"
-             data-total-games="{{ total_count }}"
-             data-items-per-page="{{ items_per_page|default:16 }}"
-             data-server-page="{{ current_page }}">
+        <!-- Контейнер для игр -->
+        <div class="games-container">
             {% if show_similarity and games_with_similarity %}
                 {% include 'games/game_list/_games_grid.html' with games=games_with_similarity show_similarity=show_similarity source_game=source_game %}
             {% elif games %}
@@ -100,51 +179,130 @@
             {% else %}
                 <div class="row" id="games-grid-row">
                     <div class="col-12">
-                        <div class="text-center py-5 games-loading-indicator">
-                            <div class="spinner-border text-primary mb-3" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                            <h5>Loading games...</h5>
-                            <p class="text-muted">Please wait</p>
+                        <div class="text-center py-5">
+                            <h5>No games found</h5>
+                            <p class="text-muted">Try changing your search criteria or reset filters</p>
+                            <a href="{% url 'game_list' %}" class="btn btn-primary">Show All Games</a>
                         </div>
                     </div>
                 </div>
             {% endif %}
         </div>
 
-        <!-- Пагинация внизу -->
-        <div class="games-pagination games-pagination-bottom mt-4">
-            <nav aria-label="Games pagination">
-                <div class="nav-container">
-                    <!-- Кнопка "Предыдущая" -->
-                    <button type="button" class="btn btn-sm btn-outline-primary" id="games-prev">
-                        <i class="bi bi-chevron-left"></i> Prev
-                    </button>
+        <!-- Пагинация внизу (такая же как вверху) -->
+        {% if is_paginated %}
+            <div class="games-pagination games-pagination-bottom mt-4">
+                <nav aria-label="Games pagination">
+                    <div class="d-flex flex-column align-items-center">
+                        <ul class="pagination mb-2">
+                            {% if page_obj.has_previous %}
+                                <li class="page-item">
+                                    <a class="page-link"
+                                       href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ page_obj.previous_page_number }}
 
-                    <!-- Номера страниц -->
-                    <div id="games-page-numbers" class="d-flex gap-1 align-items-center"></div>
+                                               {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                                       aria-label="Previous">
+                                        <i class="bi bi-chevron-left"></i> Prev
+                                    </a>
+                                </li>
+                            {% else %}
+                                <li class="page-item disabled">
+                                    <span class="page-link">
+                                        <i class="bi bi-chevron-left"></i> Prev
+                                    </span>
+                                </li>
+                            {% endif %}
 
-                    <!-- Кнопка "Следующая" -->
-                    <button type="button" class="btn btn-sm btn-outline-primary" id="games-next">
-                        Next <i class="bi bi-chevron-right"></i>
-                    </button>
-                </div>
+                            <div class="pagination-container">
+                                {% for num in page_obj.paginator.page_range %}
+                                    {% if page_obj.number == num %}
+                                        <li class="page-item active">
+                                            <span class="page-link">{{ num }}</span>
+                                        </li>
+                                    {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+                                        <li class="page-item">
+                                            <a class="page-link"
+                                               href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ num }}
 
-                <!-- Информация о странице -->
-                <div class="text-center mt-2">
-                    <div class="page-info">
-                        <small class="text-muted">
-                            Page <span id="games-current">{{ current_page }}</span>
-                            of <span id="games-total-pages">{{ total_pages }}</span>
-                            (<span id="games-start">{{ start_index }}</span>-<span id="games-end">{{ end_index }}</span>
-                            of <span id="games-total-all">{{ total_count }}</span> games)
-                        </small>
+                                                       {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">
+                                                {{ num }}
+                                            </a>
+                                        </li>
+                                    {% elif num == 1 or num == page_obj.paginator.num_pages %}
+                                        <li class="page-item">
+                                            <a class="page-link"
+                                               href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ num }}
+
+                                                       {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">
+                                                {{ num }}
+                                            </a>
+                                        </li>
+                                    {% elif num == page_obj.number|add:'-3' or num == page_obj.number|add:'3' %}
+                                        <li class="page-item disabled">
+                                            <span class="page-link">...</span>
+                                        </li>
+                                    {% endif %}
+                                {% endfor %}
+                            </div>
+
+                            {% if page_obj.has_next %}
+                                <li class="page-item">
+                                    <a class="page-link"
+                                       href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ page_obj.next_page_number }}
+
+                                               {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                                       aria-label="Next">
+                                        Next <i class="bi bi-chevron-right"></i>
+                                    </a>
+                                </li>
+                            {% else %}
+                                <li class="page-item disabled">
+                                    <span class="page-link">
+                                        Next <i class="bi bi-chevron-right"></i>
+                                    </span>
+                                </li>
+                            {% endif %}
+                        </ul>
+
+                        <div class="mobile-pagination-buttons d-md-none">
+                            {% if page_obj.has_previous %}
+                                <a class="btn btn-sm btn-outline-primary"
+                                   href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=1
+
+                                           {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">
+                                    First
+                                </a>
+                            {% else %}
+                                <button class="btn btn-sm btn-outline-primary" disabled>First</button>
+                            {% endif %}
+
+                            {% if page_obj.has_next %}
+                                <a class="btn btn-sm btn-outline-primary"
+                                   href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ page_obj.paginator.num_pages }}
+
+                                           {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">
+                                    Last
+                                </a>
+                            {% else %}
+                                <button class="btn btn-sm btn-outline-primary" disabled>Last</button>
+                            {% endif %}
+                        </div>
+
+                        <div class="page-info">
+                            <small class="text-muted">
+                                Page <span id="games-current">{{ current_page }}</span>
+                                of <span id="games-total-pages">{{ total_pages }}</span>
+                                (<span id="games-start">{{ start_index }}</span>-<span
+                                    id="games-end">{{ end_index }}</span>
+                                of <span id="games-total-all">{{ total_count }}</span> games)
+                            </small>
+                        </div>
                     </div>
-                </div>
-            </nav>
-        </div>
+                </nav>
+            </div>
+        {% endif %}
 
-        <!-- Скрытый контейнер для сообщения "No games found" (шаблон для JS) -->
+        <!-- Скрытый контейнер для сообщения "No games found" -->
         <div id="no-games-template" style="display: none;">
             <div class="col-12">
                 <div class="text-center py-5">
@@ -154,108 +312,169 @@
                 </div>
             </div>
         </div>
-
-        <!-- ОРИГИНАЛЬНАЯ СЕРВЕРНАЯ ПАГИНАЦИЯ (СКРЫВАЕМ) -->
-        {% if is_paginated %}
-            <div style="display: none;">
-                <nav aria-label="Page navigation" class="mt-4">
-                    <ul class="pagination justify-content-center">
-                        {% if page_obj.has_previous %}
-                            <li class="page-item">
-                                <a class="page-link"
-                                   href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=1
-
-                                           {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">First</a>
-                            </li>
-                            <li class="page-item">
-                                <a class="page-link"
-                                   href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-
-                                           {{ page_obj.previous_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Previous</a>
-                            </li>
-                        {% endif %}
-
-                        {% for num in page_obj.paginator.page_range %}
-                            {% if page_obj.number == num %}
-                                <li class="page-item active">
-                                    <span class="page-link">{{ num }}</span>
-                                </li>
-                            {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
-                                <li class="page-item">
-                                    <a class="page-link"
-                                       href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-
-                                               {{ num }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">{{ num }}</a>
-                                </li>
-                            {% endif %}
-                        {% endfor %}
-
-                        {% if page_obj.has_next %}
-                            <li class="page-item">
-                                <a class="page-link"
-                                   href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-
-                                           {{ page_obj.next_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Next</a>
-                            </li>
-                            <li class="page-item">
-                                <a class="page-link"
-                                   href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-
-                                           {{ page_obj.paginator.num_pages }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">Last</a>
-                            </li>
-                        {% endif %}
-                    </ul>
-                </nav>
-            </div>
-        {% endif %}
     </div>
 </div>
 
-<!-- JavaScript для инициализации данных -->
-<!-- В конце файла, после основного контента -->
+<!-- JavaScript для обновления информации о странице и управления прокруткой -->
 <script>
-    // Передаем данные сервера в глобальную область видимости
-    (function() {
-        window.ServerData = window.ServerData || {};
-        window.ServerData.pagination = {
-            currentPage: {{ current_page }},
-            totalPages: {{ total_pages }},
-            totalCount: {{ total_count }},
-            startIndex: {{ start_index }},
-            endIndex: {{ end_index }},
-            itemsPerPage: {{ items_per_page|default:16 }},
-            hasGames: {% if games or games_with_similarity %}true{% else %}false{% endif %},
-            gameCount: {% if games %}{{ games|length }}{% elif games_with_similarity %}{{ games_with_similarity|length }}{% else %}0{% endif %},
-            hasNoGamesMessage: {% if not games and not games_with_similarity %}true{% else %}false{% endif %}
-    };
+    document.addEventListener('DOMContentLoaded', function() {
+        // Обновляем информацию о странице в элементах
+        function updatePageInfo() {
+            const currentPage = {{ current_page }};
+            const totalPages = {{ total_pages }};
+            const totalCount = {{ total_count }};
+            const startIndex = {{ start_index }};
+            const endIndex = {{ end_index }};
 
-    console.log('Server pagination data:', window.ServerData.pagination);
-    console.log('URL page parameter:', '{{ request.GET.page|default:"not specified" }}');
-        console.log('Server rendered page:', {{ current_page }});
+            // Обновляем элементы вверху
+            document.getElementById('games-current-top').textContent = currentPage;
+            document.getElementById('games-total-pages-top').textContent = totalPages;
+            document.getElementById('games-start-top').textContent = startIndex;
+            document.getElementById('games-end-top').textContent = endIndex;
+            document.getElementById('games-total-all-top').textContent = totalCount;
 
-        try {
-            sessionStorage.setItem('serverPageData', JSON.stringify(window.ServerData.pagination));
-            sessionStorage.setItem('currentPageUrl', window.location.href);
-        } catch (e) {
-            console.warn('Could not save server page data to sessionStorage:', e);
+            // Обновляем элементы внизу
+            document.getElementById('games-current').textContent = currentPage;
+            document.getElementById('games-total-pages').textContent = totalPages;
+            document.getElementById('games-start').textContent = startIndex;
+            document.getElementById('games-end').textContent = endIndex;
+            document.getElementById('games-total-all').textContent = totalCount;
         }
 
-        document.addEventListener('DOMContentLoaded', function() {
-            setTimeout(function() {
-                const gameCards = document.querySelectorAll('.game-card-container');
-                const currentPage = {{ current_page }};
-                const itemsPerPage = {{ items_per_page|default:16 }};
-                const startIndex = (currentPage - 1) * itemsPerPage;
+        updatePageInfo();
 
-                console.log(`Setting data attributes for ${gameCards.length} game cards`);
-                console.log(`Current page: ${currentPage}, start index: ${startIndex}`);
+        // Сохраняем позицию прокрутки при клике на пагинацию
+        const paginationLinks = document.querySelectorAll('.games-pagination a.page-link:not(.disabled)');
 
-                gameCards.forEach(function(card, index) {
-                    card.dataset.page = currentPage;
-                    card.dataset.index = startIndex + index;
-                    console.log(`Card ${index}: page=${currentPage}, index=${startIndex + index}`);
-                });
-            }, 100);
+        paginationLinks.forEach(link => {
+            link.addEventListener('click', function(e) {
+                const href = this.getAttribute('href');
+                if (href) {
+                    e.preventDefault();
+
+                    // Сохраняем текущую позицию прокрутки
+                    const scrollPosition = window.scrollY;
+                    const pageUrl = window.location.pathname + window.location.search;
+
+                    try {
+                        const scrollData = {
+                            scrollY: scrollPosition,
+                            timestamp: Date.now(),
+                            pageUrl: pageUrl,
+                            pageNumber: {{ current_page }}
+    };
+    localStorage.setItem('games_page_scroll_position', JSON.stringify(scrollData));
+    console.log(`Saved scroll position: ${scrollPosition}px for page {{ current_page }}`);
+                    } catch (error) {
+                        console.warn('Could not save scroll position:', error);
+                    }
+
+                    // Показываем индикатор загрузки
+                    this.classList.add('loading');
+                    const originalText = this.innerHTML;
+                    this.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> Loading...';
+
+                    // Плавная прокрутка к верху
+                    window.scrollTo({
+                        top: 0,
+                        behavior: 'smooth'
+                    });
+
+                    // Переход после небольшой задержки
+                    setTimeout(() => {
+                        window.location.href = href;
+                    }, 400);
+                }
+            });
         });
-    })();
+
+        // Восстанавливаем позицию прокрутки при загрузке страницы
+        function restoreScrollPosition() {
+            try {
+                const savedData = localStorage.getItem('games_page_scroll_position');
+                if (!savedData) return;
+
+                const data = JSON.parse(savedData);
+
+                // Проверяем, что данные актуальны (не старше 5 минут) и для этой же страницы
+                const currentUrl = window.location.pathname + window.location.search;
+                const isExpired = Date.now() - data.timestamp > 5 * 60 * 1000; // 5 минут
+                const isSamePage = data.pageUrl === currentUrl;
+
+                if (!isExpired && isSamePage && data.scrollY > 100) {
+                    // Ждем полной загрузки страницы
+                    window.addEventListener('load', () => {
+                        setTimeout(() => {
+                            // Плавная прокрутка к сохраненной позиции
+                            window.scrollTo({
+                                top: data.scrollY,
+                                behavior: 'smooth'
+                            });
+
+                            console.log(`Restored scroll position to: ${data.scrollY}px`);
+
+                            // Очищаем сохраненную позицию после восстановления
+                            localStorage.removeItem('games_page_scroll_position');
+                        }, 100);
+                    });
+                } else {
+                    // Очищаем устаревшие или некорректные данные
+                    localStorage.removeItem('games_page_scroll_position');
+                }
+            } catch (error) {
+                console.warn('Could not restore scroll position:', error);
+                localStorage.removeItem('games_page_scroll_position');
+            }
+        }
+
+        // Инициализируем восстановление позиции прокрутки
+        restoreScrollPosition();
+
+        // Автоматически сохраняем позицию при прокрутке (с дебаунсом)
+        let scrollSaveTimeout;
+        window.addEventListener('scroll', () => {
+            clearTimeout(scrollSaveTimeout);
+            scrollSaveTimeout = setTimeout(() => {
+                const scrollY = window.scrollY;
+                if (scrollY > 100) { // Сохраняем только если прокрутили больше 100px
+                    try {
+                        const scrollData = {
+                            scrollY: scrollY,
+                            timestamp: Date.now(),
+                            pageUrl: window.location.pathname + window.location.search,
+                            pageNumber: {{ current_page }}
+    };
+    localStorage.setItem('games_page_scroll_position', JSON.stringify(scrollData));
+} catch (error) {
+    // Игнорируем ошибки localStorage
+}
+}
+}, 1000); // Сохраняем через 1 секунду после остановки прокрутки
+});
+
+// Обработка специальных случаев (якоря в URL)
+function handleSpecialScrollCases() {
+// Если в URL есть якорь, прокручиваем к нему
+const hash = window.location.hash;
+if (hash && hash.startsWith('#game-')) {
+const elementId = hash.substring(1);
+setTimeout(() => {
+const element = document.getElementById(elementId);
+if (element) {
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+}, 500);
+}
+}
+
+handleSpecialScrollCases();
+
+// Обработка истории браузера (кнопки назад/вперед)
+window.addEventListener('popstate', function() {
+// Даем время странице загрузиться, затем восстанавливаем позицию
+setTimeout(() => {
+restoreScrollPosition();
+}, 100);
+});
+});
 </script>
