@@ -1,261 +1,174 @@
 // games/static/games/js/game_list.js
-import FilterSort from './game_list/filters_js/filters-sort.js';
-import FilterSearch from './game_list/filters_js/filters-search.js';
-import FilterUI from './game_list/filters_js/filters-ui.js';
-import FilterHandlers from './game_list/filters_js/filters-handlers.js';
-import FilterSticky from './game_list/filters_js/filters-sticky.js';
-import KeywordsPagination from './game_list/keywords-pagination.js';
-import GamePagination from './game_list/game-pagination.js';
 
-window.FilterManager = {
-    sort: FilterSort,
-    search: FilterSearch,
-    ui: FilterUI,
-    handlers: FilterHandlers,
-    sticky: FilterSticky,
-    keywordsPagination: KeywordsPagination,
-    gamePagination: GamePagination
-};
+// Основной файл для инициализации игровой страницы
+// Только загружает и инициализирует модули фильтров
 
-window.KeywordsPagination = KeywordsPagination;
-window.GamePagination = GamePagination;
+// Функция для динамической загрузки скриптов
+function loadScript(src, callback) {
+    console.log(`Loading script: ${src}`);
 
-let initialized = false;
+    const script = document.createElement('script');
+    script.src = src;
 
-document.addEventListener('DOMContentLoaded', function() {
-    if (initialized) return;
-    initialized = true;
+    // Определяем тип скрипта по расширению
+    if (src.includes('.js') && !src.includes('type=')) {
+        script.type = 'module';
+    }
 
-    setTimeout(initializeAll, 800);
+    script.onload = function() {
+        console.log(`Script loaded successfully: ${src}`);
+        if (typeof callback === 'function') {
+            callback();
+        }
+    };
 
-    function initializeAll() {
-        try {
-            console.log('=== FILTERS SCRIPT INITIALIZATION START ===');
+    script.onerror = function() {
+        console.error(`Failed to load script: ${src}`);
+        // Пробуем загрузить как обычный скрипт
+        const fallbackScript = document.createElement('script');
+        fallbackScript.src = src;
+        fallbackScript.type = 'text/javascript';
 
-            if (FilterUI && typeof FilterUI.initializeAllUI === 'function') {
-                console.log('Initializing UI...');
-                FilterUI.initializeAllUI();
+        fallbackScript.onload = function() {
+            console.log(`Script loaded as fallback: ${src}`);
+            if (typeof callback === 'function') {
+                callback();
             }
+        };
 
-            if (FilterHandlers && typeof FilterHandlers.initializeAllHandlers === 'function') {
-                console.log('Initializing handlers...');
-                FilterHandlers.initializeAllHandlers();
-            }
+        fallbackScript.onerror = function() {
+            console.error(`Failed to load script even as fallback: ${src}`);
+        };
 
-            if (FilterSearch && typeof FilterSearch.setupSearchFilters === 'function') {
-                console.log('Setting up search filters...');
-                FilterSearch.setupSearchFilters();
-            }
+        document.head.appendChild(fallbackScript);
+    };
 
-            // Инициализируем пагинацию ключевых слов с задержкой и проверкой
-            if (KeywordsPagination && typeof KeywordsPagination.init === 'function') {
-                console.log('Initializing keywords pagination...');
-                setTimeout(() => {
-                    try {
-                        // Проверяем, что элементы существуют
-                        const keywordItems = document.querySelectorAll('.keyword-item');
-                        console.log(`Found ${keywordItems.length} keyword items`);
+    document.head.appendChild(script);
+}
 
-                        if (keywordItems.length > 0) {
-                            KeywordsPagination.init();
-                            console.log('Keywords pagination initialized successfully');
+// Главная функция инициализации всех модулей
+function initializeAllModules() {
+    console.log('Initializing all modules for game list page...');
 
-                            // Дополнительная проверка: если пагинация не сработала, форсируем
-                            setTimeout(() => {
-                                const paginationContainer = document.querySelector('#keyword-pagination');
-                                if (paginationContainer && paginationContainer.style.display === 'none') {
-                                    console.log('Pagination container is hidden, forcing update...');
-                                    KeywordsPagination.forceUpdate();
-                                }
-                            }, 500);
-                        } else {
-                            console.warn('No keyword items found, skipping keywords pagination');
-                        }
-                    } catch (error) {
-                        console.error('Error initializing keywords pagination:', error);
-                    }
-                }, 500); // Увеличил задержку до 500мс
-            }
+    // Загружаем модуль инициализации фильтров
+    loadScript('/static/games/js/game_list/filters-init.js', function() {
+        console.log('Filters init script loaded');
 
-            if (GamePagination && typeof GamePagination.init === 'function') {
-                console.log('Initializing LAZY games pagination...');
+        // Загружаем основной модуль фильтров
+        loadScript('/static/games/js/game_list/filters.js', function() {
+            console.log('Filters module loaded, checking for initialization...');
 
-                setTimeout(() => {
-                    try {
-                        const gamesContainer = document.querySelector('.games-container');
-                        if (gamesContainer) {
-                            const existingCards = document.querySelectorAll('.col-xl-3.col-lg-4.col-md-6.mb-4');
-                            existingCards.forEach((card, index) => {
-                                if (!card.classList.contains('game-card-container')) {
-                                    card.classList.add('game-card-container');
-                                }
-                            });
-
-                            GamePagination.init();
-                            console.log('Lazy games pagination initialized successfully');
-
-                            setTimeout(() => {
-                                restoreScrollPosition();
-                            }, 100);
-
-                            saveCurrentPageToCache();
-                        } else {
-                            console.warn('Games container not found');
-                        }
-                    } catch (error) {
-                        console.error('Error initializing lazy games pagination:', error);
-                    }
-                }, 500);
-            }
-
+            // Ждем немного для гарантии загрузки модулей
             setTimeout(() => {
-                if (FilterSticky && typeof FilterSticky.init === 'function') {
-                    console.log('Initializing sticky buttons...');
-                    FilterSticky.init();
-                }
-            }, 800);
+                // Загружаем модуль пагинации ключевых слов
+                loadScript('/static/games/js/game_list/keywords-pagination.js', function() {
+                    console.log('KeywordsPagination module loaded');
 
-            setTimeout(() => {
-                if (FilterSort && typeof FilterSort.sortFilterLists === 'function') {
-                    console.log('Initial sort of filter lists...');
-                    FilterSort.sortFilterLists();
-                }
-            }, 1200);
-
-            console.log('=== FILTERS SCRIPT INITIALIZATION COMPLETE ===');
-
-        } catch (error) {
-            console.error('Error in filters script initialization:', error);
-        }
-    }
-
-    function saveCurrentPageToCache() {
-        try {
-            const gamesContainer = document.querySelector('.games-container');
-            if (!gamesContainer) return;
-
-            const gameElements = gamesContainer.querySelectorAll('.game-card-container');
-            const games = Array.from(gameElements).map(el => el.outerHTML);
-
-            sessionStorage.setItem('page_1_games', JSON.stringify(games));
-            console.log('Saved current page (page 1) to cache');
-        } catch (error) {
-            console.error('Error saving current page to cache:', error);
-        }
-    }
-
-    function restoreScrollPosition() {
-        try {
-            const saved = sessionStorage.getItem('filterScrollY');
-            if (saved) {
-                const y = parseInt(saved);
-                if (!isNaN(y) && y > 0) {
-                    setTimeout(() => {
-                        window.scrollTo({ top: y, behavior: 'smooth' });
-                        sessionStorage.removeItem('filterScrollY');
-                        console.log('Scroll position restored to:', y);
-                    }, 300);
-                }
-            }
-        } catch (e) {
-            console.warn('Could not restore scroll position:', e);
-        }
-    }
-});
-
-// Также добавь инициализацию при полной загрузке страницы
-window.addEventListener('load', () => {
-    console.log('Page fully loaded, checking keywords pagination...');
-
-    // Проверяем, правильно ли инициализирована пагинация ключевых слов
-    setTimeout(() => {
-        if (window.KeywordsPagination) {
-            const keywordItems = document.querySelectorAll('.keyword-item');
-            const allVisible = Array.from(keywordItems).every(item =>
-                item.style.display === 'block' ||
-                window.getComputedStyle(item).display === 'block'
-            );
-
-            if (allVisible && keywordItems.length > 30) {
-                console.log('All keywords are visible, but there are many items. Forcing pagination update...');
-
-                // Скрываем все элементы кроме первых 30
-                keywordItems.forEach((item, index) => {
-                    if (index >= 30) {
-                        item.style.display = 'none';
+                    // Инициализируем FilterManager
+                    if (typeof window.FilterManager !== 'undefined' &&
+                        typeof window.FilterManager.init === 'function') {
+                        console.log('Initializing FilterManager...');
+                        window.FilterManager.init();
+                    }
+                    // Пробуем глобальную функцию
+                    else if (typeof window.initializeFilters === 'function') {
+                        console.log('Calling global initializeFilters...');
+                        window.initializeFilters();
+                    }
+                    // Пробуем инициализировать каждый модуль отдельно
+                    else {
+                        console.log('Initializing filter modules individually...');
+                        initializeFilterModulesIndividually();
                     }
                 });
-
-                // Форсируем обновление пагинации
-                window.KeywordsPagination.forceUpdate();
-            }
-        }
-
-        if (window.GamePagination && !window.GamePagination.state.loadedPages.size) {
-            console.log('GamePagination not properly initialized, forcing update');
-            window.GamePagination.forceUpdate();
-        }
-
-        if (window.GamePagination && window.GamePagination.hasPagination()) {
-            console.log('Starting background loading of adjacent pages...');
-            window.GamePagination.preloadAdjacentPages(window.GamePagination.getCurrentPage());
-        }
-    }, 1500);
-});
-
-document.addEventListener('filterApplied', () => {
-    console.log('Filter applied event received');
-    if (window.GamePagination) {
-        console.log('Resetting pagination to page 1...');
-        window.GamePagination.resetToFirstPage();
-    }
-});
-
-window.addEventListener('popstate', (event) => {
-    console.log('Popstate event detected, state:', event.state);
-
-    if (event.state && event.state.page && window.GamePagination) {
-        const pageNumber = event.state.page;
-        console.log(`Restoring page ${pageNumber} from browser history`);
-
-        if (window.GamePagination.state.loadedPages.has(pageNumber)) {
-            window.GamePagination.showPageFromCache(pageNumber);
-        } else {
-            window.GamePagination.showPage(pageNumber, false);
-        }
-    }
-});
-
-const observer = new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => {
-        if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-            const addedPagination = Array.from(mutation.addedNodes).some(node =>
-                node.nodeType === Node.ELEMENT_NODE &&
-                (node.classList?.contains('games-pagination') ||
-                 node.querySelector?.('.games-pagination'))
-            );
-
-            if (addedPagination && window.GamePagination) {
-                console.log('Pagination elements added to DOM, updating...');
-                setTimeout(() => {
-                    window.GamePagination.forceUpdate();
-                }, 100);
-            }
-        }
+            }, 100);
+        });
     });
+}
+
+// Резервная инициализация модулей по отдельности
+function initializeFilterModulesIndividually() {
+    // Инициализируем модули в правильном порядке
+
+    // 1. Глобальные функции
+    if (typeof window.FilterGlobal !== 'undefined' &&
+        typeof window.FilterGlobal.initializeAll === 'function') {
+        console.log('Initializing FilterGlobal...');
+        window.FilterGlobal.initializeAll();
+    }
+
+    // 2. UI компоненты
+    if (typeof window.FilterUI !== 'undefined' &&
+        typeof window.FilterUI.initializeAllUI === 'function') {
+        console.log('Initializing FilterUI...');
+        window.FilterUI.initializeAllUI();
+    }
+
+    // 3. Обработчики событий
+    if (typeof window.FilterHandlers !== 'undefined' &&
+        typeof window.FilterHandlers.initializeAllHandlers === 'function') {
+        console.log('Initializing FilterHandlers...');
+        window.FilterHandlers.initializeAllHandlers();
+    }
+
+    // 4. Поиск в фильтрах
+    if (typeof window.FilterSearch !== 'undefined' &&
+        typeof window.FilterSearch.setupSearchFilters === 'function') {
+        console.log('Initializing FilterSearch...');
+        window.FilterSearch.setupSearchFilters();
+    }
+
+    // 5. Сортировка
+    if (typeof window.FilterSort !== 'undefined' &&
+        typeof window.FilterSort.sortFilterLists === 'function') {
+        console.log('Sorting filter lists...');
+        setTimeout(() => {
+            window.FilterSort.sortFilterLists();
+        }, 200);
+    }
+
+    // 6. Sticky кнопки
+    if (typeof window.FilterSticky !== 'undefined' &&
+        typeof window.FilterSticky.init === 'function') {
+        console.log('Initializing FilterSticky...');
+        setTimeout(() => {
+            window.FilterSticky.init();
+        }, 300);
+    }
+}
+
+// Проверяем, находимся ли мы на странице с фильтрами
+function isFiltersPage() {
+    return document.querySelector('.card.mb-4') ||
+           document.getElementById('main-search-form') ||
+           document.querySelector('.platform-grid') ||
+           document.querySelector('.games-container');
+}
+
+// Инициализация при загрузке DOM
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Game list page DOM loaded');
+
+    if (isFiltersPage()) {
+        console.log('This is a filters page, initializing modules...');
+
+        // Даем время на полную загрузку DOM
+        setTimeout(() => {
+            initializeAllModules();
+        }, 100);
+    } else {
+        console.log('This is not a filters page, skipping filter initialization');
+    }
 });
 
-observer.observe(document.body, {
-    childList: true,
-    subtree: true
-});
+// Глобальная функция для ручной инициализации (если нужно из других мест)
+window.initializeGameListPage = initializeAllModules;
 
-export {
-    FilterSort,
-    FilterSearch,
-    FilterUI,
-    FilterHandlers,
-    FilterSticky,
-    KeywordsPagination,
-    GamePagination
-};
+// Экспортируем для использования в других модулях (если нужно)
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        initializeAllModules,
+        initializeFilterModulesIndividually,
+        isFiltersPage
+    };
+}
