@@ -62,11 +62,12 @@
                         <ul class="pagination mb-2">
                             {% if page_obj.has_previous %}
                                 <li class="page-item">
-                                    <a class="page-link"
+                                    <a class="page-link ajax-pagination-link"
                                        href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ page_obj.previous_page_number }}
 
                                                {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
-                                       aria-label="Previous">
+                                       aria-label="Previous"
+                                       data-page="{{ page_obj.previous_page_number }}">
                                         <i class="bi bi-chevron-left"></i> Prev
                                     </a>
                                 </li>
@@ -87,19 +88,21 @@
                                         </li>
                                     {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
                                         <li class="page-item">
-                                            <a class="page-link"
+                                            <a class="page-link ajax-pagination-link"
                                                href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ num }}
 
-                                                       {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">
+                                                       {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                                               data-page="{{ num }}">
                                                 {{ num }}
                                             </a>
                                         </li>
                                     {% elif num == 1 or num == page_obj.paginator.num_pages %}
                                         <li class="page-item">
-                                            <a class="page-link"
+                                            <a class="page-link ajax-pagination-link"
                                                href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ num }}
 
-                                                       {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">
+                                                       {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                                               data-page="{{ num }}">
                                                 {{ num }}
                                             </a>
                                         </li>
@@ -113,11 +116,12 @@
 
                             {% if page_obj.has_next %}
                                 <li class="page-item">
-                                    <a class="page-link"
+                                    <a class="page-link ajax-pagination-link"
                                        href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ page_obj.next_page_number }}
 
                                                {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
-                                       aria-label="Next">
+                                       aria-label="Next"
+                                       data-page="{{ page_obj.next_page_number }}">
                                         Next <i class="bi bi-chevron-right"></i>
                                     </a>
                                 </li>
@@ -133,10 +137,11 @@
                         <!-- Кнопки First/Last для мобильных -->
                         <div class="mobile-pagination-buttons d-md-none">
                             {% if page_obj.has_previous %}
-                                <a class="btn btn-sm btn-outline-primary"
+                                <a class="btn btn-sm btn-outline-primary ajax-pagination-link"
                                    href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=1
 
-                                           {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">
+                                           {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                                   data-page="1">
                                     First
                                 </a>
                             {% else %}
@@ -144,10 +149,11 @@
                             {% endif %}
 
                             {% if page_obj.has_next %}
-                                <a class="btn btn-sm btn-outline-primary"
+                                <a class="btn btn-sm btn-outline-primary ajax-pagination-link"
                                    href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ page_obj.paginator.num_pages }}
 
-                                           {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">
+                                           {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                                   data-page="{{ page_obj.paginator.num_pages }}">
                                     Last
                                 </a>
                             {% else %}
@@ -197,11 +203,12 @@
                         <ul class="pagination mb-2">
                             {% if page_obj.has_previous %}
                                 <li class="page-item">
-                                    <a class="page-link"
+                                    <a class="page-link ajax-pagination-link"
                                        href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ page_obj.previous_page_number }}
 
                                                {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
-                                       aria-label="Previous">
+                                       aria-label="Previous"
+                                       data-page="{{ page_obj.previous_page_number }}">
                                         <i class="bi bi-chevron-left"></i> Prev
                                     </a>
                                 </li>
@@ -221,19 +228,21 @@
                                         </li>
                                     {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
                                         <li class="page-item">
-                                            <a class="page-link"
+                                            <a class="page-link ajax-pagination-link"
                                                href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ num }}
 
-                                                       {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">
+                                                       {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                                               data-page="{{ num }}">
                                                 {{ num }}
                                             </a>
                                         </li>
                                     {% elif num == 1 or num == page_obj.paginator.num_pages %}
                                         <li class="page-item">
-                                            <a class="page-link"
+                                            <a class="page-link ajax-pagination-link"
                                                href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ num }}
 
-                                                       {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">
+                                                       {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                                               data-page="{{ num }}">
                                                 {{ num }}
                                             </a>
                                         </li>
@@ -247,11 +256,12 @@
 
                             {% if page_obj.has_next %}
                                 <li class="page-item">
-                                    <a class="page-link"
+                                    <a class="page-link ajax-pagination-link"
                                        href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ page_obj.next_page_number }}
 
                                                {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
-                                       aria-label="Next">
+                                       aria-label="Next"
+                                       data-page="{{ page_obj.next_page_number }}">
                                         Next <i class="bi bi-chevron-right"></i>
                                     </a>
                                 </li>
@@ -266,10 +276,11 @@
 
                         <div class="mobile-pagination-buttons d-md-none">
                             {% if page_obj.has_previous %}
-                                <a class="btn btn-sm btn-outline-primary"
+                                <a class="btn btn-sm btn-outline-primary ajax-pagination-link"
                                    href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=1
 
-                                           {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">
+                                           {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                                   data-page="1">
                                     First
                                 </a>
                             {% else %}
@@ -277,10 +288,11 @@
                             {% endif %}
 
                             {% if page_obj.has_next %}
-                                <a class="btn btn-sm btn-outline-primary"
+                                <a class="btn btn-sm btn-outline-primary ajax-pagination-link"
                                    href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ page_obj.paginator.num_pages }}
 
-                                           {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}">
+                                           {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                                   data-page="{{ page_obj.paginator.num_pages }}">
                                     Last
                                 </a>
                             {% else %}
@@ -314,167 +326,3 @@
         </div>
     </div>
 </div>
-
-<!-- JavaScript для обновления информации о странице и управления прокруткой -->
-<script>
-    document.addEventListener('DOMContentLoaded', function() {
-        // Обновляем информацию о странице в элементах
-        function updatePageInfo() {
-            const currentPage = {{ current_page }};
-            const totalPages = {{ total_pages }};
-            const totalCount = {{ total_count }};
-            const startIndex = {{ start_index }};
-            const endIndex = {{ end_index }};
-
-            // Обновляем элементы вверху
-            document.getElementById('games-current-top').textContent = currentPage;
-            document.getElementById('games-total-pages-top').textContent = totalPages;
-            document.getElementById('games-start-top').textContent = startIndex;
-            document.getElementById('games-end-top').textContent = endIndex;
-            document.getElementById('games-total-all-top').textContent = totalCount;
-
-            // Обновляем элементы внизу
-            document.getElementById('games-current').textContent = currentPage;
-            document.getElementById('games-total-pages').textContent = totalPages;
-            document.getElementById('games-start').textContent = startIndex;
-            document.getElementById('games-end').textContent = endIndex;
-            document.getElementById('games-total-all').textContent = totalCount;
-        }
-
-        updatePageInfo();
-
-        // Сохраняем позицию прокрутки при клике на пагинацию
-        const paginationLinks = document.querySelectorAll('.games-pagination a.page-link:not(.disabled)');
-
-        paginationLinks.forEach(link => {
-            link.addEventListener('click', function(e) {
-                const href = this.getAttribute('href');
-                if (href) {
-                    e.preventDefault();
-
-                    // Сохраняем текущую позицию прокрутки
-                    const scrollPosition = window.scrollY;
-                    const pageUrl = window.location.pathname + window.location.search;
-
-                    try {
-                        const scrollData = {
-                            scrollY: scrollPosition,
-                            timestamp: Date.now(),
-                            pageUrl: pageUrl,
-                            pageNumber: {{ current_page }}
-    };
-    localStorage.setItem('games_page_scroll_position', JSON.stringify(scrollData));
-    console.log(`Saved scroll position: ${scrollPosition}px for page {{ current_page }}`);
-                    } catch (error) {
-                        console.warn('Could not save scroll position:', error);
-                    }
-
-                    // Показываем индикатор загрузки
-                    this.classList.add('loading');
-                    const originalText = this.innerHTML;
-                    this.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> Loading...';
-
-                    // Плавная прокрутка к верху
-                    window.scrollTo({
-                        top: 0,
-                        behavior: 'smooth'
-                    });
-
-                    // Переход после небольшой задержки
-                    setTimeout(() => {
-                        window.location.href = href;
-                    }, 400);
-                }
-            });
-        });
-
-        // Восстанавливаем позицию прокрутки при загрузке страницы
-        function restoreScrollPosition() {
-            try {
-                const savedData = localStorage.getItem('games_page_scroll_position');
-                if (!savedData) return;
-
-                const data = JSON.parse(savedData);
-
-                // Проверяем, что данные актуальны (не старше 5 минут) и для этой же страницы
-                const currentUrl = window.location.pathname + window.location.search;
-                const isExpired = Date.now() - data.timestamp > 5 * 60 * 1000; // 5 минут
-                const isSamePage = data.pageUrl === currentUrl;
-
-                if (!isExpired && isSamePage && data.scrollY > 100) {
-                    // Ждем полной загрузки страницы
-                    window.addEventListener('load', () => {
-                        setTimeout(() => {
-                            // Плавная прокрутка к сохраненной позиции
-                            window.scrollTo({
-                                top: data.scrollY,
-                                behavior: 'smooth'
-                            });
-
-                            console.log(`Restored scroll position to: ${data.scrollY}px`);
-
-                            // Очищаем сохраненную позицию после восстановления
-                            localStorage.removeItem('games_page_scroll_position');
-                        }, 100);
-                    });
-                } else {
-                    // Очищаем устаревшие или некорректные данные
-                    localStorage.removeItem('games_page_scroll_position');
-                }
-            } catch (error) {
-                console.warn('Could not restore scroll position:', error);
-                localStorage.removeItem('games_page_scroll_position');
-            }
-        }
-
-        // Инициализируем восстановление позиции прокрутки
-        restoreScrollPosition();
-
-        // Автоматически сохраняем позицию при прокрутке (с дебаунсом)
-        let scrollSaveTimeout;
-        window.addEventListener('scroll', () => {
-            clearTimeout(scrollSaveTimeout);
-            scrollSaveTimeout = setTimeout(() => {
-                const scrollY = window.scrollY;
-                if (scrollY > 100) { // Сохраняем только если прокрутили больше 100px
-                    try {
-                        const scrollData = {
-                            scrollY: scrollY,
-                            timestamp: Date.now(),
-                            pageUrl: window.location.pathname + window.location.search,
-                            pageNumber: {{ current_page }}
-    };
-    localStorage.setItem('games_page_scroll_position', JSON.stringify(scrollData));
-} catch (error) {
-    // Игнорируем ошибки localStorage
-}
-}
-}, 1000); // Сохраняем через 1 секунду после остановки прокрутки
-});
-
-// Обработка специальных случаев (якоря в URL)
-function handleSpecialScrollCases() {
-// Если в URL есть якорь, прокручиваем к нему
-const hash = window.location.hash;
-if (hash && hash.startsWith('#game-')) {
-const elementId = hash.substring(1);
-setTimeout(() => {
-const element = document.getElementById(elementId);
-if (element) {
-    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-}
-}, 500);
-}
-}
-
-handleSpecialScrollCases();
-
-// Обработка истории браузера (кнопки назад/вперед)
-window.addEventListener('popstate', function() {
-// Даем время странице загрузиться, затем восстанавливаем позицию
-setTimeout(() => {
-restoreScrollPosition();
-}, 100);
-});
-});
-</script>
