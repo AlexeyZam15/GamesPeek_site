@@ -19,6 +19,7 @@ from .similarity import (
     GameSimilarityCache
 )
 from .media import Screenshot
+from .game_card import GameCardCache  # Добавляем новую модель
 
 __all__ = [
     'GameTypeEnum',
@@ -37,4 +38,5 @@ __all__ = [
     'GameCountsCache',
     'GameSimilarityCache',
     'Screenshot',
+    'GameCardCache',  # Добавляем в экспорт
 ]
