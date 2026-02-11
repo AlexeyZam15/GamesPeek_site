@@ -1,3 +1,4 @@
+<!-- games/templates/games/game_search.html -->
 {% extends 'base.html' %}
 {% load static %}
 
@@ -5,63 +6,80 @@
 
 {% block extra_css %}
     <link rel="stylesheet" href="{% static 'games/css/game_search.css' %}">
+    <link rel="stylesheet" href="{% static 'games/css/components/cards.css' %}">
 {% endblock %}
 
 {% block content %}
-<div class="container">
-    <div class="row mb-4">
-        <div class="col-12">
-            <h1>🔍 Search Games</h1>
-            <p class="text-muted">Find your favorite games by name</p>
-        </div>
-    </div>
-
-    <!-- Простая форма поиска -->
-    <div class="card mb-4">
-        <div class="card-body">
-            <form method="get" class="row g-3">
-                <div class="col-md-8">
-                    <label for="q" class="form-label">Game name:</label>
-                    <input type="text" class="form-control" id="q" name="q" 
-                           value="{{ search_query }}" placeholder="Enter game name..." 
-                           autofocus>
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label">&nbsp;</label>
-                    <div class="d-grid">
-                        <button type="submit" class="btn btn-primary">Search</button>
-                    </div>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- Результаты -->
-    {% if search_query %}
-        <div class="row">
+    <div class="container">
+        <div class="row mb-4">
             <div class="col-12">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h5>Found {{ total_results }} games for "{{ search_query }}"</h5>
-                    {% if total_results > 0 %}
-                        <span class="badge bg-success">{{ total_results }} results</span>
-                    {% endif %}
-                </div>
-
-                {% if games %}
-                    <div class="row">
-                        {% for game in games %}
-                            {% include 'games/partials/_game_card.html' with game=game show_similarity=show_similarity source_game=source_game selected_genres=selected_genres selected_keywords=selected_keywords selected_themes=selected_themes selected_perspectives=selected_perspectives selected_developers=selected_developers selected_game_modes=selected_game_modes current_page=current_page game_index=forloop.counter0 %}
-                        {% endfor %}
-                    </div>
-                {% else %}
-                    <div class="text-center py-5">
-                        <h5>No games found for "{{ search_query }}"</h5>
-                        <p class="text-muted">Try a different search term</p>
-                        <a href="{% url 'game_search' %}" class="btn btn-primary">Search Again</a>
-                    </div>
-                {% endif %}
+                <h1>🔍 Search Games</h1>
+                <p class="text-muted">Find your favorite games by name</p>
             </div>
         </div>
-    {% endif %}
-</div>
+
+        <!-- Простая форма поиска -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <form method="get" class="row g-3">
+                    <div class="col-md-8">
+                        <label for="q" class="form-label">Game name:</label>
+                        <input type="text" class="form-control" id="q" name="q"
+                               value="{{ search_query }}" placeholder="Enter game name..."
+                               autofocus>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">&nbsp;</label>
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-primary">Search</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Результаты -->
+        {% if search_query %}
+            <div class="row">
+                <div class="col-12">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5>Found {{ total_results }} games for "{{ search_query }}"</h5>
+                        {% if total_results > 0 %}
+                            <span class="badge bg-success">{{ total_results }} results</span>
+                        {% endif %}
+                    </div>
+
+                    {% if game_cards %}
+                        <div class="row">
+                            {% for card in game_cards %}
+                                <div class="col-xl-3 col-lg-4 col-md-6">
+                                    {{ card.rendered_card|safe }}
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="text-center py-5">
+                            <h5>No games found for "{{ search_query }}"</h5>
+                            <p class="text-muted">Try a different search term</p>
+                            <a href="{% url 'game_search' %}" class="btn btn-primary">Search Again</a>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
+    </div>
+{% endblock %}
+
+{% block extra_js %}
+    <script>
+        // Инициализация тултипов Bootstrap для динамически загруженных карточек
+        document.addEventListener('DOMContentLoaded', function() {
+            if (typeof bootstrap !== 'undefined') {
+                var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+                tooltipTriggerList.map(function (tooltipTriggerEl) {
+                    return new bootstrap.Tooltip(tooltipTriggerEl);
+                });
+            }
+        });
+    </script>
 {% endblock %}

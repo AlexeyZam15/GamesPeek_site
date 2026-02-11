@@ -19,8 +19,6 @@ from .views_parts.other_views import (
     home,
     keyword_category_view,
     game_search,
-    platform_list,
-    platform_games,
     auto_login_admin,
 )
 from .views_parts.analyze_views import (
@@ -71,8 +69,6 @@ __all__ = [
     'home',
     'keyword_category_view',
     'game_search',
-    'platform_list',
-    'platform_games',
     'auto_login_admin',
     'analyze_single_game',
     'clear_analysis_results',

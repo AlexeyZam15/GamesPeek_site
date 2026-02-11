@@ -6,7 +6,6 @@ from typing import Dict, List
 from django.shortcuts import render, get_object_or_404
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.db.models import Count, Prefetch
-from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.utils import timezone
 from django.contrib.auth import login
 from django.contrib.auth.models import User
@@ -16,16 +15,18 @@ from ..models import (
     Game, Genre, Platform, Keyword, KeywordCategory,
     Theme, Company, PlayerPerspective, GameMode
 )
+from ..models_parts.game_card import GameCardCache
+from ..utils.game_card_utils import GameCardCreator
 from .base_views import cache_get_or_set, get_cache_key, CACHE_TIMES
 
 
 def home(request: HttpRequest) -> HttpResponse:
-    """Optimized home page with minimal queries."""
-    cache_key = 'optimized_home_v10_final'
+    """Optimized home page with cached game cards."""
+    cache_key = 'optimized_home_with_cards_v1'
     cached_context = cache_get_or_set(cache_key, lambda: _get_home_context(), 300)
 
     response = render(request, 'games/home.html', cached_context)
-    response['X-Cache-Hit'] = 'True' if 'cached' in cached_context else 'False'
+    response['X-Cache-Hit'] = 'True' if cached_context.get('cached', False) else 'False'
 
     if 'query_count' in cached_context:
         response['X-DB-Queries'] = str(cached_context['query_count'])
@@ -36,50 +37,82 @@ def home(request: HttpRequest) -> HttpResponse:
 
 
 def _get_home_context() -> Dict:
-    """Get context for home page."""
+    """Get context for home page with cached game cards."""
     start_time = time.time()
 
     try:
         from django.db import connection
 
-        popular_games = Game.objects.filter(
+        # Получаем ID популярных игр
+        popular_games_ids = list(Game.objects.filter(
             rating_count__gt=10,
             rating__gte=3.0
-        ).prefetch_related(
-            Prefetch('genres', queryset=Genre.objects.only('id', 'name')),
-            Prefetch('platforms', queryset=Platform.objects.only('id', 'name', 'slug')),
-            Prefetch('player_perspectives', queryset=PlayerPerspective.objects.only('id', 'name')),
-        ).only(
-            'id', 'name', 'rating', 'rating_count',
-            'first_release_date', 'cover_url'
-        ).order_by('-rating_count', '-rating')[:12]
+        ).only('id').order_by('-rating_count', '-rating')[:12].values_list('id', flat=True))
 
+        # Получаем ID недавних игр
         two_years_ago = timezone.now() - timedelta(days=730)
-        recent_games = Game.objects.filter(
+        recent_games_ids = list(Game.objects.filter(
             first_release_date__gte=two_years_ago,
             first_release_date__lte=timezone.now()
-        ).prefetch_related(
-            Prefetch('genres', queryset=Genre.objects.only('id', 'name')),
-            Prefetch('platforms', queryset=Platform.objects.only('id', 'name', 'slug')),
-            Prefetch('player_perspectives', queryset=PlayerPerspective.objects.only('id', 'name')),
-        ).only(
-            'id', 'name', 'rating', 'rating_count',
-            'first_release_date', 'cover_url'
-        ).order_by('-first_release_date')[:12]
+        ).only('id').order_by('-first_release_date')[:12].values_list('id', flat=True))
 
-        popular_keywords = Keyword.objects.filter(
+        # Объединяем все ID игр для массового создания/обновления карточек
+        all_game_ids = list(set(popular_games_ids + recent_games_ids))
+
+        # Массово создаем/обновляем карточки для всех игр на главной
+        if all_game_ids:
+            GameCardCreator.create_cards_for_games(
+                game_ids=all_game_ids,
+                show_similarity=False,
+                batch_size=100,
+                force=False
+            )
+
+        # Загружаем готовые карточки из кэша
+        popular_cards = []
+        for game_id in popular_games_ids:
+            card = GameCardCache.get_card_for_game(
+                game_id=game_id,
+                show_similarity=False,
+                similarity_percent=None,
+                card_size='normal'
+            )
+            if card:
+                popular_cards.append(card)
+
+        recent_cards = []
+        for game_id in recent_games_ids:
+            card = GameCardCache.get_card_for_game(
+                game_id=game_id,
+                show_similarity=False,
+                similarity_percent=None,
+                card_size='normal'
+            )
+            if card:
+                recent_cards.append(card)
+
+        # Популярные ключевые слова
+        popular_keywords = list(Keyword.objects.filter(
             cached_usage_count__gt=0
-        ).only('id', 'name').order_by('-cached_usage_count')[:20]
+        ).only('id', 'name').order_by('-cached_usage_count')[:20])
 
         query_count = len(connection.queries)
 
         context = {
-            'popular_games': list(popular_games),
-            'recent_games': list(recent_games),
-            'popular_keywords': list(popular_keywords),
+            'popular_cards': popular_cards,
+            'recent_cards': recent_cards,
+            'popular_keywords': popular_keywords,
             'execution_time': round(time.time() - start_time, 3),
             'query_count': query_count,
             'cached': False,
+            'show_similarity': False,
+            'source_game': None,
+            'selected_genres': [],
+            'selected_keywords': [],
+            'selected_themes': [],
+            'selected_perspectives': [],
+            'selected_developers': [],
+            'selected_game_modes': [],
         }
 
         return context
@@ -87,12 +120,20 @@ def _get_home_context() -> Dict:
     except Exception as e:
         import logging
         logger = logging.getLogger(__name__)
-        logger.error(f"Home page error: {str(e)}")
+        logger.error(f"Home page error: {str(e)}", exc_info=True)
 
         return {
-            'popular_games': [],
-            'recent_games': [],
+            'popular_cards': [],
+            'recent_cards': [],
             'popular_keywords': [],
+            'show_similarity': False,
+            'source_game': None,
+            'selected_genres': [],
+            'selected_keywords': [],
+            'selected_themes': [],
+            'selected_perspectives': [],
+            'selected_developers': [],
+            'selected_game_modes': [],
             'cached': False,
         }
 
@@ -129,28 +170,40 @@ def game_search(request: HttpRequest) -> HttpResponse:
     """Simple game search by name."""
     search_query = request.GET.get('q', '')
 
-    games = Game.objects.all().prefetch_related(
-        Prefetch('genres', queryset=Genre.objects.only('id', 'name')),
-        Prefetch('platforms', queryset=Platform.objects.only('id', 'name', 'slug')),
-        Prefetch('themes', queryset=Theme.objects.only('id', 'name')),
-        Prefetch('developers', queryset=Company.objects.only('id', 'name')),
-        Prefetch('player_perspectives', queryset=PlayerPerspective.objects.only('id', 'name')),
-        Prefetch('game_modes', queryset=GameMode.objects.only('id', 'name')),
-    ).only(
-        'id', 'name', 'rating', 'rating_count',
-        'first_release_date', 'cover_url', 'game_type'
-    )
+    # Получаем ID игр по поисковому запросу
+    games_queryset = Game.objects.all().only('id')
 
     if search_query:
-        games = games.filter(name__icontains=search_query)
+        games_queryset = games_queryset.filter(name__icontains=search_query)
 
-    games = games.order_by('-rating_count', '-rating')
+    games_queryset = games_queryset.order_by('-rating_count', '-rating')
+    game_ids = list(games_queryset[:100].values_list('id', flat=True))
+
+    # Массово создаем карточки для результатов поиска
+    if game_ids:
+        GameCardCreator.create_cards_for_games(
+            game_ids=game_ids,
+            show_similarity=False,
+            batch_size=100,
+            force=False
+        )
+
+    # Загружаем готовые карточки
+    game_cards = []
+    for game_id in game_ids:
+        card = GameCardCache.get_card_for_game(
+            game_id=game_id,
+            show_similarity=False,
+            similarity_percent=None,
+            card_size='normal'
+        )
+        if card:
+            game_cards.append(card)
 
     return render(request, 'games/game_search.html', {
-        'games': list(games),
+        'game_cards': game_cards,
         'search_query': search_query,
-        'total_results': games.count(),
-        # Добавляем параметры для совместимости с карточками
+        'total_results': games_queryset.count(),
         'show_similarity': False,
         'source_game': None,
         'selected_genres': [],
@@ -160,53 +213,6 @@ def game_search(request: HttpRequest) -> HttpResponse:
         'selected_developers': [],
         'selected_game_modes': [],
         'current_page': 1,
-    })
-
-
-def platform_list(request: HttpRequest) -> HttpResponse:
-    """Platform list page."""
-    platforms = Platform.objects.annotate(
-        game_count=Count('game')
-    ).filter(game_count__gt=0).only(
-        'id', 'name', 'slug'
-    ).order_by('-game_count', 'name')
-
-    return render(request, 'games/platform_list.html', {
-        'platforms': list(platforms),
-    })
-
-
-def platform_games(request: HttpRequest, platform_id: int) -> HttpResponse:
-    """Games for specific platform."""
-    platform = get_object_or_404(Platform.objects.only('id', 'name', 'slug'), id=platform_id)
-
-    games = Game.objects.filter(platforms=platform).prefetch_related(
-        Prefetch('genres', queryset=Genre.objects.only('id', 'name')),
-        Prefetch('keywords', queryset=Keyword.objects.select_related('category')),
-        Prefetch('themes', queryset=Theme.objects.only('id', 'name')),
-        Prefetch('developers', queryset=Company.objects.only('id', 'name')),
-        Prefetch('player_perspectives', queryset=PlayerPerspective.objects.only('id', 'name')),
-    ).only(
-        'id', 'name', 'rating', 'rating_count',
-        'first_release_date', 'cover_url', 'game_type'
-    ).order_by('-rating_count', '-rating')
-
-    ITEMS_PER_PAGE = {'platform': 20}
-
-    paginator = Paginator(list(games), ITEMS_PER_PAGE['platform'])
-    page = request.GET.get('page', 1)
-
-    try:
-        page_obj = paginator.page(int(page))
-    except (PageNotAnInteger, EmptyPage):
-        page_obj = paginator.page(1)
-
-    return render(request, 'games/platform_games.html', {
-        'platform': platform,
-        'games': page_obj,
-        'total_games': games.count(),
-        'page_obj': page_obj,
-        'is_paginated': paginator.num_pages > 1,
     })
 
 
