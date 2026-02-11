@@ -9,6 +9,8 @@ from django.template.loader import render_to_string
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 import time
 
+from ..models import GameCardCache
+
 from .base_views import (
     logger, CACHE_TIMES, get_cache_key, cache_get_or_set,
     extract_request_params, convert_params_to_lists, _apply_filters,
@@ -28,6 +30,7 @@ def _get_cached_card_html(game: Game, show_similarity: bool = False,
                           similarity_percent: float = None) -> Optional[str]:
     """
     Получает HTML карточки из кэша модели.
+    Возвращает None если карточка не найдена - вызывающий код должен отрендерить.
 
     Args:
         game: Объект игры
@@ -38,14 +41,21 @@ def _get_cached_card_html(game: Game, show_similarity: bool = False,
         HTML карточки или None если не найден в кэше
     """
     try:
-        card_cache = GameCardCache.get_card_for_game(
+        cache_key = GameCardCache._generate_key(
             game.id, show_similarity, similarity_percent, 'normal'
         )
+
+        # Получаем самую свежую активную карточку
+        card_cache = GameCardCache.objects.filter(
+            cache_key=cache_key,
+            is_active=True
+        ).order_by('-updated_at', '-created_at').first()
 
         if card_cache:
             # Инкрементируем счетчик использования
             card_cache.increment_hit()
             return card_cache.rendered_card
+
     except Exception as e:
         logger.debug(f"Cache miss for game {game.id}: {str(e)}")
 
@@ -55,7 +65,8 @@ def _get_cached_card_html(game: Game, show_similarity: bool = False,
 def _render_and_cache_card(game: Game, context: Dict, show_similarity: bool = False,
                            similarity_percent: float = None) -> str:
     """
-    Рендерит карточку и сохраняет в кэш модели.
+    Рендерит карточку и немедленно сохраняет в кэш модели.
+    Используется когда карточка нужна прямо сейчас и должна быть сохранена.
 
     Args:
         game: Объект игры
@@ -72,21 +83,26 @@ def _render_and_cache_card(game: Game, context: Dict, show_similarity: bool = Fa
     rendered_card = render_to_string('games/partials/_game_card.html', context)
 
     try:
-        # Сохраняем в кэш модели
-        card_cache, created = GameCardCreator.create_card_for_game(
+        # Извлекаем связанные данные
+        related_data = GameCardCreator._extract_related_data(game)
+
+        # Создаем или обновляем карточку в БД
+        card_cache, created = GameCardCache.get_or_create_card(
             game=game,
+            rendered_card=rendered_card,
             show_similarity=show_similarity,
             similarity_percent=similarity_percent,
             card_size='normal',
-            force=True  # Перезаписываем если существует
+            **related_data
         )
 
-        if card_cache:
-            logger.debug(f"{'Created' if created else 'Updated'} card cache for game {game.id}")
-    except Exception as e:
-        logger.error(f"Failed to cache card for game {game.id}: {str(e)}")
+        logger.info(f"{'Created' if created else 'Updated'} card cache for game {game.id} ({game.name})")
+        return card_cache.rendered_card
 
-    return rendered_card
+    except Exception as e:
+        logger.error(f"Failed to cache card for game {game.id}: {str(e)}", exc_info=True)
+        # В случае ошибки возвращаем свежеотрендеренный HTML без сохранения
+        return rendered_card
 
 
 def _render_game_card_with_caching(game: Game, context: Dict) -> str:
@@ -111,16 +127,25 @@ def _render_game_card_with_caching(game: Game, context: Dict) -> str:
 
 def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
     """
-    Обновляет список игр объектами с кэшированными карточками.
+    Обновляет список игр объектами с кэшированными карточками из БД.
+    Если карточка отсутствует - рендерит и сохраняет в БД для будущих запросов.
 
     Args:
         games_list: Список игр или словарей с играми
         context: Контекст для рендеринга
 
     Returns:
-        Обновленный список
+        Обновленный список с cached_card атрибутами
     """
     show_similarity = context.get('show_similarity', False)
+
+    # Если список пуст - возвращаем как есть
+    if not games_list:
+        return games_list
+
+    # Собираем все ключи кэша для пакетного запроса
+    cache_keys = []
+    game_items = []
 
     for item in games_list:
         if isinstance(item, dict) and 'game' in item:
@@ -132,24 +157,106 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
             if similarity is not None:
                 game_obj.similarity = similarity
 
-            # Кэшируем карточку
-            item['cached_card'] = _render_game_card_with_caching(game_obj, {
-                **context,
-                'game': game_obj,
-                'show_similarity': show_similarity
-            })
+            cache_key = GameCardCache._generate_key(
+                game_obj.id, show_similarity, similarity, 'normal'
+            )
+            cache_keys.append(cache_key)
+            game_items.append((item, game_obj, cache_key, similarity, True))
+
         else:
             # Обычный режим
             game_obj = item
+            cache_key = GameCardCache._generate_key(
+                game_obj.id, False, None, 'normal'
+            )
+            cache_keys.append(cache_key)
+            game_items.append((item, game_obj, cache_key, None, False))
 
-            # Кэшируем карточку
-            item.cached_card = _render_game_card_with_caching(game_obj, {
-                **context,
-                'game': game_obj,
-                'show_similarity': False
-            })
+    # Пакетно загружаем существующие карточки из БД
+    cards = {}
+    try:
+        card_objects = GameCardCache.objects.filter(
+            cache_key__in=cache_keys,
+            is_active=True
+        ).order_by('cache_key', '-updated_at').distinct('cache_key')
 
-    return games_list
+        cards = {card.cache_key: card for card in card_objects}
+
+    except Exception as e:
+        logger.error(f"Error batch loading card caches: {str(e)}")
+
+    # Обрабатываем каждый элемент
+    cards_to_create = []
+    processed_items = []
+
+    for item, game_obj, cache_key, similarity, is_similar_mode in game_items:
+        cached_card = cards.get(cache_key)
+
+        if cached_card:
+            # Используем готовую карточку из БД
+            try:
+                cached_card.increment_hit()
+
+                if isinstance(item, dict):
+                    item['cached_card'] = cached_card.rendered_card
+                else:
+                    item.cached_card = cached_card.rendered_card
+
+                processed_items.append(item)
+                continue
+
+            except Exception as e:
+                logger.error(f"Error using cached card for game {game_obj.id}: {str(e)}")
+
+        # Карточка не найдена или ошибка - рендерим и готовим к сохранению
+        logger.info(f"Rendering new card for game {game_obj.id} ({game_obj.name})")
+
+        # Рендерим HTML
+        card_context = {
+            'game': game_obj,
+            'show_similarity': show_similarity if is_similar_mode else False
+        }
+
+        if is_similar_mode and similarity is not None:
+            if not hasattr(game_obj, 'similarity'):
+                game_obj.similarity = similarity
+
+        rendered_card = render_to_string('games/partials/_game_card.html', card_context)
+
+        # Добавляем в список на создание
+        from games.utils.game_card_utils import GameCardCreator
+        related_data = GameCardCreator._extract_related_data(game_obj)
+
+        cards_to_create.append((
+            game_obj,
+            rendered_card,
+            show_similarity if is_similar_mode else False,
+            similarity if is_similar_mode else None,
+            'normal',
+            related_data
+        ))
+
+        # Сразу используем отрендеренный HTML
+        if isinstance(item, dict):
+            item['cached_card'] = rendered_card
+        else:
+            item.cached_card = rendered_card
+
+        processed_items.append(item)
+
+    # Асинхронно сохраняем новые карточки в БД
+    if cards_to_create:
+        try:
+            # Используем bulk_create_or_update_cards для эффективного сохранения
+            from django.db import transaction
+            transaction.on_commit(
+                lambda: GameCardCache.bulk_create_or_update_cards(cards_to_create, batch_size=50)
+            )
+            logger.info(f"Scheduled {len(cards_to_create)} new cards for background saving")
+        except Exception as e:
+            logger.error(f"Failed to schedule card creation: {str(e)}")
+
+    return processed_items
 
 def _paginate_games(games_list, page_number, items_per_page=ITEMS_PER_PAGE):
     """Создает пагинатор для списка игр."""
