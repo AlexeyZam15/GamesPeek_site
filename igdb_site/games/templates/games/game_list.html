@@ -11,6 +11,37 @@
     <link rel="stylesheet" href="{% static 'games/css/components/cards.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/game_list/keywords_pagination.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/game_list/games_pagination.css' %}">
+
+    <!-- Добавляем стили для AJAX загрузки -->
+    <style>
+        .games-container.loading {
+            opacity: 0.7;
+            pointer-events: none;
+            position: relative;
+            min-height: 200px;
+        }
+        .games-container.loading::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(255, 107, 53, 0.2);
+            border-top: 3px solid var(--secondary-color, #ff6b35);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            z-index: 1000;
+        }
+        @keyframes spin {
+            0% { transform: translate(-50%, -50%) rotate(0deg); }
+            100% { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+        .games-container {
+            transition: opacity 0.3s ease;
+        }
+    </style>
 {% endblock %}
 
 {% block content %}
@@ -26,8 +57,10 @@
         <!-- Форма фильтров -->
         {% include 'games/game_list/_filters_form.html' %}
 
-        <!-- Результаты -->
-        {% include 'games/game_list/_games_results.html' %}
+        <!-- Результаты (будут обновляться через AJAX) -->
+        <div id="games-results-container">
+            {% include 'games/game_list/_games_results.html' %}
+        </div>
     </div>
 {% endblock %}
 
@@ -35,14 +68,21 @@
     <!-- Основной скрипт фильтров -->
     <script type="module" src="{% static 'games/js/game_list.js' %}"></script>
 
-    <!-- ЗАКОММЕНТИРУЕМ КЛИЕНТСКИЕ СКРИПТЫ ПАГИНАЦИИ -->
+    <!-- ===== AJAX ПАГИНАЦИЯ ===== -->
+    <!-- ПОЛНОСТЬЮ УДАЛЯЕМ/ЗАКОММЕНТИРУЕМ старые клиентские скрипты пагинации -->
     <!--
     <script src="{% static 'games/js/game_list/game-pagination-core.js' %}"></script>
     <script src="{% static 'games/js/game_list/game-pagination-ui.js' %}"></script>
     <script src="{% static 'games/js/game_list/game-pagination.js' %}"></script>
+    <script src="{% static 'games/js/game_list/game-pagination-loading.js' %}"></script>
+    <script src="{% static 'games/js/game_list/server-pagination-enhancer.js' %}"></script>
+    <script src="{% static 'games/js/game_list/scroll-position-manager.js' %}"></script>
     -->
 
-    <!-- Простой скрипт для удаления дубликатов -->
+    <!-- Добавляем новый скрипт AJAX-пагинации (уже включает ScrollPositionManager) -->
+    <script src="{% static 'games/js/game_list/ajax-pagination.js' %}"></script>
+
+    <!-- Простой скрипт для удаления дубликатов и старых объектов -->
     <script>
         // Удаляем дублирующиеся фиксированные контейнеры при загрузке
         document.addEventListener('DOMContentLoaded', function() {
@@ -53,6 +93,23 @@
                     for (let i = 1; i < containers.length; i++) {
                         containers[i].remove();
                     }
+                }
+
+                // Удаляем глобальные объекты старых скриптов пагинации
+                if (window.GamePagination) {
+                    delete window.GamePagination;
+                }
+                if (window.GamePaginationCore) {
+                    delete window.GamePaginationCore;
+                }
+                if (window.GamePaginationUI) {
+                    delete window.GamePaginationUI;
+                }
+                if (window.ScrollPositionManager) {
+                    delete window.ScrollPositionManager;
+                }
+                if (window.ServerPaginationEnhancer) {
+                    delete window.ServerPaginationEnhancer;
                 }
             }, 1500);
         });
