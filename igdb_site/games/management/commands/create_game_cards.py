@@ -36,6 +36,7 @@ class ProgressBar:
         # Статистика
         self.saved_games = 0
         self.created_cards = 0
+        self.updated_cards = 0  # Новый счетчик для обновленных карточек
         self.skipped_games = 0
         self.error_games = 0
 
@@ -49,10 +50,11 @@ class ProgressBar:
             self._display()
             self.last_update_time = current_time
 
-    def update_stats(self, saved: int = 0, created: int = 0, skipped: int = 0, errors: int = 0):
+    def update_stats(self, saved: int = 0, created: int = 0, updated: int = 0, skipped: int = 0, errors: int = 0):
         """Обновить статистику"""
         self.saved_games += saved
         self.created_cards += created
+        self.updated_cards += updated
         self.skipped_games += skipped
         self.error_games += errors
 
@@ -76,7 +78,7 @@ class ProgressBar:
             time_str = f"{elapsed_time:.0f}s"
 
         # Форматируем статистику с пробелами после иконок
-        stats_str = f"💾 {self.saved_games} 🎯 {self.created_cards} ⏭️ {self.skipped_games} ❌ {self.error_games}"
+        stats_str = f"💾 {self.saved_games} 🆕 {self.created_cards} 🔄 {self.updated_cards} ⏭️ {self.skipped_games} ❌ {self.error_games}"
 
         # Форматируем сообщение
         message = f"\r{self.desc}: {percentage:3.0f}% [{self.current}/{self.total}] [{bar}] {stats_str} ({time_str})"
@@ -193,16 +195,27 @@ class Command(BaseCommand):
             # Получаем оффсет из аргументов
             offset = options.get('offset', 0)
 
+            # Если указан --force, всегда сбрасываем offset на 0
+            force = options.get('force', False)
+            if force:
+                offset = 0
+                self.stdout.write(self.style.WARNING("🔥 ФОРСИРОВАННЫЙ РЕЖИМ: оффсет сброшен на 0"))
+                # Сохраняем сброшенный offset
+                self._save_offset_to_file(offset)
+
             # Определяем, был ли оффсет явно указан пользователем
             import sys
             offset_specified = any(arg.startswith('--offset') for arg in sys.argv)
 
             # Если пользователь явно указал оффсет (любой, включая 0) - сохраняем его
             if offset_specified:
-                self._save_offset_to_file(offset)
-                self.stdout.write(f"📍 ИСПОЛЬЗУЕТСЯ УКАЗАННЫЙ ОФФСЕТ: {offset}")
-            # Если пользователь НЕ указал оффсет - загружаем из файла
-            elif not options.get('resume') and not game_ids:
+                if not force:  # Если не force режим
+                    self._save_offset_to_file(offset)
+                    self.stdout.write(f"📍 ИСПОЛЬЗУЕТСЯ УКАЗАННЫЙ ОФФСЕТ: {offset}")
+                else:
+                    self.stdout.write(f"📍 ФОРС-РЕЖИМ: игнорируем указанный оффсет {offset}")
+            # Если пользователь НЕ указал оффсет и не force режим - загружаем из файла
+            elif not force and not options.get('resume') and not game_ids:
                 loaded_offset = self._load_offset_from_file()
                 if loaded_offset > 0:
                     offset = loaded_offset
@@ -211,6 +224,20 @@ class Command(BaseCommand):
                     self.stdout.write(f"📍 НАЧИНАЕМ С НАЧАЛА (оффсет: 0)")
             else:
                 self.stdout.write(f"📍 ИСПОЛЬЗУЕТСЯ ОФФСЕТ: {offset}")
+
+            # Очищаем дубликаты перед началом обработки
+            if not options.get('dry_run') and verbosity >= 1:
+                self.stdout.write("🧹 Проверка и очистка дубликатов...")
+                deleted_duplicates = self._clean_duplicates_before_processing(game_ids, verbosity)
+                if deleted_duplicates > 0:
+                    self.stdout.write(f"  ✅ Удалено {deleted_duplicates} дубликатов")
+
+            # Если force режим, удаляем все существующие карточки
+            if force and not options.get('dry_run'):
+                deleted_count = self._clear_existing_cards(verbosity)
+                if deleted_count > 0:
+                    self.stdout.write(
+                        self.style.SUCCESS(f"🔥 Удалено {deleted_count} карточек для полного пересоздания"))
 
             # Получение ВСЕХ игр для обработки
             games = self._get_games_to_process(
@@ -224,8 +251,33 @@ class Command(BaseCommand):
             total_games = games.count()
 
             if total_games == 0:
-                self.stdout.write(self.style.WARNING("❌ Не найдено игр для обработки."))
-                return
+                # Проверяем, может быть из-за большого offset
+                total_all_games = Game.objects.count()
+                if offset >= total_all_games:
+                    self.stdout.write(self.style.WARNING(
+                        f"⚠️ Offset {offset} больше общего количества игр ({total_all_games})"
+                    ))
+                    self.stdout.write(self.style.WARNING("🔄 Сбрасываем offset на 0..."))
+                    offset = 0
+                    self._save_offset_to_file(0)
+                    # Пробуем снова с offset 0
+                    games = self._get_games_to_process(
+                        game_ids=game_ids,
+                        game_types=options.get('types'),
+                        limit=options.get('limit'),
+                        resume=False,
+                        offset=0
+                    )
+                    total_games = games.count()
+
+                    if total_games == 0:
+                        self.stdout.write(self.style.WARNING("❌ Не найдено игр для обработки даже с offset 0."))
+                        return
+                    else:
+                        self.stdout.write(self.style.SUCCESS(f"✅ Найдено {total_games} игр с offset 0"))
+                else:
+                    self.stdout.write(self.style.WARNING("❌ Не найдено игр для обработки."))
+                    return
 
             self.stdout.write(self.style.SUCCESS(f"✅ Найдено {total_games} игр для обработки"))
 
@@ -252,10 +304,11 @@ class Command(BaseCommand):
             total_batches = math.ceil(total_games / batch_size)
 
             total_created = 0
+            total_updated = 0
             total_skipped = 0
             total_errors = 0
 
-            # Счетчик ОБРАБОТАННЫХ игр (сохраненные + пропущенные)
+            # Счетчик ОБРАБОТАННЫХ игр (созданные + обновленные + пропущенные + ошибки)
             processed_games = 0
 
             # Флаг для отображения сохранения в прогресс-баре
@@ -302,7 +355,8 @@ class Command(BaseCommand):
                 total_errors += batch_errors
 
                 # ВАЖНО: Увеличиваем счетчик на ВСЕ игры в батче (сохраненные + пропущенные + с ошибками)
-                batch_processed = batch_created + batch_skipped + batch_errors
+                # batch_saved уже включает созданные и обновленные
+                batch_processed = batch_saved + batch_skipped + batch_errors
                 processed_games += batch_processed
 
                 # Обновляем статистику в прогресс-баре
@@ -328,7 +382,8 @@ class Command(BaseCommand):
                         )
 
                 # Показываем прогресс
-                if not options.get('dry_run') and verbosity >= 1 and not progress_bar:
+                # Показываем прогресс ТОЛЬКО при высокой детализации
+                if not options.get('dry_run') and verbosity >= 2 and not progress_bar:
                     self.stdout.write(
                         f"  Создано: {batch_created}, "
                         f"Пропущено: {batch_skipped}, "
@@ -348,7 +403,7 @@ class Command(BaseCommand):
 
                 self.stdout.write(
                     f"💾 Финальный оффсет сохранен: {next_offset} "
-                    f"(обработано игр: {processed_games} = сохранено: {total_created} + пропущено: {total_skipped} + ошибок: {total_errors})"
+                    f"(обработано игр: {processed_games} = сохранено: {batch_saved} + пропущено: {total_skipped} + ошибок: {total_errors})"
                 )
 
             # Финальная статистика на русском
@@ -358,7 +413,7 @@ class Command(BaseCommand):
             self.stdout.write("=" * 60)
             self.stdout.write(f"🔄 Всего игр в батче: {total_games}")
             self.stdout.write(
-                f"📊 Обработано игр: {processed_games} (сохранено: {total_created} + пропущено: {total_skipped} + ошибок: {total_errors})")
+                f"📊 Обработано игр: {processed_games} (создано: {total_created} + пропущено: {total_skipped} + ошибок: {total_errors})")
             self.stdout.write(f"🎯 Создано карточек: {total_created}")
             self.stdout.write(f"⏭️ Пропущено игр: {total_skipped}")
             self.stdout.write(f"❌ Ошибок: {total_errors}")
@@ -378,6 +433,101 @@ class Command(BaseCommand):
             self._handle_interrupt(offset, processed_games, progress_bar)
         except Exception as e:
             self._handle_error(e, progress_bar)
+
+    def _clear_existing_cards(self, verbosity: int) -> int:
+        """Полная очистка всех существующих карточек."""
+        try:
+            if verbosity >= 1:
+                self.stdout.write("🗑️ Начинаем полную очистку существующих карточек...")
+
+            # Получаем количество до удаления
+            count_before = GameCardCache.objects.count()
+
+            # Удаляем все записи
+            deleted_info = GameCardCache.objects.all().delete()
+            deleted_count = deleted_info[0] if deleted_info else 0
+
+            if verbosity >= 1:
+                self.stdout.write(f"  ✅ Удалено {deleted_count} карточек (было: {count_before})")
+
+            # Также чистим файл offset
+            self._save_offset_to_file(0)
+
+            if verbosity >= 1:
+                self.stdout.write("  ✅ Файл offset сброшен на 0")
+
+            return deleted_count
+
+        except Exception as e:
+            logger.error(f"Ошибка при очистке карточек: {str(e)}")
+            if verbosity >= 1:
+                self.stdout.write(f"  ❌ Ошибка при очистке: {str(e)}")
+            return 0
+
+    def _clean_duplicates_before_processing(self, game_ids: List[int], verbosity: int) -> int:
+        """
+        Очистка дубликатов перед началом обработки.
+
+        Args:
+            game_ids: Список ID игр для обработки
+            verbosity: Уровень детализации
+
+        Returns:
+            Количество удаленных дубликатов
+        """
+        try:
+            # Находим дубликаты cache_key среди обрабатываемых игр
+            from django.db.models import Count
+
+            # Сначала находим все дубликаты cache_key в БД
+            all_duplicates = (
+                GameCardCache.objects
+                .values('cache_key')
+                .annotate(count=Count('id'))
+                .filter(count__gt=1)
+            )
+
+            deleted_count = 0
+
+            for dup in all_duplicates:
+                cache_key = dup['cache_key']
+                count = dup['count']
+
+                if count > 1:
+                    # Получаем все записи с этим ключом
+                    cards = GameCardCache.objects.filter(cache_key=cache_key).order_by('-updated_at', '-created_at')
+
+                    # Оставляем самую свежую активную запись
+                    keep_card = None
+                    for card in cards:
+                        if card.is_active:
+                            keep_card = card
+                            break
+
+                    if not keep_card:
+                        keep_card = cards[0]  # Берем самую свежую
+
+                    # Удаляем остальные
+                    cards_to_delete = cards.exclude(id=keep_card.id)
+                    delete_count = cards_to_delete.count()
+
+                    if delete_count > 0:
+                        cards_to_delete.delete()
+                        deleted_count += delete_count
+
+                        if verbosity >= 2:
+                            self.stdout.write(
+                                f"  🗑️ Удалено {delete_count} дубликатов для cache_key: {cache_key[:20]}..."
+                            )
+
+            if deleted_count > 0 and verbosity >= 1:
+                self.stdout.write(f"  ✅ Удалено {deleted_count} дубликатов перед началом обработки")
+
+            return deleted_count
+
+        except Exception as e:
+            logger.warning(f"Ошибка при очистке дубликатов: {str(e)}")
+            return 0
 
     def _is_offset_provided_by_user(self) -> bool:
         """Определяет, был ли параметр --offset явно указан пользователем."""
@@ -592,7 +742,7 @@ class Command(BaseCommand):
             verbosity: int,
             progress_bar: ProgressBar = None
     ) -> Tuple[int, int, int, int]:
-        """Обработка пакета игр."""
+        """Обработка пакета игр с использованием новых методов GameCardCache."""
         created = 0
         skipped = 0
         errors = 0
@@ -601,36 +751,23 @@ class Command(BaseCommand):
         cards_to_create = []
 
         for game_id, game in games_dict.items():
-            game_created = 0
-            game_skipped = 0
-            game_error = False
-
             try:
                 # Обработка каждой конфигурации
                 for config in configs:
                     show_similarity = (config == 'similarity')
 
-                    # Проверка, существует ли карточка уже
-                    cache_key = GameCardCache._generate_key(
-                        game_id, show_similarity, None, 'normal'
-                    )
+                    # Проверка, существует ли карточка уже (только если не force и skip_existing)
+                    if not force and skip_existing:
+                        cache_key = GameCardCache._generate_key(
+                            game_id, show_similarity, None, 'normal'
+                        )
 
-                    existing_card = None
-                    if not force:
                         try:
                             existing_card = GameCardCache.objects.get(cache_key=cache_key, is_active=True)
+                            skipped += 1
+                            continue
                         except GameCardCache.DoesNotExist:
-                            pass
-
-                    # Пропуск если существует и не принудительное
-                    if existing_card and (skip_existing or not force):
-                        if verbosity >= 2:
-                            self.stdout.write(
-                                f"  ⏭️ Пропущена существующая карточка для игры {game_id} (конфигурация: {config})"
-                            )
-                        skipped += 1
-                        game_skipped += 1
-                        continue
+                            pass  # Карточка не существует, продолжаем
 
                     # Рендеринг карточки
                     rendered_card = self._render_game_card(game, show_similarity)
@@ -650,20 +787,18 @@ class Command(BaseCommand):
                         ))
 
                     created += 1
-                    game_created += 1
 
-                    if verbosity >= 2:
+                    if verbosity >= 3:  # Только при очень высокой детализации
                         self.stdout.write(
-                            f"  🎯 Создана карточка для игры {game_id} ({game.name}) "
+                            f"  🎯 Подготовлена карточка для игры {game_id} ({game.name}) "
                             f"(конфигурация: {config}, размер: {len(rendered_card)} байт)"
                         )
 
             except Exception as e:
                 errors += 1
-                game_error = True
                 logger.error(f"Ошибка обработки игры {game_id}: {str(e)}", exc_info=True)
 
-                if verbosity >= 1:
+                if verbosity >= 2:
                     self.stdout.write(
                         f"  ❌ Ошибка обработки игры {game_id}: {str(e)}"
                     )
@@ -672,13 +807,21 @@ class Command(BaseCommand):
         if not dry_run and cards_to_create:
             try:
                 with transaction.atomic():
-                    # Сохраняем карточки и получаем количество сохраненных
-                    saved_count = GameCardCache.bulk_create_cards(cards_to_create, batch_size=50)
-                    saved += saved_count  # Увеличиваем счетчик сохраненных игр
+                    # Используем новый метод bulk_create_or_update_cards для обработки уникальности
+                    stats = GameCardCache.bulk_create_or_update_cards(cards_to_create, batch_size=50)
 
-                    if verbosity >= 2:
+                    # Обновляем счетчики на основе статистики
+                    created = stats['created']
+                    updated = stats['updated']
+                    skipped += stats['skipped']
+                    errors += stats['errors']
+                    saved = stats['created'] + stats['updated']  # Успешно создано + обновлено
+
+                    if verbosity >= 2:  # Только при высокой детализации
                         self.stdout.write(
-                            f"  ✅ Пакет сохранен: {saved_count} карточек успешно создано"
+                            f"  ✅ Пакет обработан: создано={stats['created']}, "
+                            f"обновлено={stats['updated']}, пропущено={stats['skipped']}, "
+                            f"ошибок={stats['errors']}"
                         )
 
             except Exception as e:

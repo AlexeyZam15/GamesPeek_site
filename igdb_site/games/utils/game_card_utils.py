@@ -27,13 +27,12 @@ class GameCardCreator:
             force: bool = False
     ) -> Tuple[Optional[GameCardCache], bool]:
         """
-        Create cached card for a single game.
+        Create cached card for a single game using get_or_create pattern.
 
         Returns:
             Tuple of (card object, created_new)
         """
-        # Check if card already exists
-        existing_card = None
+        # Check if card already exists and we don't want to force recreate
         if not force:
             existing_card = GameCardCache.get_card_for_game(
                 game.id, show_similarity, similarity_percent, card_size
@@ -55,10 +54,10 @@ class GameCardCreator:
         # Extract related data
         related_data = cls._extract_related_data(game_with_data)
 
-        # Create card cache
+        # Create or update card cache
         try:
             with transaction.atomic():
-                card = GameCardCache.create_card(
+                card, created = GameCardCache.get_or_create_card(
                     game=game_with_data,
                     rendered_card=rendered_card,
                     show_similarity=show_similarity,
@@ -67,11 +66,11 @@ class GameCardCreator:
                     **related_data
                 )
 
-            logger.info(f"Created card cache for game {game.id} ({game.name})")
-            return card, True
+            logger.info(f"{'Created' if created else 'Updated'} card cache for game {game.id} ({game.name})")
+            return card, created
 
         except Exception as e:
-            logger.error(f"Error creating card for game {game.id}: {str(e)}", exc_info=True)
+            logger.error(f"Error creating/updating card for game {game.id}: {str(e)}", exc_info=True)
             return None, False
 
     @classmethod
@@ -88,130 +87,69 @@ class GameCardCreator:
         Returns:
             Dictionary with creation statistics
         """
-        stats = {
-            'total': len(game_ids),
+        # Load all games with data
+        games_dict = cls._load_games_with_data(game_ids)
+
+        batch_cards = []
+
+        for game_id in game_ids:
+            game = games_dict.get(game_id)
+            if not game:
+                continue
+
+            # Render card
+            rendered_card = cls._render_card_html(game, show_similarity)
+
+            # Extract related data
+            related_data = cls._extract_related_data(game)
+
+            batch_cards.append((
+                game,
+                rendered_card,
+                show_similarity,
+                None,
+                'normal',
+                related_data
+            ))
+
+        # Bulk create or update
+        if batch_cards:
+            try:
+                stats = GameCardCache.bulk_create_or_update_cards(
+                    batch_cards, batch_size=batch_size
+                )
+
+                logger.info(f"Bulk processed {len(batch_cards)} cards: "
+                            f"created={stats['created']}, "
+                            f"updated={stats['updated']}, "
+                            f"skipped={stats['skipped']}, "
+                            f"errors={stats['errors']}")
+
+                return {
+                    'total': len(batch_cards),
+                    'created': stats['created'],
+                    'updated': stats['updated'],
+                    'skipped': stats['skipped'],
+                    'errors': stats['errors']
+                }
+
+            except Exception as e:
+                logger.error(f"Error bulk processing cards: {str(e)}", exc_info=True)
+                return {
+                    'total': len(batch_cards),
+                    'created': 0,
+                    'updated': 0,
+                    'skipped': 0,
+                    'errors': len(batch_cards)
+                }
+
+        return {
+            'total': 0,
             'created': 0,
+            'updated': 0,
             'skipped': 0,
             'errors': 0
         }
-
-        # Process in batches
-        for i in range(0, len(game_ids), batch_size):
-            batch_ids = game_ids[i:i + batch_size]
-
-            # Load all games with data
-            games_dict = cls._load_games_with_data(batch_ids)
-
-            batch_cards = []
-
-            for game_id in batch_ids:
-                game = games_dict.get(game_id)
-                if not game:
-                    stats['errors'] += 1
-                    continue
-
-                # Check existing
-                existing_card = None
-                if not force:
-                    existing_card = GameCardCache.get_card_for_game(
-                        game_id, show_similarity, None, 'normal'
-                    )
-
-                if existing_card and not force:
-                    stats['skipped'] += 1
-                    continue
-
-                # Render card
-                rendered_card = cls._render_card_html(game, show_similarity)
-
-                # Extract related data
-                related_data = cls._extract_related_data(game)
-
-                batch_cards.append((
-                    game,
-                    rendered_card,
-                    show_similarity,
-                    None,
-                    'normal',
-                    related_data
-                ))
-
-            # Bulk create
-            if batch_cards:
-                try:
-                    with transaction.atomic():
-                        created_count = GameCardCache.bulk_create_cards(
-                            batch_cards, batch_size=50
-                        )
-                        stats['created'] += created_count
-
-                except Exception as e:
-                    stats['errors'] += len(batch_cards)
-                    logger.error(f"Error bulk creating cards: {str(e)}", exc_info=True)
-
-        return stats
-
-    @classmethod
-    def update_card_for_game(
-            cls,
-            game: Game,
-            show_similarity: bool = False,
-            similarity_percent: float = None
-    ) -> bool:
-        """Update existing card for game."""
-        try:
-            # Invalidate old cards
-            GameCardCache.invalidate_game_cards(game.id)
-
-            # Create new card
-            card, created = cls.create_card_for_game(
-                game, show_similarity, similarity_percent, force=True
-            )
-
-            return card is not None
-
-        except Exception as e:
-            logger.error(f"Error updating card for game {game.id}: {str(e)}", exc_info=True)
-            return False
-
-    @classmethod
-    def cleanup_old_cards(cls, days_old: int = 30) -> int:
-        """Cleanup old inactive cards."""
-        try:
-            deleted_count = GameCardCache.cleanup_old_cards(days_old)
-
-            logger.info(f"Cleaned up {deleted_count} old card caches")
-            return deleted_count
-
-        except Exception as e:
-            logger.error(f"Error cleaning up old cards: {str(e)}", exc_info=True)
-            return 0
-
-    @classmethod
-    def get_card_stats(cls) -> Dict[str, Any]:
-        """Get card cache statistics."""
-        try:
-            from django.db.models import Sum, Count, Avg
-
-            stats = GameCardCache.objects.filter(is_active=True).aggregate(
-                total_cards=Count('id'),
-                total_hits=Sum('hit_count'),
-                avg_hits=Avg('hit_count'),
-                newest=Max('created_at'),
-                oldest=Min('created_at')
-            )
-
-            return {
-                'total_cards': stats['total_cards'] or 0,
-                'total_hits': stats['total_hits'] or 0,
-                'avg_hits_per_card': round(stats['avg_hits'] or 0, 2),
-                'newest_card': stats['newest'],
-                'oldest_card': stats['oldest'],
-            }
-
-        except Exception as e:
-            logger.error(f"Error getting card stats: {str(e)}", exc_info=True)
-            return {}
 
     @classmethod
     def _load_game_with_data(cls, game_id: int) -> Optional[Game]:
