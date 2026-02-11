@@ -690,13 +690,13 @@ class Command(BaseCommand):
             return None
 
     def _get_card_configurations(self, config: str) -> List[str]:
-        """Получение списка конфигураций карточек для создания."""
-        if config == 'all':
-            return ['normal', 'similarity']
-        elif config == 'similarity':
-            return ['similarity']
-        else:  # normal
-            return ['normal']
+        """Получение списка конфигураций карточек для создания.
+
+        ВСЕГДА создаем только ОДИН тип карточек - базовый HTML без параметров.
+        Параметры (show_similarity, similarity_percent) добавляются динамически
+        при отображении, они НЕ влияют на структуру сохраненного HTML.
+        """
+        return ['normal']  # Только базовые карточки, никаких отдельных конфигов
 
     def _load_games_with_data(self, game_ids: List[int]) -> Dict[int, Game]:
         """Загрузка ВСЕХ игр с требуемыми предзагруженными данными."""
@@ -839,17 +839,21 @@ class Command(BaseCommand):
         return created, skipped, errors, saved
 
     def _render_game_card(self, game: Game, show_similarity: bool = False) -> str:
-        """Рендеринг HTML-карточки игры."""
-        # Подготовка контекста для шаблона
+        """
+        Рендеринг HTML-карточки игры.
+
+        Аргумент show_similarity игнорируется при массовом создании!
+        Массовое создание всегда рендерит БАЗОВУЮ карточку БЕЗ similarity.
+        Параметр similarity добавляется ТОЛЬКО при рендеринге на лету в реальном запросе.
+        """
+        # Подготовка контекста для шаблона - ТОЛЬКО базовые данные
         context = {
             'game': game,
-            'show_similarity': show_similarity,
+            'show_similarity': False,  # Жестко false при массовом создании
         }
 
-        # Для режима сходства добавляем фиктивное значение сходства
-        if show_similarity:
-            if not hasattr(game, 'similarity'):
-                game.similarity = 0  # Значение по умолчанию
+        # НИКОГДА не добавляем similarity при массовом создании
+        # Это параметр отображения, а не часть структуры карточки
 
         # Рендеринг шаблона
         return render_to_string('games/partials/_game_card.html', context)

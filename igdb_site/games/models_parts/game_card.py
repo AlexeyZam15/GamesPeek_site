@@ -71,7 +71,10 @@ class GameCardCache(models.Model):
         return f"Card cache for {self.game_name}"
 
     def save(self, *args, **kwargs) -> None:
-        """Override save to handle unique constraint on cache_key."""
+        """
+        Сохраняет карточку игры с гарантией уникальности cache_key.
+        Всегда удаляет существующие карточки с таким же ключом перед сохранением.
+        """
         # Генерируем ключ кэша если его нет
         if not self.cache_key:
             self.cache_key = self.generate_cache_key()
@@ -80,52 +83,26 @@ class GameCardCache(models.Model):
         if not self.card_hash:
             self.card_hash = self.generate_card_hash()
 
+        # Устанавливаем updated_at
+        self.updated_at = timezone.now()
+
+        # Удаляем все существующие карточки с таким же cache_key
+        # Это гарантирует уникальность без ошибок constraint violation
+        if self.pk is None:
+            GameCardCache.objects.filter(cache_key=self.cache_key).delete()
+        else:
+            GameCardCache.objects.filter(cache_key=self.cache_key).exclude(pk=self.pk).delete()
+
+        # Сохраняем новую запись
         try:
-            # Пытаемся сохранить с проверкой уникальности
             super().save(*args, **kwargs)
         except Exception as e:
-            # Если ошибка уникальности, пытаемся обновить существующую запись
-            if 'cache_key_key' in str(e) or 'unique' in str(e).lower():
-                self.update_existing_record()
+            # На случай race condition - пробуем еще раз с удалением
+            if 'unique' in str(e).lower() or 'duplicate' in str(e).lower():
+                GameCardCache.objects.filter(cache_key=self.cache_key).delete()
+                super().save(*args, **kwargs)
             else:
                 raise e
-
-    def update_existing_record(self) -> None:
-        """Update existing record with same cache_key."""
-        try:
-            existing = GameCardCache.objects.get(cache_key=self.cache_key)
-
-            # Обновляем все поля
-            existing.rendered_card = self.rendered_card
-            existing.compressed_card = self.compressed_card
-            existing.game_name = self.game_name
-            existing.game_rating = self.game_rating
-            existing.game_cover_url = self.game_cover_url
-            existing.game_type = self.game_type
-            existing.genres_json = self.genres_json
-            existing.platforms_json = self.platforms_json
-            existing.perspectives_json = self.perspectives_json
-            existing.keywords_json = self.keywords_json
-            existing.themes_json = self.themes_json
-            existing.game_modes_json = self.game_modes_json
-            existing.show_similarity = self.show_similarity
-            existing.similarity_percent = self.similarity_percent
-            existing.card_size = self.card_size
-            existing.is_active = self.is_active
-            existing.card_hash = self.card_hash
-            existing.hit_count = self.hit_count
-            existing.updated_at = timezone.now()
-
-            # Сохраняем обновленную запись
-            existing.save()
-
-            # Обновляем ID текущего объекта чтобы ссылка была корректной
-            self.id = existing.id
-            self.created_at = existing.created_at
-
-        except GameCardCache.DoesNotExist:
-            # Это не должно происходить, но на всякий случай
-            raise Exception(f"Cannot update non-existing record with cache_key: {self.cache_key}")
 
     @classmethod
     def get_or_create_card(
@@ -138,7 +115,8 @@ class GameCardCache(models.Model):
             **related_data
     ) -> Tuple['GameCardCache', bool]:
         """
-        Get existing card or create new one.
+        Получает существующую карточку или создает новую.
+        Гарантирует уникальность и атомарность операции.
 
         Returns:
             Tuple of (card object, created_new)
@@ -147,41 +125,69 @@ class GameCardCache(models.Model):
             game.id, show_similarity, similarity_percent, card_size
         )
 
-        try:
-            # Пытаемся найти существующую запись
-            card = cls.objects.get(cache_key=cache_key)
-            created = False
+        from django.db import transaction
 
-            # Проверяем, не изменились ли данные
-            new_card_hash = cls._calculate_card_hash(rendered_card)
-            if card.card_hash != new_card_hash:
-                # Данные изменились - обновляем
-                card.rendered_card = rendered_card
-                card.game_name = game.name
-                card.game_rating = game.rating
-                card.game_cover_url = game.cover_url
-                card.game_type = game.game_type
-                card.genres_json = related_data.get('genres', [])
-                card.platforms_json = related_data.get('platforms', [])
-                card.perspectives_json = related_data.get('perspectives', [])
-                card.keywords_json = related_data.get('keywords', [])
-                card.themes_json = related_data.get('themes', [])
-                card.game_modes_json = related_data.get('game_modes', [])
-                card.card_hash = new_card_hash
-                card.is_active = True
+        with transaction.atomic():
+            try:
+                # Пытаемся найти существующую запись с блокировкой
+                card = cls.objects.select_for_update().get(cache_key=cache_key)
+                created = False
+
+                # Проверяем, не изменились ли данные
+                new_card_hash = cls._calculate_card_hash(rendered_card)
+                if card.card_hash != new_card_hash:
+                    # Данные изменились - обновляем
+                    card.rendered_card = rendered_card
+                    card.game_name = game.name
+                    card.game_rating = getattr(game, 'rating', None)
+                    card.game_cover_url = getattr(game, 'cover_url', None)
+                    card.game_type = getattr(game, 'game_type', None)
+                    card.genres_json = related_data.get('genres', [])
+                    card.platforms_json = related_data.get('platforms', [])
+                    card.perspectives_json = related_data.get('perspectives', [])
+                    card.keywords_json = related_data.get('keywords', [])
+                    card.themes_json = related_data.get('themes', [])
+                    card.game_modes_json = related_data.get('game_modes', [])
+                    card.show_similarity = show_similarity
+                    card.similarity_percent = similarity_percent
+                    card.card_hash = new_card_hash
+                    card.is_active = True
+                    card.updated_at = timezone.now()
+                    card.save(update_fields=[
+                        'rendered_card', 'game_name', 'game_rating', 'game_cover_url',
+                        'game_type', 'genres_json', 'platforms_json', 'perspectives_json',
+                        'keywords_json', 'themes_json', 'game_modes_json',
+                        'show_similarity', 'similarity_percent', 'card_hash',
+                        'is_active', 'updated_at'
+                    ])
+
+            except cls.DoesNotExist:
+                # Создаем новую запись
+                # Предварительно удаляем любые дубликаты для этого ключа
+                cls.objects.filter(cache_key=cache_key).delete()
+
+                card = cls(
+                    game=game,
+                    rendered_card=rendered_card,
+                    game_name=game.name,
+                    game_rating=getattr(game, 'rating', None),
+                    game_cover_url=getattr(game, 'cover_url', None),
+                    game_type=getattr(game, 'game_type', None),
+                    genres_json=related_data.get('genres', []),
+                    platforms_json=related_data.get('platforms', []),
+                    perspectives_json=related_data.get('perspectives', []),
+                    keywords_json=related_data.get('keywords', []),
+                    themes_json=related_data.get('themes', []),
+                    game_modes_json=related_data.get('game_modes', []),
+                    show_similarity=show_similarity,
+                    similarity_percent=similarity_percent,
+                    card_size=card_size,
+                    cache_key=cache_key,
+                    is_active=True
+                )
+                card.card_hash = cls._calculate_card_hash(rendered_card)
                 card.save()
-
-        except cls.DoesNotExist:
-            # Создаем новую запись
-            card = cls.create_card(
-                game=game,
-                rendered_card=rendered_card,
-                show_similarity=show_similarity,
-                similarity_percent=similarity_percent,
-                card_size=card_size,
-                **related_data
-            )
-            created = True
+                created = True
 
         return card, created
 
@@ -192,7 +198,9 @@ class GameCardCache(models.Model):
             batch_size: int = 100
     ) -> Dict[str, int]:
         """
-        Bulk create or update card caches.
+        Массовое создание или обновление карточек игр.
+        Использует стратегию: удалить все существующие + создать новые.
+        Гарантирует отсутствие дубликатов.
 
         Returns:
             Dictionary with statistics
@@ -207,132 +215,123 @@ class GameCardCache(models.Model):
             'skipped': 0
         }
 
-        # Сначала получаем все существующие ключи
-        cache_keys_to_check = []
-        card_objects = {}
+        if not cards_data:
+            return stats
+
+        # Генерируем все cache_key для пакета
+        cards_to_create = []
+        cache_keys_to_process = []
 
         for data in cards_data:
-            game, rendered_card, show_similarity, similarity_percent, card_size, related_data = data
-            cache_key = cls._generate_key(
-                game.id, show_similarity, similarity_percent, card_size
-            )
-            cache_keys_to_check.append(cache_key)
+            try:
+                game, rendered_card, show_similarity, similarity_percent, card_size, related_data = data
 
-            card_objects[cache_key] = {
-                'game': game,
-                'rendered_card': rendered_card,
-                'show_similarity': show_similarity,
-                'similarity_percent': similarity_percent,
-                'card_size': card_size,
-                'related_data': related_data
-            }
-
-        # Получаем существующие записи
-        existing_cards = cls.objects.filter(cache_key__in=cache_keys_to_check)
-        existing_keys = {card.cache_key: card for card in existing_cards}
-
-        cards_to_create = []
-        cards_to_update = []
-
-        for cache_key, data in card_objects.items():
-            if cache_key in existing_keys:
-                # Существует - проверяем нужно ли обновить
-                existing_card = existing_keys[cache_key]
-                new_card_hash = cls._calculate_card_hash(data['rendered_card'])
-
-                if existing_card.card_hash != new_card_hash:
-                    # Данные изменились - обновляем
-                    existing_card.rendered_card = data['rendered_card']
-                    existing_card.game_name = data['game'].name
-                    existing_card.game_rating = data['game'].rating
-                    existing_card.game_cover_url = data['game'].cover_url
-                    existing_card.game_type = data['game'].game_type
-                    existing_card.genres_json = data['related_data'].get('genres', [])
-                    existing_card.platforms_json = data['related_data'].get('platforms', [])
-                    existing_card.perspectives_json = data['related_data'].get('perspectives', [])
-                    existing_card.keywords_json = data['related_data'].get('keywords', [])
-                    existing_card.themes_json = data['related_data'].get('themes', [])
-                    existing_card.game_modes_json = data['related_data'].get('game_modes', [])
-                    existing_card.card_hash = new_card_hash
-                    existing_card.is_active = True
-                    cards_to_update.append(existing_card)
-                    stats['updated'] += 1
-                else:
-                    stats['skipped'] += 1
-            else:
-                # Не существует - создаем новую
-                card = cls(
-                    game=data['game'],
-                    rendered_card=data['rendered_card'],
-                    game_name=data['game'].name,
-                    game_rating=data['game'].rating,
-                    game_cover_url=data['game'].cover_url,
-                    game_type=data['game'].game_type,
-                    genres_json=data['related_data'].get('genres', []),
-                    platforms_json=data['related_data'].get('platforms', []),
-                    perspectives_json=data['related_data'].get('perspectives', []),
-                    keywords_json=data['related_data'].get('keywords', []),
-                    themes_json=data['related_data'].get('themes', []),
-                    game_modes_json=data['related_data'].get('game_modes', []),
-                    show_similarity=data['show_similarity'],
-                    similarity_percent=data['similarity_percent'],
-                    card_size=data['card_size'],
-                    cache_key=cache_key
+                cache_key = cls._generate_key(
+                    game.id, show_similarity, similarity_percent, card_size
                 )
-                card.card_hash = cls._calculate_card_hash(data['rendered_card'])
+
+                card_hash = cls._calculate_card_hash(rendered_card)
+
+                card = cls(
+                    game=game,
+                    rendered_card=rendered_card,
+                    game_name=game.name,
+                    game_rating=getattr(game, 'rating', None),
+                    game_cover_url=getattr(game, 'cover_url', None),
+                    game_type=getattr(game, 'game_type', None),
+                    genres_json=related_data.get('genres', []),
+                    platforms_json=related_data.get('platforms', []),
+                    perspectives_json=related_data.get('perspectives', []),
+                    keywords_json=related_data.get('keywords', []),
+                    themes_json=related_data.get('themes', []),
+                    game_modes_json=related_data.get('game_modes', []),
+                    show_similarity=show_similarity,
+                    similarity_percent=similarity_percent,
+                    card_size=card_size,
+                    cache_key=cache_key,
+                    card_hash=card_hash,
+                    is_active=True
+                )
+
                 cards_to_create.append(card)
-                stats['created'] += 1
+                cache_keys_to_process.append(cache_key)
 
-        # Массовое создание
-        if cards_to_create:
-            try:
-                cls.objects.bulk_create(cards_to_create, batch_size=batch_size)
             except Exception as e:
-                logger.error(f"Batch creation failed: {str(e)}")
-                stats['errors'] += len(cards_to_create)
-                # Пробуем создать по одной
-                for card in cards_to_create:
-                    try:
-                        card.save()
-                    except Exception as e2:
-                        logger.error(f"Failed to save card: {str(e2)}")
-                        stats['errors'] += 1
-                        stats['created'] -= 1
+                logger.error(f"Error preparing card: {str(e)}")
+                stats['errors'] += 1
 
-        # Массовое обновление
-        if cards_to_update:
-            try:
-                cls.objects.bulk_update(
-                    cards_to_update,
-                    fields=[
-                        'rendered_card', 'game_name', 'game_rating', 'game_cover_url',
-                        'game_type', 'genres_json', 'platforms_json', 'perspectives_json',
-                        'keywords_json', 'themes_json', 'game_modes_json', 'card_hash',
-                        'is_active', 'updated_at'
-                    ],
+        if not cards_to_create:
+            return stats
+
+        from django.db import transaction
+
+        try:
+            with transaction.atomic():
+                # Удаляем ВСЕ существующие карточки с этими ключами
+                deleted_count = cls.objects.filter(
+                    cache_key__in=cache_keys_to_process
+                ).delete()[0]
+
+                stats['updated'] = deleted_count
+
+                # Создаем новые карточки
+                created_objects = cls.objects.bulk_create(
+                    cards_to_create,
                     batch_size=batch_size
                 )
-            except Exception as e:
-                logger.error(f"Batch update failed: {str(e)}")
-                # Пробуем обновить по одной
-                for card in cards_to_update:
-                    try:
-                        card.save()
-                    except Exception as e2:
-                        logger.error(f"Failed to update card: {str(e2)}")
-                        stats['errors'] += 1
-                        stats['updated'] -= 1
+                stats['created'] = len(created_objects)
+
+        except Exception as e:
+            logger.error(f"Bulk operation failed: {str(e)}", exc_info=True)
+
+            # Fallback: создаем по одной
+            stats['created'] = 0
+            stats['updated'] = 0
+            stats['errors'] = 0
+
+            for card in cards_to_create:
+                try:
+                    _, created = cls.get_or_create_card(
+                        game=card.game,
+                        rendered_card=card.rendered_card,
+                        show_similarity=card.show_similarity,
+                        similarity_percent=card.similarity_percent,
+                        card_size=card.card_size,
+                        genres=card.genres_json,
+                        platforms=card.platforms_json,
+                        perspectives=card.perspectives_json,
+                        keywords=card.keywords_json,
+                        themes=card.themes_json,
+                        game_modes=card.game_modes_json
+                    )
+
+                    if created:
+                        stats['created'] += 1
+                    else:
+                        stats['updated'] += 1
+
+                except Exception as e2:
+                    logger.error(f"Failed to save card: {str(e2)}")
+                    stats['errors'] += 1
 
         return stats
 
     def generate_cache_key(self) -> str:
-        """Generate unique cache key for this card configuration."""
+        """
+        Генерирует уникальный ключ кэша для конфигурации карточки.
+
+        Ключ зависит от:
+        - ID игры (game_id)
+        - Размера карточки (card_size)
+        - Наличия блока схожести (show_similarity)
+
+        Процент схожести НЕ влияет на ключ, так как не меняет структуру HTML.
+        """
         key_data = {
             'game_id': self.game_id,
-            'show_similarity': self.show_similarity,
-            'similarity_percent': self.similarity_percent,
             'card_size': self.card_size,
-            'version': 'v2'
+            'has_similarity': self.show_similarity,  # Только булево значение!
+            'version': 'v4'  # Увеличена версия для инвалидации старых ключей
         }
 
         key_str = json.dumps(key_data, sort_keys=True)
@@ -417,8 +416,6 @@ class GameCardCache(models.Model):
             **related_data
     ) -> 'GameCardCache':
         """Create new card cache entry."""
-
-        # Prepare related data JSON
         genres_json = related_data.get('genres', [])
         platforms_json = related_data.get('platforms', [])
         perspectives_json = related_data.get('perspectives', [])
@@ -426,19 +423,20 @@ class GameCardCache(models.Model):
         themes_json = related_data.get('themes', [])
         game_modes_json = related_data.get('game_modes', [])
 
-        # Generate cache key
         cache_key = cls._generate_key(
             game.id, show_similarity, similarity_percent, card_size
         )
 
-        # Create card cache
+        # Удаляем любые существующие карточки с таким ключом
+        cls.objects.filter(cache_key=cache_key).delete()
+
         card = cls(
             game=game,
             rendered_card=rendered_card,
             game_name=game.name,
-            game_rating=game.rating,
-            game_cover_url=game.cover_url,
-            game_type=game.game_type,
+            game_rating=getattr(game, 'rating', None),
+            game_cover_url=getattr(game, 'cover_url', None),
+            game_type=getattr(game, 'game_type', None),
             genres_json=genres_json,
             platforms_json=platforms_json,
             perspectives_json=perspectives_json,
@@ -448,7 +446,8 @@ class GameCardCache(models.Model):
             show_similarity=show_similarity,
             similarity_percent=similarity_percent,
             card_size=card_size,
-            cache_key=cache_key
+            cache_key=cache_key,
+            is_active=True
         )
         card.card_hash = cls._calculate_card_hash(rendered_card)
         card.save()
@@ -491,13 +490,23 @@ class GameCardCache(models.Model):
             similarity_percent: float,
             card_size: str
     ) -> str:
-        """Generate cache key for parameters."""
+        """
+        Генерирует ключ кэша для карточки игры.
+
+        Args:
+            game_id: ID игры
+            show_similarity: ВЛИЯЕТ НА КЛЮЧ - определяет наличие блока схожести в HTML
+            similarity_percent: НЕ ВЛИЯЕТ НА КЛЮЧ - только значение для подстановки
+            card_size: ВЛИЯЕТ НА КЛЮЧ - размер карточки меняет верстку
+
+        Returns:
+            Уникальный ключ кэша
+        """
         key_data = {
             'game_id': game_id,
-            'show_similarity': show_similarity,
-            'similarity_percent': similarity_percent,
             'card_size': card_size,
-            'version': 'v2'
+            'has_similarity': show_similarity,  # Только булево значение!
+            'version': 'v4'
         }
 
         key_str = json.dumps(key_data, sort_keys=True)

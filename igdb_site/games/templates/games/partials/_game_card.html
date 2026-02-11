@@ -40,9 +40,9 @@
                 </div>
             {% endif %}
 
-            <!-- Процент похожести (только в режиме show_similarity) -->
+            <!-- Процент схожести (скрыт по умолчанию, показывается через CSS если есть класс .show-similarity) -->
             {% if show_similarity and game.similarity %}
-                <div class="position-absolute top-0 end-0 p-1">
+                <div class="position-absolute top-0 end-0 p-1 similarity-badge">
                     {% similarity_pattern_svg game.similarity 60 %}
                 </div>
             {% endif %}
