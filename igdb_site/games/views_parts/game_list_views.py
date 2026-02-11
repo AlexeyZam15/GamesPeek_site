@@ -24,6 +24,133 @@ from .base_views import (
 ITEMS_PER_PAGE = 16
 
 
+def _get_cached_card_html(game: Game, show_similarity: bool = False,
+                          similarity_percent: float = None) -> Optional[str]:
+    """
+    Получает HTML карточки из кэша модели.
+
+    Args:
+        game: Объект игры
+        show_similarity: Показывать ли процент схожести
+        similarity_percent: Процент схожести
+
+    Returns:
+        HTML карточки или None если не найден в кэше
+    """
+    try:
+        card_cache = GameCardCache.get_card_for_game(
+            game.id, show_similarity, similarity_percent, 'normal'
+        )
+
+        if card_cache:
+            # Инкрементируем счетчик использования
+            card_cache.increment_hit()
+            return card_cache.rendered_card
+    except Exception as e:
+        logger.debug(f"Cache miss for game {game.id}: {str(e)}")
+
+    return None
+
+
+def _render_and_cache_card(game: Game, context: Dict, show_similarity: bool = False,
+                           similarity_percent: float = None) -> str:
+    """
+    Рендерит карточку и сохраняет в кэш модели.
+
+    Args:
+        game: Объект игры
+        context: Контекст для рендеринга
+        show_similarity: Показывать ли процент схожести
+        similarity_percent: Процент схожести
+
+    Returns:
+        HTML карточки
+    """
+    from games.utils.game_card_utils import GameCardCreator
+
+    # Рендерим карточку
+    rendered_card = render_to_string('games/partials/_game_card.html', context)
+
+    try:
+        # Сохраняем в кэш модели
+        card_cache, created = GameCardCreator.create_card_for_game(
+            game=game,
+            show_similarity=show_similarity,
+            similarity_percent=similarity_percent,
+            card_size='normal',
+            force=True  # Перезаписываем если существует
+        )
+
+        if card_cache:
+            logger.debug(f"{'Created' if created else 'Updated'} card cache for game {game.id}")
+    except Exception as e:
+        logger.error(f"Failed to cache card for game {game.id}: {str(e)}")
+
+    return rendered_card
+
+
+def _render_game_card_with_caching(game: Game, context: Dict) -> str:
+    """
+    Рендерит карточку игры с использованием кэша модели.
+    """
+    show_similarity = context.get('show_similarity', False)
+    similarity_percent = None
+
+    if show_similarity and hasattr(game, 'similarity'):
+        similarity_percent = game.similarity
+
+    # Пытаемся получить из кэша
+    cached_html = _get_cached_card_html(game, show_similarity, similarity_percent)
+
+    if cached_html:
+        return cached_html
+
+    # Если нет в кэше - рендерим и кэшируем
+    return _render_and_cache_card(game, context, show_similarity, similarity_percent)
+
+
+def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
+    """
+    Обновляет список игр объектами с кэшированными карточками.
+
+    Args:
+        games_list: Список игр или словарей с играми
+        context: Контекст для рендеринга
+
+    Returns:
+        Обновленный список
+    """
+    show_similarity = context.get('show_similarity', False)
+
+    for item in games_list:
+        if isinstance(item, dict) and 'game' in item:
+            # Режим похожих игр
+            game_obj = item['game']
+            similarity = item.get('similarity')
+
+            # Добавляем атрибут similarity к объекту игры
+            if similarity is not None:
+                game_obj.similarity = similarity
+
+            # Кэшируем карточку
+            item['cached_card'] = _render_game_card_with_caching(game_obj, {
+                **context,
+                'game': game_obj,
+                'show_similarity': show_similarity
+            })
+        else:
+            # Обычный режим
+            game_obj = item
+
+            # Кэшируем карточку
+            item.cached_card = _render_game_card_with_caching(game_obj, {
+                **context,
+                'game': game_obj,
+                'show_similarity': False
+            })
+
+    return games_list
+
 def _paginate_games(games_list, page_number, items_per_page=ITEMS_PER_PAGE):
     """Создает пагинатор для списка игр."""
     paginator = Paginator(games_list, items_per_page)
@@ -173,7 +300,7 @@ def _get_similar_games_mode_with_pagination(
 
 
 def game_list(request: HttpRequest) -> HttpResponse:
-    """Main game list function with SERVER-SIDE pagination."""
+    """Main game list function with SERVER-SIDE pagination and card caching."""
     start_time = time.time()
 
     requested_page = request.GET.get('page', '1')
@@ -224,8 +351,8 @@ def game_list(request: HttpRequest) -> HttpResponse:
     start_index = (current_page - 1) * ITEMS_PER_PAGE + 1
     end_index = min(current_page * ITEMS_PER_PAGE, total_count)
 
+    # Подготавливаем базовый контекст
     context = {
-        # Пагинационные данные
         'page_obj': page_obj,
         'is_paginated': is_paginated,
         'total_count': total_count,
@@ -235,17 +362,11 @@ def game_list(request: HttpRequest) -> HttpResponse:
         'end_index': end_index,
         'items_per_page': ITEMS_PER_PAGE,
 
-        # Данные игр
-        'games': list(page_obj.object_list) if page_obj and not mode_result.get('show_similarity') else [],
-        'games_with_similarity': mode_result.get('games_with_similarity', []),
-
-        # Режимы
         'find_similar': find_similar,
         'show_similarity': mode_result.get('show_similarity', False),
         'source_game': mode_result.get('source_game'),
         'source_game_obj': source_game_obj,
 
-        # Фильтры
         'genres': _get_cached_genres_list(),
         'themes': filter_data['themes'],
         'perspectives': filter_data['perspectives'],
@@ -255,11 +376,9 @@ def game_list(request: HttpRequest) -> HttpResponse:
         'popular_keywords': filter_data['popular_keywords'],
         'game_types': GameTypeEnum.CHOICES,
 
-        # Диапазон годов
         'years_range': years_range,
         'current_year': timezone.now().year,
 
-        # Выбранные критерии
         'selected_genres': selected_criteria['genres'],
         'selected_keywords': selected_criteria['keywords'],
         'selected_platforms': selected_criteria['platforms'],
@@ -271,7 +390,6 @@ def game_list(request: HttpRequest) -> HttpResponse:
         'selected_release_year_end': selected_criteria['release_year_end'],
         'selected_developers': selected_criteria['developers'],
 
-        # Объекты выбранных критериев
         'selected_genres_objects': selected_criteria_objects.get('genres', []),
         'selected_keywords_objects': selected_criteria_objects.get('keywords', []),
         'selected_platforms_objects': selected_criteria_objects.get('platforms', []),
@@ -280,9 +398,7 @@ def game_list(request: HttpRequest) -> HttpResponse:
         'selected_game_modes_objects': selected_criteria_objects.get('game_modes', []),
         'selected_developers_objects': selected_criteria_objects.get('developers', []),
 
-        # Сортировка
         'current_sort': params.get('sort', ''),
-
         'execution_time': round(time.time() - start_time, 3),
 
         'debug_info': {
@@ -291,11 +407,33 @@ def game_list(request: HttpRequest) -> HttpResponse:
         }
     }
 
+    # Получаем игры для текущей страницы
+    if mode == 'similar':
+        games_with_similarity = mode_result.get('games_with_similarity', [])
+
+        # Добавляем кэшированные карточки
+        games_with_similarity = _update_games_with_cached_cards(
+            games_with_similarity,
+            {**context, 'show_similarity': True}
+        )
+
+        context['games_with_similarity'] = games_with_similarity
+    else:
+        games = list(page_obj.object_list) if page_obj else []
+
+        # Добавляем кэшированные карточки
+        games = _update_games_with_cached_cards(
+            games,
+            {**context, 'show_similarity': False}
+        )
+
+        context['games'] = games
+
     return render(request, 'games/game_list.html', context)
 
 
 def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
-    """Load games for specific page via AJAX - теперь использует серверную пагинацию."""
+    """Load games for specific page via AJAX with card caching."""
     start_time = time.time()
 
     page_num = request.GET.get('page', '1')
@@ -328,8 +466,21 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
         mode_result = _get_similar_games_mode_with_pagination(
             params, selected_criteria, source_game_obj, page_num
         )
+
+        games_with_similarity = mode_result.get('games_with_similarity', [])
+
+        # Добавляем кэшированные карточки
+        games_with_similarity = _update_games_with_cached_cards(
+            games_with_similarity,
+            {
+                'show_similarity': True,
+                'source_game': mode_result.get('source_game'),
+                'current_page': page_num,
+            }
+        )
+
         template_context = {
-            'games_with_similarity': mode_result.get('games_with_similarity', []),
+            'games': games_with_similarity,
             'show_similarity': True,
             'source_game': mode_result.get('source_game'),
             'current_page': page_num,
@@ -339,8 +490,20 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
         mode_result = _get_all_games_mode_with_pagination(
             selected_criteria, sort_field, page_num
         )
+
+        games = list(mode_result.get('page_obj', {}).object_list) if mode_result.get('page_obj') else []
+
+        # Добавляем кэшированные карточки
+        games = _update_games_with_cached_cards(
+            games,
+            {
+                'show_similarity': False,
+                'current_page': page_num,
+            }
+        )
+
         template_context = {
-            'games': list(mode_result.get('page_obj', {}).object_list) if mode_result.get('page_obj') else [],
+            'games': games,
             'current_page': page_num,
         }
 
