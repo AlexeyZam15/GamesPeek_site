@@ -69,17 +69,7 @@
     <script type="module" src="{% static 'games/js/game_list.js' %}"></script>
 
     <!-- ===== AJAX ПАГИНАЦИЯ ===== -->
-    <!-- ПОЛНОСТЬЮ УДАЛЯЕМ/ЗАКОММЕНТИРУЕМ старые клиентские скрипты пагинации -->
-    <!--
-    <script src="{% static 'games/js/game_list/game-pagination-core.js' %}"></script>
-    <script src="{% static 'games/js/game_list/game-pagination-ui.js' %}"></script>
-    <script src="{% static 'games/js/game_list/game-pagination.js' %}"></script>
-    <script src="{% static 'games/js/game_list/game-pagination-loading.js' %}"></script>
-    <script src="{% static 'games/js/game_list/server-pagination-enhancer.js' %}"></script>
-    <script src="{% static 'games/js/game_list/scroll-position-manager.js' %}"></script>
-    -->
-
-    <!-- Добавляем новый скрипт AJAX-пагинации (уже включает ScrollPositionManager) -->
+    <!-- ПОЛНОСТЬЮ УДАЛЯЕМ старые клиентские скрипты пагинации -->
     <script src="{% static 'games/js/game_list/ajax-pagination.js' %}"></script>
 
     <!-- Простой скрипт для удаления дубликатов и старых объектов -->
@@ -89,7 +79,6 @@
             setTimeout(function() {
                 const containers = document.querySelectorAll('.apply-filters-fixed-container');
                 if (containers.length > 1) {
-                    // Оставляем только первый (самый ранний) контейнер
                     for (let i = 1; i < containers.length; i++) {
                         containers[i].remove();
                     }

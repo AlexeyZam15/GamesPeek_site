@@ -443,3 +443,68 @@
     transform: translateY(1px) !important;
     transition: transform 0.1s ease;
 }
+
+/* Добавить в конец файла games/static/games/css/game_list/games_pagination.css */
+
+/* ===== ПРЕДОТВРАЩЕНИЕ МИГАНИЯ КНОПОК ПАГИНАЦИИ ===== */
+
+/* Стабильные стили для кнопок пагинации - не зависят от JS */
+.games-pagination .page-link {
+    transition: none !important; /* Убираем transition для предотвращения мигания */
+    will-change: auto;
+}
+
+.games-pagination .page-item.active .page-link {
+    background: linear-gradient(135deg, var(--secondary-color), var(--accent-color)) !important;
+    border-color: var(--secondary-color) !important;
+    color: var(--text-light) !important;
+    font-weight: 700 !important;
+    box-shadow: 0 4px 12px rgba(255, 107, 53, 0.3) !important;
+}
+
+/* Стили для состояния загрузки - блокировка кликов без изменения внешнего вида */
+.games-pagination.pagination-loading .ajax-pagination-link {
+    pointer-events: none;
+    opacity: 0.7;
+    cursor: wait;
+}
+
+/* Предотвращаем мигание при обновлении DOM */
+.games-container {
+    transition: opacity 0.2s ease;
+}
+
+.games-container.loading {
+    opacity: 0.7;
+}
+
+/* Фиксированные размеры для контейнера игр */
+.games-container {
+    min-height: 600px;
+}
+
+/* Стабильные размеры для кнопок */
+.games-pagination .page-link {
+    min-width: 2.5rem;
+    height: 2.5rem;
+    line-height: 1;
+}
+
+/* Убираем анимацию активной страницы, которая может вызывать мерцание */
+@keyframes activePagePulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.02); }
+    100% { transform: scale(1); }
+}
+
+.games-pagination .page-item.active {
+    animation: none; /* Отключаем анимацию, вызывающую мигание */
+}
+
+/* Для мобильных устройств */
+@media (max-width: 768px) {
+    .games-pagination .page-link {
+        min-width: 2rem;
+        height: 2rem;
+    }
+}
