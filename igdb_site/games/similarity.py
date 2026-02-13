@@ -96,21 +96,23 @@ class GameSimilarity:
         self._game_data_cache = {}
 
     def _get_candidate_ids_new(self, source_data, single_player_info, min_similarity):
-        """НОВАЯ логика получения кандидатов - с использованием JOIN"""
+        """
+        ИСПРАВЛЕННЫЙ поиск кандидатов через ArrayField + GIN.
+        """
         import time
-        from django.db import connection
         from django.utils import timezone
         from .models import Game
+        from django.db.models import Q
+        from django.contrib.postgres.fields import ArrayField
 
-        print("ОПТИМИЗИРОВАННЫЙ поиск кандидатов...")
+        print("БЫСТРЫЙ поиск кандидатов через ArrayField + GIN...")
         start_time = time.time()
 
         current_time = timezone.now()
-        candidate_ids = []
 
         source_genre_ids = source_data['genre_ids']
-        source_keyword_ids = source_data['keyword_ids']
         source_theme_ids = source_data['theme_ids']
+        source_keyword_ids = source_data['keyword_ids']
         source_perspective_ids = source_data['perspective_ids']
         source_game_mode_ids = source_data['game_mode_ids']
 
@@ -118,88 +120,90 @@ class GameSimilarity:
         single_player_mode_id = single_player_info['single_player_mode_id']
         dynamic_min_common_genres = single_player_info['dynamic_min_common_genres']
 
-        print(
-            f"Критерии: жанры={len(source_genre_ids)}, темы={len(source_theme_ids)}, min_common_genres={dynamic_min_common_genres}")
+        print(f"Критерии: жанры={len(source_genre_ids)}, темы={len(source_theme_ids)}, "
+              f"мин. общих жанров={dynamic_min_common_genres}")
 
-        with connection.cursor() as cursor:
-            # Если есть жанры - ищем по жанрам
-            if source_genre_ids:
-                source_genre_ids_str = ','.join(map(str, source_genre_ids))
+        # Базовый QuerySet: только вышедшие игры
+        base_qs = Game.objects.filter(
+            first_release_date__isnull=False,
+            first_release_date__lte=current_time
+        )
 
-                query = f"""
-                    SELECT ggg.game_id, COUNT(*) as common_count
-                    FROM games_game_genres ggg
-                    INNER JOIN games_game g ON ggg.game_id = g.id
-                    WHERE ggg.genre_id IN ({source_genre_ids_str})
-                    AND g.first_release_date IS NOT NULL
-                    AND g.first_release_date <= %s
-                    GROUP BY ggg.game_id
-                    HAVING COUNT(*) >= %s
-                    ORDER BY common_count DESC
-                    LIMIT 1000
-                """
-                params = [current_time, dynamic_min_common_genres]
-                cursor.execute(query, params)
-                candidate_ids = [row[0] for row in cursor.fetchall()]
-                print(f"Найдено кандидатов по жанрам: {len(candidate_ids)}")
+        candidate_ids = []
 
-            # Если нет жанров, но есть темы - ищем по темам
-            elif source_theme_ids:
-                source_theme_ids_str = ','.join(map(str, source_theme_ids))
+        # ===== СЛУЧАЙ 1: Есть жанры =====
+        if source_genre_ids:
+            # 1. Сначала находим ВСЕ игры с любым общим жанром через GIN индекс
+            games_with_overlap = base_qs.filter(
+                genre_ids__overlap=source_genre_ids
+            ).exclude(id=source_data.get('game_id', 0)).distinct()
 
-                query = f"""
-                    SELECT ggt.game_id, COUNT(*) as common_count
-                    FROM games_game_themes ggt
-                    INNER JOIN games_game g ON ggt.game_id = g.id
-                    WHERE ggt.theme_id IN ({source_theme_ids_str})
-                    AND g.first_release_date IS NOT NULL
-                    AND g.first_release_date <= %s
-                    GROUP BY ggt.game_id
-                    ORDER BY common_count DESC
-                    LIMIT 1000
-                """
-                cursor.execute(query, [current_time])
-                candidate_ids = [row[0] for row in cursor.fetchall()]
-                print(f"Найдено кандидатов по темам: {len(candidate_ids)}")
+            # 2. Загружаем их genre_ids в память (только ID и genre_ids)
+            candidates_data = list(games_with_overlap.values('id', 'genre_ids'))
 
-            # Если нет жанров и нет тем, но есть другие критерии - ищем по другим критериям
-            elif source_keyword_ids or source_perspective_ids or source_game_mode_ids:
-                # Создаем базовый запрос
-                query = """
-                        SELECT g.id, g.rating_count
-                        FROM games_game g
-                        WHERE g.first_release_date IS NOT NULL
-                          AND g.first_release_date <= %s \
-                        """
+            # 3. Фильтруем по количеству общих жанров в Python (быстро, 10-50мс)
+            source_set = set(source_genre_ids)
+            filtered_ids = []
 
-                # Фильтруем по Single player если требуется
-                if has_single_player and single_player_mode_id:
-                    query += f"""
-                        AND EXISTS (
-                            SELECT 1 FROM games_game_game_modes ggm
-                            WHERE ggm.game_id = g.id
-                            AND ggm.gamemode_id = {single_player_mode_id}
-                        )
-                    """
+            for item in candidates_data:
+                game_genres = set(item['genre_ids'])
+                common_count = len(source_set & game_genres)
+                if common_count >= dynamic_min_common_genres:
+                    filtered_ids.append(item['id'])
 
-                query += " ORDER BY g.rating_count DESC LIMIT 800"
+            # 4. Сортируем по популярности (rating_count)
+            if filtered_ids:
+                popular_games = Game.objects.filter(
+                    id__in=filtered_ids
+                ).order_by('-rating_count').values_list('id', flat=True)[:1000]
+                candidate_ids = list(popular_games)
 
-                cursor.execute(query, [current_time])
-                candidate_ids = [row[0] for row in cursor.fetchall()]
-                print(f"Найдено кандидатов по другим критериям: {len(candidate_ids)}")
+            print(f"Найдено кандидатов по жанрам: {len(candidate_ids)} "
+                  f"(всего с пересечением: {len(candidates_data)})")
 
-            else:
-                # Если нет критериев вообще - популярные игры
-                query = """
-                        SELECT g.id, g.rating_count
-                        FROM games_game g
-                        WHERE g.first_release_date IS NOT NULL
-                          AND g.first_release_date <= %s
-                        ORDER BY g.rating_count DESC LIMIT 200 \
-                        """
-                cursor.execute(query, [current_time])
-                candidate_ids = [row[0] for row in cursor.fetchall()]
-                print(f"Найдено кандидатов (популярные игры): {len(candidate_ids)}")
+        # ===== СЛУЧАЙ 2: Нет жанров, но есть темы =====
+        elif source_theme_ids and not source_genre_ids:
+            candidates = base_qs.filter(
+                theme_ids__overlap=source_theme_ids
+            ).exclude(id=source_data.get('game_id', 0)).distinct()
+
+            candidate_ids = list(
+                candidates.order_by('-rating_count')
+                .values_list('id', flat=True)[:1000]
+            )
+            print(f"Найдено кандидатов по темам: {len(candidate_ids)}")
+
+        # ===== СЛУЧАЙ 3: Нет жанров/тем, но есть другие критерии =====
+        elif source_keyword_ids or source_perspective_ids or source_game_mode_ids:
+            filter_condition = Q()
+            if source_keyword_ids:
+                filter_condition |= Q(keyword_ids__overlap=source_keyword_ids)
+            if source_perspective_ids:
+                filter_condition |= Q(perspective_ids__overlap=source_perspective_ids)
+            if source_game_mode_ids:
+                filter_condition |= Q(game_mode_ids__overlap=source_game_mode_ids)
+
+            candidates = base_qs.filter(filter_condition).exclude(
+                id=source_data.get('game_id', 0)
+            ).distinct()
+
+            if has_single_player and single_player_mode_id:
+                candidates = candidates.filter(game_mode_ids__contains=[single_player_mode_id])
+
+            candidate_ids = list(
+                candidates.order_by('-rating_count')
+                .values_list('id', flat=True)[:800]
+            )
+            print(f"Найдено кандидатов по др. критериям: {len(candidate_ids)}")
+
+        # ===== СЛУЧАЙ 4: Нет критериев вообще =====
+        else:
+            candidate_ids = list(
+                base_qs.exclude(id=source_data.get('game_id', 0))
+                .order_by('-rating_count')
+                .values_list('id', flat=True)[:200]
+            )
+            print(f"Найдено кандидатов (популярные игры): {len(candidate_ids)}")
 
         print(f"Всего найдено {len(candidate_ids)} кандидатов за {time.time() - start_time:.2f} сек")
         return candidate_ids
