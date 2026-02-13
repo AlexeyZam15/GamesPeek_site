@@ -12,6 +12,7 @@
         /* Дополнительные стили для отступов между карточками */
         .game-card-container {
             margin-bottom: 1.5rem;
+            width: 100%;
         }
 
         /* Анимация появления карточек */
@@ -28,6 +29,16 @@
                 opacity: 1;
                 transform: translateY(0);
             }
+        }
+
+        /* Фикс для сетки Bootstrap */
+        .row.g-4 {
+            margin-right: -0.5rem;
+            margin-left: -0.5rem;
+        }
+        .row.g-4 > [class*="col-"] {
+            padding-right: 0.5rem;
+            padding-left: 0.5rem;
         }
     </style>
 {% endblock %}
@@ -81,93 +92,7 @@
 
             <div class="row g-4">
                 {% for card in popular_cards %}
-                    {{ card.rendered_card|safe }}
-                {% endfor %}
-            </div>
-        </section>
-    {% endif %}
-
-    <!-- Недавние игры -->
-    {% if recent_cards %}
-        <section class="recent-games-section section-animate">
-            <div class="section-header">
-                <h2>
-                    <i class="bi bi-clock-history text-gradient"></i>
-                    <span class="text-gradient">Recently Released</span>
-                </h2>
-                <a href="{% url 'game_list' %}?sort=-first_release_date" class="btn btn-outline-gradient">
-                    View All <i class="bi bi-arrow-right"></i>
-                </a>
-            </div>
-
-            <div class="row g-4">
-                {% for card in recent_cards %}
-                    {{ card.rendered_card|safe }}
-                {% endfor %}
-            </div>
-        </section>
-    {% endif %}
-
-    <!-- Секция возможностей -->
-    <section class="features-section section-animate">
-        <div class="row g-4">
-            <div class="col-md-4">
-                <div class="feature-card">
-                    <div class="feature-icon">
-                        <i class="bi bi-search-heart"></i>
-                    </div>
-                    <h5>Find Similar Games</h5>
-                    <p>Discover games like your favorites using our advanced similarity algorithm based on genres,
-                        themes, keywords and more.</p>
-                    <a href="{% url 'game_list' %}?find_similar=1" class="btn btn-sm btn-outline-primary mt-3">
-                        Try It Now
-                    </a>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="feature-card">
-                    <div class="feature-icon">
-                        <i class="bi bi-funnel-fill"></i>
-                    </div>
-                    <h5>Smart Filters</h5>
-                    <p>Filter games by 7+ criteria including platforms, genres, release year, developers, and game
-                        modes.</p>
-                    <a href="{% url 'game_list' %}" class="btn btn-sm btn-outline-primary mt-3">
-                        Explore Filters
-                    </a>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="feature-card">
-                    <div class="feature-icon">
-                        <i class="bi bi-arrow-left-right"></i>
-                    </div>
-                    <h5>Compare Games</h5>
-                    <p>Compare any two games side by side to see their similarities and differences in detail.</p>
-                    <a href="{% url 'game_list' %}" class="btn btn-sm btn-outline-primary mt-3">
-                        Start Comparing
-                    </a>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Недавние игры -->
-    {% if recent_cards %}
-        <section class="recent-games-section section-animate">
-            <div class="section-header">
-                <h2>
-                    <i class="bi bi-clock-history text-gradient"></i>
-                    <span class="text-gradient">Recently Released</span>
-                </h2>
-                <a href="{% url 'game_list' %}?sort=-first_release_date" class="btn btn-outline-gradient">
-                    View All <i class="bi bi-arrow-right"></i>
-                </a>
-            </div>
-
-            <div class="row g-4">
-                {% for card in recent_cards %}
-                    <div class="col-xl-3 col-lg-4 col-md-6">
+                    <div class="col-xl-3 col-lg-4 col-md-6 col-sm-6 col-12">
                         {{ card.rendered_card|safe }}
                     </div>
                 {% endfor %}
@@ -175,72 +100,24 @@
         </section>
     {% endif %}
 
-    <!-- Поиск по критериям -->
-    <section class="criteria-search-section section-animate">
-        <h2>Search by Any Criteria</h2>
-        <div class="row g-4">
-            <div class="col-lg-3 col-md-6">
-                <div class="criteria-card">
-                    <div class="criteria-icon text-primary">
-                        <i class="bi bi-tag-fill"></i>
-                    </div>
-                    <h5>Genres</h5>
-                    <p>Action, RPG, Strategy, Simulation, Sports, Adventure and more</p>
-                    <a href="{% url 'game_list' %}" class="btn btn-outline-primary btn-sm">
-                        Browse Genres
-                    </a>
-                </div>
+    <!-- Недавние игры -->
+    {% if recent_cards %}
+        <section class="recent-games-section section-animate">
+            <div class="section-header">
+                <h2>
+                    <i class="bi bi-clock-history text-gradient"></i>
+                    <span class="text-gradient">Recently Released</span>
+                </h2>
+                <a href="{% url 'game_list' %}?sort=-first_release_date" class="btn btn-outline-gradient">
+                    View All <i class="bi bi-arrow-right"></i>
+                </a>
             </div>
-            <div class="col-lg-3 col-md-6">
-                <div class="criteria-card">
-                    <div class="criteria-icon text-success">
-                        <i class="bi bi-device-hdd-fill"></i>
-                    </div>
-                    <h5>Platforms</h5>
-                    <p>PC, PlayStation, Xbox, Nintendo, Mobile, Retro consoles and more</p>
-                    <a href="{% url 'game_list' %}" class="btn btn-outline-success btn-sm">
-                        Browse Platforms
-                    </a>
-                </div>
-            </div>
-            <div class="col-lg-3 col-md-6">
-                <div class="criteria-card">
-                    <div class="criteria-icon text-info">
-                        <i class="bi bi-palette-fill"></i>
-                    </div>
-                    <h5>Themes</h5>
-                    <p>Fantasy, Sci-Fi, Horror, Comedy, Drama, Historical, Sandbox and more</p>
-                    <a href="{% url 'game_list' %}?t=1,18,19" class="btn btn-outline-info btn-sm">
-                        Browse Themes
-                    </a>
-                </div>
-            </div>
-            <div class="col-lg-3 col-md-6">
-                <div class="criteria-card">
-                    <div class="criteria-icon text-warning">
-                        <i class="bi bi-grid-3x3-gap-fill"></i>
-                    </div>
-                    <h5>Game Modes</h5>
-                    <p>Single player, Multiplayer, Co-op, MMO, Battle Royale, Competitive</p>
-                    <a href="{% url 'game_list' %}?gm=1,2,3" class="btn btn-outline-warning btn-sm">
-                        Browse Modes
-                    </a>
-                </div>
-            </div>
-        </div>
-    </section>
 
-    <!-- Популярные ключевые слова -->
-    {% if popular_keywords %}
-        <section class="popular-features-section section-animate">
-            <h2>Popular Keywords & Tags</h2>
-            <div class="features-grid">
-                {% for keyword in popular_keywords|slice:":30" %}
-                    <a href="{% url 'game_list' %}?k={{ keyword.id }}"
-                       class="btn btn-outline-light position-relative">
-                        {{ keyword.name }}
-                        <span class="badge bg-secondary">{{ keyword.cached_usage_count }}</span>
-                    </a>
+            <div class="row g-4">
+                {% for card in recent_cards %}
+                    <div class="col-xl-3 col-lg-4 col-md-6 col-sm-6 col-12">
+                        {{ card.rendered_card|safe }}
+                    </div>
                 {% endfor %}
             </div>
         </section>

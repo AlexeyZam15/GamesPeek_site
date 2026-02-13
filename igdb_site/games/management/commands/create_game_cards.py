@@ -195,13 +195,21 @@ class Command(BaseCommand):
             # Получаем оффсет из аргументов
             offset = options.get('offset', 0)
 
-            # Если указан --force, всегда сбрасываем offset на 0
+            # Если указан --force, всегда сбрасываем offset на 0 и удаляем все карточки
             force = options.get('force', False)
             if force:
                 offset = 0
                 self.stdout.write(self.style.WARNING("🔥 ФОРСИРОВАННЫЙ РЕЖИМ: оффсет сброшен на 0"))
                 # Сохраняем сброшенный offset
                 self._save_offset_to_file(offset)
+
+                # ВАЖНО: Удаляем все существующие карточки перед созданием новых
+                if not options.get('dry_run'):
+                    deleted_count = self._clear_existing_cards(verbosity)
+                    if deleted_count > 0:
+                        self.stdout.write(
+                            self.style.SUCCESS(f"🔥 Удалено {deleted_count} карточек для полного пересоздания")
+                        )
 
             # Определяем, был ли оффсет явно указан пользователем
             import sys
@@ -231,13 +239,6 @@ class Command(BaseCommand):
                 deleted_duplicates = self._clean_duplicates_before_processing(game_ids, verbosity)
                 if deleted_duplicates > 0:
                     self.stdout.write(f"  ✅ Удалено {deleted_duplicates} дубликатов")
-
-            # Если force режим, удаляем все существующие карточки
-            if force and not options.get('dry_run'):
-                deleted_count = self._clear_existing_cards(verbosity)
-                if deleted_count > 0:
-                    self.stdout.write(
-                        self.style.SUCCESS(f"🔥 Удалено {deleted_count} карточек для полного пересоздания"))
 
             # Получение ВСЕХ игр для обработки
             games = self._get_games_to_process(
@@ -284,7 +285,7 @@ class Command(BaseCommand):
             if offset > 0:
                 self.stdout.write(f"📍 Начинаем с оффсета: {offset}")
 
-            # Показываем общую статистику на русском
+            # Показываем общую статистику
             total_all_games = Game.objects.count()
             if total_all_games > total_games:
                 self.stdout.write(f"📊 Всего игр в базе данных: {total_all_games}")
@@ -294,21 +295,21 @@ class Command(BaseCommand):
                     self.stdout.write(
                         f"📈 Прогресс: {processed_before} обработано ранее, {total_games} для обработки сейчас, {remaining} осталось")
 
-            # Определение конфигураций для создания
-            configs = self._get_card_configurations(options.get('config'))
+            # Определение конфигураций для создания - ВСЕГДА ТОЛЬКО ['normal']
+            configs = ['normal']
 
-            self.stdout.write(f"⚙️ Создание карточек с конфигурациями: {', '.join(configs)}")
+            self.stdout.write(f"⚙️ Создание базовых карточек для всех игр (без параметров схожести)")
 
             # Обработка игр пакетами
             batch_size = options.get('batch_size')
             total_batches = math.ceil(total_games / batch_size)
 
             total_created = 0
-            total_updated = 0
             total_skipped = 0
             total_errors = 0
+            total_saved = 0
 
-            # Счетчик ОБРАБОТАННЫХ игр (созданные + обновленные + пропущенные + ошибки)
+            # Счетчик ОБРАБОТАННЫХ игр (все игры в батче)
             processed_games = 0
 
             # Флаг для отображения сохранения в прогресс-баре
@@ -353,19 +354,19 @@ class Command(BaseCommand):
                 total_created += batch_created
                 total_skipped += batch_skipped
                 total_errors += batch_errors
+                total_saved += batch_saved
 
-                # ВАЖНО: Увеличиваем счетчик на ВСЕ игры в батче (сохраненные + пропущенные + с ошибками)
-                # batch_saved уже включает созданные и обновленные
-                batch_processed = batch_saved + batch_skipped + batch_errors
+                # ВАЖНО: Увеличиваем счетчик на ВСЕ игры в батче
+                batch_processed = len(batch_games)
                 processed_games += batch_processed
 
                 # Обновляем статистику в прогресс-баре
                 if progress_bar:
-                    # Обновляем прогресс на количество обработанных игр
                     progress_bar.update(len(batch_games))
                     progress_bar.update_stats(
                         saved=batch_saved,
                         created=batch_created,
+                        updated=0,  # При массовом создании нет обновлений отдельно
                         skipped=batch_skipped,
                         errors=batch_errors
                     )
@@ -381,7 +382,6 @@ class Command(BaseCommand):
                             f"💾 Сохранен оффсет: {current_offset} (обработано игр: {processed_games})"
                         )
 
-                # Показываем прогресс
                 # Показываем прогресс ТОЛЬКО при высокой детализации
                 if not options.get('dry_run') and verbosity >= 2 and not progress_bar:
                     self.stdout.write(
@@ -396,30 +396,29 @@ class Command(BaseCommand):
                 progress_bar.finish()
 
             # Сохраняем финальный оффсет для следующего запуска
-            # ВАЖНО: оффсет увеличивается на ВСЕ обработанные игры
             if not options.get('dry_run') and not game_ids and not options.get('resume'):
                 next_offset = offset + processed_games
                 self._save_offset_to_file(next_offset)
 
                 self.stdout.write(
                     f"💾 Финальный оффсет сохранен: {next_offset} "
-                    f"(обработано игр: {processed_games} = сохранено: {batch_saved} + пропущено: {total_skipped} + ошибок: {total_errors})"
+                    f"(обработано игр: {processed_games})"
                 )
 
-            # Финальная статистика на русском
+            # Финальная статистика
             elapsed_time = time.time() - start_time
             self.stdout.write("\n" + "=" * 60)
             self.stdout.write(self.style.SUCCESS("✅ СОЗДАНИЕ ИГРОВЫХ КАРТОЧЕК ЗАВЕРШЕНО"))
             self.stdout.write("=" * 60)
             self.stdout.write(f"🔄 Всего игр в батче: {total_games}")
-            self.stdout.write(
-                f"📊 Обработано игр: {processed_games} (создано: {total_created} + пропущено: {total_skipped} + ошибок: {total_errors})")
+            self.stdout.write(f"📊 Обработано игр: {processed_games}")
             self.stdout.write(f"🎯 Создано карточек: {total_created}")
+            self.stdout.write(f"💾 Сохранено карточек: {total_saved}")
             self.stdout.write(f"⏭️ Пропущено игр: {total_skipped}")
             self.stdout.write(f"❌ Ошибок: {total_errors}")
 
             if total_created > 0:
-                efficiency = (total_created / processed_games) * 100
+                efficiency = (total_saved / processed_games) * 100 if processed_games > 0 else 0
                 self.stdout.write(f"📈 Эффективность: {efficiency:.1f}%")
 
             self.stdout.write(f"⏱️ Время выполнения: {elapsed_time:.2f} секунд")
@@ -690,11 +689,14 @@ class Command(BaseCommand):
             return None
 
     def _get_card_configurations(self, config: str) -> List[str]:
-        """Получение списка конфигураций карточек для создания.
+        """
+        Получение списка конфигураций карточек для создания.
 
         ВСЕГДА создаем только ОДИН тип карточек - базовый HTML без параметров.
         Параметры (show_similarity, similarity_percent) добавляются динамически
         при отображении, они НЕ влияют на структуру сохраненного HTML.
+
+        Аргумент config игнорируется - всегда возвращаем ['normal'].
         """
         return ['normal']  # Только базовые карточки, никаких отдельных конфигов
 
@@ -752,47 +754,43 @@ class Command(BaseCommand):
 
         for game_id, game in games_dict.items():
             try:
-                # Обработка каждой конфигурации
-                for config in configs:
-                    show_similarity = (config == 'similarity')
+                # Игнорируем configs - всегда создаем только базовую карточку
 
-                    # Проверка, существует ли карточка уже (только если не force и skip_existing)
-                    if not force and skip_existing:
-                        cache_key = GameCardCache._generate_key(
-                            game_id, show_similarity, None, 'normal'
-                        )
-
-                        try:
-                            existing_card = GameCardCache.objects.get(cache_key=cache_key, is_active=True)
+                # Проверка, существует ли карточка уже (только если не force и skip_existing)
+                if not force and skip_existing:
+                    try:
+                        existing_card = GameCardCache.get_card_for_game(game_id=game_id)
+                        if existing_card and existing_card.is_active:
                             skipped += 1
+                            if verbosity >= 3:
+                                self.stdout.write(
+                                    f"  ⏭️ Пропуск игры {game_id} ({game.name}) - карточка уже существует"
+                                )
                             continue
-                        except GameCardCache.DoesNotExist:
-                            pass  # Карточка не существует, продолжаем
+                    except Exception:
+                        pass  # Карточка не существует, продолжаем
 
-                    # Рендеринг карточки
-                    rendered_card = self._render_game_card(game, show_similarity)
+                # Рендеринг карточки - ВСЕГДА с show_similarity=False
+                rendered_card = self._render_game_card(game, show_similarity=False)
 
-                    # Подготовка связанных данных
-                    related_data = self._extract_related_data(game)
+                # Подготовка связанных данных
+                related_data = self._extract_related_data(game)
 
-                    # Создание объекта кэша карточки
-                    if not dry_run:
-                        cards_to_create.append((
-                            game,
-                            rendered_card,
-                            show_similarity,
-                            None,  # similarity_percent
-                            'normal',  # card_size
-                            related_data
-                        ))
+                # Создание объекта кэша карточки
+                if not dry_run:
+                    cards_to_create.append((
+                        game,
+                        rendered_card,
+                        related_data  # Только 3 элемента: game, rendered_card, related_data
+                    ))
 
-                    created += 1
+                created += 1
 
-                    if verbosity >= 3:  # Только при очень высокой детализации
-                        self.stdout.write(
-                            f"  🎯 Подготовлена карточка для игры {game_id} ({game.name}) "
-                            f"(конфигурация: {config}, размер: {len(rendered_card)} байт)"
-                        )
+                if verbosity >= 3:  # Только при очень высокой детализации
+                    self.stdout.write(
+                        f"  🎯 Подготовлена карточка для игры {game_id} ({game.name}) "
+                        f"(размер: {len(rendered_card)} байт)"
+                    )
 
             except Exception as e:
                 errors += 1
@@ -807,21 +805,20 @@ class Command(BaseCommand):
         if not dry_run and cards_to_create:
             try:
                 with transaction.atomic():
-                    # Используем новый метод bulk_create_or_update_cards для обработки уникальности
+                    # Используем новый метод bulk_create_or_update_cards с форматом (game, rendered_card, related_data)
                     stats = GameCardCache.bulk_create_or_update_cards(cards_to_create, batch_size=50)
 
                     # Обновляем счетчики на основе статистики
                     created = stats['created']
-                    updated = stats['updated']
-                    skipped += stats['skipped']
-                    errors += stats['errors']
-                    saved = stats['created'] + stats['updated']  # Успешно создано + обновлено
+                    skipped += stats.get('skipped', 0)  # Добавляем пропущенные из статистики
+                    errors += stats.get('errors', 0)
+                    saved = stats.get('created', 0) + stats.get('updated', 0)  # Успешно создано + обновлено
 
                     if verbosity >= 2:  # Только при высокой детализации
                         self.stdout.write(
-                            f"  ✅ Пакет обработан: создано={stats['created']}, "
-                            f"обновлено={stats['updated']}, пропущено={stats['skipped']}, "
-                            f"ошибок={stats['errors']}"
+                            f"  ✅ Пакет обработан: создано={stats.get('created', 0)}, "
+                            f"обновлено={stats.get('updated', 0)}, пропущено={stats.get('skipped', 0)}, "
+                            f"ошибок={stats.get('errors', 0)}"
                         )
 
             except Exception as e:
@@ -842,7 +839,7 @@ class Command(BaseCommand):
         """
         Рендеринг HTML-карточки игры.
 
-        Аргумент show_similarity игнорируется при массовом создании!
+        Аргумент show_similarity ВСЕГДА игнорируется при массовом создании!
         Массовое создание всегда рендерит БАЗОВУЮ карточку БЕЗ similarity.
         Параметр similarity добавляется ТОЛЬКО при рендеринге на лету в реальном запросе.
         """
