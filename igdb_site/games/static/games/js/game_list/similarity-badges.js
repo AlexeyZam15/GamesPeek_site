@@ -15,7 +15,13 @@ const SimilarityBadges = {
         const isSimilarMode = document.querySelector('.similarity-mode-indicator') !== null ||
                              window.location.search.includes('find_similar=1');
 
-        if (!isSimilarMode) return;
+        if (!isSimilarMode) {
+            // Скрываем все бейджи если не в режиме похожих
+            document.querySelectorAll('.similarity-badge-placeholder').forEach(el => {
+                el.style.display = 'none';
+            });
+            return;
+        }
 
         // ТОЛЬКО бейджи схожести, НЕ ТРОГАЕМ кнопки Compare
         const placeholders = document.querySelectorAll('.similarity-badge-placeholder');
@@ -30,8 +36,14 @@ const SimilarityBadges = {
 
             if (similarity && parseFloat(similarity) > 0) {
                 this.renderBadge(placeholder, similarity);
+                placeholder.style.display = 'block';
+            } else {
+                placeholder.style.display = 'none';
             }
         });
+
+        // НЕ ТРОГАЕМ кнопки Compare - они управляются шаблоном
+        // НЕ удаляем и не изменяем их
     },
 
     renderBadge: function(placeholder, similarity) {
@@ -60,7 +72,6 @@ const SimilarityBadges = {
 
         const svgEncoded = btoa(unescape(encodeURIComponent(svg)));
         placeholder.innerHTML = `<img src="data:image/svg+xml;base64,${svgEncoded}" width="${size}" height="${size}" alt="Similarity: ${similarityText}" title="Similarity: ${similarityText}" class="similarity-svg">`;
-        placeholder.style.display = 'block';
     },
 
     refresh: function() {

@@ -543,15 +543,13 @@ def _format_similar_games_data(similar_games_data: List, limit: int = 500) -> Li
         if hasattr(game, 'id') and game.id in games_dict:
             game = games_dict[game.id]
 
-        # ВАЖНО: создаем объект, который имеет свойства game и similarity
-        # Шаблон ожидает, что у game_item есть game.similarity
-        game_obj = game
-        # Добавляем similarity к объекту game
-        game_obj.similarity = similarity
+        # ВАЖНО: добавляем similarity непосредственно к объекту игры
+        # для прямого доступа в шаблоне: game.similarity
+        game.similarity = similarity
 
         formatted.append({
-            'game': game_obj,  # Теперь game имеет свойство similarity
-            'similarity': similarity,  # Оставляем для совместимости
+            'game': game,  # Объект с атрибутом similarity
+            'similarity': similarity,  # Для обратной совместимости
         })
 
     return formatted
