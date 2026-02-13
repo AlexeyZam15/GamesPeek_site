@@ -185,7 +185,7 @@ const SimilarityCompare = {
         // Создаем URL для сравнения
         const compareUrl = this.buildCompareUrl(sourceGameId, targetGameId);
 
-        // Создаем кнопку без процента
+        // Создаем компактную кнопку
         const button = document.createElement('a');
         button.href = compareUrl;
         button.className = 'btn btn-sm btn-outline-warning compare-button-added';

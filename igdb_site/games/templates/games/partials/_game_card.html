@@ -10,12 +10,11 @@
         {% if source_game and source_game.id %}
      data-source-game-id="{{ source_game.id }}"
         {% endif %}>
-    <div class="card h-100 game-card d-flex flex-column">
-        <!-- Контейнер для обложки с наложенными элементами -->
-        <div class="card-img-top-container position-relative" style="height: 250px; overflow: hidden;">
+    <div class="card game-card d-flex flex-column">
+        <!-- Контейнер для обложки с наложенными элементами - ФИКСИРОВАННАЯ ВЫСОТА -->
+        <div class="card-img-top-container position-relative">
             {% if game.cover_url %}
                 <img src="{{ game.cover_url }}" class="card-img-top w-100" alt="{{ game.name }}"
-                     style="object-fit: cover; object-position: center 20%; height: 110%;"
                      loading="lazy">
             {% else %}
                 <div class="card-img-top bg-light w-100 h-100 d-flex align-items-center justify-content-center">
@@ -52,20 +51,35 @@
                  style="display: {% if show_similarity and game.similarity %}block{% else %}none{% endif %};">
             </div>
 
-            <!-- Платформы -->
+            <!-- Платформы - показываем ТОЛЬКО первые 8, разбиваем на ряды по 4 -->
             {% if game.platforms.all %}
-                {% with platforms=game.platforms.all %}
-                    <div class="position-absolute bottom-0 start-0 p-1 platforms-overlay w-100">
-                        <div class="platforms-container">
-                            {% for platform_row in platforms|split_platforms:8 %}
-                                <div class="d-flex flex-wrap gap-1 {% if not forloop.first %}mt-1{% endif %}">
-                                    {% for platform in platform_row %}
-                                        {% platform_badge platform.name %}
-                                    {% endfor %}
-                                </div>
-                            {% endfor %}
+                {% with platforms=game.platforms.all|limit_platforms:8 %}
+                    {% if platforms %}
+                        <div class="position-absolute bottom-0 start-0 p-1 platforms-overlay w-100">
+                            <div class="platforms-container">
+                                {% if platforms|length <= 4 %}
+                                    <!-- Для 1-4 платформ - один ряд -->
+                                    <div class="d-flex flex-wrap gap-1">
+                                        {% for platform in platforms %}
+                                            {% platform_badge platform.name %}
+                                        {% endfor %}
+                                    </div>
+                                {% else %}
+                                    <!-- Для 5-8 платформ - два ряда -->
+                                    <div class="d-flex flex-wrap gap-1">
+                                        {% for platform in platforms|slice:":4" %}
+                                            {% platform_badge platform.name %}
+                                        {% endfor %}
+                                    </div>
+                                    <div class="d-flex flex-wrap gap-1 mt-1">
+                                        {% for platform in platforms|slice:"4:" %}
+                                            {% platform_badge platform.name %}
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
                         </div>
-                    </div>
+                    {% endif %}
                 {% endwith %}
             {% endif %}
 
@@ -73,43 +87,74 @@
             {% game_type_badge game.game_type %}
         </div>
 
-        <!-- Card body -->
-        <div class="card-body flex-grow-1 d-flex flex-column">
-            <div class="game-title-container" style="min-height: 48px;">
+        <!-- Card body - фиксированная высота, контент ограничен -->
+        <div class="card-body d-flex flex-column">
+            <div class="game-title-container">
                 <h6 class="card-title">{{ game.name }}</h6>
             </div>
 
+            <!-- Жанры - показываем ТОЛЬКО первые 8 -->
             {% if game.genres.all %}
-                <div class="mb-2 genres-container" style="min-height: 50px;">
+                <div class="genres-container">
                     <div class="game-genres">
-                        {% for genre in game.genres.all %}
-                            <span class="badge bg-primary mb-1 small">{{ genre.name }}</span>
-                        {% endfor %}
+                        {% with genre_limit=8 %}
+                            {% for genre in game.genres.all|slice:":genre_limit" %}
+                                <span class="badge bg-primary small">{{ genre.name }}</span>
+                            {% endfor %}
+                            {% if game.genres.all|length > genre_limit %}
+                                <span class="badge bg-secondary small"
+                                      data-bs-toggle="tooltip"
+                                      data-bs-placement="top"
+                                      title="+{{ game.genres.all|length|add:"-genre_limit" }} more genres">
+                                    +{{ game.genres.all|length|add:"-genre_limit" }}
+                                </span>
+                            {% endif %}
+                        {% endwith %}
                     </div>
                 </div>
             {% else %}
-                <div class="mb-2 genres-container" style="min-height: 50px;"></div>
-            {% endif %}
-
-            {% if game.player_perspectives.all %}
-                <div class="mb-2">
-                    {% for perspective in game.player_perspectives.all %}
-                        <span class="badge bg-info mb-1 small">{{ perspective.name }}</span>
-                    {% endfor %}
+                <div class="genres-container">
+                    <div class="game-genres"></div>
                 </div>
             {% endif %}
 
-            {% if game.first_release_date %}
-                <div class="mt-auto">
-                    <div class="release-year">
-                        <small class="text-muted">{{ game.first_release_date|date:"Y" }}</small>
+            <!-- Перспективы - показываем ТОЛЬКО первые 8 -->
+            {% if game.player_perspectives.all %}
+                <div class="perspectives-container">
+                    <div class="d-flex flex-wrap gap-1">
+                        {% with perspective_limit=8 %}
+                            {% for perspective in game.player_perspectives.all|slice:":perspective_limit" %}
+                                <span class="badge bg-info small">{{ perspective.name }}</span>
+                            {% endfor %}
+                            {% if game.player_perspectives.all|length > perspective_limit %}
+                                <span class="badge bg-secondary small"
+                                      data-bs-toggle="tooltip"
+                                      data-bs-placement="top"
+                                      title="+{{ game.player_perspectives.all|length|add:"-perspective_limit" }} more perspectives">
+                                    +{{ game.player_perspectives.all|length|add:"-perspective_limit" }}
+                                </span>
+                            {% endif %}
+                        {% endwith %}
                     </div>
                 </div>
             {% endif %}
+
+            <!-- Год релиза - фиксированная позиция внизу body -->
+            <div class="mt-auto">
+                {% if game.first_release_date %}
+                    <div class="release-year">
+                        <small class="text-muted">{{ game.first_release_date|date:"Y" }}</small>
+                    </div>
+                {% else %}
+                    <div class="release-year">
+                        <small class="text-muted">TBA</small>
+                    </div>
+                {% endif %}
+            </div>
         </div>
 
-        <!-- Футер с кнопками -->
-        <div class="card-footer mt-auto">
+        <!-- Футер с кнопками - фиксированная позиция, всегда внизу -->
+        <div class="card-footer">
             <div class="d-grid gap-2">
                 <a href="{% url 'game_detail' game.id %}" class="btn btn-sm btn-outline-primary">
                     <i class="bi bi-info-circle"></i> Details
@@ -119,8 +164,8 @@
                     <i class="bi bi-search-heart"></i> Find Similar
                 </a>
 
-                <!-- Кнопка Compare будет добавлена через JavaScript -->
-                <!-- Оставляем пустое место для динамической вставки -->
+                <!-- Место для кнопки Compare - будет добавлена через JavaScript -->
+                <div class="compare-button-placeholder" style="display: none;"></div>
             </div>
         </div>
     </div>
