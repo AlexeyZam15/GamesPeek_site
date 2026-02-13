@@ -31,6 +31,9 @@
             <p>Debug Mode: {{ debug_info.mode|default:"unknown" }}</p>
             <p>Debug Requested Page: {{ debug_info.requested_page|default:"unknown" }}</p>
             <p>Debug ModeResult Page: {{ debug_info.mode_result_page|default:"unknown" }}</p>
+            <p>Source Game:
+                {% if source_game %}{{ source_game.name }} (ID: {{ source_game.id }}){% else %}None{% endif %}</p>
+            <p>Show Similarity: {{ show_similarity }}</p>
         </div>
 
         <!-- ВАЖНОЕ ИСПРАВЛЕНИЕ: Добавляем скрытые поля для передачи данных от сервера к JavaScript -->
@@ -42,11 +45,19 @@
             <input type="hidden" id="server-end-index" value="{{ end_index }}">
             <input type="hidden" id="server-items-per-page" value="{{ items_per_page|default:16 }}">
             <input type="hidden" id="server-rendered" value="true">
+            {% if source_game and source_game.id %}
+                <input type="hidden" id="server-source-game-id" value="{{ source_game.id }}">
+                <input type="hidden" id="server-source-game-name" value="{{ source_game.name }}">
+            {% endif %}
         </div>
 
         <div class="d-flex justify-content-between align-items-center mb-3">
             {% if show_similarity %}
-                <h5>Found <span id="games-total">{{ total_count }}</span> similar games</h5>
+                <h5>Found <span id="games-total">{{ total_count }}</span> similar games
+                    {% if source_game %}
+                        to <strong>{{ source_game.name }}</strong>
+                    {% endif %}
+                </h5>
             {% else %}
                 <h5>Found <span id="games-total">{{ total_count }}</span> games</h5>
             {% endif %}
@@ -64,6 +75,7 @@
                                 <li class="page-item">
                                     <a class="page-link ajax-pagination-link"
                                        href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ page_obj.previous_page_number }}
+
 
                                                {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                        aria-label="Previous"
@@ -91,6 +103,7 @@
                                             <a class="page-link ajax-pagination-link"
                                                href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ num }}
 
+
                                                        {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                                data-page="{{ num }}">
                                                 {{ num }}
@@ -100,6 +113,7 @@
                                         <li class="page-item">
                                             <a class="page-link ajax-pagination-link"
                                                href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ num }}
+
 
                                                        {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                                data-page="{{ num }}">
@@ -118,6 +132,7 @@
                                 <li class="page-item">
                                     <a class="page-link ajax-pagination-link"
                                        href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ page_obj.next_page_number }}
+
 
                                                {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                        aria-label="Next"
@@ -140,6 +155,7 @@
                                 <a class="btn btn-sm btn-outline-primary ajax-pagination-link"
                                    href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=1
 
+
                                            {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                    data-page="1">
                                     First
@@ -151,6 +167,7 @@
                             {% if page_obj.has_next %}
                                 <a class="btn btn-sm btn-outline-primary ajax-pagination-link"
                                    href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ page_obj.paginator.num_pages }}
+
 
                                            {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                    data-page="{{ page_obj.paginator.num_pages }}">
@@ -179,9 +196,9 @@
         <!-- Контейнер для игр -->
         <div class="games-container">
             {% if show_similarity and games_with_similarity %}
-                {% include 'games/game_list/_games_grid.html' with games=games_with_similarity show_similarity=show_similarity source_game=source_game %}
+                {% include 'games/game_list/_games_grid.html' with games=games_with_similarity show_similarity=show_similarity source_game=source_game current_page=current_page %}
             {% elif games %}
-                {% include 'games/game_list/_games_grid.html' with games=games %}
+                {% include 'games/game_list/_games_grid.html' with games=games current_page=current_page %}
             {% else %}
                 <div class="row" id="games-grid-row">
                     <div class="col-12">
@@ -205,6 +222,7 @@
                                 <li class="page-item">
                                     <a class="page-link ajax-pagination-link"
                                        href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ page_obj.previous_page_number }}
+
 
                                                {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                        aria-label="Previous"
@@ -231,6 +249,7 @@
                                             <a class="page-link ajax-pagination-link"
                                                href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ num }}
 
+
                                                        {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                                data-page="{{ num }}">
                                                 {{ num }}
@@ -240,6 +259,7 @@
                                         <li class="page-item">
                                             <a class="page-link ajax-pagination-link"
                                                href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ num }}
+
 
                                                        {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                                data-page="{{ num }}">
@@ -258,6 +278,7 @@
                                 <li class="page-item">
                                     <a class="page-link ajax-pagination-link"
                                        href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ page_obj.next_page_number }}
+
 
                                                {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                        aria-label="Next"
@@ -279,6 +300,7 @@
                                 <a class="btn btn-sm btn-outline-primary ajax-pagination-link"
                                    href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=1
 
+
                                            {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                    data-page="1">
                                     First
@@ -290,6 +312,7 @@
                             {% if page_obj.has_next %}
                                 <a class="btn btn-sm btn-outline-primary ajax-pagination-link"
                                    href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page={{ page_obj.paginator.num_pages }}
+
 
                                            {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                    data-page="{{ page_obj.paginator.num_pages }}">

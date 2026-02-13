@@ -68,39 +68,24 @@
     <!-- Основной скрипт фильтров -->
     <script type="module" src="{% static 'games/js/game_list.js' %}"></script>
 
-    <!-- ===== AJAX ПАГИНАЦИЯ ===== -->
-    <!-- ПОЛНОСТЬЮ УДАЛЯЕМ старые клиентские скрипты пагинации -->
+    <!-- AJAX ПАГИНАЦИЯ -->
     <script src="{% static 'games/js/game_list/ajax-pagination.js' %}"></script>
 
-    <!-- Простой скрипт для удаления дубликатов и старых объектов -->
-    <script>
-        // Удаляем дублирующиеся фиксированные контейнеры при загрузке
-        document.addEventListener('DOMContentLoaded', function() {
-            setTimeout(function() {
-                const containers = document.querySelectorAll('.apply-filters-fixed-container');
-                if (containers.length > 1) {
-                    for (let i = 1; i < containers.length; i++) {
-                        containers[i].remove();
-                    }
-                }
+    <!-- SIMILARITY BADGES -->
+    <script src="{% static 'games/js/game_list/similarity-badges.js' %}"></script>
 
-                // Удаляем глобальные объекты старых скриптов пагинации
-                if (window.GamePagination) {
-                    delete window.GamePagination;
-                }
-                if (window.GamePaginationCore) {
-                    delete window.GamePaginationCore;
-                }
-                if (window.GamePaginationUI) {
-                    delete window.GamePaginationUI;
-                }
-                if (window.ScrollPositionManager) {
-                    delete window.ScrollPositionManager;
-                }
-                if (window.ServerPaginationEnhancer) {
-                    delete window.ServerPaginationEnhancer;
-                }
-            }, 1500);
-        });
-    </script>
+    <!-- Индикатор режима похожих игр -->
+    {% if show_similarity %}
+        <div style="display: none;" class="similarity-mode-indicator" data-mode="similar"></div>
+        <script>
+            window.similarityMap = {
+            {% for game_item in games_with_similarity %}
+                {% if game_item.game.id and game_item.similarity %}
+                "{{ game_item.game.id }}": "{{ game_item.similarity }}",
+            {% endif %}
+            {% endfor %}
+            };
+            window.sourceGameId = {% if source_game and source_game.id %}{{ source_game.id }}{% else %}null{% endif %};
+        </script>
+    {% endif %}
 {% endblock %}

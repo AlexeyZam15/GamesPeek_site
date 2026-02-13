@@ -128,23 +128,15 @@ def _render_game_card_with_caching(game: Game, context: Dict) -> str:
 def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
     """
     Обновляет список игр объектами с кэшированными карточками из БД.
-    Если карточка отсутствует - рендерит и сохраняет в БД для будущих запросов.
-
-    Args:
-        games_list: Список игр или словарей с играми
-        context: Контекст для рендеринга
-
-    Returns:
-        Обновленный список с cached_card атрибутами
+    Процент схожести передается отдельно, не кэшируется в карточке.
     """
     show_similarity = context.get('show_similarity', False)
 
-    # Если список пуст - возвращаем как есть
     if not games_list:
         return games_list
 
-    # Собираем все ключи кэша для пакетного запроса
-    cache_keys = []
+    # Собираем все ID игр
+    game_ids = []
     game_items = []
 
     for item in games_list:
@@ -152,35 +144,23 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
             # Режим похожих игр
             game_obj = item['game']
             similarity = item.get('similarity')
-
-            # Добавляем атрибут similarity к объекту игры
-            if similarity is not None:
-                game_obj.similarity = similarity
-
-            cache_key = GameCardCache._generate_key(
-                game_obj.id, show_similarity, similarity, 'normal'
-            )
-            cache_keys.append(cache_key)
-            game_items.append((item, game_obj, cache_key, similarity, True))
-
+            game_ids.append(game_obj.id)
+            game_items.append((item, game_obj, similarity, True))
         else:
             # Обычный режим
             game_obj = item
-            cache_key = GameCardCache._generate_key(
-                game_obj.id, False, None, 'normal'
-            )
-            cache_keys.append(cache_key)
-            game_items.append((item, game_obj, cache_key, None, False))
+            game_ids.append(game_obj.id)
+            game_items.append((item, game_obj, None, False))
 
     # Пакетно загружаем существующие карточки из БД
     cards = {}
     try:
         card_objects = GameCardCache.objects.filter(
-            cache_key__in=cache_keys,
+            game_id__in=game_ids,
             is_active=True
-        ).order_by('cache_key', '-updated_at').distinct('cache_key')
+        ).select_related('game')
 
-        cards = {card.cache_key: card for card in card_objects}
+        cards = {card.game_id: card for card in card_objects}
 
     except Exception as e:
         logger.error(f"Error batch loading card caches: {str(e)}")
@@ -189,8 +169,12 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
     cards_to_create = []
     processed_items = []
 
-    for item, game_obj, cache_key, similarity, is_similar_mode in game_items:
-        cached_card = cards.get(cache_key)
+    for item, game_obj, similarity, is_similar_mode in game_items:
+        cached_card = cards.get(game_obj.id)
+
+        # Сохраняем процент схожести в объекте игры (НЕ в карточке)
+        if is_similar_mode and similarity is not None:
+            game_obj.similarity = similarity
 
         if cached_card:
             # Используем готовую карточку из БД
@@ -208,18 +192,14 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
             except Exception as e:
                 logger.error(f"Error using cached card for game {game_obj.id}: {str(e)}")
 
-        # Карточка не найдена или ошибка - рендерим и готовим к сохранению
+        # Карточка не найдена - рендерим и готовим к сохранению
         logger.info(f"Rendering new card for game {game_obj.id} ({game_obj.name})")
 
-        # Рендерим HTML
+        # Рендерим HTML (без процента схожести - он будет добавлен динамически)
         card_context = {
             'game': game_obj,
-            'show_similarity': show_similarity if is_similar_mode else False
+            'show_similarity': False  # Всегда False - процент схожести НЕ встраивается в HTML
         }
-
-        if is_similar_mode and similarity is not None:
-            if not hasattr(game_obj, 'similarity'):
-                game_obj.similarity = similarity
 
         rendered_card = render_to_string('games/partials/_game_card.html', card_context)
 
@@ -230,9 +210,6 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
         cards_to_create.append((
             game_obj,
             rendered_card,
-            show_similarity if is_similar_mode else False,
-            similarity if is_similar_mode else None,
-            'normal',
             related_data
         ))
 
@@ -244,10 +221,9 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
 
         processed_items.append(item)
 
-    # Асинхронно сохраняем новые карточки в БД
+    # Асинхронно сохраняем новые карточки
     if cards_to_create:
         try:
-            # Используем bulk_create_or_update_cards для эффективного сохранения
             from django.db import transaction
             transaction.on_commit(
                 lambda: GameCardCache.bulk_create_or_update_cards(cards_to_create, batch_size=50)

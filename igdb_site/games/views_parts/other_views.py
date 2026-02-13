@@ -68,14 +68,11 @@ def _get_home_context() -> Dict:
                 force=False
             )
 
-        # Загружаем готовые карточки из кэша
+        # Загружаем готовые карточки из кэша - ИСПРАВЛЕНО: убраны лишние параметры
         popular_cards = []
         for game_id in popular_games_ids:
             card = GameCardCache.get_card_for_game(
-                game_id=game_id,
-                show_similarity=False,
-                similarity_percent=None,
-                card_size='normal'
+                game_id=game_id  # Только game_id, без show_similarity, similarity_percent, card_size
             )
             if card:
                 popular_cards.append(card)
@@ -83,10 +80,7 @@ def _get_home_context() -> Dict:
         recent_cards = []
         for game_id in recent_games_ids:
             card = GameCardCache.get_card_for_game(
-                game_id=game_id,
-                show_similarity=False,
-                similarity_percent=None,
-                card_size='normal'
+                game_id=game_id  # Только game_id, без лишних параметров
             )
             if card:
                 recent_cards.append(card)
@@ -188,14 +182,11 @@ def game_search(request: HttpRequest) -> HttpResponse:
             force=False
         )
 
-    # Загружаем готовые карточки
+    # Загружаем готовые карточки - ИСПРАВЛЕНО: убраны лишние параметры
     game_cards = []
     for game_id in game_ids:
         card = GameCardCache.get_card_for_game(
-            game_id=game_id,
-            show_similarity=False,
-            similarity_percent=None,
-            card_size='normal'
+            game_id=game_id  # Только game_id, без show_similarity, similarity_percent, card_size
         )
         if card:
             game_cards.append(card)
