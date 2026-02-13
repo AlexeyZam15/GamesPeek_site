@@ -1,5 +1,7 @@
+<!-- games/templates/games/game_detail/tabs_content.html -->
 {% load platform_icons %}
 {% load game_tags %}
+{% load static %}
 
 <!-- Навигация табов -->
 <ul class="nav nav-tabs mb-4" id="gameTabs" role="tablist">
@@ -67,4 +69,4 @@
 </div>
 
 <!-- Основные скрипты управления табами -->
-{% include 'games/game_detail/game_detail_scripts.html' %}
+<script src="{% static 'games/js/game_detail/main.js' %}"></script>

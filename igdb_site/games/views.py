@@ -7,6 +7,7 @@ from .views_parts.game_list_views import (
     get_similar_games_for_criteria,
     get_similar_games_for_game,
     get_source_game,
+    clear_game_list_cache_specific,
 )
 from .views_parts.game_detail_views import (
     game_detail,
@@ -18,8 +19,6 @@ from .views_parts.other_views import (
     home,
     keyword_category_view,
     game_search,
-    platform_list,
-    platform_games,
     auto_login_admin,
 )
 from .views_parts.analyze_views import (
@@ -70,8 +69,6 @@ __all__ = [
     'home',
     'keyword_category_view',
     'game_search',
-    'platform_list',
-    'platform_games',
     'auto_login_admin',
     'analyze_single_game',
     'clear_analysis_results',
@@ -87,6 +84,7 @@ __all__ = [
     'warm_cache_for_home_page',
     'clear_game_list_cache',
     'get_cache_stats',
+    'clear_game_list_cache_specific',
 
     # Cache decorators
     'cache_view',

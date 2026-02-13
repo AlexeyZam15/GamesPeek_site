@@ -1,120 +1,171 @@
+<!-- games/templates/games/home.html -->
 {% extends 'base.html' %}
 {% load static %}
+{% load game_card_tags %}
 
-{% block title %}GamesPeek - Discover Your Next Favorite Game{% endblock %}
+{% block title %}GamesPeek - Video Game Discovery{% endblock %}
 
 {% block extra_css %}
-    <link rel="stylesheet" href="{% static 'games/css/home.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/components/cards.css' %}">
+    <link rel="stylesheet" href="{% static 'games/css/home.css' %}">
+    <style>
+        /* Дополнительные стили для отступов между карточками */
+        .game-card-container {
+            margin-bottom: 1.5rem;
+            width: 100%;
+        }
+
+        /* Анимация появления карточек */
+        .game-card {
+            animation: fadeInUp 0.6s ease forwards;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Фикс для сетки Bootstrap */
+        .row.g-4 {
+            margin-right: -0.5rem;
+            margin-left: -0.5rem;
+        }
+        .row.g-4 > [class*="col-"] {
+            padding-right: 0.5rem;
+            padding-left: 0.5rem;
+        }
+    </style>
 {% endblock %}
 
 {% block content %}
-    <!-- Hero Section -->
-    <div class="row mb-5">
-        <div class="col-12 text-center">
-            <h1 class="display-4 mb-3 text-gradient">🎮 Welcome to GamesPeek</h1>
-            <p class="lead mb-4">Discover and explore thousands of video games with advanced similarity search</p>
+    <!-- Hero секция -->
+    <div class="home-hero">
+        <h1>Discover Your Next Favorite Game</h1>
+        <p class="lead">Browse thousands of games, find similar titles, and make new discoveries</p>
 
-            <!-- Quick Search Actions -->
-            <div class="row g-3 justify-content-center mb-4">
-                <div class="col-auto">
-                    <a href="{% url 'game_list' %}" class="btn btn-primary btn-lg">
-                        <i class="bi bi-grid-3x3-gap"></i> Browse All Games
-                    </a>
-                </div>
-                <div class="col-auto">
-                    <a href="{% url 'game_search' %}" class="btn btn-outline-primary btn-lg">
-                        <i class="bi bi-search"></i> Advanced Search
-                    </a>
-                </div>
-            </div>
-
+        <div class="quick-actions">
+            <a href="{% url 'game_list' %}" class="btn btn-gradient btn-lg">
+                <i class="bi bi-controller"></i> Browse All Games
+            </a>
+            <a href="{% url 'game_list' %}" class="btn btn-outline-gradient btn-lg">
+                <i class="bi bi-funnel-fill"></i> Advanced Filters
+            </a>
         </div>
-    </div>
 
-    <!-- Features Section -->
-    <div class="row mb-5">
-        <div class="col-12">
-            <div class="card bg-light border-0">
-                <div class="card-body p-4">
-                    <div class="row text-center">
-                        <div class="col-md-4 mb-3">
-                            <div class="feature-icon mb-3">
-                                <i class="bi bi-search-heart" style="font-size: 3rem; color: #6f42c1;"></i>
-                            </div>
-                            <h5>Smart Similarity Search</h5>
-                            <p class="text-muted">Find games based on genres, themes, developers, and gameplay
-                                features</p>
-                        </div>
-                        <div class="col-md-4 mb-3">
-                            <div class="feature-icon mb-3">
-                                <i class="bi bi-graph-up" style="font-size: 3rem; color: #20c997;"></i>
-                            </div>
-                            <h5>Advanced Algorithm</h5>
-                            <p class="text-muted">Our algorithm considers multiple factors for accurate
-                                recommendations</p>
-                        </div>
-                        <div class="col-md-4 mb-3">
-                            <div class="feature-icon mb-3">
-                                <i class="bi bi-collection" style="font-size: 3rem; color: #fd7e14;"></i>
-                            </div>
-                            <h5>Rich Database</h5>
-                            <p class="text-muted">Thousands of games with detailed information and metadata</p>
-                        </div>
-                    </div>
-                </div>
+        <div class="quick-filters">
+            <h6 class="text-muted mb-3">Popular filters:</h6>
+            <div>
+                <a href="{% url 'game_list' %}?sort=-rating" class="btn btn-outline-light btn-sm">
+                    <i class="bi bi-star-fill text-warning"></i> Highest Rated
+                </a>
+                <a href="{% url 'game_list' %}?sort=-rating_count" class="btn btn-outline-light btn-sm">
+                    <i class="bi bi-bar-chart-fill text-info"></i> Most Popular
+                </a>
+                <a href="{% url 'game_list' %}?sort=-first_release_date" class="btn btn-outline-light btn-sm">
+                    <i class="bi bi-calendar-event-fill text-success"></i> Newest
+                </a>
+                <a href="{% url 'game_list' %}?g=5,12,31" class="btn btn-outline-light btn-sm">
+                    <i class="bi bi-dice-5-fill text-primary"></i> RPG, Adventure, Indie
+                </a>
             </div>
         </div>
     </div>
 
-    <!-- Popular Games -->
-    <div class="row mb-5">
-        <div class="col-12">
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <h2 class="mb-0">
-                    <i class="bi bi-fire text-danger"></i> Most Popular Games
+    <!-- Популярные игры -->
+    {% if popular_cards %}
+        <section class="popular-games-section section-animate">
+            <div class="section-header">
+                <h2>
+                    <i class="bi bi-fire text-gradient"></i>
+                    <span class="text-gradient">Most Popular Games</span>
                 </h2>
-                <a href="{% url 'game_list' %}?sort=-rating_count" class="btn btn-outline-primary">
+                <a href="{% url 'game_list' %}?sort=-rating_count" class="btn btn-outline-gradient">
                     View All <i class="bi bi-arrow-right"></i>
                 </a>
             </div>
-            <div class="row">
-                {% for game in popular_games %}
-                    {% include 'games/partials/_game_card.html' with game=game %}
-                {% empty %}
-                    <div class="col-12">
-                        <div class="alert alert-info text-center">
-                            <i class="bi bi-info-circle"></i> No popular games found.
-                        </div>
+
+            <div class="row g-4">
+                {% for card in popular_cards %}
+                    <div class="col-xl-3 col-lg-4 col-md-6 col-sm-6 col-12">
+                        {{ card.rendered_card|safe }}
                     </div>
                 {% endfor %}
             </div>
-        </div>
-    </div>
+        </section>
+    {% endif %}
 
-    <!-- Recent Games -->
-    <div class="row mb-5">
-        <div class="col-12">
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <h2 class="mb-0">
-                    <i class="bi bi-clock text-primary"></i> Recent Releases
+    <!-- Недавние игры -->
+    {% if recent_cards %}
+        <section class="recent-games-section section-animate">
+            <div class="section-header">
+                <h2>
+                    <i class="bi bi-clock-history text-gradient"></i>
+                    <span class="text-gradient">Recently Released</span>
                 </h2>
-                <a href="{% url 'game_list' %}?sort=-first_release_date" class="btn btn-outline-primary">
+                <a href="{% url 'game_list' %}?sort=-first_release_date" class="btn btn-outline-gradient">
                     View All <i class="bi bi-arrow-right"></i>
                 </a>
             </div>
-            <div class="row">
-                {% for game in recent_games %}
-                    {% include 'games/partials/_game_card.html' with game=game %}
-                {% empty %}
-                    <div class="col-12">
-                        <div class="alert alert-info text-center">
-                            <i class="bi bi-info-circle"></i> No recent games found.
-                        </div>
+
+            <div class="row g-4">
+                {% for card in recent_cards %}
+                    <div class="col-xl-3 col-lg-4 col-md-6 col-sm-6 col-12">
+                        {{ card.rendered_card|safe }}
                     </div>
                 {% endfor %}
             </div>
-        </div>
-    </div>
+        </section>
+    {% endif %}
 
+    <!-- Как это работает -->
+    <section class="how-it-works section-animate">
+        <h3>How GamesPeek Works</h3>
+        <div class="row g-4">
+            <div class="col-md-3">
+                <div class="step-number">1</div>
+                <h5>Browse or Search</h5>
+                <p>Start by browsing our database or searching for specific games</p>
+            </div>
+            <div class="col-md-3">
+                <div class="step-number">2</div>
+                <h5>Filter & Refine</h5>
+                <p>Use powerful filters to narrow down to exactly what you want</p>
+            </div>
+            <div class="col-md-3">
+                <div class="step-number">3</div>
+                <h5>Find Similar</h5>
+                <p>Click "Find Similar" on any game to discover related titles</p>
+            </div>
+            <div class="col-md-3">
+                <div class="step-number">4</div>
+                <h5>Compare & Decide</h5>
+                <p>Compare games side by side to make your choice</p>
+            </div>
+        </div>
+        <div class="mt-5">
+            <a href="{% url 'game_list' %}" class="btn btn-gradient btn-lg">
+                Start Discovering Games
+            </a>
+        </div>
+    </section>
+{% endblock %}
+
+{% block extra_js %}
+    <script>
+        // Инициализация тултипов Bootstrap для динамически загруженных карточек
+        document.addEventListener('DOMContentLoaded', function() {
+            if (typeof bootstrap !== 'undefined') {
+                var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+                tooltipTriggerList.map(function (tooltipTriggerEl) {
+                    return new bootstrap.Tooltip(tooltipTriggerEl);
+                });
+            }
+        });
+    </script>
 {% endblock %}

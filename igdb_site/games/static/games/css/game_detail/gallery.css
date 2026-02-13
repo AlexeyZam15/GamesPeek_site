@@ -16,9 +16,9 @@
   --button-disabled: rgba(255, 107, 53, 0.3);
 
   /* Размеры кнопок */
-  --close-btn-size: 40px;
-  --close-btn-size-md: 35px;
-  --close-btn-size-sm: 30px;
+  --close-btn-size: 45px;
+  --close-btn-size-md: 40px;
+  --close-btn-size-sm: 35px;
 
   --arrow-btn-size: 50px;
   --arrow-btn-size-md: 40px;
@@ -135,25 +135,27 @@
 
 /* Тело модального окна */
 #screenshotModal .modal-body {
-  padding: 40px !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  min-height: 70vh !important;
-  position: relative !important;
+    padding: 40px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    min-height: 85vh !important;  /* Увеличено с 70vh до 85vh */
+    position: relative !important;
+    overflow: hidden !important;
 }
 
 /* Изображение в модальном окне */
 #screenshotModal .screenshot-full {
-  max-width: 90vw !important;
-  max-height: 70vh !important;
-  width: auto !important;
-  height: auto !important;
-  object-fit: contain !important;
-  border-radius: 8px !important;
-  display: block !important;
-  margin: 0 auto !important;
-  background: transparent !important;
+    max-width: 90vw !important;
+    max-height: 80vh !important;  /* Увеличено с 70vh до 80vh */
+    width: auto !important;
+    height: auto !important;
+    object-fit: contain !important;
+    border-radius: 8px !important;
+    display: block !important;
+    margin: 0 auto !important;
+    background: transparent !important;
+    transition: transform 0.3s ease !important;
 }
 
 /* ===== КНОПКИ МОДАЛЬНОГО ОКНА ===== */
@@ -161,9 +163,9 @@
 /* Кнопка закрытия - правый верхний угол */
 #screenshotModal .screenshot-close {
   position: absolute !important;
-  top: -15px !important;
-  right: -15px !important;
-  z-index: 100001 !important;
+  top: 5px !important;
+  right: 100px !important;
+  z-index: 100002 !important;  /* УВЕЛИЧИВАЕМ с 100001 до 100002 */
   background: var(--button-bg) !important;
   border: 2px solid white !important;
   border-radius: 50% !important;
@@ -189,35 +191,55 @@
 
 /* Стрелки - боковые кнопки */
 #screenshotModal .nav-arrow {
-  position: absolute !important;
-  top: 50% !important;
-  transform: translateY(-50%) !important;
-  z-index: 100000 !important;
-  background: rgba(255, 107, 53, 0.8) !important;
-  border: 2px solid white !important;
-  border-radius: 50% !important;
-  color: white !important;
-  width: var(--arrow-btn-size) !important;
-  height: var(--arrow-btn-size) !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  font-size: 1.5rem !important;
-  opacity: 1 !important;
-  transition: all 0.3s ease !important;
-  padding: 0 !important;
-  margin: 0 !important;
-  cursor: pointer !important;
+    position: absolute !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    z-index: 100000 !important;
+    background: rgba(255, 107, 53, 0.9) !important;  /* Более заметный фон */
+    border: 3px solid white !important;  /* Более толстая рамка */
+    border-radius: 50% !important;
+    color: white !important;
+    width: var(--arrow-btn-size) !important;
+    height: var(--arrow-btn-size) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 1.8rem !important;  /* Увеличены стрелки */
+    opacity: 1 !important;
+    transition: all 0.3s ease !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    cursor: pointer !important;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);  /* Тень для контраста */
+}
+
+/* Счетчик - нижний центр */
+#screenshotModal .screenshot-counter {
+    position: absolute !important;
+    bottom: 25px !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    z-index: 100000 !important;
+    background: rgba(40, 40, 40, 0.7) !important;  /* Полупрозрачный серый фон */
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    border-radius: 25px !important;
+    padding: 12px 25px !important;
+    color: white !important;
+    font-size: 1.2rem !important;
+    font-weight: bold !important;
+    backdrop-filter: blur(5px) !important;
+    min-width: 120px;
+    text-align: center;
 }
 
 /* Левая стрелка */
 #screenshotModal .prev-arrow {
-  left: 20px !important;
+  left: 90px !important;
 }
 
 /* Правая стрелка */
 #screenshotModal .next-arrow {
-  right: 20px !important;
+  right: 90px !important;
 }
 
 #screenshotModal .nav-arrow:hover:not(:disabled) {
@@ -231,40 +253,12 @@
   background: var(--button-disabled) !important;
 }
 
-/* Счетчик - нижний центр */
-#screenshotModal .screenshot-counter {
-  position: absolute !important;
-  bottom: 20px !important;
-  left: 50% !important;
-  transform: translateX(-50%) !important;
-  z-index: 100000 !important;
-  background: rgba(0, 0, 0, 0.7) !important;
-  border: 1px solid rgba(255, 255, 255, 0.3) !important;
-  border-radius: 20px !important;
-  padding: 10px 20px !important;
-  color: white !important;
-  font-size: 1.1rem !important;
-  font-weight: bold !important;
-  backdrop-filter: blur(5px) !important;
-  min-width: 100px;
-  text-align: center;
-}
-
 /* ===== АДАПТИВНОСТЬ ДЛЯ МОБИЛЬНЫХ ===== */
 @media (max-width: 768px) {
   /* Контейнеры */
   .screenshot-container-fixed,
   .screenshot-container {
     height: var(--gallery-height-md) !important;
-  }
-
-  /* Кнопка закрытия */
-  #screenshotModal .screenshot-close {
-    top: -10px !important;
-    right: -10px !important;
-    width: var(--close-btn-size-md) !important;
-    height: var(--close-btn-size-md) !important;
-    font-size: 1rem !important;
   }
 
   /* Стрелки */
@@ -289,12 +283,6 @@
     font-size: 1rem !important;
   }
 
-  /* Тело модального окна */
-  #screenshotModal .modal-body {
-    padding: 20px !important;
-    min-height: 60vh !important;
-  }
-
   /* Изображение в модальном */
   #screenshotModal .screenshot-full {
     max-width: 95vw !important;
@@ -307,22 +295,6 @@
   .screenshot-container-fixed,
   .screenshot-container {
     height: var(--gallery-height-sm) !important;
-  }
-
-  /* Кнопка закрытия */
-  #screenshotModal .screenshot-close {
-    top: -8px !important;
-    right: -8px !important;
-    width: var(--close-btn-size-sm) !important;
-    height: var(--close-btn-size-sm) !important;
-    font-size: 0.9rem !important;
-  }
-
-  /* Стрелки */
-  #screenshotModal .nav-arrow {
-    width: var(--arrow-btn-size-sm) !important;
-    height: var(--arrow-btn-size-sm) !important;
-    font-size: 1rem !important;
   }
 
   /* Счетчик */

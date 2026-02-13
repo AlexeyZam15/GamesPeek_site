@@ -17,45 +17,13 @@ const FilterSearch = {
         this.setupSearchInput('game-mode-search', '.game-mode-item', 'data-game-mode-name');
     },
 
-    // Настройка одного поля поиска (исправленная версия - не заменяем элемент)
+    // Настройка одного поля поиска
     setupSearchInput(inputId, itemSelector, dataAttribute) {
         const searchInput = document.getElementById(inputId);
         if (!searchInput) return;
 
-        // Удаляем все существующие обработчики (но сохраняем элемент на месте)
+        // Удаляем все существующие обработчики
         const originalInput = searchInput;
-
-        // Создаем новый обработчик поверх существующего
-        const handleInput = (e) => {
-            const searchTerm = e.target.value.toLowerCase().trim();
-            const items = document.querySelectorAll(itemSelector);
-
-            let hasVisibleItems = false;
-
-            items.forEach(item => {
-                const itemName = item.getAttribute(dataAttribute);
-                const isMatch = itemName && itemName.includes(searchTerm);
-
-                if (isMatch) {
-                    item.style.display = 'block';
-                    hasVisibleItems = true;
-                } else {
-                    item.style.display = 'none';
-                }
-            });
-
-            // ОСОБЫЙ СЛУЧАЙ: для ключевых слов обновляем пагинацию
-            if (inputId === 'keyword-search') {
-                this.handleKeywordSearchUpdate();
-            }
-
-            // Сортируем после фильтрации с задержкой
-            setTimeout(() => {
-                this.triggerSortAfterSearch();
-            }, 150);
-        };
-
-        // Очистка всех обработчиков
         const newInput = originalInput.cloneNode(false);
 
         // Копируем все атрибуты
@@ -65,6 +33,40 @@ const FilterSearch = {
 
         // Копируем значение
         newInput.value = originalInput.value;
+
+        // Обработчик ввода
+        const handleInput = (e) => {
+            const searchTerm = e.target.value.toLowerCase().trim();
+            const items = document.querySelectorAll(itemSelector);
+
+            let hasVisibleItems = false;
+            let visibleCount = 0;
+
+            items.forEach(item => {
+                const itemName = item.getAttribute(dataAttribute);
+                const isMatch = itemName && itemName.includes(searchTerm);
+
+                if (isMatch) {
+                    item.style.display = 'block';
+                    hasVisibleItems = true;
+                    visibleCount++;
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+
+            console.log(`Search "${searchTerm}": ${visibleCount} visible items`);
+
+            // ОСОБЫЙ СЛУЧАЙ: для ключевых слов обновляем пагинацию
+            if (inputId === 'keyword-search') {
+                this.handleKeywordSearchUpdate(searchTerm, visibleCount);
+            }
+
+            // Сортируем после фильтрации с задержкой
+            setTimeout(() => {
+                this.triggerSortAfterSearch();
+            }, 150);
+        };
 
         // Добавляем обработчики
         newInput.addEventListener('input', handleInput);
@@ -89,21 +91,38 @@ const FilterSearch = {
             }
         });
 
-        // Заменяем элемент, но в том же месте в DOM
+        // Заменяем элемент
         originalInput.parentNode.replaceChild(newInput, originalInput);
     },
 
     // Обработка обновления поиска по ключевым словам
-    handleKeywordSearchUpdate() {
-        if (window.KeywordsPagination && typeof window.KeywordsPagination.updateAfterSearch === 'function') {
-            window.KeywordsPagination.updateAfterSearch();
+    handleKeywordSearchUpdate(searchTerm, visibleCount) {
+        console.log(`Keyword search: "${searchTerm}", ${visibleCount} visible items`);
+
+        if (window.KeywordsPagination) {
+            if (typeof window.KeywordsPagination.updateAfterSearch === 'function') {
+                window.KeywordsPagination.updateAfterSearch();
+            }
+
+            // Если есть видимые элементы, обновляем пагинацию
+            if (visibleCount > 0) {
+                console.log(`Updating keywords pagination for ${visibleCount} visible items`);
+            }
+        } else {
+            console.log('KeywordsPagination module not available');
         }
     },
 
     // Обработка очистки поиска по ключевым словам
     handleKeywordSearchClear() {
-        if (window.KeywordsPagination && typeof window.KeywordsPagination.forceUpdate === 'function') {
-            window.KeywordsPagination.forceUpdate();
+        console.log('Keyword search cleared');
+
+        if (window.KeywordsPagination) {
+            if (typeof window.KeywordsPagination.forceUpdate === 'function') {
+                window.KeywordsPagination.forceUpdate();
+            }
+        } else {
+            console.log('KeywordsPagination module not available');
         }
     },
 
@@ -112,7 +131,6 @@ const FilterSearch = {
         console.log('Triggering sort after search...');
 
         if (window.FilterManager && window.FilterManager.sort) {
-            // Используем forceSortAllLists для гарантированной сортировки
             window.FilterManager.sort.forceSortAllLists();
         } else {
             console.error('FilterManager or sort not found');

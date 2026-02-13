@@ -6,377 +6,643 @@ const KeywordsPagination = {
         itemsPerPage: 30,
         currentPage: 1,
         itemsSelector: '.keyword-item',
-        containerSelector: '.keyword-grid',
-        paginationSelector: '#keyword-pagination',
-        prevButtonId: '#keyword-prev',
-        nextButtonId: '#keyword-next',
-        startElementId: '#keyword-start',
-        endElementId: '#keyword-end',
-        currentElementId: '#keyword-current',
-        totalElementId: '#keyword-total',
-        maxVisiblePages: 7 // Максимум показываем 7 страниц
+        containerSelector: '.keyword-list',
+        containerId: 'keyword-list'
+    },
+
+    // Состояние
+    state: {
+        totalItems: 0,
+        totalPages: 0,
+        isInitialized: false,
+        isShowingAll: false,
+        originalItems: [],
+        visibleItems: [],
+        paginationElement: null,
+        showAllButton: null
     },
 
     // Инициализация
     init() {
-        console.log('Initializing keywords pagination...');
+        console.log('🚀 KeywordsPagination: Initializing...');
 
-        this.keywordItems = document.querySelectorAll(this.config.itemsSelector);
-        this.totalItems = this.keywordItems.length;
-        this.totalPages = Math.ceil(this.totalItems / this.config.itemsPerPage);
-
-        if (this.totalItems <= this.config.itemsPerPage) {
-            console.log(`Only ${this.totalItems} keywords, no pagination needed.`);
-            this.hidePagination();
-            // Показываем все элементы
-            this.keywordItems.forEach(item => item.style.display = 'block');
+        // Находим контейнер с ключевыми словами
+        const keywordContainer = document.querySelector('.keyword-list');
+        if (!keywordContainer) {
+            console.log('KeywordsPagination: Keyword container not found');
             return;
         }
 
-        // Создаем контейнер для страниц
-        this.createPageNumbersContainer();
+        // Присваиваем ID для идентификации
+        keywordContainer.id = this.config.containerId;
 
-        this.setupPagination();
-        this.showPage(1);
+        // Получаем все элементы ключевых слов
+        const keywordItems = keywordContainer.querySelectorAll('.keyword-item');
+        this.state.totalItems = keywordItems.length;
 
-        console.log(`Pagination initialized: ${this.totalItems} items, ${this.totalPages} pages`);
-    },
+        if (this.state.totalItems <= this.config.itemsPerPage) {
+            console.log(`KeywordsPagination: Only ${this.state.totalItems} keywords, pagination not needed`);
+            return;
+        }
 
-    // Создаем контейнер для номеров страниц
-    createPageNumbersContainer() {
-        const paginationContainer = document.querySelector(this.config.paginationSelector);
-        if (!paginationContainer) return;
+        console.log(`KeywordsPagination: Found ${this.state.totalItems} keywords, setting up pagination...`);
 
-        // Находим кнопку "предыдущая"
-        const prevButton = document.querySelector(this.config.prevButtonId);
-        if (!prevButton) return;
+        // Сохраняем оригинальные элементы
+        this.state.originalItems = Array.from(keywordItems);
 
-        // Создаем контейнер для номеров страниц
-        const pageNumbersContainer = document.createElement('div');
-        pageNumbersContainer.id = 'keyword-page-numbers';
-        pageNumbersContainer.className = 'd-flex flex-wrap gap-1 mx-2 align-items-center';
-        pageNumbersContainer.style.minWidth = '150px';
+        // Рассчитываем количество страниц
+        this.state.totalPages = Math.ceil(this.state.totalItems / this.config.itemsPerPage);
+        this.config.currentPage = 1;
 
-        // Вставляем контейнер после кнопки "предыдущая"
-        prevButton.parentNode.insertBefore(pageNumbersContainer, prevButton.nextSibling);
-    },
+        // Создаем пагинацию если ее нет
+        this.createPaginationElements();
 
-    // Настройка пагинации
-    setupPagination() {
-        this.updatePageNumbers();
-        this.setupNavigationButtons();
+        // Находим кнопку "Show all features"
+        this.findShowAllButton();
+
+        // Показываем первую страницу
+        this.showPage(this.config.currentPage);
+
+        // Обновляем информацию о странице
         this.updatePageInfo();
+
+        // Устанавливаем обработчики событий
+        this.setupEventListeners();
+
+        this.state.isInitialized = true;
+        console.log(`KeywordsPagination: Initialized successfully with ${this.state.totalPages} pages`);
+    },
+
+    // Создание элементов пагинации
+    createPaginationElements() {
+        console.log('KeywordsPagination: Creating pagination elements...');
+
+        // Удаляем старую пагинацию если она есть
+        this.removeExistingPagination();
+
+        const keywordContainer = document.getElementById(this.config.containerId);
+        if (!keywordContainer) return;
+
+        // Создаем контейнер для пагинации
+        const paginationContainer = document.createElement('div');
+        paginationContainer.className = 'keyword-pagination mt-3';
+        paginationContainer.innerHTML = `
+            <nav aria-label="Keyword pagination" class="d-flex flex-column align-items-center">
+                <div class="d-flex align-items-center justify-content-center gap-2 mb-2">
+                    <button type="button" class="btn btn-sm btn-outline-primary keyword-prev-btn">
+                        <i class="bi bi-chevron-left"></i>
+                    </button>
+                    <div class="keyword-page-numbers d-flex flex-wrap gap-1 justify-content-center"></div>
+                    <button type="button" class="btn btn-sm btn-outline-primary keyword-next-btn">
+                        <i class="bi bi-chevron-right"></i>
+                    </button>
+                </div>
+                <div class="text-center">
+                    <small class="text-muted keyword-page-info">
+                        Page <span class="keyword-current-page">1</span>
+                        of <span class="keyword-total-pages">${this.state.totalPages}</span>
+                        (<span class="keyword-start-index">1</span>-<span class="keyword-end-index">${Math.min(this.config.itemsPerPage, this.state.totalItems)}</span>
+                        of <span class="keyword-total-items">${this.state.totalItems}</span> keywords)
+                    </small>
+                </div>
+            </nav>
+        `;
+
+        // Вставляем пагинацию после контейнера с ключевыми словами
+        keywordContainer.parentNode.insertBefore(paginationContainer, keywordContainer.nextSibling);
+
+        this.state.paginationElement = paginationContainer;
+        console.log('KeywordsPagination: Pagination elements created');
+    },
+
+    // Удаление существующей пагинации
+    removeExistingPagination() {
+        const existingPagination = document.querySelector('.keyword-pagination');
+        if (existingPagination) {
+            existingPagination.remove();
+            console.log('KeywordsPagination: Removed existing pagination');
+        }
+    },
+
+    // Поиск кнопки "Show all features"
+    findShowAllButton() {
+        this.state.showAllButton = document.querySelector('.show-all-keywords-btn');
+        if (this.state.showAllButton) {
+            console.log('KeywordsPagination: Found "Show all features" button');
+
+            // Устанавливаем обработчик
+            const newButton = this.state.showAllButton.cloneNode(true);
+            this.state.showAllButton.parentNode.replaceChild(newButton, this.state.showAllButton);
+            this.state.showAllButton = newButton;
+
+            newButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.toggleShowAll();
+            });
+
+            // Добавляем оранжевую рамку для кнопки "Show all features"
+            this.state.showAllButton.style.border = '2px solid var(--secondary-color, #ff6b35)';
+            this.state.showAllButton.style.borderRadius = '20px';
+            this.state.showAllButton.style.fontWeight = '700';
+            this.state.showAllButton.style.padding = '0.4rem 1rem';
+            this.state.showAllButton.style.transition = 'all 0.2s ease';
+
+            // Hover эффект
+            this.state.showAllButton.addEventListener('mouseenter', function() {
+                this.style.backgroundColor = 'var(--secondary-color, #ff6b35)';
+                this.style.color = 'white';
+                this.style.transform = 'translateY(-2px)';
+                this.style.boxShadow = '0 4px 8px rgba(255, 107, 53, 0.3)';
+            });
+
+            this.state.showAllButton.addEventListener('mouseleave', function() {
+                this.style.backgroundColor = '';
+                this.style.color = '';
+                this.style.transform = '';
+                this.style.boxShadow = '';
+            });
+        }
+    },
+
+    // Переключение режима "Show all"
+    toggleShowAll() {
+        this.state.isShowingAll = !this.state.isShowingAll;
+
+        const keywordContainer = document.getElementById(this.config.containerId);
+        const paginationElement = this.state.paginationElement;
+        const showText = this.state.showAllButton?.querySelector('.show-text');
+        const hideText = this.state.showAllButton?.querySelector('.hide-text');
+
+        if (this.state.isShowingAll) {
+            // Показываем все элементы
+            this.state.originalItems.forEach(item => {
+                item.style.display = 'block';
+            });
+
+            // Скрываем пагинацию
+            if (paginationElement) {
+                paginationElement.style.display = 'none';
+            }
+
+            // Обновляем текст кнопки
+            if (showText) showText.style.display = 'none';
+            if (hideText) hideText.style.display = 'inline';
+
+            // Убираем ограничение высоты
+            if (keywordContainer) {
+                keywordContainer.style.maxHeight = 'none';
+                keywordContainer.style.overflowY = 'visible';
+            }
+
+            // Меняем стиль кнопки
+            if (this.state.showAllButton) {
+                this.state.showAllButton.style.backgroundColor = 'var(--secondary-color, #ff6b35)';
+                this.state.showAllButton.style.color = 'white';
+            }
+
+            console.log('KeywordsPagination: Showing all keywords');
+        } else {
+            // Возвращаем пагинацию
+            if (paginationElement) {
+                paginationElement.style.display = 'block';
+            }
+
+            // Восстанавливаем стиль кнопки
+            if (this.state.showAllButton) {
+                this.state.showAllButton.style.backgroundColor = '';
+                this.state.showAllButton.style.color = '';
+            }
+
+            // Показываем первую страницу
+            this.showPage(1);
+            this.updatePageNumbers();
+
+            // Обновляем текст кнопки
+            if (showText) showText.style.display = 'inline';
+            if (hideText) hideText.style.display = 'none';
+
+            // Восстанавливаем ограничение высоты
+            if (keywordContainer) {
+                keywordContainer.style.maxHeight = '400px';
+                keywordContainer.style.overflowY = 'auto';
+            }
+
+            console.log('KeywordsPagination: Showing paginated view');
+        }
+    },
+
+    // Показать конкретную страницу
+    showPage(pageNumber) {
+        if (pageNumber < 1 || pageNumber > this.state.totalPages) {
+            console.log(`KeywordsPagination: Page ${pageNumber} out of range (1-${this.state.totalPages})`);
+            return;
+        }
+
+        console.log(`KeywordsPagination: Showing page ${pageNumber}`);
+
+        this.config.currentPage = pageNumber;
+        const startIndex = (pageNumber - 1) * this.config.itemsPerPage;
+        const endIndex = Math.min(startIndex + this.config.itemsPerPage, this.state.totalItems);
+
+        // Скрываем все элементы
+        this.state.originalItems.forEach(item => {
+            item.style.display = 'none';
+        });
+
+        // Показываем элементы текущей страницы
+        for (let i = startIndex; i < endIndex; i++) {
+            if (this.state.originalItems[i]) {
+                this.state.originalItems[i].style.display = 'block';
+            }
+        }
+
+        // Сохраняем видимые элементы
+        this.state.visibleItems = this.state.originalItems.slice(startIndex, endIndex);
+
+        // Обновляем UI
+        this.updatePageInfo();
+        this.updatePageNumbers();
+        this.updateNavigationButtons();
+
+        // Прокручиваем к началу списка
+        const keywordContainer = document.getElementById(this.config.containerId);
+        if (keywordContainer) {
+            keywordContainer.scrollTop = 0;
+        }
+
+        console.log(`KeywordsPagination: Showing items ${startIndex + 1}-${endIndex} of ${this.state.totalItems}`);
+    },
+
+    // Обновить информацию о странице
+    updatePageInfo() {
+        const startIndex = (this.config.currentPage - 1) * this.config.itemsPerPage + 1;
+        const endIndex = Math.min(this.config.currentPage * this.config.itemsPerPage, this.state.totalItems);
+
+        const currentPageEl = document.querySelector('.keyword-current-page');
+        const totalPagesEl = document.querySelector('.keyword-total-pages');
+        const startIndexEl = document.querySelector('.keyword-start-index');
+        const endIndexEl = document.querySelector('.keyword-end-index');
+        const totalItemsEl = document.querySelector('.keyword-total-items');
+
+        if (currentPageEl) currentPageEl.textContent = this.config.currentPage;
+        if (totalPagesEl) totalPagesEl.textContent = this.state.totalPages;
+        if (startIndexEl) startIndexEl.textContent = startIndex;
+        if (endIndexEl) endIndexEl.textContent = endIndex;
+        if (totalItemsEl) totalItemsEl.textContent = this.state.totalItems;
     },
 
     // Обновить номера страниц
     updatePageNumbers() {
-        const pageNumbersContainer = document.getElementById('keyword-page-numbers');
+        const pageNumbersContainer = document.querySelector('.keyword-page-numbers');
         if (!pageNumbersContainer) return;
 
-        // Очищаем контейнер
         pageNumbersContainer.innerHTML = '';
 
-        // Определяем диапазон страниц для показа
-        const { startPage, endPage } = this.getVisiblePageRange(this.config.currentPage);
+        // Если всего 1 страница, не показываем номера
+        if (this.state.totalPages <= 1) {
+            return;
+        }
 
-        // Добавляем первую страницу если она не в диапазоне
+        // Определяем диапазон видимых страниц
+        let startPage = Math.max(1, this.config.currentPage - 2);
+        let endPage = Math.min(this.state.totalPages, this.config.currentPage + 2);
+
+        // Корректируем если показываем слишком мало страниц
+        if (endPage - startPage < 4) {
+            if (startPage === 1) {
+                endPage = Math.min(this.state.totalPages, startPage + 4);
+            } else if (endPage === this.state.totalPages) {
+                startPage = Math.max(1, endPage - 4);
+            }
+        }
+
+        // Кнопка "Первая страница" если нужно
         if (startPage > 1) {
-            this.createPageNumberButton(pageNumbersContainer, 1);
+            const firstBtn = this.createPageButton(1);
+            pageNumbersContainer.appendChild(firstBtn);
 
-            // Добавляем многоточие если нужно
             if (startPage > 2) {
-                this.createEllipsis(pageNumbersContainer);
+                const ellipsis = document.createElement('span');
+                ellipsis.className = 'text-muted mx-1';
+                ellipsis.textContent = '...';
+                ellipsis.style.fontWeight = 'bold';
+                pageNumbersContainer.appendChild(ellipsis);
             }
         }
 
-        // Добавляем страницы в диапазоне
+        // Номера страниц
         for (let i = startPage; i <= endPage; i++) {
-            this.createPageNumberButton(pageNumbersContainer, i);
+            const pageBtn = this.createPageButton(i);
+            pageNumbersContainer.appendChild(pageBtn);
         }
 
-        // Добавляем последнюю страницу если она не в диапазоне
-        if (endPage < this.totalPages) {
-            // Добавляем многоточие если нужно
-            if (endPage < this.totalPages - 1) {
-                this.createEllipsis(pageNumbersContainer);
+        // Кнопка "Последняя страница" если нужно
+        if (endPage < this.state.totalPages) {
+            if (endPage < this.state.totalPages - 1) {
+                const ellipsis = document.createElement('span');
+                ellipsis.className = 'text-muted mx-1';
+                ellipsis.textContent = '...';
+                ellipsis.style.fontWeight = 'bold';
+                pageNumbersContainer.appendChild(ellipsis);
             }
 
-            this.createPageNumberButton(pageNumbersContainer, this.totalPages);
+            const lastBtn = this.createPageButton(this.state.totalPages);
+            pageNumbersContainer.appendChild(lastBtn);
         }
     },
 
-    // Создать кнопку номера страницы
-    createPageNumberButton(container, pageNumber) {
+    // Создать кнопку страницы (с оранжевыми рамками)
+    createPageButton(pageNumber) {
         const button = document.createElement('button');
         button.type = 'button';
-        button.className = 'btn btn-sm page-number-btn';
+        button.className = `btn btn-sm page-number-btn ${pageNumber === this.config.currentPage ? 'btn-primary' : 'btn-outline-secondary'}`;
+        button.textContent = pageNumber;
+        button.title = `Page ${pageNumber}`;
 
+        // Добавляем оранжевую рамку
+        button.style.border = '1px solid var(--border, rgba(255, 107, 53, 0.2))';
+        button.style.borderRadius = '6px';
+        button.style.padding = '0.5rem 1rem';
+        button.style.fontWeight = '600';
+        button.style.minWidth = '2.5rem';
+        button.style.height = '2.5rem';
+        button.style.transition = 'all 0.2s ease';
+
+        // Стили для активной страницы
         if (pageNumber === this.config.currentPage) {
-            button.classList.add('btn-primary');
+            button.style.background = 'linear-gradient(135deg, var(--secondary-color, #ff6b35), var(--accent-color, #ff8e53))';
+            button.style.borderColor = 'var(--secondary-color, #ff6b35)';
+            button.style.color = 'white';
+            button.style.boxShadow = '0 4px 12px rgba(255, 107, 53, 0.3)';
         } else {
-            button.classList.add('btn-outline-primary');
+            button.style.backgroundColor = 'var(--surface, rgba(26, 26, 26, 0.4))';
+            button.style.color = 'var(--text-dark, white)';
         }
 
-        button.textContent = pageNumber;
-        button.dataset.page = pageNumber;
-
-        button.addEventListener('click', (e) => {
-            e.preventDefault();
+        button.addEventListener('click', () => {
             this.showPage(pageNumber);
         });
 
-        container.appendChild(button);
+        // Hover эффекты
+        button.addEventListener('mouseenter', function() {
+            if (!this.classList.contains('btn-primary')) {
+                this.style.backgroundColor = 'rgba(255, 107, 53, 0.1)';
+                this.style.borderColor = 'var(--secondary-color, #ff6b35)';
+                this.style.color = 'var(--secondary-color, #ff6b35)';
+                this.style.transform = 'translateY(-2px)';
+                this.style.boxShadow = '0 4px 12px rgba(255, 107, 53, 0.2)';
+            } else {
+                this.style.transform = 'translateY(-2px)';
+                this.style.boxShadow = '0 6px 20px rgba(255, 107, 53, 0.4)';
+            }
+        });
+
+        button.addEventListener('mouseleave', function() {
+            if (!this.classList.contains('btn-primary')) {
+                this.style.backgroundColor = 'var(--surface, rgba(26, 26, 26, 0.4))';
+                this.style.borderColor = 'var(--border, rgba(255, 107, 53, 0.2))';
+                this.style.color = 'var(--text-dark, white)';
+                this.style.transform = 'translateY(0)';
+                this.style.boxShadow = 'none';
+            } else {
+                this.style.transform = 'translateY(0)';
+                this.style.boxShadow = '0 4px 12px rgba(255, 107, 53, 0.3)';
+            }
+        });
+
         return button;
     },
 
-    // Создать элемент многоточия
-    createEllipsis(container) {
-        const span = document.createElement('span');
-        span.className = 'text-muted mx-1';
-        span.textContent = '...';
-        container.appendChild(span);
-    },
-
-    // Получить диапазон видимых страниц
-    getVisiblePageRange(currentPage) {
-        // Для небольшого количества страниц показываем все
-        if (this.totalPages <= this.config.maxVisiblePages) {
-            return { startPage: 1, endPage: this.totalPages };
-        }
-
-        let startPage = currentPage - Math.floor(this.config.maxVisiblePages / 2);
-        let endPage = currentPage + Math.floor(this.config.maxVisiblePages / 2);
-
-        // Корректируем если вышли за границы
-        if (startPage < 1) {
-            startPage = 1;
-            endPage = this.config.maxVisiblePages;
-        }
-
-        if (endPage > this.totalPages) {
-            endPage = this.totalPages;
-            startPage = endPage - this.config.maxVisiblePages + 1;
-        }
-
-        return { startPage, endPage };
-    },
-
-    // Настройка кнопок навигации
-    setupNavigationButtons() {
-        const prevBtn = document.querySelector(this.config.prevButtonId);
-        const nextBtn = document.querySelector(this.config.nextButtonId);
+    // Обновить кнопки навигации (с оранжевыми рамками)
+    updateNavigationButtons() {
+        const prevBtn = document.querySelector('.keyword-prev-btn');
+        const nextBtn = document.querySelector('.keyword-next-btn');
 
         if (prevBtn) {
-            // Удаляем старые обработчики
-            const newPrevBtn = prevBtn.cloneNode(true);
-            prevBtn.parentNode.replaceChild(newPrevBtn, prevBtn);
+            const isDisabled = this.config.currentPage === 1;
+            prevBtn.disabled = isDisabled;
+            prevBtn.classList.toggle('disabled', isDisabled);
 
-            newPrevBtn.addEventListener('click', (e) => {
-                e.preventDefault();
+            // Оранжевые рамки для кнопок навигации
+            prevBtn.style.border = '1px solid var(--border, rgba(255, 107, 53, 0.2))';
+            prevBtn.style.borderRadius = '6px';
+            prevBtn.style.fontWeight = '600';
+            prevBtn.style.padding = '0.5rem 1rem';
+            prevBtn.style.transition = 'all 0.2s ease';
+
+            if (isDisabled) {
+                prevBtn.style.opacity = '0.5';
+                prevBtn.style.cursor = 'not-allowed';
+                prevBtn.style.borderColor = 'var(--border-dark, #666)';
+                prevBtn.style.color = 'var(--text-muted, #666)';
+                prevBtn.style.backgroundColor = 'var(--surface-dark, rgba(18, 18, 18, 0.6))';
+            } else {
+                prevBtn.style.opacity = '1';
+                prevBtn.style.cursor = 'pointer';
+                prevBtn.style.borderColor = 'var(--secondary-color, #ff6b35)';
+                prevBtn.style.color = 'var(--secondary-color, #ff6b35)';
+                prevBtn.style.backgroundColor = 'var(--surface, rgba(26, 26, 26, 0.4))';
+
+                // Hover эффект для активной кнопки Prev
+                prevBtn.addEventListener('mouseenter', function() {
+                    this.style.backgroundColor = 'rgba(255, 107, 53, 0.1)';
+                    this.style.color = 'var(--secondary-color, #ff6b35)';
+                    this.style.transform = 'translateY(-2px)';
+                    this.style.boxShadow = '0 4px 12px rgba(255, 107, 53, 0.2)';
+                });
+
+                prevBtn.addEventListener('mouseleave', function() {
+                    this.style.backgroundColor = 'var(--surface, rgba(26, 26, 26, 0.4))';
+                    this.style.color = 'var(--secondary-color, #ff6b35)';
+                    this.style.transform = 'translateY(0)';
+                    this.style.boxShadow = 'none';
+                });
+            }
+        }
+
+        if (nextBtn) {
+            const isDisabled = this.config.currentPage === this.state.totalPages;
+            nextBtn.disabled = isDisabled;
+            nextBtn.classList.toggle('disabled', isDisabled);
+
+            // Оранжевые рамки для кнопок навигации
+            nextBtn.style.border = '1px solid var(--border, rgba(255, 107, 53, 0.2))';
+            nextBtn.style.borderRadius = '6px';
+            nextBtn.style.fontWeight = '600';
+            nextBtn.style.padding = '0.5rem 1rem';
+            nextBtn.style.transition = 'all 0.2s ease';
+
+            if (isDisabled) {
+                nextBtn.style.opacity = '0.5';
+                nextBtn.style.cursor = 'not-allowed';
+                nextBtn.style.borderColor = 'var(--border-dark, #666)';
+                nextBtn.style.color = 'var(--text-muted, #666)';
+                nextBtn.style.backgroundColor = 'var(--surface-dark, rgba(18, 18, 18, 0.6))';
+            } else {
+                nextBtn.style.opacity = '1';
+                nextBtn.style.cursor = 'pointer';
+                nextBtn.style.borderColor = 'var(--secondary-color, #ff6b35)';
+                nextBtn.style.color = 'var(--secondary-color, #ff6b35)';
+                nextBtn.style.backgroundColor = 'var(--surface, rgba(26, 26, 26, 0.4))';
+
+                // Hover эффект для активной кнопки Next
+                nextBtn.addEventListener('mouseenter', function() {
+                    this.style.backgroundColor = 'rgba(255, 107, 53, 0.1)';
+                    this.style.color = 'var(--secondary-color, #ff6b35)';
+                    this.style.transform = 'translateY(-2px)';
+                    this.style.boxShadow = '0 4px 12px rgba(255, 107, 53, 0.2)';
+                });
+
+                nextBtn.addEventListener('mouseleave', function() {
+                    this.style.backgroundColor = 'var(--surface, rgba(26, 26, 26, 0.4))';
+                    this.style.color = 'var(--secondary-color, #ff6b35)';
+                    this.style.transform = 'translateY(0)';
+                    this.style.boxShadow = 'none';
+                });
+            }
+        }
+    },
+
+    // Установить обработчики событий
+    setupEventListeners() {
+        console.log('KeywordsPagination: Setting up event listeners...');
+
+        // Кнопка "Предыдущая"
+        const prevBtn = document.querySelector('.keyword-prev-btn');
+        if (prevBtn) {
+            prevBtn.addEventListener('click', () => {
                 if (this.config.currentPage > 1) {
                     this.showPage(this.config.currentPage - 1);
                 }
             });
         }
 
+        // Кнопка "Следующая"
+        const nextBtn = document.querySelector('.keyword-next-btn');
         if (nextBtn) {
-            // Удаляем старые обработчики
-            const newNextBtn = nextBtn.cloneNode(true);
-            nextBtn.parentNode.replaceChild(newNextBtn, nextBtn);
-
-            newNextBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                if (this.config.currentPage < this.totalPages) {
+            nextBtn.addEventListener('click', () => {
+                if (this.config.currentPage < this.state.totalPages) {
                     this.showPage(this.config.currentPage + 1);
                 }
             });
         }
     },
 
-    // Показать определенную страницу
-    showPage(pageNumber) {
-        if (pageNumber < 1 || pageNumber > this.totalPages) return;
-
-        this.config.currentPage = pageNumber;
-
-        // Показываем/скрываем элементы
-        const startIndex = (pageNumber - 1) * this.config.itemsPerPage;
-        const endIndex = Math.min(startIndex + this.config.itemsPerPage, this.totalItems);
-
-        this.keywordItems.forEach((item, index) => {
-            if (index >= startIndex && index < endIndex) {
-                item.style.display = 'block';
-            } else {
-                item.style.display = 'none';
-            }
-        });
-
-        // Обновляем номера страниц
-        this.updatePageNumbers();
-
-        // Обновляем информацию
-        this.updatePageInfo();
-
-        // Обновляем кнопки навигации
-        this.updateNavigationButtons();
-
-        // Обновляем сортировку для текущей страницы
-        setTimeout(() => {
-            if (window.FilterManager && window.FilterManager.sort) {
-                window.FilterManager.sort.quickSortFilterList(
-                    '.keyword-grid',
-                    '.keyword-item',
-                    '.keyword-checkbox'
-                );
-            }
-        }, 100);
-
-        console.log(`Showing keywords page ${pageNumber} (items ${startIndex + 1}-${endIndex})`);
-    },
-
-    // Обновить информацию о странице
-    updatePageInfo() {
-        const startIndex = (this.config.currentPage - 1) * this.config.itemsPerPage + 1;
-        const endIndex = Math.min(this.config.currentPage * this.config.itemsPerPage, this.totalItems);
-
-        const startElement = document.querySelector(this.config.startElementId);
-        const endElement = document.querySelector(this.config.endElementId);
-        const currentElement = document.querySelector(this.config.currentElementId);
-        const totalElement = document.querySelector(this.config.totalElementId);
-
-        if (startElement) startElement.textContent = startIndex;
-        if (endElement) endElement.textContent = endIndex;
-        if (currentElement) currentElement.textContent = this.config.currentPage;
-        if (totalElement) totalElement.textContent = this.totalItems;
-    },
-
-    // Обновить кнопки навигации
-    updateNavigationButtons() {
-        const prevBtn = document.querySelector(this.config.prevButtonId);
-        const nextBtn = document.querySelector(this.config.nextButtonId);
-
-        if (prevBtn) {
-            if (this.config.currentPage === 1) {
-                prevBtn.classList.add('disabled');
-            } else {
-                prevBtn.classList.remove('disabled');
-            }
-        }
-
-        if (nextBtn) {
-            if (this.config.currentPage === this.totalPages) {
-                nextBtn.classList.add('disabled');
-            } else {
-                nextBtn.classList.remove('disabled');
-            }
-        }
-    },
-
-    // Скрыть пагинацию
-    hidePagination() {
-        const paginationContainer = document.querySelector(this.config.paginationSelector);
-        if (paginationContainer) {
-            paginationContainer.style.display = 'none';
-        }
-
-        const paginationNav = document.querySelector('.keyword-pagination');
-        if (paginationNav) {
-            paginationNav.style.display = 'none';
-        }
-    },
-
-    // Обновить пагинацию после поиска/фильтрации
+    // Обновить после поиска
     updateAfterSearch() {
-        // Получаем видимые элементы после поиска
-        const allItems = document.querySelectorAll(this.config.itemsSelector);
-        const visibleItems = Array.from(allItems).filter(item =>
-            item.style.display !== 'none' &&
-            window.getComputedStyle(item).display !== 'none'
-        );
+        console.log('KeywordsPagination: Updating after search...');
 
-        if (visibleItems.length <= this.config.itemsPerPage) {
-            // Показываем все видимые элементы
-            allItems.forEach(item => {
-                if (visibleItems.includes(item)) {
-                    item.style.display = 'block';
-                } else {
-                    item.style.display = 'none';
-                }
-            });
+        if (!this.state.isInitialized) {
+            console.log('KeywordsPagination: Not initialized yet, skipping update');
+            return;
+        }
 
-            // Обновляем данные
-            this.keywordItems = visibleItems;
-            this.totalItems = visibleItems.length;
-            this.totalPages = Math.ceil(this.totalItems / this.config.itemsPerPage);
+        // Находим видимые элементы после фильтрации поиска
+        const keywordContainer = document.getElementById(this.config.containerId);
+        if (!keywordContainer) return;
 
-            if (this.totalItems <= this.config.itemsPerPage) {
-                this.hidePagination();
-            } else {
-                // Показываем пагинацию
-                const paginationContainer = document.querySelector(this.config.paginationSelector);
-                if (paginationContainer) {
-                    paginationContainer.style.display = 'flex';
-                }
+        const visibleItems = keywordContainer.querySelectorAll('.keyword-item[style*="block"]');
+        const totalVisible = visibleItems.length;
 
-                const paginationNav = document.querySelector('.keyword-pagination');
-                if (paginationNav) {
-                    paginationNav.style.display = 'block';
-                }
+        console.log(`KeywordsPagination: ${totalVisible} visible items after search`);
 
-                // Перестраиваем пагинацию
-                this.setupPagination();
-                this.showPage(1);
+        // Если элементов меньше чем на одну страницу, скрываем пагинацию
+        if (totalVisible <= this.config.itemsPerPage) {
+            if (this.state.paginationElement) {
+                this.state.paginationElement.style.display = 'none';
             }
         } else {
-            // Обновляем данные
-            this.keywordItems = allItems;
-            this.totalItems = visibleItems.length;
-            this.totalPages = Math.ceil(this.totalItems / this.config.itemsPerPage);
-
-            // Показываем пагинацию
-            const paginationContainer = document.querySelector(this.config.paginationSelector);
-            if (paginationContainer) {
-                paginationContainer.style.display = 'flex';
+            // Показываем пагинацию и пересчитываем
+            if (this.state.paginationElement) {
+                this.state.paginationElement.style.display = 'block';
             }
 
-            const paginationNav = document.querySelector('.keyword-pagination');
-            if (paginationNav) {
-                paginationNav.style.display = 'block';
-            }
+            // Временно обновляем состояние
+            this.state.totalItems = totalVisible;
+            this.state.totalPages = Math.ceil(totalVisible / this.config.itemsPerPage);
+            this.config.currentPage = 1;
 
-            // Перестраиваем пагинацию
-            this.setupPagination();
-            this.showPage(1);
+            // Обновляем UI
+            this.updatePageInfo();
+            this.updatePageNumbers();
+            this.updateNavigationButtons();
         }
     },
 
-    // Сбросить к первой странице
-    resetToFirstPage() {
-        this.showPage(1);
-    },
-
-    // Принудительно обновить после изменений DOM
+    // Принудительное обновление (после очистки поиска)
     forceUpdate() {
-        // Пересчитываем элементы
-        this.keywordItems = document.querySelectorAll(this.config.itemsSelector);
-        this.totalItems = this.keywordItems.length;
-        this.totalPages = Math.ceil(this.totalItems / this.config.itemsPerPage);
+        console.log('KeywordsPagination: Force updating...');
 
-        if (this.totalItems <= this.config.itemsPerPage) {
-            this.hidePagination();
-            // Показываем все элементы
-            this.keywordItems.forEach(item => item.style.display = 'block');
-        } else {
-            // Создаем контейнер если его нет
-            if (!document.getElementById('keyword-page-numbers')) {
-                this.createPageNumbersContainer();
+        if (!this.state.isInitialized) {
+            this.init();
+            return;
+        }
+
+        // Пересчитываем общее количество
+        const keywordContainer = document.getElementById(this.config.containerId);
+        if (!keywordContainer) return;
+
+        const keywordItems = keywordContainer.querySelectorAll('.keyword-item');
+        this.state.totalItems = keywordItems.length;
+        this.state.originalItems = Array.from(keywordItems);
+
+        // Если элементов много, показываем пагинацию
+        if (this.state.totalItems > this.config.itemsPerPage) {
+            this.state.totalPages = Math.ceil(this.state.totalItems / this.config.itemsPerPage);
+
+            if (this.state.paginationElement) {
+                this.state.paginationElement.style.display = 'block';
             }
 
-            this.setupPagination();
+            // Показываем первую страницу
+            this.config.currentPage = 1;
             this.showPage(1);
+        } else {
+            // Если элементов мало, скрываем пагинацию и показываем все
+            if (this.state.paginationElement) {
+                this.state.paginationElement.style.display = 'none';
+            }
+
+            this.state.originalItems.forEach(item => {
+                item.style.display = 'block';
+            });
         }
+    },
+
+    // Деструктор (очистка)
+    destroy() {
+        console.log('KeywordsPagination: Destroying...');
+
+        this.removeExistingPagination();
+        this.state.isInitialized = false;
+        this.state.originalItems = [];
+        this.state.visibleItems = [];
+        this.state.paginationElement = null;
+        this.state.showAllButton = null;
     }
 };
 
-// Экспорт для использования в других модулях
+// Экспорт для глобального использования
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = KeywordsPagination;
+} else {
+    window.KeywordsPagination = KeywordsPagination;
+}
+
+// Автоматическая инициализация
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('KeywordsPagination: DOM loaded, checking for initialization...');
+
+    // Ждем немного для загрузки всех элементов
+    setTimeout(() => {
+        const keywordContainer = document.querySelector('.keyword-list');
+        if (keywordContainer && keywordContainer.querySelectorAll('.keyword-item').length > 30) {
+            console.log('KeywordsPagination: Auto-initializing...');
+            KeywordsPagination.init();
+        } else {
+            console.log('KeywordsPagination: Not enough keywords for pagination');
+        }
+    }, 500);
+});
+
 export default KeywordsPagination;
