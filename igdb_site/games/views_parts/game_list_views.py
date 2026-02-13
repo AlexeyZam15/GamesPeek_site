@@ -172,9 +172,16 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
     for item, game_obj, similarity, is_similar_mode in game_items:
         cached_card = cards.get(game_obj.id)
 
-        # Сохраняем процент схожести в объекте игры (НЕ в карточке)
+        # ВАЖНО: Сохраняем процент схожести в объекте игры и в item
         if is_similar_mode and similarity is not None:
             game_obj.similarity = similarity
+            # Также сохраняем в item для доступа в шаблоне
+            if isinstance(item, dict):
+                item['similarity'] = similarity
+        elif not is_similar_mode and hasattr(game_obj, 'similarity'):
+            # Очищаем similarity если не в режиме похожих
+            if hasattr(game_obj, 'similarity'):
+                delattr(game_obj, 'similarity')
 
         if cached_card:
             # Используем готовую карточку из БД
@@ -195,11 +202,16 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
         # Карточка не найдена - рендерим и готовим к сохранению
         logger.info(f"Rendering new card for game {game_obj.id} ({game_obj.name})")
 
-        # Рендерим HTML (без процента схожести - он будет добавлен динамически)
+        # Рендерим HTML
         card_context = {
             'game': game_obj,
-            'show_similarity': False  # Всегда False - процент схожести НЕ встраивается в HTML
+            'show_similarity': False,  # Всегда False - процент схожести НЕ встраивается в HTML
+            'source_game': context.get('source_game')  # Передаем source_game для кнопки Compare
         }
+
+        # Добавляем similarity в контекст если есть
+        if is_similar_mode and similarity is not None:
+            card_context['similarity'] = similarity
 
         rendered_card = render_to_string('games/partials/_game_card.html', card_context)
 
@@ -494,10 +506,14 @@ def game_list(request: HttpRequest) -> HttpResponse:
     if mode == 'similar':
         games_with_similarity = mode_result.get('games_with_similarity', [])
 
-        # Добавляем кэшированные карточки
+        # Добавляем кэшированные карточки - ВАЖНО: передаем source_game
         games_with_similarity = _update_games_with_cached_cards(
             games_with_similarity,
-            {**context, 'show_similarity': True}
+            {
+                **context,
+                'show_similarity': True,
+                'source_game': mode_result.get('source_game')  # Явно передаем source_game
+            }
         )
 
         context['games_with_similarity'] = games_with_similarity
@@ -507,7 +523,10 @@ def game_list(request: HttpRequest) -> HttpResponse:
         # Добавляем кэшированные карточки
         games = _update_games_with_cached_cards(
             games,
-            {**context, 'show_similarity': False}
+            {
+                **context,
+                'show_similarity': False
+            }
         )
 
         context['games'] = games
@@ -551,13 +570,14 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
         )
 
         games_with_similarity = mode_result.get('games_with_similarity', [])
+        source_game = mode_result.get('source_game')
 
         # Добавляем кэшированные карточки
         games_with_similarity = _update_games_with_cached_cards(
             games_with_similarity,
             {
                 'show_similarity': True,
-                'source_game': mode_result.get('source_game'),
+                'source_game': source_game,  # ВАЖНО: передаем source_game
                 'current_page': page_num,
             }
         )
@@ -565,7 +585,7 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
         template_context = {
             'games': games_with_similarity,
             'show_similarity': True,
-            'source_game': mode_result.get('source_game'),
+            'source_game': source_game,  # ВАЖНО: передаем source_game в шаблон
             'current_page': page_num,
         }
     else:

@@ -6,6 +6,9 @@
         {% if show_similarity and game.similarity %}
      data-similarity="{{ game.similarity }}"
      data-game-id="{{ game.id }}"
+        {% endif %}
+        {% if source_game and source_game.id %}
+     data-source-game-id="{{ source_game.id }}"
         {% endif %}>
     <div class="card h-100 game-card d-flex flex-column">
         <!-- Контейнер для обложки с наложенными элементами -->
@@ -116,13 +119,8 @@
                     <i class="bi bi-search-heart"></i> Find Similar
                 </a>
 
-                <!-- Кнопка Compare - только если есть source_game и similarity -->
-                {% if source_game and game.similarity %}
-                    <a href="{% get_card_comparison_url source_game=source_game target_game=game similarity_percent=game.similarity %}"
-                       class="btn btn-sm btn-outline-warning">
-                        <i class="bi bi-arrow-left-right"></i> Compare
-                    </a>
-                {% endif %}
+                <!-- Кнопка Compare будет добавлена через JavaScript -->
+                <!-- Оставляем пустое место для динамической вставки -->
             </div>
         </div>
     </div>

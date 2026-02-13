@@ -41,6 +41,23 @@
         .games-container {
             transition: opacity 0.3s ease;
         }
+
+        /* Стили для кнопки Compare */
+        .btn-outline-warning.compare-button-added {
+            border: 2px solid var(--warning-color);
+            color: var(--warning-color);
+            background: transparent;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .btn-outline-warning.compare-button-added:hover {
+            background: var(--gradient-warning);
+            color: var(--primary-color);
+            border-color: var(--warning-color);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-button);
+        }
     </style>
 {% endblock %}
 
@@ -74,6 +91,9 @@
     <!-- SIMILARITY BADGES -->
     <script src="{% static 'games/js/game_list/similarity-badges.js' %}"></script>
 
+    <!-- SIMILARITY COMPARE BUTTONS -->
+    <script src="{% static 'games/js/game_list/similarity-compare.js' %}"></script>
+
     <!-- Индикатор режима похожих игр -->
     {% if show_similarity %}
         <div style="display: none;" class="similarity-mode-indicator" data-mode="similar"></div>
@@ -86,6 +106,8 @@
             {% endfor %}
             };
             window.sourceGameId = {% if source_game and source_game.id %}{{ source_game.id }}{% else %}null{% endif %};
+            window.sourceGameName = {% if source_game and source_game.name %}"{{ source_game.name|escapejs }}"{% else %}
+            null{% endif %};
         </script>
     {% endif %}
 {% endblock %}
