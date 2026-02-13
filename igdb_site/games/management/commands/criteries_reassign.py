@@ -80,8 +80,13 @@ class Command(BaseCommand):
             'Medieval': 'Medieval',
             'real-time combat': 'Real-time Combat',
             'realtime combat': 'Real-time Combat',
-            'fire emblem': 'Fire Emblem',
+        }
+
+    def get_theme_to_keyword_mapping(self):
+        """Возвращает маппинг тем в ключевые слова"""
+        return {
             'Fire Emblem': 'Fire Emblem',
+            'fire emblem': 'Fire Emblem',
         }
 
     def handle(self, *args, **options):
@@ -91,14 +96,16 @@ class Command(BaseCommand):
 
         theme_to_genre_mapping = self.get_theme_to_genre_mapping()
         keyword_to_theme_mapping = self.get_keyword_to_theme_mapping()
+        theme_to_keyword_mapping = self.get_theme_to_keyword_mapping()
 
         total_removed_themes = 0
         total_added_genres = 0
         total_removed_keywords = 0
         total_added_themes = 0
+        total_removed_themes_to_keywords = 0
+        total_added_keywords = 0
 
         with transaction.atomic():
-            # Создаем savepoint для dry-run режима
             if dry_run:
                 savepoint = transaction.savepoint()
 
@@ -117,7 +124,13 @@ class Command(BaseCommand):
                 total_added_themes += added_themes
                 total_removed_keywords += removed_keywords
 
-                # Откатываем изменения в dry-run режиме
+                # 3. Перенос тем в ключевые слова (НОВЫЙ ФУНКЦИОНАЛ)
+                added_keywords, removed_themes_to_keywords = self._process_themes_to_keywords(
+                    theme_to_keyword_mapping, dry_run, batch_size, keep_old
+                )
+                total_added_keywords += added_keywords
+                total_removed_themes_to_keywords += removed_themes_to_keywords
+
                 if dry_run:
                     transaction.savepoint_rollback(savepoint)
 
@@ -127,7 +140,6 @@ class Command(BaseCommand):
                     transaction.savepoint_rollback(savepoint)
                 raise
 
-        # Итоги
         self.stdout.write('\n' + '=' * 50)
         if dry_run:
             self.stdout.write(self.style.WARNING('РЕЖИМ ТЕСТИРОВАНИЯ (без изменений в БД)'))
@@ -139,6 +151,8 @@ class Command(BaseCommand):
             self.style.SUCCESS(f'  • Темы -> жанры: добавлено {total_added_genres}, удалено {total_removed_themes}'))
         self.stdout.write(self.style.SUCCESS(
             f'  • Ключ.слова -> темы: добавлено {total_added_themes}, удалено {total_removed_keywords}'))
+        self.stdout.write(self.style.SUCCESS(
+            f'  • Темы -> ключ.слова: добавлено {total_added_keywords}, удалено {total_removed_themes_to_keywords}'))
 
         if keep_old:
             self.stdout.write(self.style.WARNING('СТАРЫЕ КРИТЕРИИ СОХРАНЕНЫ (опция --keep-old)'))
@@ -348,3 +362,105 @@ class Command(BaseCommand):
             total_removed_keywords += removed_keywords
 
         return total_added_themes, total_removed_keywords
+
+    def _process_themes_to_keywords(self, theme_to_keyword_mapping, dry_run, batch_size, keep_old):
+        """Перенос тем в ключевые слова"""
+        self.stdout.write('\n=== ПЕРЕНОС ТЕМ В КЛЮЧЕВЫЕ СЛОВА ===')
+
+        themes_to_process = Theme.objects.filter(
+            name__in=list(theme_to_keyword_mapping.keys())
+        )
+
+        keywords_cache = {}
+        for theme_name, keyword_name in theme_to_keyword_mapping.items():
+            keyword, created = Keyword.objects.get_or_create(
+                name=keyword_name,
+                defaults={'igdb_id': -abs(hash(keyword_name)) % 1000000}
+            )
+            keywords_cache[theme_name] = keyword
+            if created:
+                self.stdout.write(f'Создано новое ключ.слово: "{keyword_name}"')
+
+        total_added_keywords = 0
+        total_removed_themes = 0
+
+        for theme in themes_to_process:
+            theme_name = theme.name
+            keyword = keywords_cache.get(theme_name)
+
+            if not keyword:
+                continue
+
+            game_ids = list(Game.objects.filter(themes=theme).values_list('id', flat=True))
+
+            if not game_ids:
+                self.stdout.write(f'Для темы "{theme_name}" нет игр')
+
+                if not keep_old and not dry_run:
+                    deleted_count, _ = Theme.objects.filter(id=theme.id).delete()
+                    if deleted_count > 0:
+                        total_removed_themes += 1
+                        self.stdout.write(f'Тема "{theme_name}" удалена (нет связанных игр)')
+                continue
+
+            total_games = len(game_ids)
+            added_keywords = 0
+            removed_themes = 0
+
+            self.stdout.write(f'Тема "{theme_name}" -> ключ.слово "{keyword.name}": {total_games} игр')
+
+            for i in range(0, total_games, batch_size):
+                batch_ids = game_ids[i:i + batch_size]
+
+                if not dry_run:
+                    existing_keyword_ids = set(
+                        Game.keywords.through.objects.filter(
+                            game_id__in=batch_ids,
+                            keyword_id=keyword.id
+                        ).values_list('game_id', flat=True)
+                    )
+
+                    new_relations = [
+                        Game.keywords.through(game_id=game_id, keyword_id=keyword.id)
+                        for game_id in batch_ids
+                        if game_id not in existing_keyword_ids
+                    ]
+
+                    if new_relations:
+                        Game.keywords.through.objects.bulk_create(
+                            new_relations,
+                            ignore_conflicts=True
+                        )
+                        added_keywords += len(new_relations)
+
+                    if not keep_old:
+                        deleted_count, _ = Game.themes.through.objects.filter(
+                            game_id__in=batch_ids,
+                            theme_id=theme.id
+                        ).delete()
+                        removed_themes += deleted_count
+
+                        if not Game.objects.filter(themes=theme).exists():
+                            theme.delete()
+                            self.stdout.write(f'Тема "{theme_name}" полностью удалена')
+                else:
+                    added_keywords += len(batch_ids)
+                    if not keep_old:
+                        removed_themes += len(batch_ids)
+
+                current = min(i + batch_size, total_games)
+                self.print_progress_bar(
+                    current, total_games,
+                    prefix=f'Обработка "{theme_name}"',
+                    suffix=f'Добавлено: {added_keywords}, Удалено: {removed_themes}'
+                )
+
+            print()
+            self.stdout.write(self.style.SUCCESS(
+                f'  Добавлено ключ.слов: {added_keywords}, Удалено тем: {removed_themes}'
+            ))
+
+            total_added_keywords += added_keywords
+            total_removed_themes += removed_themes
+
+        return total_added_keywords, total_removed_themes

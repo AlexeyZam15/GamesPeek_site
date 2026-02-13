@@ -44,4 +44,22 @@
 </div>
 
 <!-- JavaScript логика -->
-{% include 'games/game_list/_filters_js.html' %}
+<script>
+    // Передаем данные о годах из Django в JavaScript
+    window.minYear = {{ years_range.min_year }};
+    window.maxYear = {{ years_range.max_year }};
+    window.currentYear = {{ current_year }};
+
+    // Добавляем данные к элементу для легкого доступа
+    document.addEventListener('DOMContentLoaded', function() {
+        const dateFilter = document.querySelector('.release-date-filter');
+        if (dateFilter) {
+            dateFilter.setAttribute('data-min-year', {{ years_range.min_year }});
+            dateFilter.setAttribute('data-max-year', {{ years_range.max_year }});
+            dateFilter.setAttribute('data-current-year', {{ current_year }});
+        }
+    });
+</script>
+
+<!-- Подключаем JavaScript файл с функциями фильтров -->
+<script type="module" src="/static/games/js/game_list/filters-init.js"></script>

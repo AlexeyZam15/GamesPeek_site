@@ -186,64 +186,33 @@
                     <input type="text" class="form-control mb-2" id="keyword-search"
                            placeholder="Search features..." autocomplete="off">
 
-                    <!-- Список ключевых слов с фиксированной высотой для 30 элементов -->
-                    <div class="keyword-list border rounded p-2"
-                         style="height: 400px; overflow-y: auto; min-height: 400px;">
-                        <div class="keyword-grid"
-                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
-                            {% for keyword in keywords %}  <!-- ЗДЕСЬ ИСПОЛЬЗУЕМ keywords, а не popular_keywords -->
-                                <div class="keyword-item"
-                                     data-keyword-name="{{ keyword.name|lower }}">
-                                    <div class="form-check">
-                                        <input class="form-check-input keyword-checkbox"
-                                               type="checkbox"
-                                               value="{{ keyword.id }}"
-                                               id="keyword_{{ keyword.id }}"
-                                               {% if keyword.id in selected_keywords %}checked{% endif %}>
-                                        <label class="form-check-label small"
-                                               for="keyword_{{ keyword.id }}">
-                                            {{ keyword.name }}
-                                        </label>
+                    <!-- Список ключевых слов с пагинацией -->
+                    <div class="keyword-section">
+                        <div class="keyword-list border rounded p-2"
+                             style="height: 400px; overflow-y: auto; min-height: 400px;">
+                            <div class="keyword-grid"
+                                 style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                                {% for keyword in keywords %}
+                                    <div class="keyword-item"
+                                         data-keyword-name="{{ keyword.name|lower }}">
+                                        <div class="form-check">
+                                            <input class="form-check-input keyword-checkbox"
+                                                   type="checkbox"
+                                                   value="{{ keyword.id }}"
+                                                   id="keyword_{{ keyword.id }}"
+                                                   {% if keyword.id in selected_keywords %}checked{% endif %}>
+                                            <label class="form-check-label small"
+                                                   for="keyword_{{ keyword.id }}">
+                                                {{ keyword.name }}
+                                            </label>
+                                        </div>
                                     </div>
-                                </div>
-                            {% endfor %}
+                                {% endfor %}
+                            </div>
                         </div>
+
+                        <!-- Пагинация для ключевых слов будет добавлена JavaScript -->
                     </div>
-
-                    <!-- Пагинация для ключевых слов с простой навигацией -->
-                    {% if keywords|length > 30 %}
-                        <div class="keyword-pagination mt-3">
-                            <nav aria-label="Keyword pagination" class="d-flex flex-column align-items-center">
-                                <div class="d-flex align-items-center justify-content-center gap-2 mb-2">
-                                    <!-- Кнопка "Предыдущая" -->
-                                    <button type="button" class="btn btn-sm btn-outline-primary" id="keyword-prev">
-                                        <i class="bi bi-chevron-left"></i>
-                                    </button>
-
-                                    <!-- Номера страниц (создаются JavaScript) -->
-                                    <div id="keyword-page-numbers" class="d-flex flex-wrap gap-1 justify-content-center"
-                                         style="min-width: 200px; max-width: 300px;">
-                                        <!-- Страницы будут созданы JavaScript -->
-                                    </div>
-
-                                    <!-- Кнопка "Следующая" -->
-                                    <button type="button" class="btn btn-sm btn-outline-primary" id="keyword-next">
-                                        <i class="bi bi-chevron-right"></i>
-                                    </button>
-                                </div>
-
-                                <!-- Информация о странице -->
-                                <div class="text-center">
-                                    <small class="text-muted">
-                                        Page <span id="keyword-current">1</span> of <span
-                                            id="keyword-total-pages">1</span>
-                                        (<span id="keyword-start">1</span>-<span id="keyword-end">30</span>
-                                        of <span id="keyword-total">{{ keywords|length }}</span> keywords)
-                                    </small>
-                                </div>
-                            </nav>
-                        </div>
-                    {% endif %}
 
                     <!-- Кнопка "Show all features" -->
                     <div class="text-center mt-2">

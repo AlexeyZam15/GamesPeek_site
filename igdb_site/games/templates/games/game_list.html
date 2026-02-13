@@ -10,7 +10,55 @@
     <link rel="stylesheet" href="{% static 'games/css/game_list/sticky-button.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/components/cards.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/game_list/keywords_pagination.css' %}">
-    <link rel="stylesheet" href="{% static 'games/css/game_list/games_pagination.css' %}"> <!-- НОВЫЙ -->
+    <link rel="stylesheet" href="{% static 'games/css/game_list/games_pagination.css' %}">
+
+    <!-- Добавляем стили для AJAX загрузки -->
+    <style>
+        .games-container.loading {
+            opacity: 0.7;
+            pointer-events: none;
+            position: relative;
+            min-height: 200px;
+        }
+        .games-container.loading::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(255, 107, 53, 0.2);
+            border-top: 3px solid var(--secondary-color, #ff6b35);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            z-index: 1000;
+        }
+        @keyframes spin {
+            0% { transform: translate(-50%, -50%) rotate(0deg); }
+            100% { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+        .games-container {
+            transition: opacity 0.3s ease;
+        }
+
+        /* Стили для кнопки Compare */
+        .btn-outline-warning.compare-button-added {
+            border: 2px solid var(--warning-color);
+            color: var(--warning-color);
+            background: transparent;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .btn-outline-warning.compare-button-added:hover {
+            background: var(--gradient-warning);
+            color: var(--primary-color);
+            border-color: var(--warning-color);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-button);
+        }
+    </style>
 {% endblock %}
 
 {% block content %}
@@ -26,8 +74,10 @@
         <!-- Форма фильтров -->
         {% include 'games/game_list/_filters_form.html' %}
 
-        <!-- Результаты -->
-        {% include 'games/game_list/_games_results.html' %}
+        <!-- Результаты (будут обновляться через AJAX) -->
+        <div id="games-results-container">
+            {% include 'games/game_list/_games_results.html' %}
+        </div>
     </div>
 {% endblock %}
 
@@ -35,22 +85,29 @@
     <!-- Основной скрипт фильтров -->
     <script type="module" src="{% static 'games/js/game_list.js' %}"></script>
 
-    <!-- Скрипт для списка игр -->
-    <script type="module" src="{% static 'games/js/game_list/game_list_script.js' %}"></script>
+    <!-- AJAX ПАГИНАЦИЯ -->
+    <script src="{% static 'games/js/game_list/ajax-pagination.js' %}"></script>
 
-    <!-- Простой скрипт для удаления дубликатов -->
-    <script>
-        // Удаляем дублирующиеся фиксированные контейнеры при загрузке
-        document.addEventListener('DOMContentLoaded', function() {
-            setTimeout(function() {
-                const containers = document.querySelectorAll('.apply-filters-fixed-container');
-                if (containers.length > 1) {
-                    // Оставляем только первый (самый ранний) контейнер
-                    for (let i = 1; i < containers.length; i++) {
-                        containers[i].remove();
-                    }
-                }
-            }, 1500);
-        });
-    </script>
+    <!-- SIMILARITY BADGES -->
+    <script src="{% static 'games/js/game_list/similarity-badges.js' %}"></script>
+
+    <!-- SIMILARITY COMPARE BUTTONS -->
+    <script src="{% static 'games/js/game_list/similarity-compare.js' %}"></script>
+
+    <!-- Индикатор режима похожих игр -->
+    {% if show_similarity %}
+        <div style="display: none;" class="similarity-mode-indicator" data-mode="similar"></div>
+        <script>
+            window.similarityMap = {
+            {% for game_item in games_with_similarity %}
+                {% if game_item.game.id and game_item.similarity %}
+                "{{ game_item.game.id }}": "{{ game_item.similarity }}",
+            {% endif %}
+            {% endfor %}
+            };
+            window.sourceGameId = {% if source_game and source_game.id %}{{ source_game.id }}{% else %}null{% endif %};
+            window.sourceGameName = {% if source_game and source_game.name %}"{{ source_game.name|escapejs }}"{% else %}
+            null{% endif %};
+        </script>
+    {% endif %}
 {% endblock %}

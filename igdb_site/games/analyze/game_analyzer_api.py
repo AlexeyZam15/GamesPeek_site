@@ -454,10 +454,11 @@ class GameAnalyzerAPI:
             game_id: Optional[int] = None,
             existing_game=None,
             detailed_patterns: bool = False,
-            exclude_existing: bool = False
+            exclude_existing: bool = False  # ДОБАВЛЯЕМ ПАРАМЕТР
     ) -> Dict[str, Any]:
         """
         Анализирует текст игры в комбинированном режиме (все критерии + ключевые слова) С ПОДДЕРЖКОЙ КЭША
+        Теперь поддерживает exclude_existing параметр
         """
         start_time = time.time()
 
@@ -471,7 +472,8 @@ class GameAnalyzerAPI:
             }
 
         # ПРОВЕРКА КЭША: если игра уже проверена, возвращаем кэшированный результат
-        if game_id and not self.verbose:
+        # НО: если exclude_existing=True, игнорируем кэш и анализируем заново
+        if game_id and not self.verbose and not exclude_existing:
             if RangeCacheManager.is_game_checked(game_id):
                 if self.verbose:
                     print(f"ℹ️ Игра {game_id} уже проверена, возвращаем пустой результат из кэша")
@@ -501,22 +503,22 @@ class GameAnalyzerAPI:
             print(f"=== Exclude existing: {exclude_existing}")
             print(f"=== Text length: {len(text)}")
 
-        # Анализируем критерии
+        # Анализируем критерии с поддержкой exclude_existing
         criteria_result = self.text_analyzer.analyze(
             text=text,
             analyze_keywords=False,
             existing_game=existing_game,
             detailed_patterns=detailed_patterns,
-            exclude_existing=exclude_existing
+            exclude_existing=exclude_existing  # Передаем параметр
         )
 
-        # Анализируем ключевые слова
+        # Анализируем ключевые слова с поддержкой exclude_existing
         keywords_result = self.text_analyzer.analyze(
             text=text,
             analyze_keywords=True,
             existing_game=existing_game,
             detailed_patterns=detailed_patterns,
-            exclude_existing=exclude_existing
+            exclude_existing=exclude_existing  # Передаем параметр
         )
 
         # Объединяем результаты
@@ -554,7 +556,8 @@ class GameAnalyzerAPI:
             'summary': {
                 'found_count': total_found,
                 'has_results': total_found > 0,
-                'mode': 'combined'
+                'mode': 'combined',
+                'exclude_existing': exclude_existing
             },
             'has_results': total_found > 0,
             'exclude_existing': exclude_existing,
@@ -565,8 +568,8 @@ class GameAnalyzerAPI:
         if detailed_patterns and combined_pattern_info:
             response['pattern_info'] = combined_pattern_info
 
-        # ДОБАВЛЯЕМ КЭШИРОВАНИЕ: обновляем кэш если анализ успешен и есть game_id
-        if response['success'] and game_id and not self.verbose:
+        # ДОБАВЛЯЕМ КЭШИРОВАНИЕ: обновляем кэш только если не exclude_existing
+        if response['success'] and game_id and not self.verbose and not exclude_existing:
             # Обновляем кэш для этой игры
             RangeCacheManager.update_game_range(game_id, game_id)
             if self.verbose:
@@ -580,6 +583,7 @@ class GameAnalyzerAPI:
             print(f"=== Combined analysis completed. Success: {response['success']}")
             print(f"=== Has results: {response['has_results']}")
             print(f"=== Found count: {total_found}")
+            print(f"=== Exclude existing: {exclude_existing}")
             print(f"=== Cached: {response.get('cached', False)}")
 
         return response

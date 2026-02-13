@@ -103,7 +103,7 @@ class OutputFormatter:
 
     def print_game_in_batch(self, game: Game, index: int, result: Dict[str, Any],
                             stats: Dict[str, Any], **options):
-        """Выводит результат игры в пакетной обработке"""
+        """Выводит результат игры в пакетной обработке - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
         only_found = options.get('only_found', False)
         verbose = options.get('verbose', False)
         keywords = options.get('keywords', False)
@@ -153,26 +153,8 @@ class OutputFormatter:
             except Exception:
                 pass
 
-        # Добавляем игру в батч для обновления если нужно
-        if update_game and result['has_results'] and hasattr(self.command, 'batch_updater'):
-            try:
-                # Проверяем, есть ли реальные элементы для обновления
-                has_real_items = False
-                for key, data in result['results'].items():
-                    if data.get('count', 0) > 0 and data.get('items'):
-                        has_real_items = True
-                        break
-
-                if has_real_items:
-                    success = self.command.batch_updater.add_game_for_update(
-                        game_id=game.id,
-                        results=result['results'],
-                        is_keywords=keywords
-                    )
-
-            except Exception:
-                # Молча игнорируем ошибки при обновлении
-                pass
+        # УДАЛЕНО: Добавление игры в батч здесь. Теперь это делается в _handle_analysis_results
+        # через метод _add_to_batch_if_needed
 
         # Вывод в терминал ТОЛЬКО если нет прогресс-бара и verbose
         show_in_terminal = (
