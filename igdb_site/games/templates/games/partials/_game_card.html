@@ -1,3 +1,4 @@
+<!-- games/templates/games/partials/_game_card.html -->
 {% load game_tags platform_icons color_tags game_type_tags %}
 
 <div class="col-xl-3 col-lg-4 col-md-6 col-sm-6 col-12 mb-4 game-card-container"
@@ -43,13 +44,18 @@
                 </div>
             {% endif %}
 
-            <!-- Процент схожести -->
-            <div class="position-absolute top-0 end-0 p-1 similarity-badge-placeholder"
-                 data-game-id="{{ game.id }}"
-                 data-similarity="{{ game.similarity|default:'' }}"
-                 data-show-similarity="{{ show_similarity|lower }}"
-                 style="display: {% if show_similarity and game.similarity %}block{% else %}none{% endif %};">
-            </div>
+            <!-- Процент схожести - проверяем и game.similarity, и similarity_percent -->
+            {% if show_similarity %}
+                {% if game.similarity %}
+                    <div class="position-absolute top-0 end-0 p-1">
+                        {% similarity_pattern_svg game.similarity 60 %}
+                    </div>
+                {% elif similarity_percent %}
+                    <div class="position-absolute top-0 end-0 p-1">
+                        {% similarity_pattern_svg similarity_percent 60 %}
+                    </div>
+                {% endif %}
+            {% endif %}
 
             <!-- Платформы - показываем ТОЛЬКО первые 8, разбиваем на ряды по 4 -->
             {% if game.platforms.all %}

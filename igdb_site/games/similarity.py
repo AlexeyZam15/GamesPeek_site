@@ -928,6 +928,12 @@ class GameSimilarity:
         # 1. Подготовка данных исходной игры
         source_data, single_player_info = self._prepare_source_data(source_game)
 
+        print(f"\n=== SIMILARITY DEBUG ===")
+        print(f"Source game: {getattr(source_game, 'id', 'virtual')}")
+        print(f"Source data - genres: {source_data['genre_count']}, keywords: {source_data['keyword_count']}")
+        print(f"Source data - themes: {source_data['theme_count']}, perspectives: {source_data['perspective_count']}")
+        print(f"Source data - game_modes: {source_data['game_mode_count']}")
+
         # 2. Генерация ключа кэша
         cache_key_data = {
             'type': 'game' if isinstance(source_game, Game) else 'virtual',
@@ -949,13 +955,19 @@ class GameSimilarity:
         # Проверяем кэш
         cached_result = cache.get(cache_key)
         if cached_result and time.time() - cached_result.get('timestamp', 0) < 43200:
+            print(f"RETURNING CACHED RESULT: {len(cached_result['games'])} games")
+            # Выведем первые несколько similarity для проверки
+            for i, game in enumerate(cached_result['games'][:5]):
+                print(
+                    f"  Cached game {i + 1}: ID {game.get('game_id') if isinstance(game, dict) else getattr(game, 'id', 'unknown')} - similarity: {game.get('similarity') if isinstance(game, dict) else 'unknown'}")
             return cached_result['games']
 
         print(f"РАСЧЕТ для {getattr(source_game, 'id', 'virtual')}...")
         start_time = time.time()
 
-        # 3. Получаем кандидатов - НОВАЯ ЛОГИКА
+        # 3. Получаем кандидатов
         candidate_ids = self._get_candidate_ids_new(source_data, single_player_info, min_similarity)
+        print(f"Candidate IDs found: {len(candidate_ids)}")
 
         if not candidate_ids:
             print("Нет подходящих кандидатов")
@@ -963,28 +975,43 @@ class GameSimilarity:
             return []
 
         # 4. Берем только нужное количество кандидатов
-        candidate_ids = candidate_ids[:limit * 3]  # Берем больше для фильтрации
-
-        print(f"Кандидатов: {len(candidate_ids)}")
+        candidate_ids = candidate_ids[:limit * 3]
+        print(f"Candidate IDs after limit: {len(candidate_ids)}")
 
         # 5. Подготовка данных кандидатов
         games_data = self._prepare_candidate_data(candidate_ids)
+        print(f"Games data prepared: {len(games_data)}")
 
         # 6. Подсчет общих элементов
         games_data = self._calculate_common_elements_new(games_data, source_data, candidate_ids)
+        print(f"Common elements calculated")
 
         # 7. Расчет схожести
         similar_games = self._calculate_similarity_for_candidates(
             games_data, source_data, source_game, single_player_info
         )
+        print(f"Similar games calculated: {len(similar_games)}")
+
+        # Выведем первые несколько similarity для проверки
+        for i, game in enumerate(similar_games[:5]):
+            print(f"  Game {i + 1}: ID {game['game_id']} - {game['game_name']} - similarity: {game['similarity']}")
 
         # 8. Сортировка
         similar_games.sort(key=lambda x: x['similarity'], reverse=True)
 
         # 9. Загрузка полных объектов
         final_results = self._load_full_objects(similar_games[:limit])
+        print(f"Final results: {len(final_results)}")
+
+        # Выведем первые несколько final_results для проверки
+        for i, result in enumerate(final_results[:5]):
+            game_obj = result.get('game')
+            similarity = result.get('similarity')
+            print(
+                f"  Final {i + 1}: ID {getattr(game_obj, 'id', 'unknown')} - {getattr(game_obj, 'name', 'unknown')} - similarity: {similarity}")
 
         print(f"Найдено {len(final_results)} похожих ВЫШЕДШИХ игр за {time.time() - start_time:.2f} сек")
+        print("=== END SIMILARITY DEBUG ===\n")
 
         # 10. Кэшируем
         cache.set(cache_key, {

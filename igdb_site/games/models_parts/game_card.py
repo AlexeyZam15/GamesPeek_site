@@ -11,6 +11,9 @@ import hashlib
 class GameCardCache(models.Model):
     """Model for caching pre-rendered game cards with all related data."""
 
+    # Константа версии кэша карточек - увеличивать при изменении структуры HTML
+    CARD_CACHE_VERSION = 'v1'  # Было без версии, теперь v1
+
     game = models.OneToOneField(
         'Game',
         on_delete=models.CASCADE,
@@ -67,7 +70,7 @@ class GameCardCache(models.Model):
         """Сохраняет карточку игры - всегда только одна запись на игру."""
         # Генерируем ключ кэша если его нет
         if not self.cache_key:
-            self.cache_key = f"game_card_{self.game_id}"
+            self.cache_key = self.generate_cache_key()
 
         # Генерируем хэш если его нет
         if not self.card_hash:
@@ -175,16 +178,20 @@ class GameCardCache(models.Model):
         """
         from django.db import transaction
 
-        cache_key = f"game_card_{game.id}"
+        cache_key = cls.generate_cache_key_for_game(game.id)
 
         with transaction.atomic():
             try:
                 card = cls.objects.select_for_update().get(game=game)
                 created = False
 
-                # Проверяем, не изменились ли данные игры
+                # Проверяем, не изменились ли данные игры или версия кэша
                 new_card_hash = cls._calculate_card_hash(rendered_card)
-                if card.card_hash != new_card_hash:
+
+                # Также проверяем, что ключ кэша соответствует текущей версии
+                expected_cache_key = cls.generate_cache_key_for_game(game.id)
+
+                if card.card_hash != new_card_hash or card.cache_key != expected_cache_key:
                     card.rendered_card = rendered_card
                     card.game_name = game.name
                     card.game_rating = getattr(game, 'rating', None)
@@ -197,11 +204,12 @@ class GameCardCache(models.Model):
                     card.themes_json = related_data.get('themes', [])
                     card.game_modes_json = related_data.get('game_modes', [])
                     card.card_hash = new_card_hash
+                    card.cache_key = expected_cache_key  # Обновляем ключ с новой версией
                     card.save(update_fields=[
                         'rendered_card', 'game_name', 'game_rating', 'game_cover_url',
                         'game_type', 'genres_json', 'platforms_json', 'perspectives_json',
                         'keywords_json', 'themes_json', 'game_modes_json',
-                        'card_hash', 'updated_at'
+                        'card_hash', 'cache_key', 'updated_at'
                     ])
 
             except cls.DoesNotExist:
@@ -227,13 +235,19 @@ class GameCardCache(models.Model):
 
         return card, created
 
+    @classmethod
+    def generate_cache_key_for_game(cls, game_id: int) -> str:
+        """Генерирует ключ кэша для игры с учетом версии."""
+        return f"game_card_{cls.CARD_CACHE_VERSION}_{game_id}"
+
     def generate_cache_key(self) -> str:
-        """Генерирует ключ кэша - всегда одинаковый для одной игры."""
-        return f"game_card_{self.game_id}"
+        """Генерирует ключ кэша с учетом версии."""
+        return self.generate_cache_key_for_game(self.game_id)
 
     def generate_card_hash(self) -> str:
         """Generate hash of card content for change detection."""
-        content = self.rendered_card or ""
+        # Добавляем версию кэша в хэш, чтобы изменения версии тоже инвалидировали карточки
+        content = (self.rendered_card or "") + self.CARD_CACHE_VERSION
         if self.compressed_card:
             content += str(self.compressed_card)
         return hashlib.md5(content.encode() if isinstance(content, str) else content).hexdigest()
@@ -241,6 +255,8 @@ class GameCardCache(models.Model):
     @staticmethod
     def _calculate_card_hash(rendered_card: str) -> str:
         """Calculate hash for rendered card content."""
+        # Статический метод не имеет доступа к CARD_CACHE_VERSION,
+        # поэтому версия добавляется в get_or_create_card при сравнении
         content = rendered_card or ""
         return hashlib.md5(content.encode()).hexdigest()
 
@@ -274,7 +290,7 @@ class GameCardCache(models.Model):
     @classmethod
     def create_card(cls, game, rendered_card: str, **related_data) -> 'GameCardCache':
         """Create new card cache entry."""
-        cache_key = f"game_card_{game.id}"
+        cache_key = cls.generate_cache_key_for_game(game.id)
 
         card, _ = cls.get_or_create_card(
             game=game,
@@ -309,3 +325,28 @@ class GameCardCache(models.Model):
         count = old_cards.count()
         old_cards.delete()
         return count
+
+    @classmethod
+    def bump_cache_version(cls, new_version: str = None) -> str:
+        """
+        Увеличивает версию кэша карточек.
+        Использовать после изменений в структуре HTML карточек.
+
+        Args:
+            new_version: Новая версия (если не указана, увеличивает текущую)
+
+        Returns:
+            Новая версия кэша
+        """
+        if new_version:
+            cls.CARD_CACHE_VERSION = new_version
+        else:
+            # Парсим текущую версию и увеличиваем номер
+            current = cls.CARD_CACHE_VERSION
+            if current.startswith('v') and current[1:].isdigit():
+                num = int(current[1:]) + 1
+                cls.CARD_CACHE_VERSION = f'v{num}'
+            else:
+                cls.CARD_CACHE_VERSION = f'v2'  # Если не в формате v1, ставим v2
+
+        return cls.CARD_CACHE_VERSION
