@@ -655,50 +655,27 @@ def get_similar_games_for_criteria(selected_criteria: Dict[str, List[int]]) -> T
 
     similarity_engine = GameSimilarity()
 
-    min_similarity = 10
-
-    has_genres = bool(selected_criteria['genres'])
-    has_keywords = bool(selected_criteria['keywords'])
-    has_themes = bool(selected_criteria['themes'])
-    has_perspectives = bool(selected_criteria['perspectives'])
-    has_game_modes = bool(selected_criteria['game_modes'])
-
-    logger.info(f"Поиск похожих игр по критериям: "
-                f"жанры={has_genres}({len(selected_criteria['genres'])}), "
-                f"ключевые слова={has_keywords}({len(selected_criteria['keywords'])}), "
-                f"темы={has_themes}({len(selected_criteria['themes'])}), "
-                f"перспективы={has_perspectives}({len(selected_criteria['perspectives'])}), "
-                f"режимы={has_game_modes}({len(selected_criteria['game_modes'])})")
-
-    if has_game_modes and not has_genres and not has_keywords and not has_themes and not has_perspectives:
-        min_similarity = 1
-        logger.info(f"Только режимы игры, порог схожести: {min_similarity}%")
-
-    elif not has_genres and any([has_keywords, has_themes, has_perspectives, has_game_modes]):
-        min_similarity = 3
-        logger.info(f"Поиск без жанров, порог схожести: {min_similarity}%")
-
-    elif not any([has_genres, has_keywords, has_themes, has_perspectives, has_game_modes]):
-        min_similarity = 0
-        logger.info(f"Нет критериев похожести, порог схожести: {min_similarity}%")
+    # УБРАНО: вся логика установки min_similarity в зависимости от критериев
+    # Теперь просто вызываем find_similar_games без указания порога,
+    # и он использует DEFAULT_MIN_SIMILARITY из класса GameSimilarity
 
     similar_games = similarity_engine.find_similar_games(
         source_game=virtual_game,
-        min_similarity=min_similarity,
         limit=500
+        # min_similarity больше не передаем
     )
 
     total_count = len(similar_games)
 
     cache_time = 10800
-    if has_genres:
+    if selected_criteria['genres']:
         cache_time = 7200
 
     cache.set(cache_key, {
         'games': similar_games,
         'count': total_count,
-        'timestamp': time.time(),
-        'min_similarity': min_similarity
+        'timestamp': time.time()
+        # min_similarity больше не сохраняем в кэш
     }, cache_time)
 
     criteria_count = sum(len(v) for key, v in selected_criteria.items()
@@ -706,9 +683,7 @@ def get_similar_games_for_criteria(selected_criteria: Dict[str, List[int]]) -> T
 
     logger.info(f"Similar games search took: {time.time() - start_time:.2f}s, "
                 f"criteria: {criteria_count}, "
-                f"results: {total_count}, "
-                f"genres_used: {has_genres}, "
-                f"min_similarity: {min_similarity}")
+                f"results: {total_count}")
 
     return similar_games, total_count
 

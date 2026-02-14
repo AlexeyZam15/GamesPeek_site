@@ -87,6 +87,9 @@ class GameSimilarity:
     # НОВАЯ КОНСТАНТА: минимальное количество общих жанров для включения в результат
     MIN_COMMON_GENRES = 2  # Ищем игры только с 2+ общими жанрами
 
+    # НОВАЯ КОНСТАНТА: минимальный порог похожести по умолчанию
+    DEFAULT_MIN_SIMILARITY = 40
+
     # Вспомогательные константы для расчетов
     KEYWORDS_ADD_PER_MATCH = 0.5  # Базовое значение для ключевых слов
 
@@ -97,7 +100,7 @@ class GameSimilarity:
 
     def _get_candidate_ids_new(self, source_data, single_player_info, min_similarity):
         """
-        ИСПРАВЛЕННЫЙ поиск кандидатов через ArrayField + GIN.
+        ИСПРАВЛЕННЫЙ поиск кандидатов через ArrayField + GIN - БЕЗ ЛИМИТОВ.
         """
         import time
         from django.utils import timezone
@@ -105,7 +108,7 @@ class GameSimilarity:
         from django.db.models import Q
         from django.contrib.postgres.fields import ArrayField
 
-        print("БЫСТРЫЙ поиск кандидатов через ArrayField + GIN...")
+        print("БЫСТРЫЙ поиск кандидатов через ArrayField + GIN (БЕЗ ЛИМИТОВ)...")
         start_time = time.time()
 
         current_time = timezone.now()
@@ -151,11 +154,11 @@ class GameSimilarity:
                 if common_count >= dynamic_min_common_genres:
                     filtered_ids.append(item['id'])
 
-            # 4. Сортируем по популярности (rating_count)
+            # 4. Сортируем по популярности (rating_count) - БЕЗ ЛИМИТА
             if filtered_ids:
                 popular_games = Game.objects.filter(
                     id__in=filtered_ids
-                ).order_by('-rating_count').values_list('id', flat=True)[:1000]
+                ).order_by('-rating_count').values_list('id', flat=True)
                 candidate_ids = list(popular_games)
 
             print(f"Найдено кандидатов по жанрам: {len(candidate_ids)} "
@@ -169,7 +172,7 @@ class GameSimilarity:
 
             candidate_ids = list(
                 candidates.order_by('-rating_count')
-                .values_list('id', flat=True)[:1000]
+                .values_list('id', flat=True)  # Убран лимит
             )
             print(f"Найдено кандидатов по темам: {len(candidate_ids)}")
 
@@ -192,7 +195,7 @@ class GameSimilarity:
 
             candidate_ids = list(
                 candidates.order_by('-rating_count')
-                .values_list('id', flat=True)[:800]
+                .values_list('id', flat=True)  # Убран лимит
             )
             print(f"Найдено кандидатов по др. критериям: {len(candidate_ids)}")
 
@@ -201,7 +204,7 @@ class GameSimilarity:
             candidate_ids = list(
                 base_qs.exclude(id=source_data.get('game_id', 0))
                 .order_by('-rating_count')
-                .values_list('id', flat=True)[:200]
+                .values_list('id', flat=True)  # Убран лимит
             )
             print(f"Найдено кандидатов (популярные игры): {len(candidate_ids)}")
 
@@ -732,8 +735,7 @@ class GameSimilarity:
 
         return breakdown
 
-    def _calculate_similarity_for_candidates(self, games_data, source_data, source_game, min_similarity,
-                                             single_player_info):
+    def _calculate_similarity_for_candidates(self, games_data, source_data, source_game, single_player_info):
         """Расчет схожести для всех кандидатов с динамическими весами"""
         import time
 
@@ -752,6 +754,9 @@ class GameSimilarity:
         dynamic_min_common_genres = single_player_info['dynamic_min_common_genres']
         has_single_player = single_player_info['has_single_player']
 
+        # Используем константу класса
+        min_similarity = self.DEFAULT_MIN_SIMILARITY
+
         print(f"Динамические веса:")
         dynamic_weights = self._calculate_dynamic_weights(source_data)
         for criterion, weight in dynamic_weights.items():
@@ -762,6 +767,7 @@ class GameSimilarity:
         print(f"  - Есть жанры: {has_genres}")
         print(f"  - Требуется общих жанров: {dynamic_min_common_genres} (только если есть жанры)")
         print(f"  - Требуется Single player: {has_single_player}")
+        print(f"  - Минимальный порог схожести: {min_similarity}% (константа DEFAULT_MIN_SIMILARITY)")
 
         for game_id, data in games_data.items():
             # Если это исходная игра
@@ -902,8 +908,7 @@ class GameSimilarity:
             return obj._cached_game_mode_ids
         return set()
 
-    # В similarity.py, обновляем метод find_similar_games:
-    def find_similar_games(self, source_game, min_similarity=20, limit=1000):
+    def find_similar_games(self, source_game, min_similarity=None, limit=1000):
         """ОПТИМИЗИРОВАННЫЙ расчет похожих игр - ТОЛЬКО ВЫШЕДШИЕ ИГРЫ"""
         import time
         from django.db import connection
@@ -915,6 +920,10 @@ class GameSimilarity:
 
         if limit is None:
             limit = 500
+
+        # Используем константу, если не передан порог
+        if min_similarity is None:
+            min_similarity = self.DEFAULT_MIN_SIMILARITY
 
         # 1. Подготовка данных исходной игры
         source_data, single_player_info = self._prepare_source_data(source_game)
@@ -966,7 +975,7 @@ class GameSimilarity:
 
         # 7. Расчет схожести
         similar_games = self._calculate_similarity_for_candidates(
-            games_data, source_data, source_game, min_similarity, single_player_info
+            games_data, source_data, source_game, single_player_info
         )
 
         # 8. Сортировка
