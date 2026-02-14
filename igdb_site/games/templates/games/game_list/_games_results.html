@@ -75,7 +75,6 @@
                                 <li class="page-item">
                                     <a class="page-link ajax-pagination-link"
                                        href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-
                                                {{ page_obj.previous_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                        aria-label="Previous"
                                        data-page="{{ page_obj.previous_page_number }}">
@@ -101,7 +100,6 @@
                                         <li class="page-item">
                                             <a class="page-link ajax-pagination-link"
                                                href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-
                                                        {{ num }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                                data-page="{{ num }}">
                                                 {{ num }}
@@ -111,7 +109,6 @@
                                         <li class="page-item">
                                             <a class="page-link ajax-pagination-link"
                                                href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-
                                                        {{ num }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                                data-page="{{ num }}">
                                                 {{ num }}
@@ -129,7 +126,6 @@
                                 <li class="page-item">
                                     <a class="page-link ajax-pagination-link"
                                        href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-
                                                {{ page_obj.next_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                        aria-label="Next"
                                        data-page="{{ page_obj.next_page_number }}">
@@ -150,7 +146,6 @@
                             {% if page_obj.has_previous %}
                                 <a class="btn btn-sm btn-outline-primary ajax-pagination-link"
                                    href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=1
-
                                            {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                    data-page="1">
                                     First
@@ -162,7 +157,6 @@
                             {% if page_obj.has_next %}
                                 <a class="btn btn-sm btn-outline-primary ajax-pagination-link"
                                    href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-
                                            {{ page_obj.paginator.num_pages }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                    data-page="{{ page_obj.paginator.num_pages }}">
                                     Last
@@ -189,10 +183,17 @@
 
         <!-- Контейнер для игр -->
         <div class="games-container">
+            <!-- Элемент для отображения текста загрузки (скрыт по умолчанию) -->
+            <div class="loading-text" style="display: none;">Loading games...</div>
+
             {% if show_similarity and games_with_similarity %}
-                {% include 'games/game_list/_games_grid.html' with games=games_with_similarity show_similarity=show_similarity source_game=source_game current_page=current_page %}
+                <div class="row" id="games-grid-row">
+                    {% include 'games/game_list/_games_grid.html' with games=games_with_similarity show_similarity=show_similarity source_game=source_game current_page=current_page %}
+                </div>
             {% elif games %}
-                {% include 'games/game_list/_games_grid.html' with games=games current_page=current_page %}
+                <div class="row" id="games-grid-row">
+                    {% include 'games/game_list/_games_grid.html' with games=games current_page=current_page %}
+                </div>
             {% else %}
                 <div class="row" id="games-grid-row">
                     <div class="col-12">
@@ -216,7 +217,6 @@
                                 <li class="page-item">
                                     <a class="page-link ajax-pagination-link"
                                        href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-
                                                {{ page_obj.previous_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                        aria-label="Previous"
                                        data-page="{{ page_obj.previous_page_number }}">
@@ -241,7 +241,6 @@
                                         <li class="page-item">
                                             <a class="page-link ajax-pagination-link"
                                                href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-
                                                        {{ num }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                                data-page="{{ num }}">
                                                 {{ num }}
@@ -251,7 +250,6 @@
                                         <li class="page-item">
                                             <a class="page-link ajax-pagination-link"
                                                href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-
                                                        {{ num }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                                data-page="{{ num }}">
                                                 {{ num }}
@@ -269,7 +267,6 @@
                                 <li class="page-item">
                                     <a class="page-link ajax-pagination-link"
                                        href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-
                                                {{ page_obj.next_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                        aria-label="Next"
                                        data-page="{{ page_obj.next_page_number }}">
@@ -289,7 +286,6 @@
                             {% if page_obj.has_previous %}
                                 <a class="btn btn-sm btn-outline-primary ajax-pagination-link"
                                    href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=1
-
                                            {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                    data-page="1">
                                     First
@@ -301,7 +297,6 @@
                             {% if page_obj.has_next %}
                                 <a class="btn btn-sm btn-outline-primary ajax-pagination-link"
                                    href="?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-
                                            {{ page_obj.paginator.num_pages }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                    data-page="{{ page_obj.paginator.num_pages }}">
                                     Last
