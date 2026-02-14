@@ -622,7 +622,6 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
 
         games_with_similarity = mode_result.get('games_with_similarity', [])
         source_game = mode_result.get('source_game')
-        similarity_map = mode_result.get('similarity_map', {})
 
         # Добавляем кэшированные карточки
         games_with_similarity = _update_games_with_cached_cards(
@@ -639,7 +638,6 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
             'show_similarity': True,
             'source_game': source_game,
             'current_page': page_num,
-            'similarity_map': similarity_map,  # ПЕРЕДАЕМ В ШАБЛОН
         }
     else:
         # Обычный режим
@@ -663,6 +661,7 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
             'current_page': page_num,
         }
 
+    # ВАЖНО: рендерим ТОЛЬКО _games_grid.html
     html = render_to_string('games/game_list/_games_grid.html', template_context)
 
     response = HttpResponse(html)

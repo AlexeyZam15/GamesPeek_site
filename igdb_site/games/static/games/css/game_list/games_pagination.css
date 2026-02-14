@@ -401,22 +401,6 @@
     100% { transform: translate(-50%, -50%) rotate(360deg); }
 }
 
-/* Добавим в конец файла games_pagination.css */
-
-/* Стили для индикатора загрузки */
-.games-pagination .page-link.loading {
-    background: linear-gradient(135deg, var(--secondary-color), var(--accent-color)) !important;
-    border-color: transparent !important;
-    color: white !important;
-    opacity: 0.9;
-}
-
-.games-pagination .page-link.loading .spinner-border {
-    width: 1rem;
-    height: 1rem;
-    border-width: 0.15em;
-}
-
 /* Анимация пульсации активной страницы */
 @keyframes activePagePulse {
     0% {
@@ -439,12 +423,10 @@
 }
 
 /* Эффект при нажатии */
-.games-pagination .page-link:active:not(.disabled):not(.loading) {
+.games-pagination .page-link:active:not(.disabled) {
     transform: translateY(1px) !important;
     transition: transform 0.1s ease;
 }
-
-/* Добавить в конец файла games/static/games/css/game_list/games_pagination.css */
 
 /* ===== ПРЕДОТВРАЩЕНИЕ МИГАНИЯ КНОПОК ПАГИНАЦИИ ===== */
 
@@ -460,13 +442,6 @@
     color: var(--text-light) !important;
     font-weight: 700 !important;
     box-shadow: 0 4px 12px rgba(255, 107, 53, 0.3) !important;
-}
-
-/* Стили для состояния загрузки - блокировка кликов без изменения внешнего вида */
-.games-pagination.pagination-loading .ajax-pagination-link {
-    pointer-events: none;
-    opacity: 0.7;
-    cursor: wait;
 }
 
 /* Предотвращаем мигание при обновлении DOM */
