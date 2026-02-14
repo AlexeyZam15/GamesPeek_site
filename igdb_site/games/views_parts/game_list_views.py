@@ -135,6 +135,10 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
     if not games_list:
         return games_list
 
+    print(f"\n=== UPDATE GAMES WITH CACHED CARDS DEBUG ===")
+    print(f"games_list length: {len(games_list)}")
+    print(f"show_similarity: {show_similarity}")
+
     # Собираем все ID игр
     game_ids = []
     game_items = []
@@ -146,11 +150,17 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
             similarity = item.get('similarity')
             game_ids.append(game_obj.id)
             game_items.append((item, game_obj, similarity, True))
+            print(f"  Similar mode item - game ID: {game_obj.id}, similarity from item: {similarity}")
         else:
             # Обычный режим
             game_obj = item
             game_ids.append(game_obj.id)
             game_items.append((item, game_obj, None, False))
+            print(f"  Regular mode item - game ID: {game_obj.id}")
+
+    # Получаем текущую версию кэша из модели
+    from games.models import GameCardCache
+    current_cache_version = GameCardCache.CARD_CACHE_VERSION
 
     # Пакетно загружаем существующие карточки из БД
     cards = {}
@@ -160,7 +170,20 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
             is_active=True
         ).select_related('game')
 
-        cards = {card.game_id: card for card in card_objects}
+        # Фильтруем только те карточки, у которых ключ соответствует текущей версии
+        for card in card_objects:
+            expected_key = GameCardCache.generate_cache_key_for_game(card.game_id)
+            if card.cache_key == expected_key:
+                cards[card.game_id] = card
+            else:
+                # Карточка с устаревшей версией - удаляем или деактивируем
+                print(
+                    f"  Found outdated card for game {card.game_id} (key: {card.cache_key}, expected: {expected_key})")
+                # Можно деактивировать, чтобы не использовать
+                card.is_active = False
+                card.save(update_fields=['is_active'])
+
+        print(f"Found {len(cards)} cached cards with current version {current_cache_version}")
 
     except Exception as e:
         logger.error(f"Error batch loading card caches: {str(e)}")
@@ -172,19 +195,37 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
     for item, game_obj, similarity, is_similar_mode in game_items:
         cached_card = cards.get(game_obj.id)
 
+        print(f"\nProcessing game {game_obj.id} ({game_obj.name}):")
+        print(f"  is_similar_mode: {is_similar_mode}")
+        print(f"  similarity from params: {similarity}")
+        print(f"  has cached_card: {cached_card is not None}")
+
         # ВАЖНО: Сохраняем процент схожести в объекте игры и в item
-        if is_similar_mode and similarity is not None:
-            game_obj.similarity = similarity
-            # Также сохраняем в item для доступа в шаблоне
-            if isinstance(item, dict):
-                item['similarity'] = similarity
-        elif not is_similar_mode and hasattr(game_obj, 'similarity'):
-            # Очищаем similarity если не в режиме похожих
+        if is_similar_mode:
+            if similarity is not None and similarity > 0:
+                # Явно устанавливаем similarity
+                game_obj.similarity = float(similarity)
+                # Также сохраняем в item для доступа в шаблоне
+                if isinstance(item, dict):
+                    item['similarity'] = similarity
+                print(f"  ✓ SET game.similarity = {similarity}")
+                print(f"  ✓ SET item['similarity'] = {similarity}")
+            else:
+                # Если нет similarity, удаляем атрибут
+                if hasattr(game_obj, 'similarity'):
+                    delattr(game_obj, 'similarity')
+                    print(f"  ✗ REMOVED game.similarity")
+                if isinstance(item, dict) and 'similarity' in item:
+                    del item['similarity']
+                    print(f"  ✗ REMOVED item['similarity']")
+        else:
+            # Не в режиме похожих - очищаем similarity
             if hasattr(game_obj, 'similarity'):
                 delattr(game_obj, 'similarity')
+                print(f"  ✗ REMOVED game.similarity (regular mode)")
 
         if cached_card:
-            # Используем готовую карточку из БД
+            # Используем готовую карточку из БД (уже проверена на соответствие версии)
             try:
                 cached_card.increment_hit()
 
@@ -194,6 +235,7 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
                     item.cached_card = cached_card.rendered_card
 
                 processed_items.append(item)
+                print(f"  Using cached card (version {current_cache_version})")
                 continue
 
             except Exception as e:
@@ -205,13 +247,17 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
         # Рендерим HTML
         card_context = {
             'game': game_obj,
-            'show_similarity': False,  # Всегда False - процент схожести НЕ встраивается в HTML
-            'source_game': context.get('source_game')  # Передаем source_game для кнопки Compare
+            'show_similarity': show_similarity,
+            'source_game': context.get('source_game')
         }
 
         # Добавляем similarity в контекст если есть
-        if is_similar_mode and similarity is not None:
+        if is_similar_mode and similarity is not None and similarity > 0:
             card_context['similarity'] = similarity
+            # Убеждаемся, что у game_obj есть similarity
+            if not hasattr(game_obj, 'similarity'):
+                game_obj.similarity = similarity
+            print(f"  Added to card_context: similarity={similarity}")
 
         rendered_card = render_to_string('games/partials/_game_card.html', card_context)
 
@@ -232,6 +278,11 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
             item.cached_card = rendered_card
 
         processed_items.append(item)
+        print(f"  Rendered new card")
+
+    print(f"\nProcessed {len(processed_items)} items")
+    print(f"Cards to create: {len(cards_to_create)}")
+    print("=== END UPDATE DEBUG ===\n")
 
     # Асинхронно сохраняем новые карточки
     if cards_to_create:
@@ -571,13 +622,14 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
 
         games_with_similarity = mode_result.get('games_with_similarity', [])
         source_game = mode_result.get('source_game')
+        similarity_map = mode_result.get('similarity_map', {})
 
         # Добавляем кэшированные карточки
         games_with_similarity = _update_games_with_cached_cards(
             games_with_similarity,
             {
                 'show_similarity': True,
-                'source_game': source_game,  # ВАЖНО: передаем source_game
+                'source_game': source_game,
                 'current_page': page_num,
             }
         )
@@ -585,8 +637,9 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
         template_context = {
             'games': games_with_similarity,
             'show_similarity': True,
-            'source_game': source_game,  # ВАЖНО: передаем source_game в шаблон
+            'source_game': source_game,
             'current_page': page_num,
+            'similarity_map': similarity_map,  # ПЕРЕДАЕМ В ШАБЛОН
         }
     else:
         # Обычный режим
@@ -965,8 +1018,6 @@ def _build_optimized_context(
         'show_similarity': show_similarity,
         'source_game': source_game,
         'source_game_obj': source_game_obj,
-
-        'similarity_map': mode_result.get('similarity_map', {}),
 
         'genres': genres_list,
         'themes': filter_data['themes'],

@@ -88,9 +88,6 @@
     <!-- AJAX ПАГИНАЦИЯ -->
     <script src="{% static 'games/js/game_list/ajax-pagination.js' %}"></script>
 
-    <!-- SIMILARITY BADGES -->
-    <script src="{% static 'games/js/game_list/similarity-badges.js' %}"></script>
-
     <!-- SIMILARITY COMPARE BUTTONS -->
     <script src="{% static 'games/js/game_list/similarity-compare.js' %}"></script>
 
@@ -98,13 +95,7 @@
     {% if show_similarity %}
         <div style="display: none;" class="similarity-mode-indicator" data-mode="similar"></div>
         <script>
-            window.similarityMap = {
-            {% for game_item in games_with_similarity %}
-                {% if game_item.game.id and game_item.similarity %}
-                "{{ game_item.game.id }}": "{{ game_item.similarity }}",
-            {% endif %}
-            {% endfor %}
-            };
+            // Устанавливаем source game данные
             window.sourceGameId = {% if source_game and source_game.id %}{{ source_game.id }}{% else %}null{% endif %};
             window.sourceGameName = {% if source_game and source_game.name %}"{{ source_game.name|escapejs }}"{% else %}
             null{% endif %};
