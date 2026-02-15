@@ -487,8 +487,18 @@ def game_list(request: HttpRequest) -> HttpResponse:
 
     filter_data = _get_optimized_filter_data()
 
-    # Подготавливаем контекст для серверной пагинации
+    # Получаем данные из mode_result
     page_obj = mode_result.get('page_obj')
+    paginator = mode_result.get('paginator')
+
+    # ВАЖНО: Правильно определяем total_pages
+    if paginator:
+        total_pages = paginator.num_pages
+    elif page_obj and hasattr(page_obj, 'paginator'):
+        total_pages = page_obj.paginator.num_pages
+    else:
+        total_pages = 1
+
     is_paginated = mode_result.get('is_paginated', False)
     total_count = mode_result.get('total_count', 0)
     current_page = mode_result.get('current_page', 1)
@@ -500,9 +510,10 @@ def game_list(request: HttpRequest) -> HttpResponse:
     # Подготавливаем базовый контекст
     context = {
         'page_obj': page_obj,
+        'paginator': paginator,  # Явно передаем пагинатор
         'is_paginated': is_paginated,
         'total_count': total_count,
-        'total_pages': mode_result.get('paginator', {}).num_pages if mode_result.get('paginator') else 1,
+        'total_pages': total_pages,  # Используем правильно вычисленное значение
         'current_page': current_page,
         'start_index': start_index,
         'end_index': end_index,
@@ -550,6 +561,8 @@ def game_list(request: HttpRequest) -> HttpResponse:
         'debug_info': {
             'mode': mode,
             'requested_page': current_page,
+            'total_pages_calculated': total_pages,  # Для отладки
+            'paginator_exists': paginator is not None,
         }
     }
 
@@ -557,13 +570,13 @@ def game_list(request: HttpRequest) -> HttpResponse:
     if mode == 'similar':
         games_with_similarity = mode_result.get('games_with_similarity', [])
 
-        # Добавляем кэшированные карточки - ВАЖНО: передаем source_game
+        # Добавляем кэшированные карточки
         games_with_similarity = _update_games_with_cached_cards(
             games_with_similarity,
             {
                 **context,
                 'show_similarity': True,
-                'source_game': mode_result.get('source_game')  # Явно передаем source_game
+                'source_game': mode_result.get('source_game')
             }
         )
 
@@ -586,8 +599,7 @@ def game_list(request: HttpRequest) -> HttpResponse:
 
 
 def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
-    """Load games for specific page via AJAX with card caching.
-    Returns ONLY the games grid HTML, not the full page."""
+    """Load games for specific page via AJAX with card caching."""
     start_time = time.time()
 
     page_num = request.GET.get('page', '1')
@@ -624,6 +636,11 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
 
         games_with_similarity = mode_result.get('games_with_similarity', [])
         source_game = mode_result.get('source_game')
+        paginator = mode_result.get('paginator')
+
+        # Получаем total_pages из пагинатора
+        total_pages = paginator.num_pages if paginator else 1
+        total_count = mode_result.get('total_count', 0)
 
         # Добавляем кэшированные карточки
         games_with_similarity = _update_games_with_cached_cards(
@@ -640,6 +657,15 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
             'show_similarity': True,
             'source_game': source_game,
             'current_page': page_num,
+            'page_obj': mode_result.get('page_obj'),
+            'paginator': paginator,
+            'is_paginated': mode_result.get('is_paginated', False),
+            'total_count': total_count,
+            'total_pages': total_pages,
+            'start_index': (page_num - 1) * ITEMS_PER_PAGE + 1,
+            'end_index': min(page_num * ITEMS_PER_PAGE, total_count),
+            'items_per_page': ITEMS_PER_PAGE,
+            'current_sort': params.get('sort', ''),
         }
     else:
         # Обычный режим
@@ -648,6 +674,11 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
         )
 
         games = list(mode_result.get('page_obj', {}).object_list) if mode_result.get('page_obj') else []
+        paginator = mode_result.get('paginator')
+
+        # Получаем total_pages из пагинатора
+        total_pages = paginator.num_pages if paginator else 1
+        total_count = mode_result.get('total_count', 0)
 
         # Добавляем кэшированные карточки
         games = _update_games_with_cached_cards(
@@ -661,17 +692,43 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
         template_context = {
             'games': games,
             'current_page': page_num,
+            'page_obj': mode_result.get('page_obj'),
+            'paginator': paginator,
+            'is_paginated': mode_result.get('is_paginated', False),
+            'total_count': total_count,
+            'total_pages': total_pages,
+            'start_index': (page_num - 1) * ITEMS_PER_PAGE + 1,
+            'end_index': min(page_num * ITEMS_PER_PAGE, total_count),
+            'items_per_page': ITEMS_PER_PAGE,
+            'current_sort': params.get('sort', ''),
         }
 
-    # ВАЖНО: рендерим ТОЛЬКО _games_grid.html, а не полную страницу
-    html = render_to_string('games/game_list/_games_grid.html', template_context)
+    # Добавляем отладочную информацию в скрытые поля
+    template_context['debug_total_pages'] = template_context['total_pages']
+    template_context['debug_current_page'] = page_num
 
-    # Добавляем заголовки для отладки
+    # ВАЖНО: Передаем также все необходимые данные для фильтров
+    # Это гарантирует, что в AJAX-ответе будут все те же данные, что и в основном запросе
+    template_context['genres'] = _get_cached_genres_list()
+    filter_data = _get_optimized_filter_data()
+    template_context['themes'] = filter_data['themes']
+    template_context['perspectives'] = filter_data['perspectives']
+    template_context['game_modes'] = filter_data['game_modes']
+    template_context['keywords'] = filter_data['keywords']
+    template_context['platforms'] = filter_data['platforms']
+    template_context['popular_keywords'] = filter_data['popular_keywords']
+    template_context['game_types'] = GameTypeEnum.CHOICES
+    template_context['years_range'] = _get_cached_years_range()
+    template_context['current_year'] = timezone.now().year
+
+    # Рендерим полный шаблон
+    html = render_to_string('games/game_list/_games_results.html', template_context)
+
     response = HttpResponse(html)
     response['Content-Type'] = 'text/html; charset=utf-8'
     response['X-AJAX-Page'] = str(page_num)
+    response['X-Total-Pages'] = str(template_context['total_pages'])
     response['X-Response-Time'] = f"{time.time() - start_time:.3f}s"
-    response['X-Content-Type'] = 'grid-only'  # Добавляем маркер, что это только сетка
 
     return response
 
