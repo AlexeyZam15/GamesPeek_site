@@ -10,8 +10,8 @@
                     {% if page_obj.has_previous %}
                         <li class="page-item">
                             <a class="page-link ajax-pagination-link"
-                               href="{% url 'ajax_load_games_page' %}?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-                                       {{ page_obj.previous_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                               href="?page=
+                                       {{ page_obj.previous_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                aria-label="Previous"
                                data-page="{{ page_obj.previous_page_number }}">
                                 <i class="bi bi-chevron-left"></i> Prev
@@ -35,8 +35,8 @@
                                     <span class="page-link">1</span>
                                 {% else %}
                                     <a class="page-link ajax-pagination-link"
-                                       href="{% url 'ajax_load_games_page' %}?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=1
-                                               {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                                       href="?page=1
+                                               {% for key,value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                        data-page="1">1</a>
                                 {% endif %}
                             </li>
@@ -59,8 +59,8 @@
                                         {% else %}
                                             <li class="page-item">
                                                 <a class="page-link ajax-pagination-link"
-                                                   href="{% url 'ajax_load_games_page' %}?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-                                                           {{ num }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                                                   href="?page=
+                                                           {{ num }}{% for key,value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                                    data-page="{{ num }}">{{ num }}</a>
                                             </li>
                                         {% endif %}
@@ -82,8 +82,8 @@
                                         <span class="page-link">{{ total }}</span>
                                     {% else %}
                                         <a class="page-link ajax-pagination-link"
-                                           href="{% url 'ajax_load_games_page' %}?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-                                                   {{ total }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                                           href="?page=
+                                                   {{ total }}{% for key,value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                            data-page="{{ total }}">{{ total }}</a>
                                     {% endif %}
                                 </li>
@@ -95,8 +95,8 @@
                     {% if page_obj.has_next %}
                         <li class="page-item">
                             <a class="page-link ajax-pagination-link"
-                               href="{% url 'ajax_load_games_page' %}?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-                                       {{ page_obj.next_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                               href="?page=
+                                       {{ page_obj.next_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                                aria-label="Next"
                                data-page="{{ page_obj.next_page_number }}">
                                 Next <i class="bi bi-chevron-right"></i>
@@ -115,8 +115,8 @@
                 <div class="mobile-pagination-buttons d-md-none">
                     {% if page_obj.has_previous %}
                         <a class="btn btn-sm btn-outline-primary ajax-pagination-link"
-                           href="{% url 'ajax_load_games_page' %}?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=1
-                                   {% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                           href="?page=1
+                                   {% for key,value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                            data-page="1">
                             First
                         </a>
@@ -126,8 +126,8 @@
 
                     {% if page_obj.has_next %}
                         <a class="btn btn-sm btn-outline-primary ajax-pagination-link"
-                           href="{% url 'ajax_load_games_page' %}?{% if current_sort %}sort={{ current_sort }}&{% endif %}page=
-                                   {{ total_pages }}{% for key,value in request.GET.items %}{% if key != 'page' and key != 'sort' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
+                           href="?page=
+                                   {{ total_pages }}{% for key,value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}"
                            data-page="{{ total_pages }}">
                             Last
                         </a>

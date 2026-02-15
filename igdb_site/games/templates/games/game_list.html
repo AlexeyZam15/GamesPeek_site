@@ -11,7 +11,6 @@
     <link rel="stylesheet" href="{% static 'games/css/components/cards.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/game_list/keywords_pagination.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/game_list/games_pagination.css' %}">
-    <!-- Новый файл со стилями для страницы списка игр -->
     <link rel="stylesheet" href="{% static 'games/css/game_list.css' %}">
 {% endblock %}
 
@@ -28,9 +27,31 @@
         <!-- Форма фильтров -->
         {% include 'games/game_list/_filters_form.html' %}
 
-        <!-- Результаты (будут обновляться через AJAX) -->
+        <!-- Результаты - пустой контейнер, будет заполнен через AJAX -->
         <div id="games-results-container">
-            {% include 'games/game_list/_games_results.html' %}
+            <!-- Скрытые поля с параметрами для JS -->
+            <div style="display: none;">
+                <input type="hidden" id="server-current-page" value="1">
+                <input type="hidden" id="server-total-pages" value="1">
+                <input type="hidden" id="server-total-count" value="0">
+                <input type="hidden" id="server-items-per-page" value="{{ items_per_page|default:16 }}">
+
+                {% if source_game_obj and source_game_obj.id %}
+                    <input type="hidden" id="server-source-game-id" value="{{ source_game_obj.id }}">
+                    <input type="hidden" id="server-source-game-name" value="{{ source_game_obj.name }}">
+                {% endif %}
+
+                {% if find_similar %}
+                    <input type="hidden" id="server-find-similar" value="1">
+                {% endif %}
+            </div>
+
+            <!-- Индикатор загрузки (виден сразу) -->
+            <div class="games-container loading-visible">
+                <div class="loading-text" style="display: block;">Loading games...</div>
+                <!-- Пустой контейнер для игр -->
+                <div class="row" id="games-grid-row"></div>
+            </div>
         </div>
     </div>
 {% endblock %}
@@ -44,15 +65,4 @@
 
     <!-- SIMILARITY COMPARE BUTTONS -->
     <script src="{% static 'games/js/game_list/similarity-compare.js' %}"></script>
-
-    <!-- Индикатор режима похожих игр -->
-    {% if show_similarity %}
-        <div style="display: none;" class="similarity-mode-indicator" data-mode="similar"></div>
-        <script>
-            // Устанавливаем source game данные
-            window.sourceGameId = {% if source_game and source_game.id %}{{ source_game.id }}{% else %}null{% endif %};
-            window.sourceGameName = {% if source_game and source_game.name %}"{{ source_game.name|escapejs }}"{% else %}
-            null{% endif %};
-        </script>
-    {% endif %}
 {% endblock %}

@@ -1,719 +1,719 @@
 // games/static/games/js/game_list/ajax-pagination.js
 // AJAX пагинация для списка игр с предзагрузкой и кэшированием соседних страниц
 
-document.addEventListener('DOMContentLoaded', function() {
+(function() {
+    // Флаг, чтобы предотвратить множественную инициализацию
+    if (window.ajaxPaginationInitialized) {
+        console.log('AjaxPagination: Already initialized');
+        return;
+    }
+    window.ajaxPaginationInitialized = true;
+
     console.log('AjaxPagination: Initializing');
-    initAjaxPagination();
 
-    // Кэшируем текущую страницу сразу после загрузки
-    setTimeout(() => {
-        cacheCurrentPage();
-    }, 100);
-});
+    // Простой кэш в памяти
+    const pageCache = new Map();
+    const PAGE_CACHE_EXPIRY = 30 * 60 * 1000; // 30 минут
 
-// Простой кэш в памяти (не в sessionStorage)
-const pageCache = new Map();
-const PAGE_CACHE_EXPIRY = 30 * 60 * 1000; // 30 минут
+    // Базовый URL для AJAX запросов
+    const AJAX_URL = '/ajax/load-games-page/';
 
-// Базовый URL для AJAX запросов
-const AJAX_URL = '/ajax/load-games-page/';
+    // Запускаем сразу после загрузки скрипта
+    initialize();
 
-function initAjaxPagination() {
-    console.log('AjaxPagination: Setting up event listeners');
+    function initialize() {
+        // Очищаем устаревший кэш
+        clearExpiredCache();
 
-    // Очищаем устаревший кэш
-    clearExpiredCache();
+        // Перехватываем все клики по ссылкам пагинации
+        setupEventListeners();
 
-    // Делегирование событий
-    document.addEventListener('click', function(e) {
-        const target = e.target.closest('.ajax-pagination-link');
-        if (!target) return;
+        // Загружаем текущую страницу через AJAX
+        loadInitialPage();
+    }
 
-        const parentItem = target.closest('.page-item');
-        if (parentItem && parentItem.classList.contains('disabled')) {
+    function setupEventListeners() {
+        // Делегирование событий
+        document.addEventListener('click', function(e) {
+            const target = e.target.closest('.ajax-pagination-link');
+            if (!target) return;
+
+            const parentItem = target.closest('.page-item');
+            if (parentItem && parentItem.classList.contains('disabled')) {
+                e.preventDefault();
+                return;
+            }
+
             e.preventDefault();
-            return;
-        }
 
-        e.preventDefault();
+            const href = target.getAttribute('href');
+            const pageNum = target.dataset.page;
 
-        const href = target.getAttribute('href');
-        const pageNum = target.dataset.page;
+            if (!href) {
+                console.error('AjaxPagination: No href found in link');
+                return;
+            }
 
-        if (!href) {
-            console.error('AjaxPagination: No href found in link');
-            return;
-        }
+            console.log('AjaxPagination: Loading page', pageNum, 'from href:', href);
 
-        console.log('AjaxPagination: Loading page', pageNum, 'from href:', href);
-
-        // Извлекаем параметры из href
-        const params = extractParamsFromUrl(href);
-
-        // Строим URL для AJAX запроса
-        const ajaxUrl = buildAjaxUrl(params, pageNum);
-
-        // Строим красивый URL для адресной строки
-        const displayUrl = buildDisplayUrl(params, pageNum);
-
-        console.log('AjaxPagination: AJAX URL:', ajaxUrl);
-        console.log('AjaxPagination: Display URL:', displayUrl);
-
-        loadGamesPageWithCache(ajaxUrl, displayUrl, pageNum);
-    });
-
-    // Обработка кнопок назад/вперед
-    window.addEventListener('popstate', function(e) {
-        if (e.state && e.state.displayUrl) {
-            console.log('AjaxPagination: Popstate event');
-            const pageNum = getPageFromUrl(e.state.displayUrl);
-
-            // Извлекаем параметры из displayUrl
-            const params = extractParamsFromUrl(e.state.displayUrl);
+            // Извлекаем параметры из href
+            const params = extractParamsFromUrl(href);
 
             // Строим URL для AJAX запроса
             const ajaxUrl = buildAjaxUrl(params, pageNum);
 
-            console.log('AjaxPagination: Popstate - AJAX URL:', ajaxUrl);
-            console.log('AjaxPagination: Popstate - Display URL:', e.state.displayUrl);
+            // Строим красивый URL для адресной строки - ВСЕГДА с page параметром
+            const displayUrl = buildDisplayUrl(params, pageNum, true);
 
-            loadGamesPageWithCache(ajaxUrl, e.state.displayUrl, pageNum, true);
-        }
-    });
+            console.log('AjaxPagination: AJAX URL:', ajaxUrl);
+            console.log('AjaxPagination: Display URL:', displayUrl);
 
-    // Проверяем, что total_pages правильно установлено после загрузки
-    setTimeout(checkTotalPages, 500);
-}
-
-/**
- * Извлекает параметры из URL
- */
-function extractParamsFromUrl(url) {
-    try {
-        const urlObj = new URL(url, window.location.origin);
-        const params = new URLSearchParams(urlObj.search);
-
-        // Удаляем параметр page
-        params.delete('page');
-
-        return params;
-    } catch (e) {
-        console.error('AjaxPagination: Error extracting params from URL', e);
-        return new URLSearchParams();
-    }
-}
-
-/**
- * Строит URL для AJAX запроса
- */
-function buildAjaxUrl(params, pageNum) {
-    // Копируем параметры
-    const ajaxParams = new URLSearchParams(params);
-
-    // Устанавливаем page
-    ajaxParams.set('page', pageNum);
-
-    // Строим URL
-    return AJAX_URL + '?' + ajaxParams.toString();
-}
-
-/**
- * Строит красивый URL для адресной строки
- */
-function buildDisplayUrl(params, pageNum) {
-    // Копируем параметры
-    const displayParams = new URLSearchParams(params);
-
-    // Устанавливаем page
-    displayParams.set('page', pageNum);
-
-    // Строим URL
-    return '/games/?' + displayParams.toString();
-}
-
-/**
- * Кэширует текущую страницу
- */
-function cacheCurrentPage() {
-    const gamesResultsContainer = document.getElementById('games-results-container');
-    const currentPageInput = document.getElementById('server-current-page');
-    const currentUrl = window.location.href;
-
-    if (!gamesResultsContainer || !currentPageInput) {
-        console.log('AjaxPagination: Cannot cache current page - elements not found');
-        return;
-    }
-
-    const currentPage = currentPageInput.value;
-    if (!currentPage) {
-        console.log('AjaxPagination: Cannot cache current page - page number not found');
-        return;
-    }
-
-    // Для текущей страницы используем displayUrl как ключ
-    const displayUrl = currentUrl;
-    const cacheKey = generateCacheKey(displayUrl, currentPage);
-    const currentHtml = gamesResultsContainer.innerHTML;
-
-    // Проверяем, не закэширована ли уже страница
-    if (!getPageFromCache(cacheKey)) {
-        savePageToCache(cacheKey, currentHtml, currentPage);
-        console.log('AjaxPagination: Cached current page', currentPage, 'with key:', cacheKey);
-    }
-}
-
-/**
- * Переинициализирует все компоненты после загрузки нового контента
- */
-function reinitializeComponents() {
-    console.log('AjaxPagination: Reinitializing components');
-
-    // Переинициализируем Bootstrap tooltips
-    if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip) {
-        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-        tooltipTriggerList.map(function (tooltipTriggerEl) {
-            // Удаляем существующий tooltip если есть
-            const tooltip = bootstrap.Tooltip.getInstance(tooltipTriggerEl);
-            if (tooltip) {
-                tooltip.dispose();
-            }
-            return new bootstrap.Tooltip(tooltipTriggerEl);
+            loadGamesPageWithCache(ajaxUrl, displayUrl, pageNum);
         });
-        console.log('AjaxPagination: Reinitialized', tooltipTriggerList.length, 'tooltips');
-    }
 
-    // Переинициализируем Bootstrap popovers если есть
-    if (typeof bootstrap !== 'undefined' && bootstrap.Popover) {
-        const popoverTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="popover"]'));
-        popoverTriggerList.map(function (popoverTriggerEl) {
-            const popover = bootstrap.Popover.getInstance(popoverTriggerEl);
-            if (popover) {
-                popover.dispose();
+        // Обработка кнопок назад/вперед
+        window.addEventListener('popstate', function(e) {
+            if (e.state && e.state.displayUrl) {
+                console.log('AjaxPagination: Popstate event');
+                const pageNum = getPageFromUrl(e.state.displayUrl);
+
+                // Извлекаем параметры из displayUrl
+                const params = extractParamsFromUrl(e.state.displayUrl);
+
+                // Строим URL для AJAX запроса
+                const ajaxUrl = buildAjaxUrl(params, pageNum);
+
+                console.log('AjaxPagination: Popstate - AJAX URL:', ajaxUrl);
+                console.log('AjaxPagination: Popstate - Display URL:', e.state.displayUrl);
+
+                loadGamesPageWithCache(ajaxUrl, e.state.displayUrl, pageNum, true);
             }
-            return new bootstrap.Popover(popoverTriggerEl);
         });
     }
 
-    // Применяем кастомные стили для рейтингов (svg)
-    document.querySelectorAll('.rating-star-svg, .similarity-pattern-svg').forEach(svg => {
-        // Убеждаемся что svg отображается корректно
-        svg.style.display = 'block';
-    });
+    function loadInitialPage() {
+        // Получаем текущий URL
+        const currentUrl = window.location.href;
 
-    // Перезапускаем similarity-compare кнопки если они есть
-    if (window.SimilarityCompare && typeof window.SimilarityCompare.init === 'function') {
-        window.SimilarityCompare.init();
-    }
+        // Получаем номер страницы из URL
+        const pageNum = getPageFromUrl(currentUrl);
 
-    // Обновляем индикатор режима похожих игр
-    const similarityModeIndicator = document.querySelector('.similarity-mode-indicator');
-    if (similarityModeIndicator) {
-        const mode = similarityModeIndicator.dataset.mode;
-        if (mode === 'similar') {
-            document.body.classList.add('similarity-mode');
-        }
-    }
+        // Проверяем, есть ли параметры похожих игр
+        const findSimilar = document.getElementById('server-find-similar')?.value === '1';
+        const sourceGameId = document.getElementById('server-source-game-id')?.value;
 
-    // Применяем стили для платформ (platform badges)
-    document.querySelectorAll('.platforms-overlay .badge').forEach(badge => {
-        // Убеждаемся что бейджи отображаются правильно
-        badge.style.fontSize = '0.7rem';
-    });
+        console.log('AjaxPagination: Loading initial page via AJAX', {
+            page: pageNum,
+            findSimilar: findSimilar,
+            sourceGameId: sourceGameId
+        });
 
-    // Вызываем событие для других модулей
-    document.dispatchEvent(new CustomEvent('ajax-content-loaded'));
-}
+        // Извлекаем параметры из текущего URL
+        const params = extractParamsFromUrl(currentUrl);
 
-/**
- * Загружает страницу игр с проверкой кэша
- */
-function loadGamesPageWithCache(ajaxUrl, displayUrl, pageNum, isPopState = false) {
-    const gamesResultsContainer = document.getElementById('games-results-container');
-
-    if (!gamesResultsContainer) {
-        console.error('AjaxPagination: Games results container not found');
-        if (!isPopState) window.location.href = displayUrl;
-        return;
-    }
-
-    // Генерируем ключ кэша на основе displayUrl (чтобы кэш был привязан к красивому URL)
-    const cacheKey = generateCacheKey(displayUrl, pageNum);
-
-    // Проверяем кэш в памяти
-    const cachedPage = getPageFromCache(cacheKey);
-    if (cachedPage) {
-        console.log('AjaxPagination: Loading from memory cache, page', pageNum);
-
-        // Обновляем весь контейнер результатов
-        gamesResultsContainer.innerHTML = cachedPage.html;
-
-        // Обновляем URL на красивый
-        updateUrlParams(displayUrl, pageNum);
-
-        // Переинициализируем компоненты
-        reinitializeComponents();
-
-        // Отправляем событие
-        document.dispatchEvent(new CustomEvent('games-grid-updated', {
-            detail: { page: pageNum, source: 'cache' }
-        }));
-
-        // Предзагружаем соседние страницы
-        setTimeout(() => {
-            prefetchAdjacentPages(pageNum, displayUrl);
-        }, 100);
-
-        return;
-    }
-
-    console.log('AjaxPagination: Loading from server, page', pageNum, 'URL:', ajaxUrl);
-
-    // Показываем загрузку
-    showLoading();
-
-    // Загружаем с сервера
-    fetch(ajaxUrl, {
-        headers: {
-            'X-Requested-With': 'XMLHttpRequest',
-            'Accept': 'text/html'
-        },
-        credentials: 'same-origin'
-    })
-    .then(response => {
-        if (!response.ok) throw new Error(`HTTP error ${response.status}`);
-
-        // Получаем total-pages из заголовка
-        const totalPagesHeader = response.headers.get('X-Total-Pages');
-        if (totalPagesHeader) {
-            console.log('AjaxPagination: Server total pages from header:', totalPagesHeader);
+        // Если есть source_game в скрытых полях, добавляем его
+        if (sourceGameId && !params.has('source_game')) {
+            params.set('source_game', sourceGameId);
         }
 
-        return response.text();
-    })
-    .then(html => {
-        console.log('AjaxPagination: Server response received');
+        // Если есть find_similar в скрытых полях, добавляем его
+        if (findSimilar && !params.has('find_similar')) {
+            params.set('find_similar', '1');
+        }
 
-        // Проверяем, не вернулась ли полная страница
-        if (isFullPage(html)) {
-            console.warn('AjaxPagination: Received full page, extracting results container');
-            const extractedResults = extractResultsFromFullPage(html);
-            if (extractedResults) {
-                html = extractedResults;
-            } else {
-                throw new Error('Cannot extract results from full page');
+        // Строим URL для AJAX запроса
+        const ajaxUrl = buildAjaxUrl(params, pageNum);
+
+        // Строим display URL - ВСЕГДА с page параметром, даже для первой страницы
+        const displayUrl = buildDisplayUrl(params, pageNum, true);
+
+        // Показываем загрузку
+        showLoading();
+
+        // Загружаем страницу через AJAX
+        fetch(ajaxUrl, {
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'text/html'
+            },
+            credentials: 'same-origin'
+        })
+        .then(response => {
+            if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+            return response.text();
+        })
+        .then(html => {
+            console.log('AjaxPagination: Initial page loaded');
+
+            // Обновляем контейнер
+            const gamesResultsContainer = document.getElementById('games-results-container');
+            if (gamesResultsContainer) {
+                gamesResultsContainer.innerHTML = html;
             }
+
+            // Скрываем загрузку
+            hideLoading();
+
+            // Обновляем URL - ВСЕГДА с page параметром
+            updateUrlParams(displayUrl, pageNum, true);
+
+            // Переинициализируем компоненты
+            reinitializeComponents();
+
+            // Кэшируем текущую страницу
+            setTimeout(() => {
+                cacheCurrentPage();
+                prefetchAdjacentPages(pageNum, displayUrl);
+            }, 100);
+        })
+        .catch(error => {
+            console.error('AjaxPagination: Error loading initial page:', error);
+            hideLoading();
+        });
+    }
+
+    /**
+     * Извлекает параметры из URL
+     */
+    function extractParamsFromUrl(url) {
+        try {
+            const urlObj = new URL(url, window.location.origin);
+            const params = new URLSearchParams(urlObj.search);
+
+            // Удаляем параметр page
+            params.delete('page');
+
+            return params;
+        } catch (e) {
+            console.error('AjaxPagination: Error extracting params from URL', e);
+            return new URLSearchParams();
+        }
+    }
+
+    /**
+     * Строит URL для AJAX запроса
+     */
+    function buildAjaxUrl(params, pageNum) {
+        // Копируем параметры
+        const ajaxParams = new URLSearchParams(params);
+
+        // Устанавливаем page
+        ajaxParams.set('page', pageNum);
+
+        // Строим URL
+        return AJAX_URL + '?' + ajaxParams.toString();
+    }
+
+    /**
+     * Строит красивый URL для адресной строки
+     * @param {URLSearchParams} params - параметры без page
+     * @param {string} pageNum - номер страницы
+     * @param {boolean} alwaysIncludePage - всегда включать page даже для первой страницы
+     */
+    function buildDisplayUrl(params, pageNum, alwaysIncludePage = false) {
+        // Копируем параметры
+        const displayParams = new URLSearchParams(params);
+
+        // Добавляем page если это не первая страница или alwaysIncludePage=true
+        if (alwaysIncludePage || pageNum !== '1') {
+            displayParams.set('page', pageNum);
         }
 
-        // Сохраняем в кэш памяти с ключом от displayUrl
-        savePageToCache(cacheKey, html, pageNum);
-
-        // Обновляем весь контейнер результатов
-        gamesResultsContainer.innerHTML = html;
-
-        // Убираем загрузку
-        hideLoading();
-
-        // Обновляем URL на красивый
-        updateUrlParams(displayUrl, pageNum);
-
-        // Переинициализируем компоненты
-        reinitializeComponents();
-
-        // Отправляем событие
-        document.dispatchEvent(new CustomEvent('games-grid-updated', {
-            detail: { page: pageNum, source: 'server' }
-        }));
-
-        // Проверяем total_pages после обновления DOM
-        setTimeout(() => {
-            checkTotalPages();
-            prefetchAdjacentPages(pageNum, displayUrl);
-        }, 100);
-    })
-    .catch(error => {
-        console.error('AjaxPagination: Error:', error);
-
-        hideLoading();
-
-        if (!isPopState) {
-            console.log('AjaxPagination: Falling back to full page load');
-            window.location.href = displayUrl;
-        } else {
-            showErrorMessage('Failed to load page. Please try again.');
-        }
-    });
-}
-
-/**
- * Показывает индикатор загрузки
- */
-function showLoading() {
-    // Показываем текст загрузки
-    const loadingText = document.querySelector('.loading-text');
-    if (loadingText) {
-        loadingText.style.display = 'block';
+        // Строим URL
+        const basePath = window.location.pathname;
+        const queryString = displayParams.toString();
+        return basePath + (queryString ? '?' + queryString : '');
     }
 
-    // Добавляем класс loading к контейнеру для затемнения
-    const gamesContainer = document.querySelector('.games-container');
-    if (gamesContainer) {
-        gamesContainer.classList.add('loading');
-    }
+    /**
+     * Кэширует текущую страницу
+     */
+    function cacheCurrentPage() {
+        const gamesResultsContainer = document.getElementById('games-results-container');
+        const currentPageInput = document.getElementById('server-current-page');
+        const currentUrl = window.location.href;
 
-    // Блокируем кнопки пагинации
-    document.querySelectorAll('.ajax-pagination-link').forEach(link => {
-        link.style.pointerEvents = 'none';
-        link.style.opacity = '0.6';
-    });
-}
-
-/**
- * Скрывает индикатор загрузки
- */
-function hideLoading() {
-    // Скрываем текст загрузки
-    const loadingText = document.querySelector('.loading-text');
-    if (loadingText) {
-        loadingText.style.display = 'none';
-    }
-
-    // Убираем класс loading
-    const gamesContainer = document.querySelector('.games-container');
-    if (gamesContainer) {
-        gamesContainer.classList.remove('loading');
-    }
-
-    // Разблокируем кнопки пагинации
-    document.querySelectorAll('.ajax-pagination-link').forEach(link => {
-        link.style.pointerEvents = 'auto';
-        link.style.opacity = '1';
-    });
-}
-
-/**
- * Проверяет, является ли HTML полной страницей
- */
-function isFullPage(html) {
-    return html.includes('<!DOCTYPE') ||
-           html.includes('<html') ||
-           html.includes('<body') ||
-           (html.includes('navbar') && html.includes('footer'));
-}
-
-/**
- * Извлекает контейнер результатов из полной страницы
- */
-function extractResultsFromFullPage(html) {
-    try {
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = html;
-
-        const resultsContainer = tempDiv.querySelector('#games-results-container');
-        if (resultsContainer) {
-            return resultsContainer.innerHTML;
-        }
-
-        // Fallback: ищем блок с классом row (первый после контейнера)
-        const row = tempDiv.querySelector('.container .row');
-        if (row) {
-            return row.innerHTML;
-        }
-    } catch (e) {
-        console.error('AjaxPagination: Error extracting results', e);
-    }
-    return null;
-}
-
-/**
- * Предзагружает соседние страницы
- */
-function prefetchAdjacentPages(currentPage, baseDisplayUrl) {
-    // Получаем total-pages из DOM после обновления
-    setTimeout(() => {
-        const totalPagesInput = document.getElementById('server-total-pages');
-        if (!totalPagesInput) {
-            console.warn('AjaxPagination: No server-total-pages input found');
+        if (!gamesResultsContainer || !currentPageInput) {
+            console.log('AjaxPagination: Cannot cache current page - elements not found');
             return;
         }
 
-        const totalPages = parseInt(totalPagesInput.value, 10);
-        console.log('AjaxPagination: Total pages for prefetch:', totalPages);
-
-        if (isNaN(totalPages) || totalPages <= 1) return;
-
-        currentPage = parseInt(currentPage, 10);
-        const pagesToPrefetch = [];
-
-        // 2 предыдущие
-        for (let i = 1; i <= 2; i++) {
-            if (currentPage - i >= 1) pagesToPrefetch.push(currentPage - i);
+        const currentPage = currentPageInput.value;
+        if (!currentPage) {
+            console.log('AjaxPagination: Cannot cache current page - page number not found');
+            return;
         }
 
-        // 2 следующие
-        for (let i = 1; i <= 2; i++) {
-            if (currentPage + i <= totalPages) pagesToPrefetch.push(currentPage + i);
+        const cacheKey = generateCacheKey(currentUrl, currentPage);
+        const currentHtml = gamesResultsContainer.innerHTML;
+
+        if (!getPageFromCache(cacheKey)) {
+            savePageToCache(cacheKey, currentHtml, currentPage);
+            console.log('AjaxPagination: Cached current page', currentPage, 'with key:', cacheKey);
+        }
+    }
+
+    /**
+     * Переинициализирует все компоненты после загрузки нового контента
+     */
+    function reinitializeComponents() {
+        console.log('AjaxPagination: Reinitializing components');
+
+        // Переинициализируем Bootstrap tooltips
+        if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip) {
+            const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            tooltipTriggerList.map(function (tooltipTriggerEl) {
+                const tooltip = bootstrap.Tooltip.getInstance(tooltipTriggerEl);
+                if (tooltip) {
+                    tooltip.dispose();
+                }
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
         }
 
-        console.log('AjaxPagination: Prefetching pages', pagesToPrefetch);
+        // Переинициализируем Bootstrap popovers если есть
+        if (typeof bootstrap !== 'undefined' && bootstrap.Popover) {
+            const popoverTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="popover"]'));
+            popoverTriggerList.map(function (popoverTriggerEl) {
+                const popover = bootstrap.Popover.getInstance(popoverTriggerEl);
+                if (popover) {
+                    popover.dispose();
+                }
+                return new bootstrap.Popover(popoverTriggerEl);
+            });
+        }
 
-        pagesToPrefetch.forEach((page, index) => {
+        // Перезапускаем similarity-compare кнопки если они есть
+        if (window.SimilarityCompare && typeof window.SimilarityCompare.init === 'function') {
+            window.SimilarityCompare.init();
+        }
+
+        // Вызываем событие для других модулей
+        document.dispatchEvent(new CustomEvent('ajax-content-loaded'));
+    }
+
+    /**
+     * Загружает страницу игр с проверкой кэша
+     */
+    function loadGamesPageWithCache(ajaxUrl, displayUrl, pageNum, isPopState = false) {
+        const gamesResultsContainer = document.getElementById('games-results-container');
+
+        if (!gamesResultsContainer) {
+            console.error('AjaxPagination: Games results container not found');
+            return;
+        }
+
+        const cacheKey = generateCacheKey(displayUrl, pageNum);
+
+        // Проверяем кэш
+        const cachedPage = getPageFromCache(cacheKey);
+        if (cachedPage) {
+            console.log('AjaxPagination: Loading from cache, page', pageNum, 'key:', cacheKey);
+
+            gamesResultsContainer.innerHTML = cachedPage.html;
+
+            if (!isPopState) {
+                updateUrlParams(displayUrl, pageNum);
+            }
+
+            reinitializeComponents();
+
+            document.dispatchEvent(new CustomEvent('games-grid-updated', {
+                detail: { page: pageNum, source: 'cache' }
+            }));
+
             setTimeout(() => {
-                prefetchSinglePage(page, baseDisplayUrl);
-            }, index * 300);
+                prefetchAdjacentPages(pageNum, displayUrl);
+            }, 100);
+
+            return;
+        }
+
+        console.log('AjaxPagination: Loading from server, page', pageNum);
+
+        showLoading();
+
+        fetch(ajaxUrl, {
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'text/html'
+            },
+            credentials: 'same-origin'
+        })
+        .then(response => {
+            if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+            return response.text();
+        })
+        .then(html => {
+            // Сохраняем в кэш
+            savePageToCache(cacheKey, html, pageNum);
+            console.log('AjaxPagination: Cached page', pageNum, 'with key:', cacheKey);
+
+            gamesResultsContainer.innerHTML = html;
+            hideLoading();
+
+            if (!isPopState) {
+                updateUrlParams(displayUrl, pageNum);
+            }
+
+            reinitializeComponents();
+
+            document.dispatchEvent(new CustomEvent('games-grid-updated', {
+                detail: { page: pageNum, source: 'server' }
+            }));
+
+            setTimeout(() => {
+                prefetchAdjacentPages(pageNum, displayUrl);
+            }, 100);
+        })
+        .catch(error => {
+            console.error('AjaxPagination: Error:', error);
+            hideLoading();
+            showErrorMessage('Failed to load page. Please refresh.');
         });
-    }, 100);
-}
-
-/**
- * Предзагружает одну страницу
- */
-function prefetchSinglePage(pageNum, baseDisplayUrl) {
-    // Извлекаем параметры из baseDisplayUrl
-    const params = extractParamsFromUrl(baseDisplayUrl);
-
-    // Строим AJAX URL
-    const ajaxUrl = buildAjaxUrl(params, pageNum);
-
-    // Строим display URL для ключа кэша
-    const displayUrl = buildDisplayUrl(params, pageNum);
-
-    const cacheKey = generateCacheKey(displayUrl, pageNum);
-
-    if (getPageFromCache(cacheKey)) return;
-
-    fetch(ajaxUrl, {
-        headers: { 'X-Requested-With': 'XMLHttpRequest' },
-        credentials: 'same-origin'
-    })
-    .then(response => response.ok ? response.text() : null)
-    .then(html => {
-        if (!html) return;
-
-        if (isFullPage(html)) {
-            const extracted = extractResultsFromFullPage(html);
-            if (extracted) html = extracted;
-        }
-
-        savePageToCache(cacheKey, html, pageNum);
-        console.log('AjaxPagination: Prefetched page', pageNum);
-    })
-    .catch(() => {});
-}
-
-/**
- * Генерирует ключ кэша
- */
-function generateCacheKey(url, pageNum) {
-    try {
-        const urlObj = new URL(url, window.location.origin);
-        const params = new URLSearchParams(urlObj.search);
-        params.delete('page');
-
-        const sortedParams = Array.from(params.entries())
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([k, v]) => `${k}=${v}`)
-            .join('&');
-
-        const baseKey = urlObj.pathname + (sortedParams ? '?' + sortedParams : '');
-        // Используем простой хеш для ключа
-        let hash = 0;
-        for (let i = 0; i < baseKey.length; i++) {
-            hash = ((hash << 5) - hash) + baseKey.charCodeAt(i);
-            hash = hash & hash;
-        }
-        return `${pageNum}_${Math.abs(hash)}`;
-    } catch {
-        return `${pageNum}_${Date.now()}`;
     }
-}
 
-/**
- * Сохраняет в кэш памяти
- */
-function savePageToCache(key, html, pageNum) {
-    try {
-        // Проверяем размер кэша и очищаем если нужно
-        if (pageCache.size >= 20) {
-            clearOldestCache();
+    /**
+     * Показывает индикатор загрузки
+     */
+    function showLoading() {
+        const loadingText = document.querySelector('.loading-text');
+        if (loadingText) {
+            loadingText.style.display = 'block';
         }
 
-        pageCache.set(key, {
-            html: html,
-            pageNum: pageNum,
-            timestamp: Date.now(),
-            expiry: PAGE_CACHE_EXPIRY
+        const gamesContainer = document.querySelector('.games-container');
+        if (gamesContainer) {
+            gamesContainer.classList.add('loading');
+        }
+
+        document.querySelectorAll('.ajax-pagination-link').forEach(link => {
+            link.style.pointerEvents = 'none';
+            link.style.opacity = '0.6';
         });
-
-        console.log('AjaxPagination: Saved page', pageNum, 'to cache with key:', key, 'Total cache size:', pageCache.size);
-    } catch (e) {
-        console.warn('AjaxPagination: Cache save failed', e);
     }
-}
 
-/**
- * Получает из кэша памяти
- */
-function getPageFromCache(key) {
-    try {
-        const cached = pageCache.get(key);
-        if (!cached) return null;
+    /**
+     * Скрывает индикатор загрузки
+     */
+    function hideLoading() {
+        const loadingText = document.querySelector('.loading-text');
+        if (loadingText) {
+            loadingText.style.display = 'none';
+        }
 
-        if (Date.now() - cached.timestamp > cached.expiry) {
-            pageCache.delete(key);
+        const gamesContainer = document.querySelector('.games-container');
+        if (gamesContainer) {
+            gamesContainer.classList.remove('loading');
+        }
+
+        document.querySelectorAll('.ajax-pagination-link').forEach(link => {
+            link.style.pointerEvents = 'auto';
+            link.style.opacity = '1';
+        });
+    }
+
+    /**
+     * Предзагружает соседние страницы
+     */
+    function prefetchAdjacentPages(currentPage, baseDisplayUrl) {
+        setTimeout(() => {
+            const totalPagesInput = document.getElementById('server-total-pages');
+            if (!totalPagesInput) return;
+
+            const totalPages = parseInt(totalPagesInput.value, 10);
+            if (isNaN(totalPages) || totalPages <= 1) return;
+
+            currentPage = parseInt(currentPage, 10);
+            const pagesToPrefetch = [];
+
+            for (let i = 1; i <= 2; i++) {
+                if (currentPage - i >= 1) pagesToPrefetch.push(currentPage - i);
+            }
+            for (let i = 1; i <= 2; i++) {
+                if (currentPage + i <= totalPages) pagesToPrefetch.push(currentPage + i);
+            }
+
+            console.log('AjaxPagination: Prefetching pages', pagesToPrefetch);
+
+            pagesToPrefetch.forEach((page, index) => {
+                setTimeout(() => {
+                    prefetchSinglePage(page, baseDisplayUrl);
+                }, index * 300);
+            });
+        }, 100);
+    }
+
+    /**
+     * Предзагружает одну страницу
+     */
+    function prefetchSinglePage(pageNum, baseDisplayUrl) {
+        const params = extractParamsFromUrl(baseDisplayUrl);
+        const ajaxUrl = buildAjaxUrl(params, pageNum);
+        // Для предзагрузки тоже используем URL с page параметром
+        const displayUrl = buildDisplayUrl(params, pageNum, true);
+        const cacheKey = generateCacheKey(displayUrl, pageNum);
+
+        if (getPageFromCache(cacheKey)) return;
+
+        fetch(ajaxUrl, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            credentials: 'same-origin'
+        })
+        .then(response => response.ok ? response.text() : null)
+        .then(html => {
+            if (html) {
+                savePageToCache(cacheKey, html, pageNum);
+                console.log('AjaxPagination: Prefetched page', pageNum);
+            }
+        })
+        .catch(() => {});
+    }
+
+    /**
+     * Генерирует ключ кэша
+     */
+    function generateCacheKey(url, pageNum) {
+        try {
+            const urlObj = new URL(url, window.location.origin);
+
+            // Для логирования
+            const originalParams = {};
+            for (const [key, value] of urlObj.searchParams.entries()) {
+                originalParams[key] = value;
+            }
+
+            // Создаем копию параметров для ключа
+            const params = new URLSearchParams(urlObj.search);
+
+            // Удаляем page из параметров для ключа (мы уже используем pageNum отдельно)
+            params.delete('page');
+
+            const sortedParams = Array.from(params.entries())
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([k, v]) => `${k}=${v}`)
+                .join('&');
+
+            const baseKey = urlObj.pathname + (sortedParams ? '?' + sortedParams : '');
+
+            // Создаем хеш
+            let hash = 0;
+            for (let i = 0; i < baseKey.length; i++) {
+                hash = ((hash << 5) - hash) + baseKey.charCodeAt(i);
+                hash = hash & hash;
+            }
+
+            const key = `${pageNum}_${Math.abs(hash)}`;
+
+            // Логируем для отладки (только для страницы 1)
+            if (pageNum === '1' || pageNum === 1) {
+                console.log('AjaxPagination: Cache key for page 1:', {
+                    url: url,
+                    pageNum: pageNum,
+                    originalParams: originalParams,
+                    baseKey: baseKey,
+                    hash: Math.abs(hash),
+                    key: key
+                });
+            }
+
+            return key;
+        } catch (e) {
+            console.error('AjaxPagination: Error generating cache key', e);
+            return `${pageNum}_${Date.now()}`;
+        }
+    }
+
+    /**
+     * Сохраняет в кэш памяти
+     */
+    function savePageToCache(key, html, pageNum) {
+        try {
+            if (pageCache.size >= 20) {
+                clearOldestCache();
+            }
+
+            pageCache.set(key, {
+                html: html,
+                pageNum: pageNum,
+                timestamp: Date.now(),
+                expiry: PAGE_CACHE_EXPIRY
+            });
+
+            console.log('AjaxPagination: Saved to cache - key:', key, 'page:', pageNum, 'cache size:', pageCache.size);
+        } catch (e) {
+            console.warn('AjaxPagination: Cache save failed', e);
+        }
+    }
+
+    /**
+     * Получает из кэша памяти
+     */
+    function getPageFromCache(key) {
+        try {
+            const cached = pageCache.get(key);
+            if (!cached) {
+                return null;
+            }
+
+            if (Date.now() - cached.timestamp > cached.expiry) {
+                console.log('AjaxPagination: Cache expired for key:', key);
+                pageCache.delete(key);
+                return null;
+            }
+
+            console.log('AjaxPagination: Cache hit for key:', key, 'page:', cached.pageNum);
+            return cached;
+        } catch (e) {
+            console.warn('AjaxPagination: Cache read failed', e);
             return null;
         }
-
-        return cached;
-    } catch {
-        return null;
     }
-}
 
-/**
- * Очищает устаревший кэш
- */
-function clearExpiredCache() {
-    try {
-        const now = Date.now();
-        let expiredCount = 0;
-
-        for (const [key, value] of pageCache.entries()) {
-            if (now - value.timestamp > value.expiry) {
-                pageCache.delete(key);
-                expiredCount++;
-            }
-        }
-
-        if (expiredCount > 0) {
-            console.log('AjaxPagination: Cleared', expiredCount, 'expired cache entries');
-        }
-    } catch {}
-}
-
-/**
- * Очищает самые старые записи
- */
-function clearOldestCache() {
-    try {
-        // Преобразуем Map в массив для сортировки
-        const entries = Array.from(pageCache.entries())
-            .map(([key, value]) => ({ key, timestamp: value.timestamp }));
-
-        entries.sort((a, b) => a.timestamp - b.timestamp);
-
-        // Удаляем 20% самых старых записей (минимум 1)
-        const deleteCount = Math.max(1, Math.floor(entries.length * 0.2));
-        entries.slice(0, deleteCount).forEach(e => {
-            pageCache.delete(e.key);
-        });
-
-        console.log('AjaxPagination: Cleared', deleteCount, 'oldest cache entries to free space');
-    } catch {}
-}
-
-/**
- * Очищает весь кэш
- */
-function clearPageCache() {
-    try {
-        const cacheSize = pageCache.size;
-        pageCache.clear();
-        console.log('AjaxPagination: Cleared', cacheSize, 'cache entries');
-    } catch {}
-}
-
-/**
- * Обновляет URL (только красивый URL)
- */
-function updateUrlParams(url, pageNum) {
-    if (history.pushState) {
+    /**
+     * Очищает устаревший кэш
+     */
+    function clearExpiredCache() {
         try {
-            window.history.pushState({ path: url, page: pageNum, displayUrl: url }, '', url);
-            console.log('AjaxPagination: Updated URL to:', url);
+            const now = Date.now();
+            let expiredCount = 0;
+            for (const [key, value] of pageCache.entries()) {
+                if (now - value.timestamp > value.expiry) {
+                    pageCache.delete(key);
+                    expiredCount++;
+                }
+            }
+            if (expiredCount > 0) {
+                console.log('AjaxPagination: Cleared', expiredCount, 'expired cache entries');
+            }
         } catch {}
     }
-}
 
-/**
- * Получает page из URL
- */
-function getPageFromUrl(url) {
-    try {
-        return new URL(url, window.location.origin).searchParams.get('page') || '1';
-    } catch {
-        const match = url.match(/[?&]page=(\d+)/);
-        return match ? match[1] : '1';
-    }
-}
+    /**
+     * Очищает самые старые записи
+     */
+    function clearOldestCache() {
+        try {
+            const entries = Array.from(pageCache.entries())
+                .map(([key, value]) => ({ key, timestamp: value.timestamp }));
 
-/**
- * Показывает ошибку
- */
-function showErrorMessage(message) {
-    const gamesContainer = document.querySelector('.games-container');
-    if (!gamesContainer) return;
+            entries.sort((a, b) => a.timestamp - b.timestamp);
 
-    let errorDiv = document.querySelector('.ajax-pagination-error');
-    if (!errorDiv) {
-        errorDiv = document.createElement('div');
-        errorDiv.className = 'ajax-pagination-error alert alert-danger alert-dismissible fade show mt-3';
-        errorDiv.innerHTML = `
-            <strong>Error!</strong> <span class="error-message"></span>
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        `;
-        gamesContainer.parentNode.insertBefore(errorDiv, gamesContainer);
+            const deleteCount = Math.max(1, Math.floor(entries.length * 0.2));
+            entries.slice(0, deleteCount).forEach(e => {
+                pageCache.delete(e.key);
+            });
+
+            console.log('AjaxPagination: Cleared', deleteCount, 'oldest cache entries');
+        } catch {}
     }
 
-    errorDiv.querySelector('.error-message').textContent = message;
-    errorDiv.style.display = 'block';
-    setTimeout(() => errorDiv.style.display = 'none', 5000);
-}
-
-// Добавляем стили для загрузки
-const style = document.createElement('style');
-style.textContent = `
-    .games-container.loading {
-        opacity: 0.6;
-        pointer-events: none;
-        transition: opacity 0.3s ease;
-        position: relative;
+    /**
+     * Очищает весь кэш
+     */
+    function clearPageCache() {
+        try {
+            const size = pageCache.size;
+            pageCache.clear();
+            console.log('AjaxPagination: Cache cleared, removed', size, 'entries');
+        } catch {}
     }
 
-    .loading-text {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        z-index: 1000;
-        background: var(--secondary-color);
-        color: white;
-        padding: 10px 20px;
-        border-radius: 30px;
-        font-weight: 600;
-        box-shadow: 0 4px 15px rgba(255, 107, 53, 0.3);
-        animation: pulse 1.5s infinite;
+    /**
+     * Обновляет URL
+     */
+    function updateUrlParams(url, pageNum, replace = false) {
+        if (history.pushState) {
+            try {
+                if (replace) {
+                    window.history.replaceState({ path: url, page: pageNum, displayUrl: url }, '', url);
+                } else {
+                    window.history.pushState({ path: url, page: pageNum, displayUrl: url }, '', url);
+                }
+                console.log('AjaxPagination: URL updated to:', url);
+            } catch {}
+        }
     }
 
-    @keyframes pulse {
-        0% { opacity: 0.7; transform: translate(-50%, -50%) scale(1); }
-        50% { opacity: 1; transform: translate(-50%, -50%) scale(1.05); }
-        100% { opacity: 0.7; transform: translate(-50%, -50%) scale(1); }
+    /**
+     * Получает page из URL
+     */
+    function getPageFromUrl(url) {
+        try {
+            const page = new URL(url, window.location.origin).searchParams.get('page');
+            return page || '1';
+        } catch {
+            const match = url.match(/[?&]page=(\d+)/);
+            return match ? match[1] : '1';
+        }
     }
 
-    .ajax-pagination-link {
-        transition: opacity 0.3s ease;
-    }
-`;
-document.head.appendChild(style);
+    /**
+     * Показывает ошибку
+     */
+    function showErrorMessage(message) {
+        const gamesContainer = document.querySelector('.games-container');
+        if (!gamesContainer) return;
 
-// Экспорт
-window.AjaxPagination = {
-    loadPage: (ajaxUrl, displayUrl, pageNum) => loadGamesPageWithCache(ajaxUrl, displayUrl, pageNum),
-    init: initAjaxPagination,
-    clearCache: clearPageCache,
-    checkTotalPages: checkTotalPages,
-    reinitializeComponents: reinitializeComponents,
-    cacheCurrentPage: cacheCurrentPage
-};
+        let errorDiv = document.querySelector('.ajax-pagination-error');
+        if (!errorDiv) {
+            errorDiv = document.createElement('div');
+            errorDiv.className = 'ajax-pagination-error alert alert-danger alert-dismissible fade show mt-3';
+            errorDiv.innerHTML = `
+                <strong>Error!</strong> <span class="error-message"></span>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            gamesContainer.parentNode.insertBefore(errorDiv, gamesContainer);
+        }
+
+        errorDiv.querySelector('.error-message').textContent = message;
+        errorDiv.style.display = 'block';
+        setTimeout(() => errorDiv.style.display = 'none', 5000);
+    }
+
+    // Добавляем стили
+    const style = document.createElement('style');
+    style.textContent = `
+        .games-container.loading {
+            opacity: 0.6;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+            position: relative;
+        }
+
+        .loading-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 1000;
+            background: var(--secondary-color);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 30px;
+            font-weight: 600;
+            box-shadow: 0 4px 15px rgba(255, 107, 53, 0.3);
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 0.7; transform: translate(-50%, -50%) scale(1); }
+            50% { opacity: 1; transform: translate(-50%, -50%) scale(1.05); }
+            100% { opacity: 0.7; transform: translate(-50%, -50%) scale(1); }
+        }
+    `;
+    document.head.appendChild(style);
+
+    // Экспорт в глобальную область
+    window.AjaxPagination = {
+        loadPage: (ajaxUrl, displayUrl, pageNum) => loadGamesPageWithCache(ajaxUrl, displayUrl, pageNum),
+        clearCache: clearPageCache,
+        reinitializeComponents: reinitializeComponents,
+        getCacheStats: () => ({
+            size: pageCache.size,
+            keys: Array.from(pageCache.keys())
+        })
+    };
+})();
 
 console.log('AjaxPagination: Script loaded');
