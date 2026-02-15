@@ -483,3 +483,13 @@
         height: 2rem;
     }
 }
+
+/* Быстрая анимация для загрузки из кэша */
+.games-container.cache-load .row {
+    animation: cacheFadeIn 0.15s ease;
+}
+
+@keyframes cacheFadeIn {
+    from { opacity: 0.8; }
+    to { opacity: 1; }
+}

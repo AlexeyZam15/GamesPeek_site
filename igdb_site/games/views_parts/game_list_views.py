@@ -586,7 +586,8 @@ def game_list(request: HttpRequest) -> HttpResponse:
 
 
 def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
-    """Load games for specific page via AJAX with card caching."""
+    """Load games for specific page via AJAX with card caching.
+    Returns ONLY the games grid HTML, not the full page."""
     start_time = time.time()
 
     page_num = request.GET.get('page', '1')
@@ -608,6 +609,7 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
         except (Game.DoesNotExist, ValueError):
             pass
 
+    # Определяем режим
     if find_similar and (source_game_obj or any([
         selected_criteria['genres'],
         selected_criteria['keywords'],
@@ -661,13 +663,15 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
             'current_page': page_num,
         }
 
-    # ВАЖНО: рендерим ТОЛЬКО _games_grid.html
+    # ВАЖНО: рендерим ТОЛЬКО _games_grid.html, а не полную страницу
     html = render_to_string('games/game_list/_games_grid.html', template_context)
 
+    # Добавляем заголовки для отладки
     response = HttpResponse(html)
     response['Content-Type'] = 'text/html; charset=utf-8'
     response['X-AJAX-Page'] = str(page_num)
     response['X-Response-Time'] = f"{time.time() - start_time:.3f}s"
+    response['X-Content-Type'] = 'grid-only'  # Добавляем маркер, что это только сетка
 
     return response
 
