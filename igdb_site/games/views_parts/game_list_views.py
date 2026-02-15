@@ -446,14 +446,11 @@ def _get_similar_games_mode_with_pagination(
 
 
 def game_list(request: HttpRequest) -> HttpResponse:
-    """Main game list function with SERVER-SIDE pagination and card caching."""
+    """
+    Main game list function - returns empty container for AJAX to populate.
+    No data loading happens here - all loading is done via AJAX.
+    """
     start_time = time.time()
-
-    requested_page = request.GET.get('page', '1')
-    try:
-        requested_page_num = int(requested_page)
-    except (ValueError, TypeError):
-        requested_page_num = 1
 
     params = extract_request_params(request)
     selected_criteria = convert_params_to_lists(params)
@@ -468,62 +465,29 @@ def game_list(request: HttpRequest) -> HttpResponse:
         except (Game.DoesNotExist, ValueError):
             pass
 
-    should_use_similar_mode = _should_use_similar_mode(
-        find_similar,
-        source_game_obj,
-        selected_criteria
-    )
-
-    if should_use_similar_mode:
-        mode_result = _get_similar_games_mode_with_pagination(
-            params, selected_criteria, source_game_obj, requested_page_num
-        )
-        mode = 'similar'
-    else:
-        mode_result = _get_all_games_mode_with_pagination(
-            selected_criteria, params.get('sort', '-rating_count'), requested_page_num
-        )
-        mode = 'regular'
-
     filter_data = _get_optimized_filter_data()
 
-    # Получаем данные из mode_result
-    page_obj = mode_result.get('page_obj')
-    paginator = mode_result.get('paginator')
-
-    # ВАЖНО: Правильно определяем total_pages
-    if paginator:
-        total_pages = paginator.num_pages
-    elif page_obj and hasattr(page_obj, 'paginator'):
-        total_pages = page_obj.paginator.num_pages
-    else:
-        total_pages = 1
-
-    is_paginated = mode_result.get('is_paginated', False)
-    total_count = mode_result.get('total_count', 0)
-    current_page = mode_result.get('current_page', 1)
-
-    # Вычисляем start_index и end_index для отображения
-    start_index = (current_page - 1) * ITEMS_PER_PAGE + 1
-    end_index = min(current_page * ITEMS_PER_PAGE, total_count)
-
-    # Подготавливаем базовый контекст
+    # Подготавливаем контекст с пустыми данными
     context = {
-        'page_obj': page_obj,
-        'paginator': paginator,  # Явно передаем пагинатор
-        'is_paginated': is_paginated,
-        'total_count': total_count,
-        'total_pages': total_pages,  # Используем правильно вычисленное значение
-        'current_page': current_page,
-        'start_index': start_index,
-        'end_index': end_index,
+        # Пустые данные для игр - они будут загружены через AJAX
+        'games': [],
+        'games_with_similarity': [],
+        'page_obj': None,
+        'paginator': None,
+        'is_paginated': False,
+        'total_count': 0,
+        'total_pages': 1,
+        'current_page': 1,
+        'start_index': 0,
+        'end_index': 0,
         'items_per_page': ITEMS_PER_PAGE,
 
         'find_similar': find_similar,
-        'show_similarity': mode_result.get('show_similarity', False),
-        'source_game': mode_result.get('source_game'),
+        'show_similarity': find_similar,  # Показываем similarity если включен режим
+        'source_game': None,  # Будет заполнено через SimpleSourceGame если нужно
         'source_game_obj': source_game_obj,
 
+        # Данные для фильтров
         'genres': _get_cached_genres_list(),
         'themes': filter_data['themes'],
         'perspectives': filter_data['perspectives'],
@@ -556,44 +520,39 @@ def game_list(request: HttpRequest) -> HttpResponse:
         'selected_developers_objects': selected_criteria_objects.get('developers', []),
 
         'current_sort': params.get('sort', ''),
+
         'execution_time': round(time.time() - start_time, 3),
 
         'debug_info': {
-            'mode': mode,
-            'requested_page': current_page,
-            'total_pages_calculated': total_pages,  # Для отладки
-            'paginator_exists': paginator is not None,
+            'mode': 'ajax_only',
+            'message': 'Initial page load - data will be loaded via AJAX',
+            'find_similar': find_similar,
+            'has_source_game': source_game_obj is not None
         }
     }
 
-    # Получаем игры для текущей страницы
-    if mode == 'similar':
-        games_with_similarity = mode_result.get('games_with_similarity', [])
+    # Если есть source_game, создаем SimpleSourceGame для шаблонов
+    if source_game_obj:
+        from .base_views import SimpleSourceGame
 
-        # Добавляем кэшированные карточки
-        games_with_similarity = _update_games_with_cached_cards(
-            games_with_similarity,
-            {
-                **context,
-                'show_similarity': True,
-                'source_game': mode_result.get('source_game')
-            }
+        # Собираем критерии из игры
+        game_criteria = {
+            'genres': [g.id for g in source_game_obj.genres.all()] if hasattr(source_game_obj, 'genres') else [],
+            'keywords': [k.id for k in source_game_obj.keywords.all()] if hasattr(source_game_obj, 'keywords') else [],
+            'themes': [t.id for t in source_game_obj.themes.all()] if hasattr(source_game_obj, 'themes') else [],
+            'perspectives': [p.id for p in source_game_obj.player_perspectives.all()] if hasattr(source_game_obj,
+                                                                                                 'player_perspectives') else [],
+            'developers': [d.id for d in source_game_obj.developers.all()] if hasattr(source_game_obj,
+                                                                                      'developers') else [],
+            'game_modes': [gm.id for gm in source_game_obj.game_modes.all()] if hasattr(source_game_obj,
+                                                                                        'game_modes') else [],
+        }
+
+        context['source_game'] = SimpleSourceGame(
+            game_obj=source_game_obj,
+            criteria=game_criteria,
+            display_name=source_game_obj.name
         )
-
-        context['games_with_similarity'] = games_with_similarity
-    else:
-        games = list(page_obj.object_list) if page_obj else []
-
-        # Добавляем кэшированные карточки
-        games = _update_games_with_cached_cards(
-            games,
-            {
-                **context,
-                'show_similarity': False
-            }
-        )
-
-        context['games'] = games
 
     return render(request, 'games/game_list.html', context)
 
@@ -656,6 +615,7 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
             'games': games_with_similarity,
             'show_similarity': True,
             'source_game': source_game,
+            'source_game_obj': source_game_obj,
             'current_page': page_num,
             'page_obj': mode_result.get('page_obj'),
             'paginator': paginator,
@@ -666,6 +626,8 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
             'end_index': min(page_num * ITEMS_PER_PAGE, total_count),
             'items_per_page': ITEMS_PER_PAGE,
             'current_sort': params.get('sort', ''),
+            # Явно передаем параметры для пагинации
+            'request': request,  # Передаем request для доступа к GET параметрам
         }
     else:
         # Обычный режим
@@ -701,6 +663,8 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
             'end_index': min(page_num * ITEMS_PER_PAGE, total_count),
             'items_per_page': ITEMS_PER_PAGE,
             'current_sort': params.get('sort', ''),
+            # Явно передаем параметры для пагинации
+            'request': request,  # Передаем request для доступа к GET параметрам
         }
 
     # Добавляем отладочную информацию в скрытые поля
@@ -708,7 +672,6 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
     template_context['debug_current_page'] = page_num
 
     # ВАЖНО: Передаем также все необходимые данные для фильтров
-    # Это гарантирует, что в AJAX-ответе будут все те же данные, что и в основном запросе
     template_context['genres'] = _get_cached_genres_list()
     filter_data = _get_optimized_filter_data()
     template_context['themes'] = filter_data['themes']
