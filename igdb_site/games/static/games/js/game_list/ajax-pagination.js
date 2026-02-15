@@ -6,8 +6,8 @@ document.addEventListener('DOMContentLoaded', function() {
     initAjaxPagination();
 });
 
-// Константы для кэширования
-const PAGE_CACHE_PREFIX = 'games_page_';
+// Простой кэш в памяти (не в sessionStorage)
+const pageCache = new Map();
 const PAGE_CACHE_EXPIRY = 30 * 60 * 1000; // 30 минут
 
 function initAjaxPagination() {
@@ -96,10 +96,10 @@ function loadGamesPageWithCache(url, pageNum, isPopState = false) {
     // Генерируем ключ кэша
     const cacheKey = generateCacheKey(url, pageNum);
 
-    // Проверяем кэш
+    // Проверяем кэш в памяти
     const cachedPage = getPageFromCache(cacheKey);
     if (cachedPage) {
-        console.log('AjaxPagination: Loading from cache, page', pageNum);
+        console.log('AjaxPagination: Loading from memory cache, page', pageNum);
 
         // Обновляем весь контейнер результатов
         gamesResultsContainer.innerHTML = cachedPage.html;
@@ -158,7 +158,7 @@ function loadGamesPageWithCache(url, pageNum, isPopState = false) {
             }
         }
 
-        // Сохраняем в кэш
+        // Сохраняем в кэш памяти
         savePageToCache(cacheKey, html, pageNum);
 
         // Обновляем весь контейнер результатов
@@ -362,58 +362,53 @@ function generateCacheKey(url, pageNum) {
             .join('&');
 
         const baseKey = urlObj.pathname + (sortedParams ? '?' + sortedParams : '');
-        // Используем простой хеш вместо btoa для кириллицы
+        // Используем простой хеш для ключа
         let hash = 0;
         for (let i = 0; i < baseKey.length; i++) {
             hash = ((hash << 5) - hash) + baseKey.charCodeAt(i);
             hash = hash & hash;
         }
-        return `${PAGE_CACHE_PREFIX}${pageNum}_${Math.abs(hash)}`;
+        return `${pageNum}_${Math.abs(hash)}`;
     } catch {
-        return `${PAGE_CACHE_PREFIX}${pageNum}_${Date.now()}`;
+        return `${pageNum}_${Date.now()}`;
     }
 }
 
 /**
- * Сохраняет в кэш
+ * Сохраняет в кэш памяти
  */
 function savePageToCache(key, html, pageNum) {
     try {
-        sessionStorage.setItem(key, JSON.stringify({
+        // Проверяем размер кэша и очищаем если нужно
+        if (pageCache.size >= 20) {
+            clearOldestCache();
+        }
+
+        pageCache.set(key, {
             html: html,
             pageNum: pageNum,
             timestamp: Date.now(),
             expiry: PAGE_CACHE_EXPIRY
-        }));
+        });
     } catch (e) {
-        if (e.name === 'QuotaExceededError') {
-            clearOldestCache();
-            try {
-                sessionStorage.setItem(key, JSON.stringify({
-                    html,
-                    pageNum,
-                    timestamp: Date.now(),
-                    expiry: PAGE_CACHE_EXPIRY
-                }));
-            } catch {}
-        }
+        console.warn('AjaxPagination: Cache save failed', e);
     }
 }
 
 /**
- * Получает из кэша
+ * Получает из кэша памяти
  */
 function getPageFromCache(key) {
     try {
-        const cached = sessionStorage.getItem(key);
+        const cached = pageCache.get(key);
         if (!cached) return null;
 
-        const item = JSON.parse(cached);
-        if (Date.now() - item.timestamp > item.expiry) {
-            sessionStorage.removeItem(key);
+        if (Date.now() - cached.timestamp > cached.expiry) {
+            pageCache.delete(key);
             return null;
         }
-        return item;
+
+        return cached;
     } catch {
         return null;
     }
@@ -425,17 +420,9 @@ function getPageFromCache(key) {
 function clearExpiredCache() {
     try {
         const now = Date.now();
-        for (let i = 0; i < sessionStorage.length; i++) {
-            const key = sessionStorage.key(i);
-            if (key?.startsWith(PAGE_CACHE_PREFIX)) {
-                try {
-                    const item = JSON.parse(sessionStorage.getItem(key));
-                    if (now - item.timestamp > item.expiry) {
-                        sessionStorage.removeItem(key);
-                    }
-                } catch {
-                    sessionStorage.removeItem(key);
-                }
+        for (const [key, value] of pageCache.entries()) {
+            if (now - value.timestamp > value.expiry) {
+                pageCache.delete(key);
             }
         }
     } catch {}
@@ -446,22 +433,16 @@ function clearExpiredCache() {
  */
 function clearOldestCache() {
     try {
-        const entries = [];
-        for (let i = 0; i < sessionStorage.length; i++) {
-            const key = sessionStorage.key(i);
-            if (key?.startsWith(PAGE_CACHE_PREFIX)) {
-                try {
-                    const item = JSON.parse(sessionStorage.getItem(key));
-                    entries.push({ key, timestamp: item.timestamp });
-                } catch {
-                    sessionStorage.removeItem(key);
-                }
-            }
-        }
+        // Преобразуем Map в массив для сортировки
+        const entries = Array.from(pageCache.entries())
+            .map(([key, value]) => ({ key, timestamp: value.timestamp }));
 
         entries.sort((a, b) => a.timestamp - b.timestamp);
-        entries.slice(0, Math.max(1, Math.floor(entries.length * 0.2))).forEach(e => {
-            sessionStorage.removeItem(e.key);
+
+        // Удаляем 20% самых старых записей (минимум 1)
+        const deleteCount = Math.max(1, Math.floor(entries.length * 0.2));
+        entries.slice(0, deleteCount).forEach(e => {
+            pageCache.delete(e.key);
         });
     } catch {}
 }
@@ -471,13 +452,9 @@ function clearOldestCache() {
  */
 function clearPageCache() {
     try {
-        const keys = [];
-        for (let i = 0; i < sessionStorage.length; i++) {
-            const key = sessionStorage.key(i);
-            if (key?.startsWith(PAGE_CACHE_PREFIX)) keys.push(key);
-        }
-        keys.forEach(key => sessionStorage.removeItem(key));
-        console.log('AjaxPagination: Cleared', keys.length, 'cache entries');
+        const cacheSize = pageCache.size;
+        pageCache.clear();
+        console.log('AjaxPagination: Cleared', cacheSize, 'cache entries');
     } catch {}
 }
 
