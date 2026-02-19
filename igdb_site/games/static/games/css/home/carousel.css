@@ -1,0 +1,209 @@
+/* ===== CAROUSEL SECTION ===== */
+
+.carousel-section {
+  margin-bottom: 4rem;
+  position: relative;
+}
+
+.carousel-container {
+  position: relative;
+  margin: 0 -15px;
+  padding: 0 15px;
+}
+
+.carousel-track-container {
+  overflow: hidden;
+  margin: 0 auto;
+}
+
+.carousel-track {
+  display: flex;
+  transition: transform 0.5s ease-in-out;
+  gap: 1.5rem;
+}
+
+.carousel-slide {
+  flex: 0 0 auto;
+  width: calc((100% - 4.5rem) / 4);
+  min-width: 0;
+}
+
+.carousel-slide .game-card-container {
+  width: 100%;
+  margin-bottom: 0;
+}
+
+/* Кнопки карусели */
+.carousel-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  color: var(--text-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 10;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+.carousel-btn:hover {
+  background: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
+  border-color: transparent;
+  transform: translateY(-50%) scale(1.1);
+  box-shadow: 0 8px 20px rgba(255, 107, 53, 0.4);
+}
+
+.carousel-btn:active {
+  transform: translateY(-50%) scale(0.95);
+}
+
+.carousel-btn.left {
+  left: -20px;
+}
+
+.carousel-btn.right {
+  right: -20px;
+}
+
+.carousel-btn i {
+  font-size: 1.5rem;
+}
+
+/* Индикаторы карусели */
+.carousel-indicators {
+  display: flex;
+  justify-content: center;
+  gap: 0.8rem;
+  margin-top: 2rem;
+}
+
+.carousel-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.carousel-dot:hover {
+  background: var(--text-dark);
+  transform: scale(1.2);
+}
+
+.carousel-dot.active {
+  width: 40px;
+  border-radius: 20px;
+  background: linear-gradient(90deg, var(--secondary-color), var(--accent-color));
+}
+
+/* Адаптивность карусели */
+@media (max-width: 1200px) {
+  .carousel-slide {
+    width: calc((100% - 4.5rem) / 4);
+  }
+}
+
+@media (max-width: 992px) {
+  .carousel-slide {
+    width: calc((100% - 1.5rem) / 2);
+  }
+
+  .carousel-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .carousel-btn.left {
+    left: -15px;
+  }
+
+  .carousel-btn.right {
+    right: -15px;
+  }
+}
+
+@media (max-width: 768px) {
+  .carousel-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  .carousel-btn.left {
+    left: -10px;
+  }
+
+  .carousel-btn.right {
+    right: -10px;
+  }
+
+  .carousel-btn i {
+    font-size: 1.3rem;
+  }
+}
+
+@media (max-width: 576px) {
+  .carousel-slide {
+    width: 100%;
+  }
+
+  .carousel-btn {
+    width: 44px;
+    height: 44px;
+    background: rgba(30, 30, 46, 0.9);
+    backdrop-filter: blur(4px);
+  }
+
+  .carousel-btn.left {
+    left: 5px;
+  }
+
+  .carousel-btn.right {
+    right: 5px;
+  }
+
+  .carousel-indicators {
+    gap: 0.6rem;
+  }
+
+  .carousel-dot {
+    width: 10px;
+    height: 10px;
+  }
+
+  .carousel-dot.active {
+    width: 30px;
+  }
+}
+
+/* Анимация появления карточек */
+@keyframes cardFadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.carousel-slide .game-card {
+  animation: cardFadeIn 0.5s ease forwards;
+}
+
+.carousel-slide:nth-child(1) .game-card { animation-delay: 0.1s; }
+.carousel-slide:nth-child(2) .game-card { animation-delay: 0.15s; }
+.carousel-slide:nth-child(3) .game-card { animation-delay: 0.2s; }
+.carousel-slide:nth-child(4) .game-card { animation-delay: 0.25s; }
+.carousel-slide:nth-child(5) .game-card { animation-delay: 0.3s; }
+.carousel-slide:nth-child(6) .game-card { animation-delay: 0.35s; }
+.carousel-slide:nth-child(7) .game-card { animation-delay: 0.4s; }
+.carousel-slide:nth-child(8) .game-card { animation-delay: 0.45s; }

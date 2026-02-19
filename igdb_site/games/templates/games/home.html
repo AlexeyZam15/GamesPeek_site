@@ -8,39 +8,6 @@
 {% block extra_css %}
     <link rel="stylesheet" href="{% static 'games/css/components/cards.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/home.css' %}">
-    <style>
-        /* Дополнительные стили для отступов между карточками */
-        .game-card-container {
-            margin-bottom: 1.5rem;
-            width: 100%;
-        }
-
-        /* Анимация появления карточек */
-        .game-card {
-            animation: fadeInUp 0.6s ease forwards;
-        }
-
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        /* Фикс для сетки Bootstrap */
-        .row.g-4 {
-            margin-right: -0.5rem;
-            margin-left: -0.5rem;
-        }
-        .row.g-4 > [class*="col-"] {
-            padding-right: 0.5rem;
-            padding-left: 0.5rem;
-        }
-    </style>
 {% endblock %}
 
 {% block content %}
@@ -77,9 +44,9 @@
         </div>
     </div>
 
-    <!-- Популярные игры -->
+    <!-- Популярные игры - карусель -->
     {% if popular_cards %}
-        <section class="popular-games-section section-animate">
+        <section class="carousel-section popular-games-section">
             <div class="section-header">
                 <h2>
                     <i class="bi bi-fire text-gradient"></i>
@@ -90,19 +57,37 @@
                 </a>
             </div>
 
-            <div class="row g-4">
-                {% for card in popular_cards %}
-                    <div class="col-xl-3 col-lg-4 col-md-6 col-sm-6 col-12">
-                        {{ card.rendered_card|safe }}
+            <div class="carousel-container" id="popular-carousel">
+                <button class="carousel-btn left" onclick="moveCarousel('popular', -1)">
+                    <i class="bi bi-chevron-left"></i>
+                </button>
+                <button class="carousel-btn right" onclick="moveCarousel('popular', 1)">
+                    <i class="bi bi-chevron-right"></i>
+                </button>
+
+                <div class="carousel-track-container">
+                    <div class="carousel-track" id="popular-track">
+                        {% for card in popular_cards %}
+                            <div class="carousel-slide">
+                                {{ card.rendered_card|safe }}
+                            </div>
+                        {% endfor %}
+                        {% for card in popular_cards|slice:":4" %}
+                            <div class="carousel-slide">
+                                {{ card.rendered_card|safe }}
+                            </div>
+                        {% endfor %}
                     </div>
-                {% endfor %}
+                </div>
+
+                <div class="carousel-indicators" id="popular-indicators"></div>
             </div>
         </section>
     {% endif %}
 
-    <!-- Недавние игры -->
+    <!-- Недавние игры - карусель -->
     {% if recent_cards %}
-        <section class="recent-games-section section-animate">
+        <section class="carousel-section recent-games-section">
             <div class="section-header">
                 <h2>
                     <i class="bi bi-clock-history text-gradient"></i>
@@ -113,12 +98,30 @@
                 </a>
             </div>
 
-            <div class="row g-4">
-                {% for card in recent_cards %}
-                    <div class="col-xl-3 col-lg-4 col-md-6 col-sm-6 col-12">
-                        {{ card.rendered_card|safe }}
+            <div class="carousel-container" id="recent-carousel">
+                <button class="carousel-btn left" onclick="moveCarousel('recent', -1)">
+                    <i class="bi bi-chevron-left"></i>
+                </button>
+                <button class="carousel-btn right" onclick="moveCarousel('recent', 1)">
+                    <i class="bi bi-chevron-right"></i>
+                </button>
+
+                <div class="carousel-track-container">
+                    <div class="carousel-track" id="recent-track">
+                        {% for card in recent_cards %}
+                            <div class="carousel-slide">
+                                {{ card.rendered_card|safe }}
+                            </div>
+                        {% endfor %}
+                        {% for card in recent_cards|slice:":4" %}
+                            <div class="carousel-slide">
+                                {{ card.rendered_card|safe }}
+                            </div>
+                        {% endfor %}
                     </div>
-                {% endfor %}
+                </div>
+
+                <div class="carousel-indicators" id="recent-indicators"></div>
             </div>
         </section>
     {% endif %}
@@ -158,13 +161,200 @@
 
 {% block extra_js %}
     <script>
-        // Инициализация тултипов Bootstrap для динамически загруженных карточек
+        const carouselState = {
+            popular: {
+                currentBlock: 0,
+                totalBlocks: 0,
+                track: null,
+                indicators: null,
+                slideWidth: 0,
+                gap: 24
+            },
+            recent: {
+                currentBlock: 0,
+                totalBlocks: 0,
+                track: null,
+                indicators: null,
+                slideWidth: 0,
+                gap: 24
+            }
+        };
+
+        // Функция для перемещения карусели блоками по 4
+        function moveCarousel(sectionId, direction) {
+            const state = carouselState[sectionId];
+            if (!state.track) return;
+
+            const newBlock = state.currentBlock + direction;
+
+            // Проверяем границы для зацикливания
+            if (newBlock < 0) {
+                state.currentBlock = state.totalBlocks - 1;
+            } else if (newBlock >= state.totalBlocks) {
+                state.currentBlock = 0;
+            } else {
+                state.currentBlock = newBlock;
+            }
+
+            // Мгновенно обновляем позицию
+            updateCarouselPosition(sectionId);
+        }
+
+        // Мгновенное обновление позиции карусели
+        function updateCarouselPosition(sectionId) {
+            const state = carouselState[sectionId];
+            if (!state.track) return;
+
+            // Получаем актуальную ширину слайда
+            const firstSlide = state.track.children[0];
+            if (firstSlide) {
+                state.slideWidth = firstSlide.offsetWidth;
+            }
+
+            // Рассчитываем целевую позицию
+            const blockWidth = (state.slideWidth + state.gap) * 4;
+            const translateX = -state.currentBlock * blockWidth;
+
+            // Отключаем transition для мгновенного перемещения
+            state.track.style.transition = 'none';
+            state.track.style.transform = `translateX(${translateX}px)`;
+
+            // Обновляем индикаторы
+            updateIndicators(sectionId);
+        }
+
+        // Обновление индикаторов
+        function updateIndicators(sectionId) {
+            const state = carouselState[sectionId];
+            if (!state.indicators) return;
+
+            let dots = '';
+            for (let i = 0; i < state.totalBlocks; i++) {
+                dots += `<span class="carousel-dot ${i === state.currentBlock ? 'active' : ''}"
+                               onclick="goToBlock('${sectionId}', ${i})"></span>`;
+            }
+            state.indicators.innerHTML = dots;
+        }
+
+        // Переход к конкретному блоку
+        function goToBlock(sectionId, blockIndex) {
+            const state = carouselState[sectionId];
+            if (!state.track || blockIndex === state.currentBlock) return;
+
+            state.currentBlock = blockIndex;
+            updateCarouselPosition(sectionId);
+        }
+
+        // Получение количества слайдов на разных экранах
+        function getSlidesPerView() {
+            const width = window.innerWidth;
+            if (width <= 576) return 1;
+            if (width <= 992) return 2;
+            return 4;
+        }
+
+        // Инициализация при загрузке страницы
         document.addEventListener('DOMContentLoaded', function() {
+            // Инициализация тултипов Bootstrap
             if (typeof bootstrap !== 'undefined') {
                 var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
                 tooltipTriggerList.map(function (tooltipTriggerEl) {
                     return new bootstrap.Tooltip(tooltipTriggerEl);
                 });
+            }
+
+            // Функция для инициализации конкретной карусели
+            function initCarousel(sectionId, trackId, indicatorsId, totalSlides) {
+                const track = document.getElementById(trackId);
+                const indicators = document.getElementById(indicatorsId);
+
+                if (track) {
+                    const slidesPerView = getSlidesPerView();
+
+                    carouselState[sectionId] = {
+                        currentBlock: 0,
+                        totalBlocks: Math.ceil(totalSlides / slidesPerView),
+                        track: track,
+                        indicators: indicators,
+                        slideWidth: track.children[0]?.offsetWidth || 0,
+                        gap: 24
+                    };
+
+                    // Отключаем transition
+                    track.style.transition = 'none';
+
+                    // Небольшая задержка для правильного расчета ширины
+                    setTimeout(() => {
+                        updateCarouselPosition(sectionId);
+                    }, 100);
+                }
+            }
+
+            // Инициализация для популярных игр
+            initCarousel('popular', 'popular-track', 'popular-indicators', {{ popular_cards|length }});
+
+            // Инициализация для недавних игр
+            initCarousel('recent', 'recent-track', 'recent-indicators', {{ recent_cards|length }});
+
+            // Обновление при изменении размера окна
+            let resizeTimeout;
+            window.addEventListener('resize', function() {
+                clearTimeout(resizeTimeout);
+                resizeTimeout = setTimeout(() => {
+                    const slidesPerView = getSlidesPerView();
+
+                    ['popular', 'recent'].forEach(sectionId => {
+                        const state = carouselState[sectionId];
+                        if (state.track) {
+                            const totalSlides = sectionId === 'popular' ? {{ popular_cards|length }} : {{ recent_cards|length }};
+                            state.totalBlocks = Math.ceil(totalSlides / slidesPerView);
+                            state.slideWidth = state.track.children[0]?.offsetWidth || 0;
+
+                            if (state.currentBlock >= state.totalBlocks) {
+                                state.currentBlock = Math.max(0, state.totalBlocks - 1);
+                            }
+
+                            updateCarouselPosition(sectionId);
+                        }
+                    });
+                }, 150);
+            });
+
+            // Обновление после загрузки всех изображений
+            const images = document.querySelectorAll('img');
+            let loadedCount = 0;
+            const totalImages = images.length;
+
+            function checkAllImagesLoaded() {
+                loadedCount++;
+                if (loadedCount >= totalImages) {
+                    setTimeout(() => {
+                        ['popular', 'recent'].forEach(sectionId => {
+                            const state = carouselState[sectionId];
+                            if (state.track) {
+                                state.slideWidth = state.track.children[0]?.offsetWidth || 0;
+                                updateCarouselPosition(sectionId);
+                            }
+                        });
+                    }, 200);
+                }
+            }
+
+            images.forEach(img => {
+                if (img.complete) {
+                    checkAllImagesLoaded();
+                } else {
+                    img.addEventListener('load', checkAllImagesLoaded);
+                    img.addEventListener('error', checkAllImagesLoaded);
+                }
+            });
+
+            if (totalImages === 0) {
+                setTimeout(() => {
+                    ['popular', 'recent'].forEach(sectionId => {
+                        if (carouselState[sectionId].track) updateCarouselPosition(sectionId);
+                    });
+                }, 300);
             }
         });
     </script>

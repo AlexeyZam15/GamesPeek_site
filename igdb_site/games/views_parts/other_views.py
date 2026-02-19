@@ -47,14 +47,14 @@ def _get_home_context() -> Dict:
         popular_games_ids = list(Game.objects.filter(
             rating_count__gt=10,
             rating__gte=3.0
-        ).only('id').order_by('-rating_count', '-rating')[:8].values_list('id', flat=True))
+        ).only('id').order_by('-rating_count', '-rating')[:20].values_list('id', flat=True))
 
         # Получаем ID недавних игр
         two_years_ago = timezone.now() - timedelta(days=730)
         recent_games_ids = list(Game.objects.filter(
             first_release_date__gte=two_years_ago,
             first_release_date__lte=timezone.now()
-        ).only('id').order_by('-first_release_date')[:8].values_list('id', flat=True))
+        ).only('id').order_by('-first_release_date')[:20].values_list('id', flat=True))
 
         # Загружаем полные объекты игр для популярных игр
         popular_games = []
@@ -107,9 +107,6 @@ def _get_home_context() -> Dict:
         if popular_games:
             from ..models_parts.game_card import GameCardCache
 
-            # Получаем текущую версию кэша
-            current_cache_version = GameCardCache.CARD_CACHE_VERSION
-
             # Пакетно загружаем существующие карточки из БД
             cards = {}
             try:
@@ -120,7 +117,8 @@ def _get_home_context() -> Dict:
 
                 # Фильтруем только те карточки, у которых ключ соответствует текущей версии
                 for card in card_objects:
-                    expected_key = GameCardCache.generate_cache_key_for_game(card.game_id, False, None, 'normal')
+                    # ИСПРАВЛЕНО: generate_cache_key_for_game принимает только game_id
+                    expected_key = GameCardCache.generate_cache_key_for_game(card.game_id)
                     if card.cache_key == expected_key:
                         cards[card.game_id] = card
                     else:
@@ -167,15 +165,13 @@ def _get_home_context() -> Dict:
                         class SimpleCard:
                             def __init__(self, rendered):
                                 self.rendered_card = rendered
+
                         popular_cards.append(SimpleCard(rendered_card))
 
         # Загружаем готовые карточки для недавних игр с сохранением порядка
         recent_cards = []
         if recent_games:
             from ..models_parts.game_card import GameCardCache
-
-            # Получаем текущую версию кэша
-            current_cache_version = GameCardCache.CARD_CACHE_VERSION
 
             # Пакетно загружаем существующие карточки из БД
             cards = {}
@@ -187,7 +183,8 @@ def _get_home_context() -> Dict:
 
                 # Фильтруем только те карточки, у которых ключ соответствует текущей версии
                 for card in card_objects:
-                    expected_key = GameCardCache.generate_cache_key_for_game(card.game_id, False, None, 'normal')
+                    # ИСПРАВЛЕНО: generate_cache_key_for_game принимает только game_id
+                    expected_key = GameCardCache.generate_cache_key_for_game(card.game_id)
                     if card.cache_key == expected_key:
                         cards[card.game_id] = card
                     else:
@@ -234,6 +231,7 @@ def _get_home_context() -> Dict:
                         class SimpleCard:
                             def __init__(self, rendered):
                                 self.rendered_card = rendered
+
                         recent_cards.append(SimpleCard(rendered_card))
 
         # Популярные ключевые слова
