@@ -145,14 +145,12 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
 
     for item in games_list:
         if isinstance(item, dict) and 'game' in item:
-            # Режим похожих игр
             game_obj = item['game']
             similarity = item.get('similarity')
             game_ids.append(game_obj.id)
             game_items.append((item, game_obj, similarity, True))
             print(f"  Similar mode item - game ID: {game_obj.id}, similarity from item: {similarity}")
         else:
-            # Обычный режим
             game_obj = item
             game_ids.append(game_obj.id)
             game_items.append((item, game_obj, None, False))
@@ -162,114 +160,116 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
     from games.models import GameCardCache
     current_cache_version = GameCardCache.CARD_CACHE_VERSION
 
-    # Пакетно загружаем существующие карточки из БД
-    cards = {}
+    print(f"\nCurrent template version: {current_cache_version}")
+
+    # Загружаем ВСЕ карточки из БД (активные и неактивные)
+    all_cards_in_db = set()
+    valid_cards = {}
+
     try:
+        # Сначала проверим, есть ли вообще карточки в БД (даже неактивные)
+        all_cards = GameCardCache.objects.filter(
+            game_id__in=game_ids
+        ).values('game_id', 'is_active', 'template_version')
+
+        print(f"\nCards in DB (any status): {list(all_cards)}")
+
+        for card_info in all_cards:
+            all_cards_in_db.add(card_info['game_id'])
+
+        # Теперь загружаем только активные для использования
         card_objects = GameCardCache.objects.filter(
             game_id__in=game_ids,
             is_active=True
         ).select_related('game')
 
-        # Фильтруем только те карточки, у которых ключ соответствует текущей версии
+        print(f"\nFound {card_objects.count()} active cards in DB for these games")
+
         for card in card_objects:
-            expected_key = GameCardCache.generate_cache_key_for_game(card.game_id)
-            if card.cache_key == expected_key:
-                cards[card.game_id] = card
+            if card.template_version == current_cache_version:
+                valid_cards[card.game_id] = card
+                print(f"  ✅ Valid card for game {card.game_id}")
             else:
-                # Карточка с устаревшей версией - удаляем или деактивируем
                 print(
-                    f"  Found outdated card for game {card.game_id} (key: {card.cache_key}, expected: {expected_key})")
-                # Можно деактивировать, чтобы не использовать
+                    f"  ❌ Outdated card for game {card.game_id} (v{card.template_version} vs current v{current_cache_version})")
                 card.is_active = False
                 card.save(update_fields=['is_active'])
 
-        print(f"Found {len(cards)} cached cards with current version {current_cache_version}")
+        print(f"\nFound {len(valid_cards)} valid cached cards")
+        print(f"Games with ANY card in DB: {len(all_cards_in_db)}")
+        print(f"Games with NO card in DB: {set(game_ids) - all_cards_in_db}")
 
     except Exception as e:
         logger.error(f"Error batch loading card caches: {str(e)}")
+        print(f"ERROR loading cards: {str(e)}")
 
     # Обрабатываем каждый элемент
     cards_to_create = []
     processed_items = []
 
     for item, game_obj, similarity, is_similar_mode in game_items:
-        cached_card = cards.get(game_obj.id)
+        cached_card = valid_cards.get(game_obj.id)
 
         print(f"\nProcessing game {game_obj.id} ({game_obj.name}):")
-        print(f"  is_similar_mode: {is_similar_mode}")
-        print(f"  similarity from params: {similarity}")
-        print(f"  has cached_card: {cached_card is not None}")
+        print(f"  has valid cached_card: {cached_card is not None}")
+        print(f"  has ANY card in DB: {game_obj.id in all_cards_in_db}")
 
-        # ВАЖНО: Сохраняем процент схожести в объекте игры и в item
+        # Устанавливаем similarity если нужно
         if is_similar_mode:
             if similarity is not None and similarity > 0:
-                # Явно устанавливаем similarity
                 game_obj.similarity = float(similarity)
-                # Также сохраняем в item для доступа в шаблоне
                 if isinstance(item, dict):
                     item['similarity'] = similarity
-                print(f"  ✓ SET game.similarity = {similarity}")
-                print(f"  ✓ SET item['similarity'] = {similarity}")
             else:
-                # Если нет similarity, удаляем атрибут
                 if hasattr(game_obj, 'similarity'):
                     delattr(game_obj, 'similarity')
-                    print(f"  ✗ REMOVED game.similarity")
                 if isinstance(item, dict) and 'similarity' in item:
                     del item['similarity']
-                    print(f"  ✗ REMOVED item['similarity']")
         else:
-            # Не в режиме похожих - очищаем similarity
             if hasattr(game_obj, 'similarity'):
                 delattr(game_obj, 'similarity')
-                print(f"  ✗ REMOVED game.similarity (regular mode)")
 
         if cached_card:
-            # Используем готовую карточку из БД (уже проверена на соответствие версии)
+            # Используем готовую карточку
             try:
                 cached_card.increment_hit()
-
                 if isinstance(item, dict):
                     item['cached_card'] = cached_card.rendered_card
                 else:
                     item.cached_card = cached_card.rendered_card
-
                 processed_items.append(item)
-                print(f"  Using cached card (version {current_cache_version})")
+                print(f"  ✅ Using cached card")
                 continue
-
             except Exception as e:
                 logger.error(f"Error using cached card for game {game_obj.id}: {str(e)}")
+                print(f"  ERROR using cached card: {str(e)}")
 
-        # Карточка не найдена - рендерим и готовим к сохранению
-        logger.info(f"Rendering new card for game {game_obj.id} ({game_obj.name})")
+        # Карточки нет или она невалидна
+        print(f"  Rendering new card")
 
-        # Рендерим HTML
         card_context = {
             'game': game_obj,
             'show_similarity': show_similarity,
             'source_game': context.get('source_game')
         }
 
-        # Добавляем similarity в контекст если есть
         if is_similar_mode and similarity is not None and similarity > 0:
             card_context['similarity'] = similarity
-            # Убеждаемся, что у game_obj есть similarity
-            if not hasattr(game_obj, 'similarity'):
-                game_obj.similarity = similarity
-            print(f"  Added to card_context: similarity={similarity}")
 
         rendered_card = render_to_string('games/partials/_game_card.html', card_context)
 
-        # Добавляем в список на создание
-        from games.utils.game_card_utils import GameCardCreator
-        related_data = GameCardCreator._extract_related_data(game_obj)
-
-        cards_to_create.append((
-            game_obj,
-            rendered_card,
-            related_data
-        ))
+        # Добавляем в список на создание ТОЛЬКО если карточки вообще нет в БД
+        if game_obj.id not in all_cards_in_db:
+            from games.utils.game_card_utils import GameCardCreator
+            related_data = GameCardCreator._extract_related_data(game_obj)
+            cards_to_create.append((
+                game_obj,
+                rendered_card,
+                related_data
+            ))
+            print(f"  ✨ Will save to DB (new card)")
+        else:
+            print(f"  ⏭️ Not saving - card exists but outdated (will be updated on next run)")
 
         # Сразу используем отрендеренный HTML
         if isinstance(item, dict):
@@ -278,22 +278,24 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
             item.cached_card = rendered_card
 
         processed_items.append(item)
-        print(f"  Rendered new card")
 
     print(f"\nProcessed {len(processed_items)} items")
-    print(f"Cards to create: {len(cards_to_create)}")
-    print("=== END UPDATE DEBUG ===\n")
+    print(f"Cards to create (really new, never in DB): {len(cards_to_create)}")
 
-    # Асинхронно сохраняем новые карточки
+    # Сохраняем ТОЛЬКО действительно новые карточки
     if cards_to_create:
         try:
-            from django.db import transaction
-            transaction.on_commit(
-                lambda: GameCardCache.bulk_create_or_update_cards(cards_to_create, batch_size=50)
-            )
-            logger.info(f"Scheduled {len(cards_to_create)} new cards for background saving")
+            print(f"\n=== SAVING {len(cards_to_create)} NEW CARDS TO DB ===")
+            from games.models import GameCardCache
+            stats = GameCardCache.bulk_create_or_update_cards(cards_to_create, batch_size=50)
+            print(f"SAVE RESULT: {stats}")
         except Exception as e:
-            logger.error(f"Failed to schedule card creation: {str(e)}")
+            logger.error(f"Failed to save cards: {str(e)}")
+            print(f"ERROR saving cards: {str(e)}")
+    else:
+        print(f"\n✅ No new cards to save")
+
+    print("=== END UPDATE DEBUG ===\n")
 
     return processed_items
 
