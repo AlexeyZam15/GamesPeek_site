@@ -185,34 +185,20 @@ const SimilarityCompare = {
         // Создаем URL для сравнения
         const compareUrl = this.buildCompareUrl(sourceGameId, targetGameId);
 
-        // Создаем компактную кнопку
+        // Создаем компактную кнопку БЕЗ тултипа
         const button = document.createElement('a');
         button.href = compareUrl;
         button.className = 'btn btn-sm btn-outline-warning compare-button-added';
         button.innerHTML = '<i class="bi bi-arrow-left-right"></i> Compare';
-        button.setAttribute('data-bs-toggle', 'tooltip');
-        button.setAttribute('data-bs-placement', 'top');
-        button.setAttribute('title', `Compare with ${this.getSourceGameName()}`);
+        // НЕ добавляем атрибуты для тултипа
 
         // Добавляем кнопку в футер
         footer.appendChild(button);
-
-        // Инициализируем тултип Bootstrap
-        if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip) {
-            new bootstrap.Tooltip(button);
-        }
     },
 
     removeAllCompareButtons: function() {
         const compareButtons = document.querySelectorAll('.compare-button-added');
         compareButtons.forEach(button => {
-            // Уничтожаем тултип если есть
-            if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip && bootstrap.Tooltip.getInstance) {
-                const tooltip = bootstrap.Tooltip.getInstance(button);
-                if (tooltip) {
-                    tooltip.dispose();
-                }
-            }
             button.remove();
         });
     },
