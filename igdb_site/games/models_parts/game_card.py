@@ -97,6 +97,13 @@ class GameCardCache(models.Model):
                 game_id=game_id,
                 is_active=True
             )
+            # Проверяем, что ключ кэша соответствует текущей версии
+            expected_key = cls.generate_cache_key_for_game(game_id)
+            if card.cache_key != expected_key:
+                # Карточка с устаревшей версией - деактивируем
+                card.is_active = False
+                card.save(update_fields=['is_active'])
+                return None
             return card
         except cls.DoesNotExist:
             return None
@@ -133,7 +140,7 @@ class GameCardCache(models.Model):
                 if len(data) == 3:
                     game, rendered_card, related_data = data
                 elif len(data) == 6:
-                    # Старый формат: (game, rendered_card, show_similarity, similarity_percent, card_size, related_data)
+                    # Старый формат, игнорируем лишние параметры
                     game, rendered_card, _, _, _, related_data = data
                 else:
                     logger.error(f"Invalid card data format: {len(data)} elements")
@@ -141,15 +148,56 @@ class GameCardCache(models.Model):
                     continue
 
                 with transaction.atomic():
-                    _, created = cls.get_or_create_card(
-                        game=game,
-                        rendered_card=rendered_card,
-                        **related_data
-                    )
-                    if created:
+                    # Проверяем существующую карточку с учетом версии
+                    expected_key = cls.generate_cache_key_for_game(game.id)
+                    try:
+                        card = cls.objects.select_for_update().get(game=game)
+                        # Проверяем версию
+                        if card.cache_key != expected_key:
+                            # Устаревшая версия - обновляем
+                            card.rendered_card = rendered_card
+                            card.game_name = game.name
+                            card.game_rating = getattr(game, 'rating', None)
+                            card.game_cover_url = getattr(game, 'cover_url', None)
+                            card.game_type = getattr(game, 'game_type', None)
+                            card.genres_json = related_data.get('genres', [])
+                            card.platforms_json = related_data.get('platforms', [])
+                            card.perspectives_json = related_data.get('perspectives', [])
+                            card.keywords_json = related_data.get('keywords', [])
+                            card.themes_json = related_data.get('themes', [])
+                            card.game_modes_json = related_data.get('game_modes', [])
+                            card.card_hash = cls._calculate_card_hash(rendered_card)
+                            card.cache_key = expected_key
+                            card.save(update_fields=[
+                                'rendered_card', 'game_name', 'game_rating', 'game_cover_url',
+                                'game_type', 'genres_json', 'platforms_json', 'perspectives_json',
+                                'keywords_json', 'themes_json', 'game_modes_json',
+                                'card_hash', 'cache_key', 'updated_at'
+                            ])
+                            stats['updated'] += 1
+                        else:
+                            stats['skipped'] += 1
+                    except cls.DoesNotExist:
+                        # Создаем новую карточку
+                        card = cls(
+                            game=game,
+                            rendered_card=rendered_card,
+                            game_name=game.name,
+                            game_rating=getattr(game, 'rating', None),
+                            game_cover_url=getattr(game, 'cover_url', None),
+                            game_type=getattr(game, 'game_type', None),
+                            genres_json=related_data.get('genres', []),
+                            platforms_json=related_data.get('platforms', []),
+                            perspectives_json=related_data.get('perspectives', []),
+                            keywords_json=related_data.get('keywords', []),
+                            themes_json=related_data.get('themes', []),
+                            game_modes_json=related_data.get('game_modes', []),
+                            cache_key=expected_key,
+                            is_active=True
+                        )
+                        card.card_hash = cls._calculate_card_hash(rendered_card)
+                        card.save()
                         stats['created'] += 1
-                    else:
-                        stats['updated'] += 1
 
             except Exception as e:
                 # Безопасно получаем game_id
@@ -163,7 +211,7 @@ class GameCardCache(models.Model):
                 logger.error(f"Failed to save card for game {game_id}: {str(e)}")
                 stats['errors'] += 1
 
-        return stats
+        return stats    
 
     @classmethod
     def get_or_create_card(
