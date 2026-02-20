@@ -331,12 +331,10 @@ def game_search(request: HttpRequest) -> HttpResponse:
             force=False
         )
 
-    # Загружаем готовые карточки - ИСПРАВЛЕНО: убраны лишние параметры
+    # Загружаем готовые карточки
     game_cards = []
     for game_id in game_ids:
-        card = GameCardCache.get_card_for_game(
-            game_id=game_id  # Только game_id, без show_similarity, similarity_percent, card_size
-        )
+        card = GameCardCache.get_card_for_game(game_id)
         if card:
             game_cards.append(card)
 
