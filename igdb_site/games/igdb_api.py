@@ -7,6 +7,19 @@ from functools import lru_cache
 from django.conf import settings
 from django.core.cache import cache
 
+# ===== КОНФИГУРАЦИЯ ОПТИМАЛЬНЫХ НАСТРОЕК =====
+OPTIMAL_CONFIG = {
+    'MAX_WORKERS': 3,  # 3 потока вместо 6
+    'BATCH_SIZE': 10,  # Максимум API
+    'MAX_RPS': 2.5,  # 67% от лимита 3.75
+    'REQUEST_TIMEOUT': 10.0,  # Ваш максимум: 6.4 сек
+    'DELAY_BETWEEN_REQUESTS': 0.4,  # 400 мс = 2.5 RPS
+    'MAX_RETRIES': 2,
+    'RETRY_DELAYS': [1.0, 3.0],  # Экспоненциальная
+    'USE_CACHE': True,  # Кэшировать результаты
+}
+# ==============================================
+
 # Глобальные переменные
 DEBUG = False
 _session = None  # Глобальная сессия для всех запросов
@@ -33,7 +46,7 @@ def get_session():
 
         # Настройка retry стратегии
         retry_strategy = Retry(
-            total=3,
+            total=OPTIMAL_CONFIG['MAX_RETRIES'],
             backoff_factor=0.5,
             status_forcelist=[429, 500, 502, 503, 504],
             allowed_methods=["HEAD", "GET", "OPTIONS", "POST"]
@@ -69,7 +82,7 @@ def get_igdb_access_token():
     }
 
     try:
-        response = session.post(url, params=params, timeout=10)
+        response = session.post(url, params=params, timeout=OPTIMAL_CONFIG['REQUEST_TIMEOUT'])
         debug_print(f"Token request status: {response.status_code}")
 
         if response.status_code != 200:
@@ -94,13 +107,17 @@ def get_igdb_access_token():
 # Кэш для часто запрашиваемых данных
 def get_cached_igdb_data(cache_key, endpoint, query, ttl=3600):
     """Получает данные из кэша или делает запрос к IGDB."""
-    cached_data = cache.get(cache_key)
-    if cached_data is not None:
-        debug_print(f"📦 Cache hit for {cache_key}")
-        return cached_data
+    if OPTIMAL_CONFIG['USE_CACHE']:
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            debug_print(f"📦 Cache hit for {cache_key}")
+            return cached_data
 
     data = make_igdb_request(endpoint, query)
-    cache.set(cache_key, data, timeout=ttl)
+
+    if OPTIMAL_CONFIG['USE_CACHE']:
+        cache.set(cache_key, data, timeout=ttl)
+
     return data
 
 
@@ -121,26 +138,52 @@ def make_igdb_request(endpoint, query, debug=None):
     url = f'https://api.igdb.com/v4/{endpoint}'
     session = get_session()
 
-    try:
-        response = session.post(url, headers=headers, data=query, timeout=30)
+    # Применяем задержку для соблюдения RPS
+    time.sleep(OPTIMAL_CONFIG['DELAY_BETWEEN_REQUESTS'])
 
-        if local_debug:
-            print(f"Response status: {response.status_code}")
+    for attempt in range(OPTIMAL_CONFIG['MAX_RETRIES'] + 1):
+        try:
+            response = session.post(url, headers=headers, data=query, timeout=OPTIMAL_CONFIG['REQUEST_TIMEOUT'])
 
-        if response.status_code != 200:
-            print(f"❌ Error response: {response.text}")
-            response.raise_for_status()
+            if local_debug:
+                print(f"Response status: {response.status_code}")
 
-        result = response.json()
+            if response.status_code != 200:
+                print(f"❌ Error response: {response.text}")
 
-        if local_debug:
-            print(f"✅ Successfully got {len(result)} results")
+                # Если это ошибка 429 (Too Many Requests) и у нас есть попытки
+                if response.status_code == 429 and attempt < OPTIMAL_CONFIG['MAX_RETRIES']:
+                    delay = OPTIMAL_CONFIG['RETRY_DELAYS'][attempt] if attempt < len(
+                        OPTIMAL_CONFIG['RETRY_DELAYS']) else 5.0
+                    if local_debug:
+                        print(
+                            f"⏸️  Rate limited, waiting {delay}s before retry {attempt + 1}/{OPTIMAL_CONFIG['MAX_RETRIES']}")
+                    time.sleep(delay)
+                    continue
 
-        return result
+                response.raise_for_status()
 
-    except requests.exceptions.RequestException as e:
-        print(f"❌ IGDB API request failed: {e}")
-        raise Exception(f"IGDB API request failed: {e}")
+            result = response.json()
+
+            if local_debug:
+                print(f"✅ Successfully got {len(result)} results")
+
+            return result
+
+        except requests.exceptions.RequestException as e:
+            if attempt < OPTIMAL_CONFIG['MAX_RETRIES']:
+                delay = OPTIMAL_CONFIG['RETRY_DELAYS'][attempt] if attempt < len(
+                    OPTIMAL_CONFIG['RETRY_DELAYS']) else 5.0
+                if local_debug:
+                    print(
+                        f"⏸️  Request failed, waiting {delay}s before retry {attempt + 1}/{OPTIMAL_CONFIG['MAX_RETRIES']}: {e}")
+                time.sleep(delay)
+            else:
+                print(f"❌ IGDB API request failed after {OPTIMAL_CONFIG['MAX_RETRIES']} retries: {e}")
+                raise Exception(f"IGDB API request failed: {e}")
+
+    # Если мы дошли до сюда, значит все попытки не удались
+    raise Exception(f"IGDB API request failed after {OPTIMAL_CONFIG['MAX_RETRIES']} retries")
 
 
 # Оптимизированные функции с кэшированием
