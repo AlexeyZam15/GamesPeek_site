@@ -474,13 +474,14 @@ class GameLoader:
     def update_all_game_covers(self, options, debug=False):
         """Обновляет обложки для всех игр в базе - с прогресс-баром"""
         from games.models import Game
+        from games.igdb_api import OPTIMAL_CONFIG
         import time
         import concurrent.futures
 
-        # ОПТИМАЛЬНЫЕ НАСТРОЙКИ
-        MAX_WORKERS = 3
-        BATCH_SIZE = 10
-        DELAY_BETWEEN_BATCHES = 0.4
+        # ИСПОЛЬЗУЕМ ОПТИМАЛЬНЫЕ НАСТРОЙКИ ИЗ КОНФИГА
+        MAX_WORKERS = OPTIMAL_CONFIG['MAX_WORKERS']
+        BATCH_SIZE = OPTIMAL_CONFIG['BATCH_SIZE']
+        DELAY_BETWEEN_BATCHES = OPTIMAL_CONFIG['DELAY_BETWEEN_REQUESTS']
 
         offset = options.get('offset', 0)
         limit = options.get('limit', 0)
@@ -1738,7 +1739,7 @@ class GameLoader:
 
     def _load_single_update_batch(self, batch_num, batch_ids, games_map, debug=False):
         """Загружает и обновляет одну пачку из 10 игр - с rate limiting"""
-        from games.igdb_api import make_igdb_request
+        from games.igdb_api import make_igdb_request, OPTIMAL_CONFIG
         from games.models import Game
         import time
 
@@ -1746,9 +1747,9 @@ class GameLoader:
             return 0, []
 
         try:
-            # Оптимальные настройки для IGDB API
-            MAX_RETRIES = 2
-            RETRY_DELAYS = [1.0, 3.0]  # Экспоненциальная backoff
+            # Используем настройки из глобального конфига
+            MAX_RETRIES = OPTIMAL_CONFIG['MAX_RETRIES']
+            RETRY_DELAYS = OPTIMAL_CONFIG['RETRY_DELAYS']
 
             # 1. Запрос с правильными rate limits
             id_list = ','.join(map(str, batch_ids))
@@ -3313,6 +3314,28 @@ class GameLoader:
         if result is None:
             return self._handle_failed_loading(iteration_start_time, errors, current_offset)
 
+        # ПРОВЕРКА: если result - кортеж, преобразуем в словарь
+        if isinstance(result, tuple):
+            if debug:
+                self.stdout.write(f'   ⚠️  Получен кортеж вместо словаря, преобразую...')
+            # Пытаемся создать словарь из кортежа
+            if len(result) >= 2 and isinstance(result[0], dict):
+                # Если первый элемент - словарь с результатами
+                result = result[0]
+            else:
+                # Создаем пустой словарь с базовыми полями
+                result = {
+                    'new_games': [],
+                    'all_found_games': [],
+                    'total_games_checked': 0,
+                    'new_games_count': 0,
+                    'existing_games_skipped': 0,
+                    'last_checked_offset': current_offset,
+                    'limit_reached': False,
+                    'limit_reached_at_offset': None,
+                    'interrupted': False,
+                }
+
         # Проверка наличия игр
         if not result.get('all_found_games') and not result.get('new_games'):
             return self._handle_empty_results(result, errors, params, current_offset, iteration_start_time)
@@ -3322,7 +3345,7 @@ class GameLoader:
         if new_games_count == 0:
             iteration_time = time.time() - iteration_start_time
             return {
-                'total_games_checked': result['total_games_checked'],
+                'total_games_checked': result.get('total_games_checked', 0),
                 'total_games_found': 0,
                 'created_count': 0,
                 'skipped_count': result.get('existing_games_skipped', 0),
@@ -3333,21 +3356,39 @@ class GameLoader:
                 'limit_reached_at_offset': result.get('limit_reached_at_offset'),
             }
 
-        # ИСПРАВЛЕНИЕ: метод возвращает один объект, а не два значения
-        result_stats = self._process_standard_game_data(
-            result, params, iteration_start_time, errors
-        )
+        # Обработка данных в зависимости от режима
+        if params.get('update_missing_data'):
+            result_stats = self._update_existing_game_data(
+                result, params, iteration_start_time, errors
+            )
+        elif params.get('update_covers'):
+            result_stats = self._update_game_covers(
+                result, params, iteration_start_time, errors
+            )
+        else:
+            result_stats = self._process_standard_game_data(
+                result, params, iteration_start_time, errors
+            )
 
         # ИСПРАВЛЕНИЕ: получаем ошибки из результата
-        errors = result_stats.get('errors', 0)
-        iteration_time = time.time() - iteration_start_time
+        if isinstance(result_stats, dict):
+            errors = result_stats.get('errors', 0)
+            iteration_time = result_stats.get('total_time', time.time() - iteration_start_time)
+            created_count = result_stats.get('created_count', 0)
+        else:
+            # Если result_stats не словарь (например, кортеж)
+            if debug:
+                self.stdout.write(f'   ⚠️  result_stats не словарь: {type(result_stats)}')
+            iteration_time = time.time() - iteration_start_time
+            created_count = 0
+            errors = errors
 
         return {
-            'total_games_checked': result['total_games_checked'],
+            'total_games_checked': result.get('total_games_checked', 0),
             'total_games_found': new_games_count,
-            'created_count': result_stats.get('created_count', 0) if result_stats else 0,
-            'skipped_count': result['existing_games_skipped'],
-            'total_time': result_stats.get('total_time', iteration_time) if result_stats else iteration_time,
+            'created_count': created_count,
+            'skipped_count': result.get('existing_games_skipped', 0),
+            'total_time': iteration_time,
             'errors': errors,
             'last_checked_offset': result.get('last_checked_offset', current_offset),
             'limit_reached': result.get('limit_reached', False),
