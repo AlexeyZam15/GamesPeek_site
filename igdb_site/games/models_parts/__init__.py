@@ -20,6 +20,7 @@ from .similarity import (
 )
 from .media import Screenshot
 from .game_card import GameCardCache  # Добавляем новую модель
+from .game_engine import GameEngine  # Новая модель для игровых движков
 
 __all__ = [
     'GameTypeEnum',
@@ -39,4 +40,5 @@ __all__ = [
     'GameSimilarityCache',
     'Screenshot',
     'GameCardCache',  # Добавляем в экспорт
+    'GameEngine',  # Добавляем новую модель
 ]

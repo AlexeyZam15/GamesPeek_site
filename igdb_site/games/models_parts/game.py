@@ -86,6 +86,12 @@ class Game(models.Model):
     genres = models.ManyToManyField('Genre', blank=True)
     platforms = models.ManyToManyField('Platform', blank=True)
     keywords = models.ManyToManyField('Keyword', blank=True)
+    engines = models.ManyToManyField(  # Новое поле для игровых движков
+        'GameEngine',
+        blank=True,
+        related_name='games',
+        help_text="Game engines used in this game"
+    )
 
     series = models.ManyToManyField(
         'Series',
@@ -174,11 +180,20 @@ class Game(models.Model):
         help_text="Materialized list of game mode IDs for fast similarity search"
     )
 
+    engine_ids = ArrayField(  # Новое поле для ID движков
+        models.IntegerField(),
+        default=list,
+        blank=True,
+        db_index=True,
+        help_text="Materialized list of game engine IDs for fast similarity search"
+    )
+
     # ===== КЭШИРОВАННЫЕ СЧЕТЧИКИ =====
     _cached_genre_count = models.IntegerField(null=True, blank=True, editable=False)
     _cached_keyword_count = models.IntegerField(null=True, blank=True, editable=False)
     _cached_platform_count = models.IntegerField(null=True, blank=True, editable=False)
     _cached_developer_count = models.IntegerField(null=True, blank=True, editable=False)
+    _cached_engine_count = models.IntegerField(null=True, blank=True, editable=False)  # Новое поле
     _cache_updated_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     # Optimized manager
@@ -199,6 +214,7 @@ class Game(models.Model):
             models.Index(fields=['_cached_keyword_count']),
             models.Index(fields=['_cached_platform_count']),
             models.Index(fields=['_cached_developer_count']),
+            models.Index(fields=['_cached_engine_count']),  # Новый индекс
             models.Index(fields=['rating_count', 'rating']),
             models.Index(fields=['rating_count', '-rating']),
             models.Index(fields=['rating', '-rating_count']),
@@ -252,7 +268,7 @@ class Game(models.Model):
         try:
             # Используем select_related/prefetch для быстрого подсчета
             game = Game.objects.filter(id=self.id).prefetch_related(
-                'genres', 'keywords', 'platforms', 'developers'
+                'genres', 'keywords', 'platforms', 'developers', 'engines'
             ).first()
 
             if not game:
@@ -264,6 +280,7 @@ class Game(models.Model):
                 'keywords': game.keywords.count(),
                 'platforms': game.platforms.count(),
                 'developers': game.developers.count(),
+                'engines': game.engines.count(),  # Добавляем подсчет движков
             }
 
             # Проверяем, нужно ли обновлять
@@ -271,7 +288,8 @@ class Game(models.Model):
                     self._cached_genre_count != counts['genres'] or
                     self._cached_keyword_count != counts['keywords'] or
                     self._cached_platform_count != counts['platforms'] or
-                    self._cached_developer_count != counts['developers']
+                    self._cached_developer_count != counts['developers'] or
+                    self._cached_engine_count != counts['engines']  # Добавляем проверку
             )
 
             if needs_update or force:
@@ -279,6 +297,7 @@ class Game(models.Model):
                 self._cached_keyword_count = counts['keywords']
                 self._cached_platform_count = counts['platforms']
                 self._cached_developer_count = counts['developers']
+                self._cached_engine_count = counts['engines']  # Добавляем установку
                 self._cache_updated_at = timezone.now()
 
                 # Быстрое обновление через update()
@@ -287,6 +306,7 @@ class Game(models.Model):
                     _cached_keyword_count=counts['keywords'],
                     _cached_platform_count=counts['platforms'],
                     _cached_developer_count=counts['developers'],
+                    _cached_engine_count=counts['engines'],  # Добавляем обновление
                     _cache_updated_at=self._cache_updated_at
                 )
 
@@ -294,7 +314,7 @@ class Game(models.Model):
                 self.refresh_from_db(fields=[
                     '_cached_genre_count', '_cached_keyword_count',
                     '_cached_platform_count', '_cached_developer_count',
-                    '_cache_updated_at'
+                    '_cached_engine_count', '_cache_updated_at'  # Добавляем новое поле
                 ])
         except Exception as e:
             import logging
@@ -317,7 +337,8 @@ class Game(models.Model):
                 'themes',
                 'player_perspectives',
                 'developers',
-                'game_modes'
+                'game_modes',
+                'engines'  # Добавляем prefetch для движков
             ).first()
 
             if not game:
@@ -330,6 +351,7 @@ class Game(models.Model):
             new_perspective_ids = list(game.player_perspectives.values_list('id', flat=True))
             new_developer_ids = list(game.developers.values_list('id', flat=True))
             new_game_mode_ids = list(game.game_modes.values_list('id', flat=True))
+            new_engine_ids = list(game.engines.values_list('id', flat=True))  # Добавляем ID движков
 
             # Проверяем, изменились ли данные
             needs_update = force or any([
@@ -338,7 +360,8 @@ class Game(models.Model):
                 set(new_theme_ids) != set(self.theme_ids or []),
                 set(new_perspective_ids) != set(self.perspective_ids or []),
                 set(new_developer_ids) != set(self.developer_ids or []),
-                set(new_game_mode_ids) != set(self.game_mode_ids or [])
+                set(new_game_mode_ids) != set(self.game_mode_ids or []),
+                set(new_engine_ids) != set(self.engine_ids or [])  # Добавляем проверку
             ])
 
             if needs_update:
@@ -349,6 +372,7 @@ class Game(models.Model):
                 self.perspective_ids = new_perspective_ids
                 self.developer_ids = new_developer_ids
                 self.game_mode_ids = new_game_mode_ids
+                self.engine_ids = new_engine_ids  # Добавляем установку
 
                 # Сохраняем только измененные поля
                 Game.objects.filter(id=self.id).update(
@@ -357,12 +381,14 @@ class Game(models.Model):
                     theme_ids=self.theme_ids,
                     perspective_ids=self.perspective_ids,
                     developer_ids=self.developer_ids,
-                    game_mode_ids=self.game_mode_ids
+                    game_mode_ids=self.game_mode_ids,
+                    engine_ids=self.engine_ids  # Добавляем обновление
                 )
 
                 logger = logging.getLogger(__name__)
                 logger.debug(f"Updated materialized vectors for game {self.id}: "
-                             f"genres={len(self.genre_ids)}, keywords={len(self.keyword_ids)}")
+                             f"genres={len(self.genre_ids)}, keywords={len(self.keyword_ids)}, "
+                             f"engines={len(self.engine_ids)}")
 
         except Exception as e:
             import logging
@@ -388,7 +414,7 @@ class Game(models.Model):
         for i in range(0, queryset.count(), batch_size):
             batch = queryset[i:i + batch_size].prefetch_related(
                 'genres', 'keywords', 'platforms', 'developers',
-                'themes', 'player_perspectives', 'game_modes'
+                'themes', 'player_perspectives', 'game_modes', 'engines'  # Добавляем engines
             )
 
             # Получаем все связанные счетчики и векторы одним запросом
@@ -400,6 +426,7 @@ class Game(models.Model):
                     'keywords': game.keywords.count(),
                     'platforms': game.platforms.count(),
                     'developers': game.developers.count(),
+                    'engines': game.engines.count(),  # Добавляем счетчик движков
                 }
 
                 vectors = {
@@ -409,6 +436,7 @@ class Game(models.Model):
                     'perspective_ids': list(game.player_perspectives.values_list('id', flat=True)),
                     'developer_ids': list(game.developers.values_list('id', flat=True)),
                     'game_mode_ids': list(game.game_modes.values_list('id', flat=True)),
+                    'engine_ids': list(game.engines.values_list('id', flat=True)),  # Добавляем векторы движков
                 }
 
                 game_data[game.id] = {**counts, **vectors}
@@ -422,7 +450,8 @@ class Game(models.Model):
                         game._cached_genre_count != data.get('genres') or
                         game._cached_keyword_count != data.get('keywords') or
                         game._cached_platform_count != data.get('platforms') or
-                        game._cached_developer_count != data.get('developers')
+                        game._cached_developer_count != data.get('developers') or
+                        game._cached_engine_count != data.get('engines')  # Добавляем проверку
                 )
 
                 needs_vector_update = any([
@@ -431,7 +460,8 @@ class Game(models.Model):
                     set(data.get('theme_ids', [])) != set(game.theme_ids or []),
                     set(data.get('perspective_ids', [])) != set(game.perspective_ids or []),
                     set(data.get('developer_ids', [])) != set(game.developer_ids or []),
-                    set(data.get('game_mode_ids', [])) != set(game.game_mode_ids or [])
+                    set(data.get('game_mode_ids', [])) != set(game.game_mode_ids or []),
+                    set(data.get('engine_ids', [])) != set(game.engine_ids or [])  # Добавляем проверку
                 ])
 
                 if needs_count_update or needs_vector_update:
@@ -441,6 +471,7 @@ class Game(models.Model):
                         game._cached_keyword_count = data.get('keywords', 0)
                         game._cached_platform_count = data.get('platforms', 0)
                         game._cached_developer_count = data.get('developers', 0)
+                        game._cached_engine_count = data.get('engines', 0)  # Добавляем установку
                         game._cache_updated_at = timezone.now()
 
                     # Обновляем векторы
@@ -451,6 +482,7 @@ class Game(models.Model):
                         game.perspective_ids = data.get('perspective_ids', [])
                         game.developer_ids = data.get('developer_ids', [])
                         game.game_mode_ids = data.get('game_mode_ids', [])
+                        game.engine_ids = data.get('engine_ids', [])  # Добавляем установку
 
                     to_update.append(game)
 
@@ -461,13 +493,14 @@ class Game(models.Model):
                     update_fields.extend([
                         '_cached_genre_count', '_cached_keyword_count',
                         '_cached_platform_count', '_cached_developer_count',
-                        '_cache_updated_at'
+                        '_cached_engine_count', '_cache_updated_at'  # Добавляем новое поле
                     ])
 
                 if any(g.genre_ids for g in to_update if g.genre_ids != []):
                     update_fields.extend([
                         'genre_ids', 'keyword_ids', 'theme_ids',
-                        'perspective_ids', 'developer_ids', 'game_mode_ids'
+                        'perspective_ids', 'developer_ids', 'game_mode_ids',
+                        'engine_ids'  # Добавляем поле
                     ])
 
                 cls.objects.bulk_update(
@@ -519,6 +552,16 @@ class Game(models.Model):
         ):
             self.update_cached_counts()
         return self._cached_developer_count or 0
+
+    @property
+    def cached_engine_count(self) -> int:  # Новое свойство
+        """Get cached engine count with lazy update."""
+        if self._cached_engine_count is None or (
+                self._cache_updated_at and
+                (timezone.now() - self._cache_updated_at).days > 7
+        ):
+            self.update_cached_counts()
+        return self._cached_engine_count or 0
 
     # ===== CACHED GAME TYPE PROPERTIES =====
     @property
@@ -620,6 +663,19 @@ class Game(models.Model):
     @lru_cache(maxsize=1)
     def is_update(self) -> bool:
         return self.game_type == GameTypeEnum.UPDATE
+
+    # ===== OPTIMIZED ENGINE PROPERTIES =====  # Новый блок
+    @property
+    @lru_cache(maxsize=1)
+    def engine_names(self) -> List[str]:
+        """List of engine names with caching."""
+        return list(self.engines.values_list('name', flat=True))
+
+    @property
+    @lru_cache(maxsize=1)
+    def main_engine(self) -> Optional['GameEngine']:
+        """Main engine (first in list) with caching."""
+        return self.engines.first()
 
     # ===== OPTIMIZED SERIES PROPERTIES =====
     @property
