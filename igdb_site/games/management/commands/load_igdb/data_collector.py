@@ -720,6 +720,7 @@ class DataCollector:
         all_genre_ids = set()
         all_platform_ids = set()
         all_keyword_ids = set()
+        all_engine_ids = set()  # НОВОЕ: для движков
         game_data_map = {}
 
         # НОВОЕ: собираем информацию о скриншотах
@@ -748,6 +749,14 @@ class DataCollector:
             if game_data.get('keywords'):
                 all_keyword_ids.update(game_data['keywords'])
 
+            # НОВОЕ: собираем ID движков
+            if game_data.get('game_engines'):
+                for engine in game_data['game_engines']:
+                    if isinstance(engine, dict) and engine.get('id'):
+                        all_engine_ids.add(engine['id'])
+                    elif isinstance(engine, int):
+                        all_engine_ids.add(engine)
+
             # НОВОЕ: собираем информацию о скриншотах
             if game_data.get('screenshots'):
                 screenshots_info[game_id] = len(game_data['screenshots'])
@@ -763,6 +772,7 @@ class DataCollector:
             self.stdout.write(f'      • Жанров: {len(all_genre_ids)}')
             self.stdout.write(f'      • Платформ: {len(all_platform_ids)}')
             self.stdout.write(f'      • Ключевых слов: {len(all_keyword_ids)}')
+            self.stdout.write(f'      • Движков: {len(all_engine_ids)}')  # НОВОЕ
             # НОВОЕ:
             games_with_screenshots = len([v for v in screenshots_info.values() if v > 0])
             self.stdout.write(f'      • Игр со скриншотами: {games_with_screenshots}')
@@ -774,6 +784,7 @@ class DataCollector:
             'all_genre_ids': list(all_genre_ids),
             'all_platform_ids': list(all_platform_ids),
             'all_keyword_ids': list(all_keyword_ids),
+            'all_engine_ids': list(all_engine_ids),  # НОВОЕ
             'all_screenshot_games': all_game_ids,  # Все игры могут иметь скриншоты
             'screenshots_info': screenshots_info,  # НОВОЕ: передаем информацию о скриншотах
         }

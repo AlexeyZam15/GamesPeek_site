@@ -2,7 +2,8 @@
 import time
 from games.models import (
     Game, Genre, Keyword, Platform, Series,
-    Company, Theme, PlayerPerspective, GameMode, Screenshot
+    Company, Theme, PlayerPerspective, GameMode, Screenshot,
+    GameEngine
 )
 from django.db.models import Count, Q
 
@@ -35,6 +36,11 @@ class Statistics:
             'keywords': {
                 'created': 0,
                 'total_in_db': Keyword.objects.count(),
+                'possible': 0
+            },
+            'engines': {  # НОВОЕ
+                'created': 0,
+                'total_in_db': GameEngine.objects.count(),
                 'possible': 0
             },
             'series': {
@@ -74,6 +80,7 @@ class Statistics:
             ('genre_map', 'genres', Genre),
             ('platform_map', 'platforms', Platform),
             ('keyword_map', 'keywords', Keyword),
+            ('engine_map', 'engines', GameEngine),  # НОВОЕ
             ('series_map', 'series', Series),
             ('company_map', 'companies', Company),
             ('theme_map', 'themes', Theme),
@@ -115,6 +122,7 @@ class Statistics:
             'genres': 0,
             'platforms': 0,
             'keywords': 0,
+            'engines': 0,  # НОВОЕ
             'series': 0,
             'developers': 0,
             'publishers': 0,
@@ -133,6 +141,7 @@ class Statistics:
             'genres': relations_results.get('genre_relations', 0),
             'platforms': relations_results.get('platform_relations', 0),
             'keywords': relations_results.get('keyword_relations', 0),
+            'engines': relations_results.get('engine_relations', 0),  # НОВОЕ
             'series': relations_results.get('series_relations', 0),
             'developers': relations_results.get('developer_relations', 0),
             'publishers': relations_results.get('publisher_relations', 0),
@@ -174,6 +183,7 @@ class Statistics:
                 ('genres', 'Жанры'),
                 ('platforms', 'Платформы'),
                 ('keywords', 'Ключевые слова'),
+                ('engines', 'Игровые движки'),
                 ('series', 'Серии'),
                 ('companies', 'Компании'),
                 ('themes', 'Темы'),
@@ -225,6 +235,7 @@ class Statistics:
                 'genres': 'Связи с жанрами',
                 'platforms': 'Связи с платформами',
                 'keywords': 'Связи с ключевыми словами',
+                'engines': 'Связи с игровыми движками',
                 'series': 'Связи с сериями',
                 'developers': 'Связи с разработчиками',
                 'publishers': 'Связи с издателями',

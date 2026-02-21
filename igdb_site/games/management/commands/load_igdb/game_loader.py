@@ -2856,6 +2856,7 @@ class GameLoader:
             'has_genres': game_obj.genres.exists(),
             'has_platforms': game_obj.platforms.exists(),
             'has_keywords': game_obj.keywords.exists(),
+            'has_engines': game_obj.engines.exists(),  # ✅ ДОБАВЛЕНО!
             'has_description': bool(game_obj.summary and game_obj.summary.strip()),
             'has_rating': game_obj.rating is not None,
             'has_release_date': game_obj.first_release_date is not None,
