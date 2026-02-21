@@ -95,7 +95,7 @@ class RelationsHandler:
         if not all_game_relations:
             if debug:
                 self.stdout.write('   ⚠️  Нет связей для создания')
-            return 0, 0, 0
+            return 0, 0, 0, 0  # Изменено: теперь 4 значения
 
         # Получаем ID всех игр из relations
         game_ids = [rel['game_id'] for rel in all_game_relations]
@@ -124,13 +124,19 @@ class RelationsHandler:
             all_game_relations, game_map, 'keywords', Game.keywords.through, 'keyword', debug
         )
 
+        # НОВОЕ: Движки
+        engine_relations = self._create_relations(
+            all_game_relations, game_map, 'engines', Game.engines.through, 'gameengine', debug
+        )
+
         if debug:
             self.stdout.write(f'   ✅ Создано связей:')
             self.stdout.write(f'      • С жанрами: {genre_relations}')
             self.stdout.write(f'      • С платформами: {platform_relations}')
             self.stdout.write(f'      • С ключевыми словами: {keyword_relations}')
+            self.stdout.write(f'      • С движками: {engine_relations}')  # НОВОЕ
 
-        return genre_relations, platform_relations, keyword_relations
+        return genre_relations, platform_relations, keyword_relations, engine_relations
 
     def create_all_additional_relations(self, all_game_relations, debug=False):
         """Создает все дополнительные M2M связи для игр"""
@@ -236,6 +242,7 @@ class RelationsHandler:
                 'genres': [],
                 'platforms': [],
                 'keywords': [],
+                'engines': [],  # НОВОЕ: для движков
                 'series': [],  # Теперь M2M - список
                 'developers': [],
                 'publishers': [],
@@ -258,6 +265,13 @@ class RelationsHandler:
             for kid in game_data.get('keywords', []):
                 if kid in data_maps.get('keyword_map', {}):
                     relations['keywords'].append(data_maps['keyword_map'][kid])
+
+            # НОВОЕ: Движки
+            for eid_data in game_data.get('game_engines', []):
+                # Может быть как числом, так и словарем
+                eid = eid_data if isinstance(eid_data, int) else eid_data.get('id')
+                if eid and eid in data_maps.get('engine_map', {}):
+                    relations['engines'].append(data_maps['engine_map'][eid])
 
             # Серии - теперь M2M, добавляем все серии
             series_ids_in_data = additional_data.get('collections', [])
@@ -295,6 +309,7 @@ class RelationsHandler:
                 relations['genres'],
                 relations['platforms'],
                 relations['keywords'],
+                relations['engines'],  # НОВОЕ
                 relations['series'],
                 relations['developers'],
                 relations['publishers'],
@@ -318,6 +333,7 @@ class RelationsHandler:
                     'genres': 0,
                     'platforms': 0,
                     'keywords': 0,
+                    'engines': 0,  # НОВОЕ
                     'series': 0,
                     'developers': 0,
                     'publishers': 0,
@@ -350,6 +366,7 @@ class RelationsHandler:
             'possible_genre_relations': 0,
             'possible_platform_relations': 0,
             'possible_keyword_relations': 0,
+            'possible_engine_relations': 0,  # НОВОЕ
             'possible_series_relations': 0,
             'possible_developer_relations': 0,
             'possible_publisher_relations': 0,
@@ -364,8 +381,8 @@ class RelationsHandler:
                 field_name = key.replace('possible_', '').replace('_relations', '')
                 possible_stats[key] += len(rel.get(field_name, []))
 
-        # Основные связи
-        genre_relations, platform_relations, keyword_relations = self.create_relations_batch(
+        # Основные связи (теперь 4 значения)
+        genre_relations, platform_relations, keyword_relations, engine_relations = self.create_relations_batch(
             all_game_relations, debug
         )
 
@@ -378,6 +395,7 @@ class RelationsHandler:
             'genre_relations': genre_relations,
             'platform_relations': platform_relations,
             'keyword_relations': keyword_relations,
+            'engine_relations': engine_relations,  # НОВОЕ
             **additional_results
         }
 

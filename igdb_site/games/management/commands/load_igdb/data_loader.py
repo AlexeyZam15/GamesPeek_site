@@ -25,6 +25,17 @@ class DataLoader:
         self._interrupted = threading.Event()
         self.debug_mode = False  # Добавляем атрибут
 
+    def load_engines_parallel(self, engine_ids, debug=False):
+        """Параллельная загрузка игровых движков"""
+
+        def process_batch(batch_num, batch_ids, result_map, lock, total_batches, name, debug):
+            return self._process_batch_template(
+                batch_num, batch_ids, result_map, lock, total_batches, name, debug,
+                'game_engines', GameEngine
+            )
+
+        return self._batch_processor_regular(engine_ids, process_batch, '⚙️', 'движков', debug)
+
     def debug_cover_format(self, cover_id, debug=False):
         """Отладочный метод для проверки формата обложки"""
         query = f'fields id,url,image_id; where id = {cover_id};'
@@ -480,6 +491,8 @@ class DataLoader:
                 collected_data['all_platform_ids'], 'platforms', Platform, '🖥️', 'платформ', debug), 'platform_map'),
             ('🔑 Ключевые слова', 'keywords', lambda: self.load_keywords_parallel_with_weights(
                 collected_data['all_keyword_ids'], debug), 'keyword_map'),
+            ('⚙️ Движки', 'engines', lambda: self.load_engines_parallel(  # НОВЫЙ ШАГ
+                collected_data.get('all_engine_ids', []), debug), 'engine_map'),
         ]
 
         # Загружаем только основные данные

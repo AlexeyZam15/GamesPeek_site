@@ -254,6 +254,8 @@ class Game(models.Model):
             async_update: Обновление в фоне
         """
         from django.conf import settings
+        import logging
+        logger = logging.getLogger(__name__)
 
         # Отключаем автоматическое обновление в DEBUG режиме
         if getattr(settings, 'DISABLE_AUTO_CACHE_UPDATES', False) and not force:
@@ -317,8 +319,6 @@ class Game(models.Model):
                     '_cached_engine_count', '_cache_updated_at'  # Добавляем новое поле
                 ])
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
             logger.error(f"Error updating game cache for {self.id}: {str(e)}")
 
     def update_materialized_vectors(self, force: bool = False) -> None:
@@ -329,6 +329,9 @@ class Game(models.Model):
         Args:
             force: Принудительное обновление даже если данные не изменились
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
         try:
             # Загружаем игру со всеми необходимыми prefetch_related
             game = Game.objects.filter(id=self.id).prefetch_related(
@@ -344,14 +347,14 @@ class Game(models.Model):
             if not game:
                 return
 
-            # Получаем списки ID
-            new_genre_ids = list(game.genres.values_list('id', flat=True))
-            new_keyword_ids = list(game.keywords.values_list('id', flat=True))
-            new_theme_ids = list(game.themes.values_list('id', flat=True))
-            new_perspective_ids = list(game.player_perspectives.values_list('id', flat=True))
-            new_developer_ids = list(game.developers.values_list('id', flat=True))
-            new_game_mode_ids = list(game.game_modes.values_list('id', flat=True))
-            new_engine_ids = list(game.engines.values_list('id', flat=True))  # Добавляем ID движков
+            # Получаем списки ID - ВАЖНО: используем igdb_id, а не id!
+            new_genre_ids = list(game.genres.values_list('igdb_id', flat=True))
+            new_keyword_ids = list(game.keywords.values_list('igdb_id', flat=True))
+            new_theme_ids = list(game.themes.values_list('igdb_id', flat=True))
+            new_perspective_ids = list(game.player_perspectives.values_list('igdb_id', flat=True))
+            new_developer_ids = list(game.developers.values_list('igdb_id', flat=True))
+            new_game_mode_ids = list(game.game_modes.values_list('igdb_id', flat=True))
+            new_engine_ids = list(game.engines.values_list('igdb_id', flat=True))  # IGDB ID, не внутренний ID!
 
             # Проверяем, изменились ли данные
             needs_update = force or any([
@@ -385,14 +388,11 @@ class Game(models.Model):
                     engine_ids=self.engine_ids  # Добавляем обновление
                 )
 
-                logger = logging.getLogger(__name__)
                 logger.debug(f"Updated materialized vectors for game {self.id}: "
                              f"genres={len(self.genre_ids)}, keywords={len(self.keyword_ids)}, "
                              f"engines={len(self.engine_ids)}")
 
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
             logger.error(f"Error updating materialized vectors for game {self.id}: {str(e)}")
 
     @classmethod
