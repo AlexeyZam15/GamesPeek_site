@@ -469,6 +469,14 @@ def game_list(request: HttpRequest) -> HttpResponse:
 
     filter_data = _get_optimized_filter_data()
 
+    # ОТЛАДКА: проверяем, что пришло из filter_data
+    print(f"DEBUG game_list: filter_data keys = {filter_data.keys()}")
+    print(f"DEBUG game_list: engines count = {len(filter_data.get('engines', []))}")
+    if filter_data.get('engines'):
+        print(f"DEBUG game_list: first engine = {filter_data['engines'][0].name if filter_data['engines'] else 'None'}")
+    else:
+        print("DEBUG game_list: engines list is EMPTY in filter_data!")
+
     # Подготавливаем контекст с пустыми данными
     context = {
         # Пустые данные для игр - они будут загружены через AJAX
@@ -498,6 +506,7 @@ def game_list(request: HttpRequest) -> HttpResponse:
         'platforms': filter_data['platforms'],
         'popular_keywords': filter_data['popular_keywords'],
         'game_types': GameTypeEnum.CHOICES,
+        'engines': filter_data.get('engines', []),  # ИЗМЕНЕНО: используем get с default []
 
         'years_range': years_range,
         'current_year': timezone.now().year,
@@ -512,6 +521,7 @@ def game_list(request: HttpRequest) -> HttpResponse:
         'selected_release_year_start': selected_criteria['release_year_start'],
         'selected_release_year_end': selected_criteria['release_year_end'],
         'selected_developers': selected_criteria['developers'],
+        'selected_engines': selected_criteria.get('engines', []),  # ИЗМЕНЕНО: используем get
 
         'selected_genres_objects': selected_criteria_objects.get('genres', []),
         'selected_keywords_objects': selected_criteria_objects.get('keywords', []),
@@ -520,6 +530,7 @@ def game_list(request: HttpRequest) -> HttpResponse:
         'selected_perspectives_objects': selected_criteria_objects.get('perspectives', []),
         'selected_game_modes_objects': selected_criteria_objects.get('game_modes', []),
         'selected_developers_objects': selected_criteria_objects.get('developers', []),
+        'selected_engines_objects': selected_criteria_objects.get('engines', []),  # ИЗМЕНЕНО: используем get
 
         'current_sort': params.get('sort', ''),
 
@@ -529,9 +540,14 @@ def game_list(request: HttpRequest) -> HttpResponse:
             'mode': 'ajax_only',
             'message': 'Initial page load - data will be loaded via AJAX',
             'find_similar': find_similar,
-            'has_source_game': source_game_obj is not None
+            'has_source_game': source_game_obj is not None,
+            'engines_count': len(filter_data.get('engines', [])),  # ДОБАВЛЕНО
         }
     }
+
+    # ОТЛАДКА: проверяем контекст перед рендерингом
+    print(f"DEBUG game_list context: engines in context = {len(context.get('engines', []))}")
+    print(f"DEBUG game_list context: debug_info.engines_count = {context['debug_info']['engines_count']}")
 
     # Если есть source_game, создаем SimpleSourceGame для шаблонов
     if source_game_obj:
@@ -548,6 +564,8 @@ def game_list(request: HttpRequest) -> HttpResponse:
                                                                                       'developers') else [],
             'game_modes': [gm.id for gm in source_game_obj.game_modes.all()] if hasattr(source_game_obj,
                                                                                         'game_modes') else [],
+            'engines': [e.id for e in source_game_obj.engines.all()] if hasattr(source_game_obj, 'engines') else [],
+            # ДОБАВЛЕНО
         }
 
         context['source_game'] = SimpleSourceGame(
@@ -588,7 +606,8 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
         selected_criteria['keywords'],
         selected_criteria['themes'],
         selected_criteria['perspectives'],
-        selected_criteria['game_modes']
+        selected_criteria['game_modes'],
+        selected_criteria['engines']  # ДОБАВЛЕНО
     ])):
         # Режим похожих игр
         mode_result = _get_similar_games_mode_with_pagination(
@@ -683,6 +702,7 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
     template_context['platforms'] = filter_data['platforms']
     template_context['popular_keywords'] = filter_data['popular_keywords']
     template_context['game_types'] = GameTypeEnum.CHOICES
+    template_context['engines'] = filter_data['engines']  # ДОБАВЛЕНО: движки для фильтра
     template_context['years_range'] = _get_cached_years_range()
     template_context['current_year'] = timezone.now().year
 
@@ -1158,7 +1178,8 @@ def _has_similarity_criteria(selected_criteria: Dict[str, List[int]]) -> bool:
         selected_criteria['keywords'],
         selected_criteria['themes'],
         selected_criteria['perspectives'],
-        selected_criteria['game_modes']
+        selected_criteria['game_modes'],
+        selected_criteria['engines']  # ДОБАВЛЕНО
     ]
 
     return any(similarity_criteria)
@@ -1196,6 +1217,11 @@ def _get_selected_criteria_objects(selected_criteria: Dict[str, List[int]]) -> D
     if selected_criteria['game_modes']:
         selected_objects['game_modes'] = list(GameMode.objects.filter(
             id__in=selected_criteria['game_modes']
+        ).only('id', 'name'))
+
+    if selected_criteria['engines']:  # ДОБАВЛЕНО
+        selected_objects['engines'] = list(GameEngine.objects.filter(
+            id__in=selected_criteria['engines']
         ).only('id', 'name'))
 
     return selected_objects
@@ -1252,7 +1278,8 @@ def _get_similar_games_mode(params: Dict[str, str], selected_criteria: Dict[str,
                 f"ключевые слова={len(selected_criteria['keywords'])}, "
                 f"темы={len(selected_criteria['themes'])}, "
                 f"перспективы={len(selected_criteria['perspectives'])}, "
-                f"режимы игры={len(selected_criteria['game_modes'])}")
+                f"режимы игры={len(selected_criteria['game_modes'])}, "
+                f"движки={len(selected_criteria['engines'])}")  # ИЗМЕНЕНО
 
     if source_game_obj:
         logger.info(f"Поиск похожих игр для игры: {source_game_obj.name} (ID: {source_game_obj.id})")
@@ -1311,6 +1338,15 @@ def _get_similar_games_mode(params: Dict[str, str], selected_criteria: Dict[str,
         else:
             game_criteria['game_modes'] = []
 
+        # ДОБАВЛЕНО: сбор движков
+        if hasattr(source_game_obj,
+                   '_prefetched_objects_cache') and 'engines' in source_game_obj._prefetched_objects_cache:
+            game_criteria['engines'] = [e.id for e in source_game_obj.engines.all()]
+        elif hasattr(source_game_obj, 'engines') and hasattr(source_game_obj.engines, 'all'):
+            game_criteria['engines'] = [e.id for e in source_game_obj.engines.all()]
+        else:
+            game_criteria['engines'] = []
+
         source_game = SimpleSourceGame(
             game_obj=source_game_obj,
             criteria=game_criteria,
@@ -1326,36 +1362,6 @@ def _get_similar_games_mode(params: Dict[str, str], selected_criteria: Dict[str,
             criteria=selected_criteria,
             display_name=source_display
         )
-
-    logger.info(f"Найдено {len(similar_games_data)} игр до форматирования")
-
-    games_with_similarity = _format_similar_games_data(similar_games_data, limit=500)
-
-    logger.info(f"После форматирования: {len(games_with_similarity)} игр")
-
-    _sort_similar_games(games_with_similarity, current_sort)
-
-    # Используем пагинатор Django
-    paginator = Paginator(games_with_similarity, ITEMS_PER_PAGE)
-
-    try:
-        page_obj = paginator.page(page_number)
-    except PageNotAnInteger:
-        page_obj = paginator.page(1)
-    except EmptyPage:
-        page_obj = paginator.page(paginator.num_pages)
-
-    return {
-        'page_obj': page_obj,
-        'paginator': paginator,
-        'is_paginated': paginator.num_pages > 1,
-        'total_count': paginator.count,
-        'games_with_similarity': list(page_obj.object_list),
-        'show_similarity': True,
-        'find_similar': True,
-        'source_game': source_game,
-        'source_game_obj': source_game_obj,
-    }
 
 
 # Экспортируем все публичные функции

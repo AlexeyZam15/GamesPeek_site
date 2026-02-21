@@ -1,10 +1,10 @@
-// games/static/games/js/game_listfilters-ui.js
+// games/static/games/js/game_list/filters-ui.js
 
 const FilterUI = {
     // Инициализация секций
     initializeSections() {
         console.log('Initializing sections...');
-        
+
         // Восстановление состояний из localStorage
         setTimeout(() => {
             this.restoreSectionStates();
@@ -22,7 +22,8 @@ const FilterUI = {
             { btn: '.show-all-themes-btn', list: '.theme-list' },
             { btn: '.show-all-perspectives-btn', list: '.perspective-list' },
             { btn: '.show-all-game-modes-btn', list: '.game-mode-list' },
-            { btn: '.show-all-game-types-btn', list: '.game-type-list' }
+            { btn: '.show-all-game-types-btn', list: '.game-type-list' },
+            { btn: '.show-all-engines-btn', list: '.engine-list' }
         ];
 
         toggles.forEach(({ btn, list }) => {
@@ -303,7 +304,7 @@ const FilterUI = {
         const searchInputs = [
             'genre-search', 'keyword-search', 'platform-search',
             'theme-search', 'perspective-search', 'game-mode-search',
-            'game-type-search'
+            'game-type-search', 'engine-search'
         ];
 
         searchInputs.forEach(inputId => {
@@ -385,7 +386,8 @@ const FilterUI = {
             '.active-theme-tag',
             '.active-perspective-tag',
             '.active-game-mode-tag',
-            '.active-game-type-tag'
+            '.active-game-type-tag',
+            '.active-engine-tag'
         ];
 
         badgeSelectors.forEach(selector => {
@@ -424,7 +426,8 @@ const FilterUI = {
             '.theme-checkbox',
             '.perspective-checkbox',
             '.game-mode-checkbox',
-            '.game-type-checkbox'
+            '.game-type-checkbox',
+            '.engine-checkbox'
         ];
 
         checkboxSelectors.forEach(selector => {

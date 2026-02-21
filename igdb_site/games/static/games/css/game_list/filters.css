@@ -4,7 +4,7 @@
 /* УНИФИЦИРОВАННЫЕ СТИЛИ ДЛЯ ВСЕХ СПИСКОВ С ЧЕКБОКСАМИ */
 .platform-list, .genre-list, .keyword-list,
 .theme-list, .perspective-list, .developer-list,
-.game-mode-list, .game-type-list {
+.game-mode-list, .game-type-list, .engine-list {
     background: var(--surface-dark);
     border: 1px solid var(--border);
     border-radius: var(--border-radius);
@@ -19,7 +19,7 @@
 /* Общие стили для всех гридов */
 .platform-grid, .genre-grid, .keyword-grid,
 .theme-grid, .perspective-grid, .developer-grid,
-.game-mode-grid, .game-type-grid {
+.game-mode-grid, .game-type-grid, .engine-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: 12px;
@@ -29,7 +29,7 @@
 /* Общие стили для всех элементов списка */
 .platform-item, .genre-item, .keyword-item,
 .theme-item, .perspective-item, .developer-item,
-.game-mode-item, .game-type-item {
+.game-mode-item, .game-type-item, .engine-item {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -42,7 +42,7 @@
 /* Общие стили для hover эффектов */
 .platform-item:hover, .genre-item:hover, .keyword-item:hover,
 .theme-item:hover, .perspective-item:hover, .developer-item:hover,
-.game-mode-item:hover, .game-type-item:hover {
+.game-mode-item:hover, .game-type-item:hover, .engine-item:hover {
     border-color: var(--secondary-color);
     background: rgba(255, 107, 53, 0.08);
     transform: translateY(-2px);
@@ -57,7 +57,8 @@
 .perspective-item .form-check-label,
 .developer-item .form-check-label,
 .game-mode-item .form-check-label,
-.game-type-item .form-check-label {
+.game-type-item .form-check-label,
+.engine-item .form-check-label {
     color: var(--text-dark);
     font-weight: 600;
     transition: color 0.2s ease;
@@ -73,7 +74,8 @@
 .perspective-item:hover .form-check-label,
 .developer-item:hover .form-check-label,
 .game-mode-item:hover .form-check-label,
-.game-type-item:hover .form-check-label {
+.game-type-item:hover .form-check-label,
+.engine-item:hover .form-check-label {
     color: var(--text-light);
 }
 
@@ -102,7 +104,8 @@
 .perspective-list::-webkit-scrollbar,
 .developer-list::-webkit-scrollbar,
 .game-mode-list::-webkit-scrollbar,
-.game-type-list::-webkit-scrollbar {
+.game-type-list::-webkit-scrollbar,
+.engine-list::-webkit-scrollbar {
     width: 6px;
 }
 
@@ -113,7 +116,8 @@
 .perspective-list::-webkit-scrollbar-track,
 .developer-list::-webkit-scrollbar-track,
 .game-mode-list::-webkit-scrollbar-track,
-.game-type-list::-webkit-scrollbar-track {
+.game-type-list::-webkit-scrollbar-track,
+.engine-list::-webkit-scrollbar-track {
     background: var(--surface);
     border-radius: 3px;
 }
@@ -125,7 +129,8 @@
 .perspective-list::-webkit-scrollbar-thumb,
 .developer-list::-webkit-scrollbar-thumb,
 .game-mode-list::-webkit-scrollbar-thumb,
-.game-type-list::-webkit-scrollbar-thumb {
+.game-type-list::-webkit-scrollbar-thumb,
+.engine-list::-webkit-scrollbar-thumb {
     background: var(--secondary-color);
     border-radius: 3px;
 }
@@ -137,14 +142,15 @@
 .perspective-list::-webkit-scrollbar-thumb:hover,
 .developer-list::-webkit-scrollbar-thumb:hover,
 .game-mode-list::-webkit-scrollbar-thumb:hover,
-.game-type-list::-webkit-scrollbar-thumb:hover {
+.game-type-list::-webkit-scrollbar-thumb:hover,
+.engine-list::-webkit-scrollbar-thumb:hover {
     background: var(--accent-color);
 }
 
 /* Общие стили для полей поиска */
 #platform-search, #genre-search, #keyword-search,
 #theme-search, #perspective-search, #developer-search,
-#game-mode-search, #game-type-search {
+#game-mode-search, #game-type-search, #engine-search {
     background: var(--surface-dark);
     border: 2px solid var(--border);
     color: var(--text-light);
@@ -157,7 +163,7 @@
 
 #platform-search:focus, #genre-search:focus, #keyword-search:focus,
 #theme-search:focus, #perspective-search:focus, #developer-search:focus,
-#game-mode-search:focus, #game-type-search:focus {
+#game-mode-search:focus, #game-type-search:focus, #engine-search:focus {
     border-color: var(--secondary-color);
     box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.1);
     background: var(--surface);
@@ -166,7 +172,7 @@
 /* Общие стили для кнопок "Show all" */
 .show-all-platforms-btn, .show-all-genres-btn, .show-all-keywords-btn,
 .show-all-themes-btn, .show-all-perspectives-btn, .show-all-developers-btn,
-.show-all-game-modes-btn, .show-all-game-types-btn {
+.show-all-game-modes-btn, .show-all-game-types-btn, .show-all-engines-btn {
     background: transparent;
     border: 2px solid var(--border);
     color: var(--text-dark);
@@ -180,7 +186,7 @@
 
 .show-all-platforms-btn:hover, .show-all-genres-btn:hover, .show-all-keywords-btn:hover,
 .show-all-themes-btn:hover, .show-all-perspectives-btn:hover, .show-all-developers-btn:hover,
-.show-all-game-modes-btn:hover, .show-all-game-types-btn:hover {
+.show-all-game-modes-btn:hover, .show-all-game-types-btn:hover, .show-all-engines-btn:hover {
     border-color: var(--secondary-color);
     color: var(--secondary-color);
     background: rgba(255, 107, 53, 0.05);
@@ -190,7 +196,7 @@
 /* Общие стили для активных тегов */
 .active-platform-tag, .active-genre-tag, .active-keyword-tag,
 .active-theme-tag, .active-perspective-tag, .active-developer-tag,
-.active-game-mode-tag, .active-game-type-tag {
+.active-game-mode-tag, .active-game-type-tag, .active-engine-tag {
     transition: all 0.3s ease;
     display: inline-flex;
     align-items: center;
@@ -207,7 +213,7 @@
 
 .active-platform-tag:hover, .active-genre-tag:hover, .active-keyword-tag:hover,
 .active-theme-tag:hover, .active-perspective-tag:hover, .active-developer-tag:hover,
-.active-game-mode-tag:hover, .active-game-type-tag:hover {
+.active-game-mode-tag:hover, .active-game-type-tag:hover, .active-engine-tag:hover {
     transform: translateY(-2px);
     box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
     opacity: 0.9;
@@ -216,7 +222,7 @@
 /* Общие стили для кнопок очистки */
 .clear-platforms-btn, .clear-genres-btn, .clear-keywords-btn,
 .clear-themes-btn, .clear-perspectives-btn, .clear-developers-btn,
-.clear-game-modes-btn, .clear-game-types-btn {
+.clear-game-modes-btn, .clear-game-types-btn, .clear-engines-btn {
     transition: all 0.3s ease !important;
     border-width: 2px !important;
     font-weight: 700 !important;
@@ -228,7 +234,7 @@
 
 .clear-platforms-btn:hover, .clear-genres-btn:hover, .clear-keywords-btn:hover,
 .clear-themes-btn:hover, .clear-perspectives-btn:hover, .clear-developers-btn:hover,
-.clear-game-modes-btn:hover, .clear-game-types-btn:hover {
+.clear-game-modes-btn:hover, .clear-game-types-btn:hover, .clear-engines-btn:hover {
     transform: translateY(-2px);
     box-shadow: 0 6px 15px rgba(0, 0, 0, 0.2);
 }
@@ -266,6 +272,11 @@
 
 .active-game-type-tag {
     background: linear-gradient(135deg, #17a2b8, #20c997) !important;
+    color: white !important;
+}
+
+.active-engine-tag {
+    background: linear-gradient(135deg, #e67e22, #d35400) !important;
     color: white !important;
 }
 
@@ -340,6 +351,16 @@
     color: white !important;
 }
 
+.clear-engines-btn {
+    border-color: #e67e22 !important;
+    color: #e67e22 !important;
+}
+
+.clear-engines-btn:hover {
+    background-color: #e67e22 !important;
+    color: white !important;
+}
+
 /* Стили для подсекций */
 .filter-subsection {
     margin-bottom: 25px;
@@ -387,7 +408,7 @@
 @media (max-width: 1200px) {
     .platform-grid, .genre-grid, .keyword-grid,
     .theme-grid, .perspective-grid, .developer-grid,
-    .game-mode-grid, .game-type-grid {
+    .game-mode-grid, .game-type-grid, .engine-grid {
         grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
         gap: 10px;
     }
@@ -396,14 +417,14 @@
 @media (max-width: 992px) {
     .platform-grid, .genre-grid, .keyword-grid,
     .theme-grid, .perspective-grid, .developer-grid,
-    .game-mode-grid, .game-type-grid {
+    .game-mode-grid, .game-type-grid, .engine-grid {
         grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
         gap: 8px;
     }
 
     .platform-item, .genre-item, .keyword-item,
     .theme-item, .perspective-item, .developer-item,
-    .game-mode-item, .game-type-item {
+    .game-mode-item, .game-type-item, .engine-item {
         padding: 10px 12px;
     }
 
@@ -415,7 +436,7 @@
 @media (max-width: 768px) {
     .platform-grid, .genre-grid, .keyword-grid,
     .theme-grid, .perspective-grid, .developer-grid,
-    .game-mode-grid, .game-type-grid {
+    .game-mode-grid, .game-type-grid, .engine-grid {
         grid-template-columns: 1fr;
         gap: 6px;
     }
@@ -434,14 +455,14 @@
 @media (max-width: 576px) {
     .active-platform-tag, .active-genre-tag, .active-keyword-tag,
     .active-theme-tag, .active-perspective-tag, .active-developer-tag,
-    .active-game-mode-tag, .active-game-type-tag {
+    .active-game-mode-tag, .active-game-type-tag, .active-engine-tag {
         padding: 6px 12px !important;
         font-size: 0.8rem !important;
     }
 
     .clear-platforms-btn, .clear-genres-btn, .clear-keywords-btn,
     .clear-themes-btn, .clear-perspectives-btn, .clear-developers-btn,
-    .clear-game-modes-btn, .clear-game-types-btn {
+    .clear-game-modes-btn, .clear-game-types-btn, .clear-engines-btn {
         padding: 4px 12px !important;
         font-size: 0.85rem !important;
     }

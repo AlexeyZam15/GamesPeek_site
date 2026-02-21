@@ -122,6 +122,27 @@
         }
     };
 
+    // ===== НОВЫЕ ФУНКЦИИ ДЛЯ ДВИЖКОВ =====
+    window.toggleMoreengines = function(button) {
+        const hiddenSection = document.getElementById('hidden-engines-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleLessengines = function(button) {
+        const hiddenSection = document.getElementById('hidden-engines-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
     // ===== ФУНКЦИИ ДЛЯ УПРАВЛЕНИЯ ФИЛЬТРОМ ДАТЫ =====
 
     let minYear = window.minYear || 1970;
@@ -457,6 +478,14 @@
                 .show-more-keywords,
                 .show-less-keywords,
                 .show-all-keywords-btn {
+                    border: 2px solid var(--secondary-color, #ff6b35) !important;
+                }
+
+                /* Стили для кнопок движков */
+                .clear-engines-btn,
+                .show-more-engines,
+                .show-less-engines,
+                .show-all-engines-btn {
                     border: 2px solid var(--secondary-color, #ff6b35) !important;
                 }
             `;

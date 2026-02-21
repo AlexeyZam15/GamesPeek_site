@@ -2440,13 +2440,13 @@ class GameLoader:
             if debug:
                 self.stdout.write(f'   📊 Недостающих данных: {missing_count} из {len(missing_data)}')
 
-            # Загружаем данные игры из IGDB
+            # Загружаем данные игры из IGDB с ВСЕМИ необходимыми полями
             query = f'''
                 fields id,name,summary,storyline,genres,keywords,rating,rating_count,
                        first_release_date,platforms,cover,game_type,screenshots,
                        collections,franchises,involved_companies.company,
                        involved_companies.developer,involved_companies.publisher,
-                       themes,player_perspectives,game_modes;
+                       themes,player_perspectives,game_modes,game_engines;
                 where id = {game_id};
             '''
 
@@ -2461,16 +2461,23 @@ class GameLoader:
             if debug:
                 self.stdout.write(f'   📥 ДАННЫЕ ИЗ IGDB:')
                 self.stdout.write(f'      • ID обложки в IGDB: {game_data.get("cover")}')
+                if game_data.get('game_engines'):
+                    self.stdout.write(f'      • Движки в IGDB: {game_data.get("game_engines")}')
+                    for engine in game_data.get('game_engines', []):
+                        if isinstance(engine, dict):
+                            self.stdout.write(f'         - {engine.get("name")} (ID: {engine.get("id")})')
+                        else:
+                            self.stdout.write(f'         - ID: {engine}')
 
             # Создаем экземпляры для обработки данных
             collector = DataCollector(self.stdout, self.stderr)
             loader = DataLoader(self.stdout, self.stderr)
             handler = RelationsHandler(self.stdout, self.stderr)
 
-            # Собираем все ID данных
+            # Собираем все ID данных (включая движки!)
             collected_data = collector.collect_all_data_ids([game_data], debug)
 
-            # Загружаем все типы данных
+            # Загружаем все типы данных (включая движки!)
             data_maps, step_times = loader.load_all_data_types_sequentially(
                 collected_data, debug
             )
@@ -2532,7 +2539,7 @@ class GameLoader:
                     if debug:
                         self.stdout.write(f'   📸 Загружено скриншотов: {screenshots_loaded}')
 
-            # 7. Подготавливаем и создаем ВСЕ связи M2M
+            # 7. Подготавливаем и создаем ВСЕ связи M2M (включая движки!)
             game_basic_map = {game_id: game}
             additional_data_map = {game_id: game_data}
 
@@ -2547,6 +2554,7 @@ class GameLoader:
                 needs_genres = not missing_data['has_genres'] and game_data.get('genres')
                 needs_platforms = not missing_data['has_platforms'] and game_data.get('platforms')
                 needs_keywords = not missing_data['has_keywords'] and game_data.get('keywords')
+                needs_engines = not missing_data['has_engines'] and game_data.get('game_engines')  # ДОБАВЛЕНО!
                 needs_series = not missing_data['has_series'] and game_data.get('collections')
                 needs_developers = not missing_data['has_developers'] and game_data.get('involved_companies')
                 needs_publishers = not missing_data['has_publishers'] and game_data.get('involved_companies')
@@ -2555,8 +2563,8 @@ class GameLoader:
                 needs_modes = not missing_data['has_modes'] and game_data.get('game_modes')
 
                 # Создаем только те связи, которые отсутствуют
-                if needs_genres or needs_platforms or needs_keywords:
-                    genre_count, platform_count, keyword_count = handler.create_relations_batch(
+                if needs_genres or needs_platforms or needs_keywords or needs_engines:  # ДОБАВЛЕНО needs_engines
+                    genre_count, platform_count, keyword_count, engine_count = handler.create_relations_batch(
                         all_game_relations, debug
                     )
 
@@ -2566,6 +2574,8 @@ class GameLoader:
                         details['updated_relations'].append(f'платформы ({platform_count})')
                     if keyword_count > 0:
                         details['updated_relations'].append(f'ключевые слова ({keyword_count})')
+                    if engine_count > 0:  # ДОБАВЛЕНО!
+                        details['updated_relations'].append(f'движки ({engine_count})')
 
                 # Создаем дополнительные связи
                 if any([needs_series, needs_developers, needs_publishers, needs_themes, needs_perspectives,
