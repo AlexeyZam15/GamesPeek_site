@@ -24,6 +24,10 @@ const FilterGlobal = {
         // Perspectives
         window.toggleMoreperspectives = (button) => this.toggleMore(button, 'perspectives');
         window.toggleLessperspectives = (button) => this.toggleLess(button, 'perspectives');
+
+        // ДОБАВИТЬ ЭТИ СТРОКИ - для движков
+        window.toggleMoreengines = (button) => this.toggleMore(button, 'engines');
+        window.toggleLessengines = (button) => this.toggleLess(button, 'engines');
     },
     
     toggleMore(button, type) {

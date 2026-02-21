@@ -341,7 +341,7 @@ class Game(models.Model):
                 'player_perspectives',
                 'developers',
                 'game_modes',
-                'engines'  # Добавляем prefetch для движков
+                'engines'
             ).first()
 
             if not game:
@@ -354,7 +354,7 @@ class Game(models.Model):
             new_perspective_ids = list(game.player_perspectives.values_list('igdb_id', flat=True))
             new_developer_ids = list(game.developers.values_list('igdb_id', flat=True))
             new_game_mode_ids = list(game.game_modes.values_list('igdb_id', flat=True))
-            new_engine_ids = list(game.engines.values_list('igdb_id', flat=True))  # IGDB ID, не внутренний ID!
+            new_engine_ids = list(game.engines.values_list('igdb_id', flat=True))
 
             # Проверяем, изменились ли данные
             needs_update = force or any([
@@ -364,7 +364,7 @@ class Game(models.Model):
                 set(new_perspective_ids) != set(self.perspective_ids or []),
                 set(new_developer_ids) != set(self.developer_ids or []),
                 set(new_game_mode_ids) != set(self.game_mode_ids or []),
-                set(new_engine_ids) != set(self.engine_ids or [])  # Добавляем проверку
+                set(new_engine_ids) != set(self.engine_ids or [])
             ])
 
             if needs_update:
@@ -375,7 +375,7 @@ class Game(models.Model):
                 self.perspective_ids = new_perspective_ids
                 self.developer_ids = new_developer_ids
                 self.game_mode_ids = new_game_mode_ids
-                self.engine_ids = new_engine_ids  # Добавляем установку
+                self.engine_ids = new_engine_ids
 
                 # Сохраняем только измененные поля
                 Game.objects.filter(id=self.id).update(
@@ -385,7 +385,7 @@ class Game(models.Model):
                     perspective_ids=self.perspective_ids,
                     developer_ids=self.developer_ids,
                     game_mode_ids=self.game_mode_ids,
-                    engine_ids=self.engine_ids  # Добавляем обновление
+                    engine_ids=self.engine_ids
                 )
 
                 logger.debug(f"Updated materialized vectors for game {self.id}: "

@@ -12,7 +12,8 @@ const FilterSort = {
         { container: '.keyword-grid', itemClass: 'keyword-item', checkboxClass: 'keyword-checkbox' },
         { container: '.theme-grid', itemClass: 'theme-item', checkboxClass: 'theme-checkbox' },
         { container: '.perspective-grid', itemClass: 'perspective-item', checkboxClass: 'perspective-checkbox' },
-        { container: '.game-mode-grid', itemClass: 'game-mode-item', checkboxClass: 'game-mode-checkbox' }
+        { container: '.game-mode-grid', itemClass: 'game-mode-item', checkboxClass: 'game-mode-checkbox' },
+        { container: '.engine-grid', itemClass: 'engine-item', checkboxClass: 'engine-checkbox' }
     ],
 
     // Флаг для предотвращения множественных сортировок
@@ -160,7 +161,8 @@ const FilterSort = {
             'themes': { container: '.theme-grid', itemClass: 'theme-item', checkboxClass: 'theme-checkbox' },
             'perspectives': { container: '.perspective-grid', itemClass: 'perspective-item', checkboxClass: 'perspective-checkbox' },
             'game_modes': { container: '.game-mode-grid', itemClass: 'game-mode-item', checkboxClass: 'game-mode-checkbox' },
-            'game_types': { container: '.game-type-grid', itemClass: 'game-type-item', checkboxClass: 'game-type-checkbox' }
+            'game_types': { container: '.game-type-grid', itemClass: 'game-type-item', checkboxClass: 'game-type-checkbox' },
+            'engines': { container: '.engine-grid', itemClass: 'engine-item', checkboxClass: 'engine-checkbox' }
         };
 
         const filterType = filterMap[filterName];

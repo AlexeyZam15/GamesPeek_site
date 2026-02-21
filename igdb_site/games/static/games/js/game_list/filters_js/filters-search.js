@@ -15,6 +15,7 @@ const FilterSearch = {
         this.setupSearchInput('theme-search', '.theme-item', 'data-theme-name');
         this.setupSearchInput('perspective-search', '.perspective-item', 'data-perspective-name');
         this.setupSearchInput('game-mode-search', '.game-mode-item', 'data-game-mode-name');
+        this.setupSearchInput('engine-search', '.engine-item', 'data-engine-name');
     },
 
     // Настройка одного поля поиска
@@ -44,7 +45,7 @@ const FilterSearch = {
 
             items.forEach(item => {
                 const itemName = item.getAttribute(dataAttribute);
-                const isMatch = itemName && itemName.includes(searchTerm);
+                const isMatch = itemName && itemName.toLowerCase().includes(searchTerm);  // ИСПРАВЛЕНО: toLowerCase()
 
                 if (isMatch) {
                     item.style.display = 'block';
@@ -146,7 +147,8 @@ const FilterSearch = {
             { inputId: 'theme-search', selector: '.theme-item', attr: 'data-theme-name' },
             { inputId: 'perspective-search', selector: '.perspective-item', attr: 'data-perspective-name' },
             { inputId: 'game-mode-search', selector: '.game-mode-item', attr: 'data-game-mode-name' },
-            { inputId: 'game-type-search', selector: '.game-type-item', attr: 'data-game-type-name' }
+            { inputId: 'game-type-search', selector: '.game-type-item', attr: 'data-game-type-name' },
+            { inputId: 'engine-search', selector: '.engine-item', attr: 'data-engine-name' }
         ];
 
         searchConfigs.forEach(config => {

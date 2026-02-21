@@ -4,8 +4,7 @@
     <div class="card-body">
         <form method="get" id="main-search-form">
             <!-- Скрытые параметры -->
-            <input type="hidden" name="find_similar" id="find_similar_field"
-                   value="{% if find_similar %}1{% else %}0{% endif %}">
+            <input type="hidden" name="find_similar" id="find_similar_field" value="{% if find_similar %}1{% else %}0{% endif %}">
             <input type="hidden" name="g" id="genres-field" value="{{ selected_genres|join:',' }}">
             <input type="hidden" name="k" id="keywords-field" value="{{ selected_keywords|join:',' }}">
             <input type="hidden" name="p" id="platforms-field" value="{{ selected_platforms|join:',' }}">
@@ -13,6 +12,7 @@
             <input type="hidden" name="pp" id="perspectives-field" value="{{ selected_perspectives|join:',' }}">
             <input type="hidden" name="gm" id="game-modes-field" value="{{ selected_game_modes|join:',' }}">
             <input type="hidden" name="gt" id="game-types-field" value="{{ selected_game_types|join:',' }}">
+            <input type="hidden" name="e" id="engines-field" value="{{ selected_engines|join:',' }}">
             <input type="hidden" name="yr" id="year-range-field" value="">
             <input type="hidden" name="ys" id="year-start-field" value="{{ selected_release_year_start|default:'' }}">
             <input type="hidden" name="ye" id="year-end-field" value="{{ selected_release_year_end|default:'' }}">

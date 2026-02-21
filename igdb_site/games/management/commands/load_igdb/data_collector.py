@@ -56,13 +56,16 @@ class DataCollector:
             if debug:
                 self.stdout.write(f'   🎯 Запрос самой популярной игры...')
 
-            # ЗАПРОС ДОЛЖЕН ВКЛЮЧАТЬ screenshots!
+            # ВАЖНО: добавляем game_engines в поля!
             query = f'''
-                fields id,name,summary,storyline,genres,keywords,rating,rating_count,first_release_date,platforms,cover,game_type,screenshots;
+                fields id,name,summary,storyline,genres,keywords,rating,rating_count,first_release_date,platforms,cover,game_type,screenshots,game_engines;
                 where {where_clause};
                 sort rating_count desc;
                 limit 1;
             '''.strip()
+
+            if debug:
+                self.stdout.write(f'   📝 Запрос: {query}')
 
             games = make_igdb_request('games', query, debug=False)
 
@@ -79,6 +82,10 @@ class DataCollector:
                     f'   ✅ Найдена игра: "{game.get("name")}" (ID: {game_id}, rating_count: {game.get("rating_count", 0)})')
                 if game.get('screenshots'):
                     self.stdout.write(f'   📸 Скриншотов у игры: {len(game.get("screenshots", []))}')
+                if game.get('game_engines'):
+                    self.stdout.write(f'   ⚙️ Движков у игры: {len(game.get("game_engines", []))}')
+                    for engine in game.get('game_engines', []):
+                        self.stdout.write(f'      • {engine}')
 
             # ВАЖНОЕ ИЗМЕНЕНИЕ: В режиме обновления мы ВСЕГДА возвращаем найденную игру
             # но отмечаем, существует ли она уже в базе
@@ -137,7 +144,7 @@ class DataCollector:
         if debug:
             self.stdout.write(f'🎯 Условие поиска (точное название): {where_clause}')
 
-        # Вместо load_games_by_query используем прямой запрос за ОДНОЙ игрой
+        # ВАЖНО: используем метод с game_engines в полях
         return self._load_single_game_by_exact_name_for_update(where_clause, debug, skip_existing, count_only)
 
     def _load_single_game_by_exact_name(self, where_clause, debug=False, skip_existing=True, count_only=False):
@@ -154,13 +161,16 @@ class DataCollector:
             if debug:
                 self.stdout.write(f'   🎯 Запрос самой популярной игры...')
 
-            # ЗАПРОС ДОЛЖЕН ВКЛЮЧАТЬ screenshots!
+            # ЗАПРОС ДОЛЖЕН ВКЛЮЧАТЬ screenshots И game_engines!
             query = f'''
-                fields id,name,summary,storyline,genres,keywords,rating,rating_count,first_release_date,platforms,cover,game_type,screenshots;
+                fields id,name,summary,storyline,genres,keywords,rating,rating_count,first_release_date,platforms,cover,game_type,screenshots,game_engines;
                 where {where_clause};
                 sort rating_count desc;
                 limit 1;
             '''.strip()
+
+            if debug:
+                self.stdout.write(f'   📝 Запрос: {query}')
 
             games = make_igdb_request('games', query, debug=False)
 
@@ -177,14 +187,19 @@ class DataCollector:
                     f'   ✅ Найдена игра: "{game.get("name")}" (ID: {game_id}, rating_count: {game.get("rating_count", 0)})')
                 if game.get('screenshots'):
                     self.stdout.write(f'   📸 Скриншотов у игры: {len(game.get("screenshots", []))}')
+                if game.get('game_engines'):
+                    self.stdout.write(f'   ⚙️ Движков у игры: {len(game.get("game_engines", []))}')
+                    for engine in game.get('game_engines', []):
+                        self.stdout.write(f'      • {engine}')
 
             # Проверяем существование в базе
             if skip_existing and game_id in existing_game_ids:
                 if debug:
-                    self.stdout.write(f'   ⏭️  Игра уже есть в базе, пропускаем')
+                    self.stdout.write(f'   ⏭️  Игра уже есть в базе, НО ВОЗВРАЩАЕМ ДАННЫЕ ДЛЯ ОБНОВЛЕНИЯ')
+                # ВАЖНО: возвращаем игру даже если она есть, чтобы обновить данные!
                 return {
-                    'new_games': [],
-                    'all_found_games': [game],
+                    'new_games': [],  # Не создаем новую игру
+                    'all_found_games': [game],  # Но возвращаем данные для обновления
                     'total_games_checked': 1,
                     'new_games_count': 0,
                     'existing_games_skipped': 1,
@@ -551,8 +566,9 @@ class DataCollector:
             if debug:
                 self.stdout.write(f'      📦 Пачка {batch_num}: загрузка {batch_offset}-{batch_offset + batch_limit}...')
 
+            # ВАЖНО: добавляем game_engines в поля!
             query = f'''
-                fields id,name,summary,storyline,genres,keywords,rating,rating_count,first_release_date,platforms,cover,game_type,screenshots;
+                fields id,name,summary,storyline,genres,keywords,rating,rating_count,first_release_date,platforms,cover,game_type,screenshots,game_engines;
                 where {where_clause};
                 sort rating_count desc;
                 limit {batch_limit};
@@ -737,6 +753,10 @@ class DataCollector:
             all_game_ids.append(game_id)
             game_data_map[game_id] = game_data
 
+            if debug:
+                self.stdout.write(f'\n   🔍 Анализ игры ID {game_id}: {game_data.get("name")}')
+                self.stdout.write(f'      Все ключи в данных игры: {list(game_data.keys())}')
+
             if game_data.get('cover'):
                 all_cover_ids.append(game_data['cover'])
 
@@ -749,13 +769,32 @@ class DataCollector:
             if game_data.get('keywords'):
                 all_keyword_ids.update(game_data['keywords'])
 
-            # НОВОЕ: собираем ID движков
-            if game_data.get('game_engines'):
-                for engine in game_data['game_engines']:
-                    if isinstance(engine, dict) and engine.get('id'):
-                        all_engine_ids.add(engine['id'])
+            # НОВОЕ: собираем ID движков (поддержка разных форматов)
+            engines_data = game_data.get('game_engines')
+            if engines_data:
+                if debug:
+                    self.stdout.write(f'      🎮 Найдены движки: {engines_data}')
+                    self.stdout.write(f'      Тип данных движков: {type(engines_data)}')
+
+                for engine in engines_data:
+                    if debug:
+                        self.stdout.write(f'         Обработка движка: {engine} (тип: {type(engine)})')
+
+                    if isinstance(engine, dict):
+                        # Если это словарь с id (как в случае с Rust)
+                        if engine.get('id'):
+                            all_engine_ids.add(engine['id'])
+                            if debug:
+                                self.stdout.write(
+                                    f'         ✅ Добавлен движок ID: {engine["id"]} ({engine.get("name", "Unknown")})')
                     elif isinstance(engine, int):
+                        # Если это просто число
                         all_engine_ids.add(engine)
+                        if debug:
+                            self.stdout.write(f'         ✅ Добавлен движок ID: {engine}')
+            else:
+                if debug:
+                    self.stdout.write(f'      ❌ Нет поля game_engines в данных')
 
             # НОВОЕ: собираем информацию о скриншотах
             if game_data.get('screenshots'):
@@ -766,13 +805,15 @@ class DataCollector:
                 screenshots_info[game_id] = 0
 
         if debug:
-            self.stdout.write(f'   ✅ Собрано ID:')
+            self.stdout.write(f'\n   ✅ Собрано ID:')
             self.stdout.write(f'      • Игр: {len(all_game_ids)}')
             self.stdout.write(f'      • Обложек: {len(set(all_cover_ids))}')
             self.stdout.write(f'      • Жанров: {len(all_genre_ids)}')
             self.stdout.write(f'      • Платформ: {len(all_platform_ids)}')
             self.stdout.write(f'      • Ключевых слов: {len(all_keyword_ids)}')
             self.stdout.write(f'      • Движков: {len(all_engine_ids)}')  # НОВОЕ
+            if all_engine_ids:
+                self.stdout.write(f'      • Список ID движков: {list(all_engine_ids)}')
             # НОВОЕ:
             games_with_screenshots = len([v for v in screenshots_info.values() if v > 0])
             self.stdout.write(f'      • Игр со скриншотами: {games_with_screenshots}')

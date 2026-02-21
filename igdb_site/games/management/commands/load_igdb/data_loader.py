@@ -6,7 +6,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from games.igdb_api import make_igdb_request
 from games.models import (
     Game, Genre, Keyword, Platform, Series,
-    Company, Theme, PlayerPerspective, GameMode, Screenshot
+    Company, Theme, PlayerPerspective, GameMode, Screenshot,
+    GameEngine
 )
 import requests
 from urllib.parse import urlparse
@@ -27,14 +28,33 @@ class DataLoader:
 
     def load_engines_parallel(self, engine_ids, debug=False):
         """Параллельная загрузка игровых движков"""
+        if not engine_ids:
+            if debug:
+                self.stdout.write('   ⚙️ Нет ID движков для загрузки')
+            return {}
+
+        if debug:
+            self.stdout.write(f'   ⚙️ Загрузка {len(engine_ids)} движков...')
+            self.stdout.write(f'   ⚙️ ID движков: {engine_ids}')
 
         def process_batch(batch_num, batch_ids, result_map, lock, total_batches, name, debug):
+            if debug:
+                with lock:
+                    self.stdout.write(f'      🔄 Обработка пачки {batch_num}: {batch_ids}')
+
             return self._process_batch_template(
                 batch_num, batch_ids, result_map, lock, total_batches, name, debug,
                 'game_engines', GameEngine
             )
 
-        return self._batch_processor_regular(engine_ids, process_batch, '⚙️', 'движков', debug)
+        result = self._batch_processor_regular(engine_ids, process_batch, '⚙️', 'движков', debug)
+
+        if debug:
+            self.stdout.write(f'   ⚙️ Результат загрузки движков: {len(result)} из {len(engine_ids)}')
+            for engine_id, engine in result.items():
+                self.stdout.write(f'      ✅ {engine.name} (ID: {engine.igdb_id})')
+
+        return result
 
     def debug_cover_format(self, cover_id, debug=False):
         """Отладочный метод для проверки формата обложки"""
@@ -491,7 +511,7 @@ class DataLoader:
                 collected_data['all_platform_ids'], 'platforms', Platform, '🖥️', 'платформ', debug), 'platform_map'),
             ('🔑 Ключевые слова', 'keywords', lambda: self.load_keywords_parallel_with_weights(
                 collected_data['all_keyword_ids'], debug), 'keyword_map'),
-            ('⚙️ Движки', 'engines', lambda: self.load_engines_parallel(  # НОВЫЙ ШАГ
+            ('⚙️ Движки', 'engines', lambda: self.load_engines_parallel(  # ВСЕГДА загружаем движки
                 collected_data.get('all_engine_ids', []), debug), 'engine_map'),
         ]
 
@@ -848,6 +868,7 @@ class DataLoader:
         if debug:
             with lock:
                 self.stdout.write(f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_ids)} объектов')
+                self.stdout.write(f'         🔍 ID для загрузки: {batch_ids}')
 
         # ШАГ 1: Сначала проверяем существующие в базе
         existing_in_db = {}
@@ -859,6 +880,8 @@ class DataLoader:
         for obj_id, obj in existing_in_db.items():
             with lock:
                 result_map[obj_id] = obj
+                if debug:
+                    self.stdout.write(f'         ✅ Объект уже существует: {obj.name} (ID: {obj_id})')
 
         # ШАГ 2: Определяем, какие объекты еще нужно загрузить из API
         ids_to_load = [obj_id for obj_id in batch_ids if obj_id not in existing_in_db]
@@ -869,11 +892,20 @@ class DataLoader:
                     self.stdout.write(f'         ✅ Все объекты уже в базе')
             return
 
+        if debug:
+            with lock:
+                self.stdout.write(f'         🔄 Загружаем из API: {ids_to_load}')
+
         # ШАГ 3: Загружаем только недостающие объекты из API
         id_list = ','.join(map(str, ids_to_load))
         query = f'fields id,name; where id = ({id_list});'
         try:
             batch_data = self._rate_limited_request(endpoint, query, debug=debug)
+            if debug:
+                with lock:
+                    self.stdout.write(f'         📥 Получено из API: {len(batch_data)} объектов')
+                    for item in batch_data:
+                        self.stdout.write(f'            • {item.get("name")} (ID: {item.get("id")})')
         except Exception as e:
             if debug:
                 with lock:
@@ -896,6 +928,9 @@ class DataLoader:
                     if result:
                         obj_id, obj = result
                         batch_map[obj_id] = obj
+                        if debug:
+                            with lock:
+                                self.stdout.write(f'            ✅ Создан объект: {obj.name} (ID: {obj_id})')
                 except Exception as e:
                     if debug:
                         with lock:

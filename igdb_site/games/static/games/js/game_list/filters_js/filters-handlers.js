@@ -36,7 +36,8 @@ const FilterHandlers = {
             { selector: '.theme-checkbox', name: 'Theme' },
             { selector: '.perspective-checkbox', name: 'Perspective' },
             { selector: '.game-mode-checkbox', name: 'Game Mode' },
-            { selector: '.game-type-checkbox', name: 'Game Type' }
+            { selector: '.game-type-checkbox', name: 'Game Type' },
+            { selector: '.engine-checkbox', name: 'Engine' }
         ];
 
         checkboxTypes.forEach(({ selector, name }) => {
@@ -60,7 +61,8 @@ const FilterHandlers = {
             { selector: '.theme-checkbox:checked', field: 'themes-field' },
             { selector: '.perspective-checkbox:checked', field: 'perspectives-field' },
             { selector: '.game-mode-checkbox:checked', field: 'game-modes-field' },
-            { selector: '.game-type-checkbox:checked', field: 'game-types-field' }
+            { selector: '.game-type-checkbox:checked', field: 'game-types-field' },
+            { selector: '.engine-checkbox:checked', field: 'engines-field' }
         ];
 
         // Обновляем каждое поле
@@ -111,7 +113,8 @@ const FilterHandlers = {
             document.querySelectorAll('.keyword-checkbox:checked').length,
             document.querySelectorAll('.theme-checkbox:checked').length,
             document.querySelectorAll('.perspective-checkbox:checked').length,
-            document.querySelectorAll('.game-mode-checkbox:checked').length
+            document.querySelectorAll('.game-mode-checkbox:checked').length,
+            document.querySelectorAll('.engine-checkbox:checked').length
         ];
 
         const hasSimilarityCriteria = similarityCriteria.some(count => count > 0);
@@ -125,7 +128,8 @@ const FilterHandlers = {
 
         const allCheckboxes = document.querySelectorAll(
             '.genre-checkbox, .keyword-checkbox, .platform-checkbox, ' +
-            '.theme-checkbox, .perspective-checkbox, .game-mode-checkbox, .game-type-checkbox'
+            '.theme-checkbox, .perspective-checkbox, .game-mode-checkbox, .game-type-checkbox, ' +
+            '.engine-checkbox'
         );
 
         allCheckboxes.forEach(checkbox => {
@@ -178,6 +182,10 @@ const FilterHandlers = {
                 param: 'gt'
             },
             {
+                selector: '.clear-engines-btn',
+                param: 'e'
+            },
+            {
                 selector: '.clear-date-filter-btn',
                 param: 'yr,ys,ye'
             }
@@ -220,9 +228,9 @@ const FilterHandlers = {
         });
 
         // Также удаляем find_similar если очищаются жанры, ключевые слова и т.д.
-        if (['g', 'k', 't', 'pp', 'gm', 'gt'].includes(param)) {
+        if (['g', 'k', 't', 'pp', 'gm', 'gt', 'e'].includes(param)) {
             // Проверяем, остались ли другие критерии похожести
-            const otherSimilarityParams = ['g', 'k', 't', 'pp', 'gm', 'gt']
+            const otherSimilarityParams = ['g', 'k', 't', 'pp', 'gm', 'gt', 'e']
                 .filter(p => !paramsToClear.includes(p) && url.searchParams.has(p));
 
             if (otherSimilarityParams.length === 0) {
@@ -280,6 +288,11 @@ const FilterHandlers = {
                     param: 'gt'
                 },
                 {
+                    class: 'active-engine-tag',
+                    attr: 'data-engine-id',
+                    param: 'e'
+                },
+                {
                     class: 'active-date-filter-tag',
                     attr: 'data-date-range',
                     param: 'yr'
@@ -334,8 +347,8 @@ const FilterHandlers = {
                 url.searchParams.delete(param);
 
                 // Если это критерий похожести, отключаем find_similar
-                if (['g', 'k', 't', 'pp', 'gm', 'gt'].includes(param)) {
-                    const otherSimilarityParams = ['g', 'k', 't', 'pp', 'gm', 'gt']
+                if (['g', 'k', 't', 'pp', 'gm', 'gt', 'e'].includes(param)) {
+                    const otherSimilarityParams = ['g', 'k', 't', 'pp', 'gm', 'gt', 'e']
                         .filter(p => p !== param && url.searchParams.has(p));
 
                     if (otherSimilarityParams.length === 0) {

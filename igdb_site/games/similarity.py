@@ -9,7 +9,7 @@ class VirtualGame:
 
     def __init__(self, genre_ids=None, keyword_ids=None, theme_ids=None,
                  perspective_ids=None, developer_ids=None, series_id=None,
-                 game_mode_ids=None, game_type_ids=None):  # ДОБАВЛЕНО game_type_ids
+                 game_mode_ids=None, game_type_ids=None, engine_ids=None):
         self.genre_ids = genre_ids or []
         self.keyword_ids = keyword_ids or []
         self.theme_ids = theme_ids or []
@@ -17,7 +17,8 @@ class VirtualGame:
         self.developer_ids = developer_ids or []
         self.series_id = series_id
         self.game_mode_ids = game_mode_ids or []
-        self.game_type_ids = game_type_ids or []  # ДОБАВЛЕНО
+        self.game_type_ids = game_type_ids or []
+        self.engine_ids = engine_ids or []
 
         self.genres = []
         self.keywords = []
@@ -26,18 +27,19 @@ class VirtualGame:
         self.developers = []
         self.series = None
         self.game_modes = []
-        self.game_types = []  # ДОБАВЛЕНО
+        self.game_types = []
+        self.engines = []
 
         self.name = "Custom Search Criteria"
         self.rating = None
         self.rating_count = 0
 
     def __str__(self):
-        return f"VirtualGame(genres: {len(self.genre_ids)}, keywords: {len(self.keyword_ids)}, game_modes: {len(self.game_mode_ids)}, game_types: {len(self.game_type_ids)})"
+        return f"VirtualGame(genres: {len(self.genre_ids)}, keywords: {len(self.keyword_ids)}, game_modes: {len(self.game_mode_ids)}, game_types: {len(self.game_type_ids)}, engines: {len(self.engine_ids)})"
 
     def load_related(self):
         """Ленивая загрузка связанных объектов"""
-        from .models import Genre, Keyword, Theme, PlayerPerspective, Company, Series, GameMode
+        from .models import Genre, Keyword, Theme, PlayerPerspective, Company, Series, GameMode, GameEngine
 
         if not self.genres and self.genre_ids:
             self.genres = list(Genre.objects.filter(id__in=self.genre_ids).only('id', 'name'))
@@ -58,13 +60,11 @@ class VirtualGame:
         if not self.game_modes and self.game_mode_ids:
             self.game_modes = list(GameMode.objects.filter(id__in=self.game_mode_ids).only('id', 'name'))
 
-        # ДОБАВЛЕНО: загрузка типов игр
         if not self.game_types and self.game_type_ids:
-            # Типы игр хранятся как ID, не нужно загружать из базы
             self.game_types = self.game_type_ids
 
-        if self.series_id and not self.series:
-            self.series = Series.objects.filter(id=self.series_id).first()
+        if not self.engines and self.engine_ids:
+            self.engines = list(GameEngine.objects.filter(id__in=self.engine_ids).only('id', 'name'))
 
 
 class GameSimilarity:
@@ -79,19 +79,20 @@ class GameSimilarity:
     PERSPECTIVES_WEIGHT = 10.0
     GAME_MODES_WEIGHT = 5.0
     DEVELOPERS_WEIGHT = 5.0
+    ENGINES_WEIGHT = 0.0  # НОВАЯ КОНСТАНТА: Начинаем с 0, так как это новый критерий
 
     # Конфигурационные константы с оптимизированными весами
     GENRES_TOTAL_WEIGHT = 30.0
     GENRES_EXACT_MATCH_WEIGHT = 10.0
     GENRES_PARTIAL_MATCH_WEIGHT = 20.0
     # НОВАЯ КОНСТАНТА: минимальное количество общих жанров для включения в результат
-    MIN_COMMON_GENRES = 2  # Ищем игры только с 2+ общими жанрами
+    MIN_COMMON_GENRES = 2
 
     # НОВАЯ КОНСТАНТА: минимальный порог похожести по умолчанию
     DEFAULT_MIN_SIMILARITY = 40
 
     # Вспомогательные константы для расчетов
-    KEYWORDS_ADD_PER_MATCH = 0.5  # Базовое значение для ключевых слов
+    KEYWORDS_ADD_PER_MATCH = 0.5
 
     def __init__(self):
         # Кэш для ускорения повторных расчетов
@@ -118,13 +119,15 @@ class GameSimilarity:
         source_keyword_ids = source_data['keyword_ids']
         source_perspective_ids = source_data['perspective_ids']
         source_game_mode_ids = source_data['game_mode_ids']
+        source_engine_ids = source_data['engine_ids']
 
         has_single_player = single_player_info['has_single_player']
         single_player_mode_id = single_player_info['single_player_mode_id']
         dynamic_min_common_genres = single_player_info['dynamic_min_common_genres']
 
-        print(f"Критерии: жанры={len(source_genre_ids)}, темы={len(source_theme_ids)}, "
-              f"мин. общих жанров={dynamic_min_common_genres}")
+        print(
+            f"Критерии: жанры={len(source_genre_ids)}, темы={len(source_theme_ids)}, движки={len(source_engine_ids)}, "
+            f"мин. общих жанров={dynamic_min_common_genres}")
 
         # Базовый QuerySet: только вышедшие игры
         base_qs = Game.objects.filter(
@@ -164,19 +167,25 @@ class GameSimilarity:
             print(f"Найдено кандидатов по жанрам: {len(candidate_ids)} "
                   f"(всего с пересечением: {len(candidates_data)})")
 
-        # ===== СЛУЧАЙ 2: Нет жанров, но есть темы =====
-        elif source_theme_ids and not source_genre_ids:
-            candidates = base_qs.filter(
-                theme_ids__overlap=source_theme_ids
-            ).exclude(id=source_data.get('game_id', 0)).distinct()
+        # ===== СЛУЧАЙ 2: Нет жанров, но есть темы или движки =====
+        elif (source_theme_ids or source_engine_ids) and not source_genre_ids:
+            filter_condition = Q()
+            if source_theme_ids:
+                filter_condition |= Q(theme_ids__overlap=source_theme_ids)
+            if source_engine_ids:
+                filter_condition |= Q(engine_ids__overlap=source_engine_ids)
+
+            candidates = base_qs.filter(filter_condition).exclude(
+                id=source_data.get('game_id', 0)
+            ).distinct()
 
             candidate_ids = list(
                 candidates.order_by('-rating_count')
-                .values_list('id', flat=True)  # Убран лимит
+                .values_list('id', flat=True)
             )
-            print(f"Найдено кандидатов по темам: {len(candidate_ids)}")
+            print(f"Найдено кандидатов по темам/движкам: {len(candidate_ids)}")
 
-        # ===== СЛУЧАЙ 3: Нет жанров/тем, но есть другие критерии =====
+        # ===== СЛУЧАЙ 3: Нет жанров/тем/движков, но есть другие критерии =====
         elif source_keyword_ids or source_perspective_ids or source_game_mode_ids:
             filter_condition = Q()
             if source_keyword_ids:
@@ -195,7 +204,7 @@ class GameSimilarity:
 
             candidate_ids = list(
                 candidates.order_by('-rating_count')
-                .values_list('id', flat=True)  # Убран лимит
+                .values_list('id', flat=True)
             )
             print(f"Найдено кандидатов по др. критериям: {len(candidate_ids)}")
 
@@ -204,7 +213,7 @@ class GameSimilarity:
             candidate_ids = list(
                 base_qs.exclude(id=source_data.get('game_id', 0))
                 .order_by('-rating_count')
-                .values_list('id', flat=True)  # Убран лимит
+                .values_list('id', flat=True)
             )
             print(f"Найдено кандидатов (популярные игры): {len(candidate_ids)}")
 
@@ -229,6 +238,7 @@ class GameSimilarity:
         source_theme_ids = source_data.get('theme_ids', [])
         source_perspective_ids = source_data.get('perspective_ids', [])
         source_game_mode_ids = source_data.get('game_mode_ids', [])
+        source_engine_ids = source_data.get('engine_ids', [])
         single_player_mode_id = source_data.get('single_player_mode_id')
 
         with connection.cursor() as cursor:
@@ -252,6 +262,9 @@ class GameSimilarity:
                     -- Общие режимы игры
                     COUNT(DISTINCT CASE WHEN ggm.gamemode_id IN %s THEN ggm.gamemode_id END) as common_game_modes,
 
+                    -- Общие движки
+                    COUNT(DISTINCT CASE WHEN ge.gameengine_id IN %s THEN ge.gameengine_id END) as common_engines,
+
                     -- Single player check
                     MAX(CASE WHEN ggm2.gamemode_id = %s THEN 1 ELSE 0 END) as has_single_player
 
@@ -261,6 +274,7 @@ class GameSimilarity:
                 LEFT JOIN games_game_themes gt ON g.id = gt.game_id
                 LEFT JOIN games_game_player_perspectives gpp ON g.id = gpp.game_id
                 LEFT JOIN games_game_game_modes ggm ON g.id = ggm.game_id
+                LEFT JOIN games_game_engines ge ON g.id = ge.game_id
                 LEFT JOIN games_game_game_modes ggm2 ON g.id = ggm2.game_id AND ggm2.gamemode_id = %s
                 WHERE g.id IN ({game_ids})
                 GROUP BY g.id
@@ -272,6 +286,7 @@ class GameSimilarity:
                 tuple(source_theme_ids) if source_theme_ids else (0,),
                 tuple(source_perspective_ids) if source_perspective_ids else (0,),
                 tuple(source_game_mode_ids) if source_game_mode_ids else (0,),
+                tuple(source_engine_ids) if source_engine_ids else (0,),
                 single_player_mode_id or 0,
                 single_player_mode_id or 0,
             ))
@@ -285,7 +300,8 @@ class GameSimilarity:
                         'common_themes': row[3],
                         'common_perspectives': row[4],
                         'common_game_modes': row[5],
-                        'has_single_player': bool(row[6]),
+                        'common_engines': row[6],
+                        'has_single_player': bool(row[7]),
                     })
 
         print(f"Подсчет завершен за {time.time() - start_time:.2f} сек")
@@ -327,6 +343,7 @@ class GameSimilarity:
                     'common_developers': 0,
                     'common_perspectives': 0,
                     'common_game_modes': 0,
+                    'common_engines': 0,
                     'has_single_player': False,
                 }
 
@@ -347,6 +364,7 @@ class GameSimilarity:
             'perspectives': len(source_data.get('perspective_ids', [])) > 0,
             'game_modes': len(source_data.get('game_mode_ids', [])) > 0,
             'developers': len(source_data.get('developer_ids', [])) > 0,
+            'engines': len(source_data.get('engine_ids', [])) > 0,
         }
 
         # Считаем количество активных критериев
@@ -361,6 +379,7 @@ class GameSimilarity:
                 'perspectives': 0.0,
                 'game_modes': 0.0,
                 'developers': 0.0,
+                'engines': 0.0,
                 'active_criteria_count': 0,
                 'is_single_criterion': False
             }
@@ -374,6 +393,7 @@ class GameSimilarity:
                 'perspectives': 100.0 if used_criteria['perspectives'] else 0.0,
                 'game_modes': 100.0 if used_criteria['game_modes'] else 0.0,
                 'developers': 100.0 if used_criteria['developers'] else 0.0,
+                'engines': 100.0 if used_criteria['engines'] else 0.0,
                 'active_criteria_count': 1,
                 'is_single_criterion': True
             }
@@ -402,6 +422,8 @@ class GameSimilarity:
                 total_base_weight += self.GAME_MODES_WEIGHT
             if used_criteria['developers']:
                 total_base_weight += self.DEVELOPERS_WEIGHT
+            if used_criteria['engines']:
+                total_base_weight += self.ENGINES_WEIGHT
 
             # Рассчитываем динамические веса
             weights = {
@@ -414,6 +436,7 @@ class GameSimilarity:
                     'game_modes'] else 0.0,
                 'developers': (self.DEVELOPERS_WEIGHT / total_base_weight * 100.0) if used_criteria[
                     'developers'] else 0.0,
+                'engines': (self.ENGINES_WEIGHT / total_base_weight * 100.0) if used_criteria['engines'] else 0.0,
                 'active_criteria_count': active_criteria_count,
                 'is_single_criterion': False
             }
@@ -428,6 +451,7 @@ class GameSimilarity:
 
     def _calculate_game_similarity_new(self, source_genre_count, source_keyword_count, source_theme_count,
                                        source_developer_count, source_perspective_count, source_game_mode_count,
+                                       source_engine_count,
                                        target_data, source_data=None):
         """НОВЫЙ расчет схожести - с динамическими весами"""
         similarity = 0.0
@@ -444,6 +468,7 @@ class GameSimilarity:
                 'perspective_ids': [1] if source_perspective_count > 0 else [],
                 'game_mode_ids': [1] if source_game_mode_count > 0 else [],
                 'developer_ids': [1] if source_developer_count > 0 else [],
+                'engine_ids': [1] if source_engine_count > 0 else [],
             }
             dynamic_weights = self._calculate_dynamic_weights(simplified_source)
 
@@ -454,7 +479,6 @@ class GameSimilarity:
         # 1. ЖАНРЫ
         if dynamic_weights['genres'] > 0 and source_genre_count > 0 and target_data['common_genres'] > 0:
             if dynamic_weights['is_single_criterion']:
-                # Для одного критерия - любое совпадение дает 100%
                 similarity = 100.0
                 return similarity
             else:
@@ -464,7 +488,6 @@ class GameSimilarity:
         # 2. КЛЮЧЕВЫЕ СЛОВА
         if dynamic_weights['keywords'] > 0 and target_data['common_keywords'] > 0:
             if dynamic_weights['is_single_criterion']:
-                # Для одного критерия - любое совпадение дает 100%
                 similarity = 100.0
                 return similarity
             else:
@@ -509,14 +532,24 @@ class GameSimilarity:
                 developer_match_ratio = target_data.get('common_developers', 0) / max(source_developer_count, 1)
                 similarity += developer_match_ratio * dynamic_weights['developers']
 
-        # 7. ДОПОЛНИТЕЛЬНЫЙ БАЛЛ за наличие любых совпадений
+        # 7. ДВИЖКИ
+        if dynamic_weights['engines'] > 0 and source_engine_count > 0 and target_data.get('common_engines', 0) > 0:
+            if dynamic_weights['is_single_criterion']:
+                similarity = 100.0
+                return similarity
+            else:
+                engine_match_ratio = target_data.get('common_engines', 0) / max(source_engine_count, 1)
+                similarity += engine_match_ratio * dynamic_weights['engines']
+
+        # 8. ДОПОЛНИТЕЛЬНЫЙ БАЛЛ за наличие любых совпадений
         has_any_matches = any([
             target_data['common_genres'] > 0,
             target_data['common_keywords'] > 0,
             target_data['common_themes'] > 0,
             target_data['common_perspectives'] > 0,
             target_data['common_game_modes'] > 0,
-            target_data.get('common_developers', 0) > 0
+            target_data.get('common_developers', 0) > 0,
+            target_data.get('common_engines', 0) > 0
         ])
 
         if has_any_matches and dynamic_weights['active_criteria_count'] > 1:
@@ -624,6 +657,19 @@ class GameSimilarity:
                     jaccard = len(common_game_modes) / len(union)
                     similarity += jaccard * dynamic_weights['game_modes']
 
+        # 7. ДВИЖКИ
+        if dynamic_weights['engines'] > 0:
+            common_engines = source_data['engines'] & target_data['engines']
+            if common_engines:
+                if dynamic_weights['is_single_criterion']:
+                    similarity = 100.0
+                    self._similarity_cache[cache_key] = similarity
+                    return similarity
+                else:
+                    union = source_data['engines'] | target_data['engines']
+                    jaccard = len(common_engines) / len(union)
+                    similarity += jaccard * dynamic_weights['engines']
+
         # Ограничиваем результат
         similarity = max(0.0, min(100.0, similarity))
 
@@ -650,6 +696,7 @@ class GameSimilarity:
             'developers': {'score': 0.0, 'max_score': dynamic_weights['developers'], 'common_elements': []},
             'perspectives': {'score': 0.0, 'max_score': dynamic_weights['perspectives'], 'common_elements': []},
             'game_modes': {'score': 0.0, 'max_score': dynamic_weights['game_modes'], 'common_elements': []},
+            'engines': {'score': 0.0, 'max_score': dynamic_weights['engines'], 'common_elements': []},
             'dynamic_weights': dynamic_weights,
             'total_similarity': 0.0
         }
@@ -721,6 +768,17 @@ class GameSimilarity:
                     breakdown['game_modes']['score'] = jaccard * dynamic_weights['game_modes']
                 breakdown['game_modes']['common_elements'] = list(common_game_modes)
 
+        if dynamic_weights['engines'] > 0:
+            common_engines = source_data['engines'] & target_data['engines']
+            if common_engines:
+                if dynamic_weights['is_single_criterion']:
+                    breakdown['engines']['score'] = 100.0
+                else:
+                    union = source_data['engines'] | target_data['engines']
+                    jaccard = len(common_engines) / len(union)
+                    breakdown['engines']['score'] = jaccard * dynamic_weights['engines']
+                breakdown['engines']['common_elements'] = list(common_engines)
+
         # Суммируем общую схожесть
         total = sum([
             breakdown['genres']['score'],
@@ -728,7 +786,8 @@ class GameSimilarity:
             breakdown['themes']['score'],
             breakdown['developers']['score'],
             breakdown['perspectives']['score'],
-            breakdown['game_modes']['score']
+            breakdown['game_modes']['score'],
+            breakdown['engines']['score']
         ])
 
         breakdown['total_similarity'] = min(100.0, total)
@@ -749,6 +808,7 @@ class GameSimilarity:
         source_developer_count = source_data['developer_count']
         source_perspective_count = source_data['perspective_count']
         source_game_mode_count = source_data['game_mode_count']
+        source_engine_count = source_data['engine_count']
 
         has_genres = source_genre_count > 0
         dynamic_min_common_genres = single_player_info['dynamic_min_common_genres']
@@ -781,6 +841,7 @@ class GameSimilarity:
                     'common_themes': data['common_themes'],
                     'common_perspectives': data['common_perspectives'],
                     'common_game_modes': data['common_game_modes'],
+                    'common_engines': data.get('common_engines', 0),
                     'has_single_player': data['has_single_player'],
                     'is_source_game': True
                 })
@@ -798,6 +859,7 @@ class GameSimilarity:
             similarity = self._calculate_game_similarity_new(
                 source_genre_count, source_keyword_count, source_theme_count,
                 source_developer_count, source_perspective_count, source_game_mode_count,
+                source_engine_count,
                 data, source_data
             )
 
@@ -811,6 +873,7 @@ class GameSimilarity:
                     'common_themes': data['common_themes'],
                     'common_perspectives': data['common_perspectives'],
                     'common_game_modes': data['common_game_modes'],
+                    'common_engines': data.get('common_engines', 0),
                     'has_single_player': data['has_single_player'],
                     'is_source_game': False
                 })
@@ -822,12 +885,12 @@ class GameSimilarity:
     def _get_similarity_cache_key(self, source, target):
         """Генерирует ключ для кэша схожести"""
         if isinstance(source, VirtualGame):
-            source_key = f"virtual_{hash(tuple(sorted(source.genre_ids + source.keyword_ids + source.theme_ids + source.game_type_ids)))}"
+            source_key = f"virtual_{hash(tuple(sorted(source.genre_ids + source.keyword_ids + source.theme_ids + source.game_type_ids + source.engine_ids)))}"
         else:
             source_key = f"game_{source.id}"
 
         if isinstance(target, VirtualGame):
-            target_key = f"virtual_{hash(tuple(sorted(target.genre_ids + target.keyword_ids + target.theme_ids + target.game_type_ids)))}"
+            target_key = f"virtual_{hash(tuple(sorted(target.genre_ids + target.keyword_ids + target.theme_ids + target.game_type_ids + target.engine_ids)))}"
         else:
             target_key = f"game_{target.id}"
 
@@ -836,7 +899,7 @@ class GameSimilarity:
     def _get_cached_game_data(self, obj):
         """Получает или кэширует данные игры"""
         if isinstance(obj, VirtualGame):
-            cache_key = f"virtual_{hash(tuple(sorted(obj.genre_ids + obj.keyword_ids + obj.theme_ids + obj.game_type_ids)))}"
+            cache_key = f"virtual_{hash(tuple(sorted(obj.genre_ids + obj.keyword_ids + obj.theme_ids + obj.game_type_ids + obj.engine_ids)))}"
         else:
             cache_key = f"game_{obj.id}"
 
@@ -849,6 +912,7 @@ class GameSimilarity:
                 'developers': self._get_developers(obj),
                 'perspectives': self._get_perspectives(obj),
                 'game_modes': self._get_game_modes(obj),
+                'engines': self._get_engines(obj),
             }
 
         return self._game_data_cache[cache_key]
@@ -908,6 +972,16 @@ class GameSimilarity:
             return obj._cached_game_mode_ids
         return set()
 
+    # ДОБАВЛЕНО: метод для получения движков
+    def _get_engines(self, obj):
+        if isinstance(obj, VirtualGame):
+            return set(obj.engine_ids)
+        elif hasattr(obj, 'engines'):
+            if not hasattr(obj, '_cached_engine_ids'):
+                obj._cached_engine_ids = set(obj.engines.values_list('id', flat=True))
+            return obj._cached_engine_ids
+        return set()
+
     def find_similar_games(self, source_game, min_similarity=None, limit=1000):
         """ОПТИМИЗИРОВАННЫЙ расчет похожих игр - ТОЛЬКО ВЫШЕДШИЕ ИГРЫ"""
         import time
@@ -932,7 +1006,7 @@ class GameSimilarity:
         print(f"Source game: {getattr(source_game, 'id', 'virtual')}")
         print(f"Source data - genres: {source_data['genre_count']}, keywords: {source_data['keyword_count']}")
         print(f"Source data - themes: {source_data['theme_count']}, perspectives: {source_data['perspective_count']}")
-        print(f"Source data - game_modes: {source_data['game_mode_count']}")
+        print(f"Source data - game_modes: {source_data['game_mode_count']}, engines: {source_data['engine_count']}")
 
         # 2. Генерация ключа кэша
         cache_key_data = {
@@ -943,11 +1017,12 @@ class GameSimilarity:
             'themes': sorted(source_data['theme_ids']),
             'perspectives': sorted(source_data['perspective_ids']),
             'game_modes': sorted(source_data['game_mode_ids']),
+            'engines': sorted(source_data['engine_ids']),
             'min_similarity': min_similarity,
             'has_single_player': single_player_info['has_single_player'],
             'only_released': True,
             'limit': limit,
-            'version': 'v14_similar_no_genres_required'
+            'version': 'v15_similar_with_engines'
         }
 
         cache_key = f'game_similarity_{hashlib.md5(json.dumps(cache_key_data, sort_keys=True).encode()).hexdigest()}'
@@ -1025,7 +1100,7 @@ class GameSimilarity:
     # Обновляем _prepare_source_data:
     def _prepare_source_data(self, source_game):
         """Подготовка данных исходной игры - ОБНОВЛЕНО"""
-        from .models import GameMode
+        from .models import GameMode, GameEngine
 
         source_data = self._get_cached_game_data(source_game)
         source_genre_ids = list(source_data['genres'])
@@ -1038,6 +1113,8 @@ class GameSimilarity:
         source_perspective_count = len(source_perspective_ids)
         source_game_mode_ids = list(source_data['game_modes'])
         source_game_mode_count = len(source_game_mode_ids)
+        source_engine_ids = list(source_data['engines'])
+        source_engine_count = len(source_engine_ids)
 
         # Проверяем, есть ли у исходной игры режим Single player
         has_single_player_in_source = False
@@ -1083,6 +1160,8 @@ class GameSimilarity:
             'perspective_count': source_perspective_count,
             'game_mode_ids': source_game_mode_ids,
             'game_mode_count': source_game_mode_count,
+            'engine_ids': source_engine_ids,
+            'engine_count': source_engine_count,
             'single_player_mode_id': single_player_mode_id,
             'developer_ids': list(source_data['developers']),
             'developer_count': len(source_data['developers']),
@@ -1103,6 +1182,7 @@ class GameSimilarity:
         print(f"  - Темы: {source_theme_count}")
         print(f"  - Перспективы: {source_perspective_count}")
         print(f"  - Режимы игры: {source_game_mode_count}")
+        print(f"  - Движки: {source_engine_count}")
         print(f"  - Single player: {has_single_player_in_source}")
 
         return source_data, single_player_info
@@ -1146,6 +1226,7 @@ class GameSimilarity:
                     source_data['developer_count'],
                     source_data['perspective_count'],
                     source_data['game_mode_count'],
+                    source_data['engine_count'],
                     data,
                     source_data
                 )
@@ -1164,6 +1245,7 @@ class GameSimilarity:
                     'common_keywords': data['common_keywords'],
                     'common_genres': data['common_genres'],
                     'common_themes': data['common_themes'],
+                    'common_engines': data.get('common_engines', 0),
                     'has_single_player': data['has_single_player'],
                     'is_source_game': (isinstance(source_game, Game) and game_id == source_game.id)
                 })
@@ -1189,7 +1271,7 @@ class GameSimilarity:
         has_single_player = single_player_info['has_single_player']
         single_player_mode_id = single_player_info['single_player_mode_id']
         source_genre_ids = source_data['genre_ids']
-        # Убрано: source_game_type_ids = source_data.get('game_type_ids', [])
+        source_engine_ids = source_data.get('engine_ids', [])
         current_time = timezone.now()
 
         # ОТСЛЕЖИВАЕМ - используем ли мы логику с жанрами
@@ -1235,7 +1317,8 @@ class GameSimilarity:
                     len(source_data['keyword_ids']) +
                     len(source_data['theme_ids']) +
                     len(source_data['perspective_ids']) +
-                    len(source_data['game_mode_ids'])
+                    len(source_data['game_mode_ids']) +
+                    len(source_data['engine_ids'])
             )
 
             if other_criteria_count > 0:
@@ -1286,12 +1369,13 @@ class GameSimilarity:
                 'genre_ids': sorted(source_game.genre_ids),
                 'keyword_ids': sorted(source_game.keyword_ids),
                 'theme_ids': sorted(source_game.theme_ids),
-                'game_type_ids': sorted(source_game.game_type_ids),  # ДОБАВЛЕНО
+                'game_type_ids': sorted(source_game.game_type_ids),
+                'engine_ids': sorted(source_game.engine_ids),
                 'min_similarity': min_similarity,
                 'dynamic_min_common_genres': single_player_info['dynamic_min_common_genres'],
                 'has_single_player': single_player_info['has_single_player'],
                 'limit': limit,
-                'version': 'v_with_game_types'
+                'version': 'v_with_game_types_and_engines'
             }
         else:
             cache_key_data = {
@@ -1300,9 +1384,10 @@ class GameSimilarity:
                 'min_similarity': min_similarity,
                 'dynamic_min_common_genres': single_player_info['dynamic_min_common_genres'],
                 'has_single_player': single_player_info['has_single_player'],
-                'game_type': getattr(source_game, 'game_type', None),  # ДОБАВЛЕНО
+                'game_type': getattr(source_game, 'game_type', None),
+                'engines': sorted([e.id for e in source_game.engines.all()]),
                 'limit': limit,
-                'version': 'v_with_game_types'
+                'version': 'v_with_game_types_and_engines'
             }
 
         cache_key_str = json.dumps(cache_key_data, sort_keys=True)
@@ -1426,7 +1511,7 @@ class GameSimilarity:
             game_ids = [item['game_id'] for item in similar_games]
 
             games = Game.objects.filter(id__in=game_ids).prefetch_related(
-                'genres', 'keywords', 'themes', 'game_modes'
+                'genres', 'keywords', 'themes', 'game_modes', 'engines'
             )
 
             games_dict = {game.id: game for game in games}
@@ -1440,6 +1525,7 @@ class GameSimilarity:
                         'common_keywords_count': item['common_keywords'],
                         'common_genres_count': item['common_genres'],
                         'common_themes_count': item['common_themes'],
+                        'common_engines_count': item.get('common_engines', 0),
                         'has_single_player': item['has_single_player'],
                         'is_source_game': item.get('is_source_game', False)
                     })
@@ -1454,6 +1540,7 @@ class GameSimilarity:
                         'common_keywords_count': item['common_keywords'],
                         'common_genres_count': item['common_genres'],
                         'common_themes_count': item['common_themes'],
+                        'common_engines_count': item.get('common_engines', 0),
                         'has_single_player': item['has_single_player'],
                         'is_source_game': item.get('is_source_game', False)
                     })
@@ -1573,7 +1660,7 @@ class GameSimilarity:
 
     def _calculate_set_similarity(self, set1, set2, max_score):
         """
-        Расчет схожести для множеств (для тем, разработчиков, перспектив, режимов игры)
+        Расчет схожести для множеств (для тем, разработчиков, перспектив, режимов игры, движков)
         Использует коэффициент Жаккара
         """
         if not set1 and not set2:

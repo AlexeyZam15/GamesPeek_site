@@ -242,8 +242,8 @@ class RelationsHandler:
                 'genres': [],
                 'platforms': [],
                 'keywords': [],
-                'engines': [],  # НОВОЕ: для движков
-                'series': [],  # Теперь M2M - список
+                'engines': [],
+                'series': [],
                 'developers': [],
                 'publishers': [],
                 'themes': [],
@@ -266,12 +266,18 @@ class RelationsHandler:
                 if kid in data_maps.get('keyword_map', {}):
                     relations['keywords'].append(data_maps['keyword_map'][kid])
 
-            # НОВОЕ: Движки
-            for eid_data in game_data.get('game_engines', []):
-                # Может быть как числом, так и словарем
-                eid = eid_data if isinstance(eid_data, int) else eid_data.get('id')
+            # Обработка движков (поддержка разных форматов)
+            for engine_data in game_data.get('game_engines', []):
+                # Может быть как числом, так и словарем с id
+                if isinstance(engine_data, dict):
+                    eid = engine_data.get('id')
+                else:
+                    eid = engine_data
+
                 if eid and eid in data_maps.get('engine_map', {}):
                     relations['engines'].append(data_maps['engine_map'][eid])
+                    if debug:
+                        self.stdout.write(f'      • Игра {game_id}: добавлен движок ID {eid}')
 
             # Серии - теперь M2M, добавляем все серии
             series_ids_in_data = additional_data.get('collections', [])
@@ -309,7 +315,7 @@ class RelationsHandler:
                 relations['genres'],
                 relations['platforms'],
                 relations['keywords'],
-                relations['engines'],  # НОВОЕ
+                relations['engines'],
                 relations['series'],
                 relations['developers'],
                 relations['publishers'],
@@ -333,7 +339,7 @@ class RelationsHandler:
                     'genres': 0,
                     'platforms': 0,
                     'keywords': 0,
-                    'engines': 0,  # НОВОЕ
+                    'engines': 0,
                     'series': 0,
                     'developers': 0,
                     'publishers': 0,
