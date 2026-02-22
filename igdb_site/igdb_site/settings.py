@@ -190,11 +190,11 @@ if not RAWG_API_KEY:
 
 CACHES = {
     'default': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'unique-snowflake',
-        'TIMEOUT': 300,  # 5 минут
+        'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+        'LOCATION': os.path.join(BASE_DIR, 'django_cache'),  # Папка для кэша в корне проекта
+        'TIMEOUT': 3600,  # 1 час для данных загрузки
         'OPTIONS': {
-            'MAX_ENTRIES': 10000,  # Максимум записей в кэше
+            'MAX_ENTRIES': 1000,  # Меньше записей, но каждая может быть большой
         }
     },
     'page_cache': {
