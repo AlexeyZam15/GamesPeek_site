@@ -1731,6 +1731,7 @@ class GameLoader(BaseGamesCommand):
         import concurrent.futures
         import signal
         import sys
+        from django.core.cache import cache
 
         offset = options.get('offset', 0)
         limit = options.get('limit', 0)
@@ -1738,17 +1739,13 @@ class GameLoader(BaseGamesCommand):
         use_cache = options.get('use_cache', True)
         cache_ttl = options.get('cache_ttl', 3600)
 
-        if debug:
-            self.stdout.write(f'   🔧 Параметры кэширования: use_cache={use_cache}, cache_ttl={cache_ttl}с')
-
         total_start_time = time.time()
 
         self.interrupted = threading.Event()
 
         def signal_handler(sig, frame):
             self.interrupted.set()
-            self.stdout.write('\n\n⚠️  ПРЕРЫВАНИЕ (Ctrl+C) - завершаю загрузку из базы данных...')
-            sys.exit(1)
+            self.stdout.write('\n\n⚠️  ПРЕРЫВАНИЕ (Ctrl+C) - завершаю обработку...')
 
         original_sigint = signal.signal(signal.SIGINT, signal_handler)
 
@@ -1756,29 +1753,39 @@ class GameLoader(BaseGamesCommand):
             saved_offset = self.get_saved_offset(options)
             if saved_offset is not None:
                 offset = saved_offset
-                if debug:
-                    self.stdout.write(f'   📍 Загружен сохраненный offset: {offset}')
 
         try:
-            self.stdout.write('\n🔍 Загрузка игр из базы данных...')
-            self.stdout.write('   ⏳ Это может занять некоторое время...')
-            self.stdout.write('   ❗ Нажмите Ctrl+C для прерывания')
-
             start_load = time.time()
 
             games_map, games_needs_update = self._load_all_games_with_relations(
                 offset, limit, self.interrupted,
-                chunk_size=100,
+                chunk_size=500,
                 use_cache=use_cache,
-                cache_ttl=cache_ttl
+                cache_ttl=cache_ttl,
+                debug=debug
             )
 
             load_time = time.time() - start_load
 
-            if games_map:
-                self.stdout.write(f'   ✅ Загружено {len(games_map)} игр из БД за {load_time:.1f}с')
+            # ВАЖНО: Разделяем статистику
+            total_games_in_memory = len(games_map)
+            games_from_cache = 0
+            games_from_db = 0
 
-            # ВАЖНО: Находим игры, которые ДЕЙСТВИТЕЛЬНО НУЖДАЮТСЯ в обновлении
+            # Если есть saved_offset, значит мы загружались из кэша
+            if hasattr(self, '_cache_restore_start') and self._cache_restore_start > 0:
+                games_from_cache = self._restore_total if hasattr(self, '_restore_total') else 0
+                games_from_db = total_games_in_memory - games_from_cache
+            else:
+                games_from_db = total_games_in_memory
+
+            self.stdout.write(f'\n   ✅ Загружено всего: {total_games_in_memory} игр')
+            if games_from_cache > 0:
+                self.stdout.write(f'      • Из кэша: {games_from_cache}')
+                self.stdout.write(f'      • Из БД: {games_from_db}')
+            self.stdout.write(f'      • Время загрузки: {load_time:.1f}с')
+
+            # Находим игры, которые нуждаются в обновлении
             games_to_update = {}
             for igdb_id, info in games_needs_update.items():
                 if info['missing_count'] > 0:
@@ -1788,9 +1795,7 @@ class GameLoader(BaseGamesCommand):
 
             total_games = len(games_to_update)
 
-            # ЕСЛИ ЕСТЬ ЛИМИТ, БЕРЕМ ТОЛЬКО ПЕРВУЮ ИГРУ
             if limit > 0:
-                # Берем первые `limit` игр из списка нуждающихся в обновлении
                 limited_games = {}
                 count = 0
                 for igdb_id, info in games_to_update.items():
@@ -1808,341 +1813,526 @@ class GameLoader(BaseGamesCommand):
                 signal.signal(signal.SIGINT, original_sigint)
                 return 0, []
 
-            if debug:
-                self.stdout.write(f'\n🎯 Будет обновлено игр: {total_games}')
-                missing_stats = defaultdict(int)
-                for igdb_id, info in games_to_update.items():
-                    for key, has_data in info['missing_data'].items():
-                        if not has_data:
-                            missing_stats[key] += 1
+            progress_bar = None
+            if not debug:
+                self.stdout.write('')
+                progress_bar = self.create_progress_bar(total_games)
+                progress_bar.desc = "Обновление данных игр"
+                progress_bar.update(
+                    total_loaded=0,
+                    created_count=0,
+                    updated_count=0,
+                    skipped_count=0,
+                    processed_count=0,
+                    errors=0
+                )
 
-                self.stdout.write('📊 Статистика недостающих данных:')
-                for key, count in sorted(missing_stats.items(), key=lambda x: -x[1]):
-                    if count > 0:
-                        display_name = {
-                            'has_cover': 'Обложки',
-                            'has_screenshots': 'Скриншоты',
-                            'has_description': 'Описание',
-                            'has_rating': 'Рейтинг',
-                            'has_release_date': 'Дата релиза',
-                            'has_genres': 'Жанры',
-                            'has_platforms': 'Платформы',
-                            'has_keywords': 'Ключевые слова',
-                            'has_engines': 'Движки',
-                            'has_series': 'Серии',
-                            'has_developers': 'Разработчики',
-                            'has_publishers': 'Издатели',
-                            'has_themes': 'Темы',
-                            'has_perspectives': 'Перспективы',
-                            'has_modes': 'Режимы',
-                        }.get(key, key)
-                        self.stdout.write(f'   • {display_name}: {count} игр')
+            start_time = time.time()
+            updated_count = 0
+            all_update_details = []
+            processed_count = 0
+            skipped_count = 0
 
-        except KeyboardInterrupt:
-            self.stdout.write('\n⚠️ Загрузка из БД прервана пользователем')
+            BATCH_SIZE = 10
+            igdb_ids = list(games_to_update.keys())
+            batches = [igdb_ids[i:i + BATCH_SIZE] for i in range(0, len(igdb_ids), BATCH_SIZE)]
+
+            self.interrupted.clear()
+
+            def processing_signal_handler(sig, frame):
+                self.interrupted.set()
+                self.stdout.write('\n\n⚠️  ПРЕРЫВАНИЕ (Ctrl+C) - завершаю обработку...')
+
+            signal.signal(signal.SIGINT, processing_signal_handler)
+
+            try:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                    future_to_batch = {}
+                    batch_to_size = {}
+
+                    for batch_num, batch_ids in enumerate(batches, 1):
+                        if self.interrupted.is_set():
+                            self.stdout.write('\n⚠️ Прерывание обнаружено, останавливаем обработку...')
+                            break
+
+                        batch_info = []
+                        for igdb_id in batch_ids:
+                            info = games_to_update[igdb_id]
+                            batch_info.append({
+                                'igdb_id': igdb_id,
+                                'game': info['game'],
+                                'missing_data': info['missing_data']
+                            })
+
+                        future = executor.submit(
+                            self._process_update_batch_optimized,
+                            batch_num, batch_info, debug
+                        )
+                        future_to_batch[future] = batch_num
+                        batch_to_size[batch_num] = len(batch_ids)
+
+                    completed_batches = 0
+                    processed_in_batches = 0
+
+                    for future in concurrent.futures.as_completed(future_to_batch):
+                        if self.interrupted.is_set():
+                            self.stdout.write('\n⚠️ Прерывание обнаружено, отменяем оставшиеся задачи...')
+                            for f in future_to_batch:
+                                if not f.done():
+                                    f.cancel()
+                            break
+
+                        batch_num = future_to_batch[future]
+                        batch_size = batch_to_size[batch_num]
+                        completed_batches += 1
+                        processed_in_batches += batch_size
+
+                        try:
+                            batch_updated, batch_details = future.result(timeout=120)
+
+                            updated_count += batch_updated
+                            all_update_details.extend(batch_details)
+                            processed_count += batch_size
+
+                            skipped_count = processed_count - updated_count
+
+                            if progress_bar and not debug:
+                                progress_bar.update(
+                                    total_loaded=processed_count,
+                                    updated_count=updated_count,
+                                    skipped_count=skipped_count,
+                                    errors=0
+                                )
+
+                        except concurrent.futures.TimeoutError:
+                            pass
+                        except Exception as e:
+                            pass
+
+            except KeyboardInterrupt:
+                self.interrupted.set()
+
+                actual_processed = processed_in_batches
+                actual_updated = updated_count
+                actual_skipped = actual_processed - actual_updated
+
+                next_offset = offset + actual_processed
+                self.save_offset_for_continuation(options, next_offset)
+
+                total_time = time.time() - start_time
+
+                elapsed_str = self._format_time(total_time)
+
+                if progress_bar and not debug:
+                    progress_bar.final_message(
+                        f"🛑 Прервано: обновлено {actual_updated} из {actual_processed} игр"
+                    )
+                    progress_bar.clear()
+
+                self.stdout.write(f'\n' + '=' * 60)
+                self.stdout.write(f'📊 СТАТИСТИКА ПРЕРВАННОЙ ЗАГРУЗКИ')
+                self.stdout.write('=' * 60)
+                self.stdout.write(f'📍 Начальный offset: {offset}')
+                self.stdout.write(f'📍 Обработано пачек: {completed_batches}/{len(batches)}')
+                self.stdout.write(f'📍 Обработано игр: {actual_processed}/{total_games}')
+                self.stdout.write(f'✅ Успешно обновлено: {actual_updated}')
+                self.stdout.write(f'⏭️  Пропущено: {actual_skipped}')
+                self.stdout.write(f'⏱️  Время: {elapsed_str}')
+                self.stdout.write(f'📍 Следующий offset: {next_offset}')
+
+                signal.signal(signal.SIGINT, original_sigint)
+                raise
+
+            total_time = time.time() - start_time
+
+            if not self.interrupted.is_set():
+                next_offset = offset + total_games
+                self.save_offset_for_continuation(options, next_offset)
+            else:
+                next_offset = offset + processed_count
+
             signal.signal(signal.SIGINT, original_sigint)
-            return 0, []
-        except SystemExit:
-            self.stdout.write('\n⚠️ Загрузка из БД прервана пользователем')
-            signal.signal(signal.SIGINT, original_sigint)
-            return 0, []
+
+            if progress_bar and not debug:
+                progress_bar.final_message(
+                    f"✅ Обновлено: {updated_count} | ⏭️ Пропущено: {total_games - updated_count}"
+                )
+                progress_bar.clear()
+
+            elapsed_str = self._format_time(total_time)
+
+            self.stdout.write(f'\n' + '=' * 60)
+            self.stdout.write(f'📊 ИТОГОВАЯ СТАТИСТИКА ОБНОВЛЕНИЯ')
+            self.stdout.write('=' * 60)
+            self.stdout.write(f'📍 Начальный offset: {offset}')
+            self.stdout.write(f'📍 Обработано игр: {total_games}')
+            self.stdout.write(f'✅ Успешно обновлено: {updated_count}')
+            self.stdout.write(f'⏭️  Пропущено: {total_games - updated_count}')
+            self.stdout.write(f'⏱️  Время обработки: {elapsed_str}')
+            self.stdout.write(f'⏱️  Общее время: {self._format_time(time.time() - total_start_time)}')
+            self.stdout.write(f'📍 Следующий offset: {next_offset}')
+
+            if total_time > 0:
+                speed = total_games / total_time
+                self.stdout.write(f'🚀 Скорость: {speed:.1f} игр/сек')
+
+            # Принудительное сохранение кэша
+            if use_cache:
+                try:
+                    cache_key = "games_relations_cache"
+                    cache_payload = {
+                        'games_map': list(games_map.keys()),
+                        'games_needs_update': {
+                            gid: {
+                                'missing_data': info['missing_data'],
+                                'missing_count': info['missing_count']
+                            }
+                            for gid, info in games_needs_update.items()
+                        },
+                        'progress': {
+                            'processed': len(games_map),
+                            'found_with_issues': len(games_needs_update),
+                            'total_games': Game.objects.count()
+                        },
+                        'timestamp': time.time(),
+                        'interrupted': False
+                    }
+                    cache.set(cache_key, cache_payload, timeout=cache_ttl)
+                    self.stdout.write(
+                        f'\n   💾 Кэш обновлен: {len(games_map)} игр, {len(games_needs_update)} с проблемами')
+                except Exception as e:
+                    self.stdout.write(f'\n   ⚠️ Не удалось сохранить кэш: {e}')
+
+            return updated_count, all_update_details
+
         except Exception as e:
-            self.stdout.write(f'\n❌ Ошибка при загрузке из БД: {e}')
+            self.stderr.write(f'\n❌ Ошибка: {e}')
             if debug:
                 import traceback
-                self.stderr.write(f'📋 Трассировка: {traceback.format_exc()}')
+                self.stderr.write(traceback.format_exc())
             signal.signal(signal.SIGINT, original_sigint)
             return 0, []
 
-        signal.signal(signal.SIGINT, original_sigint)
-
-        progress_bar = None
-        if not debug:
-            # ДОБАВЛЯЕМ ПУСТУЮ СТРОКУ ДЛЯ ОТСТУПА ПЕРЕД ПРОГРЕСС-БАРОМ
-            self.stdout.write('')
-            progress_bar = self.create_progress_bar(total_games)
-            progress_bar.desc = "Обновление данных игр"
-            # ИНИЦИАЛИЗАЦИЯ ПРОГРЕСС-БАРА С ПРАВИЛЬНЫМИ ЗНАЧЕНИЯМИ
-            progress_bar.update(
-                total_loaded=0,
-                created_count=0,
-                updated_count=0,
-                skipped_count=0,
-                processed_count=0,
-                errors=0
-            )
-
-        start_time = time.time()
-        updated_count = 0
-        all_update_details = []
-        processed_count = 0
-        skipped_count = 0
-
-        BATCH_SIZE = 10
-        igdb_ids = list(games_to_update.keys())
-
+    def _show_temp_message(self, message, debug):
+        """Показывает временное сообщение, не сбивая прогресс-бар"""
         if debug:
-            self.stdout.write(f'\n📦 Разбивка на пачки по {BATCH_SIZE} игр')
-            self.stdout.write(f'📊 Всего пачек: {(len(igdb_ids) + BATCH_SIZE - 1) // BATCH_SIZE}')
+            self.stdout.write(message)
+            return
 
-        batches = [igdb_ids[i:i + BATCH_SIZE] for i in range(0, len(igdb_ids), BATCH_SIZE)]
+        # Сохраняем текущую строку прогресса
+        self.stdout.write('\n' + message)
+        self.stdout.flush()
 
-        self.interrupted.clear()
-
-        def processing_signal_handler(sig, frame):
-            self.interrupted.set()
-            self.stdout.write('\n\n⚠️  ПРЕРЫВАНИЕ (Ctrl+C) - завершаю обработку...')
-
-        signal.signal(signal.SIGINT, processing_signal_handler)
-
-        try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-                future_to_batch = {}
-
-                for batch_num, batch_ids in enumerate(batches, 1):
-                    if self.interrupted.is_set():
-                        self.stdout.write('\n⚠️ Прерывание обнаружено, останавливаем обработку...')
-                        break
-
-                    if debug:
-                        self.stdout.write(f'\n   📦 СОЗДАНИЕ ПАЧКИ {batch_num}: {len(batch_ids)} игр')
-                        if batch_ids:
-                            self.stdout.write(f'      🆔 ID: {batch_ids[:5]}...')
-
-                    batch_info = []
-                    for igdb_id in batch_ids:
-                        info = games_to_update[igdb_id]
-                        batch_info.append({
-                            'igdb_id': igdb_id,
-                            'game': info['game'],
-                            'missing_data': info['missing_data']
-                        })
-
-                    future = executor.submit(
-                        self._process_update_batch_optimized,
-                        batch_num, batch_info, debug
-                    )
-                    future_to_batch[future] = (batch_num, len(batch_ids))
-
-                completed_batches = 0
-                for future in concurrent.futures.as_completed(future_to_batch):
-                    if self.interrupted.is_set():
-                        self.stdout.write('\n⚠️ Прерывание обнаружено, отменяем оставшиеся задачи...')
-                        for f in future_to_batch:
-                            if not f.done():
-                                f.cancel()
-                        break
-
-                    batch_num, batch_size = future_to_batch[future]
-                    completed_batches += 1
-
-                    try:
-                        batch_updated, batch_details = future.result(timeout=120)
-
-                        updated_count += batch_updated
-                        all_update_details.extend(batch_details)
-                        processed_count += batch_size
-
-                        # ИЗМЕНЕНИЕ: Правильно рассчитываем пропущенные игры
-                        skipped_count = processed_count - updated_count
-
-                        if progress_bar and not debug:
-                            # ИЗМЕНЕНИЕ: Передаем все значения в прогресс-бар
-                            progress_bar.update(
-                                total_loaded=processed_count,
-                                updated_count=updated_count,
-                                skipped_count=skipped_count,
-                                errors=0
-                            )
-
-                        if debug and batch_updated > 0:
-                            self.stdout.write(f'      ✅ Пачка {batch_num}: обновлено {batch_updated}/{batch_size} игр')
-
-                        if debug and completed_batches % 10 == 0:
-                            percent = (completed_batches / len(batches)) * 100
-                            self.stdout.write(
-                                f'      📊 Прогресс: {completed_batches}/{len(batches)} пачек ({percent:.1f}%)')
-
-                    except concurrent.futures.TimeoutError:
-                        if debug:
-                            self.stderr.write(f'      ❌ ТАЙМАУТ ПАЧКИ {batch_num} (120 сек)')
-                    except Exception as e:
-                        if debug:
-                            self.stderr.write(f'      ❌ ОШИБКА ПАЧКИ {batch_num}: {e}')
-                            import traceback
-                            self.stderr.write(f'         📋 {traceback.format_exc()[:200]}')
-
-        except KeyboardInterrupt:
-            self.interrupted.set()
-            self.stdout.write(f'\n🛑 Прервано пользователем во время обработки')
-            processed = (len(all_update_details) // BATCH_SIZE) * BATCH_SIZE
-            next_offset = offset + processed
-            self.save_offset_for_continuation(options, next_offset)
-            self.stdout.write(f'📍 Сохранен offset: {next_offset}')
-
-            signal.signal(signal.SIGINT, original_sigint)
-            raise
-
-        total_time = time.time() - start_time
-
-        next_offset = offset + total_games
-        if not self.interrupted.is_set():
-            self.save_offset_for_continuation(options, next_offset)
-
-        signal.signal(signal.SIGINT, original_sigint)
-
-        # ИЗМЕНЕНИЕ: Финальное сообщение прогресс-бара
-        if progress_bar and not debug:
-            progress_bar.final_message(
-                f"✅ Обновлено: {updated_count} | ⏭️ Пропущено: {total_games - updated_count}"
-            )
-            progress_bar.clear()
-
-        self.stdout.write(f'\n' + '=' * 60)
-        self.stdout.write(f'📊 ИТОГОВАЯ СТАТИСТИКА ОБНОВЛЕНИЯ')
-        self.stdout.write('=' * 60)
-        self.stdout.write(f'📍 Начальный offset: {offset}')
-        self.stdout.write(f'📍 Обработано игр: {total_games}')
-        self.stdout.write(f'✅ Успешно обновлено: {updated_count}')
-        self.stdout.write(f'⏭️  Пропущено: {total_games - updated_count}')
-        self.stdout.write(f'⏱️  Время обработки: {total_time:.2f}с')
-        self.stdout.write(f'⏱️  Общее время: {time.time() - total_start_time:.2f}с')
-        self.stdout.write(f'📍 Следующий offset: {next_offset}')
-
-        if total_time > 0:
-            speed = total_games / total_time
-            self.stdout.write(f'🚀 Скорость обработки: {speed:.1f} игр/сек')
-
-        return updated_count, all_update_details
-
-    def _load_all_games_with_relations(self, offset, limit, interrupted=None, chunk_size=100, use_cache=True,
-                                       cache_ttl=3600):
+    def _load_all_games_with_relations(self, offset, limit, interrupted=None, chunk_size=500, use_cache=True,
+                                       cache_ttl=3600, debug=False):
         """Загружает игры с предзагрузкой связей, пока не наберет нужное количество нуждающихся в обновлении"""
         from django.db.models import Count
         from django.core.cache import cache
-        from django.conf import settings
-        from django.db.models.base import ModelState
         from games.models import Game, Screenshot
         from collections import defaultdict
         import time
+        import hashlib
+        import json
+        from datetime import datetime
 
         games_map = {}
         games_needs_update = {}
 
         current_offset = offset
         total_loaded = 0
-        games_needed = limit if limit > 0 else float('inf')  # Сколько игр с недостающими данными нужно найти
+        games_needed = limit if limit > 0 else float('inf')
         games_found_with_issues = 0
 
         start_time = time.time()
         last_update_time = start_time
+        last_cache_save_time = start_time
+        CACHE_SAVE_INTERVAL = 30
+        UPDATE_INTERVAL = 0.5
 
         stats = {
-            'total_checked': 0,
+            'total_checked': 0,  # Только новые проверенные игры
             'games_with_missing': 0,
             'missing_by_type': defaultdict(int)
         }
 
-        self.stdout.write(f'\n🔍 Поиск игр с недостающими данными (нужно: {games_needed if limit > 0 else "все"})...')
+        CHUNK_SIZE = 500
+        total_games_in_db = Game.objects.count()
 
-        while games_found_with_issues < games_needed:
-            if interrupted and interrupted.is_set():
-                self.stdout.write('\n   ⚠️ Загрузка прервана пользователем')
-                return games_map, games_needs_update
+        # Флаги для отслеживания этапов
+        self._cache_restore_start = 0
+        self._cache_check_start = 0
+        self._cache_restore_time = 0
+        self._cache_check_time = 0
+        self._restore_total = 0
+        self._check_total = 0
 
-            query = Game.objects.all().order_by('id').only(
-                'id', 'igdb_id', 'name', 'cover_url', 'summary',
-                'rating', 'first_release_date'
+        # СТАТИЧНОЕ ИМЯ КЭША
+        cache_key = "games_relations_cache"
+
+        # Множество ID игр из кэша
+        cached_game_ids = set()
+        cached_games_count = 0
+
+        # Функция для получения общего количества обработанных игр
+        def get_total_processed():
+            return len(games_map)  # games_map содержит ВСЕ игры (и из кэша, и новые)
+
+        # Функция для обновления прогресс-бара
+        def force_update_display(final=False):
+            total_processed = get_total_processed()
+            self._update_display(
+                total_processed,
+                len(games_needs_update),
+                total_games_in_db,
+                start_time,
+                limit,
+                games_needed,
+                debug,
+                extra=f'кэш: {cached_games_count}',
+                final=final
             )
 
-            if current_offset > 0:
-                query = query[current_offset:]
+        # Функция для сохранения кэша
+        def save_intermediate_cache():
+            if not use_cache or (interrupted and interrupted.is_set() and interrupted != True):
+                return
 
-            chunk = list(query[:chunk_size])
+            try:
+                total_processed = get_total_processed()
+                cache_payload = {
+                    'games_map': list(games_map.keys()),
+                    'games_needs_update': {
+                        gid: {
+                            'missing_data': info['missing_data'],
+                            'missing_count': info['missing_count']
+                        }
+                        for gid, info in games_needs_update.items()
+                    },
+                    'progress': {
+                        'processed': total_processed,
+                        'found_with_issues': len(games_needs_update),
+                        'total_games': total_games_in_db
+                    },
+                    'timestamp': time.time(),
+                    'interrupted': interrupted.is_set() if interrupted else False
+                }
 
-            if not chunk:
-                self.stdout.write(f'\n   ✅ Достигнут конец базы данных')
-                break
+                if debug:
+                    self.stdout.write(
+                        f'\n   💾 Сохраняю кэш: {total_processed} игр, {len(games_needs_update)} с проблемами')
 
-            game_ids = [game.id for game in chunk]
-            igdb_ids = [game.igdb_id for game in chunk]
+                cache.set(cache_key, cache_payload, timeout=cache_ttl)
 
+                if debug:
+                    current_time = time.time()
+                    elapsed = current_time - start_time
+                    self.stdout.write(f'   ✅ Кэш сохранен: {total_processed} игр, время: {elapsed:.1f}с')
+
+            except Exception as e:
+                if debug:
+                    self.stdout.write(f'\n   ⚠️ Не удалось сохранить кэш: {e}')
+
+        # ПЫТАЕМСЯ ЗАГРУЗИТЬ ИЗ КЭША
+        if use_cache:
             if interrupted and interrupted.is_set():
                 return games_map, games_needs_update
 
-            screenshots = Screenshot.objects.filter(game_id__in=game_ids).values_list('game_id', flat=True)
-            games_with_screenshots = set(screenshots)
+            cached_data = cache.get(cache_key)
+            if cached_data:
+                try:
+                    was_interrupted = cached_data.get('interrupted', False)
+                    progress = cached_data.get('progress', {})
 
+                    cache_time = cached_data.get('timestamp', 0)
+                    cache_age = time.time() - cache_time
+                    age_str = self._format_time(cache_age)
+
+                    if debug:
+                        cached_map_size = len(cached_data.get('games_map', []))
+                        cached_needs_size = len(cached_data.get('games_needs_update', []))
+                        self.stdout.write(
+                            f'\n🔍 Загружен кэш: {cached_map_size} игр, {cached_needs_size} с проблемами, возраст: {age_str}')
+
+                    # Сообщение о найденном кэше
+                    if was_interrupted and progress:
+                        processed = progress.get("processed", 0)
+                        found = progress.get("found_with_issues", 0)
+                        self.stdout.write('\n' + '=' * 60)
+                        self.stdout.write('🔄 ВОССТАНОВЛЕНИЕ ИЗ ПРЕРВАННОГО КЭША')
+                        self.stdout.write('=' * 60)
+                        self.stdout.write(f'   📦 Возраст: {age_str}, обработано: {processed}, проблем: {found}')
+                        self.stdout.write('=' * 60 + '\n')
+                    else:
+                        self.stdout.write('\n' + '=' * 60)
+                        self.stdout.write('📦 ЗАГРУЗКА ИЗ КЭША')
+                        self.stdout.write('=' * 60)
+                        self.stdout.write(
+                            f'   📦 Возраст: {age_str}, в кэше: {len(cached_data.get("games_needs_update", []))} игр с проблемами')
+                        self.stdout.write('=' * 60 + '\n')
+
+                    self.stdout.flush()
+
+                    # Восстановление games_map
+                    self._cache_restore_start = time.time()
+                    if 'games_map' in cached_data:
+                        game_ids = cached_data['games_map']
+                        games_map = {}
+                        total_to_restore = len(game_ids)
+                        self._restore_total = total_to_restore
+
+                        if not debug and total_to_restore > 0:
+                            self.stdout.write(f'   📦 Восстановление {total_to_restore} игр из кэша...')
+
+                        for i, gid in enumerate(game_ids):
+                            if interrupted and interrupted.is_set():
+                                return games_map, games_needs_update
+
+                            if i % 100 == 0 and not debug and i > 0:
+                                restore_elapsed = time.time() - self._cache_restore_start
+                                restore_speed = i / restore_elapsed if restore_elapsed > 0 else 0
+                                restore_percent = (i / total_to_restore * 100) if total_to_restore > 0 else 0
+                                restore_msg = (
+                                    f'\r   📦 Восстановление: {i}/{total_to_restore} ({restore_percent:.1f}%) | 🚀 {restore_speed:.1f} игр/с')
+                                restore_msg = restore_msg.ljust(100)
+                                self.stdout.write(restore_msg, ending='')
+                                self.stdout.flush()
+
+                            try:
+                                game = Game.objects.get(igdb_id=gid)
+                                games_map[gid] = game
+                                cached_game_ids.add(gid)
+                            except Game.DoesNotExist:
+                                continue
+
+                        self._cache_restore_time = time.time() - self._cache_restore_start
+                        cached_games_count = len(games_map)
+
+                        if not debug:
+                            self.stdout.write('\n')
+                            self.stdout.write(
+                                f'   ✅ Восстановлено {cached_games_count} игр за {self._format_time(self._cache_restore_time)}')
+                            self.stdout.flush()
+
+                    # Восстановление games_needs_update
+                    self._cache_check_start = time.time()
+                    if 'games_needs_update' in cached_data:
+                        cached_needs_update = cached_data['games_needs_update']
+                        total_to_check = len(cached_needs_update)
+                        self._check_total = total_to_check
+
+                        games_found_with_issues = total_to_check
+                        stats['games_with_missing'] = total_to_check
+
+                        if not debug and total_to_check > 0:
+                            self.stdout.write(f'   📦 Восстановление данных о {total_to_check} проблемных играх...')
+
+                        for i, (igdb_id, info) in enumerate(cached_needs_update.items()):
+                            if interrupted and interrupted.is_set():
+                                return games_map, games_needs_update
+
+                            if i % 100 == 0 and not debug and i > 0:
+                                check_elapsed = time.time() - self._cache_check_start
+                                check_speed = i / check_elapsed if check_elapsed > 0 else 0
+                                check_percent = (i / total_to_check * 100) if total_to_check > 0 else 0
+                                check_msg = (
+                                    f'\r   📦 Восстановление данных: {i}/{total_to_check} ({check_percent:.1f}%) | 🚀 {check_speed:.1f} записей/с')
+                                check_msg = check_msg.ljust(100)
+                                self.stdout.write(check_msg, ending='')
+                                self.stdout.flush()
+
+                            if igdb_id in games_map:
+                                games_needs_update[igdb_id] = {
+                                    'game': games_map[igdb_id],
+                                    'missing_data': info['missing_data'],
+                                    'missing_count': info['missing_count']
+                                }
+
+                        self._cache_check_time = time.time() - self._cache_check_start
+
+                        if not debug:
+                            self.stdout.write('\n')
+                            self.stdout.write(
+                                f'   ✅ Восстановлено данных о {len(games_needs_update)} играх за {self._format_time(self._cache_check_time)}')
+                            self.stdout.flush()
+
+                    # Итоговое сообщение
+                    self.stdout.write('\n' + '=' * 60)
+                    self.stdout.write('✅ ВОССТАНОВЛЕНИЕ ИЗ КЭША ЗАВЕРШЕНО')
+                    self.stdout.write('=' * 60)
+                    self.stdout.write(
+                        f'   📦 В games_map: {len(games_map)} игр, с проблемами: {len(games_needs_update)}')
+                    self.stdout.write(
+                        f'      ⏱️  Время: {self._format_time(self._cache_restore_time + self._cache_check_time)}')
+                    self.stdout.write('=' * 60 + '\n')
+
+                    self.stdout.write('🔍 Продолжаем загрузку остальных игр из БД...\n')
+
+                except Exception as e:
+                    if debug:
+                        self.stdout.write(f'\n   ⚠️ Ошибка загрузки из кэша: {e}')
+                    games_map = {}
+                    games_needs_update = {}
+                    cached_game_ids = set()
+                    cached_games_count = 0
+
+        # ОСНОВНОЙ ЦИКЛ ЗАГРУЗКИ
+        self.stdout.write(f'\n🔍 Поиск игр с недостающими данными...')
+
+        all_igdb_ids = list(Game.objects.values_list('igdb_id', flat=True).order_by('id'))
+
+        if current_offset > 0:
+            self.stdout.write(f'   📍 Текущий offset: {current_offset}')
+            all_igdb_ids = all_igdb_ids[current_offset:]
+
+        if limit > 0:
+            all_igdb_ids = all_igdb_ids[:limit]
+
+        if cached_game_ids:
+            games_to_check = [gid for gid in all_igdb_ids if gid not in cached_game_ids]
+            self.stdout.write(
+                f'   📊 Всего в БД: {len(all_igdb_ids)}, в кэше: {len(cached_game_ids)}, проверим: {len(games_to_check)}')
+            all_igdb_ids = games_to_check
+
+        total_games_to_check = len(all_igdb_ids)
+
+        if total_games_to_check == 0:
+            self.stdout.write('   ✅ Все игры уже загружены из кэша')
+            return games_map, games_needs_update
+
+        force_update_display()
+
+        for i in range(0, total_games_to_check, CHUNK_SIZE):
             if interrupted and interrupted.is_set():
+                self.stdout.write('\n\n⚠️  ПРЕРЫВАНИЕ (Ctrl+C)\n')
+                force_update_display()
+                self.stdout.write('')
+                self.stdout.write('   💾 Сохраняем промежуточные результаты...')
+
+                # Сохраняем текущий чанк
+                if 'games_chunk' in locals():
+                    for game in games_chunk:
+                        if game.igdb_id not in games_map:
+                            games_map[game.igdb_id] = game
+
+                save_intermediate_cache()
+                self.stdout.write('   ✅ Кэш сохранен для восстановления')
                 return games_map, games_needs_update
 
-            games_with_counts = Game.objects.filter(id__in=game_ids).annotate(
-                genre_count=Count('genres', distinct=True),
-                platform_count=Count('platforms', distinct=True),
-                keyword_count=Count('keywords', distinct=True),
-                engine_count=Count('engines', distinct=True),
-                series_count=Count('series', distinct=True),
-                developer_count=Count('developers', distinct=True),
-                publisher_count=Count('publishers', distinct=True),
-                theme_count=Count('themes', distinct=True),
-                perspective_count=Count('player_perspectives', distinct=True),
-                mode_count=Count('game_modes', distinct=True)
-            ).values(
-                'id', 'igdb_id',
-                'genre_count', 'platform_count', 'keyword_count', 'engine_count',
-                'series_count', 'developer_count', 'publisher_count',
-                'theme_count', 'perspective_count', 'mode_count'
+            chunk_ids = all_igdb_ids[i:i + CHUNK_SIZE]
+            games_chunk = Game.objects.filter(igdb_id__in=chunk_ids).prefetch_related(
+                'genres', 'platforms', 'keywords', 'engines', 'series',
+                'developers', 'publishers', 'themes', 'player_perspectives',
+                'game_modes', 'screenshots'
             )
 
-            if interrupted and interrupted.is_set():
-                return games_map, games_needs_update
-
-            counts_map = {}
-            for item in games_with_counts:
-                counts_map[item['igdb_id']] = item
-
-            chunk_has_issues = False
-
-            for game in chunk:
+            for game in games_chunk:
                 if interrupted and interrupted.is_set():
-                    return games_map, games_needs_update
+                    break
 
                 games_map[game.igdb_id] = game
                 stats['total_checked'] += 1
 
-                counts = counts_map.get(game.igdb_id, {})
-
-                # ЯВНАЯ ПРОВЕРКА ДАТЫ РЕЛИЗА
-                has_release_date = False
-                if game.first_release_date:
-                    if hasattr(game.first_release_date, 'year') and game.first_release_date.year > 1900:
-                        has_release_date = True
-                    try:
-                        timestamp = int(game.first_release_date.timestamp())
-                        if timestamp > 0:
-                            has_release_date = True
-                    except:
-                        pass
-
-                missing_data = {
-                    'has_cover': bool(game.cover_url and game.cover_url.strip()),
-                    'has_screenshots': game.id in games_with_screenshots,
-                    'has_description': bool(game.summary and game.summary.strip()),
-                    'has_rating': game.rating is not None,
-                    'has_release_date': has_release_date,
-                    'has_genres': counts.get('genre_count', 0) > 0,
-                    'has_platforms': counts.get('platform_count', 0) > 0,
-                    'has_keywords': counts.get('keyword_count', 0) > 0,
-                    'has_engines': counts.get('engine_count', 0) > 0,
-                    'has_series': counts.get('series_count', 0) > 0,
-                    'has_developers': counts.get('developer_count', 0) > 0,
-                    'has_publishers': counts.get('publisher_count', 0) > 0,
-                    'has_themes': counts.get('theme_count', 0) > 0,
-                    'has_perspectives': counts.get('perspective_count', 0) > 0,
-                    'has_modes': counts.get('mode_count', 0) > 0,
-                }
-
-                missing_count = sum(1 for has_data in missing_data.values() if not has_data)
+                missing_data, missing_count, _ = self.check_missing_game_data(game)
 
                 if missing_count > 0:
                     games_needs_update[game.igdb_id] = {
@@ -2150,52 +2340,112 @@ class GameLoader(BaseGamesCommand):
                         'missing_data': missing_data,
                         'missing_count': missing_count
                     }
-                    stats['games_with_missing'] += 1
                     games_found_with_issues += 1
-                    chunk_has_issues = True
 
-                    for key, has_data in missing_data.items():
+                    for data_type, has_data in missing_data.items():
                         if not has_data:
-                            stats['missing_by_type'][key] += 1
+                            stats['missing_by_type'][data_type] += 1
 
-            total_loaded += len(chunk)
-            current_offset += len(chunk)
-
-            if not interrupted or not interrupted.is_set():
                 current_time = time.time()
-                elapsed = current_time - start_time
+                if current_time - last_update_time > UPDATE_INTERVAL:
+                    force_update_display()
+                    last_update_time = current_time
 
-                if elapsed > 0:
-                    speed = total_loaded / elapsed
-                else:
-                    speed = 0
+                if current_time - last_cache_save_time > CACHE_SAVE_INTERVAL:
+                    save_intermediate_cache()
+                    last_cache_save_time = current_time
 
-                percentage = (total_loaded / Game.objects.count() * 100) if Game.objects.count() > 0 else 0
+            time.sleep(0.1)
 
-                status_msg = (f'\r   ⏳ Проверено {total_loaded} игр ({percentage:.1f}%) | '
-                              f'Найдено с проблемами: {games_found_with_issues} | '
-                              f'🚀 {speed:.1f} игр/с')
+        # Финальное обновление
+        force_update_display(final=True)
 
-                if limit > 0:
-                    status_msg += f' | Нужно еще: {games_needed - games_found_with_issues}'
+        self._print_final_loading_stats(
+            get_total_processed(),
+            len(games_needs_update),
+            start_time,
+            total_games_in_db
+        )
 
-                self.stdout.write(status_msg, ending='')
-                self.stdout.flush()
-                last_update_time = current_time
-
-            # Если нашли достаточно игр с проблемами - останавливаемся
-            if games_found_with_issues >= games_needed:
-                self.stdout.write(f'\n   ✅ Найдено достаточно игр с недостающими данными: {games_found_with_issues}')
-                break
-
-        self.stdout.write('\r' + ' ' * 100 + '\r')
-
-        total_elapsed = time.time() - start_time
-        avg_speed = total_loaded / total_elapsed if total_elapsed > 0 else 0
-        self.stdout.write(f'   ✅ Проверено {total_loaded} игр за {total_elapsed:.1f}с')
-        self.stdout.write(f'   📊 Найдено игр с недостающими данными: {len(games_needs_update)}')
+        # Сохраняем финальный кэш
+        if use_cache and not (interrupted and interrupted.is_set()) and games_needs_update:
+            save_intermediate_cache()
+            if debug:
+                self.stdout.write(
+                    f'\n   ✅ Финальный кэш: {get_total_processed()} игр, {len(games_needs_update)} с проблемами')
 
         return games_map, games_needs_update
+
+    def _format_time(self, seconds):
+        """Форматирует время в читаемый вид"""
+        if seconds < 60:
+            return f"{seconds:.1f}с"
+        elif seconds < 3600:
+            minutes = seconds // 60
+            secs = seconds % 60
+            return f"{int(minutes)}мин {secs:.1f}с"
+        else:
+            hours = seconds // 3600
+            minutes = (seconds % 3600) // 60
+            secs = seconds % 60
+            return f"{int(hours)}ч {int(minutes)}мин {secs:.1f}с"
+
+    def _update_display(self, total_loaded, found_with_issues, total_games_in_db,
+                        start_time, limit, games_needed, debug, extra='', final=False):
+        """Обновляет отображение прогресса (одна строка)"""
+        if debug:
+            return
+
+        current_time = time.time()
+        elapsed = current_time - start_time
+
+        if elapsed > 0:
+            speed = total_loaded / elapsed
+            if total_loaded > 0 and total_games_in_db > 0:
+                percentage = (total_loaded / total_games_in_db * 100)
+                if percentage > 0 and percentage < 100 and not final:
+                    remaining_seconds = (elapsed / percentage) * (100 - percentage)
+                    if remaining_seconds < 60:
+                        remaining_str = f" | ⏳ ост: {remaining_seconds:.0f}с"
+                    elif remaining_seconds < 3600:
+                        remaining_str = f" | ⏳ ост: {remaining_seconds / 60:.1f}мин"
+                    else:
+                        remaining_str = f" | ⏳ ост: {remaining_seconds / 3600:.1f}ч"
+                else:
+                    remaining_str = ""
+            else:
+                remaining_str = ""
+        else:
+            speed = 0
+            remaining_str = ""
+
+        percentage = (total_loaded / total_games_in_db * 100) if total_games_in_db > 0 else 0
+
+        status_msg = (f'\r   ⏳ Проверено {total_loaded} игр ({percentage:.1f}%) | '
+                      f'Найдено с проблемами: {found_with_issues} | 🚀 {speed:.1f} игр/с{remaining_str}')
+
+        if extra:
+            status_msg += f' | {extra}'
+
+        if limit > 0 and not final:
+            status_msg += f' | Нужно еще: {games_needed - found_with_issues}'
+
+        status_msg = status_msg.ljust(150)
+        self.stdout.write(status_msg, ending='')
+        self.stdout.flush()
+
+    def _print_final_loading_stats(self, total_loaded, found_with_issues, start_time, total_games_in_db):
+        """Выводит финальную статистику загрузки"""
+        self.stdout.write('\n')
+
+        total_elapsed = time.time() - start_time
+        elapsed_str = self._format_time(total_elapsed)
+        avg_speed = total_loaded / total_elapsed if total_elapsed > 0 else 0
+
+        self.stdout.write(f'   ✅ Проверено {total_loaded} игр за {elapsed_str}')
+        self.stdout.write(f'   📊 Найдено игр с недостающими данными: {found_with_issues}')
+        if total_elapsed > 0:
+            self.stdout.write(f'   🚀 Средняя скорость: {avg_speed:.1f} игр/с')
 
     def _process_update_batch_optimized(self, batch_num, batch_info, debug=False):
         """Оптимизированная обработка одной пачки игр (10 игр)"""
@@ -2205,16 +2455,10 @@ class GameLoader(BaseGamesCommand):
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         if not batch_info:
-            if debug:
-                self.stdout.write(f'      ⚠️ ПАЧКА {batch_num}: пустая пачка')
             return 0, []
 
         igdb_ids = [info['igdb_id'] for info in batch_info]
         id_list = ','.join(map(str, igdb_ids))
-
-        if debug:
-            self.stdout.write(f'\n      📦 ПАЧКА {batch_num}: НАЧАЛО ОБРАБОТКИ')
-            self.stdout.write(f'      🔢 ID игр в пачке: {igdb_ids}')
 
         query = f'''
             fields id,name,summary,storyline,genres,keywords,rating,rating_count,
@@ -2229,150 +2473,80 @@ class GameLoader(BaseGamesCommand):
         games_data = None
         for attempt in range(OPTIMAL_CONFIG['MAX_RETRIES'] + 1):
             try:
-                if debug:
-                    self.stdout.write(f'      🌐 ПАЧКА {batch_num}: Запрос к IGDB (попытка {attempt + 1})')
-
                 games_data = make_igdb_request('games', query, debug=False)
-
-                if debug:
-                    self.stdout.write(
-                        f'      ✅ ПАЧКА {batch_num}: Получен ответ от IGDB, игр: {len(games_data) if games_data else 0}')
                 break
             except Exception as e:
                 if attempt < OPTIMAL_CONFIG['MAX_RETRIES']:
                     delay = OPTIMAL_CONFIG['RETRY_DELAYS'][attempt]
-                    if debug:
-                        self.stdout.write(
-                            f'      ⏸️ ПАЧКА {batch_num}: retry {attempt + 1} через {delay}с, ошибка: {e}')
                     time.sleep(delay)
                 else:
-                    if debug:
-                        self.stderr.write(f'      ❌ ПАЧКА {batch_num}: Ошибка API после ретраев: {e}')
                     return 0, []
 
         if not games_data:
-            if debug:
-                self.stdout.write(f'      ⚠️ ПАЧКА {batch_num}: нет данных от IGDB')
             return 0, []
 
         games_data_map = {gd['id']: gd for gd in games_data if 'id' in gd}
 
-        if debug:
-            self.stdout.write(f'      📥 ПАЧКА {batch_num}: получено {len(games_data_map)}/{len(igdb_ids)} игр')
-            not_found = set(igdb_ids) - set(games_data_map.keys())
-            if not_found:
-                self.stdout.write(f'      ⚠️ Не найдены в IGDB: {not_found}')
-
         all_ids = self._collect_needed_ids(batch_info, games_data_map, debug)
 
-        if debug:
-            total_ids = sum(len(v) for k, v in all_ids.items() if isinstance(v, list) and k != 'games_with_screenshots')
-            self.stdout.write(f'      📊 ПАЧКА {batch_num}: Собрано ID для загрузки:')
-            self.stdout.write(f'         • Обложек: {len(all_ids["cover_ids"])}')
-            self.stdout.write(f'         • Жанров: {len(all_ids["genre_ids"])}')
-            self.stdout.write(f'         • Платформ: {len(all_ids["platform_ids"])}')
-            self.stdout.write(f'         • Ключевых слов: {len(all_ids["keyword_ids"])}')
-            self.stdout.write(f'         • Движков: {len(all_ids["engine_ids"])}')
-            self.stdout.write(f'         • Серий: {len(all_ids["series_ids"])}')
-            self.stdout.write(f'         • Компаний: {len(all_ids["company_ids"])}')
-            self.stdout.write(f'         • Тем: {len(all_ids["theme_ids"])}')
-            self.stdout.write(f'         • Перспектив: {len(all_ids["perspective_ids"])}')
-            self.stdout.write(f'         • Режимов: {len(all_ids["mode_ids"])}')
-            self.stdout.write(f'         • Игр со скриншотами: {len(all_ids["games_with_screenshots"])}')
-
         loader = DataLoader(self.stdout, self.stderr)
+        handler = RelationsHandler(self.stdout, self.stderr)
 
         data_maps = {}
 
-        if all_ids['cover_ids']:
-            if debug:
-                self.stdout.write(f'      🖼️ ПАЧКА {batch_num}: Загрузка {len(all_ids["cover_ids"])} обложек...')
-            data_maps['cover_map'] = loader.load_covers_parallel(all_ids['cover_ids'], debug)
+        # Загружаем данные параллельно
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {}
 
-        if all_ids['genre_ids']:
-            if debug:
-                self.stdout.write(f'      🎭 ПАЧКА {batch_num}: Загрузка {len(all_ids["genre_ids"])} жанров...')
-            data_maps['genre_map'] = loader.load_data_parallel_generic(
-                all_ids['genre_ids'], 'genres', Genre, '🎭', 'жанров', debug
-            )
+            if all_ids['cover_ids']:
+                futures['cover_map'] = executor.submit(loader.load_covers_parallel, all_ids['cover_ids'], False)
+            if all_ids['genre_ids']:
+                futures['genre_map'] = executor.submit(
+                    loader.load_data_parallel_generic, all_ids['genre_ids'], 'genres', Genre, '🎭', 'жанров', False
+                )
+            if all_ids['platform_ids']:
+                futures['platform_map'] = executor.submit(
+                    loader.load_data_parallel_generic, all_ids['platform_ids'], 'platforms', Platform, '🖥️', 'платформ',
+                    False
+                )
+            if all_ids['keyword_ids']:
+                futures['keyword_map'] = executor.submit(
+                    loader.load_keywords_parallel_with_weights, all_ids['keyword_ids'], False
+                )
+            if all_ids['engine_ids']:
+                futures['engine_map'] = executor.submit(loader.load_engines_parallel, all_ids['engine_ids'], False)
+            if all_ids['series_ids']:
+                futures['series_map'] = executor.submit(
+                    loader.load_data_parallel_generic, all_ids['series_ids'], 'collections', Series, '📚', 'серий', False
+                )
+            if all_ids['company_ids']:
+                futures['company_map'] = executor.submit(loader.load_companies_parallel, all_ids['company_ids'], False)
+            if all_ids['theme_ids']:
+                futures['theme_map'] = executor.submit(
+                    loader.load_data_parallel_generic, all_ids['theme_ids'], 'themes', Theme, '🎨', 'тем', False
+                )
+            if all_ids['perspective_ids']:
+                futures['perspective_map'] = executor.submit(
+                    loader.load_data_parallel_generic, all_ids['perspective_ids'], 'player_perspectives',
+                    PlayerPerspective, '👁️', 'перспектив', False
+                )
+            if all_ids['mode_ids']:
+                futures['mode_map'] = executor.submit(
+                    loader.load_data_parallel_generic, all_ids['mode_ids'], 'game_modes', GameMode, '🎮', 'режимов',
+                    False
+                )
 
-        if all_ids['platform_ids']:
-            if debug:
-                self.stdout.write(f'      🖥️ ПАЧКА {batch_num}: Загрузка {len(all_ids["platform_ids"])} платформ...')
-            data_maps['platform_map'] = loader.load_data_parallel_generic(
-                all_ids['platform_ids'], 'platforms', Platform, '🖥️', 'платформ', debug
-            )
-
-        if all_ids['keyword_ids']:
-            if debug:
-                self.stdout.write(f'      🔑 ПАЧКА {batch_num}: Загрузка {len(all_ids["keyword_ids"])} ключевых слов...')
-            data_maps['keyword_map'] = loader.load_keywords_parallel_with_weights(all_ids['keyword_ids'], debug)
-
-        if all_ids['engine_ids']:
-            if debug:
-                self.stdout.write(f'      ⚙️ ПАЧКА {batch_num}: Загрузка {len(all_ids["engine_ids"])} движков...')
-            data_maps['engine_map'] = loader.load_engines_parallel(all_ids['engine_ids'], debug)
-
-        if all_ids['series_ids']:
-            if debug:
-                self.stdout.write(f'      📚 ПАЧКА {batch_num}: Загрузка {len(all_ids["series_ids"])} серий...')
-            data_maps['series_map'] = loader.load_data_parallel_generic(
-                all_ids['series_ids'], 'collections', Series, '📚', 'серий', debug
-            )
-
-        if all_ids['company_ids']:
-            if debug:
-                self.stdout.write(f'      🏢 ПАЧКА {batch_num}: Загрузка {len(all_ids["company_ids"])} компаний...')
-            data_maps['company_map'] = loader.load_companies_parallel(all_ids['company_ids'], debug)
-
-        if all_ids['theme_ids']:
-            if debug:
-                self.stdout.write(f'      🎨 ПАЧКА {batch_num}: Загрузка {len(all_ids["theme_ids"])} тем...')
-            data_maps['theme_map'] = loader.load_data_parallel_generic(
-                all_ids['theme_ids'], 'themes', Theme, '🎨', 'тем', debug
-            )
-
-        if all_ids['perspective_ids']:
-            if debug:
-                self.stdout.write(
-                    f'      👁️ ПАЧКА {batch_num}: Загрузка {len(all_ids["perspective_ids"])} перспектив...')
-            data_maps['perspective_map'] = loader.load_data_parallel_generic(
-                all_ids['perspective_ids'], 'player_perspectives', PlayerPerspective, '👁️', 'перспектив', debug
-            )
-
-        if all_ids['mode_ids']:
-            if debug:
-                self.stdout.write(f'      🎮 ПАЧКА {batch_num}: Загрузка {len(all_ids["mode_ids"])} режимов...')
-            data_maps['mode_map'] = loader.load_data_parallel_generic(
-                all_ids['mode_ids'], 'game_modes', GameMode, '🎮', 'режимов', debug
-            )
-
-        if debug:
-            self.stdout.write(f'      ✅ ПАЧКА {batch_num}: Загружено данных:')
-            self.stdout.write(f'         • Обложек: {len(data_maps.get("cover_map", {}))}')
-            self.stdout.write(f'         • Жанров: {len(data_maps.get("genre_map", {}))}')
-            self.stdout.write(f'         • Платформ: {len(data_maps.get("platform_map", {}))}')
-            self.stdout.write(f'         • Ключевых слов: {len(data_maps.get("keyword_map", {}))}')
-            self.stdout.write(f'         • Движков: {len(data_maps.get("engine_map", {}))}')
-            self.stdout.write(f'         • Серий: {len(data_maps.get("series_map", {}))}')
-            self.stdout.write(f'         • Компаний: {len(data_maps.get("company_map", {}))}')
-            self.stdout.write(f'         • Тем: {len(data_maps.get("theme_map", {}))}')
-            self.stdout.write(f'         • Перспектив: {len(data_maps.get("perspective_map", {}))}')
-            self.stdout.write(f'         • Режимов: {len(data_maps.get("mode_map", {}))}')
+            for key, future in futures.items():
+                try:
+                    data_maps[key] = future.result(timeout=30)
+                except Exception:
+                    data_maps[key] = {}
 
         if all_ids['games_with_screenshots']:
-            if debug:
-                self.stdout.write(
-                    f'      📸 ПАЧКА {batch_num}: Загрузка скриншотов для {len(all_ids["games_with_screenshots"])} игр...')
             self._load_screenshots_for_batch(all_ids['games_with_screenshots'], games_data_map, debug)
-            if debug:
-                self.stdout.write(f'      ✅ ПАЧКА {batch_num}: Скриншоты загружены')
 
         batch_updated = 0
         batch_details = []
-
-        if debug:
-            self.stdout.write(f'      🔄 ПАЧКА {batch_num}: Обновление отдельных игр...')
 
         for info in batch_info:
             igdb_id = info['igdb_id']
@@ -2380,21 +2554,13 @@ class GameLoader(BaseGamesCommand):
             missing_data = info['missing_data']
             game_data = games_data_map.get(igdb_id)
 
-            if debug:
-                self.stdout.write(f'\n         🎯 Обработка игры: {game.name} (ID: {igdb_id})')
-                missing_count_before = sum(1 for has_data in missing_data.values() if not has_data)
-                self.stdout.write(f'            📊 Недостающих данных ДО: {missing_count_before}')
-
             if not game_data:
-                if debug:
-                    self.stdout.write(f'            ⚠️ Игра не найдена в ответе IGDB')
                 continue
 
             success, details = self._update_single_game_with_existing_data(
                 game, game_data, data_maps, {'game_data_map': games_data_map, 'screenshots_info': {}}, debug
             )
 
-            # ИЗМЕНЕНИЕ: Проверяем, были ли реальные обновления
             if success and (
                     details['updated_fields'] or details['updated_relations'] or details['screenshots_added'] > 0):
                 batch_updated += 1
@@ -2403,30 +2569,6 @@ class GameLoader(BaseGamesCommand):
                     'game_id': igdb_id,
                     'details': details
                 })
-
-                if debug:
-                    updated_items = []
-                    if details['updated_fields']:
-                        updated_items.append(f"поля: {', '.join(details['updated_fields'])}")
-                    if details['updated_relations']:
-                        updated_items.append(f"связи: {', '.join(details['updated_relations'])}")
-                    if updated_items:
-                        self.stdout.write(f'            ✅ Обновлено: {", ".join(updated_items)}')
-                    else:
-                        self.stdout.write(f'            ⏭️ Нет обновлений')
-            elif success:
-                if debug:
-                    self.stdout.write(f'            ⏭️ Нет обновлений (все данные уже были)')
-            else:
-                if debug:
-                    self.stdout.write(f'            ❌ Ошибка обновления')
-
-        if debug and batch_updated > 0:
-            self.stdout.write(f'\n      📊 ПАЧКА {batch_num}: обновлено {batch_updated}/{len(batch_info)} игр')
-            self.stdout.write(f'      ✅ ПАЧКА {batch_num}: ЗАВЕРШЕНА')
-        elif debug:
-            self.stdout.write(f'\n      📊 ПАЧКА {batch_num}: не обновлено ни одной игры')
-            self.stdout.write(f'      ✅ ПАЧКА {batch_num}: ЗАВЕРШЕНА')
 
         return batch_updated, batch_details
 
@@ -2446,41 +2588,25 @@ class GameLoader(BaseGamesCommand):
             'games_with_screenshots': [],
         }
 
-        if debug:
-            self.stdout.write(f'         🔍 Сбор ID для {len(batch_info)} игр...')
-
         for info in batch_info:
             igdb_id = info['igdb_id']
             missing_data = info['missing_data']
             game_data = games_data_map.get(igdb_id)
 
             if not game_data:
-                if debug:
-                    self.stdout.write(f'            ⚠️ Игра {igdb_id} не найдена в данных IGDB')
                 continue
-
-            if debug:
-                self.stdout.write(f'            • Игра {igdb_id}: анализ данных')
 
             if not missing_data.get('has_cover', True) and game_data.get('cover'):
                 all_ids['cover_ids'].append(game_data['cover'])
-                if debug:
-                    self.stdout.write(f'               🖼️ Нужна обложка: {game_data["cover"]}')
 
             if not missing_data.get('has_genres', True) and game_data.get('genres'):
                 all_ids['genre_ids'].update(game_data['genres'])
-                if debug:
-                    self.stdout.write(f'               🎭 Нужны жанры: {game_data["genres"]}')
 
             if not missing_data.get('has_platforms', True) and game_data.get('platforms'):
                 all_ids['platform_ids'].update(game_data['platforms'])
-                if debug:
-                    self.stdout.write(f'               🖥️ Нужны платформы: {game_data["platforms"]}')
 
             if not missing_data.get('has_keywords', True) and game_data.get('keywords'):
                 all_ids['keyword_ids'].update(game_data['keywords'])
-                if debug:
-                    self.stdout.write(f'               🔑 Нужны ключевые слова: {game_data["keywords"]}')
 
             if not missing_data.get('has_engines', True) and game_data.get('game_engines'):
                 for engine in game_data['game_engines']:
@@ -2488,49 +2614,31 @@ class GameLoader(BaseGamesCommand):
                         all_ids['engine_ids'].add(engine.get('id'))
                     elif isinstance(engine, int):
                         all_ids['engine_ids'].add(engine)
-                if debug:
-                    self.stdout.write(f'               ⚙️ Нужны движки: {game_data["game_engines"]}')
 
             if not missing_data.get('has_series', True) and game_data.get('collections'):
                 all_ids['series_ids'].update(game_data['collections'])
-                if debug:
-                    self.stdout.write(f'               📚 Нужны серии: {game_data["collections"]}')
 
             if not missing_data.get('has_screenshots', True) and game_data.get('screenshots'):
                 all_ids['games_with_screenshots'].append(igdb_id)
-                if debug:
-                    self.stdout.write(f'               📸 Нужны скриншоты ({len(game_data["screenshots"])} шт)')
 
             if (not missing_data.get('has_developers', True) or
                 not missing_data.get('has_publishers', True)) and game_data.get('involved_companies'):
                 for company_data in game_data['involved_companies']:
                     if company_data.get('company'):
                         all_ids['company_ids'].add(company_data['company'])
-                if debug:
-                    self.stdout.write(f'               🏢 Нужны компании')
 
             if not missing_data.get('has_themes', True) and game_data.get('themes'):
                 all_ids['theme_ids'].update(game_data['themes'])
-                if debug:
-                    self.stdout.write(f'               🎨 Нужны темы: {game_data["themes"]}')
 
             if not missing_data.get('has_perspectives', True) and game_data.get('player_perspectives'):
                 all_ids['perspective_ids'].update(game_data['player_perspectives'])
-                if debug:
-                    self.stdout.write(f'               👁️ Нужны перспективы: {game_data["player_perspectives"]}')
 
             if not missing_data.get('has_modes', True) and game_data.get('game_modes'):
                 all_ids['mode_ids'].update(game_data['game_modes'])
-                if debug:
-                    self.stdout.write(f'               🎮 Нужны режимы: {game_data["game_modes"]}')
 
         for key in ['genre_ids', 'platform_ids', 'keyword_ids', 'engine_ids',
                     'series_ids', 'company_ids', 'theme_ids', 'perspective_ids', 'mode_ids']:
             all_ids[key] = list(all_ids[key])
-
-        if debug:
-            total_ids = sum(len(v) for k, v in all_ids.items() if isinstance(v, list) and k != 'games_with_screenshots')
-            self.stdout.write(f'         📊 ИТОГО собрано ID для загрузки: {total_ids}')
 
         return all_ids
 

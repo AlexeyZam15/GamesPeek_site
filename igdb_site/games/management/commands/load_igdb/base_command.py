@@ -172,6 +172,7 @@ class TopProgressBar(BaseProgressBar):
         bar = self.filled_char * filled_length + self.empty_char * (self.bar_length - filled_length)
 
         elapsed_time = time.time() - self.start_time
+        # Используем существующий метод для расчета оставшегося времени
         time_str = self._calculate_time_string(elapsed_time, self.total_loaded, self.total_games)
 
         if self.total_games > 0:
@@ -191,6 +192,7 @@ class TopProgressBar(BaseProgressBar):
         if self.iterations_without_new > 0:
             message += f"⏸️{spacing}{self.iterations_without_new:>{self.stat_width}} "
 
+        # Добавляем строку с оставшимся временем
         message += f"({time_str})"
 
         terminal_width = 150
@@ -266,6 +268,7 @@ class SimpleProgressBar(BaseProgressBar):
             message = f"{self.desc}: [{self.total_loaded} игр] "
 
         elapsed_time = time.time() - self.start_time
+        # Используем существующий метод для расчета оставшегося времени
         time_str = self._calculate_time_string(elapsed_time, self.total_loaded, self.total_games)
 
         spacing = " " * self.emoji_spacing
@@ -280,6 +283,7 @@ class SimpleProgressBar(BaseProgressBar):
         if self.iterations_without_new > 0:
             message += f"⏸️{spacing}{self.iterations_without_new:>{self.stat_width}} "
 
+        # Добавляем строку с оставшимся временем
         message += f"({time_str})"
 
         self.last_printed_length = len(message)
