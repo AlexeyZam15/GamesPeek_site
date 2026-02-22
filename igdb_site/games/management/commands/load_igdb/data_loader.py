@@ -12,6 +12,7 @@ from games.models import (
 import requests
 from urllib.parse import urlparse
 
+
 class DataLoader:
     """Класс для загрузки данных из IGDB"""
 

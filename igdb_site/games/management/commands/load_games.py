@@ -44,12 +44,65 @@ class Command(BaseCommand):
                             help='Сбросить сохраненный offset и начать с начала')
         parser.add_argument('--update-missing-data', action='store_true',
                             help='Обновить отсутствующие данные у существующих игр. Можно использовать с --game-names или без для обновления всех игр')
-        # НОВЫЙ АРГУМЕНТ
         parser.add_argument('--update-covers', action='store_true',
                             help='Обновить только обложки у существующих игр')
 
+        # НОВЫЕ АРГУМЕНТЫ ДЛЯ КЭШИРОВАНИЯ
+        parser.add_argument('--no-cache', action='store_true',
+                            help='Отключить кэширование загрузки из БД')
+        parser.add_argument('--cache-ttl', type=int, default=3600,
+                            help='Время жизни кэша в секундах (по умолчанию 3600 - 1 час)')
+        parser.add_argument('--clear-db-cache', action='store_true',
+                            help='Очистить кэш данных из БД перед запуском')
+
     def handle(self, *args, **options):
         """Основной метод выполнения команды"""
+        from django.core.cache import cache
+
+        # Передаем параметры кэширования
+        options['use_cache'] = not options.get('no_cache', False)
+
+        # Очистка кэша БД если нужно
+        if options.get('clear_db_cache', False):
+            self.stdout.write('\n🧹 ОЧИСТКА КЭША БД')
+            self.stdout.write('=' * 50)
+
+            try:
+                # Пытаемся найти все ключи кэша, связанные с играми
+                cleared_count = 0
+                cache_keys = []
+
+                # Для Redis и подобных бэкендов
+                try:
+                    cache_keys = cache.keys("games_relations_*")
+                    if cache_keys:
+                        cache.delete_many(cache_keys)
+                        cleared_count = len(cache_keys)
+                except:
+                    # Для бэкендов без keys() используем другой подход
+                    # Очищаем весь кэш (менее точно, но работает)
+                    cache.clear()
+                    cleared_count = -1  # Специальное значение
+
+                if cleared_count == -1:
+                    self.stdout.write('   ✅ Весь кэш очищен')
+                elif cleared_count > 0:
+                    self.stdout.write(f'   ✅ Удалено {cleared_count} записей кэша игр')
+                else:
+                    self.stdout.write('   📭 Кэш игр пуст')
+
+            except Exception as e:
+                self.stdout.write(f'   ❌ Ошибка очистки кэша: {e}')
+
+            self.stdout.write('=' * 50)
+
+            # Спрашиваем, продолжать ли выполнение команды
+            if not options.get('force', False):
+                response = input('\nПродолжить выполнение команды? (y/n): ')
+                if response.lower() != 'y':
+                    self.stdout.write('⏹️ Команда отменена')
+                    return
+
         # Если используется --update-covers
         if options['update_covers']:
             self.stdout.write('🖼️  РЕЖИМ: ОБНОВЛЕНИЕ ОБЛОЖЕК')
