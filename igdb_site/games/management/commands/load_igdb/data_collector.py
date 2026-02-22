@@ -41,77 +41,19 @@ class DataCollector:
         self.stdout = stdout
         self.stderr = stderr
 
-    def _load_single_game_by_exact_name_for_update(self, where_clause, debug=False, skip_existing=True,
-                                                   count_only=False):
-        """Загружает САМУЮ ПОПУЛЯРНУЮ игру по точному имени - ВСЕГДА возвращает найденную игру"""
-        # Загружаем существующие ID игр для фильтрации
-        from games.models import Game
-        existing_game_ids = set()
-        if skip_existing:
-            existing_game_ids = set(Game.objects.values_list('igdb_id', flat=True))
-            if debug:
-                self.stdout.write(f'   📊 Игр в базе для фильтрации: {len(existing_game_ids)}')
-
-        try:
-            if debug:
-                self.stdout.write(f'   🎯 Запрос самой популярной игры...')
-
-            # ВАЖНО: добавляем game_engines в поля!
-            query = f'''
-                fields id,name,summary,storyline,genres,keywords,rating,rating_count,first_release_date,platforms,cover,game_type,screenshots,game_engines;
-                where {where_clause};
-                sort rating_count desc;
-                limit 1;
-            '''.strip()
-
-            if debug:
-                self.stdout.write(f'   📝 Запрос: {query}')
-
-            games = make_igdb_request('games', query, debug=False)
-
-            if not games:
-                if debug:
-                    self.stdout.write('   ❌ Игра с таким названием не найдена')
-                return self._empty_result()
-
-            game = games[0]
-            game_id = game.get('id')
-
-            if debug:
-                self.stdout.write(
-                    f'   ✅ Найдена игра: "{game.get("name")}" (ID: {game_id}, rating_count: {game.get("rating_count", 0)})')
-                if game.get('screenshots'):
-                    self.stdout.write(f'   📸 Скриншотов у игры: {len(game.get("screenshots", []))}')
-                if game.get('game_engines'):
-                    self.stdout.write(f'   ⚙️ Движков у игры: {len(game.get("game_engines", []))}')
-                    for engine in game.get('game_engines', []):
-                        self.stdout.write(f'      • {engine}')
-
-            # ВАЖНОЕ ИЗМЕНЕНИЕ: В режиме обновления мы ВСЕГДА возвращаем найденную игру
-            # но отмечаем, существует ли она уже в базе
-            game_exists = game_id in existing_game_ids
-
-            if game_exists:
-                if debug:
-                    self.stdout.write(f'   ⏭️  Игра уже есть в базе, но будет использована для обновления')
-
-            # ВОЗВРАЩАЕМ ВСЕГДА игру, даже если она уже есть в базе
-            return {
-                'new_games': [] if game_exists and skip_existing else [game],
-                'all_found_games': [game],  # ВАЖНО: возвращаем ВСЕ найденные игры
-                'total_games_checked': 1,
-                'new_games_count': 0 if game_exists and skip_existing else 1,
-                'existing_games_skipped': 1 if game_exists else 0,
-                'last_checked_offset': 0,
-                'limit_reached': False,
-                'limit_reached_at_offset': None,
-                'interrupted': False,
-            }
-
-        except Exception as e:
-            if debug:
-                self.stderr.write(f'   ❌ Ошибка при запросе игры: {str(e)}')
-            return self._empty_result()
+    def empty_result(self):
+        """Возвращает пустой результат"""
+        return {
+            'new_games': [],
+            'all_found_games': [],
+            'total_games_checked': 0,
+            'new_games_count': 0,
+            'existing_games_skipped': 0,
+            'last_checked_offset': 0,
+            'limit_reached': False,
+            'limit_reached_at_offset': None,
+            'interrupted': False,
+        }
 
     def load_games_by_names(self, game_names_str, debug=False, limit=0, offset=0, min_rating_count=0,
                             skip_existing=True, count_only=False, game_types_str='0,1,2,4,5,8,9,10,11'):
@@ -120,18 +62,16 @@ class DataCollector:
 
         if not game_names:
             self.stdout.write('⚠️  Не указаны имена игр')
-            return self._empty_result()
+            return self.empty_result()
 
         if debug:
             self.stdout.write(f'🔍 Поиск САМОЙ ПОПУЛЯРНОЙ игры по имени: "{game_names[0]}"')
 
-        # Формируем условие для поиска игры по ТОЧНОМУ названию (без wildcard)
         where_clause = f'name = "{game_names[0]}"'
 
         if min_rating_count > 0:
             where_clause = f'{where_clause} & rating_count >= {min_rating_count}'
 
-        # Добавляем фильтр по game_type если указаны типы
         if game_types_str:
             try:
                 game_types = [int(gt.strip()) for gt in game_types_str.split(',') if gt.strip()]
@@ -144,12 +84,10 @@ class DataCollector:
         if debug:
             self.stdout.write(f'🎯 Условие поиска (точное название): {where_clause}')
 
-        # ВАЖНО: используем метод с game_engines в полях
-        return self._load_single_game_by_exact_name_for_update(where_clause, debug, skip_existing, count_only)
+        return self._load_single_game_by_exact_name(where_clause, debug, skip_existing, count_only)
 
     def _load_single_game_by_exact_name(self, where_clause, debug=False, skip_existing=True, count_only=False):
         """Загружает САМУЮ ПОПУЛЯРНУЮ игру по точному имени С СОБИРАНИЕМ ID СКРИНШОТОВ"""
-        # Загружаем существующие ID игр для фильтрации
         from games.models import Game
         existing_game_ids = set()
         if skip_existing:
@@ -161,7 +99,6 @@ class DataCollector:
             if debug:
                 self.stdout.write(f'   🎯 Запрос самой популярной игры...')
 
-            # ЗАПРОС ДОЛЖЕН ВКЛЮЧАТЬ screenshots И game_engines!
             query = f'''
                 fields id,name,summary,storyline,genres,keywords,rating,rating_count,first_release_date,platforms,cover,game_type,screenshots,game_engines;
                 where {where_clause};
@@ -177,7 +114,7 @@ class DataCollector:
             if not games:
                 if debug:
                     self.stdout.write('   ❌ Игра с таким названием не найдена')
-                return self._empty_result()
+                return self.empty_result()
 
             game = games[0]
             game_id = game.get('id')
@@ -189,17 +126,13 @@ class DataCollector:
                     self.stdout.write(f'   📸 Скриншотов у игры: {len(game.get("screenshots", []))}')
                 if game.get('game_engines'):
                     self.stdout.write(f'   ⚙️ Движков у игры: {len(game.get("game_engines", []))}')
-                    for engine in game.get('game_engines', []):
-                        self.stdout.write(f'      • {engine}')
 
-            # Проверяем существование в базе
             if skip_existing and game_id in existing_game_ids:
                 if debug:
                     self.stdout.write(f'   ⏭️  Игра уже есть в базе, НО ВОЗВРАЩАЕМ ДАННЫЕ ДЛЯ ОБНОВЛЕНИЯ')
-                # ВАЖНО: возвращаем игру даже если она есть, чтобы обновить данные!
                 return {
-                    'new_games': [],  # Не создаем новую игру
-                    'all_found_games': [game],  # Но возвращаем данные для обновления
+                    'new_games': [],
+                    'all_found_games': [game],
                     'total_games_checked': 1,
                     'new_games_count': 0,
                     'existing_games_skipped': 1,
@@ -209,7 +142,6 @@ class DataCollector:
                     'interrupted': False,
                 }
 
-            # Возвращаем только одну игру
             return {
                 'new_games': [game],
                 'all_found_games': [game],
@@ -225,32 +157,16 @@ class DataCollector:
         except Exception as e:
             if debug:
                 self.stderr.write(f'   ❌ Ошибка при запросе игры: {str(e)}')
-            return self._empty_result()
-
-    def _empty_result(self):
-        """Возвращает пустой результат"""
-        return {
-            'new_games': [],
-            'all_found_games': [],
-            'total_games_checked': 0,
-            'new_games_count': 0,
-            'existing_games_skipped': 0,
-            'last_checked_offset': 0,
-            'limit_reached': False,
-            'limit_reached_at_offset': None,
-            'interrupted': False,
-        }
+            return self.empty_result()
 
     def load_all_popular_games(self, debug=False, limit=0, offset=0, min_rating_count=0,
                                skip_existing=True, count_only=False, game_types_str='0,1,2,4,5,8,9,10,11'):
         """Загрузка всех игр с сортировкой по популярности (rating_count)"""
-        # Формируем базовое условие для поиска
         where_conditions = ['rating_count > 0', 'name != null']
 
         if min_rating_count > 0:
             where_conditions.append(f'rating_count >= {min_rating_count}')
 
-        # Добавляем фильтр по game_type если указаны типы
         if game_types_str:
             try:
                 game_types = [int(gt.strip()) for gt in game_types_str.split(',') if gt.strip()]
@@ -269,25 +185,21 @@ class DataCollector:
         return self.load_games_by_query(
             where_clause, debug, limit, offset,
             skip_existing, count_only,
-            show_progress=False  # НЕ показываем прогресс загрузки
+            show_progress=False
         )
 
     def load_games_by_query(self, where_clause, debug=False, limit=0, offset=0,
                             skip_existing=True, count_only=False, query_context=None,
-                            show_progress=True):  # НОВЫЙ ПАРАМЕТР
+                            show_progress=True):
         """Загрузка игр по запросу с пагинацией и offset"""
-        # Инициализация
         self._init_loading_session(debug, limit, offset, count_only)
         start_time = time.time()
 
-        # Загрузка существующих ID игр
         existing_game_ids = self._load_existing_ids_for_filtering(skip_existing, debug)
 
-        # Основные структуры данных
         new_games, all_found_games = [], []
         stats = self._init_loading_stats()
 
-        # Обработчик прерывания
         interrupted = threading.Event()
         original_sigint = signal.getsignal(signal.SIGINT)
 
@@ -298,11 +210,10 @@ class DataCollector:
         signal.signal(signal.SIGINT, signal_handler)
 
         try:
-            # Основной цикл загрузки
             result = self._execute_loading_main_loop(
                 where_clause, limit, offset, skip_existing,
                 existing_game_ids, new_games, all_found_games,
-                stats, debug, interrupted, show_progress  # Передаем show_progress
+                stats, debug, interrupted, show_progress
             )
 
         except KeyboardInterrupt:
@@ -317,7 +228,6 @@ class DataCollector:
         finally:
             signal.signal(signal.SIGINT, original_sigint)
 
-        # Финальная обработка
         final_result = self._finalize_and_return_results(
             new_games, all_found_games, stats, result,
             limit, offset, start_time, debug, interrupted.is_set()
@@ -351,7 +261,6 @@ class DataCollector:
         if not skip_existing:
             return set()
 
-        # Используем values_list для оптимизации запроса
         try:
             existing_game_ids = set(Game.objects.values_list('igdb_id', flat=True))
             if debug:
@@ -374,22 +283,19 @@ class DataCollector:
 
     def _execute_loading_main_loop(self, where_clause, limit, offset, skip_existing,
                                    existing_game_ids, new_games, all_found_games,
-                                   stats, debug, interrupted, show_progress=True):  # НОВЫЙ ПАРАМЕТР
+                                   stats, debug, interrupted, show_progress=True):
         """Выполняет основной цикл загрузки"""
-        # Параметры загрузки
         BATCH_SIZE = 100
         BATCHES_PER_CYCLE = 2
         MAX_WORKERS = 3
         MAX_EMPTY_BATCHES = 5
 
-        # Определяем, это ли специфический поиск (по режимам или именам)?
         is_specific_search = 'game_modes = (' in where_clause or 'name ~ *"' in where_clause
 
-        # Для специфического поиска меняем параметры
         if is_specific_search:
-            BATCH_SIZE = 20  # Меньшие пачки
-            BATCHES_PER_CYCLE = 1  # По одной пачке за цикл
-            MAX_EMPTY_BATCHES = 10  # Больше пустых пачек разрешено
+            BATCH_SIZE = 20
+            BATCHES_PER_CYCLE = 1
+            MAX_EMPTY_BATCHES = 10
 
         current_offset = offset
         batch_number = 1
@@ -397,25 +303,21 @@ class DataCollector:
         last_checked_offset = offset
         start_time = time.time()
 
-        # ДЛЯ СПЕЦИФИЧЕСКОГО ПОИСКА: Считаем сколько игр просмотрено
         games_checked_for_new = 0
-        MAX_GAMES_TO_CHECK = 1000  # Максимум проверить 1000 игр перед остановкой
+        MAX_GAMES_TO_CHECK = 1000
 
         while not interrupted.is_set():
-            # Для специфического поиска: проверяем лимит просмотренных игр
             if is_specific_search and games_checked_for_new >= MAX_GAMES_TO_CHECK:
                 if debug:
                     self.stdout.write(f'   ⚠️  Проверено {MAX_GAMES_TO_CHECK} игр, новых не найдено - останавливаемся')
                 break
 
-            # Проверка условий завершения
             if self._check_loading_completion_conditions(
                     limit, len(new_games), empty_batches_in_a_row,
                     MAX_EMPTY_BATCHES, start_time, debug
             ):
                 break
 
-            # Создание и выполнение пачек загрузки
             batch_results = self._create_and_execute_batch_cycle(
                 where_clause, limit, len(new_games), current_offset,
                 batch_number, BATCH_SIZE, BATCHES_PER_CYCLE,
@@ -425,35 +327,27 @@ class DataCollector:
             if interrupted.is_set():
                 break
 
-            # Обработка результатов пачек
             cycle_result = self._process_batch_cycle_results(
                 batch_results, existing_game_ids, skip_existing, limit,
-                new_games, all_found_games, stats, debug, show_progress  # Передаем show_progress
+                new_games, all_found_games, stats, debug, show_progress
             )
 
             empty_batches_in_a_row = cycle_result['empty_batches']
             last_checked_offset = cycle_result['last_offset']
 
-            # Для специфического поиска: обновляем счетчик проверенных игр
             if is_specific_search:
                 games_in_this_cycle = sum(len(games) for _, _, games, _, _ in batch_results)
                 games_checked_for_new += games_in_this_cycle
-                if debug and show_progress:  # Только если показываем прогресс
-                    self.stdout.write(
-                        f'   📊 Проверено игр в этом цикле: {games_in_this_cycle}, всего: {games_checked_for_new}')
 
-            # Проверка достижения лимита
             if limit > 0 and len(new_games) >= limit:
                 if debug and show_progress:
                     self.stdout.write(f'   🎯 Достигнут лимит {limit} новых игр на offset {last_checked_offset}')
                 break
 
-            # Подготовка к следующему циклу
             current_offset += BATCH_SIZE * BATCHES_PER_CYCLE
             batch_number += len(batch_results)
             stats['cycles'] += 1
 
-            # Короткая пауза для снижения нагрузки
             time.sleep(0.3)
 
         return {
@@ -465,17 +359,14 @@ class DataCollector:
     def _check_loading_completion_conditions(self, limit, new_games_count, empty_batches,
                                              max_empty_batches, start_time, debug):
         """Проверяет условия завершения загрузки"""
-        # Лимит новых игр достигнут
         if limit > 0 and new_games_count >= limit:
             return True
 
-        # Слишком много пустых пачек подряд
         if empty_batches >= max_empty_batches:
             if debug:
                 self.stdout.write(f'   💤 {empty_batches} пустых пачек подряд - достигнут конец результатов')
             return True
 
-        # Превышено максимальное время выполнения
         if time.time() - start_time > 120:
             self.stdout.write(f'   ⏱️  Превышено время выполнения (2 минуты)')
             self.stdout.write(f'   📊 Найдено за это время: {new_games_count} новых игр')
@@ -486,7 +377,6 @@ class DataCollector:
     def _create_and_execute_batch_cycle(self, where_clause, limit, current_new_games, current_offset,
                                         batch_number, batch_size, batches_per_cycle, max_workers, debug, interrupted):
         """Создает и выполняет цикл загрузки пачек"""
-        # Создание задач для пачек
         batch_tasks = self._create_batch_tasks_for_cycle(
             batch_number, current_offset, batch_size, batches_per_cycle,
             limit, current_new_games
@@ -498,7 +388,6 @@ class DataCollector:
         if debug:
             self.stdout.write(f'   🔄 Цикл загрузки: {len(batch_tasks)} пачек, смещение: {current_offset}')
 
-        # Параллельное выполнение загрузки пачек
         return self._execute_batch_tasks_in_parallel(
             batch_tasks, where_clause, max_workers, debug, interrupted
         )
@@ -509,14 +398,12 @@ class DataCollector:
         batch_tasks = []
         batch_size_actual = batch_size
 
-        # Корректировка размера пачки если есть лимит
         if limit > 0:
             needed = limit - current_new_games
             if needed <= 0:
                 return []
             batch_size_actual = min(batch_size, needed)
 
-        # Создание задач для каждой пачки
         for i in range(batches_per_cycle):
             batch_offset = current_offset + (i * batch_size_actual)
             batch_tasks.append((batch_number + i, batch_offset, batch_size_actual))
@@ -530,7 +417,6 @@ class DataCollector:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {}
 
-            # Запуск загрузки пачек
             for batch_num, batch_offset, batch_limit in batch_tasks:
                 if interrupted.is_set():
                     break
@@ -541,7 +427,6 @@ class DataCollector:
                 )
                 futures[future] = (batch_num, batch_offset, batch_limit)
 
-            # Обработка результатов
             for future in as_completed(futures):
                 if interrupted.is_set():
                     break
@@ -566,7 +451,6 @@ class DataCollector:
             if debug:
                 self.stdout.write(f'      📦 Пачка {batch_num}: загрузка {batch_offset}-{batch_offset + batch_limit}...')
 
-            # ВАЖНО: добавляем game_engines в поля!
             query = f'''
                 fields id,name,summary,storyline,genres,keywords,rating,rating_count,first_release_date,platforms,cover,game_type,screenshots,game_engines;
                 where {where_clause};
@@ -592,25 +476,22 @@ class DataCollector:
         for batch_num, batch_offset, games, games_loaded, is_empty in batch_results:
             if not is_empty and games_loaded > 0:
                 with game_lock:
-                    # Обработка каждой пачки игр
                     batch_stats = self._process_individual_batch(
                         games, batch_offset, existing_game_ids, skip_existing,
                         limit, new_games, all_found_games
                     )
 
-                    # Обновление статистики
                     stats['total_checked'] += batch_stats['total']
                     stats['already_in_db'] += batch_stats['in_db']
                     stats['batches_processed'] += 1
                     last_offset = batch_stats['last_offset']
 
-                    # Вывод прогресса ТОЛЬКО если включен show_progress
                     if show_progress:
                         self._display_loading_progress(
                             limit, len(new_games), stats, last_offset, debug
                         )
 
-                empty_batches = 0  # Сброс счетчика пустых пачек
+                empty_batches = 0
             else:
                 empty_batches += 1
                 last_offset = max(last_offset, batch_offset + 100)
@@ -635,23 +516,18 @@ class DataCollector:
             if not game_id:
                 continue
 
-            # Вычисление offset для этой игры
             current_game_offset = batch_offset + i
             batch_stats['last_offset'] = current_game_offset
             batch_stats['total'] += 1
 
-            # Добавление в общий список
             all_found_games.append(game)
 
-            # Проверка существования в базе
             if skip_existing and game_id in existing_game_ids:
                 batch_stats['in_db'] += 1
                 continue
 
-            # Добавление новой игры
             new_games.append(game)
 
-            # Проверка достижения лимита
             if limit > 0 and len(new_games) >= limit:
                 break
 
@@ -669,27 +545,21 @@ class DataCollector:
     def _finalize_and_return_results(self, new_games, all_found_games, stats, result,
                                      limit, offset, start_time, debug, interrupted):
         """Завершает загрузку и возвращает результаты"""
-        # Обрезка результатов если превышен лимит
         if limit > 0 and len(new_games) > limit:
             new_games = new_games[:limit]
             if debug:
                 self.stdout.write(f'   ✂️  Обрезано новых игр до лимита {limit}: {len(new_games)}')
 
-        # Расчет итогового времени
         total_time = time.time() - start_time
-
-        # Получение итоговых значений
         last_checked_offset = result.get('last_checked_offset', offset)
         limit_reached = result.get('limit_reached', False)
 
-        # Вывод финальной статистики
         if debug or interrupted:
             self._display_final_loading_stats(
                 total_time, stats, len(new_games), last_checked_offset,
                 limit_reached, interrupted
             )
 
-        # Формирование и возврат результатов
         return self._format_loading_results(
             new_games, all_found_games, stats, last_checked_offset,
             limit_reached, interrupted
@@ -736,11 +606,10 @@ class DataCollector:
         all_genre_ids = set()
         all_platform_ids = set()
         all_keyword_ids = set()
-        all_engine_ids = set()  # НОВОЕ: для движков
+        all_engine_ids = set()
         game_data_map = {}
 
-        # НОВОЕ: собираем информацию о скриншотах
-        screenshots_info = {}  # game_id -> количество скриншотов
+        screenshots_info = {}
 
         if debug:
             self.stdout.write('   📊 Сбор всех ID данных...')
@@ -752,10 +621,6 @@ class DataCollector:
 
             all_game_ids.append(game_id)
             game_data_map[game_id] = game_data
-
-            if debug:
-                self.stdout.write(f'\n   🔍 Анализ игры ID {game_id}: {game_data.get("name")}')
-                self.stdout.write(f'      Все ключи в данных игры: {list(game_data.keys())}')
 
             if game_data.get('cover'):
                 all_cover_ids.append(game_data['cover'])
@@ -769,38 +634,17 @@ class DataCollector:
             if game_data.get('keywords'):
                 all_keyword_ids.update(game_data['keywords'])
 
-            # НОВОЕ: собираем ID движков (поддержка разных форматов)
             engines_data = game_data.get('game_engines')
             if engines_data:
-                if debug:
-                    self.stdout.write(f'      🎮 Найдены движки: {engines_data}')
-                    self.stdout.write(f'      Тип данных движков: {type(engines_data)}')
-
                 for engine in engines_data:
-                    if debug:
-                        self.stdout.write(f'         Обработка движка: {engine} (тип: {type(engine)})')
-
                     if isinstance(engine, dict):
-                        # Если это словарь с id (как в случае с Rust)
                         if engine.get('id'):
                             all_engine_ids.add(engine['id'])
-                            if debug:
-                                self.stdout.write(
-                                    f'         ✅ Добавлен движок ID: {engine["id"]} ({engine.get("name", "Unknown")})')
                     elif isinstance(engine, int):
-                        # Если это просто число
                         all_engine_ids.add(engine)
-                        if debug:
-                            self.stdout.write(f'         ✅ Добавлен движок ID: {engine}')
-            else:
-                if debug:
-                    self.stdout.write(f'      ❌ Нет поля game_engines в данных')
 
-            # НОВОЕ: собираем информацию о скриншотах
             if game_data.get('screenshots'):
                 screenshots_info[game_id] = len(game_data['screenshots'])
-                if debug:
-                    self.stdout.write(f'      • Игра {game_id}: {len(game_data["screenshots"])} скриншотов')
             else:
                 screenshots_info[game_id] = 0
 
@@ -811,10 +655,7 @@ class DataCollector:
             self.stdout.write(f'      • Жанров: {len(all_genre_ids)}')
             self.stdout.write(f'      • Платформ: {len(all_platform_ids)}')
             self.stdout.write(f'      • Ключевых слов: {len(all_keyword_ids)}')
-            self.stdout.write(f'      • Движков: {len(all_engine_ids)}')  # НОВОЕ
-            if all_engine_ids:
-                self.stdout.write(f'      • Список ID движков: {list(all_engine_ids)}')
-            # НОВОЕ:
+            self.stdout.write(f'      • Движков: {len(all_engine_ids)}')
             games_with_screenshots = len([v for v in screenshots_info.values() if v > 0])
             self.stdout.write(f'      • Игр со скриншотами: {games_with_screenshots}')
 
@@ -825,7 +666,7 @@ class DataCollector:
             'all_genre_ids': list(all_genre_ids),
             'all_platform_ids': list(all_platform_ids),
             'all_keyword_ids': list(all_keyword_ids),
-            'all_engine_ids': list(all_engine_ids),  # НОВОЕ
-            'all_screenshot_games': all_game_ids,  # Все игры могут иметь скриншоты
-            'screenshots_info': screenshots_info,  # НОВОЕ: передаем информацию о скриншотах
+            'all_engine_ids': list(all_engine_ids),
+            'all_screenshot_games': all_game_ids,
+            'screenshots_info': screenshots_info,
         }

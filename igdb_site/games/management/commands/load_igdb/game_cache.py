@@ -30,18 +30,15 @@ class GameCacheManager:
     def get_checked_count(cls):
         """Получает количество проверенных игр"""
         try:
-            # Для Redis
             keys = cache.keys(f"{cls.CACHE_PREFIX}*")
             return len(keys) if keys else 0
         except:
-            # Для других бэкендов
             return 0
 
     @classmethod
     def clear_cache(cls):
         """Очищает кэш"""
         try:
-            # Для Redis
             keys = cache.keys(f"{cls.CACHE_PREFIX}*")
             if keys:
                 cache.delete_many(keys)
@@ -49,7 +46,6 @@ class GameCacheManager:
             return 0
         except:
             try:
-                # Для других бэкендов
                 cache.clear()
                 return True
             except:
@@ -63,22 +59,18 @@ class GameCacheManager:
 
         result = {}
         try:
-            # Создаем ключи кэша
             cache_keys = {}
             for igdb_id in igdb_ids:
                 if igdb_id:
                     cache_key = f"{cls.CACHE_PREFIX}{igdb_id}"
                     cache_keys[cache_key] = igdb_id
 
-            # Массовое получение из кэша
             cached_values = cache.get_many(cache_keys.keys())
 
-            # Сопоставляем результаты
             for cache_key, igdb_id in cache_keys.items():
                 result[igdb_id] = cached_values.get(cache_key) is not None
 
         except Exception as e:
-            # Fallback: по одному
             for igdb_id in igdb_ids:
                 if igdb_id:
                     result[igdb_id] = cls.is_game_checked(igdb_id)
@@ -100,12 +92,10 @@ class GameCacheManager:
                     cache_key = f"{cls.CACHE_PREFIX}{igdb_id}"
                     cache_data[cache_key] = True
 
-            # Массовая установка
             if cache_data:
                 cache.set_many(cache_data, cache_timeout)
 
         except Exception:
-            # Fallback: по одному
             for igdb_id in igdb_ids:
                 if igdb_id:
                     cls.mark_game_checked(igdb_id)

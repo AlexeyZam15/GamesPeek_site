@@ -57,7 +57,7 @@ class BaseProgressBar:
         self.filled_char = '█'
         self.empty_char = '░'
 
-        # Детальная статистика как в progress_bar.py
+        # Детальная статистика
         self.stats = {
             'found_count': 0,
             'total_criteria_found': 0,
@@ -81,7 +81,6 @@ class BaseProgressBar:
     def _calculate_time_string(self, elapsed_time, current, total):
         """Рассчитывает строку времени"""
         if current > 0 and current < total:
-            # Оставшееся время
             remaining_time = (elapsed_time / current) * (total - current)
             return f"{elapsed_time:.0f}s < {remaining_time:.0f}s"
         else:
@@ -94,7 +93,6 @@ class BaseProgressBar:
         if not self._enabled:
             return
 
-        # Обновляем базовые параметры
         if total_games is not None:
             self.total_games = total_games
         if total_loaded is not None:
@@ -104,7 +102,6 @@ class BaseProgressBar:
         if iterations_without_new is not None:
             self.iterations_without_new = iterations_without_new
 
-        # Обновляем статистику
         self.stats['updated'] = updated_count
         self.stats['errors'] = errors
         self.stats['skipped_total'] = skipped_count
@@ -113,13 +110,10 @@ class BaseProgressBar:
 
         current_time = time.time()
 
-        # Обновляем не чаще чем update_interval секунд
         if current_time - self.last_update_time < self.update_interval:
             return
 
         self.last_update_time = current_time
-
-        # Показываем прогресс
         self._display()
 
     def _display(self):
@@ -157,16 +151,10 @@ class TopProgressBar(BaseProgressBar):
         if not self._enabled or not self.is_tty:
             return
 
-        # Сохраняем позицию курсора
         sys.stdout.write('\x1b[s')
-
-        # Перемещаемся в начало
         sys.stdout.write('\x1b[1;1H')
-
-        # Очищаем строку
         sys.stdout.write('\x1b[2K')
 
-        # Рассчитываем процент (но не больше 100%)
         if self.total_games > 0:
             percentage = (self.total_loaded / self.total_games * 100) if self.total_games > 0 else 0
             if percentage > 100:
@@ -174,7 +162,6 @@ class TopProgressBar(BaseProgressBar):
         else:
             percentage = 0
 
-        # Рассчитываем заполненную часть
         if self.total_games > 0:
             filled_length = int(self.bar_length * self.total_loaded // self.total_games)
             if filled_length > self.bar_length:
@@ -184,46 +171,36 @@ class TopProgressBar(BaseProgressBar):
 
         bar = self.filled_char * filled_length + self.empty_char * (self.bar_length - filled_length)
 
-        # Рассчитываем время
         elapsed_time = time.time() - self.start_time
         time_str = self._calculate_time_string(elapsed_time, self.total_loaded, self.total_games)
 
-        # Формируем основное сообщение
         if self.total_games > 0:
             message = f"\r{self.desc}: {percentage:3.0f}% [{self.total_loaded}/{self.total_games}] [{bar}] "
         else:
             message = f"\r{self.desc}: [{self.total_loaded} игр] "
 
-        # Добавляем детальную статистику с эмодзи
         spacing = " " * self.emoji_spacing
 
-        # Основные эмодзи
         message += f"✅{spacing}{self.stats['created']:>{self.stat_width}} "
         message += f"💾{spacing}{self.stats['updated']:>{self.stat_width}} "
         message += f"❌{spacing}{self.stats['errors']:>{self.stat_width}} "
         message += f"⏭️{spacing}{self.stats['skipped_total']:>{self.stat_width}} "
 
-        # Если есть итерации (убрали 🚫)
         if self.current_iteration > 0:
             message += f"🔄{spacing}{self.current_iteration:>{self.stat_width}} "
         if self.iterations_without_new > 0:
-            message += f"⏸️{spacing}{self.iterations_without_new:>{self.stat_width}} "  # Изменено с 🚫 на ⏸️
+            message += f"⏸️{spacing}{self.iterations_without_new:>{self.stat_width}} "
 
         message += f"({time_str})"
 
-        # Очищаем остаток строки
-        terminal_width = 150  # Минимальная ширина для очистки
+        terminal_width = 150
         message_length = len(message)
         if message_length < terminal_width:
             message += " " * (terminal_width - message_length)
 
-        # Сохраняем длину для очистки
         self.last_printed_length = len(message)
 
-        # Выводим сообщение
         sys.stdout.write(message)
-
-        # Восстанавливаем позицию курсора
         sys.stdout.write('\x1b[u')
         sys.stdout.flush()
 
@@ -263,7 +240,7 @@ class SimpleProgressBar(BaseProgressBar):
     def __init__(self, stdout, total_games=0, total_loaded=0):
         super().__init__(stdout, total_games, total_loaded)
         self.last_update_time = time.time()
-        self.update_interval = 2  # Реже обновляем для простого режима
+        self.update_interval = 2
         self.last_printed_length = 0
 
     def _display(self):
@@ -271,17 +248,14 @@ class SimpleProgressBar(BaseProgressBar):
         if not self._enabled:
             return
 
-        # Очищаем предыдущую строку
         if self.last_printed_length > 0:
             sys.stdout.write('\r' + ' ' * self.last_printed_length + '\r')
 
-        # Рассчитываем процент
         if self.total_games > 0:
             percentage = (self.total_loaded / self.total_games * 100) if self.total_games > 0 else 0
             if percentage > 100:
                 percentage = 100
 
-            # Рассчитываем заполненную часть
             filled_length = int(self.bar_length * self.total_loaded // self.total_games)
             if filled_length > self.bar_length:
                 filled_length = self.bar_length
@@ -291,31 +265,25 @@ class SimpleProgressBar(BaseProgressBar):
         else:
             message = f"{self.desc}: [{self.total_loaded} игр] "
 
-        # Рассчитываем время
         elapsed_time = time.time() - self.start_time
         time_str = self._calculate_time_string(elapsed_time, self.total_loaded, self.total_games)
 
-        # Добавляем детальную статистику
         spacing = " " * self.emoji_spacing
 
-        # Основные эмодзи
         message += f"✅{spacing}{self.stats['created']:>{self.stat_width}} "
         message += f"💾{spacing}{self.stats['updated']:>{self.stat_width}} "
         message += f"❌{spacing}{self.stats['errors']:>{self.stat_width}} "
         message += f"⏭️{spacing}{self.stats['skipped_total']:>{self.stat_width}} "
 
-        # Если есть итерации (убрали 🚫)
         if self.current_iteration > 0:
             message += f"🔄{spacing}{self.current_iteration:>{self.stat_width}} "
         if self.iterations_without_new > 0:
-            message += f"⏸️{spacing}{self.iterations_without_new:>{self.stat_width}} "  # Изменено с 🚫 на ⏸️
+            message += f"⏸️{spacing}{self.iterations_without_new:>{self.stat_width}} "
 
         message += f"({time_str})"
 
-        # Сохраняем длину для следующей очистки
         self.last_printed_length = len(message)
 
-        # Выводим без перевода строки
         sys.stdout.write('\r' + message)
         sys.stdout.flush()
 
@@ -335,81 +303,28 @@ class SimpleProgressBar(BaseProgressBar):
             self.stdout.write('\n' + message + '\n')
             return
 
-        # Очищаем прогресс-бар
         self.clear()
         self.stdout.write('\n' + message + '\n')
 
 
 class BaseGamesCommand(BaseCommand):
-    """Базовый класс для команд загрузки IGDB - БЕЗ add_arguments"""
+    """Базовый класс для команд загрузки IGDB с общей логикой"""
 
     DEFAULT_ITERATION_LIMIT = 100
-    max_consecutive_no_new_games = 3  # Добавляем значение по умолчанию
+    max_consecutive_no_new_games = 3
 
     def __init__(self):
         super().__init__()
-        self.debug_mode = False  # Добавляем атрибут
-        # Инициализация GameCacheManager
-        try:
-            from .game_cache import GameCacheManager
-            self.cache_manager = GameCacheManager
-        except ImportError:
-            class GameCacheManager:
-                @staticmethod
-                def clear_cache():
-                    return True
+        self.debug_mode = False
+        self.current_options = None
+        self._last_processed_count = 0
+        self.interrupted = threading.Event()
 
-            self.cache_manager = GameCacheManager
-
-    def _get_offset_params(self, options):
-        """Получает параметры для создания ключа offset"""
-        # ВСЕГДА в одном порядке для одинаковых параметров
-        return {
-            'game_modes': options.get('game_modes', ''),
-            'game_names': options.get('game_names', ''),
-            'genres': options.get('genres', ''),
-            'description_contains': options.get('description_contains', ''),
-            'keywords': options.get('keywords', ''),
-            'game_types': options.get('game_types', ''),
-            'min_rating_count': options.get('min_rating_count', 0),
-            'mode': self._get_loading_mode(options),
-        }
-
-    def _get_saved_offset(self, options):
-        """Получает сохраненный offset для текущих параметров"""
-        params = self._get_offset_params(options)
-        return OffsetManager.load_offset(params)
-
-    def _save_offset_for_continuation(self, options, current_offset):
-        """Сохраняет offset для продолжения"""
-        params = self._get_offset_params(options)
-        saved = OffsetManager.save_offset(params, current_offset)
-
-        if saved and options.get('debug', False):
-            self.stdout.write(f'   💾 Сохранен offset для параметров {params}: {current_offset}')
-
-        return saved
-
-    def _handle_reset_offset(self, options, debug):
-        """Обрабатывает сброс сохраненного offset"""
-        params = self._get_offset_params(options)
-        cleared = OffsetManager.clear_offset(params)
-
-        if cleared:
-            self.stdout.write('🔄 Сброшен сохраненный offset для текущих параметров')
-        else:
-            self.stdout.write('⚠️  Не удалось сбросить offset или offset не существует')
-
-    def handle(self, *args, **options):
-        """Основной метод выполнения команды - должен быть переопределен в наследниках"""
-        raise NotImplementedError("Метод handle должен быть переопределен в наследниках")
-
-    def _create_progress_bar(self):
+    def create_progress_bar(self, total_games=0):
         """Создает подходящий прогресс-бар для текущего терминала"""
         import os
         import sys
 
-        # Проверяем поддержку ANSI
         supports_ansi = False
         if hasattr(sys.stdout, 'isatty') and sys.stdout.isatty():
             if os.name == 'nt':
@@ -420,11 +335,85 @@ class BaseGamesCommand(BaseCommand):
                 supports_ansi = True
 
         if supports_ansi:
-            return TopProgressBar(self.stdout)
+            return TopProgressBar(self.stdout, total_games)
         else:
-            return SimpleProgressBar(self.stdout)
+            return SimpleProgressBar(self.stdout, total_games)
 
-    def _determine_execution_mode(self, repeat_count):
+    def get_offset_params(self, options):
+        """Получает параметры для создания ключа offset"""
+        params = {
+            'game_modes': options.get('game_modes', ''),
+            'game_names': options.get('game_names', ''),
+            'genres': options.get('genres', ''),
+            'description_contains': options.get('description_contains', ''),
+            'keywords': options.get('keywords', ''),
+            'game_types': options.get('game_types', ''),
+            'min_rating_count': options.get('min_rating_count', 0),
+            'mode': self.get_loading_mode(options),
+        }
+
+        if options.get('update_covers', False):
+            params['update_covers'] = True
+        if options.get('update_missing_data', False):
+            params['update_missing_data'] = True
+
+        return params
+
+    def get_loading_mode(self, options):
+        """Определяет режим загрузки для ключа offset"""
+        game_names_str = options.get('game_names', '')
+        game_modes_str = options.get('game_modes', '')
+        genres_str = options.get('genres', '')
+        description_contains = options.get('description_contains', '')
+        keywords_str = options.get('keywords', '')
+        update_covers = options.get('update_covers', False)
+        update_missing_data = options.get('update_missing_data', False)
+
+        if update_covers:
+            return 'update_covers'
+        elif update_missing_data:
+            return 'update_missing_data'
+        elif game_modes_str:
+            return 'game_modes'
+        elif game_names_str:
+            return 'game_names'
+        elif genres_str and description_contains:
+            return 'genres_and_description'
+        elif genres_str:
+            return 'genres'
+        elif description_contains:
+            return 'description'
+        elif keywords_str:
+            return 'keywords'
+        else:
+            return 'popular'
+
+    def get_saved_offset(self, options):
+        """Получает сохраненный offset для текущих параметров"""
+        params = self.get_offset_params(options)
+        return OffsetManager.load_offset(params)
+
+    def save_offset_for_continuation(self, options, current_offset):
+        """Сохраняет offset для продолжения"""
+        params = self.get_offset_params(options)
+        saved = OffsetManager.save_offset(params, current_offset)
+
+        if saved:
+            self.stdout.write(f'💾 Offset сохранен для продолжения: {current_offset}')
+
+        return saved
+
+    def handle_reset_offset(self, options, debug):
+        """Обрабатывает сброс сохраненного offset"""
+        params = self.get_offset_params(options)
+        cleared = OffsetManager.clear_offset(params)
+
+        if cleared:
+            self.stdout.write('🔄 Сброшен сохраненный offset для текущих параметров')
+        else:
+            self.stdout.write('⚠️  Не удалось сбросить offset или offset не существует')
+
+    def determine_execution_mode(self, repeat_count):
         """Определяет режим выполнения команды"""
         infinite_mode = repeat_count == 0
         single_run_mode = repeat_count == -1
@@ -449,7 +438,7 @@ class BaseGamesCommand(BaseCommand):
             'repeat_count': repeat_count
         }
 
-    def _initialize_total_stats(self, original_offset):
+    def initialize_total_stats(self, original_offset):
         """Инициализирует общую статистику"""
         return {
             'iterations': 0,
@@ -468,34 +457,73 @@ class BaseGamesCommand(BaseCommand):
             'interrupted': False,
         }
 
-    def _display_startup_info(self, execution_mode, iteration_limit, limit):
+    def display_startup_info(self, execution_mode, iteration_limit, limit, current_offset=0, options=None):
         """Отображает информацию о запуске команды"""
-        if execution_mode['repeat_count'] > 1 or execution_mode['infinite_mode']:
-            repeat_display = execution_mode["repeat_count"] if not execution_mode[
-                'infinite_mode'] else "до исчерпания игр"
-            self.stdout.write(f'🔄 КОМАНДА БУДЕТ ПОВТОРЕНА {repeat_display} РАЗ')
-            self.stdout.write(f'📊 Игр за итерацию: {iteration_limit}')
-            if limit > 0:
-                self.stdout.write(f'🎯 Общий лимит игр: {limit}')
-            self.stdout.write('=' * 60)
+        self.stdout.write('\n' + '=' * 60)
+        self.stdout.write('🚀 ЗАПУСК КОМАНДЫ ЗАГРУЗКИ ИГР')
+        self.stdout.write('=' * 60)
 
-    def _get_execution_parameters(self, options):
+        if execution_mode['infinite_mode']:
+            self.stdout.write(f'🔄 РЕЖИМ: БЕСКОНЕЧНЫЙ (пока не закончатся игры)')
+        elif execution_mode['single_run_mode']:
+            self.stdout.write(f'🔄 РЕЖИМ: ОДНА ИТЕРАЦИЯ')
+        else:
+            self.stdout.write(f'🔄 РЕЖИМ: {execution_mode["repeat_count"]} ПОВТОРЕНИЙ')
+
+        self.stdout.write(f'📊 Игр за итерацию: {iteration_limit}')
+
+        if limit > 0:
+            self.stdout.write(f'🎯 Общий лимит игр: {limit}')
+        else:
+            self.stdout.write(f'🎯 Общий лимит: БЕЗ ЛИМИТА')
+
+        if current_offset > 0:
+            self.stdout.write(f'📍 Начальный offset: {current_offset}')
+        else:
+            self.stdout.write(f'📍 Начальный offset: 0 (с начала)')
+
+        if options:
+            self.stdout.write('📋 ПАРАМЕТРЫ ЗАГРУЗКИ:')
+            if options.get('game_modes'):
+                self.stdout.write(f'   🎮 Режимы игры: {options["game_modes"]}')
+            if options.get('game_names'):
+                self.stdout.write(f'   🔍 Имена игр: {options["game_names"]}')
+            if options.get('genres'):
+                self.stdout.write(f'   🎭 Жанры: {options["genres"]}')
+            if options.get('description_contains'):
+                self.stdout.write(f'   📝 Текст в описании: "{options["description_contains"]}"')
+            if options.get('keywords'):
+                self.stdout.write(f'   🔑 Ключевые слова: {options["keywords"]}')
+            if options.get('min_rating_count', 0) > 0:
+                self.stdout.write(f'   ⭐ Минимум оценок: {options["min_rating_count"]}')
+            if options.get('overwrite'):
+                self.stdout.write(f'   🔄 Режим перезаписи: ВКЛЮЧЕН')
+            if options.get('count_only'):
+                self.stdout.write(f'   🔢 Только подсчет: ДА')
+
+        self.stdout.write('=' * 60)
+
+    def get_execution_parameters(self, options):
         """Получает параметры выполнения из options"""
         return {
-            'genres_str': options['genres'],
-            'description_contains': options['description_contains'],
-            'overwrite': options['overwrite'],
-            'debug': options['debug'],
-            'limit': options['limit'],
-            'offset': options['offset'],
-            'min_rating_count': options['min_rating_count'],
-            'keywords_str': options['keywords'],
-            'count_only': options['count_only'],
-            'game_types_str': options['game_types'],
-            'iteration_limit': options['iteration_limit'],
+            'game_modes_str': options.get('game_modes', ''),
+            'game_names_str': options.get('game_names', ''),
+            'genres_str': options.get('genres', ''),
+            'description_contains': options.get('description_contains', ''),
+            'overwrite': options.get('overwrite', False),
+            'debug': options.get('debug', False),
+            'limit': options.get('limit', 0),
+            'offset': options.get('offset', 0),
+            'min_rating_count': options.get('min_rating_count', 0),
+            'keywords_str': options.get('keywords', ''),
+            'count_only': options.get('count_only', False),
+            'game_types_str': options.get('game_types', ''),
+            'iteration_limit': options.get('iteration_limit', 100),
+            'update_missing_data': options.get('update_missing_data', False),
+            'update_covers': options.get('update_covers', False),
         }
 
-    def _calculate_iteration_limit(self, limit, iteration_limit, total_stats):
+    def calculate_iteration_limit(self, limit, iteration_limit, total_stats):
         """Рассчитывает лимит для текущей итерации"""
         if limit > 0:
             remaining_limit = limit - total_stats['total_games_created']
@@ -506,38 +534,34 @@ class BaseGamesCommand(BaseCommand):
         else:
             return iteration_limit, True
 
-    def _should_continue_iteration(self, iteration, execution_mode, total_stats, limit, max_consecutive_no_new_games):
+    def should_continue_iteration(self, iteration, execution_mode, total_stats, limit):
         """Проверяет, следует ли продолжать выполнение"""
         infinite_mode = execution_mode['infinite_mode']
         single_run_mode = execution_mode['single_run_mode']
         finite_mode = execution_mode['finite_mode']
         repeat_count = execution_mode['repeat_count']
 
-        # Проверяем условия остановки для бесконечного режима
         if infinite_mode and iteration > 1:
-            if total_stats['iterations_with_no_new_games'] >= max_consecutive_no_new_games:
-                self.stdout.write(f'\n⚠️  ОСТАНОВКА: {max_consecutive_no_new_games} итераций подряд без новых игр')
+            if total_stats['iterations_with_no_new_games'] >= self.max_consecutive_no_new_games:
+                self.stdout.write(f'\n⚠️  ОСТАНОВКА: {self.max_consecutive_no_new_games} итераций подряд без новых игр')
                 return False
 
             if limit > 0 and total_stats['total_games_created'] >= limit:
                 self.stdout.write(f'\n✅ ДОСТИГНУТ ЛИМИТ: {limit} игр загружено')
                 return False
 
-        # Для конечного режима проверяем лимит итераций
         if finite_mode and iteration > repeat_count:
             total_stats['max_iterations_reached'] = True
             return False
 
-        # Для режима одного раза
         if single_run_mode and iteration > 1:
             return False
 
         return True
 
-    def _update_total_stats(self, total_stats, iteration_stats, iteration,
-                            current_offset, execution_mode, progress_bar):
+    def update_total_stats(self, total_stats, iteration_stats, iteration,
+                           current_offset, execution_mode, progress_bar, debug_mode=False):
         """Обновляет общую статистику"""
-        # Обновляем статистику
         total_stats['iterations'] += 1
         total_stats['total_games_found'] += iteration_stats.get('total_games_found', 0)
         total_stats['total_games_checked'] += iteration_stats.get('total_games_checked',
@@ -547,14 +571,12 @@ class BaseGamesCommand(BaseCommand):
         total_stats['total_games_updated'] += iteration_stats.get('updated_count', 0)
         total_stats['total_time'] += iteration_stats.get('total_time', 0)
 
-        # Проверяем, были ли найдены новые игры в этой итерации
         new_games_this_iteration = iteration_stats.get('created_count', 0)
         if new_games_this_iteration == 0 and iteration_stats.get('total_games_found', 0) == 0:
             total_stats['iterations_with_no_new_games'] += 1
         else:
             total_stats['iterations_with_no_new_games'] = 0
 
-        # ОБНОВЛЯЕМ ПРОГРЕСС-БАР
         if progress_bar:
             progress_bar.update(
                 total_loaded=total_stats['total_games_created'],
@@ -566,13 +588,11 @@ class BaseGamesCommand(BaseCommand):
                 errors=total_stats['errors']
             )
 
-        # Добавляем ошибки из итерации
         iteration_errors = iteration_stats.get('errors', 0)
         if iteration_errors > 0:
             total_stats['errors'] += iteration_errors
             total_stats['iterations_with_errors'] += 1
 
-        # Получаем последний проверенный offset
         limit_reached_offset = iteration_stats.get('limit_reached_at_offset')
         if limit_reached_offset is not None:
             last_checked_this_iteration = limit_reached_offset
@@ -585,7 +605,7 @@ class BaseGamesCommand(BaseCommand):
         total_stats['last_checked_offset'] = last_checked_this_iteration
         new_offset = last_checked_this_iteration + 1
 
-        if self.debug_mode:
+        if debug_mode:
             self.stdout.write(f'   📊 Итерация {iteration}:')
             self.stdout.write(f'      • Начальный offset: {current_offset}')
             self.stdout.write(f'      • Просмотрено игр: {iteration_stats.get("total_games_checked", 0)}')
@@ -598,23 +618,29 @@ class BaseGamesCommand(BaseCommand):
 
         return new_offset
 
-    def _handle_global_interrupt(self, total_stats, execution_mode,
-                                 original_offset, current_offset,
-                                 limit, progress_bar):
+    def handle_global_interrupt(self, total_stats, execution_mode,
+                                original_offset, current_offset,
+                                limit, progress_bar, options):
         """Обрабатывает глобальное прерывание команды (Ctrl+C)"""
         self.stdout.write('\n\n🛑 КОМАНДА ПРЕРВАНА ПОЛЬЗОВАТЕЛЕМ (Ctrl+C)')
+
+        reset_offset = options.get('reset_offset', False)
+
+        if not reset_offset:
+            self.save_offset_for_continuation(options, current_offset)
+            self.stdout.write(f'💾 Offset сохранен для продолжения: {current_offset}')
 
         if progress_bar:
             progress_bar.final_message("🛑 ВЫПОЛНЕНИЕ КОМАНДЫ ПРЕРВАНО")
             progress_bar.clear()
 
-        self._display_interrupted_statistics(total_stats, execution_mode,
-                                             original_offset, current_offset, limit)
+        self.display_interrupted_statistics(total_stats, execution_mode,
+                                            original_offset, current_offset, limit)
 
         total_stats['interrupted'] = True
 
-    def _display_interrupted_statistics(self, total_stats, execution_mode,
-                                        original_offset, current_offset, limit):
+    def display_interrupted_statistics(self, total_stats, execution_mode,
+                                       original_offset, current_offset, limit):
         """Выводит статистику при прерывании команды"""
         self.stdout.write('\n' + '=' * 60)
         self.stdout.write('🛑 СТАТИСТИКА ПРЕРВАННОЙ КОМАНДЫ')
@@ -628,7 +654,7 @@ class BaseGamesCommand(BaseCommand):
             self.stdout.write(f'🔄 Итераций выполнено: {total_stats["iterations"]} (прервано)')
 
         self.stdout.write(f'📍 Начальный offset: {original_offset}')
-        self.stdout.write(f'📍 Текущий offset: {current_offset}')
+        self.stdout.write(f'📍 Текущий offset (сохранен): {current_offset}')
         self.stdout.write(f'👀 Всего просмотрено игр: {total_stats["total_games_checked"]}')
         self.stdout.write(f'🎮 Всего найдено новых: {total_stats["total_games_found"]}')
         self.stdout.write(f'✅ Всего загружено игр: {total_stats["total_games_created"]}')
@@ -640,9 +666,11 @@ class BaseGamesCommand(BaseCommand):
             self.stdout.write(f'🎯 Общий лимит игр: {limit} (загружено: {total_stats["total_games_created"]})')
 
         self.stdout.write(f'⏱️  Общее время: {total_stats["total_time"]:.2f}с')
+        self.stdout.write('\n💡 Для продолжения с этого места запустите команду снова')
+        self.stdout.write('   Offset будет автоматически загружен из сохранения')
 
-    def _display_final_statistics(self, total_stats, execution_mode, original_offset,
-                                  current_offset, limit, overwrite):
+    def display_final_statistics(self, total_stats, execution_mode, original_offset,
+                                 current_offset, limit, overwrite):
         """Выводит финальную статистику"""
         self.stdout.write('\n' + '=' * 60)
         self.stdout.write('📊 ОБЩАЯ СТАТИСТИКА ВСЕХ ИТЕРАЦИЙ')
@@ -676,7 +704,7 @@ class BaseGamesCommand(BaseCommand):
 
         self.stdout.write(f'⏱️  Общее время: {total_stats["total_time"]:.2f}с')
 
-    def _display_final_status(self, total_stats, limit):
+    def display_final_status(self, total_stats, limit):
         """Выводит итоговый статус команды"""
         self.stdout.write('=' * 60)
         if total_stats['errors'] > 0:
@@ -692,10 +720,10 @@ class BaseGamesCommand(BaseCommand):
         else:
             self.stdout.write('✅ ЗАГРУЗКА ЗАВЕРШЕНА УСПЕШНО!')
 
-    def _finalize_execution(self, total_stats, limit, progress_bar,
-                            execution_mode, original_offset,
-                            current_offset, limit_val, overwrite):
-        """Завершает выполнение команда"""
+    def finalize_execution(self, total_stats, limit, progress_bar,
+                           execution_mode, original_offset,
+                           current_offset, limit_val, overwrite):
+        """Завершает выполнение команды"""
         if progress_bar:
             if limit > 0:
                 if total_stats['total_games_created'] >= limit:
@@ -709,109 +737,93 @@ class BaseGamesCommand(BaseCommand):
 
             progress_bar.clear()
 
-        self._display_final_statistics(
+        self.display_final_statistics(
             total_stats, execution_mode, original_offset,
             current_offset, limit_val, overwrite
         )
+        self.display_final_status(total_stats, limit)
 
     def clear_game_cache(self):
         """Очищает кэш проверенных игр"""
         try:
-            cleared = self.cache_manager.clear_cache()
+            from .game_cache import GameCacheManager
+            cleared = GameCacheManager.clear_cache()
             self.stdout.write(f"✅ Кэш проверенных игр очищен")
             return cleared
         except Exception as e:
             self.stderr.write(f"❌ Ошибка при очистке кэша: {e}")
             return False
 
-    def _get_where_clause_for_current_command(self, options):
-        """Получает where_clause для текущей команды"""
-        game_names_str = options.get('game_names', '')
-        game_modes_str = options.get('game_modes', '')  # НОВЫЙ ПАРАМЕТР
-        genres_str = options.get('genres', '')
-        description_contains = options.get('description_contains', '')
-        keywords_str = options.get('keywords', '')
-        game_types_str = options.get('game_types', '')
-        min_rating_count = options.get('min_rating_count', 0)
+    def clear_db_cache(self):
+        """Очищает кэш данных из БД"""
+        from django.core.cache import cache
+        from django.conf import settings
 
-        where_parts = []
+        self.stdout.write('\n🧹 ОЧИСТКА КЭША БД')
+        self.stdout.write('=' * 50)
 
-        # Режимы игры - просто указываем шаблон, так как ID будет найден позже
-        if game_modes_str:
-            where_parts.append('game_modes = (...)')
-        # Имена игр
-        elif game_names_str:
-            name_list = [n.strip() for n in game_names_str.split(',') if n.strip()]
-            name_conditions = [f'name ~ *"{name}"*' for name in name_list]
-            where_parts.append(f'({" | ".join(name_conditions)})')
-        # Определяем режим загрузки
-        elif genres_str and description_contains:
-            where_parts.append('genres = (...)')
-            where_parts.append(f'(name ~ *"{description_contains}"* | summary ~ *"{description_contains}"*)')
-        elif genres_str:
-            where_parts.append('genres = (...)')
-        elif description_contains:
-            where_parts.append(f'(name ~ *"{description_contains}"* | summary ~ *"{description_contains}"*)')
-        elif keywords_str:
-            where_parts.append('keywords = (...)')
+        try:
+            cache_backend = settings.CACHES.get('default', {}).get('BACKEND', 'unknown')
+            self.stdout.write(f'📦 Тип кэша: {cache_backend}')
 
-        # Обязательные условия
-        if game_modes_str or game_names_str:
-            # Для поиска по режимам или именам rating_count может быть 0
-            where_parts.append('name != null')
-            if min_rating_count > 0:
-                where_parts.append(f'rating_count >= {min_rating_count}')
-        else:
-            where_parts.append('rating_count > 0')
-            where_parts.append('name != null')
-            if min_rating_count > 0:
-                where_parts.append(f'rating_count >= {min_rating_count}')
+            cleared_count = 0
+            cache_keys = []
 
-        if game_types_str:
             try:
-                game_types = [int(gt.strip()) for gt in game_types_str.split(',') if gt.strip()]
-                if game_types:
-                    game_types_str_query = ','.join(map(str, game_types))
-                    where_parts.append(f'game_type = ({game_types_str_query})')
-            except ValueError:
-                pass
+                cache_keys = cache.keys("games_relations_*")
+                if cache_keys:
+                    cache.delete_many(cache_keys)
+                    cleared_count = len(cache_keys)
+                    self.stdout.write(f'   ✅ Удалено {cleared_count} записей кэша игр')
+                else:
+                    self.stdout.write('   📭 Кэш игр пуст')
+            except:
+                cache.clear()
+                self.stdout.write('   ✅ Весь кэш очищен')
 
-        return ' & '.join(where_parts) if where_parts else 'rating_count > 0 & name != null'
+        except Exception as e:
+            self.stdout.write(f'   ❌ Ошибка очистки кэша: {e}')
 
-    def _get_loading_mode(self, options):
-        """Определяет режим загрузки для ключа offset"""
-        game_names_str = options.get('game_names', '')
-        game_modes_str = options.get('game_modes', '')  # НОВЫЙ
-        genres_str = options.get('genres', '')
-        description_contains = options.get('description_contains', '')
-        keywords_str = options.get('keywords', '')
+        self.stdout.write('=' * 50)
+        return True
 
-        if game_modes_str:
-            return 'game_modes'  # НОВЫЙ РЕЖИМ
-        elif game_names_str:
-            return 'game_names'
-        elif genres_str and description_contains:
-            return 'genres_and_description'
-        elif genres_str:
-            return 'genres'
-        elif description_contains:
-            return 'description'
-        elif keywords_str:
-            return 'keywords'
+    def ensure_logs_directory(self, debug=False):
+        """Создает папку для логов при старте команды"""
+        import os
+        from django.conf import settings
+
+        try:
+            project_root = settings.BASE_DIR
+        except (ImportError, AttributeError):
+            current_file_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file_dir)))
+
+        log_dir = os.path.join(project_root, 'load_games_logs')
+
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir, exist_ok=True)
+            if debug:
+                self.stdout.write(f'📁 Создана папка для логов: {log_dir}')
         else:
-            return 'popular'
+            if debug:
+                self.stdout.write(f'📁 Папка для логов уже существует: {log_dir}')
 
-    def _get_query_key_for_current_command(self, options, where_clause):
-        """Создает ключ запроса для текущей команды"""
-        from .offset_manager import OffsetManager
+        return log_dir
 
-        params = {
-            'genres': options.get('genres', ''),
-            'description_contains': options.get('description_contains', ''),
-            'keywords': options.get('keywords', ''),
-            'game_types': options.get('game_types', ''),
-            'min_rating_count': options.get('min_rating_count', 0),
-            'mode': self._get_loading_mode(options),
+    def empty_result(self):
+        """Возвращает пустой результат"""
+        return {
+            'new_games': [],
+            'all_found_games': [],
+            'total_games_checked': 0,
+            'new_games_count': 0,
+            'existing_games_skipped': 0,
+            'last_checked_offset': 0,
+            'limit_reached': False,
+            'limit_reached_at_offset': None,
+            'interrupted': False,
         }
 
-        return OffsetManager.get_query_key(where_clause, **params)
+    def handle(self, *args, **options):
+        """Основной метод выполнения команды - должен быть переопределен в наследниках"""
+        raise NotImplementedError("Метод handle должен быть переопределен в наследниках")

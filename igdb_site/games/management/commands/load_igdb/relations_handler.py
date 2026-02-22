@@ -22,7 +22,6 @@ class RelationsHandler:
         existing_relations = set()
         count = 0
 
-        # ШАГ 1: Собираем все пары game_id + relation_id для проверки
         all_relation_pairs = []
         for rel in all_game_relations:
             game = game_map.get(rel['game_id'])
@@ -36,14 +35,11 @@ class RelationsHandler:
         if not all_relation_pairs:
             return 0
 
-        # ШАГ 2: Проверяем существующие связи одним запросом
         try:
-            # Получаем существующие связи
             filter_conditions = []
             for game_id, relation_id in all_relation_pairs:
                 filter_conditions.append(Q(game_id=game_id) & Q(**{f'{field_name}_id': relation_id}))
 
-            # Объединяем условия через OR
             if filter_conditions:
                 combined_condition = filter_conditions[0]
                 for condition in filter_conditions[1:]:
@@ -57,7 +53,6 @@ class RelationsHandler:
             if debug:
                 self.stderr.write(f'   ⚠️  Ошибка при проверке существующих связей: {e}')
 
-        # ШАГ 3: Создаем только новые связи
         for rel in all_game_relations:
             game = game_map.get(rel['game_id'])
             if not game:
@@ -67,7 +62,6 @@ class RelationsHandler:
                 if not relation_obj:
                     continue
 
-                # Проверяем, существует ли уже такая связь
                 if (game.id, relation_obj.id) not in existing_relations:
                     relations_to_create.append(through_model(
                         game_id=game.id,
@@ -77,7 +71,6 @@ class RelationsHandler:
 
         if relations_to_create:
             try:
-                # Используем ignore_conflicts для избежания дубликатов
                 through_model.objects.bulk_create(relations_to_create, batch_size=100, ignore_conflicts=True)
                 if debug:
                     self.stdout.write(f'   ✅ Создано связей с {relation_field}: {count}')
@@ -95,9 +88,8 @@ class RelationsHandler:
         if not all_game_relations:
             if debug:
                 self.stdout.write('   ⚠️  Нет связей для создания')
-            return 0, 0, 0, 0  # Изменено: теперь 4 значения
+            return 0, 0, 0, 0
 
-        # Получаем ID всех игр из relations
         game_ids = [rel['game_id'] for rel in all_game_relations]
 
         if debug:
@@ -109,22 +101,18 @@ class RelationsHandler:
         if debug:
             self.stdout.write(f'   ✅ Найдено {len(game_map)} игр в базе')
 
-        # Жанры
         genre_relations = self._create_relations(
             all_game_relations, game_map, 'genres', Game.genres.through, 'genre', debug
         )
 
-        # Платформы
         platform_relations = self._create_relations(
             all_game_relations, game_map, 'platforms', Game.platforms.through, 'platform', debug
         )
 
-        # Ключевые слова
         keyword_relations = self._create_relations(
             all_game_relations, game_map, 'keywords', Game.keywords.through, 'keyword', debug
         )
 
-        # НОВОЕ: Движки
         engine_relations = self._create_relations(
             all_game_relations, game_map, 'engines', Game.engines.through, 'gameengine', debug
         )
@@ -134,7 +122,7 @@ class RelationsHandler:
             self.stdout.write(f'      • С жанрами: {genre_relations}')
             self.stdout.write(f'      • С платформами: {platform_relations}')
             self.stdout.write(f'      • С ключевыми словами: {keyword_relations}')
-            self.stdout.write(f'      • С движками: {engine_relations}')  # НОВОЕ
+            self.stdout.write(f'      • С движками: {engine_relations}')
 
         return genre_relations, platform_relations, keyword_relations, engine_relations
 
@@ -145,7 +133,6 @@ class RelationsHandler:
                 self.stdout.write('   ⚠️  Нет дополнительных связей для создания')
             return {}
 
-        # Получаем ID всех игр из relations
         game_ids = [rel['game_id'] for rel in all_game_relations]
 
         if debug:
@@ -159,37 +146,31 @@ class RelationsHandler:
 
         results = {}
 
-        # Серии (M2M)
         results['series_relations'] = self._create_relations(
             all_game_relations, game_map, 'series', Game.series.through,
             'series', debug=debug
         )
 
-        # Разработчики
         results['developer_relations'] = self._create_relations(
             all_game_relations, game_map, 'developers', Game.developers.through,
             'company', debug=debug
         )
 
-        # Издатели
         results['publisher_relations'] = self._create_relations(
             all_game_relations, game_map, 'publishers', Game.publishers.through,
             'company', debug=debug
         )
 
-        # Темы
         results['theme_relations'] = self._create_relations(
             all_game_relations, game_map, 'themes', Game.themes.through,
             'theme', debug=debug
         )
 
-        # Перспективы
         results['perspective_relations'] = self._create_relations(
             all_game_relations, game_map, 'perspectives', Game.player_perspectives.through,
             'playerperspective', debug=debug
         )
 
-        # Режимы
         results['mode_relations'] = self._create_relations(
             all_game_relations, game_map, 'modes', Game.game_modes.through,
             'gamemode', debug=debug
@@ -251,24 +232,19 @@ class RelationsHandler:
                 'modes': [],
             }
 
-            # Жанры
             for gid in game_data.get('genres', []):
                 if gid in data_maps.get('genre_map', {}):
                     relations['genres'].append(data_maps['genre_map'][gid])
 
-            # Платформы
             for pid in game_data.get('platforms', []):
                 if pid in data_maps.get('platform_map', {}):
                     relations['platforms'].append(data_maps['platform_map'][pid])
 
-            # Ключевые слова
             for kid in game_data.get('keywords', []):
                 if kid in data_maps.get('keyword_map', {}):
                     relations['keywords'].append(data_maps['keyword_map'][kid])
 
-            # Обработка движков (поддержка разных форматов)
             for engine_data in game_data.get('game_engines', []):
-                # Может быть как числом, так и словарем с id
                 if isinstance(engine_data, dict):
                     eid = engine_data.get('id')
                 else:
@@ -279,38 +255,31 @@ class RelationsHandler:
                     if debug:
                         self.stdout.write(f'      • Игра {game_id}: добавлен движок ID {eid}')
 
-            # Серии - теперь M2M, добавляем все серии
             series_ids_in_data = additional_data.get('collections', [])
             for sid in series_ids_in_data:
                 if sid in data_maps.get('series_map', {}):
                     relations['series'].append(data_maps['series_map'][sid])
 
-            # Разработчики
             for cid in developer_ids:
                 if cid in data_maps.get('company_map', {}):
                     relations['developers'].append(data_maps['company_map'][cid])
 
-            # Издатели
             for cid in publisher_ids:
                 if cid in data_maps.get('company_map', {}):
                     relations['publishers'].append(data_maps['company_map'][cid])
 
-            # Темы
             for tid in additional_data.get('themes', []):
                 if tid in data_maps.get('theme_map', {}):
                     relations['themes'].append(data_maps['theme_map'][tid])
 
-            # Перспективы
             for pid in additional_data.get('player_perspectives', []):
                 if pid in data_maps.get('perspective_map', {}):
                     relations['perspectives'].append(data_maps['perspective_map'][pid])
 
-            # Режимы
             for mid in additional_data.get('game_modes', []):
                 if mid in data_maps.get('mode_map', {}):
                     relations['modes'].append(data_maps['mode_map'][mid])
 
-            # Проверяем, есть ли хотя бы какие-то связи
             has_relations = any([
                 relations['genres'],
                 relations['platforms'],
@@ -367,12 +336,11 @@ class RelationsHandler:
         import time
         start_step = time.time()
 
-        # Собираем статистику возможных связей
         possible_stats = {
             'possible_genre_relations': 0,
             'possible_platform_relations': 0,
             'possible_keyword_relations': 0,
-            'possible_engine_relations': 0,  # НОВОЕ
+            'possible_engine_relations': 0,
             'possible_series_relations': 0,
             'possible_developer_relations': 0,
             'possible_publisher_relations': 0,
@@ -381,18 +349,15 @@ class RelationsHandler:
             'possible_mode_relations': 0,
         }
 
-        # Подсчитываем возможные связи
         for rel in all_game_relations:
             for key in possible_stats.keys():
                 field_name = key.replace('possible_', '').replace('_relations', '')
                 possible_stats[key] += len(rel.get(field_name, []))
 
-        # Основные связи (теперь 4 значения)
         genre_relations, platform_relations, keyword_relations, engine_relations = self.create_relations_batch(
             all_game_relations, debug
         )
 
-        # Дополнительные M2M связи
         additional_results = self.create_all_additional_relations(all_game_relations, debug)
 
         step_time = time.time() - start_step
@@ -401,7 +366,7 @@ class RelationsHandler:
             'genre_relations': genre_relations,
             'platform_relations': platform_relations,
             'keyword_relations': keyword_relations,
-            'engine_relations': engine_relations,  # НОВОЕ
+            'engine_relations': engine_relations,
             **additional_results
         }
 

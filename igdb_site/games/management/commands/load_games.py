@@ -47,7 +47,6 @@ class Command(BaseCommand):
         parser.add_argument('--update-covers', action='store_true',
                             help='Обновить только обложки у существующих игр')
 
-        # НОВЫЕ АРГУМЕНТЫ ДЛЯ КЭШИРОВАНИЯ
         parser.add_argument('--no-cache', action='store_true',
                             help='Отключить кэширование загрузки из БД')
         parser.add_argument('--cache-ttl', type=int, default=3600,
@@ -59,30 +58,24 @@ class Command(BaseCommand):
         """Основной метод выполнения команды"""
         from django.core.cache import cache
 
-        # Передаем параметры кэширования
         options['use_cache'] = not options.get('no_cache', False)
 
-        # Очистка кэша БД если нужно
         if options.get('clear_db_cache', False):
             self.stdout.write('\n🧹 ОЧИСТКА КЭША БД')
             self.stdout.write('=' * 50)
 
             try:
-                # Пытаемся найти все ключи кэша, связанные с играми
                 cleared_count = 0
                 cache_keys = []
 
-                # Для Redis и подобных бэкендов
                 try:
                     cache_keys = cache.keys("games_relations_*")
                     if cache_keys:
                         cache.delete_many(cache_keys)
                         cleared_count = len(cache_keys)
                 except:
-                    # Для бэкендов без keys() используем другой подход
-                    # Очищаем весь кэш (менее точно, но работает)
                     cache.clear()
-                    cleared_count = -1  # Специальное значение
+                    cleared_count = -1
 
                 if cleared_count == -1:
                     self.stdout.write('   ✅ Весь кэш очищен')
@@ -96,23 +89,19 @@ class Command(BaseCommand):
 
             self.stdout.write('=' * 50)
 
-            # Спрашиваем, продолжать ли выполнение команды
             if not options.get('force', False):
                 response = input('\nПродолжить выполнение команды? (y/n): ')
                 if response.lower() != 'y':
                     self.stdout.write('⏹️ Команда отменена')
                     return
 
-        # Если используется --update-covers
         if options['update_covers']:
             self.stdout.write('🖼️  РЕЖИМ: ОБНОВЛЕНИЕ ОБЛОЖЕК')
 
-            # Отключаем другие режимы
             options['overwrite'] = False
             options['count_only'] = False
             options['update_missing_data'] = False
 
-            # Определяем, какие игры будут обновляться
             update_all_covers = not any([
                 options['game_names'],
                 options['game_modes'],
@@ -134,20 +123,16 @@ class Command(BaseCommand):
             elif options['keywords']:
                 self.stdout.write(f'🎮 Обновление обложек для игр с ключевыми словами: {options["keywords"]}')
 
-            # Создаем экземпляр GameLoader и делегируем ему работу
             loader = GameLoader(self.stdout, self.stderr)
             loader.execute_command(options)
             return
 
-        # Если используется --update-missing-data
         elif options['update_missing_data']:
             self.stdout.write('🔄 РЕЖИМ: ОБНОВЛЕНИЕ ОТСУТСТВУЮЩИХ ДАННЫХ')
 
-            # Отключаем overwrite и count-only в этом режиме
             options['overwrite'] = False
             options['count_only'] = False
 
-            # Определяем, какие игры будут обновляться
             update_all_games = not any([
                 options['game_names'],
                 options['game_modes'],
@@ -169,21 +154,16 @@ class Command(BaseCommand):
             elif options['keywords']:
                 self.stdout.write(f'🎮 Обновление данных для игр с ключевыми словами: {options["keywords"]}')
 
-            # Устанавливаем специальный флаг для режима обновления всех игр
             options['update_all_games'] = update_all_games
 
-        # Если используется --game-modes без update-missing-data
         elif options['game_modes']:
             self.stdout.write(f'🎮 РЕЖИМ ЗАГРУЗКИ ПО РЕЖИМАМ ИГРЫ: {options["game_modes"]}')
 
-        # Если используется --game-names без update-missing-data
         elif options['game_names']:
             self.stdout.write(f'🎮 РЕЖИМ ЗАГРУЗКИ ПО ИМЕНАМ ИГР: {options["game_names"]}')
-            # Принудительно устанавливаем однократное выполнение без лимитов
             options['repeat'] = -1
             options['limit'] = 0
             options['iteration_limit'] = 1000
 
-        # Создаем экземпляр GameLoader и делегируем ему работу
         loader = GameLoader(self.stdout, self.stderr)
         loader.execute_command(options)
