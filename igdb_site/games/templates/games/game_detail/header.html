@@ -150,6 +150,20 @@
                         </div>
                     {% endif %}
 
+                    <!-- Game Engines -->
+                    {% if game.engines.all %}
+                        <div class="mb-4">
+                            <h6 class="text-light mb-2">
+                                <i class="bi bi-cpu me-2"></i>Game Engines:
+                            </h6>
+                            <div class="d-flex flex-wrap gap-2">
+                                {% for engine in game.engines.all %}
+                                    <span class="badge bg-secondary px-3 py-2 fs-6">{{ engine.name }}</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
+
                     <!-- Кнопки действий -->
                     <div class="d-flex flex-wrap gap-3 mt-auto pt-4">
                         <a href="{% get_find_similar_url game %}"
