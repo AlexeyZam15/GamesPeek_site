@@ -7,22 +7,19 @@ from functools import lru_cache
 from django.conf import settings
 from django.core.cache import cache
 
-# ===== КОНФИГУРАЦИЯ ОПТИМАЛЬНЫХ НАСТРОЕК =====
 OPTIMAL_CONFIG = {
-    'MAX_WORKERS': 3,  # 3 потока вместо 6
-    'BATCH_SIZE': 10,  # Максимум API
-    'MAX_RPS': 2.5,  # 67% от лимита 3.75
-    'REQUEST_TIMEOUT': 10.0,  # Ваш максимум: 6.4 сек
-    'DELAY_BETWEEN_REQUESTS': 0.4,  # 400 мс = 2.5 RPS
+    'MAX_WORKERS': 3,
+    'BATCH_SIZE': 10,
+    'MAX_RPS': 2.5,
+    'REQUEST_TIMEOUT': 10.0,
+    'DELAY_BETWEEN_REQUESTS': 0.4,
     'MAX_RETRIES': 2,
-    'RETRY_DELAYS': [1.0, 3.0],  # Экспоненциальная
-    'USE_CACHE': True,  # Кэшировать результаты
+    'RETRY_DELAYS': [1.0, 3.0],
+    'USE_CACHE': True,
 }
-# ==============================================
 
-# Глобальные переменные
 DEBUG = False
-_session = None  # Глобальная сессия для всех запросов
+_session = None
 
 
 def set_debug_mode(debug_enabled):
@@ -44,7 +41,6 @@ def get_session():
     if _session is None:
         session = requests.Session()
 
-        # Настройка retry стратегии
         retry_strategy = Retry(
             total=OPTIMAL_CONFIG['MAX_RETRIES'],
             backoff_factor=0.5,
@@ -61,7 +57,6 @@ def get_session():
     return _session
 
 
-# Кэш для токена с использованием Django cache
 def get_igdb_access_token():
     """Получает access token для IGDB API с кэшированием."""
     cache_key = 'igdb_access_token'
@@ -92,7 +87,6 @@ def get_igdb_access_token():
         data = response.json()
         access_token = data['access_token']
 
-        # Кэшируем токен на 29 дней (минус 1 день на всякий случай)
         expiry_time = time.time() + (29 * 24 * 60 * 60)
         cache.set(cache_key, {'token': access_token, 'expiry': expiry_time}, timeout=30 * 24 * 60 * 60)
 
@@ -104,7 +98,6 @@ def get_igdb_access_token():
         raise Exception(f"Failed to get IGDB access token: {e}")
 
 
-# Кэш для часто запрашиваемых данных
 def get_cached_igdb_data(cache_key, endpoint, query, ttl=3600):
     """Получает данные из кэша или делает запрос к IGDB."""
     if OPTIMAL_CONFIG['USE_CACHE']:
@@ -138,7 +131,6 @@ def make_igdb_request(endpoint, query, debug=None):
     url = f'https://api.igdb.com/v4/{endpoint}'
     session = get_session()
 
-    # Применяем задержку для соблюдения RPS
     time.sleep(OPTIMAL_CONFIG['DELAY_BETWEEN_REQUESTS'])
 
     for attempt in range(OPTIMAL_CONFIG['MAX_RETRIES'] + 1):
@@ -151,7 +143,6 @@ def make_igdb_request(endpoint, query, debug=None):
             if response.status_code != 200:
                 print(f"❌ Error response: {response.text}")
 
-                # Если это ошибка 429 (Too Many Requests) и у нас есть попытки
                 if response.status_code == 429 and attempt < OPTIMAL_CONFIG['MAX_RETRIES']:
                     delay = OPTIMAL_CONFIG['RETRY_DELAYS'][attempt] if attempt < len(
                         OPTIMAL_CONFIG['RETRY_DELAYS']) else 5.0
@@ -182,17 +173,14 @@ def make_igdb_request(endpoint, query, debug=None):
                 print(f"❌ IGDB API request failed after {OPTIMAL_CONFIG['MAX_RETRIES']} retries: {e}")
                 raise Exception(f"IGDB API request failed: {e}")
 
-    # Если мы дошли до сюда, значит все попытки не удались
     raise Exception(f"IGDB API request failed after {OPTIMAL_CONFIG['MAX_RETRIES']} retries")
 
 
-# Оптимизированные функции с кэшированием
 def get_companies(company_ids):
     """Получает данные о компаниях из IGDB с кэшированием"""
     if not company_ids:
         return []
 
-    # Создаем уникальный ключ кэша
     cache_key = f'igdb_companies_{hash(tuple(sorted(company_ids)))}'
     fields = "id,name,description,logo.url,website"
     query = f'fields {fields}; where id = ({",".join(map(str, company_ids))});'
@@ -235,14 +223,4 @@ def get_game_modes(mode_ids):
 
     return get_cached_igdb_data(cache_key, 'game_modes', query, ttl=24 * 3600)
 
-
-def get_series(series_ids):
-    """Получает данные о сериях из IGDB с кэшированием"""
-    if not series_ids:
-        return []
-
-    cache_key = f'igdb_series_{hash(tuple(sorted(series_ids)))}'
-    fields = "id,name,description,created_at"
-    query = f'fields {fields}; where id = ({",".join(map(str, series_ids))});'
-
-    return get_cached_igdb_data(cache_key, 'collections', query, ttl=24 * 3600)
+# Метод get_series удален как неиспользуемый

@@ -21,7 +21,7 @@ class Statistics:
             'games': {
                 'created': len(game_basic_map),
                 'total_in_db': Game.objects.count(),
-                'skipped': 0  # Будет заполнено позже
+                'skipped': 0
             },
             'genres': {
                 'created': 0,
@@ -38,7 +38,7 @@ class Statistics:
                 'total_in_db': Keyword.objects.count(),
                 'possible': 0
             },
-            'engines': {  # НОВОЕ
+            'engines': {
                 'created': 0,
                 'total_in_db': GameEngine.objects.count(),
                 'possible': 0
@@ -75,12 +75,11 @@ class Statistics:
             }
         }
 
-        # Для каждого типа объектов считаем сколько было создано новых
         object_types = [
             ('genre_map', 'genres', Genre),
             ('platform_map', 'platforms', Platform),
             ('keyword_map', 'keywords', Keyword),
-            ('engine_map', 'engines', GameEngine),  # НОВОЕ
+            ('engine_map', 'engines', GameEngine),
             ('series_map', 'series', Series),
             ('company_map', 'companies', Company),
             ('theme_map', 'themes', Theme),
@@ -96,7 +95,6 @@ class Statistics:
                 objects_stats[stat_key]['created'] = loaded_count
                 objects_stats[stat_key]['possible'] = len(total_ids) if total_ids else 0
 
-        # Статистика обложек
         if 'cover_map' in data_maps:
             objects_stats['covers'] = {
                 'loaded': len(data_maps['cover_map']),
@@ -117,12 +115,11 @@ class Statistics:
         if not all_game_relations:
             return {}
 
-        # Подсчитываем возможные связи
         possible_stats = {
             'genres': 0,
             'platforms': 0,
             'keywords': 0,
-            'engines': 0,  # НОВОЕ
+            'engines': 0,
             'series': 0,
             'developers': 0,
             'publishers': 0,
@@ -131,17 +128,15 @@ class Statistics:
             'modes': 0,
         }
 
-        # Считаем возможные связи
         for rel in all_game_relations:
             for key in possible_stats.keys():
                 possible_stats[key] += len(rel.get(key, []))
 
-        # Считаем созданные связи
         created_stats = {
             'genres': relations_results.get('genre_relations', 0),
             'platforms': relations_results.get('platform_relations', 0),
             'keywords': relations_results.get('keyword_relations', 0),
-            'engines': relations_results.get('engine_relations', 0),  # НОВОЕ
+            'engines': relations_results.get('engine_relations', 0),
             'series': relations_results.get('series_relations', 0),
             'developers': relations_results.get('developer_relations', 0),
             'publishers': relations_results.get('publisher_relations', 0),
@@ -150,7 +145,6 @@ class Statistics:
             'modes': relations_results.get('mode_relations', 0),
         }
 
-        # Формируем полную статистику
         relations_stats = {}
         for key in possible_stats.keys():
             relations_stats[key] = {
@@ -174,7 +168,6 @@ class Statistics:
         self.stdout.write('📊 ПОДРОБНАЯ СТАТИСТИКА СОЗДАННЫХ ОБЪЕКТОВ И СВЯЗЕЙ')
         self.stdout.write('=' * 80)
 
-        # Разделы статистики
         sections = [
             ('🎮 ОСНОВНЫЕ ОБЪЕКТЫ', [
                 ('games', 'Игры'),
@@ -195,7 +188,6 @@ class Statistics:
             ])
         ]
 
-        # Выводим статистику по объектам
         for section_title, items in sections:
             self.stdout.write(f'\n{section_title}:')
             self.stdout.write('─' * 40)
@@ -204,7 +196,6 @@ class Statistics:
                 if key in objects_stats:
                     stats = objects_stats[key]
                     if 'created' in stats:
-                        # Объекты
                         created = stats['created']
                         total_in_db = stats.get('total_in_db', 0)
                         existing = stats.get('existing', 0)
@@ -226,7 +217,6 @@ class Statistics:
                             if total_in_db > 0:
                                 self.stdout.write(f'      • Всего в базе: {total_in_db}')
 
-        # Выводим статистику по связям
         if relations_stats:
             self.stdout.write('\n🔗 СВЯЗИ МЕЖДУ ОБЪЕКТАМИ:')
             self.stdout.write('─' * 40)
@@ -262,12 +252,10 @@ class Statistics:
                 total_percentage = (total_created / total_possible * 100) if total_possible > 0 else 0
                 self.stdout.write(f'\n   📈 ИТОГО СВЯЗЕЙ: {total_created}/{total_possible} ({total_percentage:.1f}%)')
 
-        # Общая статистика
         self.stdout.write('\n📈 ОБЩАЯ СТАТИСТИКА:')
         self.stdout.write('─' * 40)
         self.stdout.write(f'⏱️  Общее время выполнения: {total_time:.2f} секунд')
 
-        # Подсчитываем общее количество созданных объектов
         total_objects_created = 0
         for key, stats in objects_stats.items():
             if 'created' in stats:
@@ -284,7 +272,6 @@ class Statistics:
                                   relations_results=None, relations_possible=None, debug=False):
         """Собирает полную финальную статистику"""
 
-        # Статистика базы данных
         total_games_in_db = Game.objects.count()
         total_screenshots = Screenshot.objects.count()
         total_genres = Genre.objects.count()
@@ -296,16 +283,13 @@ class Statistics:
         total_perspectives = PlayerPerspective.objects.count()
         total_modes = GameMode.objects.count()
 
-        # Формируем словарь со всей статистикой
         stats = {
-            # Основная статистика
             'total_games_found': total_games,
             'created_count': created_count,
             'skipped_count': skipped_count,
             'error_count': 0,
             'total_time': total_time,
 
-            # Статистика базы данных
             'total_games_in_db': total_games_in_db,
             'total_screenshots': total_screenshots,
             'total_genres': total_genres,
@@ -317,20 +301,15 @@ class Statistics:
             'total_perspectives': total_perspectives,
             'total_modes': total_modes,
 
-            # Статистика загруженных данных
             'collected_data': loaded_data_stats.get('collected', {}).copy(),
             'loaded_data': loaded_data_stats.get('loaded', {}).copy(),
 
-            # Время выполнения
             'step_times': all_step_times,
 
-            # Статистика связей
             'relations': relations_results or {},
 
-            # Возможное количество связей
             'relations_possible': relations_possible or {},
 
-            # Дополнительная статистика
             'screenshots_loaded': screenshots_loaded,
         }
 
@@ -342,7 +321,6 @@ class Statistics:
         self.stdout.write('📊 ПОЛНАЯ СТАТИСТИКА ЗАГРУЗКИ')
         self.stdout.write('=' * 60)
 
-        # Время выполнения
         self.stdout.write(f'⏱️  ОБЩЕЕ ВРЕМЯ: {stats["total_time"]:.2f}с')
 
         if stats['total_time'] > 0:
@@ -355,7 +333,6 @@ class Statistics:
         self.stdout.write(f'   • Пропущено (уже существуют): {stats["skipped_count"]}')
         self.stdout.write(f'   • Ошибок: {stats["error_count"]}')
 
-        # Статистика связей
         if stats['relations'] and stats['relations_possible']:
             self.stdout.write('\n🔗 СТАТИСТИКА СВЯЗЕЙ (СОЗДАНО / ВОЗМОЖНО):')
 
@@ -363,6 +340,7 @@ class Statistics:
                 ('🎭 Жанры', 'genre_relations', 'possible_genre_relations'),
                 ('🖥️  Платформы', 'platform_relations', 'possible_platform_relations'),
                 ('🔑 Ключевые слова', 'keyword_relations', 'possible_keyword_relations'),
+                ('⚙️ Движки', 'engine_relations', 'possible_engine_relations'),
                 ('📚 Серии (M2M)', 'series_relations', 'possible_series_relations'),
                 ('🏢 Разработчики', 'developer_relations', 'possible_developer_relations'),
                 ('📦 Издатели', 'publisher_relations', 'possible_publisher_relations'),
@@ -379,12 +357,12 @@ class Statistics:
                     percentage = (created / possible * 100) if possible > 0 else 0
                     self.stdout.write(f'   • {display_name}: {created}/{possible} ({percentage:.1f}%)')
 
-        # Состояние базы данных
         self.stdout.write('\n🗄️  ТЕКУЩЕЕ СОСТОЯНИЕ БАЗЫ ДАННЫХ:')
         self.stdout.write(f'   🎮 Всего игр: {stats["total_games_in_db"]}')
         self.stdout.write(f'   🎭 Жанров: {stats["total_genres"]}')
         self.stdout.write(f'   🖥️  Платформ: {stats["total_platforms"]}')
         self.stdout.write(f'   🔑 Ключевых слов: {stats["total_keywords"]}')
+        self.stdout.write(f'   ⚙️ Движков: {GameEngine.objects.count()}')
         self.stdout.write(f'   📚 Серий: {stats["total_series"]}')
         self.stdout.write(f'   🏢 Компаний: {stats["total_companies"]}')
         self.stdout.write(f'   🎨 Тем: {stats["total_themes"]}')
@@ -392,7 +370,6 @@ class Statistics:
         self.stdout.write(f'   🎮 Режимов: {stats["total_modes"]}')
         self.stdout.write(f'   📸 Скриншотов: {stats["total_screenshots"]}')
 
-        # Итоговые показатели
         self.stdout.write('\n' + '=' * 60)
         self.stdout.write('✅ ЗАГРУЗКА ЗАВЕРШЕНА!')
         self.stdout.write(f'⏱️  Время: {stats["total_time"]:.2f}с')
@@ -410,23 +387,19 @@ class Statistics:
         self.stdout.write('\n🔍 ПРОВЕРКА СЕРИЙ В БАЗЕ ДАННЫХ')
         self.stdout.write('=' * 60)
 
-        # 1. Общее количество
         total_series = Series.objects.count()
         self.stdout.write(f'📊 Всего серий в базе: {total_series}')
 
-        # 2. Серии с пустыми именами
         empty_name_series = Series.objects.filter(name='')
         empty_count = empty_name_series.count()
         if empty_count > 0:
             self.stdout.write(f'⚠️  Серии с пустыми именами: {empty_count}')
 
-        # 3. Серии с именами по умолчанию
         default_name_series = Series.objects.filter(name__startswith='Series ')
         default_count = default_name_series.count()
         if default_count > 0:
             self.stdout.write(f'⚠️  Серии с именами по умолчанию: {default_count}')
 
-        # 4. Дубликаты по igdb_id
         duplicates = Series.objects.values('igdb_id').annotate(
             count=Count('igdb_id')).filter(count__gt=1)
 
