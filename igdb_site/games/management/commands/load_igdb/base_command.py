@@ -524,11 +524,19 @@ class BaseGamesCommand(BaseCommand):
         }
 
     def calculate_iteration_limit(self, limit, iteration_limit, total_stats):
-        """Рассчитывает лимит для текущей итерации"""
+        """Рассчитывает лимит для текущей итерации на основе обработанных игр"""
         if limit > 0:
-            remaining_limit = limit - total_stats['total_games_created']
+            # Считаем ВСЕ обработанные игры (новые + обновленные + пропущенные)
+            processed = (total_stats['total_games_created'] +
+                         total_stats['total_games_updated'] +
+                         total_stats['total_games_skipped'])
+
+            remaining_limit = limit - processed
             if remaining_limit <= 0:
                 return 0, False
+
+            # iteration_limit - это сколько новых игр искать за итерацию
+            # но мы не можем искать больше, чем осталось до лимита
             iteration_limit_actual = min(iteration_limit, remaining_limit)
             return iteration_limit_actual, True
         else:
@@ -571,6 +579,11 @@ class BaseGamesCommand(BaseCommand):
         total_stats['total_games_updated'] += iteration_stats.get('updated_count', 0)
         total_stats['total_time'] += iteration_stats.get('total_time', 0)
 
+        # Подсчитываем ВСЕ обработанные игры для отображения
+        processed = (total_stats['total_games_created'] +
+                     total_stats['total_games_updated'] +
+                     total_stats['total_games_skipped'])
+
         new_games_this_iteration = iteration_stats.get('created_count', 0)
         if new_games_this_iteration == 0 and iteration_stats.get('total_games_found', 0) == 0:
             total_stats['iterations_with_no_new_games'] += 1
@@ -579,7 +592,7 @@ class BaseGamesCommand(BaseCommand):
 
         if progress_bar:
             progress_bar.update(
-                total_loaded=total_stats['total_games_created'],
+                total_loaded=processed,  # ← Теперь показываем ВСЕ обработанные игры
                 current_iteration=iteration,
                 iterations_without_new=total_stats['iterations_with_no_new_games'],
                 created_count=total_stats['total_games_created'],
@@ -612,6 +625,7 @@ class BaseGamesCommand(BaseCommand):
             self.stdout.write(f'      • Найдено новых: {iteration_stats.get("total_games_found", 0)}')
             self.stdout.write(f'      • Загружено: {iteration_stats.get("created_count", 0)}')
             self.stdout.write(f'      • Обновлено: {iteration_stats.get("updated_count", 0)}')
+            self.stdout.write(f'      • Пропущено: {iteration_stats.get("skipped_count", 0)}')
             self.stdout.write(f'      • Ошибок: {iteration_errors}')
             self.stdout.write(f'      • Последний проверенный offset: {last_checked_this_iteration}')
             self.stdout.write(f'      • Следующий offset: {new_offset}')

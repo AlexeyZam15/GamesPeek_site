@@ -197,6 +197,17 @@ class DataCollector:
 
         existing_game_ids = self._load_existing_ids_for_filtering(skip_existing, debug)
 
+        # ЗАГРУЗКА КЭША ПРОВЕРЕННЫХ ИГР
+        checked_ids = set()
+        try:
+            from .game_cache import GameCacheManager
+            checked_ids = GameCacheManager.get_all_checked_ids()
+            if debug:
+                self.stdout.write(f'   📦 Загружено из кэша: {len(checked_ids)} проверенных игр')
+        except Exception as e:
+            if debug:
+                self.stdout.write(f'   ⚠️ Ошибка загрузки кэша: {e}')
+
         new_games, all_found_games = [], []
         stats = self._init_loading_stats()
 
@@ -212,7 +223,8 @@ class DataCollector:
         try:
             result = self._execute_loading_main_loop(
                 where_clause, limit, offset, skip_existing,
-                existing_game_ids, new_games, all_found_games,
+                existing_game_ids, checked_ids,  # Передаем checked_ids
+                new_games, all_found_games,
                 stats, debug, interrupted, show_progress
             )
 
@@ -282,7 +294,8 @@ class DataCollector:
         }
 
     def _execute_loading_main_loop(self, where_clause, limit, offset, skip_existing,
-                                   existing_game_ids, new_games, all_found_games,
+                                   existing_game_ids, checked_ids,  # Добавлен параметр
+                                   new_games, all_found_games,
                                    stats, debug, interrupted, show_progress=True):
         """Выполняет основной цикл загрузки"""
         BATCH_SIZE = 100
@@ -327,8 +340,9 @@ class DataCollector:
             if interrupted.is_set():
                 break
 
+            # Используем существующий метод, но передаем checked_ids
             cycle_result = self._process_batch_cycle_results(
-                batch_results, existing_game_ids, skip_existing, limit,
+                batch_results, existing_game_ids, checked_ids, skip_existing, limit,
                 new_games, all_found_games, stats, debug, show_progress
             )
 
@@ -466,29 +480,55 @@ class DataCollector:
                 self.stderr.write(f'      ❌ Ошибка пачки {batch_num}: {e}')
             return []
 
-    def _process_batch_cycle_results(self, batch_results, existing_game_ids, skip_existing, limit,
-                                     new_games, all_found_games, stats, debug, show_progress=True):
-        """Обрабатывает результаты цикла пачек"""
+    def _process_batch_cycle_results(self, batch_results, existing_game_ids, checked_ids,
+                                     skip_existing, limit, new_games, all_found_games,
+                                     stats, debug, show_progress=True):
+        """Обрабатывает результаты цикла пачек с учетом кэша"""
         game_lock = threading.Lock()
         empty_batches = 0
         last_offset = 0
+        cached_skipped = 0
 
         for batch_num, batch_offset, games, games_loaded, is_empty in batch_results:
             if not is_empty and games_loaded > 0:
                 with game_lock:
-                    batch_stats = self._process_individual_batch(
-                        games, batch_offset, existing_game_ids, skip_existing,
-                        limit, new_games, all_found_games
-                    )
+                    # Фильтруем игры по кэшу
+                    games_to_process = []
+                    for game in games:
+                        game_id = game.get('id')
+                        if not game_id:
+                            continue
+                        if game_id in checked_ids:
+                            cached_skipped += 1
+                            if debug and show_progress and cached_skipped <= 5:
+                                self.stdout.write(f'      ⏭️ [КЭШ] Игра {game_id} уже проверена ранее')
+                        else:
+                            games_to_process.append(game)
+
+                    # Обрабатываем только игры не из кэша
+                    if games_to_process:
+                        batch_stats = self._process_individual_batch(
+                            games_to_process, batch_offset, existing_game_ids, skip_existing,
+                            limit, new_games, all_found_games
+                        )
+                        # Добавляем в статистику пропущенные по кэшу
+                        batch_stats['in_cache'] = len(games) - len(games_to_process)
+                    else:
+                        batch_stats = {
+                            'total': len(games),
+                            'in_db': 0,
+                            'in_cache': len(games),
+                            'last_offset': batch_offset + len(games) - 1
+                        }
 
                     stats['total_checked'] += batch_stats['total']
-                    stats['already_in_db'] += batch_stats['in_db']
+                    stats['already_in_db'] += batch_stats.get('in_db', 0)
                     stats['batches_processed'] += 1
                     last_offset = batch_stats['last_offset']
 
                     if show_progress:
                         self._display_loading_progress(
-                            limit, len(new_games), stats, last_offset, debug
+                            limit, len(new_games), stats, last_offset, cached_skipped, debug
                         )
 
                 empty_batches = 0
@@ -496,6 +536,9 @@ class DataCollector:
                 empty_batches += 1
                 last_offset = max(last_offset, batch_offset + 100)
                 stats['empty_batches'] += 1
+
+        if debug and cached_skipped > 0:
+            self.stdout.write(f'      📊 Всего пропущено по кэшу: {cached_skipped}')
 
         return {
             'empty_batches': empty_batches,
@@ -533,13 +576,20 @@ class DataCollector:
 
         return batch_stats
 
-    def _display_loading_progress(self, limit, new_games_count, stats, last_offset, debug):
-        """Отображает прогресс загрузки"""
+    def _display_loading_progress(self, limit, new_games_count, stats, last_offset, cached_skipped=0, debug=False):
+        """Отображает прогресс загрузки с учетом кэша"""
         if limit > 0 and new_games_count % 10 == 0:
-            progress_msg = f'   📊 Прогресс: {new_games_count}/{limit} новых игр (просмотрено: {stats["total_checked"]}, уже в БД: {stats["already_in_db"]}, offset: {last_offset})'
+            progress_msg = (f'   📊 Прогресс: {new_games_count}/{limit} новых игр '
+                            f'(просмотрено: {stats["total_checked"]}, '
+                            f'уже в БД: {stats["already_in_db"]}, '
+                            f'в кэше: {cached_skipped}, '
+                            f'offset: {last_offset})')
             self.stdout.write(progress_msg)
         elif stats['total_checked'] % 200 == 0:
-            progress_msg = f'   📊 Просмотрено: {stats["total_checked"]} игр (новых: {new_games_count}, уже в БД: {stats["already_in_db"]})'
+            progress_msg = (f'   📊 Просмотрено: {stats["total_checked"]} игр '
+                            f'(новых: {new_games_count}, '
+                            f'уже в БД: {stats["already_in_db"]}, '
+                            f'в кэше: {cached_skipped})')
             self.stdout.write(progress_msg)
 
     def _finalize_and_return_results(self, new_games, all_found_games, stats, result,
