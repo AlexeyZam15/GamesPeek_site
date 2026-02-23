@@ -57,8 +57,30 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """Основной метод выполнения команды"""
         from django.core.cache import cache
+        from .load_igdb.game_cache import GameCacheManager
 
         options['use_cache'] = not options.get('no_cache', False)
+
+        # Очистка кэша
+        if options.get('clear_cache', False):
+            self.stdout.write('\n🧹 ОЧИСТКА КЭША')
+            self.stdout.write('=' * 50)
+
+            # Очищаем кэш проверенных игр
+            try:
+                cleared_count = GameCacheManager.clear_cache()
+                self.stdout.write(f'   ✅ Кэш проверенных игр очищен: {cleared_count} записей')
+            except Exception as e:
+                self.stdout.write(f'   ⚠️ Ошибка очистки кэша проверенных игр: {e}')
+
+            # Очищаем кэш relations
+            try:
+                cache.delete("games_relations_cache")
+                self.stdout.write('   ✅ Кэш relations очищен')
+            except Exception as e:
+                self.stdout.write(f'   ⚠️ Ошибка очистки кэша relations: {e}')
+
+            self.stdout.write('=' * 50)
 
         if options.get('clear_db_cache', False):
             self.stdout.write('\n🧹 ОЧИСТКА КЭША БД')
@@ -78,7 +100,7 @@ class Command(BaseCommand):
                     cleared_count = -1
 
                 if cleared_count == -1:
-                    self.stdout.write('   ✅ Весь кэш очищен')
+                    self.stdout.write('   ✅ Весь кэш БД очищен')
                 elif cleared_count > 0:
                     self.stdout.write(f'   ✅ Удалено {cleared_count} записей кэша игр')
                 else:

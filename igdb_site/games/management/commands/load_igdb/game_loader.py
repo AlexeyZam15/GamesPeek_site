@@ -1737,7 +1737,7 @@ class GameLoader(BaseGamesCommand):
         limit = options.get('limit', 0)
 
         use_cache = options.get('use_cache', True)
-        cache_ttl = options.get('cache_ttl', 3600)
+        cache_ttl = None  # Бессрочное хранение
 
         total_start_time = time.time()
 
@@ -1767,12 +1767,11 @@ class GameLoader(BaseGamesCommand):
 
             load_time = time.time() - start_load
 
-            # ВАЖНО: Разделяем статистику
+            # Разделяем статистику
             total_games_in_memory = len(games_map)
             games_from_cache = 0
             games_from_db = 0
 
-            # Если есть saved_offset, значит мы загружались из кэша
             if hasattr(self, '_cache_restore_start') and self._cache_restore_start > 0:
                 games_from_cache = self._restore_total if hasattr(self, '_restore_total') else 0
                 games_from_db = total_games_in_memory - games_from_cache
@@ -1921,7 +1920,18 @@ class GameLoader(BaseGamesCommand):
 
                 total_time = time.time() - start_time
 
-                elapsed_str = self._format_time(total_time)
+                elapsed_str = ""
+                if total_time < 60:
+                    elapsed_str = f"{total_time:.1f}с"
+                elif total_time < 3600:
+                    minutes = total_time // 60
+                    seconds = total_time % 60
+                    elapsed_str = f"{int(minutes)}мин {seconds:.1f}с"
+                else:
+                    hours = total_time // 3600
+                    minutes = (total_time % 3600) // 60
+                    seconds = total_time % 60
+                    elapsed_str = f"{int(hours)}ч {int(minutes)}мин {seconds:.1f}с"
 
                 if progress_bar and not debug:
                     progress_bar.final_message(
@@ -1937,8 +1947,12 @@ class GameLoader(BaseGamesCommand):
                 self.stdout.write(f'📍 Обработано игр: {actual_processed}/{total_games}')
                 self.stdout.write(f'✅ Успешно обновлено: {actual_updated}')
                 self.stdout.write(f'⏭️  Пропущено: {actual_skipped}')
-                self.stdout.write(f'⏱️  Время: {elapsed_str}')
+                self.stdout.write(f'⏱️  Время обработки: {elapsed_str}')
                 self.stdout.write(f'📍 Следующий offset: {next_offset}')
+
+                if total_time > 0 and actual_processed > 0:
+                    speed = actual_processed / total_time
+                    self.stdout.write(f'🚀 Скорость обработки: {speed:.1f} игр/сек')
 
                 signal.signal(signal.SIGINT, original_sigint)
                 raise
@@ -1959,7 +1973,18 @@ class GameLoader(BaseGamesCommand):
                 )
                 progress_bar.clear()
 
-            elapsed_str = self._format_time(total_time)
+            elapsed_str = ""
+            if total_time < 60:
+                elapsed_str = f"{total_time:.1f}с"
+            elif total_time < 3600:
+                minutes = total_time // 60
+                seconds = total_time % 60
+                elapsed_str = f"{int(minutes)}мин {seconds:.1f}с"
+            else:
+                hours = total_time // 3600
+                minutes = (total_time % 3600) // 60
+                seconds = total_time % 60
+                elapsed_str = f"{int(hours)}ч {int(minutes)}мин {seconds:.1f}с"
 
             self.stdout.write(f'\n' + '=' * 60)
             self.stdout.write(f'📊 ИТОГОВАЯ СТАТИСТИКА ОБНОВЛЕНИЯ')
@@ -1969,14 +1994,14 @@ class GameLoader(BaseGamesCommand):
             self.stdout.write(f'✅ Успешно обновлено: {updated_count}')
             self.stdout.write(f'⏭️  Пропущено: {total_games - updated_count}')
             self.stdout.write(f'⏱️  Время обработки: {elapsed_str}')
-            self.stdout.write(f'⏱️  Общее время: {self._format_time(time.time() - total_start_time)}')
+            self.stdout.write(f'⏱️  Общее время: {time.time() - total_start_time:.2f}с')
             self.stdout.write(f'📍 Следующий offset: {next_offset}')
 
             if total_time > 0:
                 speed = total_games / total_time
-                self.stdout.write(f'🚀 Скорость: {speed:.1f} игр/сек')
+                self.stdout.write(f'🚀 Скорость обработки: {speed:.1f} игр/сек')
 
-            # Принудительное сохранение кэша
+            # Сохраняем кэш бессрочно
             if use_cache:
                 try:
                     cache_key = "games_relations_cache"
@@ -1997,9 +2022,9 @@ class GameLoader(BaseGamesCommand):
                         'timestamp': time.time(),
                         'interrupted': False
                     }
-                    cache.set(cache_key, cache_payload, timeout=cache_ttl)
+                    cache.set(cache_key, cache_payload, timeout=None)  # None = бессрочно
                     self.stdout.write(
-                        f'\n   💾 Кэш обновлен: {len(games_map)} игр, {len(games_needs_update)} с проблемами')
+                        f'\n   💾 Кэш сохранен бессрочно: {len(games_map)} игр, {len(games_needs_update)} с проблемами')
                 except Exception as e:
                     self.stdout.write(f'\n   ⚠️ Не удалось сохранить кэш: {e}')
 
@@ -2024,7 +2049,7 @@ class GameLoader(BaseGamesCommand):
         self.stdout.flush()
 
     def _load_all_games_with_relations(self, offset, limit, interrupted=None, chunk_size=500, use_cache=True,
-                                       cache_ttl=3600, debug=False):
+                                       cache_ttl=None, debug=False):
         """Загружает игры с предзагрузкой связей, пока не наберет нужное количество нуждающихся в обновлении"""
         from django.db.models import Count
         from django.core.cache import cache
@@ -2121,7 +2146,7 @@ class GameLoader(BaseGamesCommand):
                     self.stdout.write(
                         f'\n   💾 Сохраняю кэш: {total_processed} игр, {len(games_needs_update)} с проблемами')
 
-                cache.set(cache_key, cache_payload, timeout=cache_ttl)
+                cache.set(cache_key, cache_payload, timeout=cache_ttl)  # None = бессрочно
 
                 if debug:
                     current_time = time.time()
@@ -2145,7 +2170,13 @@ class GameLoader(BaseGamesCommand):
 
                     cache_time = cached_data.get('timestamp', 0)
                     cache_age = time.time() - cache_time
-                    age_str = self._format_time(cache_age)
+                    age_str = ""
+                    if cache_age < 60:
+                        age_str = f"{cache_age:.0f}с"
+                    elif cache_age < 3600:
+                        age_str = f"{cache_age / 60:.1f}мин"
+                    else:
+                        age_str = f"{cache_age / 3600:.1f}ч"
 
                     if debug:
                         cached_map_size = len(cached_data.get('games_map', []))
@@ -2458,14 +2489,58 @@ class GameLoader(BaseGamesCommand):
             return 0, []
 
         igdb_ids = [info['igdb_id'] for info in batch_info]
+
+        # Проверяем, какие данные реально нужны для этой пачки
+        needed_data_types = set()
+        for info in batch_info:
+            missing = info['missing_data']
+            for key, has_data in missing.items():
+                if not has_data:
+                    data_type = key.replace('has_', '')
+                    needed_data_types.add(data_type)
+
+        if not needed_data_types:
+            return 0, []
+
         id_list = ','.join(map(str, igdb_ids))
 
+        # Формируем запрос только с нужными полями
+        fields = ['id']
+        if 'cover' in needed_data_types or 'screenshots' in needed_data_types:
+            fields.extend(['cover', 'screenshots'])
+        if 'genres' in needed_data_types:
+            fields.append('genres')
+        if 'platforms' in needed_data_types:
+            fields.append('platforms')
+        if 'keywords' in needed_data_types:
+            fields.append('keywords')
+        if 'engines' in needed_data_types:
+            fields.append('game_engines')
+        if 'series' in needed_data_types:
+            fields.append('collections')
+        if 'developers' in needed_data_types or 'publishers' in needed_data_types:
+            fields.append('involved_companies.company')
+            fields.append('involved_companies.developer')
+            fields.append('involved_companies.publisher')
+        if 'themes' in needed_data_types:
+            fields.append('themes')
+        if 'perspectives' in needed_data_types:
+            fields.append('player_perspectives')
+        if 'modes' in needed_data_types:
+            fields.append('game_modes')
+        if 'description' in needed_data_types:
+            fields.append('summary')
+            fields.append('storyline')
+        if 'rating' in needed_data_types:
+            fields.append('rating')
+            fields.append('rating_count')
+        if 'release_date' in needed_data_types:
+            fields.append('first_release_date')
+
+        fields_str = ','.join(fields)
+
         query = f'''
-            fields id,name,summary,storyline,genres,keywords,rating,rating_count,
-                   first_release_date,platforms,cover,game_type,screenshots,
-                   collections,involved_companies.company,involved_companies.developer,
-                   involved_companies.publisher,themes,player_perspectives,
-                   game_modes,game_engines;
+            fields {fields_str};
             where id = ({id_list});
             limit 500;
         '''
@@ -2477,8 +2552,7 @@ class GameLoader(BaseGamesCommand):
                 break
             except Exception as e:
                 if attempt < OPTIMAL_CONFIG['MAX_RETRIES']:
-                    delay = OPTIMAL_CONFIG['RETRY_DELAYS'][attempt]
-                    time.sleep(delay)
+                    time.sleep(OPTIMAL_CONFIG['RETRY_DELAYS'][attempt])
                 else:
                     return 0, []
 
@@ -2487,50 +2561,51 @@ class GameLoader(BaseGamesCommand):
 
         games_data_map = {gd['id']: gd for gd in games_data if 'id' in gd}
 
-        all_ids = self._collect_needed_ids(batch_info, games_data_map, debug)
+        # Модифицируем _collect_needed_ids для работы с needed_data_types
+        all_ids = self._collect_needed_ids_with_types(batch_info, games_data_map, needed_data_types, debug)
 
         loader = DataLoader(self.stdout, self.stderr)
         handler = RelationsHandler(self.stdout, self.stderr)
 
         data_maps = {}
 
-        # Загружаем данные параллельно
+        # Загружаем только необходимые данные
         with ThreadPoolExecutor(max_workers=3) as executor:
             futures = {}
 
-            if all_ids['cover_ids']:
+            if 'cover' in needed_data_types and all_ids.get('cover_ids'):
                 futures['cover_map'] = executor.submit(loader.load_covers_parallel, all_ids['cover_ids'], False)
-            if all_ids['genre_ids']:
+            if 'genres' in needed_data_types and all_ids.get('genre_ids'):
                 futures['genre_map'] = executor.submit(
                     loader.load_data_parallel_generic, all_ids['genre_ids'], 'genres', Genre, '🎭', 'жанров', False
                 )
-            if all_ids['platform_ids']:
+            if 'platforms' in needed_data_types and all_ids.get('platform_ids'):
                 futures['platform_map'] = executor.submit(
                     loader.load_data_parallel_generic, all_ids['platform_ids'], 'platforms', Platform, '🖥️', 'платформ',
                     False
                 )
-            if all_ids['keyword_ids']:
+            if 'keywords' in needed_data_types and all_ids.get('keyword_ids'):
                 futures['keyword_map'] = executor.submit(
                     loader.load_keywords_parallel_with_weights, all_ids['keyword_ids'], False
                 )
-            if all_ids['engine_ids']:
+            if 'engines' in needed_data_types and all_ids.get('engine_ids'):
                 futures['engine_map'] = executor.submit(loader.load_engines_parallel, all_ids['engine_ids'], False)
-            if all_ids['series_ids']:
+            if 'series' in needed_data_types and all_ids.get('series_ids'):
                 futures['series_map'] = executor.submit(
                     loader.load_data_parallel_generic, all_ids['series_ids'], 'collections', Series, '📚', 'серий', False
                 )
-            if all_ids['company_ids']:
+            if ('developers' in needed_data_types or 'publishers' in needed_data_types) and all_ids.get('company_ids'):
                 futures['company_map'] = executor.submit(loader.load_companies_parallel, all_ids['company_ids'], False)
-            if all_ids['theme_ids']:
+            if 'themes' in needed_data_types and all_ids.get('theme_ids'):
                 futures['theme_map'] = executor.submit(
                     loader.load_data_parallel_generic, all_ids['theme_ids'], 'themes', Theme, '🎨', 'тем', False
                 )
-            if all_ids['perspective_ids']:
+            if 'perspectives' in needed_data_types and all_ids.get('perspective_ids'):
                 futures['perspective_map'] = executor.submit(
                     loader.load_data_parallel_generic, all_ids['perspective_ids'], 'player_perspectives',
                     PlayerPerspective, '👁️', 'перспектив', False
                 )
-            if all_ids['mode_ids']:
+            if 'modes' in needed_data_types and all_ids.get('mode_ids'):
                 futures['mode_map'] = executor.submit(
                     loader.load_data_parallel_generic, all_ids['mode_ids'], 'game_modes', GameMode, '🎮', 'режимов',
                     False
@@ -2542,7 +2617,7 @@ class GameLoader(BaseGamesCommand):
                 except Exception:
                     data_maps[key] = {}
 
-        if all_ids['games_with_screenshots']:
+        if 'screenshots' in needed_data_types and all_ids.get('games_with_screenshots'):
             self._load_screenshots_for_batch(all_ids['games_with_screenshots'], games_data_map, debug)
 
         batch_updated = 0
@@ -2551,12 +2626,12 @@ class GameLoader(BaseGamesCommand):
         for info in batch_info:
             igdb_id = info['igdb_id']
             game = info['game']
-            missing_data = info['missing_data']
             game_data = games_data_map.get(igdb_id)
 
             if not game_data:
                 continue
 
+            # Используем существующий метод, но передаем только нужные типы
             success, details = self._update_single_game_with_existing_data(
                 game, game_data, data_maps, {'game_data_map': games_data_map, 'screenshots_info': {}}, debug
             )
