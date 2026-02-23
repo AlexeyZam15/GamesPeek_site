@@ -677,15 +677,16 @@ class DataLoader:
 
     def _generic_process_single(self, obj_id, data_by_id, name, model_class, debug=False):
         """Универсальная обработка одного объекта"""
+        # Сначала проверяем, не появился ли объект в базе за время обработки
         with self._db_lock:
             existing = model_class.objects.filter(igdb_id=obj_id).first()
             if existing:
-                if debug and hasattr(self, 'stdout'):
+                if debug:
                     self.stdout.write(f'      ✅ Объект уже существует в базе: {obj_id} ({model_class.__name__})')
                 return (obj_id, existing)
 
         if obj_id not in data_by_id:
-            if debug and hasattr(self, 'stdout'):
+            if debug:
                 self.stdout.write(f'      ⚠️  Объект {obj_id} не найден в данных API')
             return None
 
@@ -694,14 +695,14 @@ class DataLoader:
         try:
             item_name = item_data.get('name', f'{name} {obj_id}')
 
-            if debug and hasattr(self, 'stdout'):
+            if debug:
                 self.stdout.write(f'      🆕 Создаем новый объект: {item_name}')
 
             obj = model_class(igdb_id=obj_id, name=item_name)
-            obj.save()
+            obj.save()  # Сразу сохраняем, чтобы получить primary key
 
-            if debug and hasattr(self, 'stdout'):
-                self.stdout.write(f'      ✅ Объект успешно создан')
+            if debug:
+                self.stdout.write(f'      ✅ Объект успешно создан (ID в БД: {obj.id})')
 
             return (obj_id, obj)
 
@@ -709,17 +710,20 @@ class DataLoader:
             error_msg = f"""
             ❌ ОШИБКА создания объекта {obj_id} ({model_class.__name__}):
             • Ошибка: {type(e).__name__}: {e}
+            • Имя для сохранения: {repr(item_name) if 'item_name' in locals() else 'None'}
             """
 
             if hasattr(self, 'stderr'):
                 self.stderr.write(error_msg)
 
+            # Пробуем восстановиться с именем по умолчанию
             try:
-                if debug and hasattr(self, 'stdout'):
-                    self.stdout.write(f'      🛠️  Попытка восстановления с чистым именем...')
+                if debug:
+                    self.stdout.write(f'      🛠️  Попытка восстановления с именем по умолчанию...')
 
                 fallback_name = f"{model_class.__name__} {obj_id}"
 
+                # Еще раз проверяем существование (на случай гонки)
                 with self._db_lock:
                     existing = model_class.objects.filter(igdb_id=obj_id).first()
                     if existing:
@@ -728,7 +732,8 @@ class DataLoader:
                 obj = model_class(igdb_id=obj_id, name=fallback_name)
                 obj.save()
 
-                self.stderr.write(f"        • ✅ Объект создан с именем по умолчанию")
+                if debug:
+                    self.stdout.write(f'      ✅ Объект создан с именем по умолчанию')
                 return (obj_id, obj)
 
             except Exception as e2:
@@ -805,7 +810,8 @@ class DataLoader:
         if debug:
             with lock:
                 self.stdout.write(f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_ids)} объектов')
-                self.stdout.write(f'         🔍 ID для загрузки: {batch_ids}')
+                if len(batch_ids) <= 10:  # Показываем ID только если их немного
+                    self.stdout.write(f'         🔍 ID для загрузки: {batch_ids}')
 
         existing_in_db = {}
         with self._db_lock:
@@ -848,26 +854,21 @@ class DataLoader:
         data_by_id = {item['id']: item for item in batch_data if 'id' in item}
 
         batch_map = {}
-        with ThreadPoolExecutor(max_workers=min(len(ids_to_load), 10)) as executor:
-            futures = {executor.submit(
-                lambda obj_id: self._generic_process_single(obj_id, data_by_id, name, model_class, debug),
-                obj_id
-            ): obj_id for obj_id in ids_to_load}
 
-            for future in as_completed(futures):
-                obj_id = futures[future]
-                try:
-                    result = future.result()
-                    if result:
-                        obj_id, obj = result
-                        batch_map[obj_id] = obj
-                        if debug:
-                            with lock:
-                                self.stdout.write(f'            ✅ Создан объект: {obj.name} (ID: {obj_id})')
-                except Exception as e:
+        # Используем обычный цикл вместо ThreadPoolExecutor для избежания проблем с хешированием
+        for obj_id in ids_to_load:
+            try:
+                result = self._generic_process_single(obj_id, data_by_id, name, model_class, debug)
+                if result:
+                    obj_id, obj = result
+                    batch_map[obj_id] = obj
                     if debug:
                         with lock:
-                            self.stderr.write(f'            ❌ Ошибка future для объекта {obj_id}: {e}')
+                            self.stdout.write(f'            ✅ Создан объект: {obj.name} (ID: {obj_id})')
+            except Exception as e:
+                if debug:
+                    with lock:
+                        self.stderr.write(f'            ❌ Ошибка для объекта {obj_id}: {e}')
 
         with lock:
             result_map.update(batch_map)
