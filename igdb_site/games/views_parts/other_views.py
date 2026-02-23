@@ -322,24 +322,33 @@ def game_search(request: HttpRequest) -> HttpResponse:
     games_queryset = games_queryset.order_by('-rating_count', '-rating')
     game_ids = list(games_queryset[:100].values_list('id', flat=True))
 
-    # Массово создаем карточки для результатов поиска
+    # Загружаем полные объекты игр
+    games = []
     if game_ids:
-        GameCardCreator.create_cards_for_games(
-            game_ids=game_ids,
-            show_similarity=False,
-            batch_size=100,
-            force=False
-        )
+        games = list(Game.objects.filter(
+            id__in=game_ids
+        ).prefetch_related(
+            'genres', 'platforms', 'player_perspectives'
+        ).only(
+            'id', 'name', 'rating', 'rating_count',
+            'first_release_date', 'cover_url', 'game_type'
+        ))
 
-    # Загружаем готовые карточки
-    game_cards = []
-    for game_id in game_ids:
-        card = GameCardCache.get_card_for_game(game_id)
-        if card:
-            game_cards.append(card)
+        # Сортируем в том же порядке, что и game_ids
+        game_dict = {game.id: game for game in games}
+        games = [game_dict[game_id] for game_id in game_ids if game_id in game_dict]
+
+        # Массово создаем карточки для результатов поиска
+        if games:
+            GameCardCreator.create_cards_for_games(
+                game_ids=game_ids,
+                show_similarity=False,
+                batch_size=100,
+                force=False
+            )
 
     return render(request, 'games/game_search.html', {
-        'game_cards': game_cards,
+        'games': games,  # Передаем список игр, а не карточек
         'search_query': search_query,
         'total_results': games_queryset.count(),
         'show_similarity': False,

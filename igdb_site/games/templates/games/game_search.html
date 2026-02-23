@@ -1,6 +1,7 @@
 <!-- games/templates/games/game_search.html -->
 {% extends 'base.html' %}
 {% load static %}
+{% load game_card_tags %}
 
 {% block title %}Search Games - GamesPeek{% endblock %}
 
@@ -49,10 +50,10 @@
                         {% endif %}
                     </div>
 
-                    {% if game_cards %}
+                    {% if games %}
                         <div class="row">
-                            {% for card in game_cards %}
-                                {{ card.rendered_card|safe }}
+                            {% for game in games %}
+                                {% render_game_card_with_cache game=game show_similarity=False %}
                             {% endfor %}
                         </div>
                     {% else %}
