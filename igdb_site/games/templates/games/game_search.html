@@ -52,9 +52,7 @@
                     {% if game_cards %}
                         <div class="row">
                             {% for card in game_cards %}
-                                <div class="col-xl-3 col-lg-4 col-md-6">
-                                    {{ card.rendered_card|safe }}
-                                </div>
+                                {{ card.rendered_card|safe }}
                             {% endfor %}
                         </div>
                     {% else %}
