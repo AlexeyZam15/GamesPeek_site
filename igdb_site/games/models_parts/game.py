@@ -239,11 +239,10 @@ class Game(models.Model):
         is_new = self.pk is None
         super().save(*args, **kwargs)
 
-        # Update cached counts and vectors for new games or if cache is stale
-        if is_new or (self._cache_updated_at and
-                      (timezone.now() - self._cache_updated_at).days > 1):
-            self.update_cached_counts()
-            self.update_materialized_vectors()
+        # ВСЕГДА обновляем векторы и счетчики при сохранении
+        # Это гарантирует актуальность данных при любых изменениях
+        self.update_cached_counts()
+        self.update_materialized_vectors()
 
     def update_cached_counts(self, force: bool = False, async_update: bool = False) -> None:
         """
