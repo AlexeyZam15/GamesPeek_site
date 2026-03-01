@@ -79,12 +79,37 @@ class BaseProgressBar:
         self.stats.update(stats)
 
     def _calculate_time_string(self, elapsed_time, current, total):
-        """Рассчитывает строку времени"""
+        """Рассчитывает строку времени с поддержкой часов, минут и секунд"""
+        # Форматируем прошедшее время
+        elapsed_str = self._format_time(elapsed_time)
+
+        # Рассчитываем и форматируем оставшееся время
         if current > 0 and current < total:
             remaining_time = (elapsed_time / current) * (total - current)
-            return f"{elapsed_time:.0f}s < {remaining_time:.0f}s"
+            remaining_str = self._format_time(remaining_time)
+            return f"{elapsed_str} < {remaining_str}"
         else:
-            return f"{elapsed_time:.0f}s"
+            return elapsed_str
+
+    def _format_time(self, seconds):
+        """Форматирует время в читаемый вид (часы, минуты, секунды)"""
+        if seconds < 60:
+            return f"{seconds:.0f}с"
+        elif seconds < 3600:
+            minutes = int(seconds // 60)
+            secs = int(seconds % 60)
+            return f"{minutes}мин {secs:02d}с"
+        else:
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            secs = int(seconds % 60)
+
+            if minutes == 0 and secs == 0:
+                return f"{hours}ч"
+            elif secs == 0:
+                return f"{hours}ч {minutes}мин"
+            else:
+                return f"{hours}ч {minutes}мин {secs:02d}с"
 
     def update(self, total_games=None, total_loaded=None, current_iteration=None,
                iterations_without_new=None, updated_count=0, failed_count=0,
