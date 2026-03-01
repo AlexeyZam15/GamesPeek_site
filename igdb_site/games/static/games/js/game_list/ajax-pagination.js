@@ -161,10 +161,13 @@
             reinitializeComponents();
 
             // Кэшируем текущую страницу
+            cacheCurrentPage();
+
+            // Ждем 1.5 секунды после полной загрузки и рендеринга первой страницы,
+            // потом начинаем предзагрузку соседних страниц в фоне
             setTimeout(() => {
-                cacheCurrentPage();
                 prefetchAdjacentPages(pageNum, displayUrl);
-            }, 100);
+            }, 1500);
         })
         .catch(error => {
             console.error('AjaxPagination: Error loading initial page:', error);
@@ -417,31 +420,35 @@
      * Предзагружает соседние страницы
      */
     function prefetchAdjacentPages(currentPage, baseDisplayUrl) {
-        setTimeout(() => {
-            const totalPagesInput = document.getElementById('server-total-pages');
-            if (!totalPagesInput) return;
+        const totalPagesInput = document.getElementById('server-total-pages');
+        if (!totalPagesInput) return;
 
-            const totalPages = parseInt(totalPagesInput.value, 10);
-            if (isNaN(totalPages) || totalPages <= 1) return;
+        const totalPages = parseInt(totalPagesInput.value, 10);
+        if (isNaN(totalPages) || totalPages <= 1) return;
 
-            currentPage = parseInt(currentPage, 10);
-            const pagesToPrefetch = [];
+        currentPage = parseInt(currentPage, 10);
 
-            for (let i = 1; i <= 2; i++) {
-                if (currentPage - i >= 1) pagesToPrefetch.push(currentPage - i);
-            }
-            for (let i = 1; i <= 2; i++) {
-                if (currentPage + i <= totalPages) pagesToPrefetch.push(currentPage + i);
-            }
+        // Собираем страницы для предзагрузки: 2 слева и 2 справа
+        const pagesToPrefetch = [];
 
-            console.log('AjaxPagination: Prefetching pages', pagesToPrefetch);
+        // Добавляем страницы слева (от дальних к ближним)
+        if (currentPage - 2 >= 1) pagesToPrefetch.push(currentPage - 2);
+        if (currentPage - 1 >= 1) pagesToPrefetch.push(currentPage - 1);
 
-            pagesToPrefetch.forEach((page, index) => {
-                setTimeout(() => {
-                    prefetchSinglePage(page, baseDisplayUrl);
-                }, index * 300);
-            });
-        }, 100);
+        // Добавляем страницы справа (от ближних к дальним)
+        if (currentPage + 1 <= totalPages) pagesToPrefetch.push(currentPage + 1);
+        if (currentPage + 2 <= totalPages) pagesToPrefetch.push(currentPage + 2);
+
+        console.log('AjaxPagination: Prefetching pages in background', pagesToPrefetch);
+
+        // Загружаем страницы последовательно с увеличивающейся задержкой
+        pagesToPrefetch.forEach((page, index) => {
+            // Задержка: 1.5s, 3s, 4.5s, 6s - чтобы не нагружать сервер
+            const delay = 1500 + (index * 1500);
+            setTimeout(() => {
+                prefetchSinglePage(page, baseDisplayUrl);
+            }, delay);
+        });
     }
 
     /**
