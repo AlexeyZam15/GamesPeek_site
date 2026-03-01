@@ -377,16 +377,19 @@
      * Показывает индикатор загрузки
      */
     function showLoading() {
-        const loadingText = document.querySelector('.loading-text');
-        if (loadingText) {
-            loadingText.style.display = 'block';
-        }
-
         const gamesContainer = document.querySelector('.games-container');
         if (gamesContainer) {
-            gamesContainer.classList.add('loading');
+            // Добавляем класс loading-visible - CSS покажет спиннер и текст по центру
+            gamesContainer.classList.add('loading-visible');
+
+            // Очищаем сетку игр
+            const gamesGridRow = document.getElementById('games-grid-row');
+            if (gamesGridRow) {
+                gamesGridRow.innerHTML = '';
+            }
         }
 
+        // Блокируем пагинацию
         document.querySelectorAll('.ajax-pagination-link').forEach(link => {
             link.style.pointerEvents = 'none';
             link.style.opacity = '0.6';
@@ -397,16 +400,13 @@
      * Скрывает индикатор загрузки
      */
     function hideLoading() {
-        const loadingText = document.querySelector('.loading-text');
-        if (loadingText) {
-            loadingText.style.display = 'none';
-        }
-
         const gamesContainer = document.querySelector('.games-container');
         if (gamesContainer) {
-            gamesContainer.classList.remove('loading');
+            // Убираем класс loading-visible - CSS скроет спиннер и текст
+            gamesContainer.classList.remove('loading-visible');
         }
 
+        // Разблокируем пагинацию
         document.querySelectorAll('.ajax-pagination-link').forEach(link => {
             link.style.pointerEvents = 'auto';
             link.style.opacity = '1';
