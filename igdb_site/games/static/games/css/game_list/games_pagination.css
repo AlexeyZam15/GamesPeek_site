@@ -15,9 +15,10 @@
     overflow: hidden;
 }
 
+
 .games-pagination:hover {
-    border-color: var(--secondary-color);
-    box-shadow: 0 6px 20px rgba(255, 107, 53, 0.2);
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
 .games-pagination nav {
@@ -94,7 +95,7 @@
     outline: none;
 }
 
-/* Кнопки Previous/Next в стиле старого дизайна */
+/* Кнопки Previous/Next */
 .games-pagination .page-item:first-child .page-link,
 .games-pagination .page-item:last-child .page-link {
     padding: 0.5rem 1rem;
@@ -128,17 +129,6 @@
     transform: none;
 }
 
-/* Эффект для активной страницы */
-.games-pagination .page-item.active {
-    animation: activePagePulse 2s infinite;
-}
-
-@keyframes activePagePulse {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.05); }
-    100% { transform: scale(1); }
-}
-
 /* Информация о странице */
 .games-pagination .page-info {
     margin-top: 0.5rem;
@@ -156,7 +146,7 @@
     font-weight: 700;
 }
 
-/* Контейнер для номеров страниц (адаптация старого дизайна) */
+/* Контейнер для номеров страниц */
 .pagination-container {
     display: flex;
     flex-wrap: nowrap;
@@ -185,48 +175,6 @@
     border-radius: 2px;
 }
 
-/* Имитация старого дизайна кнопок */
-.page-number-btn-style {
-    background: rgba(40, 40, 40, 0.8);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: var(--text-light);
-    min-width: 2.5rem;
-    height: 2.5rem;
-    padding: 0;
-    font-size: 0.9rem;
-    font-weight: 600;
-    border-radius: 6px;
-    transition: all 0.2s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    white-space: nowrap;
-    flex-shrink: 0;
-    position: relative;
-    cursor: pointer;
-    text-decoration: none;
-}
-
-.page-number-btn-style:hover {
-    background: rgba(255, 107, 53, 0.15);
-    border-color: var(--secondary-color);
-    color: var(--secondary-color);
-    transform: translateY(-1px);
-    text-decoration: none;
-}
-
-.page-number-btn-style.active {
-    background: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
-    border: none;
-    color: var(--text-light);
-    font-weight: 700;
-}
-
-.page-number-btn-style.active:hover {
-    background: linear-gradient(135deg, #ff8e53, #ff6b35);
-    transform: translateY(-2px);
-}
-
 /* Вторая пагинация вверху */
 .games-pagination-top {
     margin-bottom: 1.5rem;
@@ -234,7 +182,6 @@
     padding-top: 1rem;
 }
 
-/* Уменьшаем высоту блока информации для компактности */
 .games-pagination-top .page-info {
     margin-bottom: 0;
     font-size: 0.8rem;
@@ -300,7 +247,6 @@
         font-size: 0.8rem;
     }
 
-    /* Скрываем First/Last на десктопе, показываем на мобиле */
     .games-pagination .page-item:first-child:not(.mobile-first),
     .games-pagination .page-item:last-child:not(.mobile-last) {
         display: none;
@@ -365,74 +311,9 @@
     }
 }
 
-/* Анимация переключения страниц */
-@keyframes pageFadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-
-.games-container .row {
-    animation: pageFadeIn 0.3s ease;
-}
-
-/* Стили для загрузки (если нужны для AJAX) */
-.games-container.loading {
-    opacity: 0.7;
-    pointer-events: none;
-}
-
-.games-container.loading::after {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 40px;
-    height: 40px;
-    border: 3px solid rgba(255, 107, 53, 0.2);
-    border-top: 3px solid var(--secondary-color);
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-    z-index: 10;
-}
-
-@keyframes spin {
-    0% { transform: translate(-50%, -50%) rotate(0deg); }
-    100% { transform: translate(-50%, -50%) rotate(360deg); }
-}
-
-/* Анимация пульсации активной страницы */
-@keyframes activePagePulse {
-    0% {
-        box-shadow: 0 4px 12px rgba(255, 107, 53, 0.3);
-        transform: scale(1);
-    }
-    50% {
-        box-shadow: 0 0 20px rgba(255, 107, 53, 0.6);
-        transform: scale(1.05);
-    }
-    100% {
-        box-shadow: 0 4px 12px rgba(255, 107, 53, 0.3);
-        transform: scale(1);
-    }
-}
-
-/* Плавные переходы для всех элементов пагинации */
+/* Стабильные стили для кнопок пагинации */
 .games-pagination .page-link {
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* Эффект при нажатии */
-.games-pagination .page-link:active:not(.disabled) {
-    transform: translateY(1px) !important;
-    transition: transform 0.1s ease;
-}
-
-/* ===== ПРЕДОТВРАЩЕНИЕ МИГАНИЯ КНОПОК ПАГИНАЦИИ ===== */
-
-/* Стабильные стили для кнопок пагинации - не зависят от JS */
-.games-pagination .page-link {
-    transition: none !important; /* Убираем transition для предотвращения мигания */
+    transition: none !important;
     will-change: auto;
 }
 
@@ -442,54 +323,4 @@
     color: var(--text-light) !important;
     font-weight: 700 !important;
     box-shadow: 0 4px 12px rgba(255, 107, 53, 0.3) !important;
-}
-
-/* Предотвращаем мигание при обновлении DOM */
-.games-container {
-    transition: opacity 0.2s ease;
-}
-
-.games-container.loading {
-    opacity: 0.7;
-}
-
-/* Фиксированные размеры для контейнера игр */
-.games-container {
-    min-height: 600px;
-}
-
-/* Стабильные размеры для кнопок */
-.games-pagination .page-link {
-    min-width: 2.5rem;
-    height: 2.5rem;
-    line-height: 1;
-}
-
-/* Убираем анимацию активной страницы, которая может вызывать мерцание */
-@keyframes activePagePulse {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.02); }
-    100% { transform: scale(1); }
-}
-
-.games-pagination .page-item.active {
-    animation: none; /* Отключаем анимацию, вызывающую мигание */
-}
-
-/* Для мобильных устройств */
-@media (max-width: 768px) {
-    .games-pagination .page-link {
-        min-width: 2rem;
-        height: 2rem;
-    }
-}
-
-/* Быстрая анимация для загрузки из кэша */
-.games-container.cache-load .row {
-    animation: cacheFadeIn 0.15s ease;
-}
-
-@keyframes cacheFadeIn {
-    from { opacity: 0.8; }
-    to { opacity: 1; }
 }
