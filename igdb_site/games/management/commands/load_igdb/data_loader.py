@@ -226,19 +226,15 @@ class DataLoader:
                     if debug and hasattr(self, 'stdout'):
                         self.stdout.write(f'      🆕 Создаем новый объект: {item_name}')
 
+                    # СОХРАНЯЕМ СРАЗУ, чтобы получить primary key
                     obj = model_class(igdb_id=obj_id, name=item_name)
+                    obj.save()  # ← Сохраняем сразу!
 
                     if debug and hasattr(self, 'stdout'):
                         self.stdout.write(f'      🔍 Проверка объекта перед сохранением:')
-                        self.stdout.write(f'         • ID: {obj.igdb_id}')
+                        self.stdout.write(f'         • ID в БД: {obj.id}')
+                        self.stdout.write(f'         • IGDB ID: {obj.igdb_id}')
                         self.stdout.write(f'         • Имя: {repr(obj.name)}')
-                        self.stdout.write(f'         • Тип имени: {type(obj.name)}')
-                        self.stdout.write(f'         • Длина имени: {len(obj.name) if obj.name else 0}')
-
-                    obj.save()
-
-                    if debug and hasattr(self, 'stdout'):
-                        self.stdout.write(f'      ✅ Объект успешно создан')
 
                     return (obj_id, obj)
 
@@ -263,9 +259,10 @@ class DataLoader:
                         if line.strip():
                             self.stderr.write(f'         {line}')
 
+                # Пробуем восстановиться
                 try:
                     if debug and hasattr(self, 'stdout'):
-                        self.stdout.write(f'      🛠️  Попытка восстановления с чистым именем...')
+                        self.stdout.write(f'      🛠️  Попытка восстановления...')
 
                     fallback_name = f"Object {obj_id}"
                     if model_class == Series:
@@ -285,28 +282,19 @@ class DataLoader:
                     elif model_class == Company:
                         fallback_name = f"Company {obj_id}"
 
-                    self.stderr.write(f"""
-          🛠️  ПОПЫТКА ВОССТАНОВЛЕНИЯ:
-             • Используем имя: {fallback_name}
-             • Имя создано как буквальная строка
-          """)
-
+                    # Еще раз проверяем существование
                     existing = model_class.objects.filter(igdb_id=obj_id).first()
                     if existing:
-                        self.stderr.write(f"         • Объект уже существует, возвращаем его")
+                        if debug and hasattr(self, 'stdout'):
+                            self.stdout.write(f"      ✅ Объект уже существует, возвращаем его")
                         return (obj_id, existing)
 
+                    # СОХРАНЯЕМ СРАЗУ
                     obj = model_class(igdb_id=obj_id, name=fallback_name)
+                    obj.save()  # ← Сохраняем сразу!
 
                     if debug and hasattr(self, 'stdout'):
-                        self.stdout.write(f'      🔍 Проверка fallback объекта:')
-                        self.stdout.write(f'         • ID: {obj.igdb_id}')
-                        self.stdout.write(f'         • Имя: {repr(obj.name)}')
-                        self.stdout.write(f'         • Тип имени: {type(obj.name)}')
-
-                    obj.save()
-
-                    self.stderr.write(f"         • ✅ Объект успешно создан с именем по умолчанию")
+                        self.stdout.write(f"      ✅ Объект создан с именем по умолчанию (ID в БД: {obj.id})")
                     return (obj_id, obj)
 
                 except Exception as e2:
@@ -315,21 +303,7 @@ class DataLoader:
           💥 ДВОЙНАЯ ОШИБКА:
              • Первая ошибка: {type(e).__name__}: {e}
              • Вторая ошибка: {type(e2).__name__}: {e2}
-             • Ошибки {'одинаковые' if str(e) == str(e2) else 'разные'}
-
-          🔍 ВОЗМОЖНЫЕ ПРИЧИНЫ:
-             1. Проблема с кодировкой в самой Django или базе данных
-             2. Проблема с миграциями модели
-             3. Проблема с параметрами базы данных (collation)
-             4. Конфликт потоков/блокировок
           """)
-
-                        try:
-                            exists_now = model_class.objects.filter(igdb_id=obj_id).exists()
-                            self.stderr.write(f"         • Объект сейчас в базе: {'ДА' if exists_now else 'НЕТ'}")
-                        except:
-                            self.stderr.write(f"         • Не удалось проверить наличие объекта в базе")
-
                     return None
 
     def _batch_processor_weighted(self, items_list, process_batch_func, emoji, name,
@@ -810,7 +784,7 @@ class DataLoader:
         if debug:
             with lock:
                 self.stdout.write(f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_ids)} объектов')
-                if len(batch_ids) <= 10:  # Показываем ID только если их немного
+                if len(batch_ids) <= 10:
                     self.stdout.write(f'         🔍 ID для загрузки: {batch_ids}')
 
         existing_in_db = {}
@@ -855,21 +829,84 @@ class DataLoader:
 
         batch_map = {}
 
-        # Используем обычный цикл вместо ThreadPoolExecutor для избежания проблем с хешированием
+        # Обрабатываем каждый объект последовательно
         for obj_id in ids_to_load:
             try:
-                result = self._generic_process_single(obj_id, data_by_id, name, model_class, debug)
-                if result:
-                    obj_id, obj = result
-                    batch_map[obj_id] = obj
+                if obj_id not in data_by_id:
                     if debug:
                         with lock:
-                            self.stdout.write(f'            ✅ Создан объект: {obj.name} (ID: {obj_id})')
+                            self.stdout.write(f'         ⚠️ Объект {obj_id} не найден в данных API')
+                    continue
+
+                item_data = data_by_id[obj_id]
+                item_name = item_data.get('name', f'{name} {obj_id}')
+
+                # Проверяем еще раз, не появился ли объект в базе
+                with self._db_lock:
+                    existing = model_class.objects.filter(igdb_id=obj_id).first()
+                    if existing:
+                        with lock:
+                            result_map[obj_id] = existing
+                            if debug:
+                                self.stdout.write(
+                                    f'         ✅ Объект уже существует (появился во время загрузки): {existing.name}')
+                        continue
+
+                # СОЗДАЕМ И СРАЗУ СОХРАНЯЕМ объект
+                if debug:
+                    with lock:
+                        self.stdout.write(f'         🆕 Создаем новый объект: {item_name} (ID: {obj_id})')
+
+                # Создаем и сразу сохраняем, чтобы получить primary key
+                obj = model_class(igdb_id=obj_id, name=item_name)
+                obj.save()  # ← КРИТИЧЕСКИ ВАЖНО: сохраняем СРАЗУ!
+
+                if debug:
+                    with lock:
+                        self.stdout.write(f'         ✅ Объект сохранен: {obj.name} (ID в БД: {obj.id})')
+
+                # Добавляем в результат УЖЕ СОХРАНЕННЫЙ объект
+                with lock:
+                    batch_map[obj_id] = obj
+
             except Exception as e:
                 if debug:
                     with lock:
-                        self.stderr.write(f'            ❌ Ошибка для объекта {obj_id}: {e}')
+                        self.stderr.write(f'         ❌ Ошибка для объекта {obj_id}: {e}')
+                        import traceback
+                        self.stderr.write(f'         📋 Трассировка: {traceback.format_exc()[:200]}')
 
+                # Пробуем восстановиться с именем по умолчанию
+                try:
+                    fallback_name = f"{model_class.__name__} {obj_id}"
+
+                    # Проверяем еще раз
+                    with self._db_lock:
+                        existing = model_class.objects.filter(igdb_id=obj_id).first()
+                        if existing:
+                            with lock:
+                                batch_map[obj_id] = existing
+                            if debug:
+                                with lock:
+                                    self.stdout.write(f'         ✅ Найден существующий объект при восстановлении')
+                            continue
+
+                    # Создаем с запасным именем и сразу сохраняем
+                    obj = model_class(igdb_id=obj_id, name=fallback_name)
+                    obj.save()  # ← Сохраняем сразу!
+
+                    with lock:
+                        batch_map[obj_id] = obj
+
+                    if debug:
+                        with lock:
+                            self.stdout.write(f'         ✅ Объект создан с именем по умолчанию: {fallback_name}')
+                except Exception as e2:
+                    if debug:
+                        with lock:
+                            self.stderr.write(f'         💥 Двойная ошибка для объекта {obj_id}: {e2}')
+
+        # Добавляем все обработанные объекты в result_map
         with lock:
             result_map.update(batch_map)
 
