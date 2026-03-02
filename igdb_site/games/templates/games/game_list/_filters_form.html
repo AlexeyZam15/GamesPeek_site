@@ -1,10 +1,14 @@
 <!-- games/templates/games/game_list/_filters_form.html -->
-<!-- Блок фильтров -->
-<div class="card mb-4">
+<!-- ЗАГЛУШКА (точная копия видимой части) -->
+{% include 'games/game_list/_filters_skeleton.html' %}
+
+<!-- НАСТОЯЩИЕ ФИЛЬТРЫ (скрыты при загрузке) -->
+<div class="card mb-4" id="real-filters-container" style="display: none;">
     <div class="card-body">
         <form method="get" id="main-search-form">
             <!-- Скрытые параметры -->
-            <input type="hidden" name="find_similar" id="find_similar_field" value="{% if find_similar %}1{% else %}0{% endif %}">
+            <input type="hidden" name="find_similar" id="find_similar_field"
+                   value="{% if find_similar %}1{% else %}0{% endif %}">
             <input type="hidden" name="g" id="genres-field" value="{{ selected_genres|join:',' }}">
             <input type="hidden" name="k" id="keywords-field" value="{{ selected_keywords|join:',' }}">
             <input type="hidden" name="p" id="platforms-field" value="{{ selected_platforms|join:',' }}">
@@ -45,21 +49,9 @@
 
 <!-- JavaScript логика -->
 <script>
-    // Передаем данные о годах из Django в JavaScript
     window.minYear = {{ years_range.min_year }};
     window.maxYear = {{ years_range.max_year }};
     window.currentYear = {{ current_year }};
-
-    // Добавляем данные к элементу для легкого доступа
-    document.addEventListener('DOMContentLoaded', function() {
-        const dateFilter = document.querySelector('.release-date-filter');
-        if (dateFilter) {
-            dateFilter.setAttribute('data-min-year', {{ years_range.min_year }});
-            dateFilter.setAttribute('data-max-year', {{ years_range.max_year }});
-            dateFilter.setAttribute('data-current-year', {{ current_year }});
-        }
-    });
 </script>
 
-<!-- Подключаем JavaScript файл с функциями фильтров -->
 <script type="module" src="/static/games/js/game_list/filters-init.js"></script>

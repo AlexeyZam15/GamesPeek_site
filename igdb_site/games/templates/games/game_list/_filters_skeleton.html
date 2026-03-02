@@ -1,0 +1,59 @@
+<!-- games/templates/games/game_list/_filters_skeleton.html -->
+<!-- Заглушка (скелетон) для фильтров - точная копия видимой части формы -->
+
+<div class="card mb-4" id="filters-skeleton">
+    <div class="card-body">
+        <!-- Встроенная сортировка (всегда видна) -->
+        <div class="row g-3">
+            <div class="col-12">
+                <div class="sorting-section border-bottom pb-3 mb-3">
+                    <div class="row align-items-center">
+                        <div class="col-md-2">
+                            <div class="skeleton-label">Sort by:</div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="skeleton-select"></div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="skeleton-button-apply">Apply Sort</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Search Filters секция (закрыта) -->
+            <div class="col-12">
+                <div class="search-filter-section">
+                    <div class="toggle-section border-bottom pb-2 mb-3">
+                        <h6 class="mb-0 d-flex align-items-center">
+                            <i class="bi bi-chevron-right skeleton-icon me-2"></i>
+                            <span class="skeleton-text">🔍 Search Filters</span>
+                        </h6>
+                    </div>
+                    <!-- Контент скрыт - ничего не показываем -->
+                </div>
+            </div>
+
+            <!-- Similarity Filters секция (закрыта) -->
+            <div class="col-12">
+                <div class="similarity-filter-section">
+                    <div class="toggle-section border-bottom pb-2 mb-3">
+                        <h6 class="mb-0 d-flex align-items-center">
+                            <i class="bi bi-chevron-right skeleton-icon me-2"></i>
+                            <span class="skeleton-text">🎯 Find Similar Games</span>
+                        </h6>
+                    </div>
+                    <!-- Контент скрыт - ничего не показываем -->
+                </div>
+            </div>
+
+            <!-- Основные кнопки (всегда видны) -->
+            <div class="col-12">
+                <div class="d-flex gap-2 flex-wrap">
+                    <div class="skeleton-button-primary">Apply Filters</div>
+                    <div class="skeleton-button-secondary">Show All Games</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
