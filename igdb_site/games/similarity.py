@@ -248,11 +248,12 @@ class GameSimilarity:
         return unique_candidates
 
     def _calculate_common_elements_new(self, games_data, source_data, candidate_ids):
-        """ОПТИМИЗИРОВАННЫЙ подсчет общих элементов - один запрос для всех (С ДВИЖКАМИ)"""
+        """ОПТИМИЗИРОВАННЫЙ подсчет общих элементов - с разбивкой по частям для скорости"""
         import time
         from django.db import connection
+        from collections import defaultdict
 
-        print("ОПТИМИЗИРОВАННЫЙ подсчет общих элементов (один запрос)...")
+        print("ОПТИМИЗИРОВАННЫЙ подсчет общих элементов (с разбивкой)...")
         start_time = time.time()
 
         if not candidate_ids:
@@ -265,73 +266,121 @@ class GameSimilarity:
         source_theme_ids = source_data.get('theme_ids', [])
         source_perspective_ids = source_data.get('perspective_ids', [])
         source_game_mode_ids = source_data.get('game_mode_ids', [])
-        source_engine_ids = source_data.get('engine_ids', [])  # НОВОЕ
+        source_engine_ids = source_data.get('engine_ids', [])
         single_player_mode_id = source_data.get('single_player_mode_id')
 
+        # Инициализируем счетчики для всех игр
+        for game_id in games_data:
+            games_data[game_id].update({
+                'common_genres': 0,
+                'common_keywords': 0,
+                'common_themes': 0,
+                'common_perspectives': 0,
+                'common_game_modes': 0,
+                'common_engines': 0,
+                'has_single_player': False,
+            })
+
         with connection.cursor() as cursor:
-            # ОДИН БОЛЬШОЙ ЗАПРОС ВМЕСТО ПОДЗАПРОСОВ
-            query = """
-                SELECT 
-                    g.id as game_id,
+            # 1. ЖАНРЫ - отдельный быстрый запрос
+            if source_genre_ids:
+                genre_query = f"""
+                    SELECT game_id, COUNT(DISTINCT genre_id) as cnt
+                    FROM games_game_genres
+                    WHERE game_id IN ({candidate_ids_str})
+                    AND genre_id IN %s
+                    GROUP BY game_id
+                """
+                cursor.execute(genre_query, (tuple(source_genre_ids),))
+                for game_id, cnt in cursor.fetchall():
+                    if game_id in games_data:
+                        games_data[game_id]['common_genres'] = cnt
 
-                    -- Общие жанры
-                    COUNT(DISTINCT CASE WHEN gg.genre_id IN %s THEN gg.genre_id END) as common_genres,
+            # 2. КЛЮЧЕВЫЕ СЛОВА - отдельный запрос
+            if source_keyword_ids:
+                keyword_query = f"""
+                    SELECT game_id, COUNT(DISTINCT keyword_id) as cnt
+                    FROM games_game_keywords
+                    WHERE game_id IN ({candidate_ids_str})
+                    AND keyword_id IN %s
+                    GROUP BY game_id
+                """
+                cursor.execute(keyword_query, (tuple(source_keyword_ids),))
+                for game_id, cnt in cursor.fetchall():
+                    if game_id in games_data:
+                        games_data[game_id]['common_keywords'] = cnt
 
-                    -- Общие ключевые слова
-                    COUNT(DISTINCT CASE WHEN gk.keyword_id IN %s THEN gk.keyword_id END) as common_keywords,
+            # 3. ТЕМЫ - отдельный запрос
+            if source_theme_ids:
+                theme_query = f"""
+                    SELECT game_id, COUNT(DISTINCT theme_id) as cnt
+                    FROM games_game_themes
+                    WHERE game_id IN ({candidate_ids_str})
+                    AND theme_id IN %s
+                    GROUP BY game_id
+                """
+                cursor.execute(theme_query, (tuple(source_theme_ids),))
+                for game_id, cnt in cursor.fetchall():
+                    if game_id in games_data:
+                        games_data[game_id]['common_themes'] = cnt
 
-                    -- Общие темы
-                    COUNT(DISTINCT CASE WHEN gt.theme_id IN %s THEN gt.theme_id END) as common_themes,
+            # 4. ПЕРСПЕКТИВЫ - отдельный запрос
+            if source_perspective_ids:
+                perspective_query = f"""
+                    SELECT game_id, COUNT(DISTINCT playerperspective_id) as cnt
+                    FROM games_game_player_perspectives
+                    WHERE game_id IN ({candidate_ids_str})
+                    AND playerperspective_id IN %s
+                    GROUP BY game_id
+                """
+                cursor.execute(perspective_query, (tuple(source_perspective_ids),))
+                for game_id, cnt in cursor.fetchall():
+                    if game_id in games_data:
+                        games_data[game_id]['common_perspectives'] = cnt
 
-                    -- Общие перспективы
-                    COUNT(DISTINCT CASE WHEN gpp.playerperspective_id IN %s THEN gpp.playerperspective_id END) as common_perspectives,
+            # 5. РЕЖИМЫ ИГРЫ - отдельный запрос
+            if source_game_mode_ids:
+                gamemode_query = f"""
+                    SELECT game_id, COUNT(DISTINCT gamemode_id) as cnt
+                    FROM games_game_game_modes
+                    WHERE game_id IN ({candidate_ids_str})
+                    AND gamemode_id IN %s
+                    GROUP BY game_id
+                """
+                cursor.execute(gamemode_query, (tuple(source_game_mode_ids),))
+                for game_id, cnt in cursor.fetchall():
+                    if game_id in games_data:
+                        games_data[game_id]['common_game_modes'] = cnt
 
-                    -- Общие режимы игры
-                    COUNT(DISTINCT CASE WHEN ggm.gamemode_id IN %s THEN ggm.gamemode_id END) as common_game_modes,
+            # 6. ДВИЖКИ - отдельный запрос
+            if source_engine_ids:
+                engine_query = f"""
+                    SELECT game_id, COUNT(DISTINCT gameengine_id) as cnt
+                    FROM games_game_engines
+                    WHERE game_id IN ({candidate_ids_str})
+                    AND gameengine_id IN %s
+                    GROUP BY game_id
+                """
+                cursor.execute(engine_query, (tuple(source_engine_ids),))
+                for game_id, cnt in cursor.fetchall():
+                    if game_id in games_data:
+                        games_data[game_id]['common_engines'] = cnt
 
-                    -- Общие движки (НОВОЕ)
-                    COUNT(DISTINCT CASE WHEN ge.gameengine_id IN %s THEN ge.gameengine_id END) as common_engines,
+            # 7. SINGLE PLAYER - отдельный запрос
+            if single_player_mode_id:
+                sp_query = f"""
+                    SELECT DISTINCT game_id
+                    FROM games_game_game_modes
+                    WHERE game_id IN ({candidate_ids_str})
+                    AND gamemode_id = %s
+                """
+                cursor.execute(sp_query, (single_player_mode_id,))
+                for row in cursor.fetchall():
+                    game_id = row[0]
+                    if game_id in games_data:
+                        games_data[game_id]['has_single_player'] = True
 
-                    -- Single player check
-                    MAX(CASE WHEN ggm2.gamemode_id = %s THEN 1 ELSE 0 END) as has_single_player
-
-                FROM games_game g
-                LEFT JOIN games_game_genres gg ON g.id = gg.game_id
-                LEFT JOIN games_game_keywords gk ON g.id = gk.game_id
-                LEFT JOIN games_game_themes gt ON g.id = gt.game_id
-                LEFT JOIN games_game_player_perspectives gpp ON g.id = gpp.game_id
-                LEFT JOIN games_game_game_modes ggm ON g.id = ggm.game_id
-                LEFT JOIN games_game_engines ge ON g.id = ge.game_id  -- НОВОЕ: LEFT JOIN для движков
-                LEFT JOIN games_game_game_modes ggm2 ON g.id = ggm2.game_id AND ggm2.gamemode_id = %s
-                WHERE g.id IN ({game_ids})
-                GROUP BY g.id
-            """.format(game_ids=candidate_ids_str)
-
-            cursor.execute(query, (
-                tuple(source_genre_ids) if source_genre_ids else (0,),
-                tuple(source_keyword_ids) if source_keyword_ids else (0,),
-                tuple(source_theme_ids) if source_theme_ids else (0,),
-                tuple(source_perspective_ids) if source_perspective_ids else (0,),
-                tuple(source_game_mode_ids) if source_game_mode_ids else (0,),
-                tuple(source_engine_ids) if source_engine_ids else (0,),  # НОВОЕ
-                single_player_mode_id or 0,
-                single_player_mode_id or 0,
-            ))
-
-            for row in cursor.fetchall():
-                game_id = row[0]
-                if game_id in games_data:
-                    games_data[game_id].update({
-                        'common_genres': row[1],
-                        'common_keywords': row[2],
-                        'common_themes': row[3],
-                        'common_perspectives': row[4],
-                        'common_game_modes': row[5],
-                        'common_engines': row[6],  # НОВОЕ
-                        'has_single_player': bool(row[7]),
-                    })
-
-        print(f"Подсчет завершен за {time.time() - start_time:.2f} сек")
+        print(f"Подсчет с разбивкой завершен за {time.time() - start_time:.2f} сек")
         return games_data
 
     def _prepare_candidate_data(self, candidate_ids):
