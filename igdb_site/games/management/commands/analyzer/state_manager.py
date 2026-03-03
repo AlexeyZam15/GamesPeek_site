@@ -14,10 +14,12 @@ from django.core.cache import cache
 class StateManager:
     """Управляет состоянием обработки с хранением проверенных критериев"""
 
-    def __init__(self, output_path: str = None, keywords_mode: bool = False, force_restart: bool = False):
+    def __init__(self, output_path: str = None, keywords_mode: bool = False, force_restart: bool = False,
+                 verbose: bool = False):
         self.output_path = output_path
         self.keywords_mode = keywords_mode
         self.force_restart = force_restart
+        self.verbose = verbose  # ДОБАВЛЕНО: сохраняем флаг verbose
         self.processed_games: Set[int] = set()
         self.checked_criteria: Set[str] = set()  # Храним ID проверенных критериев
         self.state_file = None

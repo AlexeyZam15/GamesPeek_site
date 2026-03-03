@@ -137,35 +137,15 @@ class UnifiedProgressBar:
             'errors': 0,  # ❌
             'updated': 0,  # 💾
             'in_batch': 0,  # 📦
-            'not_found_count': 0,  # 🔍
+            'not_found_count': 0,  # ⚪ (изменено с 🔍)
         }
 
         self.filled_char = '█'
         self.empty_char = '░'
         self.terminal = TerminalController()
 
-    def reset(self):
-        """Сбросить прогресс-бар к начальному состоянию"""
-        self.current = 0  # ВАЖНО: сбрасываем в 0
-        self.start_time = time.time()
-        self.last_update_time = time.time()
-
-        # Сбрасываем статистику
-        self.stats = {
-            'found_count': 0,
-            'total_criteria_found': 0,
-            'skipped_total': 0,
-            'errors': 0,
-            'updated': 0,
-            'in_batch': 0,
-            'not_found_count': 0,
-        }
-
-        # Принудительно обновляем отображение
-        self._force_update()
-
     def get_current_message(self):
-        """Возвращает текущее сообщение прогресс-бара с полной статистикой"""
+        """Возвращает текущее сообщение прогресс-бара с полной статистикой и временем в часах/минутах"""
         current_value = self.current
         total_value = self.total
 
@@ -187,13 +167,16 @@ class UnifiedProgressBar:
 
         bar = self.filled_char * filled_length + self.empty_char * (self.bar_length - filled_length)
 
-        # Рассчитываем время
+        # Рассчитываем время в часах и минутах
         elapsed_time = time.time() - self.start_time
+        elapsed_str = self._format_time(elapsed_time)
+
         if current_value > 0 and current_value < total_value:
             remaining_time = (elapsed_time / current_value) * (total_value - current_value)
-            time_str = f"{elapsed_time:.0f}s < {remaining_time:.0f}s"
+            remaining_str = self._format_time(remaining_time)
+            time_str = f"{elapsed_str} < {remaining_str}"
         else:
-            time_str = f"{elapsed_time:.0f}s"
+            time_str = f"{elapsed_str}"
 
         # Форматируем сообщение
         if self.is_batch:
@@ -206,7 +189,7 @@ class UnifiedProgressBar:
             total_criteria_found = self.stats.get('total_criteria_found', 0)
             in_batch = self.stats.get('in_batch', 0)
             skipped_total = self.stats.get('skipped_total', 0)
-            not_found_count = self.stats.get('not_found_count', 0)
+            not_found_count = self.stats.get('not_found_count', 0)  # ⚪
             errors = self.stats.get('errors', 0)
             updated = self.stats.get('updated', 0)
 
@@ -217,12 +200,46 @@ class UnifiedProgressBar:
             message += f"📈{spacing}{total_criteria_found:>{self.stat_width}} "
             message += f"📦{spacing}{in_batch:>{self.stat_width}} "
             message += f"⏭️{spacing}{skipped_total:>{self.stat_width}} "
-            message += f"🔍{spacing}{not_found_count:>{self.stat_width}} "
+            message += f"⚪{spacing}{not_found_count:>{self.stat_width}} "
             message += f"❌{spacing}{errors:>{self.stat_width}} "
             message += f"💾{spacing}{updated:>{self.stat_width}} "
             message += f"({time_str})"
 
         return message
+
+    def _format_time(self, seconds):
+        """Форматирует время в секундах в строку ЧЧ:ММ:СС или ММ:СС"""
+        if seconds < 0:
+            seconds = 0
+
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+
+        if hours > 0:
+            return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+        else:
+            return f"{minutes:02d}:{secs:02d}"
+
+    def reset(self):
+        """Сбросить прогресс-бар к начальному состоянию"""
+        self.current = 0  # ВАЖНО: сбрасываем в 0
+        self.start_time = time.time()
+        self.last_update_time = time.time()
+
+        # Сбрасываем статистику
+        self.stats = {
+            'found_count': 0,
+            'total_criteria_found': 0,
+            'skipped_total': 0,
+            'errors': 0,
+            'updated': 0,
+            'in_batch': 0,
+            'not_found_count': 0,
+        }
+
+        # Принудительно обновляем отображение
+        self._force_update()
 
     def update(self, n: int = 1):
         """Обновить прогресс - ВСЕГДА обновляем отображение"""
