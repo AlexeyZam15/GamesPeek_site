@@ -29,10 +29,13 @@ class BatchUpdater:
 
     def add_game_for_update(self, game_id: int, results: Dict[str, Any], is_keywords: bool) -> int:
         """Добавляет игру для обновления - проверяет дубликаты"""
+        print(f"\n📦 batch_updater.add_game_for_update({game_id}, is_keywords={is_keywords})")
+
         try:
             # Проверяем, не добавлена ли уже эта игра в текущий батч
             for game_data in self.games_to_update:
                 if game_data['game_id'] == game_id:
+                    print(f"   → Игра {game_id} УЖЕ в батче!")
                     if self.verbose:
                         print(f"⚠️ Игра {game_id} УЖЕ в батче! Пропускаем повторное добавление.")
                     return 0
@@ -44,9 +47,10 @@ class BatchUpdater:
                 'is_keywords': is_keywords,
             })
 
-            # Отладочная информация
             games_in_batch = len(self.games_to_update)
+            print(f"   → Игра добавлена. Теперь в батче: {games_in_batch} игр")
 
+            # Отладочная информация
             if self.verbose:
                 # Показываем информацию о ключевых словах для этой игры
                 if is_keywords:
@@ -57,162 +61,71 @@ class BatchUpdater:
                     else:
                         print(f"✅ Игра {game_id} добавлена в батч (нет ключевых слов)")
                 else:
-                    print(f"✅ Игра {game_id} добавлена в батч")
+                    # Для обычных критериев покажем, что добавлено
+                    total_items = 0
+                    for key in ['genres', 'themes', 'perspectives', 'game_modes']:
+                        items = results.get(key, {}).get('items', [])
+                        total_items += len(items)
+                    print(f"✅ Игра {game_id} добавлена в батч: {total_items} критериев")
 
                 # Показываем общее количество каждые 10 игр
                 if games_in_batch % 10 == 0:
                     print(f"📥 Всего игр в батче: {games_in_batch}")
 
-            # ВАЖНО: Если нужно обновить батч, сначала возвращаем 1 (игра добавлена),
-            # а flush вызовется отдельно, и статистика обновится после него
-            if games_in_batch >= 50:
-                if self.verbose:
-                    print(f"\n💾 Батч достиг 50 игр, обновляем...")
-                # Возвращаем 1 (игра добавлена), flush вызовется отдельно
-                return 1
-
             return 1  # Игра добавлена успешно
 
         except Exception as e:
+            print(f"   → ОШИБКА: {e}")
             if self.verbose:
                 print(f"❌ Ошибка добавления игры {game_id} в батч: {e}")
             return 0
 
     def flush(self) -> int:
-        """Обновляет все накопленные игры - исправленная версия с полными сообщениями"""
+        """Обновляет все накопленные игры и возвращает количество реально обновленных"""
         if not self.games_to_update:
             return 0
 
         try:
-            # Отладочная информация
             games_in_batch = len(self.games_to_update)
-            if self.verbose:
-                print(f"\n💾 Начинаем обновление батча из {games_in_batch} игр")
-                print(f"🔄 Режим: {'ключевые слова' if self.games_to_update[0]['is_keywords'] else 'критерии'}")
+            print(f"\n💾 Начинаем обновление батча из {games_in_batch} игр")
 
-            from games.models import Game, Keyword
-            from django.db import transaction
-            from django.utils import timezone
+            # Разделяем на ключевые слова и обычные критерии
+            keyword_games = []
+            criteria_games = []
 
-            updated_count = 0
-            skipped_count = 0
-            game_ids = [g['game_id'] for g in self.games_to_update]
-
-            # Проверяем, есть ли ключевые слова в базе
-            keyword_ids_from_batch = []
             for game_data in self.games_to_update:
                 if game_data['is_keywords']:
-                    keywords_data = game_data['results'].get('keywords', {})
-                    items = keywords_data.get('items', [])
-                    keyword_ids_from_batch.extend([k['id'] for k in items])
+                    keyword_games.append(game_data)
+                else:
+                    criteria_games.append(game_data)
 
-            # Проверяем, существуют ли ключевые слова в базе
-            existing_keywords = set()
-            if keyword_ids_from_batch:
-                existing_keywords = set(
-                    Keyword.objects.filter(id__in=keyword_ids_from_batch).values_list('id', flat=True))
-                if self.verbose:
-                    print(
-                        f"🔍 В базе найдено {len(existing_keywords)} ключевых слов из {len(set(keyword_ids_from_batch))} в батче")
+            print(f"🔄 Режим: {'ключевые слова' if keyword_games else 'критерии'}")
 
-            with transaction.atomic():
-                # Получаем все игры одним запросом с ключевыми словами
-                games = Game.objects.filter(id__in=game_ids).prefetch_related('keywords')
-                games_dict = {game.id: game for game in games}
+            total_updated = 0
 
-                # Обрабатываем каждую игру в батче
-                for i, game_data in enumerate(self.games_to_update, 1):
-                    try:
-                        game_id = game_data['game_id']
-                        game = games_dict.get(game_id)
+            # Обработка ключевых слов (если есть)
+            if keyword_games:
+                keywords_updated = self._update_keywords_batch(keyword_games)
+                print(f"📊 Обновлено ключевых слов: {keywords_updated}")
+                total_updated += keywords_updated
 
-                        if not game:
-                            if self.verbose:
-                                print(f"⚠️ Игра {game_id} не найдена в базе")
-                            skipped_count += 1
-                            continue
+            # Обработка критериев (если есть)
+            if criteria_games:
+                criteria_updated = self._update_criteria_batch(criteria_games)
+                print(f"📊 Обновлено критериев: {criteria_updated}")
+                total_updated += criteria_updated
 
-                        # Проверяем режим ключевых слов
-                        if game_data['is_keywords']:
-                            # Обновляем ключевые слова
-                            keywords_data = game_data['results'].get('keywords', {})
-                            items = keywords_data.get('items', [])
+            print(f"\n📊 Результат: реально обновлено {total_updated} игр из {games_in_batch} в батче")
 
-                            if not items:
-                                skipped_count += 1
-                                continue
-
-                            # Получаем ID ключевых слов
-                            keyword_ids = [k['id'] for k in items]
-
-                            # Проверяем, какие ключевые слова существуют в базе
-                            valid_keyword_ids = [kid for kid in keyword_ids if kid in existing_keywords]
-
-                            if not valid_keyword_ids:
-                                if self.verbose:
-                                    print(f"⚠️ Для игры {game_id} нет валидных ключевых слов в базе")
-                                skipped_count += 1
-                                continue
-
-                            # Получаем существующие ключевые слова у игры
-                            existing_game_ids = set(game.keywords.values_list('id', flat=True))
-
-                            # Находим новые ключевые слова
-                            new_ids = [kid for kid in valid_keyword_ids if kid not in existing_game_ids]
-
-                            if new_ids:
-                                # Получаем объекты Keyword
-                                keyword_objects = Keyword.objects.filter(id__in=new_ids)
-
-                                if keyword_objects.exists():
-                                    # Добавляем ключевые слова к игре
-                                    game.keywords.add(*keyword_objects)
-                                    updated_count += 1
-
-                                    if self.verbose:
-                                        print(f"✅ Игра {game_id} обновлена: добавлено {len(new_ids)} ключевых слов")
-
-                                    # Показываем прогресс каждые 10 обновленных игр
-                                    if updated_count % 10 == 0:
-                                        print(f"✅ Обновлено {updated_count} игр...")
-                                else:
-                                    if self.verbose:
-                                        print(f"⚠️ Для игры {game_id} не найдены объекты Keyword по ID: {new_ids}")
-                                    skipped_count += 1
-                            else:
-                                # Все ключевые слова уже есть у игры
-                                if self.verbose:
-                                    print(f"ℹ️ Игра {game_id} уже имеет все ключевые слова")
-                                skipped_count += 1
-
-                            # Обновляем время модификации если были добавлены ключевые слова
-                            if new_ids and keyword_objects.exists():
-                                game.updated_at = timezone.now()
-                                game.save(update_fields=['updated_at'])
-
-                    except Exception as e:
-                        if self.verbose:
-                            print(f"❌ Ошибка обновления игры {game_data.get('game_id', 'unknown')}: {e}")
-                        skipped_count += 1
-                        continue
-
-            # ВАЖНО: Очищаем батч
+            # Очищаем батч
             self.games_to_update.clear()
 
-            # Выводим итоговое сообщение
-            if self.verbose:
-                print(f"\n📊 Результат: обновлено {updated_count} игр из {games_in_batch} в батче")
-                if skipped_count > 0:
-                    print(f"ℹ️ Пропущено {skipped_count} игр (уже имеют все ключевые слова или ошибки)")
-
-            return updated_count
+            return total_updated
 
         except Exception as e:
-            if self.verbose:
-                print(f"❌ Критическая ошибка обновления батча: {e}")
-                import traceback
-                traceback.print_exc()
-            # В случае ошибки очищаем батч, чтобы не зациклиться
+            print(f"❌ Ошибка обновления батча: {e}")
+            import traceback
+            traceback.print_exc()
             self.games_to_update.clear()
             return 0
 
@@ -378,73 +291,105 @@ class BatchUpdater:
         updated_count = 0
         game_ids = [g['game_id'] for g in criteria_games]
 
+        print(f"\n📊 _update_criteria_batch: обрабатываем {len(criteria_games)} игр")
+        print(f"   game_ids: {game_ids}")
+
         # Получаем все игры одним запросом с префетчингом
         games_dict = {game.id: game for game in Game.objects.filter(id__in=game_ids).prefetch_related(
             'genres', 'themes', 'player_perspectives', 'game_modes'
         )}
 
+        print(f"   найдено игр в БД: {len(games_dict)}")
+
         for game_data in criteria_games:
             game = games_dict.get(game_data['game_id'])
             if not game:
+                print(f"   ⚠️ Игра {game_data['game_id']} не найдена в БД")
                 continue
+
+            print(f"\n   🔍 Обрабатываем игру {game.id}: {game.name}")
+            print(f"   Результаты анализа: {game_data['results'].keys()}")
 
             added_elements = 0
 
             # Жанры
             genres = game_data['results'].get('genres', {}).get('items', [])
+            print(f"   Найдено жанров: {len(genres)}")
             if genres:
                 genre_ids = [g['id'] for g in genres]
                 existing_genre_ids = set(game.genres.values_list('id', flat=True))
+                print(f"   Существующие жанры ID: {existing_genre_ids}")
                 new_genre_ids = [gid for gid in genre_ids if gid not in existing_genre_ids]
+                print(f"   Новые жанры ID: {new_genre_ids}")
 
                 if new_genre_ids:
                     genre_objects = Genre.objects.filter(id__in=new_genre_ids)
                     if genre_objects.exists():
                         game.genres.add(*genre_objects)
                         added_elements += len(new_genre_ids)
+                        print(f"      ✅ Добавлены жанры: {[g.name for g in genre_objects]}")
 
             # Темы
             themes = game_data['results'].get('themes', {}).get('items', [])
+            print(f"   Найдено тем: {len(themes)}")
             if themes:
                 theme_ids = [t['id'] for t in themes]
                 existing_theme_ids = set(game.themes.values_list('id', flat=True))
+                print(f"   Существующие темы ID: {existing_theme_ids}")
                 new_theme_ids = [tid for tid in theme_ids if tid not in existing_theme_ids]
+                print(f"   Новые темы ID: {new_theme_ids}")
 
                 if new_theme_ids:
                     theme_objects = Theme.objects.filter(id__in=new_theme_ids)
                     if theme_objects.exists():
                         game.themes.add(*theme_objects)
                         added_elements += len(new_theme_ids)
+                        print(f"      ✅ Добавлены темы: {[t.name for t in theme_objects]}")
 
             # Перспективы
             perspectives = game_data['results'].get('perspectives', {}).get('items', [])
+            print(f"   Найдено перспектив: {len(perspectives)}")
             if perspectives:
                 perspective_ids = [p['id'] for p in perspectives]
                 existing_perspective_ids = set(game.player_perspectives.values_list('id', flat=True))
+                print(f"   Существующие перспективы ID: {existing_perspective_ids}")
                 new_perspective_ids = [pid for pid in perspective_ids if pid not in existing_perspective_ids]
+                print(f"   Новые перспективы ID: {new_perspective_ids}")
 
                 if new_perspective_ids:
                     perspective_objects = PlayerPerspective.objects.filter(id__in=new_perspective_ids)
                     if perspective_objects.exists():
                         game.player_perspectives.add(*perspective_objects)
                         added_elements += len(new_perspective_ids)
+                        print(f"      ✅ Добавлены перспективы: {[p.name for p in perspective_objects]}")
 
             # Режимы игры
             game_modes = game_data['results'].get('game_modes', {}).get('items', [])
+            print(f"   Найдено режимов: {len(game_modes)}")
             if game_modes:
                 mode_ids = [m['id'] for m in game_modes]
                 existing_mode_ids = set(game.game_modes.values_list('id', flat=True))
+                print(f"   Существующие режимы ID: {existing_mode_ids}")
                 new_mode_ids = [mid for mid in mode_ids if mid not in existing_mode_ids]
+                print(f"   Новые режимы ID: {new_mode_ids}")
 
                 if new_mode_ids:
                     mode_objects = GameMode.objects.filter(id__in=new_mode_ids)
                     if mode_objects.exists():
                         game.game_modes.add(*mode_objects)
                         added_elements += len(new_mode_ids)
+                        print(f"      ✅ Добавлены режимы: {[m.name for m in mode_objects]}")
 
             if added_elements > 0:
                 updated_count += 1
+                # Обновляем время модификации игры
+                game.updated_at = timezone.now()
+                game.save(update_fields=['updated_at'])
+                print(f"   ✅ Игра {game.id} обновлена: добавлено {added_elements} элементов")
+            else:
+                print(f"   ❌ Игра {game.id} НЕ обновлена: added_elements = {added_elements}")
 
+        print(f"\n📊 _update_criteria_batch вернул: {updated_count} обновленных игр из {len(criteria_games)}")
         return updated_count
 
     @transaction.atomic
