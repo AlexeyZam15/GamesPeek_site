@@ -1,0 +1,39 @@
+/* ===== STATISTICS CARDS STYLES ===== */
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius);
+  text-align: center;
+  transition: var(--transition);
+  padding: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.stat-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--stat-shadow);
+  border-color: var(--secondary-color);
+}
+
+.stat-number {
+  font-weight: 800;
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1;
+  margin-bottom: 0.75rem;
+  font-size: var(--stat-number-size);
+}
+
+.stat-label {
+  font-weight: 600;
+  color: var(--text-light);
+  margin-bottom: 0.5rem;
+  font-size: 1.1rem;
+}
+
+.stat-description {
+  font-size: 0.9rem;
+  color: var(--text-dark);
+}

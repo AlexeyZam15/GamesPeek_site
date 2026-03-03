@@ -99,6 +99,188 @@ class GameSimilarity:
         self._similarity_cache = {}
         self._game_data_cache = {}
 
+    def get_similarity_formula(self, source, target):
+        """
+        Возвращает структурированные данные для красивого отображения вклада каждого критерия.
+        """
+        try:
+            # Получаем breakdown для этой пары игр
+            breakdown = self.get_similarity_breakdown(source, target)
+
+            # Получаем данные исходной игры
+            source_data, _ = self._prepare_source_data(source)
+
+            # Формируем структурированные данные для шаблона
+            criteria_contributions = []
+            total = 0
+
+            # Жанры
+            if breakdown['genres']['max_score'] > 0:
+                common_count = len(breakdown['genres']['common_elements'])
+                source_count = source_data.get('genre_count', 0)
+                weight = breakdown['genres']['max_score']
+                contribution = breakdown['genres']['score']
+                total += contribution
+
+                criteria_contributions.append({
+                    'icon': '🎮',
+                    'name': 'Genres',
+                    'map_name': 'genres',
+                    'common': common_count,
+                    'total': source_count,
+                    'weight': weight,
+                    'contribution': contribution,
+                    'percentage': round((common_count / source_count * 100) if source_count > 0 else 0, 1),
+                    'color': 'purple'
+                })
+
+            # Ключевые слова
+            if breakdown['keywords']['max_score'] > 0:
+                common_count = len(breakdown['keywords']['common_elements'])
+                source_count = source_data.get('keyword_count', 0)
+                weight = breakdown['keywords']['max_score']
+                contribution = breakdown['keywords']['score']
+                total += contribution
+
+                criteria_contributions.append({
+                    'icon': '🔑',
+                    'name': 'Keywords',
+                    'map_name': 'keywords',
+                    'common': common_count,
+                    'total': source_count,
+                    'weight': weight,
+                    'contribution': contribution,
+                    'percentage': round((common_count / source_count * 100) if source_count > 0 else 0, 1),
+                    'color': 'success'
+                })
+
+            # Темы
+            if breakdown['themes']['max_score'] > 0:
+                common_count = len(breakdown['themes']['common_elements'])
+                source_count = source_data.get('theme_count', 0)
+                weight = breakdown['themes']['max_score']
+                contribution = breakdown['themes']['score']
+                total += contribution
+
+                criteria_contributions.append({
+                    'icon': '🎭',
+                    'name': 'Themes',
+                    'map_name': 'themes',
+                    'common': common_count,
+                    'total': source_count,
+                    'weight': weight,
+                    'contribution': contribution,
+                    'percentage': round((common_count / source_count * 100) if source_count > 0 else 0, 1),
+                    'color': 'orange'
+                })
+
+            # Перспективы
+            if breakdown['perspectives']['max_score'] > 0:
+                common_count = len(breakdown['perspectives']['common_elements'])
+                source_count = source_data.get('perspective_count', 0)
+                weight = breakdown['perspectives']['max_score']
+                contribution = breakdown['perspectives']['score']
+                total += contribution
+
+                criteria_contributions.append({
+                    'icon': '👁️',
+                    'name': 'Perspectives',
+                    'map_name': 'perspectives',
+                    'common': common_count,
+                    'total': source_count,
+                    'weight': weight,
+                    'contribution': contribution,
+                    'percentage': round((common_count / source_count * 100) if source_count > 0 else 0, 1),
+                    'color': 'info'
+                })
+
+            # Режимы игры
+            if breakdown['game_modes']['max_score'] > 0:
+                common_count = len(breakdown['game_modes']['common_elements'])
+                source_count = source_data.get('game_mode_count', 0)
+                weight = breakdown['game_modes']['max_score']
+                contribution = breakdown['game_modes']['score']
+                total += contribution
+
+                criteria_contributions.append({
+                    'icon': '🎯',
+                    'name': 'Game Modes',
+                    'map_name': 'game_modes',
+                    'common': common_count,
+                    'total': source_count,
+                    'weight': weight,
+                    'contribution': contribution,
+                    'percentage': round((common_count / source_count * 100) if source_count > 0 else 0, 1),
+                    'color': 'pink'
+                })
+
+            # Разработчики
+            if breakdown['developers']['max_score'] > 0:
+                common_count = len(breakdown['developers']['common_elements'])
+                source_count = source_data.get('developer_count', 0)
+                weight = breakdown['developers']['max_score']
+                contribution = breakdown['developers']['score']
+                total += contribution
+
+                criteria_contributions.append({
+                    'icon': '🏢',
+                    'name': 'Developers',
+                    'map_name': 'developers',
+                    'common': common_count,
+                    'total': source_count,
+                    'weight': weight,
+                    'contribution': contribution,
+                    'percentage': round((common_count / source_count * 100) if source_count > 0 else 0, 1),
+                    'color': 'secondary'
+                })
+
+            # Движки
+            if breakdown['engines']['max_score'] > 0:
+                common_count = len(breakdown['engines']['common_elements'])
+                source_count = source_data.get('engine_count', 0)
+                weight = breakdown['engines']['max_score']
+                contribution = breakdown['engines']['score']
+                total += contribution
+
+                criteria_contributions.append({
+                    'icon': '⚙️',
+                    'name': 'Engines',
+                    'map_name': 'engines',
+                    'common': common_count,
+                    'total': source_count,
+                    'weight': weight,
+                    'contribution': contribution,
+                    'percentage': round((common_count / source_count * 100) if source_count > 0 else 0, 1),
+                    'color': 'warning'
+                })
+
+            # Проверяем бонус
+            bonus = 0
+            if len(criteria_contributions) > 1 and total < breakdown['total_similarity']:
+                bonus = breakdown['total_similarity'] - total
+                if abs(bonus - 5.0) < 0.1:
+                    bonus = 5.0
+                    total += bonus
+
+            return {
+                'criteria': criteria_contributions,
+                'bonus': bonus if bonus > 0 else None,
+                'total': breakdown['total_similarity'],
+                'total_from_criteria': total
+            }
+
+        except Exception as e:
+            print(f"Error generating similarity formula: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return {
+                'criteria': [],
+                'bonus': None,
+                'total': 0,
+                'total_from_criteria': 0,
+                'error': str(e)
+            }
+
     def _get_candidate_ids_new(self, source_data, single_player_info, min_similarity):
         """
         ИСПРАВЛЕННЫЙ поиск кандидатов через ArrayField + GIN - БЕЗ ЛИМИТОВ.

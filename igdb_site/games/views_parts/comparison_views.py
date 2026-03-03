@@ -18,7 +18,6 @@ from ..models import (
 
 logger = logging.getLogger(__name__)
 
-
 def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
     """Universal comparison: game-game or criteria-game."""
     try:
@@ -137,9 +136,22 @@ def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
                     similarity_score = similarity_engine.calculate_similarity(game1, game2)
 
         breakdown = None
+        similarity_data = None
         if similarity_score > 0:
             similarity_engine = GameSimilarity()
             breakdown = similarity_engine.get_similarity_breakdown(source if is_criteria_comparison else game1, game2)
+            try:
+                similarity_data = similarity_engine.get_similarity_formula(source if is_criteria_comparison else game1,
+                                                                           game2)
+            except Exception as e:
+                logger.error(f"Error getting similarity data: {e}")
+                similarity_data = {
+                    'criteria': [],
+                    'bonus': None,
+                    'total': similarity_score,
+                    'total_from_criteria': similarity_score,
+                    'error': str(e)
+                }
 
         shared_items = {}
         fields_to_compare = ['genres', 'keywords', 'themes', 'perspectives', 'developers', 'game_modes']
@@ -183,6 +195,7 @@ def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
             'similarity_score': similarity_score,
             'is_criteria_comparison': is_criteria_comparison,
             'breakdown': breakdown,
+            'similarity_data': similarity_data,
             'selected_criteria': selected_criteria,
 
             'criteria_genres': list(criteria_genres_objs),

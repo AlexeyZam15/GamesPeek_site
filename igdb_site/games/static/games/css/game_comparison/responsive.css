@@ -1,0 +1,179 @@
+/* ===== RESPONSIVE STYLES ===== */
+@media (max-width: 1200px) {
+  .similarity-score {
+    font-size: var(--similarity-score-size-lg);
+  }
+
+  .stat-number {
+    font-size: var(--stat-number-size-md);
+  }
+
+  .game-comparison-card .game-title {
+    font-size: 1.5rem;
+  }
+
+  .comparison-cover {
+    height: var(--comparison-cover-height-md);
+  }
+
+  .no-cover-placeholder {
+    height: var(--comparison-cover-height-md);
+  }
+}
+
+@media (max-width: 992px) {
+  .comparison-hero {
+    padding: var(--hero-padding-md);
+  }
+
+  .category-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .category-progress {
+    width: 100%;
+    min-width: auto;
+  }
+
+  .action-buttons .btn {
+    min-width: 150px;
+  }
+
+  .game-comparison-card {
+    padding: 1rem;
+  }
+
+  .game-comparison-card .game-title {
+    font-size: 1.3rem;
+  }
+
+  .comparison-cover {
+    height: var(--comparison-cover-height-sm);
+  }
+
+  .no-cover-placeholder {
+    height: var(--comparison-cover-height-sm);
+  }
+}
+
+@media (max-width: 768px) {
+  .similarity-score {
+    font-size: var(--similarity-score-size-md);
+  }
+
+  .stat-card {
+    padding: 1rem;
+  }
+
+  .stat-number {
+    font-size: var(--stat-number-size-sm);
+  }
+
+  .shared-section {
+    padding: 1rem;
+  }
+
+  .shared-section .section-title {
+    font-size: 1.1rem;
+  }
+
+  .shared-item {
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+  }
+
+  .action-buttons {
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem 0;
+  }
+
+  .action-buttons .btn {
+    width: 100%;
+    max-width: 300px;
+    text-align: center;
+  }
+
+  .similarity-category {
+    padding: var(--category-padding-sm);
+  }
+
+  .game-comparison-card .game-title {
+    font-size: 1.2rem;
+  }
+
+  .comparison-cover {
+    height: var(--comparison-cover-height-xs);
+  }
+
+  .no-cover-placeholder {
+    height: var(--comparison-cover-height-xs);
+  }
+
+  .game-comparison-card .game-genres .badge,
+  .game-comparison-card .game-modes .badge,
+  .game-comparison-card .game-developers .badge {
+    font-size: 0.8rem !important;
+    padding: 0.35rem 0.7rem !important;
+  }
+}
+
+@media (max-width: 576px) {
+  .comparison-hero {
+    padding: var(--hero-padding-sm);
+  }
+
+  .similarity-card {
+    padding: var(--similarity-card-padding-sm);
+  }
+
+  .similarity-score {
+    font-size: var(--similarity-score-size-sm);
+  }
+
+  .similarity-label {
+    font-size: 1rem;
+  }
+
+  .category-meta {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .shared-items-grid {
+    justify-content: center;
+  }
+
+  .progress {
+    height: var(--progress-height-sm);
+  }
+
+  .progress-text {
+    font-size: 0.8rem;
+  }
+
+  .game-comparison-card .game-title {
+    font-size: 1.1rem;
+  }
+
+  .game-comparison-card .no-rating-container {
+    width: 50px;
+    height: 50px;
+  }
+
+  .game-comparison-card .no-rating-container svg {
+    width: 50px;
+    height: 50px;
+  }
+
+  .game-comparison-card .no-rating-container text {
+    font-size: 12px;
+  }
+
+  .virtual-game-card::before {
+    font-size: 0.7rem;
+    padding: 2px 8px;
+  }
+}
