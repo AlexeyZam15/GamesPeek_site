@@ -1,0 +1,298 @@
+/* ===== SIMILARITY BREAKDOWN STYLES ===== */
+.similarity-breakdown {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.similarity-category {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  padding: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: border-color 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* ПОДСВЕТКА ПРИ НАВЕДЕНИИ */
+.similarity-category:hover {
+  border-color: var(--secondary-color);
+}
+
+.category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.category-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.category-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-light);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.category-name small {
+  font-size: 0.7rem;
+  color: var(--text-dark);
+  font-weight: normal;
+  margin-left: 0.25rem;
+  white-space: nowrap;
+}
+
+.category-meta {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.15rem;
+  flex-wrap: wrap;
+}
+
+.weight-badge, .impact-badge {
+  font-size: 0.65rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 8px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  white-space: nowrap;
+}
+
+.weight-badge {
+  background: rgba(255, 107, 53, 0.1);
+  color: var(--secondary-color);
+  border: 1px solid rgba(255, 107, 53, 0.2);
+}
+
+.impact-badge {
+  background: rgba(52, 152, 219, 0.1);
+  color: var(--info-color);
+  border: 1px solid rgba(52, 152, 219, 0.2);
+}
+
+.category-contribution {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 60px;
+}
+
+.contribution-value {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--success-color);
+}
+
+.contribution-value small {
+  font-size: 0.7rem;
+  font-weight: normal;
+  color: var(--text-dark);
+  margin-left: 0.1rem;
+}
+
+/* Бонус и тотал на всю ширину */
+.bonus-category,
+.total-category {
+  grid-column: 1 / -1;
+  margin-top: 0.25rem;
+}
+
+.bonus-category {
+  border: 2px dashed var(--warning-color);
+  background: rgba(255, 193, 7, 0.05);
+}
+
+.bonus-category:hover {
+  border-color: var(--warning-color);
+}
+
+.bonus-category .contribution-value {
+  color: var(--warning-color);
+}
+
+.total-category {
+  border: 2px solid var(--warning-color);
+  background: rgba(255, 193, 7, 0.1);
+}
+
+.total-category:hover {
+  border-color: var(--warning-color);
+}
+
+.total-category .category-header {
+  justify-content: space-between;
+}
+
+.total-score {
+  text-align: right;
+}
+
+.total-score .similarity-badge {
+  font-size: 1.8rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.shared-items-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.25rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.shared-item {
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-light);
+  white-space: nowrap;
+  transition: border-color 0.2s ease;
+}
+
+.shared-item:hover {
+  border-color: var(--secondary-color) !important;
+  transform: none !important;
+  scale: none !important;
+  -webkit-transform: none !important;
+  -webkit-scale: none !important;
+}
+
+/* Стили для кликабельных элементов с общими критериями */
+.shared-item[data-criterion-type] {
+  cursor: pointer;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.shared-item[data-criterion-type]:hover {
+  border-color: var(--secondary-color) !important;
+  background-color: rgba(255, 107, 53, 0.1) !important;
+  transform: none !important;
+  scale: none !important;
+}
+
+/* Цветовые классы */
+.bg-purple { background: rgba(111, 66, 193, 0.15) !important; }
+.bg-success { background: rgba(40, 167, 69, 0.15) !important; }
+.bg-orange { background: rgba(253, 126, 20, 0.15) !important; }
+.bg-info { background: rgba(23, 162, 184, 0.15) !important; }
+.bg-pink { background: rgba(232, 62, 140, 0.15) !important; }
+.bg-secondary { background: rgba(108, 117, 125, 0.15) !important; }
+.bg-warning { background: rgba(255, 193, 7, 0.15) !important; }
+
+/* Кнопка возврата к разбивке */
+.back-to-breakdown-btn {
+  position: fixed;
+  bottom: 30px;
+  right: 30px;
+  background: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
+  color: white;
+  border: none;
+  border-radius: 50px;
+  padding: 12px 24px;
+  font-weight: 600;
+  box-shadow: 0 4px 15px rgba(255, 107, 53, 0.3);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.3s ease;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+}
+
+.back-to-breakdown-btn:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 25px rgba(255, 107, 53, 0.4);
+  background: linear-gradient(135deg, var(--accent-color), var(--secondary-color));
+}
+
+.back-to-breakdown-btn i {
+  font-size: 1.2rem;
+}
+
+/* Класс для эффекта как при наведении (мигание) - можно удалить, если не используется */
+.hover-effect {
+  border-color: var(--secondary-color) !important;
+}
+
+/* ===== SHARED SECTIONS STYLES ===== */
+.shared-section {
+  margin-bottom: 2rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius);
+  padding: 1.5rem;
+  transition: border-color 0.2s ease;
+}
+
+/* ПОДСВЕТКА ДЛЯ SHARED-SECTION ПРИ НАВЕДЕНИИ */
+.shared-section:hover {
+  border-color: var(--secondary-color);
+}
+
+.shared-section .section-title {
+  font-size: 1.3rem;
+  margin-bottom: 1.5rem;
+  text-align: left;
+  color: var(--text-light);
+}
+
+/* Адаптивность для сетки */
+@media (max-width: 992px) {
+  .similarity-breakdown {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .back-to-breakdown-btn {
+    bottom: 20px;
+    right: 20px;
+    padding: 10px 20px;
+    font-size: 0.9rem;
+  }
+}
+
+@media (max-width: 576px) {
+  .similarity-breakdown {
+    grid-template-columns: 1fr;
+  }
+
+  .category-meta {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .weight-badge, .impact-badge {
+    width: fit-content;
+  }
+
+  .back-to-breakdown-btn {
+    bottom: 15px;
+    right: 15px;
+    padding: 8px 16px;
+    font-size: 0.8rem;
+  }
+}

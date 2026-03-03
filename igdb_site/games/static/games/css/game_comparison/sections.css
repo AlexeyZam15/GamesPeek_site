@@ -1,0 +1,45 @@
+/* ===== SHARED SECTIONS STYLES ===== */
+.shared-section {
+  margin-bottom: 2rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius);
+  padding: 1.5rem;
+}
+
+.shared-section .section-title {
+  font-size: 1.3rem;
+  margin-bottom: 1.5rem;
+  text-align: left;
+  color: var(--text-light);
+}
+
+.shared-items-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.shared-item {
+  padding: 0.75rem 1.25rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  box-shadow: var(--section-shadow);
+}
+
+.shared-item:hover {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: var(--section-hover-shadow);
+}
+
+.no-shared-items {
+  padding: 1rem;
+  text-align: center;
+  color: var(--text-dark);
+  font-style: italic;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  border: 1px dashed var(--border);
+}

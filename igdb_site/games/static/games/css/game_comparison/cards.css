@@ -1,0 +1,246 @@
+/* ===== COMPARISON CARDS STYLES ===== */
+.similarity-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius);
+  text-align: center;
+  transition: var(--transition);
+  box-shadow: var(--card-shadow);
+  padding: var(--similarity-card-padding);
+  position: relative;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.similarity-card::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  background: var(--gradient-primary);
+  border-radius: var(--border-radius);
+  z-index: -1;
+  opacity: 0.3;
+}
+
+.similarity-score {
+  font-weight: 800;
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1;
+  margin-bottom: 0.75rem;
+  font-size: var(--similarity-score-size);
+  margin-bottom: 1rem;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.similarity-label {
+  font-weight: 600;
+  color: var(--text-light);
+  margin-bottom: 0.5rem;
+  font-size: 1.2rem;
+}
+
+.similarity-description {
+  font-size: 0.9rem;
+  color: var(--text-dark);
+  font-weight: 600;
+}
+
+/* Стиль для центрирования жанров на карточках сравнения */
+.game-comparison-card .game-genres {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  justify-content: center !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+  margin-top: 1rem !important;
+  text-align: center !important;
+}
+
+.game-comparison-card .game-genres .badge {
+  margin: 0.1rem !important;
+  flex-shrink: 0 !important;
+}
+
+/* Основные стили карточек сравнения */
+.game-comparison-card {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius);
+  padding: 1.5rem;
+  height: 100%;
+  min-height: var(--comparison-card-height);
+  transition: var(--transition);
+  text-align: center;
+}
+
+/* Полоса сверху для карточки сравнения */
+.game-comparison-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--gradient-primary);
+  transform: scaleX(1);
+  transition: transform 0.4s ease;
+  z-index: 2;
+}
+
+.game-comparison-card:hover::before {
+  transform: scaleX(1.1);
+}
+
+.game-comparison-card:hover {
+  transform: translateY(-8px);
+  box-shadow: var(--shadow-card-hover);
+  border-color: var(--secondary-color);
+}
+
+/* Обложка для карточки сравнения */
+.comparison-cover {
+  height: var(--comparison-cover-height);
+  border-radius: var(--border-radius) var(--border-radius) 0 0;
+  object-fit: cover;
+  width: 100%;
+  transition: var(--transition);
+}
+
+.game-comparison-card:hover .comparison-cover {
+  transform: scale(1.03);
+}
+
+.no-cover-placeholder {
+  background: var(--surface-dark);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-weight: 600;
+  position: relative;
+  height: var(--comparison-cover-height);
+}
+
+/* Название игры в сравнении */
+.game-comparison-card .game-title {
+  font-size: 1.8rem;
+  margin-bottom: 1.5rem;
+  text-align: center;
+  color: var(--text-light);
+  font-weight: 700;
+}
+
+/* Бейджи в карточке сравнения */
+.game-comparison-card .game-genres .badge,
+.game-comparison-card .game-modes .badge,
+.game-comparison-card .game-developers .badge,
+.game-comparison-card .game-themes .badge,
+.game-comparison-card .game-perspectives .badge,
+.game-comparison-card .game-platforms .badge,
+.game-comparison-card .game-keywords .badge {
+  margin: 0.1rem !important;
+  flex-shrink: 0 !important;
+  font-size: 0.9rem !important;
+  padding: 0.4rem 0.8rem !important;
+  border-radius: 12px !important;
+}
+
+/* Конкретные цвета для бейджей */
+.game-comparison-card .item-genre {
+  background-color: rgba(111, 66, 193, 0.15) !important;
+  color: #6f42c1 !important;
+  border: 1px solid rgba(111, 66, 193, 0.3) !important;
+}
+
+.game-comparison-card .item-development {
+  background-color: rgba(52, 152, 219, 0.15) !important;
+  color: var(--info-color) !important;
+  border: 1px solid rgba(52, 152, 219, 0.3) !important;
+}
+
+.game-comparison-card .item-keyword {
+  background-color: rgba(25, 135, 84, 0.15) !important;
+  color: var(--success-color) !important;
+  border: 1px solid rgba(25, 135, 84, 0.3) !important;
+}
+
+.game-comparison-card .item-setting {
+  background-color: rgba(13, 110, 253, 0.15) !important;
+  color: var(--primary-color) !important;
+  border: 1px solid rgba(13, 110, 253, 0.3) !important;
+}
+
+/* Стандартные бейджи Bootstrap */
+.game-comparison-card .bg-primary {
+  background: linear-gradient(135deg, var(--secondary-color), var(--accent-color)) !important;
+  color: var(--text-light) !important;
+  border: none !important;
+}
+
+.game-comparison-card .bg-info {
+  background: var(--info-color) !important;
+  color: var(--text-light) !important;
+  border: none !important;
+}
+
+.game-comparison-card .bg-success {
+  background: var(--success-color) !important;
+  color: var(--text-light) !important;
+  border: none !important;
+}
+
+.game-comparison-card .bg-warning {
+  background: var(--warning-color) !important;
+  color: var(--primary-color) !important;
+  border: none !important;
+}
+
+.game-comparison-card .bg-purple {
+  background: linear-gradient(135deg, #6f42c1, #8e44ad) !important;
+  color: white !important;
+  border: none !important;
+}
+
+.game-comparison-card .bg-secondary {
+  background: #404040 !important;
+  color: var(--text-light) !important;
+  border: none !important;
+}
+
+/* Виртуальная карточка */
+.virtual-game-card {
+  background: var(--surface);
+  border: 2px dashed var(--warning-color);
+  border-radius: var(--border-radius);
+  transition: var(--transition);
+  height: 100%;
+  position: relative;
+}
+
+.virtual-game-card::before {
+  content: '🔍 Search Criteria';
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--warning-color);
+  color: var(--primary-color);
+  padding: 2px 12px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: bold;
+  z-index: 1;
+}
+
+.virtual-game-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 25px rgba(255, 193, 7, 0.2);
+  border-style: solid;
+}

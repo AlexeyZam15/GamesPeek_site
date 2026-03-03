@@ -1,0 +1,16 @@
+/* ===== ACTION BUTTONS STYLES ===== */
+.action-buttons {
+  display: flex;
+  gap: 1.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  padding: 3rem 0;
+}
+
+.action-buttons .btn {
+  padding: 1rem 2rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  border-radius: 12px;
+  min-width: 200px;
+}
