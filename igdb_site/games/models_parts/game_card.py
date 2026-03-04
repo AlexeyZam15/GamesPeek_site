@@ -90,12 +90,13 @@ class GameCardCache(models.Model):
         super().save(*args, **kwargs)
 
     @classmethod
-    def get_card_for_game(cls, game_id: int) -> Optional['GameCardCache']:
+    def get_card_for_game(cls, game_id: int, game=None) -> Optional['GameCardCache']:
         """
         Get cached card for game.
 
         Args:
             game_id: ID of the game
+            game: Optional game object with prefetched data
 
         Returns:
             GameCardCache object or None if not found or outdated
@@ -105,12 +106,41 @@ class GameCardCache(models.Model):
                 game_id=game_id,
                 is_active=True
             )
-            # Новая логика валидации: проверяем версию шаблона
+
+            # Проверяем версию шаблона
             if card.template_version != cls.CARD_CACHE_VERSION:
                 # Карточка создана для старой версии шаблона - деактивируем
                 card.is_active = False
                 card.save(update_fields=['is_active'])
                 return None
+
+            # Если передан game объект, проверяем актуальность данных
+            if game:
+                # Проверяем основные поля игры
+                if (card.game_name != game.name or
+                        card.game_rating != getattr(game, 'rating', None) or
+                        card.game_cover_url != getattr(game, 'cover_url', None) or
+                        card.game_type != getattr(game, 'game_type', None)):
+                    # Данные игры изменились - карточка устарела
+                    card.is_active = False
+                    card.save(update_fields=['is_active'])
+                    return None
+
+                # Проверяем связанные данные (если есть доступ к prefetch)
+                from games.utils.game_card_utils import GameCardCreator
+                current_related_data = GameCardCreator._extract_related_data(game)
+
+                if (card.genres_json != current_related_data.get('genres', []) or
+                        card.platforms_json != current_related_data.get('platforms', []) or
+                        card.perspectives_json != current_related_data.get('perspectives', []) or
+                        card.keywords_json != current_related_data.get('keywords', []) or
+                        card.themes_json != current_related_data.get('themes', []) or
+                        card.game_modes_json != current_related_data.get('game_modes', [])):
+                    # Связанные данные изменились - карточка устарела
+                    card.is_active = False
+                    card.save(update_fields=['is_active'])
+                    return None
+
             return card
         except cls.DoesNotExist:
             return None
