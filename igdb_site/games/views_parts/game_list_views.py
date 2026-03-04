@@ -41,15 +41,8 @@ def _get_cached_card_html(game: Game, show_similarity: bool = False,
         HTML карточки или None если не найден в кэше
     """
     try:
-        cache_key = GameCardCache._generate_key(
-            game.id, show_similarity, similarity_percent, 'normal'
-        )
-
-        # Получаем самую свежую активную карточку
-        card_cache = GameCardCache.objects.filter(
-            cache_key=cache_key,
-            is_active=True
-        ).order_by('-updated_at', '-created_at').first()
+        # Передаём game объект для проверки актуальности данных
+        card_cache = GameCardCache.get_card_for_game(game.id, game=game)
 
         if card_cache:
             # Инкрементируем счетчик использования
@@ -158,48 +151,36 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
 
     # Получаем текущую версию кэша из модели
     from games.models import GameCardCache
+    from games.utils.game_card_utils import GameCardCreator
     current_cache_version = GameCardCache.CARD_CACHE_VERSION
 
     print(f"\nCurrent template version: {current_cache_version}")
 
-    # Загружаем ВСЕ карточки из БД (активные и неактивные)
-    cards_in_db = {}  # Все карточки в БД
-    valid_cards = {}  # Активные и с правильной версией
-
+    # Загружаем ВСЕ карточки из БД
+    cards_in_db = {}
     try:
-        # Загружаем все карточки для этих игр
         all_cards = GameCardCache.objects.filter(
             game_id__in=game_ids
         ).select_related('game')
 
-        print(f"\nFound {all_cards.count()} cards in DB for these games (including inactive)")
+        print(f"\nFound {all_cards.count()} cards in DB for these games")
 
         for card in all_cards:
             cards_in_db[card.game_id] = card
-            if card.is_active and card.template_version == current_cache_version:
-                valid_cards[card.game_id] = card
-                print(f"  ✅ Valid card for game {card.game_id}")
-            else:
-                status = "inactive" if not card.is_active else "outdated version"
-                print(f"  ⚠️ Card exists for game {card.game_id} but {status} (v{card.template_version})")
-
-        print(f"\nFound {len(valid_cards)} valid cached cards")
-        print(f"Games with card in DB: {len(cards_in_db)}")
+            status = "active" if card.is_active else "inactive"
+            print(f"  Card for game {card.game_id}: {status}, v{card.template_version}, hash: {card.card_hash[:8]}...")
 
     except Exception as e:
         logger.error(f"Error batch loading card caches: {str(e)}")
         print(f"ERROR loading cards: {str(e)}")
+        cards_in_db = {}
 
     # Обрабатываем каждый элемент
     processed_items = []
+    cards_to_update = []  # Список для массового обновления
 
     for item, game_obj, similarity, is_similar_mode in game_items:
-        existing_card = cards_in_db.get(game_obj.id)
-        valid_card = valid_cards.get(game_obj.id)
-
         print(f"\nProcessing game {game_obj.id} ({game_obj.name}):")
-        print(f"  has valid_card: {valid_card is not None}")
-        print(f"  has existing_card in DB: {existing_card is not None}")
 
         # Устанавливаем similarity если нужно
         if is_similar_mode:
@@ -216,60 +197,71 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
             if hasattr(game_obj, 'similarity'):
                 delattr(game_obj, 'similarity')
 
-        if valid_card:
-            # Используем готовую валидную карточку
-            try:
-                valid_card.increment_hit()
-                if isinstance(item, dict):
-                    item['cached_card'] = valid_card.rendered_card
-                else:
-                    item.cached_card = valid_card.rendered_card
-                processed_items.append(item)
-                print(f"  ✅ Using valid cached card")
-                continue
-            except Exception as e:
-                logger.error(f"Error using cached card for game {game_obj.id}: {str(e)}")
-                print(f"  ERROR using cached card: {str(e)}")
+        # Получаем актуальные связанные данные для проверки
+        current_related_data = GameCardCreator._extract_related_data(game_obj)
 
-        # Если есть карточка в БД (даже неактивная или устаревшая) - ОБНОВЛЯЕМ ЕЁ НЕМЕДЛЕННО
+        # Рендерим актуальную карточку для сравнения хеша
+        card_context = {
+            'game': game_obj,
+            'show_similarity': show_similarity,
+            'source_game': context.get('source_game')
+        }
+        if is_similar_mode and similarity is not None and similarity > 0:
+            card_context['similarity'] = similarity
+
+        current_rendered_card = render_to_string('games/partials/_game_card.html', card_context)
+        current_card_hash = GameCardCache._calculate_card_hash(current_rendered_card)
+
+        print(f"  Current card hash: {current_card_hash[:8]}...")
+
+        existing_card = cards_in_db.get(game_obj.id)
+
         if existing_card:
-            print(f"  🔄 Immediately updating existing card (ID: {existing_card.id})")
+            print(f"  Existing card hash: {existing_card.card_hash[:8]}...")
+            print(f"  Template version match: {existing_card.template_version == current_cache_version}")
+            print(f"  Is active: {existing_card.is_active}")
 
-            card_context = {
-                'game': game_obj,
-                'show_similarity': show_similarity,
-                'source_game': context.get('source_game')
-            }
+            # Проверяем, совпадает ли хеш существующей карточки с актуальным
+            if (existing_card.is_active and
+                    existing_card.template_version == current_cache_version and
+                    existing_card.card_hash == current_card_hash):
+                # Карточка полностью актуальна - используем её
+                try:
+                    existing_card.increment_hit()
+                    if isinstance(item, dict):
+                        item['cached_card'] = existing_card.rendered_card
+                    else:
+                        item.cached_card = existing_card.rendered_card
+                    processed_items.append(item)
+                    print(f"  ✅ Using valid cached card (hash match)")
+                    continue
+                except Exception as e:
+                    logger.error(f"Error using cached card: {str(e)}")
+                    print(f"  ERROR using cached card: {str(e)}")
 
-            if is_similar_mode and similarity is not None and similarity > 0:
-                card_context['similarity'] = similarity
+            # Хеш не совпадает или карточка неактивна - нужно обновить
+            print(f"  🔄 Card needs update - hash mismatch or inactive")
 
-            rendered_card = render_to_string('games/partials/_game_card.html', card_context)
-
-            from games.utils.game_card_utils import GameCardCreator
-            related_data = GameCardCreator._extract_related_data(game_obj)
-
+            # Обновляем существующую карточку
             try:
-                # Обновляем существующую карточку
-                existing_card.rendered_card = rendered_card
-                existing_card.card_hash = GameCardCache._calculate_card_hash(rendered_card)
+                existing_card.rendered_card = current_rendered_card
+                existing_card.card_hash = current_card_hash
                 existing_card.template_version = current_cache_version
                 existing_card.game_name = game_obj.name
                 existing_card.game_rating = getattr(game_obj, 'rating', None)
                 existing_card.game_cover_url = getattr(game_obj, 'cover_url', None)
                 existing_card.game_type = getattr(game_obj, 'game_type', None)
-                existing_card.genres_json = related_data.get('genres', [])
-                existing_card.platforms_json = related_data.get('platforms', [])
-                existing_card.perspectives_json = related_data.get('perspectives', [])
-                existing_card.keywords_json = related_data.get('keywords', [])
-                existing_card.themes_json = related_data.get('themes', [])
-                existing_card.game_modes_json = related_data.get('game_modes', [])
+                existing_card.genres_json = current_related_data.get('genres', [])
+                existing_card.platforms_json = current_related_data.get('platforms', [])
+                existing_card.perspectives_json = current_related_data.get('perspectives', [])
+                existing_card.keywords_json = current_related_data.get('keywords', [])
+                existing_card.themes_json = current_related_data.get('themes', [])
+                existing_card.game_modes_json = current_related_data.get('game_modes', [])
                 existing_card.is_active = True
                 existing_card.save()
 
-                print(f"      ✅ Updated and activated existing card")
+                print(f"      ✅ Updated existing card")
 
-                # Используем обновлённую карточку
                 if isinstance(item, dict):
                     item['cached_card'] = existing_card.rendered_card
                 else:
@@ -278,45 +270,50 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
                 continue
 
             except Exception as e:
-                logger.error(f"Failed to update existing card for game {game_obj.id}: {str(e)}")
+                logger.error(f"Failed to update existing card: {str(e)}")
                 print(f"      ❌ Error updating card: {str(e)}")
-                # Если не удалось обновить, продолжаем как обычно - создадим новую
 
-        # Карточки нет в БД - рендерим новую и добавляем в список на создание
-        print(f"  ✨ Rendering new card for DB creation (no card in DB)")
-
-        card_context = {
-            'game': game_obj,
-            'show_similarity': show_similarity,
-            'source_game': context.get('source_game')
-        }
-
-        if is_similar_mode and similarity is not None and similarity > 0:
-            card_context['similarity'] = similarity
-
-        rendered_card = render_to_string('games/partials/_game_card.html', card_context)
-
-        from games.utils.game_card_utils import GameCardCreator
-        related_data = GameCardCreator._extract_related_data(game_obj)
-
-        # Сохраняем в БД через bulk_create
-        cards_to_create = [(game_obj, rendered_card, related_data)]
+        # Карточки нет в БД - создаём новую
+        print(f"  ✨ Creating new card")
 
         try:
-            from games.models import GameCardCache
-            stats = GameCardCache.bulk_create_or_update_cards(cards_to_create, batch_size=50)
-            print(f"      SAVE RESULT: {stats}")
+            new_card = GameCardCache(
+                game=game_obj,
+                rendered_card=current_rendered_card,
+                game_name=game_obj.name,
+                game_rating=getattr(game_obj, 'rating', None),
+                game_cover_url=getattr(game_obj, 'cover_url', None),
+                game_type=getattr(game_obj, 'game_type', None),
+                genres_json=current_related_data.get('genres', []),
+                platforms_json=current_related_data.get('platforms', []),
+                perspectives_json=current_related_data.get('perspectives', []),
+                keywords_json=current_related_data.get('keywords', []),
+                themes_json=current_related_data.get('themes', []),
+                game_modes_json=current_related_data.get('game_modes', []),
+                cache_key=GameCardCache.generate_cache_key_for_game(game_obj.id),
+                template_version=current_cache_version,
+                is_active=True
+            )
+            new_card.card_hash = current_card_hash
+            new_card.save()
+
+            print(f"      ✅ Created new card")
+
+            if isinstance(item, dict):
+                item['cached_card'] = current_rendered_card
+            else:
+                item.cached_card = current_rendered_card
+            processed_items.append(item)
+
         except Exception as e:
-            logger.error(f"Failed to save card for game {game_obj.id}: {str(e)}")
-            print(f"      ERROR saving card: {str(e)}")
-
-        # Используем отрендеренный HTML
-        if isinstance(item, dict):
-            item['cached_card'] = rendered_card
-        else:
-            item.cached_card = rendered_card
-
-        processed_items.append(item)
+            logger.error(f"Failed to create card: {str(e)}")
+            print(f"      ❌ Error creating card: {str(e)}")
+            # В случае ошибки используем свежеотрендеренную карточку без сохранения
+            if isinstance(item, dict):
+                item['cached_card'] = current_rendered_card
+            else:
+                item.cached_card = current_rendered_card
+            processed_items.append(item)
 
     print(f"\nProcessed {len(processed_items)} items")
     print("=== END UPDATE DEBUG ===\n")
