@@ -44,17 +44,9 @@
                 </div>
             {% endif %}
 
-            <!-- Процент схожести - проверяем и game.similarity, и similarity_percent -->
+            <!-- Процент схожести - пустой контейнер, будет заполнен через JS -->
             {% if show_similarity %}
-                {% if game.similarity %}
-                    <div class="position-absolute top-0 end-0 p-1">
-                        {% similarity_pattern_svg game.similarity 60 %}
-                    </div>
-                {% elif similarity_percent %}
-                    <div class="position-absolute top-0 end-0 p-1">
-                        {% similarity_pattern_svg similarity_percent 60 %}
-                    </div>
-                {% endif %}
+                <div class="position-absolute top-0 end-0 p-1 similarity-container"></div>
             {% endif %}
 
             <!-- Платформы - показываем ТОЛЬКО первые 8, разбиваем на ряды по 4 -->
