@@ -92,7 +92,7 @@ class GameSimilarity:
     DEFAULT_MIN_SIMILARITY = 40
 
     # Вспомогательные константы для расчетов
-    KEYWORDS_ADD_PER_MATCH = 0.5
+    KEYWORDS_ADD_PER_MATCH = 1
 
     def __init__(self):
         # Кэш для ускорения повторных расчетов
@@ -130,17 +130,24 @@ class GameSimilarity:
                     'total': source_count,
                     'weight': weight,
                     'contribution': contribution,
+                    # ИСПРАВЛЕНО: для ключевых слов процент считается как (common_count * KEYWORDS_ADD_PER_MATCH)
+                    # Но для жанров оставляем старую логику
                     'percentage': round((common_count / source_count * 100) if source_count > 0 else 0, 1),
                     'color': 'purple'
                 })
 
-            # Ключевые слова
+            # Ключевые слова - ИСПРАВЛЕНО: процент считается по формуле common_count * KEYWORDS_ADD_PER_MATCH
             if breakdown['keywords']['max_score'] > 0:
                 common_count = len(breakdown['keywords']['common_elements'])
                 source_count = source_data.get('keyword_count', 0)
                 weight = breakdown['keywords']['max_score']
                 contribution = breakdown['keywords']['score']
                 total += contribution
+
+                # Расчет процента совпадений ключевых слов: каждое совпадение дает KEYWORDS_ADD_PER_MATCH%
+                keyword_percentage = common_count * self.KEYWORDS_ADD_PER_MATCH
+                # Ограничиваем максимальным весом для отображения
+                keyword_percentage = min(keyword_percentage, weight)
 
                 criteria_contributions.append({
                     'icon': '🔑',
@@ -150,7 +157,7 @@ class GameSimilarity:
                     'total': source_count,
                     'weight': weight,
                     'contribution': contribution,
-                    'percentage': round((common_count / source_count * 100) if source_count > 0 else 0, 1),
+                    'percentage': round(keyword_percentage, 1),
                     'color': 'success'
                 })
 
@@ -331,16 +338,6 @@ class GameSimilarity:
             games_with_overlap = base_qs.filter(
                 genre_ids__overlap=source_genre_ids
             ).exclude(id=source_game_id).distinct()
-
-            # ОТЛАДКА: проверим, попадает ли San Andreas
-            sa_check = games_with_overlap.filter(id=2828)
-            print(f"San Andreas в games_with_overlap: {sa_check.exists()}")
-            if sa_check.exists():
-                sa_data = sa_check.values('id', 'genre_ids').first()
-                print(f"  genre_ids San Andreas: {sa_data['genre_ids']}")
-                print(f"  source_genre_ids: {source_genre_ids}")
-                common = set(source_genre_ids) & set(sa_data['genre_ids'])
-                print(f"  общие: {common}")
 
             # 2. Загружаем их genre_ids в память (только ID и genre_ids)
             candidates_data = list(games_with_overlap.values('id', 'genre_ids'))
@@ -696,7 +693,7 @@ class GameSimilarity:
                                        source_developer_count, source_perspective_count, source_game_mode_count,
                                        source_engine_count,
                                        target_data, source_data=None):
-        """НОВЫЙ расчет схожести - с динамическими весами"""
+        """НОВЫЙ расчет схожести - с динамическими весами и по ключевым словам X% за совпадение"""
         similarity = 0.0
 
         # Получаем динамические веса
@@ -725,11 +722,15 @@ class GameSimilarity:
                 genre_match_ratio = target_data['common_genres'] / max(source_genre_count, 1)
                 similarity += genre_match_ratio * dynamic_weights['genres']
 
-        # 2. КЛЮЧЕВЫЕ СЛОВА
+        # 2. КЛЮЧЕВЫЕ СЛОВА - ИСПРАВЛЕНО: X% за каждое совпадение
         if dynamic_weights['keywords'] > 0 and source_keyword_count > 0:
             if target_data.get('common_keywords', 0) > 0:
-                keyword_match_ratio = target_data['common_keywords'] / max(source_keyword_count, 1)
-                similarity += keyword_match_ratio * dynamic_weights['keywords']
+                # Расчет: количество совпадений * KEYWORDS_ADD_PER_MATCH, но не больше веса
+                keyword_contribution = min(
+                    target_data['common_keywords'] * self.KEYWORDS_ADD_PER_MATCH,
+                    dynamic_weights['keywords']
+                )
+                similarity += keyword_contribution
 
         # 3. ТЕМЫ
         if dynamic_weights['themes'] > 0 and source_theme_count > 0:
@@ -901,7 +902,7 @@ class GameSimilarity:
     def get_similarity_breakdown(self, source, target):
         """
         Детальная разбивка похожести по компонентам с динамическими весами
-        ИСПРАВЛЕННАЯ ВЕРСИЯ
+        ИСПРАВЛЕННАЯ ВЕРСИЯ для ключевых слов
         """
         # Получаем данные через _prepare_source_data для source
         source_data, _ = self._prepare_source_data(source)
@@ -948,16 +949,19 @@ class GameSimilarity:
                         breakdown['genres']['score'] = jaccard * dynamic_weights['genres']
                 breakdown['genres']['common_elements'] = list(common_genres)
 
+        # КЛЮЧЕВЫЕ СЛОВА - ИСПРАВЛЕНО: X% за каждое совпадение
         if dynamic_weights['keywords'] > 0:
             common_keywords = source_sets['keywords'] & target_raw.get('keywords', set())
             if common_keywords:
                 if dynamic_weights['is_single_criterion']:
                     breakdown['keywords']['score'] = 100.0
                 else:
-                    source_count = len(source_sets['keywords'])
-                    if source_count > 0:
-                        match_percentage = len(common_keywords) / source_count
-                        breakdown['keywords']['score'] = match_percentage * dynamic_weights['keywords']
+                    # Расчет: количество совпадений * KEYWORDS_ADD_PER_MATCH, но не больше веса
+                    keyword_score = min(
+                        len(common_keywords) * self.KEYWORDS_ADD_PER_MATCH,
+                        dynamic_weights['keywords']
+                    )
+                    breakdown['keywords']['score'] = keyword_score
                 breakdown['keywords']['common_elements'] = list(common_keywords)
 
         if dynamic_weights['themes'] > 0:
