@@ -16,13 +16,14 @@ const FilterUI = {
         console.log('Setting up show all toggles...');
 
         const toggles = [
+            // Search Filters
+            { btn: '.show-all-platforms-btn', list: '.platform-list' },
+            { btn: '.show-all-game-types-btn', list: '.game-type-list' },
             { btn: '.show-all-genres-btn', list: '.genre-list' },
             { btn: '.show-all-keywords-btn', list: '.keyword-list' },
-            { btn: '.show-all-platforms-btn', list: '.platform-list' },
             { btn: '.show-all-themes-btn', list: '.theme-list' },
             { btn: '.show-all-perspectives-btn', list: '.perspective-list' },
             { btn: '.show-all-game-modes-btn', list: '.game-mode-list' },
-            { btn: '.show-all-game-types-btn', list: '.game-type-list' },
             { btn: '.show-all-engines-btn', list: '.engine-list' }
         ];
 
@@ -302,9 +303,16 @@ const FilterUI = {
         console.log('Setting up search inputs...');
 
         const searchInputs = [
-            'genre-search', 'keyword-search', 'platform-search',
-            'theme-search', 'perspective-search', 'game-mode-search',
-            'game-type-search', 'engine-search'
+            // Search Filters
+            'platform-search', 'game-type-search',
+            'search-genre-search', 'search-keyword-search',
+            'search-theme-search', 'search-perspective-search',
+            'search-game-mode-search', 'search-engine-search',
+
+            // Similarity Filters
+            'genre-search', 'keyword-search',
+            'theme-search', 'perspective-search',
+            'game-mode-search', 'engine-search'
         ];
 
         searchInputs.forEach(inputId => {
@@ -427,7 +435,13 @@ const FilterUI = {
             '.perspective-checkbox',
             '.game-mode-checkbox',
             '.game-type-checkbox',
-            '.engine-checkbox'
+            '.engine-checkbox',
+            '.search-genre-checkbox',
+            '.search-keyword-checkbox',
+            '.search-theme-checkbox',
+            '.search-perspective-checkbox',
+            '.search-game-mode-checkbox',
+            '.search-engine-checkbox'
         ];
 
         checkboxSelectors.forEach(selector => {
@@ -451,107 +465,7 @@ const FilterUI = {
         });
     },
 
-    // ===== НОВЫЙ МЕТОД: Настройка вкладок фильтров =====
-    setupFilterTabs() {
-        console.log('Setting up filter tabs...');
-
-        // Находим элементы вкладок
-        const triggerTabList = document.querySelectorAll('#filterTab button[data-bs-toggle="tab"]');
-
-        if (triggerTabList.length === 0) {
-            console.log('Filter tabs not found, skipping setup.');
-            return;
-        }
-
-        // Инициализируем каждую вкладку с помощью Bootstrap API
-        triggerTabList.forEach(triggerEl => {
-            // Используем Bootstrap.Tab для корректной работы
-            try {
-                new bootstrap.Tab(triggerEl);
-            } catch (e) {
-                // Если bootstrap не доступен глобально, используем простой обработчик
-                console.warn('Bootstrap Tab not available, using fallback handler.');
-                triggerEl.addEventListener('click', (event) => {
-                    event.preventDefault();
-                    // Простое переключение классов для демонстрации
-                    const targetId = triggerEl.getAttribute('data-bs-target');
-                    if (targetId) {
-                        // Деактивируем все вкладки и панели
-                        document.querySelectorAll('#filterTab .nav-link').forEach(link => {
-                            link.classList.remove('active');
-                            link.setAttribute('aria-selected', 'false');
-                        });
-                        document.querySelectorAll('.tab-content .tab-pane').forEach(pane => {
-                            pane.classList.remove('show', 'active');
-                        });
-
-                        // Активируем текущую вкладку и панель
-                        triggerEl.classList.add('active');
-                        triggerEl.setAttribute('aria-selected', 'true');
-                        const targetPane = document.querySelector(targetId);
-                        if (targetPane) {
-                            targetPane.classList.add('show', 'active');
-                        }
-                    }
-                });
-            }
-        });
-
-        // Восстанавливаем последнюю активную вкладку из localStorage
-        this.restoreActiveTab();
-
-        // Сохраняем состояние вкладки при клике
-        triggerTabList.forEach(triggerEl => {
-            triggerEl.addEventListener('shown.bs.tab', (event) => {
-                const targetId = event.target.getAttribute('data-bs-target');
-                if (targetId) {
-                    try {
-                        localStorage.setItem('activeFilterTab', targetId);
-                    } catch (e) {
-                        console.warn('Could not save active tab state:', e);
-                    }
-                }
-            });
-        });
-    },
-
-    // ===== НОВЫЙ МЕТОД: Восстановление активной вкладки =====
-    restoreActiveTab() {
-        try {
-            const activeTabId = localStorage.getItem('activeFilterTab');
-            if (activeTabId) {
-                const tabToActivate = document.querySelector(`#filterTab button[data-bs-target="${activeTabId}"]`);
-                if (tabToActivate) {
-                    // Используем Bootstrap.Tab для активации
-                    try {
-                        const tabInstance = new bootstrap.Tab(tabToActivate);
-                        tabInstance.show();
-                    } catch (e) {
-                        // Фолбэк
-                        const triggerEl = tabToActivate;
-                        const targetId = triggerEl.getAttribute('data-bs-target');
-                        if (targetId) {
-                            document.querySelectorAll('#filterTab .nav-link').forEach(link => {
-                                link.classList.remove('active');
-                                link.setAttribute('aria-selected', 'false');
-                            });
-                            document.querySelectorAll('.tab-content .tab-pane').forEach(pane => {
-                                pane.classList.remove('show', 'active');
-                            });
-                            triggerEl.classList.add('active');
-                            triggerEl.setAttribute('aria-selected', 'true');
-                            const targetPane = document.querySelector(targetId);
-                            if (targetPane) {
-                                targetPane.classList.add('show', 'active');
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (e) {
-            console.warn('Could not restore active tab state:', e);
-        }
-    },
+    // Удаляем setupFilterTabs() - теперь это делает простой JS в HTML
 
     // Инициализация всех UI компонентов
     initializeAllUI() {
@@ -564,8 +478,7 @@ const FilterUI = {
             this.setupSearchInputs();
             this.setupBadgeEffects();
             this.setupCheckboxAnimations();
-            // ===== ДОБАВЛЯЕМ ВЫЗОВ НОВОГО МЕТОДА =====
-            this.setupFilterTabs();
+            // Убрали вызов setupFilterTabs()
 
             console.log('All UI components initialized successfully');
         } catch (error) {
