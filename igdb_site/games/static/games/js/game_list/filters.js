@@ -8,8 +8,8 @@ import FilterGlobal from './filters_js/filters-global.js';
 import FilterHandlers from './filters_js/filters-handlers.js';
 import FilterSearch from './filters_js/filters-search.js';
 import FilterSort from './filters_js/filters-sort.js';
-import FilterSticky from './filters_js/filters-sticky.js';
 import FilterUI from './filters_js/filters-ui.js';
+// Убрали импорт FilterSticky
 
 // Главный менеджер фильтров
 const FilterManager = {
@@ -17,8 +17,8 @@ const FilterManager = {
     handlers: FilterHandlers,
     search: FilterSearch,
     sort: FilterSort,
-    sticky: FilterSticky,
     ui: FilterUI,
+    // Убрали sticky: FilterSticky
 
     // Флаг для отслеживания, была ли уже скрыта заглушка
     skeletonHidden: false,
@@ -43,12 +43,7 @@ const FilterManager = {
             this.skeletonHidden = true;
             console.log('✅ Filters skeleton hidden, real filters displayed');
 
-            // Инициализируем sticky кнопки после появления фильтров
-            setTimeout(() => {
-                if (FilterSticky && typeof FilterSticky.init === 'function') {
-                    FilterSticky.init();
-                }
-            }, 300);
+            // Убрали инициализацию sticky кнопок
         } else {
             console.warn('⚠️ Skeleton or real filters not found:', { skeleton, realFiltersContainer });
         }
@@ -75,7 +70,10 @@ const FilterManager = {
         // Проверяем, что фильтры отрендерены
         const filterContainers = document.querySelectorAll(
             '.platform-grid, .genre-grid, .keyword-grid, .theme-grid, ' +
-            '.perspective-grid, .game-mode-grid, .engine-grid'
+            '.perspective-grid, .game-mode-grid, .engine-grid, ' +
+            '.search-platform-grid, .search-genre-grid, .search-keyword-grid, ' +
+            '.search-theme-grid, .search-perspective-grid, .search-game-mode-grid, ' +
+            '.search-engine-grid'
         );
 
         if (filterContainers.length === 0) {
@@ -86,24 +84,15 @@ const FilterManager = {
         // Проверяем, есть ли элементы в фильтрах
         const hasFilterItems = document.querySelectorAll(
             '.platform-item, .genre-item, .keyword-item, .theme-item, ' +
-            '.perspective-item, .game-mode-item, .engine-item'
+            '.perspective-item, .game-mode-item, .engine-item, ' +
+            '.search-platform-item, .search-genre-item, .search-keyword-item, ' +
+            '.search-theme-item, .search-perspective-item, .search-game-mode-item, ' +
+            '.search-engine-item'
         ).length > 5; // Хотя бы несколько элементов должно быть
 
         if (!hasFilterItems) {
             console.log('⏳ Filter items not rendered yet');
             return false;
-        }
-
-        // Проверяем сортировку (первые элементы должны быть с checked, если они есть)
-        const anyChecked = document.querySelectorAll(
-            '.platform-checkbox:checked, .genre-checkbox:checked, ' +
-            '.keyword-checkbox:checked, .theme-checkbox:checked'
-        ).length > 0;
-
-        if (anyChecked) {
-            // Если есть выбранные элементы, проверяем что они первые в своих контейнерах
-            // Это базовая проверка что сортировка сработала
-            console.log('✓ Selected items exist, assuming sort completed');
         }
 
         console.log('✅ All modules appear to be initialized and filters are rendered');
@@ -237,8 +226,8 @@ window.FilterGlobal = FilterGlobal;
 window.FilterHandlers = FilterHandlers;
 window.FilterSearch = FilterSearch;
 window.FilterSort = FilterSort;
-window.FilterSticky = FilterSticky;
 window.FilterUI = FilterUI;
+// Убрали window.FilterSticky
 
 // Глобальная функция для обратной совместимости
 window.initializeFilters = function() {
@@ -273,6 +262,6 @@ export {
     FilterHandlers,
     FilterSearch,
     FilterSort,
-    FilterSticky,
     FilterUI
+    // Убрали FilterSticky из экспорта
 };
