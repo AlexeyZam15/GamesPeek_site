@@ -9,19 +9,19 @@
         <div id="search-filters-content">
             <!-- Platforms фильтр -->
             <div class="filter-subsection">
-                <div class="toggle-subsection mb-2" data-target="platforms-content">
+                <div class="toggle-subsection mb-2" data-target="search-platforms-content">
                     <label class="form-label mb-0 d-flex align-items-center">
                         <i class="bi bi-chevron-down me-1"></i>Platforms:
                     </label>
                 </div>
-                <div id="platforms-content">
+                <div id="search-platforms-content">
                     <!-- Активные платформы -->
-                    <div id="active-platforms" class="mb-2">
+                    <div id="search-active-platforms" class="mb-2">
                         {% if selected_platforms %}
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <div class="d-flex align-items-center gap-2">
                                     <button type="button"
-                                            class="btn btn-sm clear-platforms-btn btn-outline-info"
+                                            class="btn btn-sm search-clear-platforms-btn btn-outline-info"
                                             style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
                                             data-param="p">
                                         <i class="bi bi-x-circle me-1"></i>Clear All
@@ -34,9 +34,9 @@
                         {% endif %}
 
                         <!-- Видимые платформы (первые 27) -->
-                        <div id="visible-platforms-badges">
+                        <div id="search-visible-platforms-badges">
                             {% for platform in selected_platforms_objects|slice:":27" %}
-                                <span class="badge bg-info me-1 mb-1 active-platform-tag"
+                                <span class="badge bg-info me-1 mb-1 search-active-platform-tag"
                                       data-platform-id="{{ platform.id }}"
                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
                                     {{ platform.name }} ({{ platform.game_count }})
@@ -47,9 +47,9 @@
 
                         <!-- Скрытые платформы (остальные) -->
                         {% if selected_platforms_objects|length > 27 %}
-                            <div id="hidden-platforms-badges" style="display: none;">
+                            <div id="search-hidden-platforms-badges" style="display: none;">
                                 {% for platform in selected_platforms_objects|slice:"27:" %}
-                                    <span class="badge bg-info me-1 mb-1 active-platform-tag"
+                                    <span class="badge bg-info me-1 mb-1 search-active-platform-tag"
                                           data-platform-id="{{ platform.id }}"
                                           style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
                                         {{ platform.name }} ({{ platform.game_count }})
@@ -61,15 +61,15 @@
                             <!-- Кнопки показать/скрыть -->
                             <div class="text-center mt-2">
                                 <button type="button"
-                                        class="btn btn-sm btn-outline-secondary show-more-platforms"
-                                        onclick="toggleMoreplatforms(this)">
+                                        class="btn btn-sm btn-outline-secondary search-show-more-platforms"
+                                        onclick="toggleSearchMorePlatforms(this)">
                                     <i class="bi bi-chevron-down"></i> Show all
                                     ({{ selected_platforms_objects|length }})
                                 </button>
                                 <button type="button"
-                                        class="btn btn-sm btn-outline-secondary show-less-platforms"
+                                        class="btn btn-sm btn-outline-secondary search-show-less-platforms"
                                         style="display: none;"
-                                        onclick="toggleLessplatforms(this)">
+                                        onclick="toggleSearchLessPlatforms(this)">
                                     <i class="bi bi-chevron-up"></i> Show less
                                 </button>
                             </div>
@@ -77,25 +77,25 @@
                     </div>
 
                     <!-- Поле поиска для платформ -->
-                    <input type="text" class="form-control mb-2" id="platform-search"
+                    <input type="text" class="form-control mb-2" id="search-platform-search"
                            placeholder="Search platforms..." autocomplete="off">
 
                     <!-- Список платформ -->
-                    <div class="platform-list border rounded p-2"
+                    <div class="search-platform-list border rounded p-2"
                          style="max-height: 200px; overflow-y: auto;">
-                        <div class="platform-grid"
+                        <div class="search-platform-grid"
                              style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
                             {% for platform in platforms %}
-                                <div class="platform-item"
+                                <div class="search-platform-item"
                                      data-platform-name="{{ platform.name|lower }}"
                                      data-game-count="{{ platform.game_count }}">
                                     <div class="form-check">
-                                        <input class="form-check-input platform-checkbox"
+                                        <input class="form-check-input search-platform-checkbox"
                                                type="checkbox"
-                                               value="{{ platform.id }}" id="platform_{{ platform.id }}"
+                                               value="{{ platform.id }}" id="search_platform_{{ platform.id }}"
                                                {% if platform.id in selected_platforms %}checked{% endif %}>
                                         <label class="form-check-label small"
-                                               for="platform_{{ platform.id }}">
+                                               for="search_platform_{{ platform.id }}">
                                             {{ platform.name }}
                                             <span class="text-muted ms-1">({{ platform.game_count }})</span>
                                         </label>
@@ -108,7 +108,7 @@
                     <!-- Кнопка "Show all platforms" -->
                     <div class="text-center mt-2">
                         <button type="button"
-                                class="btn btn-outline-secondary btn-sm show-all-platforms-btn">
+                                class="btn btn-outline-secondary btn-sm search-show-all-platforms-btn">
                             <span class="show-text">Show all platforms</span>
                             <span class="hide-text" style="display: none;">Show less</span>
                         </button>
@@ -118,19 +118,19 @@
 
             <!-- Game Types -->
             <div class="filter-subsection mt-3">
-                <div class="toggle-subsection mb-2" data-target="game-types-content">
+                <div class="toggle-subsection mb-2" data-target="search-game-types-content">
                     <label class="form-label mb-0 d-flex align-items-center">
                         <i class="bi bi-chevron-down me-1"></i>🎲 Game Types:
                     </label>
                 </div>
-                <div id="game-types-content">
+                <div id="search-game-types-content">
                     <!-- Активные типы игр -->
-                    <div id="active-game-types" class="mb-2">
+                    <div id="search-active-game-types" class="mb-2">
                         {% if selected_game_types %}
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <div class="d-flex align-items-center gap-2">
                                     <button type="button"
-                                            class="btn btn-sm clear-game-types-btn btn-outline-secondary"
+                                            class="btn btn-sm search-clear-game-types-btn btn-outline-secondary"
                                             style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
                                             data-param="gt">
                                         <i class="bi bi-x-circle me-1"></i>Clear All
@@ -143,9 +143,9 @@
                         {% endif %}
 
                         <!-- Видимые типы игр -->
-                        <div id="visible-game-types-badges">
+                        <div id="search-visible-game-types-badges">
                             {% for game_type_id, game_type_name in selected_game_types_objects %}
-                                <span class="badge bg-secondary me-1 mb-1 active-game-type-tag"
+                                <span class="badge bg-secondary me-1 mb-1 search-active-game-type-tag"
                                       data-game-type-id="{{ game_type_id }}"
                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
                                     {{ game_type_name }}
@@ -156,25 +156,25 @@
                     </div>
 
                     <!-- Поле поиска для типов игр -->
-                    <input type="text" class="form-control mb-2" id="game-type-search"
+                    <input type="text" class="form-control mb-2" id="search-game-type-search"
                            placeholder="Search game types..." autocomplete="off">
 
                     <!-- Список типов игр -->
-                    <div class="game-type-list border rounded p-2"
+                    <div class="search-game-type-list border rounded p-2"
                          style="max-height: 200px; overflow-y: auto;">
-                        <div class="game-type-grid"
+                        <div class="search-game-type-grid"
                              style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
                             {% for game_type_id, game_type_name in game_types %}
-                                <div class="game-type-item"
+                                <div class="search-game-type-item"
                                      data-game-type-name="{{ game_type_name|lower }}">
                                     <div class="form-check">
-                                        <input class="form-check-input game-type-checkbox"
+                                        <input class="form-check-input search-game-type-checkbox"
                                                type="checkbox"
                                                value="{{ game_type_id }}"
-                                               id="game_type_{{ game_type_id }}"
+                                               id="search_game_type_{{ game_type_id }}"
                                                {% if game_type_id in selected_game_types %}checked{% endif %}>
                                         <label class="form-check-label small"
-                                               for="game_type_{{ game_type_id }}">
+                                               for="search_game_type_{{ game_type_id }}">
                                             {{ game_type_name }}
                                         </label>
                                     </div>
@@ -186,8 +186,624 @@
                     <!-- Кнопка "Show all game types" -->
                     <div class="text-center mt-2">
                         <button type="button"
-                                class="btn btn-outline-secondary btn-sm show-all-game-types-btn">
+                                class="btn btn-outline-secondary btn-sm search-show-all-game-types-btn">
                             <span class="show-text">Show all game types</span>
+                            <span class="hide-text" style="display: none;">Show less</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Genres -->
+            <div class="filter-subsection mt-3">
+                <div class="toggle-subsection mb-2" data-target="search-genres-content">
+                    <label class="form-label mb-0 d-flex align-items-center">
+                        <i class="bi bi-chevron-down me-1"></i>Genres:
+                    </label>
+                </div>
+                <div id="search-genres-content">
+                    <!-- Активные жанры -->
+                    <div id="search-active-genres" class="mb-2">
+                        {% if selected_genres %}
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div class="d-flex align-items-center gap-2">
+                                    <button type="button"
+                                            class="btn btn-sm search-clear-genres-btn btn-outline-primary"
+                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                                            data-param="g">
+                                        <i class="bi bi-x-circle me-1"></i>Clear All
+                                    </button>
+                                    <small class="text-muted" style="font-weight: 500;">
+                                        Selected genres ({{ selected_genres|length }})
+                                    </small>
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        <!-- Видимые жанры (первые 27) -->
+                        <div id="search-visible-genres-badges">
+                            {% for genre in selected_genres_objects|slice:":27" %}
+                                <span class="badge bg-primary me-1 mb-1 search-active-genre-tag"
+                                      data-genre-id="{{ genre.id }}"
+                                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                    {{ genre.name }} <i class="bi bi-x ms-1"
+                                                        style="font-size: 0.9rem;"></i>
+                                </span>
+                            {% endfor %}
+                        </div>
+
+                        <!-- Скрытые жанры (остальные) -->
+                        {% if selected_genres_objects|length > 27 %}
+                            <div id="search-hidden-genres-badges" style="display: none;">
+                                {% for genre in selected_genres_objects|slice:"27:" %}
+                                    <span class="badge bg-primary me-1 mb-1 search-active-genre-tag"
+                                          data-genre-id="{{ genre.id }}"
+                                          style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                        {{ genre.name }} <i class="bi bi-x ms-1"
+                                                            style="font-size: 0.9rem;"></i>
+                                    </span>
+                                {% endfor %}
+                            </div>
+
+                            <!-- Кнопки показать/скрыть -->
+                            <div class="text-center mt-2">
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-secondary search-show-more-genres"
+                                        onclick="toggleSearchMoreGenres(this)">
+                                    <i class="bi bi-chevron-down"></i> Show all
+                                    ({{ selected_genres_objects|length }})
+                                </button>
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-secondary search-show-less-genres"
+                                        style="display: none;"
+                                        onclick="toggleSearchLessGenres(this)">
+                                    <i class="bi bi-chevron-up"></i> Show less
+                                </button>
+                            </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Поле поиска для жанров -->
+                    <input type="text" class="form-control mb-2" id="search-genre-search"
+                           placeholder="Search genres..." autocomplete="off">
+
+                    <!-- Список жанров -->
+                    <div class="search-genre-list border rounded p-2"
+                         style="max-height: 200px; overflow-y: auto;">
+                        <div class="search-genre-grid"
+                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                            {% for genre in genres %}
+                                <div class="search-genre-item"
+                                     data-genre-name="{{ genre.name|lower }}">
+                                    <div class="form-check">
+                                        <input class="form-check-input search-genre-checkbox"
+                                               type="checkbox"
+                                               value="{{ genre.id }}" id="search_genre_{{ genre.id }}"
+                                               {% if genre.id in selected_genres %}checked{% endif %}>
+                                        <label class="form-check-label small"
+                                               for="search_genre_{{ genre.id }}">
+                                            {{ genre.name }}
+                                        </label>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <!-- Кнопка "Show all genres" -->
+                    <div class="text-center mt-2">
+                        <button type="button"
+                                class="btn btn-outline-secondary btn-sm search-show-all-genres-btn">
+                            <span class="show-text">Show all genres</span>
+                            <span class="hide-text" style="display: none;">Show less</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Features -->
+            <div class="filter-subsection mt-3">
+                <div class="toggle-subsection mb-2" data-target="search-features-content">
+                    <label class="form-label mb-0 d-flex align-items-center">
+                        <i class="bi bi-chevron-down me-1"></i>Features:
+                    </label>
+                </div>
+                <div id="search-features-content">
+                    <!-- Активные ключевые слова -->
+                    <div id="search-active-keywords" class="mb-2">
+                        {% if selected_keywords %}
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div class="d-flex align-items-center gap-2">
+                                    <button type="button"
+                                            class="btn btn-sm search-clear-keywords-btn btn-outline-success"
+                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                                            data-param="k">
+                                        <i class="bi bi-x-circle me-1"></i>Clear All
+                                    </button>
+                                    <small class="text-muted" style="font-weight: 500;">
+                                        Selected features ({{ selected_keywords|length }})
+                                    </small>
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        <!-- Видимые ключевые слова (первые 27) -->
+                        <div id="search-visible-keywords-badges">
+                            {% for keyword in selected_keywords_objects|slice:":27" %}
+                                <span class="badge bg-success me-1 mb-1 search-active-keyword-tag"
+                                      data-keyword-id="{{ keyword.id }}"
+                                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                    {{ keyword.name }} <i class="bi bi-x ms-1"
+                                                          style="font-size: 0.9rem;"></i>
+                                </span>
+                            {% endfor %}
+                        </div>
+
+                        <!-- Скрытые ключевые слова (остальные) -->
+                        {% if selected_keywords_objects|length > 27 %}
+                            <div id="search-hidden-keywords-badges" style="display: none;">
+                                {% for keyword in selected_keywords_objects|slice:"27:" %}
+                                    <span class="badge bg-success me-1 mb-1 search-active-keyword-tag"
+                                          data-keyword-id="{{ keyword.id }}"
+                                          style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                        {{ keyword.name }} <i class="bi bi-x ms-1"
+                                                              style="font-size: 0.9rem;"></i>
+                                    </span>
+                                {% endfor %}
+                            </div>
+
+                            <!-- Кнопки показать/скрыть -->
+                            <div class="text-center mt-2">
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-secondary search-show-more-keywords"
+                                        onclick="toggleSearchMoreKeywords(this)">
+                                    <i class="bi bi-chevron-down"></i> Show all
+                                    ({{ selected_keywords_objects|length }})
+                                </button>
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-secondary search-show-less-keywords"
+                                        style="display: none;"
+                                        onclick="toggleSearchLessKeywords(this)">
+                                    <i class="bi bi-chevron-up"></i> Show less
+                                </button>
+                            </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Поле поиска для ключевых слов -->
+                    <input type="text" class="form-control mb-2" id="search-keyword-search"
+                           placeholder="Search features..." autocomplete="off">
+
+                    <!-- Список ключевых слов -->
+                    <div class="search-keyword-list border rounded p-2"
+                         style="max-height: 200px; overflow-y: auto;">
+                        <div class="search-keyword-grid"
+                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                            {% for keyword in keywords %}
+                                <div class="search-keyword-item"
+                                     data-keyword-name="{{ keyword.name|lower }}">
+                                    <div class="form-check">
+                                        <input class="form-check-input search-keyword-checkbox"
+                                               type="checkbox"
+                                               value="{{ keyword.id }}"
+                                               id="search_keyword_{{ keyword.id }}"
+                                               {% if keyword.id in selected_keywords %}checked{% endif %}>
+                                        <label class="form-check-label small"
+                                               for="search_keyword_{{ keyword.id }}">
+                                            {{ keyword.name }}
+                                        </label>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <!-- Кнопка "Show all features" -->
+                    <div class="text-center mt-2">
+                        <button type="button"
+                                class="btn btn-outline-secondary btn-sm search-show-all-keywords-btn">
+                            <span class="show-text">Show all features</span>
+                            <span class="hide-text" style="display: none;">Show less</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Themes -->
+            <div class="filter-subsection mt-3">
+                <div class="toggle-subsection mb-2" data-target="search-themes-content">
+                    <label class="form-label mb-0 d-flex align-items-center">
+                        <i class="bi bi-chevron-down me-1"></i>🎭 Themes:
+                    </label>
+                </div>
+                <div id="search-themes-content">
+                    <!-- Активные темы -->
+                    <div id="search-active-themes" class="mb-2">
+                        {% if selected_themes %}
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div class="d-flex align-items-center gap-2">
+                                    <button type="button"
+                                            class="btn btn-sm search-clear-themes-btn btn-outline-warning"
+                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                                            data-param="t">
+                                        <i class="bi bi-x-circle me-1"></i>Clear All
+                                    </button>
+                                    <small class="text-muted" style="font-weight: 500;">
+                                        Selected themes ({{ selected_themes|length }})
+                                    </small>
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        <!-- Видимые темы (первые 27) -->
+                        <div id="search-visible-themes-badges">
+                            {% for theme in selected_themes_objects|slice:":27" %}
+                                <span class="badge bg-warning me-1 mb-1 search-active-theme-tag"
+                                      data-theme-id="{{ theme.id }}"
+                                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                    {{ theme.name }} <i class="bi bi-x ms-1"
+                                                        style="font-size: 0.9rem;"></i>
+                                </span>
+                            {% endfor %}
+                        </div>
+
+                        <!-- Скрытые темы (остальные) -->
+                        {% if selected_themes_objects|length > 27 %}
+                            <div id="search-hidden-themes-badges" style="display: none;">
+                                {% for theme in selected_themes_objects|slice:"27:" %}
+                                    <span class="badge bg-warning me-1 mb-1 search-active-theme-tag"
+                                          data-theme-id="{{ theme.id }}"
+                                          style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                        {{ theme.name }} <i class="bi bi-x ms-1"
+                                                            style="font-size: 0.9rem;"></i>
+                                    </span>
+                                {% endfor %}
+                            </div>
+
+                            <!-- Кнопки показать/скрыть -->
+                            <div class="text-center mt-2">
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-secondary search-show-more-themes"
+                                        onclick="toggleSearchMoreThemes(this)">
+                                    <i class="bi bi-chevron-down"></i> Show all
+                                    ({{ selected_themes_objects|length }})
+                                </button>
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-secondary search-show-less-themes"
+                                        style="display: none;"
+                                        onclick="toggleSearchLessThemes(this)">
+                                    <i class="bi bi-chevron-up"></i> Show less
+                                </button>
+                            </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Поле поиска для тем -->
+                    <input type="text" class="form-control mb-2" id="search-theme-search"
+                           placeholder="Search themes..." autocomplete="off">
+
+                    <!-- Список тем -->
+                    <div class="search-theme-list border rounded p-2"
+                         style="max-height: 200px; overflow-y: auto;">
+                        <div class="search-theme-grid"
+                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                            {% for theme in themes %}
+                                <div class="search-theme-item"
+                                     data-theme-name="{{ theme.name|lower }}">
+                                    <div class="form-check">
+                                        <input class="form-check-input search-theme-checkbox"
+                                               type="checkbox"
+                                               value="{{ theme.id }}" id="search_theme_{{ theme.id }}"
+                                               {% if theme.id in selected_themes %}checked{% endif %}>
+                                        <label class="form-check-label small"
+                                               for="search_theme_{{ theme.id }}">
+                                            {{ theme.name }}
+                                        </label>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <!-- Кнопка "Show all themes" -->
+                    <div class="text-center mt-2">
+                        <button type="button"
+                                class="btn btn-outline-secondary btn-sm search-show-all-themes-btn">
+                            <span class="show-text">Show all themes</span>
+                            <span class="hide-text" style="display: none;">Show less</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Perspectives -->
+            <div class="filter-subsection mt-3">
+                <div class="toggle-subsection mb-2" data-target="search-perspectives-content">
+                    <label class="form-label mb-0 d-flex align-items-center">
+                        <i class="bi bi-chevron-down me-1"></i>👁️ Perspectives:
+                    </label>
+                </div>
+                <div id="search-perspectives-content">
+                    <!-- Активные перспективы -->
+                    <div id="search-active-perspectives" class="mb-2">
+                        {% if selected_perspectives %}
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div class="d-flex align-items-center gap-2">
+                                    <button type="button"
+                                            class="btn btn-sm search-clear-perspectives-btn btn-outline-info"
+                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                                            data-param="pp">
+                                        <i class="bi bi-x-circle me-1"></i>Clear All
+                                    </button>
+                                    <small class="text-muted" style="font-weight: 500;">
+                                        Selected perspectives ({{ selected_perspectives|length }})
+                                    </small>
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        <!-- Видимые перспективы (первые 27) -->
+                        <div id="search-visible-perspectives-badges">
+                            {% for perspective in selected_perspectives_objects|slice:":27" %}
+                                <span class="badge bg-info me-1 mb-1 search-active-perspective-tag"
+                                      data-perspective-id="{{ perspective.id }}"
+                                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                    {{ perspective.name }} <i class="bi bi-x ms-1"
+                                                              style="font-size: 0.9rem;"></i>
+                                </span>
+                            {% endfor %}
+                        </div>
+
+                        <!-- Скрытые перспективы (остальные) -->
+                        {% if selected_perspectives_objects|length > 27 %}
+                            <div id="search-hidden-perspectives-badges" style="display: none;">
+                                {% for perspective in selected_perspectives_objects|slice:"27:" %}
+                                    <span class="badge bg-info me-1 mb-1 search-active-perspective-tag"
+                                          data-perspective-id="{{ perspective.id }}"
+                                          style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                        {{ perspective.name }} <i class="bi bi-x ms-1"
+                                                                  style="font-size: 0.9rem;"></i>
+                                    </span>
+                                {% endfor %}
+                            </div>
+
+                            <!-- Кнопки показать/скрыть -->
+                            <div class="text-center mt-2">
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-secondary search-show-more-perspectives"
+                                        onclick="toggleSearchMorePerspectives(this)">
+                                    <i class="bi bi-chevron-down"></i> Show all
+                                    ({{ selected_perspectives_objects|length }})
+                                </button>
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-secondary search-show-less-perspectives"
+                                        style="display: none;"
+                                        onclick="toggleSearchLessPerspectives(this)">
+                                    <i class="bi bi-chevron-up"></i> Show less
+                                </button>
+                            </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Поле поиска для перспектив -->
+                    <input type="text" class="form-control mb-2" id="search-perspective-search"
+                           placeholder="Search perspectives..." autocomplete="off">
+
+                    <!-- Список перспектив -->
+                    <div class="search-perspective-list border rounded p-2"
+                         style="max-height: 200px; overflow-y: auto;">
+                        <div class="search-perspective-grid"
+                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                            {% for perspective in perspectives %}
+                                <div class="search-perspective-item"
+                                     data-perspective-name="{{ perspective.name|lower }}">
+                                    <div class="form-check">
+                                        <input class="form-check-input search-perspective-checkbox"
+                                               type="checkbox"
+                                               value="{{ perspective.id }}"
+                                               id="search_perspective_{{ perspective.id }}"
+                                               {% if perspective.id in selected_perspectives %}checked{% endif %}>
+                                        <label class="form-check-label small"
+                                               for="search_perspective_{{ perspective.id }}">
+                                            {{ perspective.name }}
+                                        </label>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <!-- Кнопка "Show all perspectives" -->
+                    <div class="text-center mt-2">
+                        <button type="button"
+                                class="btn btn-outline-secondary btn-sm search-show-all-perspectives-btn">
+                            <span class="show-text">Show all perspectives</span>
+                            <span class="hide-text" style="display: none;">Show less</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Game Modes -->
+            <div class="filter-subsection mt-3">
+                <div class="toggle-subsection mb-2" data-target="search-game-modes-content">
+                    <label class="form-label mb-0 d-flex align-items-center">
+                        <i class="bi bi-chevron-down me-1"></i>🎮 Game Modes:
+                    </label>
+                </div>
+                <div id="search-game-modes-content">
+                    <!-- Активные режимы игры -->
+                    <div id="search-active-game-modes" class="mb-2">
+                        {% if selected_game_modes %}
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div class="d-flex align-items-center gap-2">
+                                    <button type="button"
+                                            class="btn btn-sm search-clear-game-modes-btn btn-outline-purple"
+                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                                            data-param="gm">
+                                        <i class="bi bi-x-circle me-1"></i>Clear All
+                                    </button>
+                                    <small class="text-muted" style="font-weight: 500;">
+                                        Selected game modes ({{ selected_game_modes|length }})
+                                    </small>
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        <!-- Видимые режимы игры -->
+                        <div id="search-visible-game-modes-badges">
+                            {% for game_mode in selected_game_modes_objects %}
+                                <span class="badge bg-purple me-1 mb-1 search-active-game-mode-tag"
+                                      data-game-mode-id="{{ game_mode.id }}"
+                                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                    {{ game_mode.name }} <i class="bi bi-x ms-1"
+                                                            style="font-size: 0.9rem;"></i>
+                                </span>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <!-- Поле поиска для режимов игры -->
+                    <input type="text" class="form-control mb-2" id="search-game-mode-search"
+                           placeholder="Search game modes..." autocomplete="off">
+
+                    <!-- Список режимов игры -->
+                    <div class="search-game-mode-list border rounded p-2"
+                         style="max-height: 200px; overflow-y: auto;">
+                        <div class="search-game-mode-grid"
+                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                            {% for game_mode in game_modes %}
+                                <div class="search-game-mode-item"
+                                     data-game-mode-name="{{ game_mode.name|lower }}">
+                                    <div class="form-check">
+                                        <input class="form-check-input search-game-mode-checkbox"
+                                               type="checkbox"
+                                               value="{{ game_mode.id }}"
+                                               id="search_game_mode_{{ game_mode.id }}"
+                                               {% if game_mode.id in selected_game_modes %}checked{% endif %}>
+                                        <label class="form-check-label small"
+                                               for="search_game_mode_{{ game_mode.id }}">
+                                            {{ game_mode.name }}
+                                        </label>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <!-- Кнопка "Show all game modes" -->
+                    <div class="text-center mt-2">
+                        <button type="button"
+                                class="btn btn-outline-secondary btn-sm search-show-all-game-modes-btn">
+                            <span class="show-text">Show all game modes</span>
+                            <span class="hide-text" style="display: none;">Show less</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Game Engines -->
+            <div class="filter-subsection mt-3">
+                <div class="toggle-subsection mb-2" data-target="search-engines-content">
+                    <label class="form-label mb-0 d-flex align-items-center">
+                        <i class="bi bi-chevron-down me-1"></i>⚙️ Game Engines:
+                    </label>
+                </div>
+                <div id="search-engines-content">
+                    <!-- Активные движки -->
+                    <div id="search-active-engines" class="mb-2">
+                        {% if selected_engines %}
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <div class="d-flex align-items-center gap-2">
+                                    <button type="button"
+                                            class="btn btn-sm search-clear-engines-btn btn-outline-warning"
+                                            style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                                            data-param="e">
+                                        <i class="bi bi-x-circle me-1"></i>Clear All
+                                    </button>
+                                    <small class="text-muted" style="font-weight: 500;">
+                                        Selected engines ({{ selected_engines|length }})
+                                    </small>
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        <!-- Видимые движки (первые 27) -->
+                        <div id="search-visible-engines-badges">
+                            {% for engine in selected_engines_objects|slice:":27" %}
+                                <span class="badge bg-warning me-1 mb-1 search-active-engine-tag"
+                                      data-engine-id="{{ engine.id }}"
+                                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                    {{ engine.name }} <i class="bi bi-x ms-1"
+                                                         style="font-size: 0.9rem;"></i>
+                                </span>
+                            {% endfor %}
+                        </div>
+
+                        <!-- Скрытые движки (остальные) -->
+                        {% if selected_engines_objects|length > 27 %}
+                            <div id="search-hidden-engines-badges" style="display: none;">
+                                {% for engine in selected_engines_objects|slice:"27:" %}
+                                    <span class="badge bg-warning me-1 mb-1 search-active-engine-tag"
+                                          data-engine-id="{{ engine.id }}"
+                                          style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                        {{ engine.name }} <i class="bi bi-x ms-1"
+                                                             style="font-size: 0.9rem;"></i>
+                                    </span>
+                                {% endfor %}
+                            </div>
+
+                            <!-- Кнопки показать/скрыть -->
+                            <div class="text-center mt-2">
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-secondary search-show-more-engines"
+                                        onclick="toggleSearchMoreEngines(this)">
+                                    <i class="bi bi-chevron-down"></i> Show all
+                                    ({{ selected_engines_objects|length }})
+                                </button>
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-secondary search-show-less-engines"
+                                        style="display: none;"
+                                        onclick="toggleSearchLessEngines(this)">
+                                    <i class="bi bi-chevron-up"></i> Show less
+                                </button>
+                            </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Поле поиска для движков -->
+                    <input type="text" class="form-control mb-2" id="search-engine-search"
+                           placeholder="Search engines..." autocomplete="off">
+
+                    <!-- Список движков -->
+                    <div class="search-engine-list border rounded p-2"
+                         style="max-height: 200px; overflow-y: auto;">
+                        <div class="search-engine-grid"
+                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                            {% for engine in engines %}
+                                <div class="search-engine-item"
+                                     data-engine-name="{{ engine.name|lower }}">
+                                    <div class="form-check">
+                                        <input class="form-check-input search-engine-checkbox"
+                                               type="checkbox"
+                                               value="{{ engine.id }}"
+                                               id="search_engine_{{ engine.id }}"
+                                               {% if engine.id in selected_engines %}checked{% endif %}>
+                                        <label class="form-check-label small"
+                                               for="search_engine_{{ engine.id }}">
+                                            {{ engine.name }}
+                                        </label>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <!-- Кнопка "Show all engines" -->
+                    <div class="text-center mt-2">
+                        <button type="button"
+                                class="btn btn-outline-secondary btn-sm search-show-all-engines-btn">
+                            <span class="show-text">Show all engines</span>
                             <span class="hide-text" style="display: none;">Show less</span>
                         </button>
                     </div>
@@ -196,19 +812,19 @@
 
             <!-- Release Date Filter -->
             <div class="filter-subsection mt-3">
-                <div class="toggle-subsection mb-2" data-target="release-date-content">
+                <div class="toggle-subsection mb-2" data-target="search-release-date-content">
                     <label class="form-label mb-0 d-flex align-items-center">
                         <i class="bi bi-chevron-down me-1"></i>📅 Release Date:
                     </label>
                 </div>
-                <div id="release-date-content" class="release-date-filter">
+                <div id="search-release-date-content" class="release-date-filter">
                     <!-- Активный бейдж фильтра даты -->
                     {% if selected_release_year_start or selected_release_year_end %}
-                        <div id="active-date-filter" class="mb-3">
+                        <div id="search-active-date-filter" class="mb-3">
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <div class="d-flex align-items-center gap-2">
                                     <button type="button"
-                                            class="btn btn-sm clear-date-filter-btn btn-outline-warning"
+                                            class="btn btn-sm search-clear-date-filter-btn btn-outline-warning"
                                             style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
                                             data-param="yr,ys,ye">
                                         <i class="bi bi-x-circle me-1"></i>Clear Date Filter
@@ -219,8 +835,8 @@
                                 </div>
                             </div>
 
-                            <div id="visible-date-filter-badges">
-                            <span class="badge bg-warning me-1 mb-1 active-date-filter-tag"
+                            <div id="search-visible-date-filter-badges">
+                            <span class="badge bg-warning me-1 mb-1 search-active-date-filter-tag"
                                   data-date-range="{{ selected_release_year_start|default:'' }}-{{ selected_release_year_end|default:'' }}">
                                 {% if selected_release_year_start and selected_release_year_end %}
                                     {{ selected_release_year_start }} - {{ selected_release_year_end }}
@@ -242,23 +858,23 @@
                                max="{{ years_range.max_year }}"
                                value="{{ selected_release_year_start|default:years_range.min_year }}"
                                class="slider-range"
-                               id="year-range-slider-min"
-                               oninput="updateYearRange('min')">
+                               id="search-year-range-slider-min"
+                               oninput="updateSearchYearRange('min')">
 
                         <input type="range"
                                min="{{ years_range.min_year }}"
                                max="{{ years_range.max_year }}"
                                value="{{ selected_release_year_end|default:years_range.max_year }}"
                                class="slider-range"
-                               id="year-range-slider-max"
-                               oninput="updateYearRange('max')">
+                               id="search-year-range-slider-max"
+                               oninput="updateSearchYearRange('max')">
 
                         <div class="range-values">
                             <div class="range-min">
-                                <span id="min-year-value">{{ selected_release_year_start|default:years_range.min_year }}</span>
+                                <span id="search-min-year-value">{{ selected_release_year_start|default:years_range.min_year }}</span>
                             </div>
                             <div class="range-max">
-                                <span id="max-year-value">{{ selected_release_year_end|default:years_range.max_year }}</span>
+                                <span id="search-max-year-value">{{ selected_release_year_end|default:years_range.max_year }}</span>
                             </div>
                         </div>
 
@@ -270,50 +886,50 @@
                     <!-- Поля для ручного ввода -->
                     <div class="year-inputs">
                         <div class="year-input-group">
-                            <label for="manual-year-start">Start Year:</label>
+                            <label for="search-manual-year-start">Start Year:</label>
                             <input type="number"
-                                   id="manual-year-start"
+                                   id="search-manual-year-start"
                                    class="year-input"
                                    min="{{ years_range.min_year }}"
                                    max="{{ years_range.max_year }}"
                                    value="{{ selected_release_year_start|default:'' }}"
                                    placeholder="From year..."
-                                   onchange="updateYearFromInput('start')">
+                                   onchange="updateSearchYearFromInput('start')">
                         </div>
 
                         <div class="year-input-group">
-                            <label for="manual-year-end">End Year:</label>
+                            <label for="search-manual-year-end">End Year:</label>
                             <input type="number"
-                                   id="manual-year-end"
+                                   id="search-manual-year-end"
                                    class="year-input"
                                    min="{{ years_range.min_year }}"
                                    max="{{ years_range.max_year }}"
                                    value="{{ selected_release_year_end|default:'' }}"
                                    placeholder="To year..."
-                                   onchange="updateYearFromInput('end')">
+                                   onchange="updateSearchYearFromInput('end')">
                         </div>
                     </div>
 
                     <!-- Quick selection buttons -->
                     <div class="d-flex flex-wrap gap-2 mt-3">
                         <button type="button" class="btn btn-sm btn-outline-secondary"
-                                onclick="setYearRange('last5')">
+                                onclick="setSearchYearRange('last5')">
                             Last 5 Years
                         </button>
                         <button type="button" class="btn btn-sm btn-outline-secondary"
-                                onclick="setYearRange('2010s')">
+                                onclick="setSearchYearRange('2010s')">
                             2010s
                         </button>
                         <button type="button" class="btn btn-sm btn-outline-secondary"
-                                onclick="setYearRange('2000s')">
+                                onclick="setSearchYearRange('2000s')">
                             2000s
                         </button>
                         <button type="button" class="btn btn-sm btn-outline-secondary"
-                                onclick="setYearRange('1990s')">
+                                onclick="setSearchYearRange('1990s')">
                             1990s
                         </button>
                         <button type="button" class="btn btn-sm btn-outline-secondary"
-                                onclick="setYearRange('1980s')">
+                                onclick="setSearchYearRange('1980s')">
                             1980s
                         </button>
                     </div>

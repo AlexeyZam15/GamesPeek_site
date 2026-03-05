@@ -5,11 +5,17 @@ const FilterSearch = {
     setupSearchFilters() {
         console.log('Setting up search filters...');
 
-        // Поиск в Search Filters (не влияют на find_similar)
+        // Search Filters (специфичные классы)
         this.setupSearchInput('platform-search', '.platform-item', 'data-platform-name');
         this.setupSearchInput('game-type-search', '.game-type-item', 'data-game-type-name');
+        this.setupSearchInput('search-genre-search', '.search-genre-item', 'data-genre-name');
+        this.setupSearchInput('search-keyword-search', '.search-keyword-item', 'data-keyword-name');
+        this.setupSearchInput('search-theme-search', '.search-theme-item', 'data-theme-name');
+        this.setupSearchInput('search-perspective-search', '.search-perspective-item', 'data-perspective-name');
+        this.setupSearchInput('search-game-mode-search', '.search-game-mode-item', 'data-game-mode-name');
+        this.setupSearchInput('search-engine-search', '.search-engine-item', 'data-engine-name');
 
-        // Поиск в Similarity Filters (влияют на find_similar)
+        // Similarity Filters (оригинальные классы)
         this.setupSearchInput('genre-search', '.genre-item', 'data-genre-name');
         this.setupSearchInput('keyword-search', '.keyword-item', 'data-keyword-name');
         this.setupSearchInput('theme-search', '.theme-item', 'data-theme-name');
@@ -45,7 +51,7 @@ const FilterSearch = {
 
             items.forEach(item => {
                 const itemName = item.getAttribute(dataAttribute);
-                const isMatch = itemName && itemName.toLowerCase().includes(searchTerm);  // ИСПРАВЛЕНО: toLowerCase()
+                const isMatch = itemName && itemName.toLowerCase().includes(searchTerm);
 
                 if (isMatch) {
                     item.style.display = 'block';
@@ -56,10 +62,10 @@ const FilterSearch = {
                 }
             });
 
-            console.log(`Search "${searchTerm}": ${visibleCount} visible items`);
+            console.log(`Search "${searchTerm}" in ${inputId}: ${visibleCount} visible items`);
 
             // ОСОБЫЙ СЛУЧАЙ: для ключевых слов обновляем пагинацию
-            if (inputId === 'keyword-search') {
+            if (inputId === 'keyword-search' || inputId === 'search-keyword-search') {
                 this.handleKeywordSearchUpdate(searchTerm, visibleCount);
             }
 
@@ -80,7 +86,7 @@ const FilterSearch = {
                     });
 
                     // ОСОБЫЙ СЛУЧАЙ: для ключевых слов восстанавливаем пагинацию
-                    if (inputId === 'keyword-search') {
+                    if (inputId === 'keyword-search' || inputId === 'search-keyword-search') {
                         this.handleKeywordSearchClear();
                     }
 
@@ -141,13 +147,22 @@ const FilterSearch = {
     // Быстрый поиск по всем фильтрам
     quickSearchAll(term) {
         const searchConfigs = [
+            // Search Filters
+            { inputId: 'platform-search', selector: '.platform-item', attr: 'data-platform-name' },
+            { inputId: 'game-type-search', selector: '.game-type-item', attr: 'data-game-type-name' },
+            { inputId: 'search-genre-search', selector: '.search-genre-item', attr: 'data-genre-name' },
+            { inputId: 'search-keyword-search', selector: '.search-keyword-item', attr: 'data-keyword-name' },
+            { inputId: 'search-theme-search', selector: '.search-theme-item', attr: 'data-theme-name' },
+            { inputId: 'search-perspective-search', selector: '.search-perspective-item', attr: 'data-perspective-name' },
+            { inputId: 'search-game-mode-search', selector: '.search-game-mode-item', attr: 'data-game-mode-name' },
+            { inputId: 'search-engine-search', selector: '.search-engine-item', attr: 'data-engine-name' },
+
+            // Similarity Filters
             { inputId: 'genre-search', selector: '.genre-item', attr: 'data-genre-name' },
             { inputId: 'keyword-search', selector: '.keyword-item', attr: 'data-keyword-name' },
-            { inputId: 'platform-search', selector: '.platform-item', attr: 'data-platform-name' },
             { inputId: 'theme-search', selector: '.theme-item', attr: 'data-theme-name' },
             { inputId: 'perspective-search', selector: '.perspective-item', attr: 'data-perspective-name' },
             { inputId: 'game-mode-search', selector: '.game-mode-item', attr: 'data-game-mode-name' },
-            { inputId: 'game-type-search', selector: '.game-type-item', attr: 'data-game-type-name' },
             { inputId: 'engine-search', selector: '.engine-item', attr: 'data-engine-name' }
         ];
 
