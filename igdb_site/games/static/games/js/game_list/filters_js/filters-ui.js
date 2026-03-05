@@ -1,4 +1,4 @@
-// games/static/games/js/game_list/filters-ui.js
+// games/static/games/js/game_list/filters_js/filters-ui.js
 
 const FilterUI = {
     // Инициализация секций
@@ -451,6 +451,108 @@ const FilterUI = {
         });
     },
 
+    // ===== НОВЫЙ МЕТОД: Настройка вкладок фильтров =====
+    setupFilterTabs() {
+        console.log('Setting up filter tabs...');
+
+        // Находим элементы вкладок
+        const triggerTabList = document.querySelectorAll('#filterTab button[data-bs-toggle="tab"]');
+
+        if (triggerTabList.length === 0) {
+            console.log('Filter tabs not found, skipping setup.');
+            return;
+        }
+
+        // Инициализируем каждую вкладку с помощью Bootstrap API
+        triggerTabList.forEach(triggerEl => {
+            // Используем Bootstrap.Tab для корректной работы
+            try {
+                new bootstrap.Tab(triggerEl);
+            } catch (e) {
+                // Если bootstrap не доступен глобально, используем простой обработчик
+                console.warn('Bootstrap Tab not available, using fallback handler.');
+                triggerEl.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    // Простое переключение классов для демонстрации
+                    const targetId = triggerEl.getAttribute('data-bs-target');
+                    if (targetId) {
+                        // Деактивируем все вкладки и панели
+                        document.querySelectorAll('#filterTab .nav-link').forEach(link => {
+                            link.classList.remove('active');
+                            link.setAttribute('aria-selected', 'false');
+                        });
+                        document.querySelectorAll('.tab-content .tab-pane').forEach(pane => {
+                            pane.classList.remove('show', 'active');
+                        });
+
+                        // Активируем текущую вкладку и панель
+                        triggerEl.classList.add('active');
+                        triggerEl.setAttribute('aria-selected', 'true');
+                        const targetPane = document.querySelector(targetId);
+                        if (targetPane) {
+                            targetPane.classList.add('show', 'active');
+                        }
+                    }
+                });
+            }
+        });
+
+        // Восстанавливаем последнюю активную вкладку из localStorage
+        this.restoreActiveTab();
+
+        // Сохраняем состояние вкладки при клике
+        triggerTabList.forEach(triggerEl => {
+            triggerEl.addEventListener('shown.bs.tab', (event) => {
+                const targetId = event.target.getAttribute('data-bs-target');
+                if (targetId) {
+                    try {
+                        localStorage.setItem('activeFilterTab', targetId);
+                    } catch (e) {
+                        console.warn('Could not save active tab state:', e);
+                    }
+                }
+            });
+        });
+    },
+
+    // ===== НОВЫЙ МЕТОД: Восстановление активной вкладки =====
+    restoreActiveTab() {
+        try {
+            const activeTabId = localStorage.getItem('activeFilterTab');
+            if (activeTabId) {
+                const tabToActivate = document.querySelector(`#filterTab button[data-bs-target="${activeTabId}"]`);
+                if (tabToActivate) {
+                    // Используем Bootstrap.Tab для активации
+                    try {
+                        const tabInstance = new bootstrap.Tab(tabToActivate);
+                        tabInstance.show();
+                    } catch (e) {
+                        // Фолбэк
+                        const triggerEl = tabToActivate;
+                        const targetId = triggerEl.getAttribute('data-bs-target');
+                        if (targetId) {
+                            document.querySelectorAll('#filterTab .nav-link').forEach(link => {
+                                link.classList.remove('active');
+                                link.setAttribute('aria-selected', 'false');
+                            });
+                            document.querySelectorAll('.tab-content .tab-pane').forEach(pane => {
+                                pane.classList.remove('show', 'active');
+                            });
+                            triggerEl.classList.add('active');
+                            triggerEl.setAttribute('aria-selected', 'true');
+                            const targetPane = document.querySelector(targetId);
+                            if (targetPane) {
+                                targetPane.classList.add('show', 'active');
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('Could not restore active tab state:', e);
+        }
+    },
+
     // Инициализация всех UI компонентов
     initializeAllUI() {
         console.log('Initializing all UI components...');
@@ -462,6 +564,8 @@ const FilterUI = {
             this.setupSearchInputs();
             this.setupBadgeEffects();
             this.setupCheckboxAnimations();
+            // ===== ДОБАВЛЯЕМ ВЫЗОВ НОВОГО МЕТОДА =====
+            this.setupFilterTabs();
 
             console.log('All UI components initialized successfully');
         } catch (error) {

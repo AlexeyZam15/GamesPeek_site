@@ -361,6 +361,157 @@
     color: white !important;
 }
 
+/* ===== НОВЫЕ СТИЛИ ДЛЯ ВКЛАДОК ФИЛЬТРОВ ===== */
+
+/* Контейнер для вкладок */
+.filter-tabs-container {
+    padding: 0;
+    margin-bottom: 1.5rem !important;
+    border-bottom: 1px solid var(--border);
+    background: transparent;
+}
+
+/* Стили для навигационных вкладок */
+.filter-tabs-container .nav-tabs {
+    border-bottom: none;
+    display: flex;
+    flex-wrap: wrap;
+    padding-left: 0;
+    margin-bottom: 0;
+    list-style: none;
+    gap: 2px;
+}
+
+.filter-tabs-container .nav-item {
+    margin-bottom: 0;
+    flex: 1 1 auto;
+    text-align: center;
+}
+
+.filter-tabs-container .nav-link {
+    display: block;
+    padding: 0.85rem 0.5rem;
+    font-weight: 700;
+    font-size: 1rem;
+    letter-spacing: 0.3px;
+    color: var(--text-dark);
+    background-color: rgba(255, 255, 255, 0.02);
+    border: none;
+    border-bottom: 3px solid transparent;
+    border-radius: 8px 8px 0 0;
+    transition: all 0.2s ease-in-out;
+    cursor: pointer;
+    width: 100%;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Эффект подсветки при наведении */
+.filter-tabs-container .nav-link::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 107, 53, 0.1), transparent);
+    transition: left 0.5s ease;
+}
+
+.filter-tabs-container .nav-link:hover::before {
+    left: 100%;
+}
+
+.filter-tabs-container .nav-link:hover {
+    color: var(--secondary-color);
+    border-bottom-color: var(--secondary-color);
+    background-color: rgba(255, 107, 53, 0.05);
+}
+
+/* Активная вкладка */
+.filter-tabs-container .nav-link.active {
+    color: var(--secondary-color);
+    background-color: rgba(255, 107, 53, 0.1);
+    border-bottom: 3px solid var(--secondary-color);
+    font-weight: 800;
+    box-shadow: 0 4px 12px rgba(255, 107, 53, 0.15);
+}
+
+/* Убираем лишние рамки от Bootstrap */
+.filter-tabs-container .nav-tabs .nav-link:focus,
+.filter-tabs-container .nav-tabs .nav-link:hover {
+    isolation: auto;
+    border-color: transparent transparent var(--secondary-color) transparent;
+}
+
+.filter-tabs-container .nav-tabs .nav-link.active:focus,
+.filter-tabs-container .nav-tabs .nav-link.active:hover {
+    border-color: transparent transparent var(--secondary-color) transparent;
+}
+
+/* Иконки во вкладках */
+.filter-tabs-container .nav-link i,
+.filter-tabs-container .nav-link .bi {
+    margin-right: 8px;
+    font-size: 1.1rem;
+    vertical-align: middle;
+}
+
+/* Контейнер содержимого вкладок */
+.tab-content {
+    padding: 1rem 0;
+}
+
+/* Панели вкладок */
+.tab-pane {
+    display: none;
+}
+
+.tab-pane.active {
+    display: block;
+}
+
+/* Анимация появления контента */
+.tab-pane.fade {
+    transition: opacity 0.25s linear;
+}
+
+.tab-pane.fade:not(.show) {
+    opacity: 0;
+}
+
+.tab-pane.fade.show {
+    opacity: 1;
+}
+
+/* Адаптивность для мобильных устройств */
+@media (max-width: 768px) {
+    .filter-tabs-container .nav-link {
+        padding: 0.7rem 0.25rem;
+        font-size: 0.9rem;
+    }
+
+    .filter-tabs-container .nav-link i,
+    .filter-tabs-container .nav-link .bi {
+        margin-right: 4px;
+        font-size: 1rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .filter-tabs-container .nav-link {
+        padding: 0.6rem 0.15rem;
+        font-size: 0.8rem;
+        white-space: nowrap;
+    }
+
+    .filter-tabs-container .nav-link i,
+    .filter-tabs-container .nav-link .bi {
+        margin-right: 2px;
+        font-size: 0.9rem;
+    }
+}
+
 /* Стили для подсекций */
 .filter-subsection {
     margin-bottom: 25px;
