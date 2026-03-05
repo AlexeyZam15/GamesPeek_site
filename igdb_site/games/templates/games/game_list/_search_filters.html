@@ -39,9 +39,9 @@
                                 <span class="badge bg-info me-1 mb-1 search-active-platform-tag"
                                       data-platform-id="{{ platform.id }}"
                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
-                                    {{ platform.name }} ({{ platform.game_count }})
-                                    <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
-                                </span>
+                        {{ platform.name }} ({{ platform.game_count }})
+                        <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                    </span>
                             {% endfor %}
                         </div>
 
@@ -52,9 +52,9 @@
                                     <span class="badge bg-info me-1 mb-1 search-active-platform-tag"
                                           data-platform-id="{{ platform.id }}"
                                           style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
-                                        {{ platform.name }} ({{ platform.game_count }})
-                                        <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
-                                    </span>
+                            {{ platform.name }} ({{ platform.game_count }})
+                            <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                        </span>
                                 {% endfor %}
                             </div>
 
@@ -76,8 +76,8 @@
                         {% endif %}
                     </div>
 
-                    <!-- Поле поиска для платформ -->
-                    <input type="text" class="form-control mb-2" id="search-platform-search"
+                    <!-- Поле поиска для платформ (ДОБАВЛЕНО) -->
+                    <input type="text" class="form-control mb-2" id="platform-search"
                            placeholder="Search platforms..." autocomplete="off">
 
                     <!-- Список платформ -->
@@ -148,15 +148,15 @@
                                 <span class="badge bg-secondary me-1 mb-1 search-active-game-type-tag"
                                       data-game-type-id="{{ game_type_id }}"
                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
-                                    {{ game_type_name }}
-                                    <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
-                                </span>
+                        {{ game_type_name }}
+                        <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                    </span>
                             {% endfor %}
                         </div>
                     </div>
 
-                    <!-- Поле поиска для типов игр -->
-                    <input type="text" class="form-control mb-2" id="search-game-type-search"
+                    <!-- Поле поиска для типов игр (ДОБАВЛЕНО) -->
+                    <input type="text" class="form-control mb-2" id="game-type-search"
                            placeholder="Search game types..." autocomplete="off">
 
                     <!-- Список типов игр -->
