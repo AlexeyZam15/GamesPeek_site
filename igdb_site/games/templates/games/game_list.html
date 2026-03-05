@@ -7,14 +7,14 @@
 {% block extra_css %}
     <link rel="stylesheet" href="{% static 'games/css/game_list/filters.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/game_list/date_filter.css' %}">
-    <link rel="stylesheet" href="{% static 'games/css/game_list/sticky-button.css' %}">
+    <!-- Убрали ссылку на sticky-button.css -->
     <link rel="stylesheet" href="{% static 'games/css/components/cards.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/game_list/keywords_pagination.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/game_list/games_pagination.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/game_list.css' %}">
     <!-- Подключаем стили для заглушки фильтров -->
     <link rel="stylesheet" href="{% static 'games/css/game_list/filters-skeleton.css' %}">
-    <!-- НОВЫЙ CSS для вкладок -->
+    <!-- Стили для вкладок -->
     <link rel="stylesheet" href="{% static 'games/css/game_list/filter-tabs.css' %}">
 {% endblock %}
 
@@ -70,6 +70,6 @@
     <!-- SIMILARITY COMPARE BUTTONS -->
     <script src="{% static 'games/js/game_list/similarity-compare.js' %}"></script>
 
-    <!-- SIMILARITY DISPLAY - ДОБАВЛЕНО -->
+    <!-- SIMILARITY DISPLAY -->
     <script src="{% static 'games/js/game_list/similarity-display.js' %}"></script>
 {% endblock %}
