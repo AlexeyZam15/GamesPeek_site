@@ -18,7 +18,38 @@
     display: none;
 }
 
-/* Стили для skeleton элементов */
+/* ===== СТИЛИ ДЛЯ ВКЛАДОК ===== */
+
+.skeleton-tab {
+    height: 42px;
+    background: linear-gradient(90deg, var(--border) 25%, var(--surface) 50%, var(--border) 75%);
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.5s infinite;
+    border-radius: 8px 8px 0 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 10px;
+    margin: 0 2px;
+}
+
+/* ===== РАЗМЫТАЯ НАДПИСЬ ===== */
+
+.skeleton-blurred-text {
+    filter: blur(3px);
+    opacity: 0.5;
+    pointer-events: none;
+    user-select: none;
+    padding: 15px;
+    margin: 5px 0;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+}
+
+/* ===== ОБЩИЕ СТИЛИ ===== */
+
 .skeleton-label {
     height: 24px;
     width: 60px;
@@ -124,11 +155,24 @@
         width: 120px;
         height: 38px;
     }
+
+    .skeleton-tab {
+        height: 36px;
+    }
 }
 
 @media (max-width: 576px) {
     .skeleton-button-primary,
     .skeleton-button-secondary {
         width: 100%;
+    }
+
+    .skeleton-tab {
+        height: 34px;
+        font-size: 0.8rem;
+    }
+
+    .skeleton-text[style*="width: 200px"] {
+        width: 150px !important;
     }
 }
