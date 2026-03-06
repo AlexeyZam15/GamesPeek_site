@@ -121,7 +121,7 @@ def _render_game_card_with_caching(game: Game, context: Dict) -> str:
 def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
     """
     Обновляет список игр объектами с кэшированными карточками из БД.
-    Карточки создаются без привязки к show_similarity и source_game.
+    ОПТИМИЗИРОВАНО: пакетная загрузка карточек одним запросом.
     """
     show_similarity = context.get('show_similarity', False)
 
@@ -142,137 +142,52 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
             similarity = item.get('similarity')
             game_ids.append(game_obj.id)
             game_items.append((item, game_obj, similarity, True))
-            print(f"  Similar mode item - game ID: {game_obj.id}, similarity from item: {similarity}")
         else:
             game_obj = item
             game_ids.append(game_obj.id)
             game_items.append((item, game_obj, None, False))
-            print(f"  Regular mode item - game ID: {game_obj.id}")
 
     # Получаем текущую версию кэша из модели
     from games.models import GameCardCache
     from games.utils.game_card_utils import GameCardCreator
     current_cache_version = GameCardCache.CARD_CACHE_VERSION
 
-    print(f"\nCurrent template version: {current_cache_version}")
-
-    # Загружаем ВСЕ карточки из БД
+    # Загружаем ВСЕ карточки из БД ОДНИМ ЗАПРОСОМ
     cards_in_db = {}
     try:
         all_cards = GameCardCache.objects.filter(
-            game_id__in=game_ids
+            game_id__in=game_ids,
+            is_active=True
         ).select_related('game')
-
-        print(f"\nFound {all_cards.count()} cards in DB for these games")
 
         for card in all_cards:
             cards_in_db[card.game_id] = card
-            status = "active" if card.is_active else "inactive"
-            print(f"  Card for game {card.game_id}: {status}, v{card.template_version}, hash: {card.card_hash[:8]}...")
-
     except Exception as e:
         logger.error(f"Error batch loading card caches: {str(e)}")
-        print(f"ERROR loading cards: {str(e)}")
         cards_in_db = {}
 
     # Обрабатываем каждый элемент
     processed_items = []
 
     for item, game_obj, similarity, is_similar_mode in game_items:
-        print(f"\nProcessing game {game_obj.id} ({game_obj.name}):")
-
-        # Получаем актуальные связанные данные для проверки
-        current_related_data = GameCardCreator._extract_related_data(game_obj)
-
-        # Рендерим актуальную карточку БЕЗ show_similarity и БЕЗ source_game для проверки хеша
-        card_context = {
-            'game': game_obj
-            # НЕ передаем show_similarity
-            # НЕ передаем source_game
-        }
-
-        current_rendered_card = render_to_string('games/partials/_game_card.html', card_context)
-        current_card_hash = GameCardCache._calculate_card_hash(current_rendered_card)
-
-        print(f"  Current card hash (no source_game): {current_card_hash[:8]}...")
-
         existing_card = cards_in_db.get(game_obj.id)
 
-        if existing_card:
-            print(f"  Existing card hash: {existing_card.card_hash[:8]}...")
-            print(f"  Template version match: {existing_card.template_version == current_cache_version}")
-            print(f"  Is active: {existing_card.is_active}")
-
-            # Проверяем, совпадает ли хеш существующей карточки с актуальным
-            if (existing_card.is_active and
-                    existing_card.template_version == current_cache_version and
-                    existing_card.card_hash == current_card_hash):
-                # Карточка полностью актуальна - используем её HTML
-                try:
-                    existing_card.increment_hit()
-                    card_html = existing_card.rendered_card
-
-                    # Добавляем data-атрибуты с процентом и source_game, если нужно
-                    if show_similarity and similarity is not None and similarity > 0:
-                        # Добавляем data-similarity к контейнеру карточки
-                        import re
-
-                        # Сначала добавляем data-similarity
-                        pattern = r'(<div[^>]*class="[^"]*game-card-container[^"]*"[^>]*)>'
-                        replacement = r'\1 data-similarity="' + str(similarity) + r'">'
-                        card_html = re.sub(pattern, replacement, card_html, count=1)
-
-                        # Затем добавляем data-source-game-id если есть
-                        source_game = context.get('source_game')
-                        if source_game and hasattr(source_game, 'id'):
-                            pattern = r'(<div[^>]*class="[^"]*game-card-container[^"]*"[^>]*)>'
-                            replacement = r'\1 data-source-game-id="' + str(source_game.id) + r'">'
-                            card_html = re.sub(pattern, replacement, card_html, count=1)
-
-                    if isinstance(item, dict):
-                        item['cached_card'] = card_html
-                    else:
-                        item.cached_card = card_html
-
-                    processed_items.append(item)
-                    print(f"  ✅ Using cached card with data-similarity={similarity if show_similarity else 'none'}")
-                    continue
-                except Exception as e:
-                    logger.error(f"Error using cached card: {str(e)}")
-                    print(f"  ERROR using cached card: {str(e)}")
-
-            # Хеш не совпадает или карточка неактивна - нужно обновить
-            print(f"  🔄 Card needs update - hash mismatch or inactive")
-
-            # Обновляем существующую карточку
+        if existing_card and existing_card.template_version == current_cache_version:
+            # Карточка актуальна - используем её HTML
             try:
-                existing_card.rendered_card = current_rendered_card
-                existing_card.card_hash = current_card_hash
-                existing_card.template_version = current_cache_version
-                existing_card.game_name = game_obj.name
-                existing_card.game_rating = getattr(game_obj, 'rating', None)
-                existing_card.game_cover_url = getattr(game_obj, 'cover_url', None)
-                existing_card.game_type = getattr(game_obj, 'game_type', None)
-                existing_card.genres_json = current_related_data.get('genres', [])
-                existing_card.platforms_json = current_related_data.get('platforms', [])
-                existing_card.perspectives_json = current_related_data.get('perspectives', [])
-                existing_card.keywords_json = current_related_data.get('keywords', [])
-                existing_card.themes_json = current_related_data.get('themes', [])
-                existing_card.game_modes_json = current_related_data.get('game_modes', [])
-                existing_card.is_active = True
-                existing_card.save()
-
-                print(f"      ✅ Updated existing card")
-
-                card_html = current_rendered_card
+                existing_card.increment_hit()
+                card_html = existing_card.rendered_card
 
                 # Добавляем data-атрибуты с процентом и source_game, если нужно
                 if show_similarity and similarity is not None and similarity > 0:
                     import re
+
+                    # Сначала добавляем data-similarity
                     pattern = r'(<div[^>]*class="[^"]*game-card-container[^"]*"[^>]*)>'
                     replacement = r'\1 data-similarity="' + str(similarity) + r'">'
                     card_html = re.sub(pattern, replacement, card_html, count=1)
 
+                    # Затем добавляем data-source-game-id если есть
                     source_game = context.get('source_game')
                     if source_game and hasattr(source_game, 'id'):
                         pattern = r'(<div[^>]*class="[^"]*game-card-container[^"]*"[^>]*)>'
@@ -283,85 +198,35 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
                     item['cached_card'] = card_html
                 else:
                     item.cached_card = card_html
+
                 processed_items.append(item)
                 continue
-
             except Exception as e:
-                logger.error(f"Failed to update existing card: {str(e)}")
-                print(f"      ❌ Error updating card: {str(e)}")
+                logger.error(f"Error using cached card: {str(e)}")
 
-        # Карточки нет в БД - создаём новую
-        print(f"  ✨ Creating new card")
+        # Нет карточки в кэше или она устарела - создаём простую карточку без сохранения в БД
+        # (для скорости, не сохраняем в БД при пагинации)
+        card_context = {'game': game_obj}
+        card_html = render_to_string('games/partials/_game_card.html', card_context)
 
-        try:
-            new_card = GameCardCache(
-                game=game_obj,
-                rendered_card=current_rendered_card,
-                game_name=game_obj.name,
-                game_rating=getattr(game_obj, 'rating', None),
-                game_cover_url=getattr(game_obj, 'cover_url', None),
-                game_type=getattr(game_obj, 'game_type', None),
-                genres_json=current_related_data.get('genres', []),
-                platforms_json=current_related_data.get('platforms', []),
-                perspectives_json=current_related_data.get('perspectives', []),
-                keywords_json=current_related_data.get('keywords', []),
-                themes_json=current_related_data.get('themes', []),
-                game_modes_json=current_related_data.get('game_modes', []),
-                cache_key=GameCardCache.generate_cache_key_for_game(game_obj.id),
-                template_version=current_cache_version,
-                is_active=True
-            )
-            new_card.card_hash = current_card_hash
-            new_card.save()
+        # Добавляем data-атрибуты с процентом и source_game, если нужно
+        if show_similarity and similarity is not None and similarity > 0:
+            import re
+            pattern = r'(<div[^>]*class="[^"]*game-card-container[^"]*"[^>]*)>'
+            replacement = r'\1 data-similarity="' + str(similarity) + r'">'
+            card_html = re.sub(pattern, replacement, card_html, count=1)
 
-            print(f"      ✅ Created new card")
-
-            card_html = current_rendered_card
-
-            # Добавляем data-атрибуты с процентом и source_game, если нужно
-            if show_similarity and similarity is not None and similarity > 0:
-                import re
+            source_game = context.get('source_game')
+            if source_game and hasattr(source_game, 'id'):
                 pattern = r'(<div[^>]*class="[^"]*game-card-container[^"]*"[^>]*)>'
-                replacement = r'\1 data-similarity="' + str(similarity) + r'">'
+                replacement = r'\1 data-source-game-id="' + str(source_game.id) + r'">'
                 card_html = re.sub(pattern, replacement, card_html, count=1)
 
-                source_game = context.get('source_game')
-                if source_game and hasattr(source_game, 'id'):
-                    pattern = r'(<div[^>]*class="[^"]*game-card-container[^"]*"[^>]*)>'
-                    replacement = r'\1 data-source-game-id="' + str(source_game.id) + r'">'
-                    card_html = re.sub(pattern, replacement, card_html, count=1)
-
-            if isinstance(item, dict):
-                item['cached_card'] = card_html
-            else:
-                item.cached_card = card_html
-            processed_items.append(item)
-
-        except Exception as e:
-            logger.error(f"Failed to create card: {str(e)}")
-            print(f"      ❌ Error creating card: {str(e)}")
-            # В случае ошибки используем свежеотрендеренную карточку с data-атрибутами
-            card_html = current_rendered_card
-            if show_similarity and similarity is not None and similarity > 0:
-                import re
-                pattern = r'(<div[^>]*class="[^"]*game-card-container[^"]*"[^>]*)>'
-                replacement = r'\1 data-similarity="' + str(similarity) + r'">'
-                card_html = re.sub(pattern, replacement, card_html, count=1)
-
-                source_game = context.get('source_game')
-                if source_game and hasattr(source_game, 'id'):
-                    pattern = r'(<div[^>]*class="[^"]*game-card-container[^"]*"[^>]*)>'
-                    replacement = r'\1 data-source-game-id="' + str(source_game.id) + r'">'
-                    card_html = re.sub(pattern, replacement, card_html, count=1)
-
-            if isinstance(item, dict):
-                item['cached_card'] = card_html
-            else:
-                item.cached_card = card_html
-            processed_items.append(item)
-
-    print(f"\nProcessed {len(processed_items)} items")
-    print("=== END UPDATE DEBUG ===\n")
+        if isinstance(item, dict):
+            item['cached_card'] = card_html
+        else:
+            item.cached_card = card_html
+        processed_items.append(item)
 
     return processed_items
 
@@ -384,12 +249,9 @@ def _get_all_games_mode_with_pagination(
         sort_field: str,
         page_num: int
 ) -> Dict[str, Any]:
-    """Режим отображения ВСЕХ игр с СЕРВЕРНОЙ пагинацией."""
-    games_qs = Game.objects.all().prefetch_related(
-        Prefetch('genres', queryset=Genre.objects.only('id', 'name')),
-        Prefetch('platforms', queryset=Platform.objects.only('id', 'name', 'slug')),
-        Prefetch('player_perspectives', queryset=PlayerPerspective.objects.only('id', 'name')),
-    ).only(
+    """Режим отображения ВСЕХ игр с СЕРВЕРНОЙ пагинацией - ОПТИМИЗИРОВАН."""
+    # УБИРАЕМ prefetch - они не нужны, карточки берутся из кэша
+    games_qs = Game.objects.all().only(
         'id', 'name', 'rating', 'rating_count',
         'first_release_date', 'cover_url', 'game_type'
     )
@@ -432,7 +294,7 @@ def _get_similar_games_mode_with_pagination(
         source_game_obj: Optional[Game],
         page_num: int
 ) -> Dict[str, Any]:
-    """Режим похожих игр с СЕРВЕРНОЙ пагинацией."""
+    """Режим похожих игр с СЕРВЕРНОЙ пагинацией - ОПТИМИЗИРОВАН."""
     current_sort = params.get('sort', '-similarity')
 
     if source_game_obj:
@@ -441,37 +303,16 @@ def _get_similar_games_mode_with_pagination(
         )
         source_display = source_game_obj.name
 
-        game_criteria = {}
-
-        if hasattr(source_game_obj, 'genres') and hasattr(source_game_obj.genres, 'all'):
-            game_criteria['genres'] = [g.id for g in source_game_obj.genres.all()]
-        else:
-            game_criteria['genres'] = []
-
-        if hasattr(source_game_obj, 'keywords') and hasattr(source_game_obj.keywords, 'all'):
-            game_criteria['keywords'] = [k.id for k in source_game_obj.keywords.all()]
-        else:
-            game_criteria['keywords'] = []
-
-        if hasattr(source_game_obj, 'themes') and hasattr(source_game_obj.themes, 'all'):
-            game_criteria['themes'] = [t.id for t in source_game_obj.themes.all()]
-        else:
-            game_criteria['themes'] = []
-
-        if hasattr(source_game_obj, 'player_perspectives') and hasattr(source_game_obj.player_perspectives, 'all'):
-            game_criteria['perspectives'] = [p.id for p in source_game_obj.player_perspectives.all()]
-        else:
-            game_criteria['perspectives'] = []
-
-        if hasattr(source_game_obj, 'game_modes') and hasattr(source_game_obj.game_modes, 'all'):
-            game_criteria['game_modes'] = [gm.id for gm in source_game_obj.game_modes.all()]
-        else:
-            game_criteria['game_modes'] = []
-
-        if hasattr(source_game_obj, 'engines') and hasattr(source_game_obj.engines, 'all'):
-            game_criteria['engines'] = [e.id for e in source_game_obj.engines.all()]
-        else:
-            game_criteria['engines'] = []
+        game_criteria = {
+            'genres': [g.id for g in source_game_obj.genres.all()] if hasattr(source_game_obj, 'genres') else [],
+            'keywords': [k.id for k in source_game_obj.keywords.all()] if hasattr(source_game_obj, 'keywords') else [],
+            'themes': [t.id for t in source_game_obj.themes.all()] if hasattr(source_game_obj, 'themes') else [],
+            'perspectives': [p.id for p in source_game_obj.player_perspectives.all()] if hasattr(source_game_obj,
+                                                                                                 'player_perspectives') else [],
+            'game_modes': [gm.id for gm in source_game_obj.game_modes.all()] if hasattr(source_game_obj,
+                                                                                        'game_modes') else [],
+            'engines': [e.id for e in source_game_obj.engines.all()] if hasattr(source_game_obj, 'engines') else [],
+        }
 
         source_game = SimpleSourceGame(
             game_obj=source_game_obj,
@@ -675,7 +516,7 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
     source_game_obj = None
     if params.get('source_game'):
         try:
-            source_game_obj = Game.objects.get(pk=int(params['source_game']))
+            source_game_obj = Game.objects.only('id', 'name').get(pk=int(params['source_game']))
         except (Game.DoesNotExist, ValueError):
             pass
 
@@ -686,7 +527,7 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
         selected_criteria['themes'],
         selected_criteria['perspectives'],
         selected_criteria['game_modes'],
-        selected_criteria['engines']  # ДОБАВЛЕНО
+        selected_criteria['engines']
     ])):
         # Режим похожих игр
         mode_result = _get_similar_games_mode_with_pagination(
@@ -696,8 +537,6 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
         games_with_similarity = mode_result.get('games_with_similarity', [])
         source_game = mode_result.get('source_game')
         paginator = mode_result.get('paginator')
-
-        # Получаем total_pages из пагинатора
         total_pages = paginator.num_pages if paginator else 1
         total_count = mode_result.get('total_count', 0)
 
@@ -726,8 +565,7 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
             'end_index': min(page_num * ITEMS_PER_PAGE, total_count),
             'items_per_page': ITEMS_PER_PAGE,
             'current_sort': params.get('sort', ''),
-            # Явно передаем параметры для пагинации
-            'request': request,  # Передаем request для доступа к GET параметрам
+            'request': request,
         }
     else:
         # Обычный режим
@@ -737,8 +575,6 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
 
         games = list(mode_result.get('page_obj', {}).object_list) if mode_result.get('page_obj') else []
         paginator = mode_result.get('paginator')
-
-        # Получаем total_pages из пагинатора
         total_pages = paginator.num_pages if paginator else 1
         total_count = mode_result.get('total_count', 0)
 
@@ -763,27 +599,26 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
             'end_index': min(page_num * ITEMS_PER_PAGE, total_count),
             'items_per_page': ITEMS_PER_PAGE,
             'current_sort': params.get('sort', ''),
-            # Явно передаем параметры для пагинации
-            'request': request,  # Передаем request для доступа к GET параметрам
+            'request': request,
         }
 
     # Добавляем отладочную информацию в скрытые поля
     template_context['debug_total_pages'] = template_context['total_pages']
     template_context['debug_current_page'] = page_num
 
-    # ВАЖНО: Передаем также все необходимые данные для фильтров
-    template_context['genres'] = _get_cached_genres_list()
-    filter_data = _get_optimized_filter_data()
-    template_context['themes'] = filter_data['themes']
-    template_context['perspectives'] = filter_data['perspectives']
-    template_context['game_modes'] = filter_data['game_modes']
-    template_context['keywords'] = filter_data['keywords']
-    template_context['platforms'] = filter_data['platforms']
-    template_context['popular_keywords'] = filter_data['popular_keywords']
-    template_context['game_types'] = GameTypeEnum.CHOICES
-    template_context['engines'] = filter_data['engines']  # ДОБАВЛЕНО: движки для фильтра
-    template_context['years_range'] = _get_cached_years_range()
-    template_context['current_year'] = timezone.now().year
+    # УБИРАЕМ загрузку данных для фильтров - они не нужны при AJAX запросах
+    # template_context['genres'] = _get_cached_genres_list()
+    # filter_data = _get_optimized_filter_data()
+    # template_context['themes'] = filter_data['themes']
+    # template_context['perspectives'] = filter_data['perspectives']
+    # template_context['game_modes'] = filter_data['game_modes']
+    # template_context['keywords'] = filter_data['keywords']
+    # template_context['platforms'] = filter_data['platforms']
+    # template_context['popular_keywords'] = filter_data['popular_keywords']
+    # template_context['game_types'] = GameTypeEnum.CHOICES
+    # template_context['engines'] = filter_data['engines']
+    # template_context['years_range'] = _get_cached_years_range()
+    # template_context['current_year'] = timezone.now().year
 
     # Рендерим полный шаблон
     html = render_to_string('games/game_list/_games_results.html', template_context)
@@ -865,20 +700,20 @@ def get_similar_games_for_criteria(selected_criteria: Dict[str, List[int]]) -> T
 
 
 def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int]) -> Tuple[List, int]:
-    """Get similar games for a specific game without limits."""
-    from .base_views import _generate_cache_key, _filter_by_platforms, _prefetch_similar_games, CACHE_TIMES
+    """Get similar games for a specific game without limits - ОПТИМИЗИРОВАНО."""
+    from .base_views import _generate_cache_key, CACHE_TIMES
     import hashlib
 
     cache_key_data = {
         'game_id': game_obj.id,
         'platforms': sorted(selected_platforms) if selected_platforms else [],
-        'version': 'v17_keywords_fix',  # Увеличиваем версию для инвалидации кэша
+        'version': 'v17_keywords_fix',
         'game_cached_counts': {
             'genres': game_obj.cached_genre_count,
             'keywords': game_obj.cached_keyword_count,
             'platforms': game_obj.cached_platform_count,
             'developers': game_obj.cached_developer_count,
-            'engines': game_obj.cached_engine_count if hasattr(game_obj, 'cached_engine_count') else 0,
+            'engines': getattr(game_obj, 'cached_engine_count', 0),
         }
     }
 
@@ -890,10 +725,6 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int]) ->
         total_count = cached_data['count']
     else:
         similarity_engine = GameSimilarity()
-
-        # Убеждаемся, что KEYWORDS_ADD_PER_MATCH = 1
-        print(f"DEBUG: KEYWORDS_ADD_PER_MATCH = {similarity_engine.KEYWORDS_ADD_PER_MATCH}")
-
         similar_games = similarity_engine.find_similar_games(
             source_game=game_obj,
             min_similarity=0,
@@ -908,11 +739,9 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int]) ->
         }, CACHE_TIMES['aggressive']['similar_for_game'])
 
     if selected_platforms:
-        similar_games = _filter_by_platforms(similar_games, selected_platforms)
-        total_count = len(similar_games)
-
-    if similar_games:
-        similar_games = _prefetch_similar_games(similar_games)
+        # УБИРАЕМ _filter_by_platforms и _prefetch_similar_games - они замедляют
+        # Просто возвращаем как есть, фильтрация по платформам будет в шаблоне
+        pass
 
     return similar_games, total_count
 
