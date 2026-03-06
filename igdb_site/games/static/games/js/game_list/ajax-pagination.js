@@ -37,6 +37,9 @@ const AjaxPaginationDebugTimer = {
     // Базовый URL для AJAX запросов
     const AJAX_URL = '/ajax/load-games-page/';
 
+    // Флаг для отслеживания, идет ли сейчас предзагрузка
+    let isPrefetching = false;
+
     // Запускаем сразу после загрузки скрипта
     initialize();
 
@@ -89,7 +92,8 @@ const AjaxPaginationDebugTimer = {
             console.log('AjaxPagination: AJAX URL:', ajaxUrl);
             console.log('AjaxPagination: Display URL:', displayUrl);
 
-            loadGamesPageWithCache(ajaxUrl, displayUrl, pageNum);
+            // Загружаем ТОЛЬКО запрошенную страницу
+            loadRequestedPage(ajaxUrl, displayUrl, pageNum);
         });
 
         // Обработка кнопок назад/вперед
@@ -107,7 +111,7 @@ const AjaxPaginationDebugTimer = {
                 console.log('AjaxPagination: Popstate - AJAX URL:', ajaxUrl);
                 console.log('AjaxPagination: Popstate - Display URL:', e.state.displayUrl);
 
-                loadGamesPageWithCache(ajaxUrl, e.state.displayUrl, pageNum, true);
+                loadRequestedPage(ajaxUrl, e.state.displayUrl, pageNum, true);
             }
         });
     }
@@ -185,11 +189,13 @@ const AjaxPaginationDebugTimer = {
             // Кэшируем текущую страницу
             cacheCurrentPage();
 
-            // Ждем 1.5 секунды после полной загрузки и рендеринга первой страницы,
-            // потом начинаем предзагрузку соседних страниц в фоне
+            // Ждем 500ms после полной загрузки, потом начинаем предзагрузку соседних страниц
             setTimeout(() => {
-                prefetchAdjacentPages(pageNum, displayUrl);
-            }, 1500);
+                // Проверяем, что пользователь еще не начал новую загрузку
+                if (!isPrefetching) {
+                    prefetchAdjacentPages(pageNum, displayUrl);
+                }
+            }, 500);
         })
         .catch(error => {
             console.error('AjaxPagination: Error loading initial page:', error);
@@ -325,15 +331,19 @@ const AjaxPaginationDebugTimer = {
     }
 
     /**
-     * Загружает страницу игр с проверкой кэша
+     * Загружает только запрошенную страницу, без предзагрузки
      */
-    function loadGamesPageWithCache(ajaxUrl, displayUrl, pageNum, isPopState = false) {
-        AjaxPaginationDebugTimer.start('loadGamesPageWithCache');
+    function loadRequestedPage(ajaxUrl, displayUrl, pageNum, isPopState = false) {
+        AjaxPaginationDebugTimer.start('loadRequestedPage');
+
+        // Отменяем любую запланированную предзагрузку
+        isPrefetching = false;
+
         const gamesResultsContainer = document.getElementById('games-results-container');
 
         if (!gamesResultsContainer) {
             console.error('AjaxPagination: Games results container not found');
-            AjaxPaginationDebugTimer.end('loadGamesPageWithCache');
+            AjaxPaginationDebugTimer.end('loadRequestedPage');
             return;
         }
 
@@ -356,11 +366,14 @@ const AjaxPaginationDebugTimer = {
                 detail: { page: pageNum, source: 'cache' }
             }));
 
+            // Планируем предзагрузку через 500ms
             setTimeout(() => {
-                prefetchAdjacentPages(pageNum, displayUrl);
-            }, 100);
+                if (!isPrefetching) {
+                    prefetchAdjacentPages(pageNum, displayUrl);
+                }
+            }, 500);
 
-            AjaxPaginationDebugTimer.end('loadGamesPageWithCache');
+            AjaxPaginationDebugTimer.end('loadRequestedPage');
             return;
         }
 
@@ -397,16 +410,19 @@ const AjaxPaginationDebugTimer = {
                 detail: { page: pageNum, source: 'server' }
             }));
 
+            // Планируем предзагрузку через 500ms после полной загрузки
             setTimeout(() => {
-                prefetchAdjacentPages(pageNum, displayUrl);
-            }, 100);
+                if (!isPrefetching) {
+                    prefetchAdjacentPages(pageNum, displayUrl);
+                }
+            }, 500);
         })
         .catch(error => {
             console.error('AjaxPagination: Error:', error);
             hideLoading();
             showErrorMessage('Failed to load page. Please refresh.');
         });
-        AjaxPaginationDebugTimer.end('loadGamesPageWithCache');
+        AjaxPaginationDebugTimer.end('loadRequestedPage');
     }
 
     /**
@@ -450,45 +466,71 @@ const AjaxPaginationDebugTimer = {
     }
 
     /**
-     * Предзагружает соседние страницы
+     * Предзагружает соседние страницы в фоне, по одной с малыми задержками
      */
     function prefetchAdjacentPages(currentPage, baseDisplayUrl) {
         AjaxPaginationDebugTimer.start('prefetchAdjacentPages');
+
+        // Устанавливаем флаг, что началась предзагрузка
+        isPrefetching = true;
+
         const totalPagesInput = document.getElementById('server-total-pages');
         if (!totalPagesInput) {
+            isPrefetching = false;
             AjaxPaginationDebugTimer.end('prefetchAdjacentPages');
             return;
         }
 
         const totalPages = parseInt(totalPagesInput.value, 10);
         if (isNaN(totalPages) || totalPages <= 1) {
+            isPrefetching = false;
             AjaxPaginationDebugTimer.end('prefetchAdjacentPages');
             return;
         }
 
         currentPage = parseInt(currentPage, 10);
 
-        // Собираем страницы для предзагрузки: 2 слева и 2 справа
+        // Определяем страницы для предзагрузки: сначала предыдущая, потом следующая
         const pagesToPrefetch = [];
 
-        // Добавляем страницы слева (от дальних к ближним)
-        if (currentPage - 2 >= 1) pagesToPrefetch.push(currentPage - 2);
-        if (currentPage - 1 >= 1) pagesToPrefetch.push(currentPage - 1);
+        // Сначала предыдущая страница (если есть)
+        if (currentPage - 1 >= 1) {
+            pagesToPrefetch.push(currentPage - 1);
+        }
 
-        // Добавляем страницы справа (от ближних к дальним)
-        if (currentPage + 1 <= totalPages) pagesToPrefetch.push(currentPage + 1);
-        if (currentPage + 2 <= totalPages) pagesToPrefetch.push(currentPage + 2);
+        // Потом следующая страница (если есть)
+        if (currentPage + 1 <= totalPages) {
+            pagesToPrefetch.push(currentPage + 1);
+        }
 
-        console.log('AjaxPagination: Prefetching pages in background', pagesToPrefetch);
+        // Потом дальние
+        if (currentPage - 2 >= 1 && !pagesToPrefetch.includes(currentPage - 2)) {
+            pagesToPrefetch.push(currentPage - 2);
+        }
+        if (currentPage + 2 <= totalPages && !pagesToPrefetch.includes(currentPage + 2)) {
+            pagesToPrefetch.push(currentPage + 2);
+        }
 
-        // Загружаем страницы последовательно с увеличивающейся задержкой
+        console.log('AjaxPagination: Will prefetch pages in background with delays:', pagesToPrefetch);
+
+        // Загружаем страницы последовательно с малыми задержками
         pagesToPrefetch.forEach((page, index) => {
-            // Задержка: 1.5s, 3s, 4.5s, 6s - чтобы не нагружать сервер
-            const delay = 1500 + (index * 1500);
+            // Задержка: 200ms, 400ms, 600ms, 800ms - быстро, но не блокирует UI
+            const delay = 200 + (index * 200);
+
             setTimeout(() => {
-                prefetchSinglePage(page, baseDisplayUrl);
+                // Проверяем, не начал ли пользователь новую навигацию
+                if (isPrefetching) {
+                    prefetchSinglePage(page, baseDisplayUrl);
+                }
             }, delay);
         });
+
+        // Сбрасываем флаг через 3 секунды (после завершения всех предзагрузок)
+        setTimeout(() => {
+            isPrefetching = false;
+        }, 3000);
+
         AjaxPaginationDebugTimer.end('prefetchAdjacentPages');
     }
 
@@ -497,6 +539,13 @@ const AjaxPaginationDebugTimer = {
      */
     function prefetchSinglePage(pageNum, baseDisplayUrl) {
         AjaxPaginationDebugTimer.start('prefetchSinglePage');
+
+        // Проверяем, не начал ли пользователь новую навигацию
+        if (!isPrefetching) {
+            AjaxPaginationDebugTimer.end('prefetchSinglePage');
+            return;
+        }
+
         const params = extractParamsFromUrl(baseDisplayUrl);
         const ajaxUrl = buildAjaxUrl(params, pageNum);
         // Для предзагрузки тоже используем URL с page параметром
@@ -504,9 +553,12 @@ const AjaxPaginationDebugTimer = {
         const cacheKey = generateCacheKey(displayUrl, pageNum);
 
         if (getPageFromCache(cacheKey)) {
+            console.log('AjaxPagination: Page', pageNum, 'already in cache, skipping prefetch');
             AjaxPaginationDebugTimer.end('prefetchSinglePage');
             return;
         }
+
+        console.log('AjaxPagination: Prefetching page', pageNum);
 
         fetch(ajaxUrl, {
             headers: { 'X-Requested-With': 'XMLHttpRequest' },
@@ -514,9 +566,9 @@ const AjaxPaginationDebugTimer = {
         })
         .then(response => response.ok ? response.text() : null)
         .then(html => {
-            if (html) {
+            if (html && isPrefetching) {
                 savePageToCache(cacheKey, html, pageNum);
-                console.log('AjaxPagination: Prefetched page', pageNum);
+                console.log('AjaxPagination: Successfully prefetched page', pageNum);
             }
         })
         .catch(() => {});
@@ -759,7 +811,7 @@ const AjaxPaginationDebugTimer = {
 
     // Экспорт в глобальную область
     window.AjaxPagination = {
-        loadPage: (ajaxUrl, displayUrl, pageNum) => loadGamesPageWithCache(ajaxUrl, displayUrl, pageNum),
+        loadPage: (ajaxUrl, displayUrl, pageNum) => loadRequestedPage(ajaxUrl, displayUrl, pageNum),
         clearCache: clearPageCache,
         reinitializeComponents: reinitializeComponents,
         getCacheStats: () => ({
