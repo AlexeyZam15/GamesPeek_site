@@ -1,6 +1,27 @@
 // games/static/games/js/game_list/similarity-compare.js
+
+// Добавляем служебный объект для таймеров
+const SimilarityCompareDebugTimer = {
+    marks: {},
+    start(label) {
+        this.marks[label] = performance.now();
+    },
+    end(label) {
+        const endTime = performance.now();
+        const startTime = this.marks[label];
+        if (startTime) {
+            const duration = (endTime - startTime).toFixed(2);
+            console.warn(`[TIMER] ${label} took ${duration} ms`);
+            delete this.marks[label];
+        } else {
+            console.warn(`[TIMER] No start mark found for: ${label}`);
+        }
+    }
+};
+
 const SimilarityCompare = {
     init: function() {
+        SimilarityCompareDebugTimer.start('SimilarityCompare.init');
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => this.initCompareButtons());
         } else {
@@ -38,15 +59,18 @@ const SimilarityCompare = {
             childList: true,
             subtree: true
         });
+        SimilarityCompareDebugTimer.end('SimilarityCompare.init');
     },
 
     initCompareButtons: function() {
+        SimilarityCompareDebugTimer.start('SimilarityCompare.initCompareButtons');
         // Проверяем, находимся ли мы в режиме похожих игр
         const isSimilarMode = this.isSimilarMode();
 
         if (!isSimilarMode) {
             // Удаляем все кнопки Compare если не в режиме похожих
             this.removeAllCompareButtons();
+            SimilarityCompareDebugTimer.end('SimilarityCompare.initCompareButtons');
             return;
         }
 
@@ -55,6 +79,7 @@ const SimilarityCompare = {
 
         if (!sourceGameId) {
             console.warn('Source game not found, cannot add Compare buttons');
+            SimilarityCompareDebugTimer.end('SimilarityCompare.initCompareButtons');
             return;
         }
 
@@ -76,6 +101,7 @@ const SimilarityCompare = {
                 this.addCompareButton(card, sourceGameId, gameId);
             }
         });
+        SimilarityCompareDebugTimer.end('SimilarityCompare.initCompareButtons');
     },
 
     isSimilarMode: function() {

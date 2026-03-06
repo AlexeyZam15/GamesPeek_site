@@ -1,5 +1,24 @@
 // games/static/games/js/game_list/filters.js
 
+// Добавляем служебный объект для таймеров
+const FilterManagerDebugTimer = {
+    marks: {},
+    start(label) {
+        this.marks[label] = performance.now();
+    },
+    end(label) {
+        const endTime = performance.now();
+        const startTime = this.marks[label];
+        if (startTime) {
+            const duration = (endTime - startTime).toFixed(2);
+            console.warn(`[TIMER] ${label} took ${duration} ms`);
+            delete this.marks[label];
+        } else {
+            console.warn(`[TIMER] No start mark found for: ${label}`);
+        }
+    }
+};
+
 // Главный файл-загрузчик для модулей фильтров
 // Реэкспортирует все модули и предоставляет точку входа
 
@@ -28,6 +47,7 @@ const FilterManager = {
         // Предотвращаем повторное выполнение
         if (this.skeletonHidden) return;
 
+        FilterManagerDebugTimer.start('hideSkeletonAndShowFilters');
         console.log('🔄 Hiding filters skeleton and showing real filters...');
 
         const skeleton = document.getElementById('filters-skeleton');
@@ -47,6 +67,7 @@ const FilterManager = {
         } else {
             console.warn('⚠️ Skeleton or real filters not found:', { skeleton, realFiltersContainer });
         }
+        FilterManagerDebugTimer.end('hideSkeletonAndShowFilters');
     },
 
     // Проверка, все ли модули инициализированы и фильтры отрисованы
@@ -101,6 +122,7 @@ const FilterManager = {
 
     // Инициализация всех модулей
     init() {
+        FilterManagerDebugTimer.start('FilterManager.init');
         console.log('🚀 Initializing FilterManager with all modules...');
 
         try {
@@ -161,6 +183,7 @@ const FilterManager = {
             // В случае ошибки всё равно показываем фильтры
             setTimeout(() => this.forceShowFilters(), 1000);
         }
+        FilterManagerDebugTimer.end('FilterManager.init');
     },
 
     // Проверка готовности и скрытие заглушки

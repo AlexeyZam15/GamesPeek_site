@@ -1,6 +1,25 @@
 // games/static/games/js/game_list/ajax-pagination.js
 // AJAX пагинация для списка игр с предзагрузкой и кэшированием соседних страниц
 
+// Добавляем служебный объект для таймеров
+const AjaxPaginationDebugTimer = {
+    marks: {},
+    start(label) {
+        this.marks[label] = performance.now();
+    },
+    end(label) {
+        const endTime = performance.now();
+        const startTime = this.marks[label];
+        if (startTime) {
+            const duration = (endTime - startTime).toFixed(2);
+            console.warn(`[TIMER] ${label} took ${duration} ms`);
+            delete this.marks[label];
+        } else {
+            console.warn(`[TIMER] No start mark found for: ${label}`);
+        }
+    }
+};
+
 (function() {
     // Флаг, чтобы предотвратить множественную инициализацию
     if (window.ajaxPaginationInitialized) {
@@ -22,6 +41,7 @@
     initialize();
 
     function initialize() {
+        AjaxPaginationDebugTimer.start('AjaxPagination.initialize');
         // Очищаем устаревший кэш
         clearExpiredCache();
 
@@ -30,6 +50,7 @@
 
         // Загружаем текущую страницу через AJAX
         loadInitialPage();
+        AjaxPaginationDebugTimer.end('AjaxPagination.initialize');
     }
 
     function setupEventListeners() {
@@ -92,6 +113,7 @@
     }
 
     function loadInitialPage() {
+        AjaxPaginationDebugTimer.start('loadInitialPage');
         // Получаем текущий URL
         const currentUrl = window.location.href;
 
@@ -173,6 +195,7 @@
             console.error('AjaxPagination: Error loading initial page:', error);
             hideLoading();
         });
+        AjaxPaginationDebugTimer.end('loadInitialPage');
     }
 
     /**
@@ -232,18 +255,21 @@
      * Кэширует текущую страницу
      */
     function cacheCurrentPage() {
+        AjaxPaginationDebugTimer.start('cacheCurrentPage');
         const gamesResultsContainer = document.getElementById('games-results-container');
         const currentPageInput = document.getElementById('server-current-page');
         const currentUrl = window.location.href;
 
         if (!gamesResultsContainer || !currentPageInput) {
             console.log('AjaxPagination: Cannot cache current page - elements not found');
+            AjaxPaginationDebugTimer.end('cacheCurrentPage');
             return;
         }
 
         const currentPage = currentPageInput.value;
         if (!currentPage) {
             console.log('AjaxPagination: Cannot cache current page - page number not found');
+            AjaxPaginationDebugTimer.end('cacheCurrentPage');
             return;
         }
 
@@ -254,12 +280,14 @@
             savePageToCache(cacheKey, currentHtml, currentPage);
             console.log('AjaxPagination: Cached current page', currentPage, 'with key:', cacheKey);
         }
+        AjaxPaginationDebugTimer.end('cacheCurrentPage');
     }
 
     /**
      * Переинициализирует все компоненты после загрузки нового контента
      */
     function reinitializeComponents() {
+        AjaxPaginationDebugTimer.start('reinitializeComponents');
         console.log('AjaxPagination: Reinitializing components');
 
         // Переинициализируем Bootstrap tooltips
@@ -293,16 +321,19 @@
 
         // Вызываем событие для других модулей
         document.dispatchEvent(new CustomEvent('ajax-content-loaded'));
+        AjaxPaginationDebugTimer.end('reinitializeComponents');
     }
 
     /**
      * Загружает страницу игр с проверкой кэша
      */
     function loadGamesPageWithCache(ajaxUrl, displayUrl, pageNum, isPopState = false) {
+        AjaxPaginationDebugTimer.start('loadGamesPageWithCache');
         const gamesResultsContainer = document.getElementById('games-results-container');
 
         if (!gamesResultsContainer) {
             console.error('AjaxPagination: Games results container not found');
+            AjaxPaginationDebugTimer.end('loadGamesPageWithCache');
             return;
         }
 
@@ -329,6 +360,7 @@
                 prefetchAdjacentPages(pageNum, displayUrl);
             }, 100);
 
+            AjaxPaginationDebugTimer.end('loadGamesPageWithCache');
             return;
         }
 
@@ -374,6 +406,7 @@
             hideLoading();
             showErrorMessage('Failed to load page. Please refresh.');
         });
+        AjaxPaginationDebugTimer.end('loadGamesPageWithCache');
     }
 
     /**
@@ -420,11 +453,18 @@
      * Предзагружает соседние страницы
      */
     function prefetchAdjacentPages(currentPage, baseDisplayUrl) {
+        AjaxPaginationDebugTimer.start('prefetchAdjacentPages');
         const totalPagesInput = document.getElementById('server-total-pages');
-        if (!totalPagesInput) return;
+        if (!totalPagesInput) {
+            AjaxPaginationDebugTimer.end('prefetchAdjacentPages');
+            return;
+        }
 
         const totalPages = parseInt(totalPagesInput.value, 10);
-        if (isNaN(totalPages) || totalPages <= 1) return;
+        if (isNaN(totalPages) || totalPages <= 1) {
+            AjaxPaginationDebugTimer.end('prefetchAdjacentPages');
+            return;
+        }
 
         currentPage = parseInt(currentPage, 10);
 
@@ -449,19 +489,24 @@
                 prefetchSinglePage(page, baseDisplayUrl);
             }, delay);
         });
+        AjaxPaginationDebugTimer.end('prefetchAdjacentPages');
     }
 
     /**
      * Предзагружает одну страницу
      */
     function prefetchSinglePage(pageNum, baseDisplayUrl) {
+        AjaxPaginationDebugTimer.start('prefetchSinglePage');
         const params = extractParamsFromUrl(baseDisplayUrl);
         const ajaxUrl = buildAjaxUrl(params, pageNum);
         // Для предзагрузки тоже используем URL с page параметром
         const displayUrl = buildDisplayUrl(params, pageNum, true);
         const cacheKey = generateCacheKey(displayUrl, pageNum);
 
-        if (getPageFromCache(cacheKey)) return;
+        if (getPageFromCache(cacheKey)) {
+            AjaxPaginationDebugTimer.end('prefetchSinglePage');
+            return;
+        }
 
         fetch(ajaxUrl, {
             headers: { 'X-Requested-With': 'XMLHttpRequest' },
@@ -475,6 +520,7 @@
             }
         })
         .catch(() => {});
+        AjaxPaginationDebugTimer.end('prefetchSinglePage');
     }
 
     /**

@@ -1,5 +1,24 @@
 // games/static/games/js/game_list/filters-init.js
 
+// Добавляем служебный объект для таймеров
+const FiltersInitDebugTimer = {
+    marks: {},
+    start(label) {
+        this.marks[label] = performance.now();
+    },
+    end(label) {
+        const endTime = performance.now();
+        const startTime = this.marks[label];
+        if (startTime) {
+            const duration = (endTime - startTime).toFixed(2);
+            console.warn(`[TIMER] ${label} took ${duration} ms`);
+            delete this.marks[label];
+        } else {
+            console.warn(`[TIMER] No start mark found for: ${label}`);
+        }
+    }
+};
+
 (function() {
     'use strict';
 
@@ -582,11 +601,13 @@
     // ===== ИНИЦИАЛИЗАЦИЯ ПАГИНАЦИИ КЛЮЧЕВЫХ СЛОВ =====
 
     function initKeywordsPagination() {
+        FiltersInitDebugTimer.start('initKeywordsPagination');
         console.log('Initializing keywords pagination...');
 
         const keywordContainer = document.querySelector('.keyword-list');
         if (!keywordContainer) {
             console.log('KeywordsPagination: Keyword container not found');
+            FiltersInitDebugTimer.end('initKeywordsPagination');
             return;
         }
 
@@ -595,6 +616,7 @@
 
         if (totalKeywords <= 30) {
             console.log(`KeywordsPagination: Only ${totalKeywords} keywords, pagination not needed`);
+            FiltersInitDebugTimer.end('initKeywordsPagination');
             return;
         }
 
@@ -618,9 +640,11 @@
                 }, 1000);
             }
         }, 500);
+        FiltersInitDebugTimer.end('initKeywordsPagination');
     }
 
     function loadKeywordsPaginationModule() {
+        FiltersInitDebugTimer.start('loadKeywordsPaginationModule');
         const script = document.createElement('script');
         script.src = '/static/games/js/game_list/keywords-pagination.js';
         script.type = 'module';
@@ -633,10 +657,12 @@
                     window.KeywordsPagination.init();
                 }, 100);
             }
+            FiltersInitDebugTimer.end('loadKeywordsPaginationModule');
         };
 
         script.onerror = function() {
             console.error('KeywordsPagination: Failed to load module');
+            FiltersInitDebugTimer.end('loadKeywordsPaginationModule');
         };
 
         document.head.appendChild(script);
@@ -672,6 +698,7 @@
     // ===== ИНИЦИАЛИЗАЦИЯ =====
 
     document.addEventListener('DOMContentLoaded', function() {
+        FiltersInitDebugTimer.start('filters-init.DOMContentLoaded');
         console.log('Filters initialization: DOM loaded');
 
         ensureCSSVariables();
@@ -783,6 +810,7 @@
             `;
             document.head.appendChild(styleElement);
         }
+        FiltersInitDebugTimer.end('filters-init.DOMContentLoaded');
     });
 
     console.log('Filters initialization script loaded successfully');

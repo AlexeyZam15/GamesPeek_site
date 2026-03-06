@@ -1,8 +1,28 @@
 // games/static/games/js/game_list/filters_js/filters-search.js
 
+// Добавляем служебный объект для таймеров
+const FilterSearchDebugTimer = {
+    marks: {},
+    start(label) {
+        this.marks[label] = performance.now();
+    },
+    end(label) {
+        const endTime = performance.now();
+        const startTime = this.marks[label];
+        if (startTime) {
+            const duration = (endTime - startTime).toFixed(2);
+            console.warn(`[TIMER] ${label} took ${duration} ms`);
+            delete this.marks[label];
+        } else {
+            console.warn(`[TIMER] No start mark found for: ${label}`);
+        }
+    }
+};
+
 const FilterSearch = {
     // Настройка поиска по фильтрам
     setupSearchFilters() {
+        FilterSearchDebugTimer.start('setupSearchFilters');
         console.log('Setting up search filters...');
 
         // Search Filters
@@ -25,6 +45,7 @@ const FilterSearch = {
         this.setupSearchInput('perspective-search', '.perspective-item', 'data-perspective-name');
         this.setupSearchInput('game-mode-search', '.game-mode-item', 'data-game-mode-name');
         this.setupSearchInput('engine-search', '.engine-item', 'data-engine-name');
+        FilterSearchDebugTimer.end('setupSearchFilters');
     },
 
     // Настройка одного поля поиска

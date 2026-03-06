@@ -1,5 +1,24 @@
 // games/static/games/js/game_list.js
 
+// Добавляем служебный объект для таймеров
+const GameListDebugTimer = {
+    marks: {},
+    start(label) {
+        this.marks[label] = performance.now();
+    },
+    end(label) {
+        const endTime = performance.now();
+        const startTime = this.marks[label];
+        if (startTime) {
+            const duration = (endTime - startTime).toFixed(2);
+            console.warn(`[TIMER] ${label} took ${duration} ms`);
+            delete this.marks[label];
+        } else {
+            console.warn(`[TIMER] No start mark found for: ${label}`);
+        }
+    }
+};
+
 // Основной файл для инициализации игровой страницы
 // Только загружает и инициализирует модули фильтров
 
@@ -48,6 +67,7 @@ function loadScript(src, callback) {
 
 // Главная функция инициализации всех модулей
 function initializeAllModules() {
+    GameListDebugTimer.start('initializeAllModules');
     console.log('Initializing all modules for game list page...');
 
     // Загружаем модуль инициализации фильтров
@@ -84,6 +104,7 @@ function initializeAllModules() {
             }, 100);
         });
     });
+    GameListDebugTimer.end('initializeAllModules');
 }
 
 // Резервная инициализация модулей по отдельности
