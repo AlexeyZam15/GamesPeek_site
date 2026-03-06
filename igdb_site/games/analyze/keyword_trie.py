@@ -17,13 +17,14 @@ class KeywordTrieNode:
 
 
 class KeywordTrie:
-    """Префиксное дерево для быстрого поиска ключевых слов с поддержкой множественных форм"""
+    """Префиксное дерево для быстрого поиска ключевых слов с поддержкой всех форм слов"""
 
     def __init__(self, verbose: bool = False):
         self.root = KeywordTrieNode()
         self.keywords_cache: Dict[int, dict] = {}
         self.verbose = verbose
         self._verb_forms_cache: Dict[str, List[str]] = {}  # Кэш глагольных форм
+        self._all_forms_cache: Dict[str, Set[str]] = {}  # ДОБАВЛЯЕМ кэш для всех форм
 
         # Инициализируем WordNet
         self.wordnet_available = self._init_wordnet()
@@ -33,6 +34,128 @@ class KeywordTrie:
                 print("✅ WordNet доступен для определения глаголов")
             else:
                 print("⚠️ WordNet недоступен. Глагольные формы определяться не будут.")
+
+    def _generate_all_forms(self, word: str) -> Set[str]:
+        """
+        Генерирует ВСЕ возможные формы слова (существительные, глаголы, прилагательные)
+        Оптимизировано: каждая форма генерируется только один раз с использованием кэша
+        """
+        word_lower = word.lower()
+
+        # Проверяем кэш
+        if word_lower in self._all_forms_cache:
+            return self._all_forms_cache[word_lower]
+
+        forms = set()
+
+        # Базовая форма всегда добавляется
+        forms.add(word_lower)
+
+        # ========== МНОЖЕСТВЕННОЕ ЧИСЛО ==========
+        # Правило 1: y → ies (army → armies)
+        if word_lower.endswith('y') and len(word_lower) > 1 and word_lower[-2] not in 'aeiou':
+            forms.add(word_lower[:-1] + 'ies')
+
+        # Правило 2: стандартное s
+        if len(word_lower) > 1:
+            forms.add(word_lower + 's')
+
+        # Правило 3: es для окончаний s, x, z, ch, sh
+        if word_lower.endswith(('s', 'x', 'z', 'ch', 'sh')):
+            forms.add(word_lower + 'es')
+
+        # ========== ГЛАГОЛЬНЫЕ ФОРМЫ ==========
+        # Проверяем через WordNet, является ли слово глаголом
+        is_verb = self._is_verb_wordnet(word_lower)
+
+        if is_verb:
+            # Формы прошедшего времени и причастия
+            if word_lower.endswith('e'):
+                # explore → explored, exploring
+                forms.add(word_lower + 'd')
+                forms.add(word_lower[:-1] + 'ing')
+            elif word_lower.endswith('y') and len(word_lower) > 1 and word_lower[-2] not in 'aeiou':
+                # try → tried, trying
+                forms.add(word_lower[:-1] + 'ied')
+                forms.add(word_lower + 'ing')
+            elif word_lower.endswith('ie'):
+                # die → died, dying
+                forms.add(word_lower + 'd')
+                forms.add(word_lower[:-2] + 'ying')
+            elif self._should_double_consonant(word_lower):
+                # stop → stopped, stopping
+                doubled = word_lower + word_lower[-1]
+                forms.add(doubled + 'ed')
+                forms.add(doubled + 'ing')
+            else:
+                # play → played, playing
+                forms.add(word_lower + 'ed')
+                forms.add(word_lower + 'ing')
+
+            # Формы 3-го лица единственного числа
+            if word_lower.endswith(('s', 'x', 'z', 'ch', 'sh')):
+                forms.add(word_lower + 'es')
+            elif word_lower.endswith('y') and len(word_lower) > 1 and word_lower[-2] not in 'aeiou':
+                forms.add(word_lower[:-1] + 'ies')
+            elif word_lower.endswith('o'):
+                forms.add(word_lower + 'es')
+            else:
+                forms.add(word_lower + 's')
+
+        # ========== СУЩЕСТВИТЕЛЬНЫЕ ОТ ГЛАГОЛОВ ==========
+        # Существительные на -tion/-ation (explore → exploration)
+        if word_lower.endswith('e'):
+            # Убираем 'e' и добавляем 'ation'
+            forms.add(word_lower[:-1] + 'ation')  # explore → exploration
+            # Также добавляем 'tion' для слов типа 'act' → 'action'
+            forms.add(word_lower + 'tion')
+        else:
+            forms.add(word_lower + 'tion')
+
+        # Существительные на -er/-or (исполнитель действия)
+        forms.add(word_lower + 'r')  # explore → explorer
+        forms.add(word_lower + 'er')  # explore → explorer (альтернатива)
+        if word_lower.endswith('t'):
+            forms.add(word_lower + 'or')  # act → actor
+
+        # Существительные на -ing (герундий)
+        if word_lower.endswith('e'):
+            forms.add(word_lower[:-1] + 'ing')
+        else:
+            forms.add(word_lower + 'ing')
+
+        # ========== ПРИЛАГАТЕЛЬНЫЕ ==========
+        # Прилагательные на -ive (explore → explorative)
+        if word_lower.endswith('e'):
+            forms.add(word_lower[:-1] + 'ive')
+            forms.add(word_lower[:-1] + 'ative')
+        else:
+            forms.add(word_lower + 'ive')
+
+        # Прилагательные на -ory (explore → exploratory)
+        if word_lower.endswith('e'):
+            forms.add(word_lower[:-1] + 'ory')
+            forms.add(word_lower[:-1] + 'atory')
+        else:
+            forms.add(word_lower + 'ory')
+
+        # Прилагательные на -able (explore → explorable)
+        if word_lower.endswith('e'):
+            forms.add(word_lower[:-1] + 'able')
+        else:
+            forms.add(word_lower + 'able')
+
+        # ========== ФИЛЬТРАЦИЯ ==========
+        # Убираем слишком короткие или длинные формы
+        valid_forms = set()
+        for form in forms:
+            if 3 <= len(form) <= 30:
+                valid_forms.add(form)
+
+        # Сохраняем в кэш
+        self._all_forms_cache[word_lower] = valid_forms
+
+        return valid_forms
 
     def _init_wordnet(self) -> bool:
         """Инициализирует WordNet для определения глаголов"""
@@ -66,7 +189,6 @@ class KeywordTrie:
     def _is_verb_wordnet(self, word: str) -> bool:
         """
         Использует WordNet для определения, является ли слово глаголом
-        WordNet может определить часть речи без контекста
         """
         if not self.wordnet_available:
             return False
@@ -89,10 +211,40 @@ class KeywordTrie:
                 print(f"⚠️ Ошибка WordNet для '{word}': {e}")
             return False
 
+    def _should_double_consonant(self, word: str) -> bool:
+        """
+        Проверяет, нужно ли удваивать последнюю согласную перед -ing/-ed
+        """
+        if len(word) < 3:
+            return False
+
+        vowels = set('aeiou')
+        word_lower = word.lower()
+
+        # Более точное правило для удвоения согласных
+        last_three = word_lower[-3:]
+
+        # Проверяем шаблон CVC (согласная-гласная-согласная)
+        if (last_three[0] not in vowels and  # C - согласная
+                last_three[1] in vowels and  # V - гласная
+                last_three[2] not in vowels and  # C - согласная
+                last_three[2] not in ('w', 'x', 'y')):  # некоторые согласные не удваиваются
+
+            # Проверяем, односложное ли слово или ударение на последнем слоге
+            # Для простоты считаем что если слово короткое (<= 4 буквы), то удваиваем
+            if len(word_lower) <= 4:
+                return True
+
+            # Для более длинных слов проверяем есть ли другие гласные
+            vowel_count = sum(1 for char in word_lower if char in vowels)
+            if vowel_count == 1:  # Одна гласная - односложное слово
+                return True
+
+        return False
+
     def _is_word_boundary(self, text: str, start: int, end: int) -> bool:
         """
         Проверяет границы слова
-        УЛУЧШЕНО: разрешает дефис и апостроф после слова для составных слов
         """
         # Проверяем начало
         if start > 0:
@@ -104,15 +256,15 @@ class KeywordTrie:
         if end < len(text):
             next_char = text[end]
 
-            # Допускаем дефис после слова (для составных слов типа "devil-worshipping")
+            # Допускаем дефис после слова
             if next_char == '-':
                 return True
 
-            # Допускаем апостроф после слова (для слов типа "devil's")
+            # Допускаем апостроф после слова
             if next_char == '\'':
                 return True
 
-            # Допускаем множественные формы с 's' (но не если дальше буква)
+            # Допускаем множественные формы с 's'
             if next_char == 's':
                 # Проверяем, что после 's' не идет буква или это конец слова
                 if end + 1 >= len(text):
@@ -131,7 +283,6 @@ class KeywordTrie:
     def find_all_in_text(self, text: str, unique_only: bool = True) -> List[dict]:
         """
         Находит ключевые слова в тексте
-        УЛУЧШЕНО: находит слова внутри составных слов через дефис
         """
         text_lower = text.lower()
         n = len(text_lower)
@@ -183,10 +334,9 @@ class KeywordTrie:
 
         return results
 
-    def find_all_occurrences_in_text(text: str, search_text: str, name: str, category: str) -> List[Dict]:
+    def find_all_occurrences_in_text(self, text: str, search_text: str, name: str, category: str) -> List[Dict]:
         """
         Находит все вхождения текста в строке
-        УЛУЧШЕНО: Разрешает дефисы в составных словах
         """
         occurrences = []
         if not search_text or not text:
@@ -224,7 +374,7 @@ class KeywordTrie:
                     if end_pos + 1 < len(text) and text[end_pos + 1].isalnum():
                         is_valid = False
 
-            if is_valid and not is_inside_html_tag(text, found_pos):
+            if is_valid:
                 occurrences.append({
                     'start': found_pos,
                     'end': end_pos,
@@ -236,57 +386,6 @@ class KeywordTrie:
             pos = found_pos + 1
 
         return occurrences
-
-    def build_from_queryset(self, keywords_queryset):
-        """Строит дерево из QuerySet ключевых слов"""
-        self.keywords_cache.clear()
-        self._verb_forms_cache.clear()
-
-        if self.verbose:
-            print(f"🔨 Строим Trie из {keywords_queryset.count()} ключевых слов...")
-
-        count = 0
-        for keyword in keywords_queryset:
-            # Вставляем слово в нижнем регистре
-            keyword_name_lower = keyword.name.lower()
-            self.insert(keyword_name_lower, keyword.id, keyword.name)
-
-            # Автоматически добавляем формы множественного числа
-            self._add_plural_forms(keyword_name_lower, keyword.id, keyword.name)
-
-            self.keywords_cache[keyword.id] = {
-                'id': keyword.id,
-                'name': keyword.name,
-                'name_lower': keyword.name.lower()
-            }
-            count += 1
-
-            if self.verbose and count % 1000 == 0:
-                print(f"  Загружено {count} ключевых слов...")
-
-        if self.verbose:
-            verb_count = len([k for k in self._verb_forms_cache.keys()])
-            print(f"✅ Trie построен: {count} ключевых слов, {verb_count} с глагольными формами")
-
-    def _add_plural_forms(self, word: str, keyword_id: int, keyword_name: str):
-        """Добавляет формы множественного числа и глагольные формы для слова"""
-        # Правило 1: y → ies (army → armies)
-        if word.endswith('y'):
-            plural_form = word[:-1] + 'ies'
-            self.insert(plural_form, keyword_id, keyword_name)
-
-        # Правило 2: стандартное множественное число с 's'
-        plural_with_s = word + 's'
-        self.insert(plural_with_s, keyword_id, keyword_name)
-
-        # Правило 3: если уже заканчивается на 's', добавляем 'es'
-        if word.endswith('s') or word.endswith('x') or word.endswith('z') or \
-                word.endswith('ch') or word.endswith('sh'):
-            plural_with_es = word + 'es'
-            self.insert(plural_with_es, keyword_id, keyword_name)
-
-        # ДОБАВЛЯЕМ: Глагольные формы ТОЛЬКО для глаголов
-        self._add_verb_forms(word, keyword_id, keyword_name)
 
     def insert(self, word: str, keyword_id: int, keyword_name: str):
         """Вставляет ключевое слово в дерево"""
@@ -300,131 +399,47 @@ class KeywordTrie:
         node.keyword_name = keyword_name
         node.length = len(word)
 
+    def build_from_queryset(self, keywords_queryset):
+        """Строит дерево из QuerySet ключевых слов"""
+        self.keywords_cache.clear()
+        self._all_forms_cache.clear()  # ОЧИЩАЕМ КЭШ ФОРМ
+        self._verb_forms_cache.clear()
+
+        if self.verbose:
+            print(f"🔨 Строим Trie из {keywords_queryset.count()} ключевых слов...")
+
+        count = 0
+        total_forms = 0
+
+        for keyword in keywords_queryset:
+            keyword_name_lower = keyword.name.lower()
+
+            # Генерируем ВСЕ формы слова одним методом
+            all_forms = self._generate_all_forms(keyword_name_lower)
+
+            # Вставляем все формы в дерево
+            for form in all_forms:
+                self.insert(form, keyword.id, keyword.name)
+                total_forms += 1
+
+            # Сохраняем в кэш
+            self.keywords_cache[keyword.id] = {
+                'id': keyword.id,
+                'name': keyword.name,
+                'name_lower': keyword.name.lower()
+            }
+
+            count += 1
+            if self.verbose and count % 1000 == 0:
+                print(f"  Загружено {count} ключевых слов ({total_forms} форм)...")
+
+        if self.verbose:
+            print(f"✅ Trie построен: {count} ключевых слов, {total_forms} форм")
+            print(f"   Среднее количество форм на слово: {total_forms / count:.1f}")
+
     def get_keyword_by_id(self, keyword_id: int) -> Optional[dict]:
         """Быстро получает ключевое слово по ID"""
         return self.keywords_cache.get(keyword_id)
-
-    def _add_verb_forms(self, word: str, keyword_id: int, keyword_name: str):
-        """
-        Добавляет глагольные формы ТОЛЬКО для глаголов
-        Использует WordNet для определения глаголов
-        """
-        # Проверяем через WordNet, является ли слово глаголом
-        if not self._is_verb_wordnet(word):
-            # Не выводим сообщения для каждого слова
-            return
-
-        # Генерируем формы для глагола
-        forms_to_add = self._generate_verb_forms(word)
-
-        if not forms_to_add:
-            return
-
-        # Добавляем формы в Trie
-        forms_added = []
-        for form in forms_to_add:
-            if 3 <= len(form) <= 30:
-                self.insert(form, keyword_id, keyword_name)
-                forms_added.append(form)
-
-        # Кэшируем формы
-        self._verb_forms_cache[word] = forms_added
-
-        # Выводим информацию только в verbose режиме и для примера
-        if self.verbose and forms_added and len(self._verb_forms_cache) % 100 == 0:
-            print(f"   ✅ Обработано {len(self._verb_forms_cache)} глаголов...")
-
-    def _generate_verb_forms(self, word: str) -> List[str]:
-        """
-        Генерирует глагольные формы для слова
-        """
-        word_lower = word.lower()
-        forms = set()
-
-        # Базовая форма
-        forms.add(word_lower)
-
-        # Правила для правильных глаголов
-
-        # 1. Формы прошедшего времени и причастия (-ed, -ing)
-        if word_lower.endswith('e'):
-            # Слова на 'e': добавляем 'd' и убираем 'e' для 'ing'
-            forms.add(word_lower + 'd')  # create → created
-            forms.add(word_lower[:-1] + 'ing')  # create → creating
-        elif word_lower.endswith('y') and len(word_lower) > 1 and word_lower[-2] not in 'aeiou':
-            # Слова на согласная + 'y': y → ied
-            forms.add(word_lower[:-1] + 'ied')  # try → tried
-            forms.add(word_lower + 'ing')  # try → trying
-        elif word_lower.endswith('ie'):
-            # Слова на 'ie': ie → ying
-            forms.add(word_lower[:-2] + 'ying')  # die → dying
-            forms.add(word_lower + 'd')  # die → died
-        elif self._should_double_consonant(word_lower):
-            # Удвоение согласной
-            doubled = word_lower + word_lower[-1]
-            forms.add(doubled + 'ed')  # stop → stopped
-            forms.add(doubled + 'ing')  # stop → stopping
-        else:
-            # Обычные глаголы
-            forms.add(word_lower + 'ed')  # play → played
-            forms.add(word_lower + 'ing')  # play → playing
-
-        # 2. Формы 3-го лица единственного числа (Present Simple)
-        if word_lower.endswith(('s', 'x', 'z', 'ch', 'sh')):
-            forms.add(word_lower + 'es')  # catch → catches, fix → fixes
-        elif word_lower.endswith('y') and len(word_lower) > 1 and word_lower[-2] not in 'aeiou':
-            forms.add(word_lower[:-1] + 'ies')  # try → tries
-        elif word_lower.endswith('o'):
-            forms.add(word_lower + 'es')  # go → goes
-        else:
-            forms.add(word_lower + 's')  # play → plays
-
-        # 3. Особые случаи для неправильных глаголов, которые имеют одинаковые формы
-        # Для большинства глаголов это работает
-
-        # Для "gather" и подобных глаголов:
-        # gather → gathers, gathering, gathered
-
-        # Убедимся что формы не слишком длинные или короткие
-        result = []
-        for form in forms:
-            if 2 <= len(form) <= 50:  # Увеличил максимальную длину
-                result.append(form)
-
-        return result
-
-    def _should_double_consonant(self, word: str) -> bool:
-        """
-        Проверяет, нужно ли удваивать последнюю согласную перед -ing/-ed
-        Правило: если слово заканчивается на согласную-гласную-согласную (CVC)
-        и ударение на последнем слоге
-        """
-        if len(word) < 3:
-            return False
-
-        vowels = set('aeiou')
-        word_lower = word.lower()
-
-        # Более точное правило для удвоения согласных
-        last_three = word_lower[-3:]
-
-        # Проверяем шаблон CVC (согласная-гласная-согласная)
-        if (last_three[0] not in vowels and  # C - согласная
-                last_three[1] in vowels and  # V - гласная
-                last_three[2] not in vowels and  # C - согласная
-                last_three[2] not in ('w', 'x', 'y')):  # некоторые согласные не удваиваются
-
-            # Проверяем, односложное ли слово или ударение на последнем слоге
-            # Для простоты считаем что если слово короткое (<= 4 буквы), то удваиваем
-            if len(word_lower) <= 4:
-                return True
-
-            # Для более длинных слов проверяем есть ли другие гласные
-            vowel_count = sum(1 for char in word_lower if char in vowels)
-            if vowel_count == 1:  # Одна гласная - односложное слово
-                return True
-
-        return False
 
 
 class KeywordTrieManager:
