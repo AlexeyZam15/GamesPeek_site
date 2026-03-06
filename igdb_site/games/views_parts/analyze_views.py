@@ -53,40 +53,62 @@ def delete_keyword(request: HttpRequest, game_id: int):
         # Сохраняем популярность (сколько игр используют этот ключевое слово)
         popularity = len(game_ids_with_keyword)
 
+        print(f"\n--- Удаление ключевого слова: {keyword_name} (ID: {keyword.id}) ---")
+        print(f"Затронуто игр: {popularity}")
+
         # Удаляем ключевое слово из базы данных
         keyword.delete()
+        print(f"✓ Ключевое слово удалено из БД")
 
         # ВАЖНОЕ ИСПРАВЛЕНИЕ: Очищаем кэш Trie после удаления ключевого слова
         from games.analyze.keyword_trie import KeywordTrieManager
         KeywordTrieManager().clear_cache()
-        print(f"✅ Кэш Trie очищен после удаления ключевого слова '{keyword_name}'")
+        print(f"✓ Кэш Trie очищен")
 
-        # Обновляем кэш для ВСЕХ игр, которые использовали это ключевое слово
+        # Обновляем кэш и материализованные векторы для ВСЕХ игр, которые использовали это ключевое слово
         if game_ids_with_keyword:
-            # Оптимизация 1: Используем bulk_update для массового обновления
-            from django.db.models import Count
+            # Оптимизация: Используем bulk_update для массового обновления
             games_to_update = []
 
             # Получаем все игры одним запросом
-            games = Game.objects.filter(id__in=game_ids_with_keyword)
+            games = Game.objects.filter(id__in=game_ids_with_keyword).prefetch_related('keywords')
 
             for game in games:
                 # Пересчитываем количество ключевых слов
                 keyword_count = game.keywords.count()
 
-                # Обновляем кэш только если значение изменилось
-                if game._cached_keyword_count != keyword_count:
+                # ВАЖНО: Обновляем материализованный вектор keyword_ids
+                # Получаем актуальные ID ключевых слов
+                new_keyword_ids = list(game.keywords.values_list('igdb_id', flat=True))
+
+                # Проверяем, изменились ли данные
+                needs_update = (
+                        game._cached_keyword_count != keyword_count or
+                        set(new_keyword_ids) != set(game.keyword_ids or [])
+                )
+
+                if needs_update:
+                    # Обновляем кэшированные счетчики
                     game._cached_keyword_count = keyword_count
                     game._cache_updated_at = timezone.now()
+
+                    # Обновляем материализованный вектор
+                    game.keyword_ids = new_keyword_ids
+
                     games_to_update.append(game)
 
             # Массовое обновление
             if games_to_update:
                 Game.objects.bulk_update(
                     games_to_update,
-                    ['_cached_keyword_count', '_cache_updated_at'],
+                    ['_cached_keyword_count', '_cache_updated_at', 'keyword_ids'],
                     batch_size=100
                 )
+                print(f"✓ Обновлены векторы для {len(games_to_update)} игр")
+            else:
+                print(f"✓ Игры не требуют обновления")
+        else:
+            print(f"✓ Нет игр для обновления")
 
         response_data = {
             'success': True,
@@ -105,10 +127,13 @@ def delete_keyword(request: HttpRequest, game_id: int):
                 'tab': tab,
                 'keyword_deleted': keyword_name
             }
+            print(f"✓ Запланирован автоанализ для игры {game_id}")
 
+        print(f"✓ Готово\n")
         return JsonResponse(response_data)
 
     except Exception as e:
+        print(f"✗ ОШИБКА: {str(e)}")
         return JsonResponse({
             'success': False,
             'message': f'Error deleting keyword: {str(e)}'
