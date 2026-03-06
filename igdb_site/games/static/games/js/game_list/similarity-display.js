@@ -1,7 +1,27 @@
 // games/static/games/js/game_list/similarity-display.js
 
+// Добавляем служебный объект для таймеров
+const SimilarityDisplayDebugTimer = {
+    marks: {},
+    start(label) {
+        this.marks[label] = performance.now();
+    },
+    end(label) {
+        const endTime = performance.now();
+        const startTime = this.marks[label];
+        if (startTime) {
+            const duration = (endTime - startTime).toFixed(2);
+            console.warn(`[TIMER] ${label} took ${duration} ms`);
+            delete this.marks[label];
+        } else {
+            console.warn(`[TIMER] No start mark found for: ${label}`);
+        }
+    }
+};
+
 const SimilarityDisplay = {
     init: function() {
+        SimilarityDisplayDebugTimer.start('SimilarityDisplay.init');
         console.log('SimilarityDisplay initializing...');
 
         if (document.readyState === 'loading') {
@@ -42,15 +62,18 @@ const SimilarityDisplay = {
             childList: true,
             subtree: true
         });
+        SimilarityDisplayDebugTimer.end('SimilarityDisplay.init');
     },
 
     displayAllSimilarities: function() {
+        SimilarityDisplayDebugTimer.start('SimilarityDisplay.displayAllSimilarities');
         const containers = document.querySelectorAll('.game-card-container[data-similarity]');
         console.log(`Found ${containers.length} cards with similarity data`);
 
         containers.forEach(container => {
             this.displaySimilarityForCard(container);
         });
+        SimilarityDisplayDebugTimer.end('SimilarityDisplay.displayAllSimilarities');
     },
 
     displaySimilarityForCard: function(container) {

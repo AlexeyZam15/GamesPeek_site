@@ -1,4 +1,24 @@
 // games/static/games/js/game_list/filters-handlers.js
+
+// Добавляем служебный объект для таймеров
+const FilterHandlersDebugTimer = {
+    marks: {},
+    start(label) {
+        this.marks[label] = performance.now();
+    },
+    end(label) {
+        const endTime = performance.now();
+        const startTime = this.marks[label];
+        if (startTime) {
+            const duration = (endTime - startTime).toFixed(2);
+            console.warn(`[TIMER] ${label} took ${duration} ms`);
+            delete this.marks[label];
+        } else {
+            console.warn(`[TIMER] No start mark found for: ${label}`);
+        }
+    }
+};
+
 const FilterHandlers = {
     // Глобальные переменные
     form: null,
@@ -27,6 +47,7 @@ const FilterHandlers = {
 
     // Восстановление выбранных чекбоксов
     restoreSelectedCheckboxes() {
+        FilterHandlersDebugTimer.start('restoreSelectedCheckboxes');
         console.log('Restoring selected checkboxes...');
 
         const checkboxTypes = [
@@ -47,10 +68,12 @@ const FilterHandlers = {
         });
 
         console.log('Checkbox restoration completed');
+        FilterHandlersDebugTimer.end('restoreSelectedCheckboxes');
     },
 
     // Обновление скрытых полей формы
     updateHiddenFields() {
+        FilterHandlersDebugTimer.start('updateHiddenFields');
         console.log('Updating hidden fields...');
 
         // Маппинг полей
@@ -81,6 +104,7 @@ const FilterHandlers = {
 
         // Обновляем поле поиска похожих игр
         this.updateFindSimilarField();
+        FilterHandlersDebugTimer.end('updateHiddenFields');
     },
 
     // Обновление полей даты
@@ -124,6 +148,7 @@ const FilterHandlers = {
 
     // Настройка обработчиков чекбоксов
     setupCheckboxListeners() {
+        FilterHandlersDebugTimer.start('setupCheckboxListeners');
         console.log('Setting up checkbox listeners...');
 
         const allCheckboxes = document.querySelectorAll(
@@ -146,10 +171,12 @@ const FilterHandlers = {
         });
 
         console.log(`Set up listeners for ${allCheckboxes.length} checkboxes`);
+        FilterHandlersDebugTimer.end('setupCheckboxListeners');
     },
 
     // Настройка кнопок очистки
     setupClearButtons() {
+        FilterHandlersDebugTimer.start('setupClearButtons');
         console.log('Setting up clear buttons...');
 
         const clearButtons = [
@@ -212,10 +239,12 @@ const FilterHandlers = {
                 });
             }
         });
+        FilterHandlersDebugTimer.end('setupClearButtons');
     },
 
     // Очистка фильтра и перезагрузка страницы
     clearFilterAndReload(param) {
+        FilterHandlersDebugTimer.start('clearFilterAndReload');
         const url = new URL(window.location.href);
 
         // Обработка нескольких параметров (например, для даты: yr,ys,ye)
@@ -244,10 +273,12 @@ const FilterHandlers = {
         setTimeout(() => {
             window.location.href = url.toString();
         }, 50);
+        FilterHandlersDebugTimer.end('clearFilterAndReload');
     },
 
     // Удаление активных тегов
     setupActiveTagRemoval() {
+        FilterHandlersDebugTimer.start('setupActiveTagRemoval');
         console.log('Setting up active tag removal...');
 
         document.addEventListener('click', (e) => {
@@ -325,10 +356,12 @@ const FilterHandlers = {
                 }
             });
         });
+        FilterHandlersDebugTimer.end('setupActiveTagRemoval');
     },
 
     // Удаление одного фильтра и перезагрузка
     removeSingleFilterAndReload(param, id) {
+        FilterHandlersDebugTimer.start('removeSingleFilterAndReload');
         const url = new URL(window.location.href);
 
         // Особый случай для фильтра даты
@@ -363,6 +396,7 @@ const FilterHandlers = {
         setTimeout(() => {
             window.location.href = url.toString();
         }, 50);
+        FilterHandlersDebugTimer.end('removeSingleFilterAndReload');
     },
 
     // Автоотправка формы для сортировки
@@ -385,6 +419,7 @@ const FilterHandlers = {
 
     // Триггер сортировки с debounce и принудительной сортировкой
     triggerSort() {
+        FilterHandlersDebugTimer.start('triggerSort');
         console.log('Triggering sort...');
 
         // Используем debounce для предотвращения множественных сортировок
@@ -401,6 +436,7 @@ const FilterHandlers = {
             }
             this.debounceTimer = null;
         }, 100);
+        FilterHandlersDebugTimer.end('triggerSort');
     },
 
     // Триггер с задержкой для гарантии отработки
@@ -412,6 +448,7 @@ const FilterHandlers = {
 
     // Настройка обработчиков для фильтра даты
     setupDateFilterListeners() {
+        FilterHandlersDebugTimer.start('setupDateFilterListeners');
         console.log('Setting up date filter listeners...');
 
         // Слушатели изменения ползунков
@@ -460,10 +497,12 @@ const FilterHandlers = {
                 });
             }
         });
+        FilterHandlersDebugTimer.end('setupDateFilterListeners');
     },
 
     // Инициализация всех обработчиков
     initializeAllHandlers() {
+        FilterHandlersDebugTimer.start('FilterHandlers.initializeAllHandlers');
         console.log('Initializing all filter handlers...');
 
         try {
@@ -487,6 +526,7 @@ const FilterHandlers = {
         } catch (error) {
             console.error('Error initializing filter handlers:', error);
         }
+        FilterHandlersDebugTimer.end('FilterHandlers.initializeAllHandlers');
     }
 };
 

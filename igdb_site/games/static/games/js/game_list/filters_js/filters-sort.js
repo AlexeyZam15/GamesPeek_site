@@ -1,5 +1,24 @@
 // games/static/games/js/game_list/filters-sort.js
 
+// Добавляем служебный объект для таймеров
+const FilterSortDebugTimer = {
+    marks: {},
+    start(label) {
+        this.marks[label] = performance.now();
+    },
+    end(label) {
+        const endTime = performance.now();
+        const startTime = this.marks[label];
+        if (startTime) {
+            const duration = (endTime - startTime).toFixed(2);
+            console.warn(`[TIMER] ${label} took ${duration} ms`);
+            delete this.marks[label];
+        } else {
+            console.warn(`[TIMER] No start mark found for: ${label}`);
+        }
+    }
+};
+
 const FilterSort = {
     // Список всех типов фильтров для обработки
     filterTypes: [
@@ -32,6 +51,7 @@ const FilterSort = {
         if (this.isSorting) return;
 
         this.isSorting = true;
+        FilterSortDebugTimer.start('sortFilterLists');
         console.log('Sorting filter lists...');
 
         try {
@@ -42,6 +62,7 @@ const FilterSort = {
             console.error('Error sorting filter lists:', error);
         } finally {
             this.isSorting = false;
+            FilterSortDebugTimer.end('sortFilterLists');
         }
     },
 
@@ -112,6 +133,7 @@ const FilterSort = {
 
     // Обновление порядка элементов в контейнере (оптимизированная версия)
     updateContainerOrder(container, sortedItems) {
+        FilterSortDebugTimer.start('updateContainerOrder');
         try {
             // Используем DocumentFragment для минимальной перерисовки
             const fragment = document.createDocumentFragment();
@@ -130,6 +152,7 @@ const FilterSort = {
         } catch (error) {
             console.error('Error updating container order:', error);
         }
+        FilterSortDebugTimer.end('updateContainerOrder');
     },
 
     // Быстрая сортировка для одного типа (оптимизированная версия)
