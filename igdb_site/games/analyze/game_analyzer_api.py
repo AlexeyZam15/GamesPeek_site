@@ -20,7 +20,9 @@ class GameAnalyzerAPI:
 
     def __init__(self, verbose: bool = False):
         self.verbose = verbose
+        self.debug = False
         self.text_analyzer = TextAnalyzer(verbose=verbose)
+        self.text_analyzer.debug = self.debug  # ПЕРЕДАЕМ debug В text_analyzer
         self.force_restart = False
 
         if verbose:
@@ -254,7 +256,7 @@ class GameAnalyzerAPI:
             analyze_keywords: bool = False,
             existing_game=None,
             detailed_patterns: bool = False,
-            exclude_existing: bool = True  # ← ИЗМЕНЕНИЕ: по умолчанию True
+            exclude_existing: bool = True
     ) -> Dict[str, Any]:
         """
         Принудительный анализ текста игры (игнорирует кэш)
@@ -270,13 +272,28 @@ class GameAnalyzerAPI:
                 'has_results': False
             }
 
+        # Отладка только если включен debug
+        if self.debug:
+            import sys
+            sys.stderr.write(f"\n=== ОТЛАДКА force_analyze_game_text ===\n")
+            sys.stderr.write(f"game_id: {game_id}\n")
+            sys.stderr.write(f"analyze_keywords: {analyze_keywords}\n")
+            sys.stderr.write(f"existing_game: {existing_game.id if existing_game else None}\n")
+            sys.stderr.write(f"detailed_patterns: {detailed_patterns}\n")
+            sys.stderr.write(f"exclude_existing: {exclude_existing}\n")
+            sys.stderr.flush()
+
         # ВРЕМЕННО отключаем verbose во время анализа
         original_verbose = self.verbose
         self.verbose = False
 
         try:
             if analyze_keywords:
-                # Только если явно запрошен анализ ключевых слов
+                if self.debug:
+                    import sys
+                    sys.stderr.write("→ вызываем analyze_comprehensive\n")
+                    sys.stderr.flush()
+
                 analysis_result = self.text_analyzer.analyze_comprehensive(
                     text=text,
                     existing_game=existing_game,
@@ -287,12 +304,16 @@ class GameAnalyzerAPI:
                 if 'keywords' in analysis_result.get('results', {}):
                     analysis_result['results'] = {'keywords': analysis_result['results']['keywords']}
             else:
-                # ИСПРАВЛЕНИЕ: Используем быстрый анализ ТОЛЬКО критериев, без ключевых слов
+                if self.debug:
+                    import sys
+                    sys.stderr.write("→ вызываем _analyze_criteria_only\n")
+                    sys.stderr.flush()
+
                 analysis_result = self._analyze_criteria_only(
                     text=text,
                     existing_game=existing_game,
                     detailed_patterns=detailed_patterns,
-                    exclude_existing=exclude_existing  # ← Передаем exclude_existing
+                    exclude_existing=exclude_existing
                 )
 
             processing_time = time.time() - start_time
@@ -313,7 +334,8 @@ class GameAnalyzerAPI:
                 'exclude_existing': exclude_existing,
                 'cached': False,
                 'force_analysis': True,
-                'bypass_cache': True
+                'bypass_cache': True,
+                'analyzed_text': text
             }
 
             # Добавляем информацию о паттернах если нужно
@@ -323,6 +345,12 @@ class GameAnalyzerAPI:
             # Добавляем ID игры
             if game_id:
                 response['game_id'] = game_id
+
+            if self.debug:
+                import sys
+                sys.stderr.write(f"→ response keys: {list(response.keys())}\n")
+                sys.stderr.write(f"→ has_results: {response['has_results']}\n")
+                sys.stderr.flush()
 
             return response
 

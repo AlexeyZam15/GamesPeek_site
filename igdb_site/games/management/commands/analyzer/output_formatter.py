@@ -103,7 +103,7 @@ class OutputFormatter:
 
     def print_game_in_batch(self, game: Game, index: int, result: Dict[str, Any],
                             stats: Dict[str, Any], **options):
-        """Выводит результат игры в пакетной обработке - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
+        """Выводит результат игры в пакетной обработке - только найденные слова"""
         only_found = options.get('only_found', False)
         verbose = options.get('verbose', False)
         keywords = options.get('keywords', False)
@@ -128,7 +128,7 @@ class OutputFormatter:
 
         stats['displayed_count'] += 1
 
-        # Пишем в файл только при наличии результатов
+        # Пишем в файл при наличии результатов
         has_output_file = (
                 hasattr(self.command, 'output_file') and
                 self.command.output_file and
@@ -137,29 +137,69 @@ class OutputFormatter:
 
         if has_output_file and result['has_results']:
             try:
-                # Простой вывод без лишней информации
+                # Заголовок игры
                 self.command.output_file.write(f"{index}. 🎮 {game.name} (ID: {game.id})\n")
 
-                # Выводим найденные элементы кратко
+                # Получаем текст игры для поиска
+                game_text = self.command.text_preparer.prepare_text(game)
+                game_text_lower = game_text.lower() if game_text else ""
+
+                # Выводим найденные элементы
                 for key, data in result['results'].items():
                     if data.get('count', 0) > 0:
                         display_name = self._get_display_name(key)
-                        item_names = [item['name'] for item in data.get('items', [])]
-                        self.command.output_file.write(f"   📌 {display_name}: {', '.join(item_names)}\n")
+                        self.command.output_file.write(f"   📌 {display_name}:\n")
+
+                        for item in data.get('items', []):
+                            item_name = item['name']
+                            item_id = item['id']
+                            self.command.output_file.write(f"      • {item_name}")
+
+                            # Для ключевых слов показываем где найдено
+                            if key == 'keywords' and game_text:
+                                # Ищем вхождение в тексте
+                                item_lower = item_name.lower()
+                                pos = game_text_lower.find(item_lower)
+
+                                if pos != -1:
+                                    # Найдено точное совпадение
+                                    start = max(0, pos - 20)
+                                    end = min(len(game_text), pos + len(item_name) + 20)
+                                    context = game_text[start:end]
+
+                                    if start > 0:
+                                        context = "..." + context
+                                    if end < len(game_text):
+                                        context = context + "..."
+
+                                    self.command.output_file.write(f" (в слове: \"{context}\")")
+                                else:
+                                    # Если точное не найдено, возможно это форма слова
+                                    self.command.output_file.write(f" (⚠️ форма слова)")
+
+                            self.command.output_file.write("\n")
 
                 self.command.output_file.write("\n")
                 self.command.output_file.flush()
 
-            except Exception:
-                pass
+            except Exception as e:
+                # В случае ошибки выводим базовую информацию
+                try:
+                    self.command.output_file.write(f"{index}. 🎮 {game.name} (ID: {game.id})\n")
+                    for key, data in result['results'].items():
+                        if data.get('count', 0) > 0:
+                            display_name = self._get_display_name(key)
+                            item_names = [item['name'] for item in data.get('items', [])]
+                            self.command.output_file.write(f"   📌 {display_name}: {', '.join(item_names)}\n")
+                    self.command.output_file.write("\n")
+                    self.command.output_file.flush()
+                except:
+                    pass
 
-        # УДАЛЕНО: Добавление игры в батч здесь. Теперь это делается в _handle_analysis_results
-        # через метод _add_to_batch_if_needed
-
-        # Вывод в терминал ТОЛЬКО если нет прогресс-бара и verbose
+        # Вывод в терминал только если нет прогресс-бара и verbose
         show_in_terminal = (
-                not self.command.progress_bar and  # Нет прогресс-бара
-                verbose  # Только если verbose режим
+                not self.command.progress_bar and
+                verbose
         )
 
         if show_in_terminal and result['has_results']:

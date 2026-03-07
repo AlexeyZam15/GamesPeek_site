@@ -118,12 +118,6 @@ class KeywordTrie:
         if word_lower.endswith('t'):
             forms.add(word_lower + 'or')  # act → actor
 
-        # Существительные на -ing (герундий)
-        if word_lower.endswith('e'):
-            forms.add(word_lower[:-1] + 'ing')
-        else:
-            forms.add(word_lower + 'ing')
-
         # ========== ПРИЛАГАТЕЛЬНЫЕ ==========
         # Прилагательные на -ive (explore → explorative)
         if word_lower.endswith('e'):
@@ -283,6 +277,7 @@ class KeywordTrie:
     def find_all_in_text(self, text: str, unique_only: bool = True) -> List[dict]:
         """
         Находит ключевые слова в тексте
+        Исправлено: не находит части слов (например, "bee" в "beer")
         """
         text_lower = text.lower()
         n = len(text_lower)
@@ -290,7 +285,7 @@ class KeywordTrie:
         if unique_only:
             found_keywords = set()  # Для уникальности
         else:
-            found_keywords = None  # Не используем для подсветки
+            found_keywords = None
 
         results = []
 
@@ -301,6 +296,7 @@ class KeywordTrie:
 
             node = self.root
             j = i
+            last_valid_match = None  # Запоминаем последнее валидное совпадение
 
             # Проходим по дереву пока есть совпадения
             while j < n and text_lower[j] in node.children:
@@ -309,28 +305,25 @@ class KeywordTrie:
 
                 # Если нашли конец ключевого слова
                 if node.is_end and node.keyword_id:
-                    # Проверяем границы слова с учетом дефисов
-                    if self._is_word_boundary(text_lower, i, j):
-                        if unique_only:
-                            # Для добавления к игре - только уникальные
-                            if node.keyword_id not in found_keywords:
-                                found_keywords.add(node.keyword_id)
-                                results.append({
-                                    'id': node.keyword_id,
-                                    'name': node.keyword_name,
-                                    'position': i,
-                                    'length': j - i,
-                                    'text': text_lower[i:j]
-                                })
-                        else:
-                            # Для подсветки - все вхождения
-                            results.append({
-                                'id': node.keyword_id,
-                                'name': node.keyword_name,
-                                'position': i,
-                                'length': j - i,
-                                'text': text_lower[i:j]
-                            })
+                    # Проверяем, что это действительно конец слова
+                    if j == n or not text_lower[j].isalnum():
+                        # Это конец слова - сохраняем как валидное совпадение
+                        last_valid_match = {
+                            'id': node.keyword_id,
+                            'name': node.keyword_name,
+                            'position': i,
+                            'length': j - i,
+                            'text': text_lower[i:j]
+                        }
+
+            # После завершения цикла, если есть валидное совпадение в конце слова
+            if last_valid_match:
+                if unique_only:
+                    if last_valid_match['id'] not in found_keywords:
+                        found_keywords.add(last_valid_match['id'])
+                        results.append(last_valid_match)
+                else:
+                    results.append(last_valid_match)
 
         return results
 
