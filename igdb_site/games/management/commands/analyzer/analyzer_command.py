@@ -541,25 +541,38 @@ class AnalyzerCommand(BaseCommand):
             self._update_progress_bar_with_stats()
 
     def _handle_analysis_results(self, game, result, force_process, exclude_existing):
-        """Обрабатывает результаты анализа игры (основная функция)"""
-        # ВРЕМЕННАЯ ОТЛАДКА
-        import sys
-        sys.stderr.write(f"\n=== ОТЛАДКА: _handle_analysis_results для игры {game.id} ===\n")
-        sys.stderr.write(f"self.update_game = {self.update_game}\n")
-        sys.stderr.write(f"self.keywords = {self.keywords}\n")
-        sys.stderr.flush()
+        """Обрабатывает результаты анализа игры"""
+
+        # Отладка только если включен debug
+        if self.debug:
+            import sys
+            sys.stderr.write(f"\n=== ОТЛАДКА: _handle_analysis_results для игры {game.id} ===\n")
+            sys.stderr.write(f"self.update_game = {self.update_game}\n")
+            sys.stderr.flush()
 
         # ОБНОВЛЯЕМ ПРОГРЕСС ДЛЯ ЛЮБОЙ ОБРАБОТАННОЙ ИГРЫ
         if self.progress_bar:
             self.progress_bar.update(1)
 
+        # Проверяем тип result['results'] - если это список, преобразуем в словарь
+        if isinstance(result['results'], list):
+            if self.keywords:
+                result['results'] = {'keywords': {'items': result['results'], 'count': len(result['results'])}}
+            else:
+                result['results'] = {}
+            if self.debug:
+                import sys
+                sys.stderr.write(f"Преобразовали result['results'] в: {result['results']}\n")
+                sys.stderr.flush()
+
         # Определяем, есть ли новые элементы
         has_new_elements, new_elements_count = self._calculate_new_elements(game, result)
 
-        # ВРЕМЕННАЯ ОТЛАДКА
-        sys.stderr.write(f"has_new_elements = {has_new_elements}\n")
-        sys.stderr.write(f"new_elements_count = {new_elements_count}\n")
-        sys.stderr.flush()
+        if self.debug:
+            import sys
+            sys.stderr.write(f"has_new_elements = {has_new_elements}\n")
+            sys.stderr.write(f"new_elements_count = {new_elements_count}\n")
+            sys.stderr.flush()
 
         # ВАЖНО: Сначала обновляем статистику
         self._update_statistics_after_analysis(game, result, has_new_elements, new_elements_count)
@@ -582,14 +595,14 @@ class AnalyzerCommand(BaseCommand):
 
         # ВАЖНО: Добавляем в батч
         if self.update_game:
-            sys.stderr.write(f"Вызываем _add_to_batch_if_needed для игры {game.id}\n")
-            sys.stderr.flush()
+            if self.debug:
+                import sys
+                sys.stderr.write(f"Вызываем _add_to_batch_if_needed для игры {game.id}\n")
+                sys.stderr.flush()
             added = self._add_to_batch_if_needed(game, result, has_new_elements)
-            sys.stderr.write(f"_add_to_batch_if_needed вернул: {added}\n")
-            sys.stderr.flush()
-        else:
-            sys.stderr.write(f"self.update_game = False, пропускаем добавление в батч\n")
-            sys.stderr.flush()
+            if self.debug:
+                sys.stderr.write(f"_add_to_batch_if_needed вернул: {added}\n")
+                sys.stderr.flush()
 
         # Всегда добавляем в StateManager
         self.state_manager.add_processed_game(game.id)
@@ -601,8 +614,10 @@ class AnalyzerCommand(BaseCommand):
         # Обновляем статистику прогресс-бара
         self._update_progress_bar_with_stats()
 
-        sys.stderr.write("=== КОНЕЦ ОТЛАДКИ _handle_analysis_results ===\n\n")
-        sys.stderr.flush()
+        if self.debug:
+            import sys
+            sys.stderr.write("=== КОНЕЦ ОТЛАДКИ _handle_analysis_results ===\n\n")
+            sys.stderr.flush()
 
     def _calculate_new_elements(self, game, result):
         """Определяет, есть ли новые элементы для добавления и их количество"""
@@ -740,6 +755,14 @@ class AnalyzerCommand(BaseCommand):
                 keywords_data = result.get('results', {}).get('keywords', {})
                 items = keywords_data.get('items', [])
 
+                # ОТЛАДКА
+                import sys
+                sys.stderr.write(f"\n=== ОТЛАДКА _add_to_batch_if_needed для игры {game.id} ===\n")
+                sys.stderr.write(f"keywords_data: {keywords_data}\n")
+                sys.stderr.write(f"items: {items}\n")
+                sys.stderr.write(f"has_new_elements: {has_new_elements}\n")
+                sys.stderr.flush()
+
                 if not items:
                     return 0
 
@@ -754,8 +777,6 @@ class AnalyzerCommand(BaseCommand):
                     results=result['results'],
                     is_keywords=True
                 )
-
-                # СТАТИСТИКА НЕ УВЕЛИЧИВАЕТСЯ ЗДЕСЬ!
 
                 if added > 0 and self.verbose and self.original_stdout:
                     self.original_stdout.write(f"📦 Игра {game.id} добавлена в батч (ключевые слова)\n")
@@ -787,20 +808,16 @@ class AnalyzerCommand(BaseCommand):
                     is_keywords=False
                 )
 
-                # СТАТИСТИКА НЕ УВЕЛИЧИВАЕТСЯ ЗДЕСЬ!
-
                 if added > 0 and self.verbose and self.original_stdout:
                     self.original_stdout.write(f"📦 Игра {game.id} добавлена в батч (обычные критерии)\n")
                     self.original_stdout.flush()
 
-                # ВАЖНО: Получаем АКТУАЛЬНОЕ количество игр в батче
                 if self.batch_updater:
                     if hasattr(self.batch_updater, 'games_to_update'):
                         self.stats['in_batch'] = len(self.batch_updater.games_to_update)
                     else:
                         self.stats['in_batch'] = 0
 
-                    # Обновляем прогресс-бар
                     self._update_progress_bar_with_stats()
 
                 return added
@@ -2479,10 +2496,12 @@ class AnalyzerCommand(BaseCommand):
             from games.analyze import GameAnalyzerAPI
 
             # ИСПРАВЛЕНИЕ: Всегда отключаем verbose в API чтобы не было лишнего вывода
-            # который ломает прогресс-бар
-            api_verbose = False  # ⬅️ ВСЕГДА False, даже если self.verbose=True
-
+            api_verbose = False
             self.api = GameAnalyzerAPI(verbose=api_verbose)
+
+            # ПЕРЕДАЕМ debug ИЗ КОМАНДЫ В API
+            self.api.debug = self.debug
+
             self.stdout.write("   ✅ GameAnalyzerAPI инициализирован")
 
             # 2. Очищаем кеш если нужно
@@ -2498,18 +2517,15 @@ class AnalyzerCommand(BaseCommand):
                 output_path=self.output_path,
                 keywords_mode=self.keywords,
                 force_restart=self.force_restart,
-                verbose=self.verbose  # ← ДОБАВЛЕНО: передаем флаг verbose
+                verbose=self.verbose
             )
             self.stdout.write(f"   ✅ StateManager инициализирован (файл: {self.state_manager.state_file})")
 
-            # 4. Батч-апдейтер - ПЕРЕДАЕМ verbose параметр И ССЫЛКУ НА КОМАНДУ
+            # 4. Батч-апдейтер
             self.stdout.write("   🔧 Инициализируем BatchUpdater...")
             from .batch_updater import BatchUpdater
-            self.batch_updater = BatchUpdater(verbose=self.verbose)  # Передаем флаг verbose
-
-            # ВАЖНО: Передаем ссылку на command instance для доступа к прогресс-бару
+            self.batch_updater = BatchUpdater(verbose=self.verbose)
             self.batch_updater.command_instance = self
-
             self.stdout.write("   ✅ BatchUpdater инициализирован")
 
             # 5. Форматировщик вывода
@@ -2524,7 +2540,6 @@ class AnalyzerCommand(BaseCommand):
             self.text_preparer = TextPreparer(self)
             self.stdout.write(f"   ✅ TextPreparer инициализирован (режим: {self.text_preparer.text_source_mode})")
 
-            # ИСПРАВЛЕНИЕ: Предупреждение о конфликте ТОЛЬКО при включенном progress bar
             if not self.no_progress and self.verbose:
                 self.stdout.write("⚠️  ВНИМАНИЕ: С включенным прогресс-баром подробный вывод будет ограничен")
                 self.stdout.write("⚠️  Используйте --no-progress для полного verbose вывода")
