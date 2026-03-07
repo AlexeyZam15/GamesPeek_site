@@ -37,16 +37,13 @@ class BatchUpdater:
 
     def add_game_for_update(self, game_id: int, results: Dict[str, Any], is_keywords: bool) -> int:
         """Добавляет игру для обновления - проверяет дубликаты"""
-        if self.verbose:
-            print(f"\n📦 batch_updater.add_game_for_update({game_id}, is_keywords={is_keywords})")
+        # УБРАНО ЛИШНЕЕ СООБЩЕНИЕ
 
         try:
             # Проверяем, не добавлена ли уже эта игра в текущий батч
             for game_data in self.games_to_update:
                 if game_data['game_id'] == game_id:
-                    if self.verbose:
-                        print(f"   → Игра {game_id} УЖЕ в батче!")
-                        print(f"⚠️ Игра {game_id} УЖЕ в батче! Пропускаем повторное добавление.")
+                    # УБРАНО ЛИШНЕЕ СООБЩЕНИЕ
                     return 0
 
             # Добавляем игру в батч
@@ -58,35 +55,12 @@ class BatchUpdater:
 
             games_in_batch = len(self.games_to_update)
 
-            if self.verbose:
-                print(f"   → Игра добавлена. Теперь в батче: {games_in_batch} игр")
-
-                # Отладочная информация
-                if is_keywords:
-                    keywords_data = results.get('keywords', {})
-                    items = keywords_data.get('items', [])
-                    if items:
-                        print(f"✅ Игра {game_id} добавлена в батч: {len(items)} ключевых слов")
-                    else:
-                        print(f"✅ Игра {game_id} добавлена в батч (нет ключевых слов)")
-                else:
-                    # Для обычных критериев покажем, что добавлено
-                    total_items = 0
-                    for key in ['genres', 'themes', 'perspectives', 'game_modes']:
-                        items = results.get(key, {}).get('items', [])
-                        total_items += len(items)
-                    print(f"✅ Игра {game_id} добавлена в батч: {total_items} критериев")
-
-                # Показываем общее количество каждые 10 игр
-                if games_in_batch % 10 == 0:
-                    print(f"📥 Всего игр в батче: {games_in_batch}")
+            # УБРАНО ЛИШНЕЕ СООБЩЕНИЕ
 
             return 1  # Игра добавлена успешно
 
         except Exception as e:
-            if self.verbose:
-                print(f"   → ОШИБКА: {e}")
-                print(f"❌ Ошибка добавления игры {game_id} в батч: {e}")
+            # УБРАНО ЛИШНЕЕ СООБЩЕНИЕ
             return 0
 
     def flush(self) -> int:

@@ -356,10 +356,7 @@ class AnalyzerCommand(BaseCommand):
 
         # Проверяем наличие текста
         if not text:
-            if self.debug and self.original_stdout:
-                self.original_stdout.write(f"DEBUG: Игра {game.id} без текста\n")
-                self.original_stdout.flush()
-
+            # УБРАНО ЛИШНЕЕ СООБЩЕНИЕ
             # Восстанавливаем позицию курсора
             if has_progress_bar and sys.stderr:
                 sys.stderr.write("\033[u")  # Восстанавливаем позицию курсора
@@ -370,11 +367,7 @@ class AnalyzerCommand(BaseCommand):
 
         # Проверяем длину текста
         if len(text) < self.min_text_length:
-            if self.debug and self.original_stdout:
-                self.original_stdout.write(
-                    f"DEBUG: Игра {game.id} с коротким текстом ({len(text)} < {self.min_text_length})\n")
-                self.original_stdout.flush()
-
+            # УБРАНО ЛИШНЕЕ СООБЩЕНИЕ
             # Восстанавливаем позицию курсора
             if has_progress_bar and sys.stderr:
                 sys.stderr.write("\033[u")  # Восстанавливаем позицию курсора
@@ -382,10 +375,6 @@ class AnalyzerCommand(BaseCommand):
 
             self._handle_short_text_game(game)
             return
-
-        if self.debug and self.original_stdout:
-            self.original_stdout.write(f"DEBUG: Игра {game.id} с текстом, длина: {len(text)}\n")
-            self.original_stdout.flush()
 
         # Восстанавливаем позицию курсора ПЕРЕД обработкой
         if has_progress_bar and sys.stderr:
@@ -395,7 +384,6 @@ class AnalyzerCommand(BaseCommand):
         # Обрабатываем игру с текстом
         self._process_game_with_text(game, text, checked_criteria, force_process)
 
-        # ===== ДОБАВЛЕННАЯ ПРОВЕРКА БАТЧА =====
         # Проверяем, не пора ли обновить батч после обработки игры
         if self.update_game and self.batch_updater and not getattr(self, '_in_batch_update', False):
             games_in_batch = len(self.batch_updater.games_to_update) if hasattr(self.batch_updater,
@@ -406,11 +394,7 @@ class AnalyzerCommand(BaseCommand):
             update_threshold = min(max(self.batch_size // 2, 10), 500)
 
             if games_in_batch >= update_threshold:
-                if self.debug and self.original_stdout:
-                    self.original_stdout.write(
-                        f"\nDEBUG: Достигнут порог {update_threshold} игр в батче после игры {game.id}, вызываем _check_and_update_batch\n")
-                    self.original_stdout.flush()
-
+                # УБРАНО ЛИШНЕЕ СООБЩЕНИЕ
                 self._check_and_update_batch()
 
     def _handle_game_without_text(self, game):
@@ -459,7 +443,7 @@ class AnalyzerCommand(BaseCommand):
     def _process_game_with_text(self, game, text, checked_criteria, force_process):
         """Обрабатывает игру с текстом"""
         self.stats['processed_with_text'] += 1
-        self.stats['processed'] += 1  # ВАЖНО: увеличиваем общий счетчик! ← ДОБАВЛЕНО
+        self.stats['processed'] += 1
 
         try:
             # Определяем настройки для исключения существующих критериев
@@ -471,6 +455,7 @@ class AnalyzerCommand(BaseCommand):
                 self.original_stdout.write(f"📄 Текст получен, длина: {len(text)} символов\n")
                 self.original_stdout.write(f"⚙️ Настройки: exclude_existing={exclude_existing}\n")
                 self.original_stdout.flush()
+            # УБРАНО ЛИШНЕЕ СООБЩЕНИЕ
 
             # Анализируем текст с поддержкой exclude_existing
             result = self._analyze_game_text(game, text, exclude_existing)
@@ -768,9 +753,7 @@ class AnalyzerCommand(BaseCommand):
                     return 0
 
                 if not has_new_elements:
-                    if self.verbose and self.original_stdout:
-                        self.original_stdout.write(f"ℹ️ Игра {game.id} не добавлена в батч: нет новых ключевых слов\n")
-                        self.original_stdout.flush()
+                    # УБРАНО ЛИШНЕЕ СООБЩЕНИЕ
                     return 0
 
                 added = self.batch_updater.add_game_for_update(
@@ -779,9 +762,7 @@ class AnalyzerCommand(BaseCommand):
                     is_keywords=True
                 )
 
-                if added > 0 and self.verbose and self.original_stdout:
-                    self.original_stdout.write(f"📦 Игра {game.id} добавлена в батч (ключевые слова)\n")
-                    self.original_stdout.flush()
+                # УБРАНО ЛИШНЕЕ СООБЩЕНИЕ
 
                 # ВАЖНО: Получаем АКТУАЛЬНОЕ количество игр в батче
                 if self.batch_updater:
@@ -798,9 +779,7 @@ class AnalyzerCommand(BaseCommand):
             # ДЛЯ ОБЫЧНЫХ КРИТЕРИЕВ
             else:
                 if not has_new_elements:
-                    if self.verbose and self.original_stdout:
-                        self.original_stdout.write(f"ℹ️ Игра {game.id} не добавлена в батч: нет новых критериев\n")
-                        self.original_stdout.flush()
+                    # УБРАНО ЛИШНЕЕ СООБЩЕНИЕ
                     return 0
 
                 added = self.batch_updater.add_game_for_update(
@@ -809,9 +788,7 @@ class AnalyzerCommand(BaseCommand):
                     is_keywords=False
                 )
 
-                if added > 0 and self.verbose and self.original_stdout:
-                    self.original_stdout.write(f"📦 Игра {game.id} добавлена в батч (обычные критерии)\n")
-                    self.original_stdout.flush()
+                # УБРАНО ЛИШНЕЕ СООБЩЕНИЕ
 
                 if self.batch_updater:
                     if hasattr(self.batch_updater, 'games_to_update'):
@@ -824,6 +801,7 @@ class AnalyzerCommand(BaseCommand):
                 return added
 
         except Exception as e:
+            # УБРАНО ЛИШНЕЕ СООБЩЕНИЕ, оставляем только при verbose
             if self.verbose:
                 self.stderr.write(f"⚠️ Ошибка при добавлении в батч: {e}")
             return 0
@@ -1049,12 +1027,6 @@ class AnalyzerCommand(BaseCommand):
 
             if self.keywords:
                 # ДЛЯ КЛЮЧЕВЫХ СЛОВ: отключаем пропуск по проверенным критериям
-                # Всегда анализируем игры, даже если ключевые слова уже проверены
-                # Это нужно потому что ключевые слова могут быть найдены в тексте,
-                # даже если они уже были назначены игре ранее
-
-                # ИГНОРИРУЕМ проверенные ключевые слова и всегда возвращаем False
-                # чтобы игра анализировалась заново
                 return False
             else:
                 # Для обычных критериев: проверяем по типам
@@ -1087,11 +1059,6 @@ class AnalyzerCommand(BaseCommand):
                     mode_ids = set(str(m.id) for m in existing_modes)
                     if not mode_ids.issubset(checked_criteria):
                         should_skip = False
-
-                if should_skip and self.verbose:
-                    if self.original_stdout:
-                        self.original_stdout.write(f"⏭️ Игра {game_id} пропущена - все критерии уже проверены\n")
-                        self.original_stdout.flush()
 
                 return should_skip
 
