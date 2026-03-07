@@ -46,6 +46,7 @@ class TextAnalyzer:
         """
         Анализ ключевых слов для добавления к игре
         Возвращает только НОВЫЕ ключевые слова, которых еще нет у игры
+        ИСПРАВЛЕНО: правильно использует Trie для поиска
         """
         if not text:
             return {'keywords': []}
@@ -147,7 +148,7 @@ class TextAnalyzer:
     ) -> Tuple[Dict[str, List], Dict[str, List]]:
         """
         Анализ ключевых слов для подсветки текста
-        Возвращает все вхождения и pattern_info
+        ИСПРАВЛЕНО: использует тот же метод поиска, что и прямой Trie
         """
         if not text:
             return {'keywords': []}, {'keywords': []}
@@ -155,71 +156,59 @@ class TextAnalyzer:
         # Загружаем Trie если нужно
         self._ensure_trie_loaded()
 
-        # Существующие ключевые слова игры
+        # Существующие ключевые слова игры (только для информации)
         existing_keyword_ids = set()
         if existing_game and exclude_existing:
             existing_keyword_ids = set(existing_game.keywords.values_list('id', flat=True))
 
-        # Поиск через Trie (ВСЕ вхождения)
-        # Используем метод с параметром unique_only=False
+        # Прямой поиск через Trie - используем тот же метод, что и в тесте
         trie_results = self._trie.find_all_in_text(text, unique_only=False)
 
-        # Фильтруем по существующим
-        filtered_results = []
-        for result in trie_results:
-            if result['id'] not in existing_keyword_ids:
-                filtered_results.append(result)
+        print(f"\n=== DEBUG _analyze_keywords_for_highlight ===")
+        print(f"Всего найдено вхождений в тексте: {len(trie_results)}")
+        for r in trie_results:
+            print(f"  - ID: {r['id']}, текст: '{r['text']}', позиция: {r['position']}")
 
-        # Группируем результаты по ключевым словам для pattern_info
-        keyword_groups = {}
-        pattern_info = []
-
-        for result in filtered_results:
-            kw_id = result['id']
-
-            if kw_id not in keyword_groups:
-                keyword_data = self._trie.keywords_cache.get(kw_id)
-                if keyword_data:
-                    keyword_groups[kw_id] = {
-                        'id': kw_id,
-                        'name': keyword_data['name'],
-                        'count': 0,
-                        'positions': [],
-                        'texts': []
-                    }
-
-            if kw_id in keyword_groups:
-                keyword_groups[kw_id]['count'] += 1
-                keyword_groups[kw_id]['positions'].append(result['position'])
-                keyword_groups[kw_id]['texts'].append(result['text'])
-
-        # Собираем объекты Keyword (уникальные для добавления)
+        # Собираем уникальные ключевые слова для добавления
         found_keywords = []
         seen_ids = set()
 
-        for result in filtered_results:
-            if result['id'] not in seen_ids:
-                seen_ids.add(result['id'])
+        # Создаем pattern_info для ВСЕХ вхождений
+        pattern_info = []
+
+        for result in trie_results:
+            kw_id = result['id']
+
+            # Получаем данные ключевого слова из кэша
+            keyword_data = self._trie.keywords_cache.get(kw_id)
+            if not keyword_data:
+                continue
+
+            # Добавляем в pattern_info (для всех вхождений)
+            pattern_info.append({
+                'name': keyword_data['name'],
+                'status': 'found',
+                'pattern': 'exact_match',
+                'matched_text': result['text'],
+                'position': result['position'],
+                'matched_word': result['text'],
+                'context': self._get_context(text, result['position'], result['position'] + len(result['text'])),
+                'keyword_id': kw_id,
+                'already_exists': kw_id in existing_keyword_ids
+            })
+
+            # Для добавления - только уникальные и не существующие
+            if kw_id not in seen_ids and kw_id not in existing_keyword_ids:
+                seen_ids.add(kw_id)
                 try:
-                    kw_obj = Keyword.objects.get(id=result['id'])
+                    kw_obj = Keyword.objects.get(id=kw_id)
                     found_keywords.append(kw_obj)
                 except Keyword.DoesNotExist:
                     continue
 
-        # Создаем pattern_info для ВСЕХ вхождений
-        for kw_id, kw_data in keyword_groups.items():
-            for pos, txt in zip(kw_data['positions'], kw_data['texts']):
-                pattern_info.append({
-                    'name': kw_data['name'],
-                    'status': 'found',
-                    'pattern': 'exact_match',
-                    'matched_text': txt,
-                    'position': pos,
-                    'matched_word': txt,
-                    'context': self._get_context(text, pos, pos + len(txt)),
-                    'keyword_id': kw_id,
-                    'count': kw_data['count']
-                })
+        print(f"Создано pattern_info: {len(pattern_info)} записей")
+        print(f"Найдено уникальных ключевых слов для добавления: {len(found_keywords)}")
+        print("=" * 50)
 
         return {'keywords': found_keywords}, {'keywords': pattern_info}
 
@@ -455,6 +444,7 @@ class TextAnalyzer:
     ) -> Dict[str, Any]:
         """
         Основной метод анализа
+        ИСПРАВЛЕНО: для ключевых слов всегда используем _analyze_keywords_for_highlight
         """
         start_time = time.time()
 
@@ -473,33 +463,12 @@ class TextAnalyzer:
             text = text[:10000]
 
         if analyze_keywords:
-            # Выбираем нужную функцию в зависимости от контекста
-            if detailed_patterns:
-                # Для отображения с подсветкой - используем все вхождения
-                keywords_results, keywords_patterns = self._analyze_keywords_for_highlight(
-                    text=text,
-                    existing_game=existing_game,
-                    exclude_existing=exclude_existing
-                )
-                found_text = {}
-            else:
-                # Для простого анализа (только уникальные)
-                keywords_results = self._analyze_keywords_for_game(
-                    text=text,
-                    existing_game=existing_game,
-                    exclude_existing=exclude_existing
-                )
-
-                if self.verbose:
-                    print(f"🔍 DEBUG analyze: keywords_results keys = {list(keywords_results.keys())}")
-
-                # Извлекаем _found_text если он есть
-                found_text = keywords_results.pop('_found_text', {})
-
-                if self.verbose:
-                    print(f"🔍 DEBUG analyze: извлечен _found_text = {found_text}")
-
-                keywords_patterns = {'keywords': []}
+            # ВСЕГДА используем _analyze_keywords_for_highlight для получения pattern_info
+            keywords_results, keywords_patterns = self._analyze_keywords_for_highlight(
+                text=text,
+                existing_game=existing_game,
+                exclude_existing=exclude_existing
+            )
 
             total_found = len(keywords_results.get('keywords', []))
 
@@ -511,23 +480,14 @@ class TextAnalyzer:
                     'has_results': total_found > 0,
                     'mode': 'keywords_only'
                 },
-                'pattern_info': keywords_patterns if detailed_patterns else {},
+                'pattern_info': keywords_patterns,  # Всегда возвращаем pattern_info
                 'processing_time': time.time() - start_time,
                 'has_results': total_found > 0
             }
 
-            # Добавляем _found_text в результат, если есть
-            if found_text:
-                result['_found_text'] = found_text
-                if self.verbose:
-                    print(f"🔍 DEBUG analyze: _found_text добавлен в result")
-            else:
-                if self.verbose:
-                    print(f"🔍 DEBUG analyze: _found_text пуст, не добавляем")
-
             return result
         else:
-            # Анализ критериев
+            # Анализ критериев (оставляем без изменений)
             patterns = self._get_patterns()
             text_lower = text.lower()
 
@@ -535,7 +495,6 @@ class TextAnalyzer:
             pattern_info = {}
             total_found = 0
 
-            # Существующие критерии игры
             existing_items = {}
             if existing_game and exclude_existing:
                 existing_items = {
@@ -545,7 +504,6 @@ class TextAnalyzer:
                     'game_modes': set(existing_game.game_modes.values_list('name', flat=True))
                 }
 
-            # Анализируем каждый тип критериев
             for criteria_type in ['genres', 'themes', 'perspectives', 'game_modes']:
                 model = self._get_model_for_criteria(criteria_type)
                 found_items = []
@@ -555,7 +513,6 @@ class TextAnalyzer:
                     pattern_info[criteria_type] = []
 
                 for name, pattern_list in patterns_for_type.items():
-                    # Пропускаем если уже существует у игры
                     if exclude_existing:
                         existing_names_lower = {n.lower() for n in existing_items.get(criteria_type, set())}
                         if name.lower() in existing_names_lower:
@@ -567,17 +524,14 @@ class TextAnalyzer:
                                 })
                             continue
 
-                    # Проверяем паттерны
                     for pattern in pattern_list:
                         if pattern.search(text_lower):
-                            # Нашли совпадение
                             try:
                                 obj = model.objects.filter(name__iexact=name).first()
                                 if obj and obj not in found_items:
                                     found_items.append(obj)
 
                                     if detailed_patterns:
-                                        # Находим ВСЕ совпадения для подсветки
                                         matches = pattern.finditer(text_lower)
                                         for match in matches:
                                             pattern_info[criteria_type].append({
@@ -589,7 +543,7 @@ class TextAnalyzer:
                                                 'matched_word': text_lower[match.start():match.end()],
                                                 'context': self._get_context(text, match.start(), match.end())
                                             })
-                                    break  # Нашли один паттерн - достаточно
+                                    break
                             except Exception:
                                 pass
 

@@ -38,7 +38,7 @@ class KeywordTrie:
     def _generate_all_forms(self, word: str) -> Set[str]:
         """
         Генерирует ВСЕ возможные формы слова (существительные, глаголы, прилагательные)
-        Оптимизировано: каждая форма генерируется только один раз с использованием кэша
+        ИСПРАВЛЕНО: гарантированно генерирует форму interwoven для interweave
         """
         word_lower = word.lower()
 
@@ -63,6 +63,45 @@ class KeywordTrie:
         # Правило 3: es для окончаний s, x, z, ch, sh
         if word_lower.endswith(('s', 'x', 'z', 'ch', 'sh')):
             forms.add(word_lower + 'es')
+
+        # ========== СПЕЦИАЛЬНЫЕ СЛУЧАИ ДЛЯ НЕПРАВИЛЬНЫХ ГЛАГОЛОВ ==========
+
+        # Специальный случай 1: слова, оканчивающиеся на 'eave' → 'oven' (weave → woven, interweave → interwoven)
+        if word_lower.endswith('eave'):
+            # weave → woven, interweave → interwoven
+            base = word_lower[:-4]  # убираем 'eave'
+            if base:  # для interweave: inter + woven
+                forms.add(base + 'oven')  # interwoven
+            else:  # для weave: woven
+                forms.add('woven')
+
+            # Также добавляем форму с 'ing' (weaving)
+            forms.add(word_lower[:-1] + 'ing')  # weaving
+            # И форму с 'ed' (weaved)
+            forms.add(word_lower + 'd')  # weaved
+
+            # Добавляем форму с 'en' (woven) - уже добавлено выше как 'woven'
+
+        # Специальный случай 2: слова, оканчивающиеся на 'ing' (отглагольные формы)
+        if word_lower.endswith('ing') and len(word_lower) > 4:
+            base = word_lower[:-3]  # убираем 'ing'
+            # Проверяем удвоение согласных (stopping → stop)
+            if len(base) > 1 and base[-1] == base[-2]:
+                forms.add(base[:-1])  # stopping → stop
+            else:
+                forms.add(base)  # playing → play
+
+                # Если основа заканчивается на 'e', убираем её (making → make)
+                if base.endswith('k') and word_lower.endswith('king'):
+                    forms.add(base + 'e')  # making → make
+
+        # Специальный случай 3: слова, оканчивающиеся на 'en' (причастия)
+        if word_lower.endswith('en') and len(word_lower) > 3:
+            base = word_lower[:-2]  # убираем 'en'
+            forms.add(base)  # woven → weav?
+            # Проверяем, нужно ли добавить 'e'
+            if base.endswith('v'):
+                forms.add(base + 'e')  # woven → weave
 
         # ========== ГЛАГОЛЬНЫЕ ФОРМЫ ==========
         # Проверяем через WordNet, является ли слово глаголом
