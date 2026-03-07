@@ -157,30 +157,69 @@ class OutputFormatter:
 
                             # Для ключевых слов показываем где найдено
                             if key == 'keywords' and game_text:
-                                # Ищем вхождение в тексте
+                                # Ищем вхождение в тексте - улучшенный поиск
                                 item_lower = item_name.lower()
-                                pos = game_text_lower.find(item_lower)
 
-                                if pos != -1:
-                                    # Найдено точное совпадение
-                                    start = max(0, pos - 20)
-                                    end = min(len(game_text), pos + len(item_name) + 20)
-                                    context = game_text[start:end]
+                                # Разбиваем текст на слова для лучшего поиска
+                                import re
+                                words = re.findall(r'\b\w+\b', game_text_lower)
 
-                                    if start > 0:
-                                        context = "..." + context
-                                    if end < len(game_text):
-                                        context = context + "..."
+                                found_exact = False
+                                context = ""
 
-                                    self.command.output_file.write(f" (в слове: \"{context}\")")
+                                # Сначала ищем точное совпадение слова
+                                if item_lower in words:
+                                    found_exact = True
+                                    # Находим позицию для контекста
+                                    pos = game_text_lower.find(item_lower)
+                                    if pos != -1:
+                                        start = max(0, pos - 20)
+                                        end = min(len(game_text), pos + len(item_name) + 20)
+                                        context = game_text[start:end]
+                                        if start > 0:
+                                            context = "..." + context
+                                        if end < len(game_text):
+                                            context = context + "..."
+
+                                # Если точного совпадения нет, ищем как часть слова
+                                if not found_exact:
+                                    # Используем регулярное выражение для поиска слова как части другого слова
+                                    pattern = r'\b\w*' + re.escape(item_lower) + r'\w*\b'
+                                    matches = list(re.finditer(pattern, game_text_lower))
+
+                                    if matches:
+                                        # Берем первое совпадение для контекста
+                                        match = matches[0]
+                                        start_pos = match.start()
+                                        end_pos = match.end()
+
+                                        # Находим позицию в оригинальном тексте с учетом регистра
+                                        # Ищем оригинальный фрагмент
+                                        matched_text = game_text[start_pos:end_pos]
+
+                                        start = max(0, start_pos - 20)
+                                        end = min(len(game_text), end_pos + 20)
+                                        context = game_text[start:end]
+
+                                        if start > 0:
+                                            context = "..." + context
+                                        if end < len(game_text):
+                                            context = context + "..."
+
+                                        # Подсвечиваем найденное слово в контексте
+                                        self.command.output_file.write(
+                                            f" (в слове: \"{context}\" → найдено как \"{matched_text}\")")
+                                    else:
+                                        # Если не нашли даже через regex, помечаем как форму слова
+                                        self.command.output_file.write(f" (⚠️ форма слова)")
                                 else:
-                                    # Если точное не найдено, возможно это форма слова
-                                    self.command.output_file.write(f" (⚠️ форма слова)")
+                                    # Точное совпадение найдено
+                                    self.command.output_file.write(f" (в слове: \"{context}\")")
 
                             self.command.output_file.write("\n")
 
-                self.command.output_file.write("\n")
-                self.command.output_file.flush()
+                    self.command.output_file.write("\n")
+                    self.command.output_file.flush()
 
             except Exception as e:
                 # В случае ошибки выводим базовую информацию

@@ -755,13 +755,14 @@ class AnalyzerCommand(BaseCommand):
                 keywords_data = result.get('results', {}).get('keywords', {})
                 items = keywords_data.get('items', [])
 
-                # ОТЛАДКА
-                import sys
-                sys.stderr.write(f"\n=== ОТЛАДКА _add_to_batch_if_needed для игры {game.id} ===\n")
-                sys.stderr.write(f"keywords_data: {keywords_data}\n")
-                sys.stderr.write(f"items: {items}\n")
-                sys.stderr.write(f"has_new_elements: {has_new_elements}\n")
-                sys.stderr.flush()
+                # ОТЛАДКА ТОЛЬКО ПРИ --debug
+                if self.debug and hasattr(self, 'original_stdout') and self.original_stdout:
+                    import sys
+                    sys.stderr.write(f"\n=== ОТЛАДКА _add_to_batch_if_needed для игры {game.id} ===\n")
+                    sys.stderr.write(f"keywords_data: {keywords_data}\n")
+                    sys.stderr.write(f"items: {items}\n")
+                    sys.stderr.write(f"has_new_elements: {has_new_elements}\n")
+                    sys.stderr.flush()
 
                 if not items:
                     return 0
