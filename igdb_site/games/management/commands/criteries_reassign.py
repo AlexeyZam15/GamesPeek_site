@@ -69,6 +69,9 @@ class Command(BaseCommand):
             'Open World': 'Open World',
             'Sandbox': 'Sandbox',
             'Survival': 'Survival',
+            'Real-time Combat': 'Real-time Combat',
+            'Real-time combat': 'Real-time Combat',
+            'real-time combat': 'Real-time Combat',
         }
 
     def get_keyword_to_theme_mapping(self):
@@ -78,8 +81,6 @@ class Command(BaseCommand):
             'Gothic': 'Gothic',
             'medieval': 'Medieval',
             'Medieval': 'Medieval',
-            'real-time combat': 'Real-time Combat',
-            'realtime combat': 'Real-time Combat',
         }
 
     def get_theme_to_keyword_mapping(self):
