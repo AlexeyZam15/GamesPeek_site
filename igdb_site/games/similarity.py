@@ -73,17 +73,17 @@ class GameSimilarity:
     """
 
     # Базовые константы с распределением весов
-    GENRES_WEIGHT = 30.0
-    KEYWORDS_WEIGHT = 30.0
-    THEMES_WEIGHT = 20.0
+    GENRES_WEIGHT = 20.0
+    KEYWORDS_WEIGHT = 50.0
+    THEMES_WEIGHT = 10.0
     PERSPECTIVES_WEIGHT = 10.0
     GAME_MODES_WEIGHT = 5.0
     DEVELOPERS_WEIGHT = 5.0
     ENGINES_WEIGHT = 0.0  # НОВАЯ КОНСТАНТА: Начинаем с 0, так как это новый критерий
 
     # Конфигурационные константы с оптимизированными весами
-    GENRES_TOTAL_WEIGHT = 30.0
-    GENRES_EXACT_MATCH_WEIGHT = 10.0
+    GENRES_TOTAL_WEIGHT = 20.0
+    GENRES_EXACT_MATCH_WEIGHT = 0
     GENRES_PARTIAL_MATCH_WEIGHT = 20.0
     # НОВАЯ КОНСТАНТА: минимальное количество общих жанров для включения в результат
     MIN_COMMON_GENRES = 2
@@ -92,7 +92,7 @@ class GameSimilarity:
     DEFAULT_MIN_SIMILARITY = 40
 
     # Вспомогательные константы для расчетов
-    KEYWORDS_ADD_PER_MATCH = 1
+    KEYWORDS_ADD_PER_MATCH = 0.5
 
     def __init__(self):
         # Кэш для ускорения повторных расчетов
