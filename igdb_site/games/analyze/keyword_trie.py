@@ -38,6 +38,7 @@ class KeywordTrie:
     def _generate_all_forms(self, word: str) -> Set[str]:
         """
         Генерирует ВСЕ возможные формы слова (существительные, глаголы, прилагательные, наречия)
+        ИСПРАВЛЕНО: Добавлены правила для прилагательных на -ful (skill → skilful)
         """
         word_lower = word.lower()
 
@@ -69,24 +70,35 @@ class KeywordTrie:
             last_three = word_lower[-3:]
             vowels = set('aeiou')
 
+            # Проверяем, нужно ли удвоение согласной
             if (len(word_lower) >= 3 and
                     last_three[0] not in vowels and
                     last_three[1] in vowels and
                     last_three[2] not in vowels and
                     last_three[2] not in ('w', 'x', 'y')):
 
+                # Удвоение последней согласной (run → running)
                 doubled_form = word_lower + word_lower[-1] + 'ing'
                 forms.add(doubled_form)
+                # Обычная форма тоже добавляется
                 forms.add(word_lower + 'ing')
             else:
+                # Обычная форма
                 forms.add(word_lower + 'ing')
+                # Если заканчивается на e, убираем e (make → making)
                 if word_lower.endswith('e'):
+                    # Специальный случай для "hide" → "hidden"
+                    if word_lower == 'hide':
+                        forms.add('hidden')
+                    # Обычное правило: убираем e и добавляем ing
                     forms.add(word_lower[:-1] + 'ing')
 
         # Формы прошедшего времени на -ed
         if word_lower.endswith('e'):
+            # Если заканчивается на e, добавляем только d (like → liked)
             forms.add(word_lower + 'd')
         else:
+            # Проверяем, нужно ли удвоение согласной
             if len(word_lower) >= 3:
                 last_three = word_lower[-3:]
                 vowels = set('aeiou')
@@ -94,8 +106,31 @@ class KeywordTrie:
                         last_three[1] in vowels and
                         last_three[2] not in vowels and
                         last_three[2] not in ('w', 'x', 'y')):
+                    # Удвоение согласной (plan → planned)
                     forms.add(word_lower + word_lower[-1] + 'ed')
+            # Обычная форма
             forms.add(word_lower + 'ed')
+
+        # ========== СПЕЦИАЛЬНЫЕ ФОРМЫ ПРОШЕДШЕГО ВРЕМЕНИ ==========
+        # Правило для слов, оканчивающихся на "ide" (hide → hidden)
+        if word_lower.endswith('ide') and len(word_lower) >= 4:
+            base = word_lower[:-3]  # убираем "ide"
+            forms.add(base + 'idden')
+
+        # Правило для слов, оканчивающихся на "ite" (write → written)
+        if word_lower.endswith('ite') and len(word_lower) >= 4:
+            base = word_lower[:-3]  # убираем "ite"
+            forms.add(base + 'itten')
+
+        # Правило для слов, оканчивающихся на "ake" (take → taken)
+        if word_lower.endswith('ake') and len(word_lower) >= 4:
+            base = word_lower[:-3]  # убираем "ake"
+            forms.add(base + 'aken')
+
+        # Правило для слов, оканчивающихся на "eak" (break → broken)
+        if word_lower.endswith('eak') and len(word_lower) >= 4:
+            base = word_lower[:-3]  # убираем "eak"
+            forms.add(base + 'oken')
 
         # Формы 3-го лица
         if word_lower.endswith(('s', 'x', 'z', 'ch', 'sh')):
@@ -109,7 +144,6 @@ class KeywordTrie:
 
         # ========== НАРЕЧИЯ НА -ly ==========
         # Прилагательное → наречие (lethal → lethally)
-        # Правило 1: обычно просто добавляем -ly
         forms.add(word_lower + 'ly')
 
         # Правило 2: если слово оканчивается на -y, меняем y на i и добавляем -ly (happy → happily)
@@ -123,6 +157,48 @@ class KeywordTrie:
         # Правило 4: если слово оканчивается на -ic, добавляем -ally (basic → basically)
         if word_lower.endswith('ic'):
             forms.add(word_lower + 'ally')
+
+        # ========== СПЕЦИАЛЬНЫЕ ПРАВИЛА ДЛЯ НАРЕЧИЙ ==========
+        # Слова на -th (stealth → stealthily)
+        if word_lower.endswith('th') and len(word_lower) >= 4:
+            # stealth → stealthily (добавляем ily)
+            forms.add(word_lower + 'ily')
+
+        # ========== ПРИЛАГАТЕЛЬНЫЕ НА -ful ==========
+        # Существительное → прилагательное (skill → skilful)
+        if len(word_lower) >= 3:
+            # Общее правило: добавляем -ful (power → powerful)
+            forms.add(word_lower + 'ful')
+
+            # Специальный случай для слов, оканчивающихся на ll (skill → skilful)
+            if word_lower.endswith('ll') and len(word_lower) >= 4:
+                # skill → skilful (убираем одну l)
+                forms.add(word_lower[:-1] + 'ful')
+
+            # Слова на y (beauty → beautiful)
+            if word_lower.endswith('y') and len(word_lower) >= 4 and word_lower[-2] not in 'aeiou':
+                # beauty → beautiful (y → i + ful)
+                forms.add(word_lower[:-1] + 'iful')
+
+        # ========== ПРИЛАГАТЕЛЬНЫЕ НА -al, -ial, -ual ==========
+        # Существительное → прилагательное (direction → directional)
+        # Правило 1: добавляем -al (music → musical)
+        forms.add(word_lower + 'al')
+
+        # Правило 2: если оканчивается на -tion, меняем на -tional (direction → directional)
+        if word_lower.endswith('tion') and len(word_lower) >= 5:
+            # direction → directional
+            forms.add(word_lower + 'al')  # direction + al = directional
+
+        # Правило 3: если оканчивается на -ic, меняем на -ical (history → historical)
+        if word_lower.endswith('ic') and len(word_lower) >= 3:
+            forms.add(word_lower + 'al')  # historic + al = historical
+
+        # Правило 4: добавляем -ual (effect → effectual)
+        forms.add(word_lower + 'ual')
+
+        # Правило 5: добавляем -ial (commerce → commercial)
+        forms.add(word_lower + 'ial')
 
         # ========== ОБРАТНЫЕ ФОРМЫ (ДЛЯ ПОИСКА) ==========
         # Если слово оканчивается на -ing
@@ -147,6 +223,26 @@ class KeywordTrie:
         if word_lower.endswith('ies'):
             forms.add(word_lower[:-3] + 'y')
 
+        # Если слово оканчивается на -idden (hidden → hide)
+        if word_lower.endswith('idden') and len(word_lower) >= 6:
+            base = word_lower[:-5]  # убираем "idden"
+            forms.add(base + 'ide')
+
+        # Если слово оканчивается на -itten (written → write)
+        if word_lower.endswith('itten') and len(word_lower) >= 6:
+            base = word_lower[:-5]  # убираем "itten"
+            forms.add(base + 'ite')
+
+        # Если слово оканчивается на -aken (taken → take)
+        if word_lower.endswith('aken') and len(word_lower) >= 5:
+            base = word_lower[:-4]  # убираем "aken"
+            forms.add(base + 'ake')
+
+        # Если слово оканчивается на -oken (broken → break)
+        if word_lower.endswith('oken') and len(word_lower) >= 5:
+            base = word_lower[:-4]  # убираем "oken"
+            forms.add(base + 'eak')
+
         # ========== ОБРАТНЫЕ ФОРМЫ ДЛЯ НАРЕЧИЙ ==========
         # Если слово оканчивается на -ly, пытаемся найти прилагательное
         if word_lower.endswith('ly') and len(word_lower) > 3:
@@ -168,6 +264,41 @@ class KeywordTrie:
             if word_lower.endswith('ically') and len(word_lower) > 7:
                 base4 = word_lower[:-5]
                 forms.add(base4)
+
+            # Специальный случай для -thily (stealthily → stealth)
+            if word_lower.endswith('thily') and len(word_lower) >= 6:
+                # stealthily → stealth (убираем "ily")
+                base5 = word_lower[:-3]
+                forms.add(base5)
+
+        # ========== ОБРАТНЫЕ ФОРМЫ ДЛЯ ПРИЛАГАТЕЛЬНЫХ ==========
+        # directional → direction (убираем al)
+        if word_lower.endswith('al') and len(word_lower) >= 3:
+            base1 = word_lower[:-2]  # убираем "al"
+            forms.add(base1)
+
+            # Специально для -tional → -tion (directional → direction)
+            if word_lower.endswith('tional') and len(word_lower) >= 7:
+                # directional → direction (убираем "al")
+                base2 = word_lower[:-2]  # direction
+                forms.add(base2)
+
+        # ========== ОБРАТНЫЕ ФОРМЫ ДЛЯ ПРИЛАГАТЕЛЬНЫХ НА -ful ==========
+        # powerful → power (убираем ful)
+        if word_lower.endswith('ful') and len(word_lower) >= 5:
+            # powerful → power
+            base1 = word_lower[:-3]  # убираем "ful"
+            forms.add(base1)
+
+            # skilful → skill (специальный случай)
+            if word_lower == 'skilful':
+                forms.add('skill')
+
+            # beautiful → beauty
+            if word_lower.endswith('iful') and len(word_lower) >= 6:
+                # beautiful → beauty
+                base2 = word_lower[:-3] + 'y'  # beauti + y = beauty
+                forms.add(base2)
 
         # ========== ФИЛЬТРАЦИЯ ==========
         valid_forms = set()
