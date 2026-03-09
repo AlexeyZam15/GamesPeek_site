@@ -114,6 +114,7 @@ class Command(BaseCommand):
     def _get_base_form(self, word: str) -> str:
         """
         Определяет исходную форму слова используя NLTK
+        ИСПРАВЛЕНО: Добавлены правила для skilful → skill
         """
         word_lower = word.lower()
 
@@ -129,7 +130,92 @@ class Command(BaseCommand):
         if self._is_gaming_term(word_lower):
             return word_lower
 
-        # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ НАРЕЧИЙ НА -ly ==========
+        # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ СЛОВ НА -ful ==========
+        # skilful → skill (убираем ful)
+        if word_lower.endswith('ful') and len(word_lower) >= 5:
+            # skilful → skill
+            base_candidate = word_lower[:-3]  # убираем "ful", остается "skil"
+            # Проверяем, нужно ли добавить букву
+            if base_candidate.endswith('il') and word_lower == 'skilful':
+                base_candidate = 'skill'
+            try:
+                from nltk.corpus import wordnet as wn
+                if wn.synsets(base_candidate):
+                    return base_candidate
+            except:
+                if len(base_candidate) < len(word_lower):
+                    return base_candidate
+
+        # beautiful → beauty (убираем ful, добавляем y)
+        if word_lower.endswith('iful') and len(word_lower) >= 6:
+            # beautiful → beauty
+            base_candidate = word_lower[:-3] + 'y'  # beauti + y = beauty
+            try:
+                from nltk.corpus import wordnet as wn
+                if wn.synsets(base_candidate):
+                    return base_candidate
+            except:
+                if len(base_candidate) < len(word_lower):
+                    return base_candidate
+
+        # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ НАРЕЧИЙ ==========
+        # stealthily → stealth (убираем ily)
+        if word_lower.endswith('thily') and len(word_lower) >= 6:
+            base_candidate = word_lower[:-3]  # убираем "ily", остается "stealth"
+            try:
+                from nltk.corpus import wordnet as wn
+                if wn.synsets(base_candidate):
+                    return base_candidate
+            except:
+                if len(base_candidate) < len(word_lower):
+                    return base_candidate
+
+        # stealthy → stealth (убираем y)
+        if word_lower.endswith('thy') and len(word_lower) >= 4:
+            base_candidate = word_lower[:-1]  # убираем "y"
+            try:
+                from nltk.corpus import wordnet as wn
+                if wn.synsets(base_candidate):
+                    return base_candidate
+            except:
+                if len(base_candidate) < len(word_lower):
+                    return base_candidate
+
+        # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ ПРИЛАГАТЕЛЬНЫХ ==========
+        # directional → direction (убираем al)
+        if word_lower.endswith('tional') and len(word_lower) >= 7:
+            base_candidate = word_lower[:-2]
+            try:
+                from nltk.corpus import wordnet as wn
+                if wn.synsets(base_candidate):
+                    return base_candidate
+            except:
+                if len(base_candidate) < len(word_lower):
+                    return base_candidate
+
+        # emotional → emotion (убираем al)
+        if word_lower.endswith('ional') and len(word_lower) >= 6:
+            base_candidate = word_lower[:-2]
+            try:
+                from nltk.corpus import wordnet as wn
+                if wn.synsets(base_candidate):
+                    return base_candidate
+            except:
+                if len(base_candidate) < len(word_lower):
+                    return base_candidate
+
+        # musical → music (убираем al)
+        if word_lower.endswith('ical') and len(word_lower) >= 5:
+            base_candidate = word_lower[:-2]
+            try:
+                from nltk.corpus import wordnet as wn
+                if wn.synsets(base_candidate):
+                    return base_candidate
+            except:
+                if len(base_candidate) < len(word_lower):
+                    return base_candidate
+
+        # ========== ОБЩАЯ ОБРАБОТКА ДЛЯ НАРЕЧИЙ НА -ly ==========
         if word_lower.endswith('ly') and len(word_lower) > 3:
             try:
                 from nltk.corpus import wordnet as wn
@@ -138,32 +224,36 @@ class Command(BaseCommand):
                 base_candidate1 = word_lower[:-2]
                 synsets1 = wn.synsets(base_candidate1)
                 if synsets1:
-                    # Проверяем, что это прилагательное
                     is_adj = any(s.pos() == 'a' or s.pos() == 's' for s in synsets1)
                     if is_adj:
                         return base_candidate1
 
-                # Вариант 2: happily → happy (ily → y)
-                if word_lower.endswith('ily'):
-                    base_candidate2 = word_lower[:-3] + 'y'
+                # Вариант 2: basically → basic (убираем ally)
+                if word_lower.endswith('ically'):
+                    base_candidate2 = word_lower[:-5]
                     if wn.synsets(base_candidate2):
                         return base_candidate2
 
-                # Вариант 3: basically → basic (убираем ally)
-                if word_lower.endswith('ically'):
-                    base_candidate3 = word_lower[:-5]
+                # Вариант 3: gently → gentle (tly → tle)
+                if word_lower.endswith('tly'):
+                    base_candidate3 = word_lower[:-2] + 'le'
                     if wn.synsets(base_candidate3):
                         return base_candidate3
 
-                # Вариант 4: gently → gentle (tly → tle)
-                if word_lower.endswith('tly'):
-                    base_candidate4 = word_lower[:-2] + 'le'
+                # Вариант 4: happily → happy (ily → y)
+                if word_lower.endswith('ily') and not word_lower.endswith('thily'):
+                    base_candidate4 = word_lower[:-3] + 'y'
                     if wn.synsets(base_candidate4):
                         return base_candidate4
 
-            except:
-                # Если WordNet недоступен, просто продолжаем
-                pass
+            except Exception:
+                # Если WordNet недоступен, используем простые правила
+                if word_lower.endswith('thily'):
+                    return word_lower[:-3]
+                elif word_lower.endswith('ily'):
+                    return word_lower[:-3] + 'y'
+                elif word_lower.endswith('ly'):
+                    return word_lower[:-2]
 
         # Пробуем разные части речи через лемматизатор
         verb_form = self.lemmatizer.lemmatize(word_lower, 'v')
@@ -183,7 +273,7 @@ class Command(BaseCommand):
 
         adv_form = self.lemmatizer.lemmatize(word_lower, 'r')
         if adv_form != word_lower:
-            if not self._is_gaming_term(adv_form) and not self._is_short_word(adv_form):
+            if not self._is_gaming_term(adv_form) and not self._is_short_word(adj_form):
                 return adv_form
 
         return word_lower
