@@ -74,8 +74,8 @@ class GameSimilarity:
 
     # Базовые константы с распределением весов
     GENRES_WEIGHT = 20.0
-    KEYWORDS_WEIGHT = 50.0
-    THEMES_WEIGHT = 10.0
+    KEYWORDS_WEIGHT = 60.0
+    THEMES_WEIGHT = .0
     PERSPECTIVES_WEIGHT = 10.0
     GAME_MODES_WEIGHT = 5.0
     DEVELOPERS_WEIGHT = 5.0
