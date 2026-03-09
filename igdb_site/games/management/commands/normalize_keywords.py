@@ -116,92 +116,174 @@ class Command(BaseCommand):
         if self._is_gaming_term(word_lower):
             return word_lower
 
-        # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ СЛОВ НА -ful ==========
-        # skilful → skill (убираем ful)
-        if word_lower.endswith('ful') and len(word_lower) >= 5:
-            # skilful → skill
-            base_candidate = word_lower[:-3]  # убираем "ful", остается "skil"
-            # Проверяем, нужно ли добавить букву
-            if base_candidate.endswith('il') and word_lower == 'skilful':
-                base_candidate = 'skill'
+        # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ СЛОВ НА -ing ==========
+        # killing → kill, drawing → draw, scrolling → scroll
+        # НО: lemming → lemming (оставляем, т.к. это название животного, а не форма глагола)
+        if word_lower.endswith('ing') and len(word_lower) > 4:
+            # Убираем "ing"
+            base_candidate = word_lower[:-3]
+
+            # Обработка удвоенных согласных (killing → kill, а не kil)
+            if len(base_candidate) >= 2 and base_candidate[-1] == base_candidate[-2]:
+                base_candidate = base_candidate[:-1]
+
+            # Проверяем через WordNet
+            try:
+                from nltk.corpus import wordnet as wn
+
+                # Получаем синосеты для оригинального слова и кандидата
+                original_synsets = wn.synsets(word_lower)
+                candidate_synsets = wn.synsets(base_candidate)
+
+                # Если кандидат не существует - оставляем оригинал
+                if not candidate_synsets:
+                    return word_lower
+
+                # Проверяем, является ли оригинал существительным (не глагольной формой)
+                original_is_noun = any(s.pos() == 'n' for s in original_synsets)
+                original_is_verb = any(s.pos() == 'v' for s in original_synsets)
+
+                # Если оригинал - существительное и не является глаголом, это может быть имя существительное
+                # (например, lemming - животное, а не форма глагола "lem")
+                if original_is_noun and not original_is_verb:
+                    # Проверяем, связаны ли значения
+                    # Получаем леммы кандидата
+                    candidate_lemmas = set()
+                    for syn in candidate_synsets:
+                        for lemma in syn.lemmas():
+                            candidate_lemmas.add(lemma.name().lower())
+
+                    # Если оригинал не входит в леммы кандидата - это разные слова
+                    if word_lower not in candidate_lemmas:
+                        return word_lower
+
+                # Если кандидат существует и это глагол - нормализуем
+                candidate_is_verb = any(s.pos() == 'v' for s in candidate_synsets)
+                if candidate_is_verb:
+                    return base_candidate
+
+                # Пробуем добавить 'e' (drawing → draw)
+                if wn.synsets(base_candidate + 'e'):
+                    return base_candidate + 'e'
+
+            except:
+                pass
+
+        # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ ПРИЛАГАТЕЛЬНЫХ НА -al ==========
+        # experimental → experiment, directional → direction, emotional → emotion
+        # НО: primal → primal (оставляем)
+        if word_lower.endswith('al') and len(word_lower) > 4:
+            # Убираем "al"
+            base_candidate = word_lower[:-2]
+
+            try:
+                from nltk.corpus import wordnet as wn
+
+                # Получаем синосеты
+                original_synsets = wn.synsets(word_lower)
+                candidate_synsets = wn.synsets(base_candidate)
+
+                # Если основа не существует - оставляем оригинал
+                if not candidate_synsets:
+                    return word_lower
+
+                # Проверяем семантическую близость через общие слова в определениях
+                # Для простоты - если у кандидата есть значения, не связанные с оригиналом
+
+                # Получаем первые определения
+                original_defs = set()
+                for syn in original_synsets[:3]:
+                    original_defs.update(syn.definition().split()[:5])
+
+                candidate_defs = set()
+                for syn in candidate_synsets[:3]:
+                    candidate_defs.update(syn.definition().split()[:5])
+
+                # Если нет общих слов в определениях - это разные слова
+                common_words = original_defs.intersection(candidate_defs)
+                if not common_words and len(original_defs) > 0 and len(candidate_defs) > 0:
+                    return word_lower
+
+                # Проверяем части речи
+                original_is_adj = any(s.pos() in ['a', 's'] for s in original_synsets)
+                candidate_is_noun = any(s.pos() == 'n' for s in candidate_synsets)
+
+                # Если оригинал - прилагательное, а кандидат - существительное - нормализуем
+                if original_is_adj and candidate_is_noun:
+                    return base_candidate
+
+            except:
+                pass
+
+        # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ СЛОВ НА -ed ==========
+        # focused → focus
+        if word_lower.endswith('ed') and len(word_lower) > 4:
+            base_candidate = word_lower[:-2]  # убираем "ed"
+
+            # Обработка удвоенных согласных (focused → focuse? нет, focus)
+            if len(base_candidate) >= 2 and base_candidate[-1] == base_candidate[-2]:
+                base_candidate = base_candidate[:-1]
+
             try:
                 from nltk.corpus import wordnet as wn
                 if wn.synsets(base_candidate):
                     return base_candidate
             except:
-                if len(base_candidate) < len(word_lower):
-                    return base_candidate
+                pass
 
-        # beautiful → beauty (убираем ful, добавляем y)
-        if word_lower.endswith('iful') and len(word_lower) >= 6:
-            # beautiful → beauty
-            base_candidate = word_lower[:-3] + 'y'  # beauti + y = beauty
-            try:
-                from nltk.corpus import wordnet as wn
-                if wn.synsets(base_candidate):
-                    return base_candidate
-            except:
-                if len(base_candidate) < len(word_lower):
-                    return base_candidate
-
-        # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ НАРЕЧИЙ ==========
-        # stealthily → stealth (убираем ily)
-        if word_lower.endswith('thily') and len(word_lower) >= 6:
-            base_candidate = word_lower[:-3]  # убираем "ily", остается "stealth"
-            try:
-                from nltk.corpus import wordnet as wn
-                if wn.synsets(base_candidate):
-                    return base_candidate
-            except:
-                if len(base_candidate) < len(word_lower):
-                    return base_candidate
-
-        # stealthy → stealth (убираем y)
-        if word_lower.endswith('thy') and len(word_lower) >= 4:
+        # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ СЛОВ НА -y ==========
+        # bloody → blood
+        # НО: silly → silly (оставляем, т.к. sill это другое слово - "подоконник")
+        if word_lower.endswith('y') and len(word_lower) > 3:
             base_candidate = word_lower[:-1]  # убираем "y"
+
             try:
                 from nltk.corpus import wordnet as wn
-                if wn.synsets(base_candidate):
-                    return base_candidate
-            except:
-                if len(base_candidate) < len(word_lower):
+
+                # Получаем синосеты
+                original_synsets = wn.synsets(word_lower)
+                candidate_synsets = wn.synsets(base_candidate)
+
+                # Если основа не существует - оставляем оригинал
+                if not candidate_synsets:
+                    return word_lower
+
+                # Проверяем семантическую близость
+                # Получаем леммы (основные формы) для сравнения
+                original_lemmas = set()
+                for syn in original_synsets:
+                    for lemma in syn.lemmas():
+                        original_lemmas.add(lemma.name().lower())
+
+                candidate_lemmas = set()
+                for syn in candidate_synsets:
+                    for lemma in syn.lemmas():
+                        candidate_lemmas.add(lemma.name().lower())
+
+                # Если кандидат не содержит оригинал и оригинал не содержит кандидата
+                if word_lower not in candidate_lemmas and base_candidate not in original_lemmas:
+                    # Проверяем часть речи кандидата
+                    candidate_is_noun = any(s.pos() == 'n' for s in candidate_synsets)
+                    candidate_is_adj = any(s.pos() in ['a', 's'] for s in candidate_synsets)
+
+                    # Если кандидат - существительное, но это явно другое слово (как sill)
+                    if candidate_is_noun and not candidate_is_adj:
+                        # Проверяем, есть ли у кандидата значение, связанное с оригиналом
+                        # Для silly/sill: sill - "подоконник", нет связи с "глупый"
+                        return word_lower
+
+                # Проверяем части речи
+                original_is_adj = any(s.pos() in ['a', 's'] for s in original_synsets)
+                candidate_is_noun = any(s.pos() == 'n' for s in candidate_synsets)
+
+                # Если оригинал - прилагательное, а кандидат - существительное - нормализуем
+                if original_is_adj and candidate_is_noun:
                     return base_candidate
 
-        # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ ПРИЛАГАТЕЛЬНЫХ ==========
-        # directional → direction (убираем al)
-        if word_lower.endswith('tional') and len(word_lower) >= 7:
-            base_candidate = word_lower[:-2]
-            try:
-                from nltk.corpus import wordnet as wn
-                if wn.synsets(base_candidate):
-                    return base_candidate
             except:
-                if len(base_candidate) < len(word_lower):
-                    return base_candidate
+                pass
 
-        # emotional → emotion (убираем al)
-        if word_lower.endswith('ional') and len(word_lower) >= 6:
-            base_candidate = word_lower[:-2]
-            try:
-                from nltk.corpus import wordnet as wn
-                if wn.synsets(base_candidate):
-                    return base_candidate
-            except:
-                if len(base_candidate) < len(word_lower):
-                    return base_candidate
-
-        # musical → music (убираем al)
-        if word_lower.endswith('ical') and len(word_lower) >= 5:
-            base_candidate = word_lower[:-2]
-            try:
-                from nltk.corpus import wordnet as wn
-                if wn.synsets(base_candidate):
-                    return base_candidate
-            except:
-                if len(base_candidate) < len(word_lower):
-                    return base_candidate
-
-        # ========== ОБЩАЯ ОБРАБОТКА ДЛЯ НАРЕЧИЙ НА -ly ==========
+        # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ НАРЕЧИЙ НА -ly ==========
         if word_lower.endswith('ly') and len(word_lower) > 3:
             try:
                 from nltk.corpus import wordnet as wn
