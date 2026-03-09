@@ -8,7 +8,6 @@ Django команда для нормализации ключевых слов:
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
-from django.db.models import Count
 from games.models import Keyword
 import time
 import nltk
@@ -68,23 +67,11 @@ class Command(BaseCommand):
         if word_lower in gaming_abbr:
             return True
 
-        # Игровые атрибуты и характеристики (только точные совпадения)
+        # Игровые термины (только указанные)
         gaming_terms = {
-            'stamina', 'mana', 'health', 'armor', 'damage', 'defense', 'attack',
-            'strength', 'agility', 'intelligence', 'wisdom', 'charisma', 'luck',
-            'skill', 'level', 'exp', 'experience', 'gold', 'coin', 'currency',
-            'inventory', 'quest', 'mission', 'achievement', 'trophy',
-
-            # Ресурсы и материалы
-            'wood', 'stone', 'iron', 'steel', 'gold', 'silver', 'copper',
-            'leather', 'cloth', 'silk', 'wool', 'cotton', 'herb', 'potion',
-
-            # Оружие и экипировка
-            'sword', 'axe', 'bow', 'staff', 'wand', 'shield', 'helmet',
-            'armor', 'boots', 'gloves', 'ring', 'amulet', 'necklace',
-
-            # ИГРОВЫЕ ТЕРМИНЫ В ФОРМЕ ПРОШЕДШЕГО ВРЕМЕНИ
             'wanted',  # "Most Wanted" - название игры, термин
+            'stamina',  # Игровая характеристика
+            'leveling',
         }
 
         # Точное совпадение с игровыми терминами
@@ -114,7 +101,6 @@ class Command(BaseCommand):
     def _get_base_form(self, word: str) -> str:
         """
         Определяет исходную форму слова используя NLTK
-        ИСПРАВЛЕНО: Добавлены правила для skilful → skill
         """
         word_lower = word.lower()
 
@@ -331,22 +317,6 @@ class Command(BaseCommand):
             if base_form != word_lower:
                 base_groups[base_form].append(kw)
 
-        # Показываем найденные игровые термины
-        if gaming_terms_found and verbose:
-            self.stdout.write("\n" + "=" * 70)
-            self.stdout.write(self.style.SUCCESS("ИГРОВЫЕ ТЕРМИНЫ (НЕ НОРМАЛИЗУЮТСЯ)"))
-            self.stdout.write("=" * 70)
-            for term in sorted(gaming_terms_found):
-                self.stdout.write(f"   • {term}")
-
-        # Показываем короткие слова
-        if short_words_found and verbose:
-            self.stdout.write("\n" + "=" * 70)
-            self.stdout.write(self.style.SUCCESS("КОРОТКИЕ СЛОВА (<=3 БУКВ, НЕ НОРМАЛИЗУЮТСЯ)"))
-            self.stdout.write("=" * 70)
-            for word in sorted(short_words_found):
-                self.stdout.write(f"   • {word}")
-
         # Показываем найденные группы
         self.stdout.write("\n" + "=" * 70)
         self.stdout.write(self.style.SUCCESS("НАЙДЕННЫЕ ГРУППЫ СЛОВ"))
@@ -375,7 +345,7 @@ class Command(BaseCommand):
                 self.stdout.write(f"   • {w.name} (ID: {w.id}) - игр: {w.game_set.count()}")
 
         # Если dry-run, показываем только статистику
-        if dry_run or fix_specific:
+        if dry_run:
             elapsed_time = time.time() - start_time
             self.stdout.write("\n" + "=" * 70)
             self.stdout.write(self.style.SUCCESS("СТАТИСТИКА"))
@@ -385,104 +355,107 @@ class Command(BaseCommand):
 
             total_forms = sum(len(words) for words in base_groups.values())
             self.stdout.write(f"📊 Всего слов-форм: {total_forms}")
-            self.stdout.write(f"📊 Игровых терминов (пропущено): {len(gaming_terms_found)}")
-            self.stdout.write(f"📊 Коротких слов (пропущено): {len(short_words_found)}")
 
-            if dry_run:
-                self.stdout.write("\n" + self.style.WARNING("🏃 DRY RUN - запустите без --dry-run для применения"))
+            self.stdout.write("\n" + self.style.WARNING("🏃 DRY RUN - запустите без --dry-run для применения"))
             return
 
-        # Применяем изменения
-        self.stdout.write("\n" + "=" * 70)
-        self.stdout.write(self.style.SUCCESS("ПРИМЕНЕНИЕ ИЗМЕНЕНИЙ"))
-        self.stdout.write("=" * 70)
+        # Если fix_specific и не dry_run, показываем только группы и завершаем
+        if fix_specific and not dry_run:
+            self.stdout.write(
+                "\n" + self.style.WARNING(f"🔍 Режим --fix-specific: группы для '{fix_specific}' показаны выше"))
+            self.stdout.write(self.style.WARNING("Для применения изменений запустите без --fix-specific"))
+            return
 
-        stats = {
-            'renamed': 0,
-            'merged': 0,
-            'moved_relations': 0
-        }
+        # Применяем изменения (только если не dry_run и не fix_specific)
+        if not dry_run and not fix_specific:
+            self.stdout.write("\n" + "=" * 70)
+            self.stdout.write(self.style.SUCCESS("ПРИМЕНЕНИЕ ИЗМЕНЕНИЙ"))
+            self.stdout.write("=" * 70)
 
-        with transaction.atomic():
-            for base_form, words in base_groups.items():
-                base_exists = base_form in keyword_by_name
+            stats = {
+                'renamed': 0,
+                'merged': 0,
+                'moved_relations': 0
+            }
 
-                if base_exists:
-                    # Исходная форма есть - переносим все связи
-                    base_word = keyword_by_name[base_form]
-                    forms = [w for w in words if w.name.lower() != base_form]
+            with transaction.atomic():
+                for base_form, words in base_groups.items():
+                    base_exists = base_form in keyword_by_name
 
-                    if not forms:
-                        continue
+                    if base_exists:
+                        # Исходная форма есть - переносим все связи
+                        base_word = keyword_by_name[base_form]
+                        forms = [w for w in words if w.name.lower() != base_form]
 
-                    self.stdout.write(f"\n📌 Группа: {base_form}")
-                    self.stdout.write(f"   ✅ Исходная форма: {base_word.name} (ID: {base_word.id})")
+                        if not forms:
+                            continue
 
-                    for form in forms:
-                        games = list(form.game_set.all())
-                        if games:
-                            self.stdout.write(f"   🔄 Переносим {len(games)} игр с '{form.name}'")
-                            for game in games:
-                                if not game.keywords.filter(id=base_word.id).exists():
-                                    game.keywords.add(base_word)
-                                    stats['moved_relations'] += 1
+                        self.stdout.write(f"\n📌 Группа: {base_form}")
+                        self.stdout.write(f"   ✅ Исходная форма: {base_word.name} (ID: {base_word.id})")
 
-                        form.delete()
-                        stats['merged'] += 1
-                        self.stdout.write(f"   ✅ Удалена форма '{form.name}'")
+                        for form in forms:
+                            games = list(form.game_set.all())
+                            if games:
+                                self.stdout.write(f"   🔄 Переносим {len(games)} игр с '{form.name}'")
+                                for game in games:
+                                    if not game.keywords.filter(id=base_word.id).exists():
+                                        game.keywords.add(base_word)
+                                        stats['moved_relations'] += 1
 
-                else:
-                    # Исходной формы нет - выбираем самое популярное слово
-                    words.sort(key=lambda w: w.game_set.count(), reverse=True)
-                    base_word = words[0]
-                    other_forms = words[1:]
+                            form.delete()
+                            stats['merged'] += 1
+                            self.stdout.write(f"   ✅ Удалена форма '{form.name}'")
 
-                    self.stdout.write(f"\n📌 Группа: {base_form}")
-                    self.stdout.write(f"   🔄 Выбираем базовым: {base_word.name} (ID: {base_word.id})")
+                    else:
+                        # Исходной формы нет - выбираем самое популярное слово
+                        words.sort(key=lambda w: w.game_set.count(), reverse=True)
+                        base_word = words[0]
+                        other_forms = words[1:]
 
-                    # Переименовываем
-                    if base_word.name.lower() != base_form:
-                        old_name = base_word.name
-                        base_word.name = base_form
-                        base_word.save()
-                        stats['renamed'] += 1
-                        self.stdout.write(f"   🔄 Переименовано: '{old_name}' -> '{base_form}'")
+                        self.stdout.write(f"\n📌 Группа: {base_form}")
+                        self.stdout.write(f"   🔄 Выбираем базовым: {base_word.name} (ID: {base_word.id})")
 
-                    # Переносим связи с других форм
-                    for form in other_forms:
-                        games = list(form.game_set.all())
-                        if games:
-                            self.stdout.write(f"   🔄 Переносим {len(games)} игр с '{form.name}'")
-                            for game in games:
-                                if not game.keywords.filter(id=base_word.id).exists():
-                                    game.keywords.add(base_word)
-                                    stats['moved_relations'] += 1
+                        # Переименовываем
+                        if base_word.name.lower() != base_form:
+                            old_name = base_word.name
+                            base_word.name = base_form
+                            base_word.save()
+                            stats['renamed'] += 1
+                            self.stdout.write(f"   🔄 Переименовано: '{old_name}' -> '{base_form}'")
 
-                        form.delete()
-                        stats['merged'] += 1
-                        self.stdout.write(f"   ✅ Удалена форма '{form.name}'")
+                        # Переносим связи с других форм
+                        for form in other_forms:
+                            games = list(form.game_set.all())
+                            if games:
+                                self.stdout.write(f"   🔄 Переносим {len(games)} игр с '{form.name}'")
+                                for game in games:
+                                    if not game.keywords.filter(id=base_word.id).exists():
+                                        game.keywords.add(base_word)
+                                        stats['moved_relations'] += 1
 
-        # Итоговая статистика
-        elapsed_time = time.time() - start_time
+                            form.delete()
+                            stats['merged'] += 1
+                            self.stdout.write(f"   ✅ Удалена форма '{form.name}'")
 
-        self.stdout.write("\n" + "=" * 70)
-        self.stdout.write(self.style.SUCCESS("ИТОГОВАЯ СТАТИСТИКА"))
-        self.stdout.write("=" * 70)
-        self.stdout.write(f"⏱️  Время выполнения: {elapsed_time:.2f} сек")
-        self.stdout.write(f"📊 Найдено групп: {len(base_groups)}")
-        self.stdout.write(f"📊 Переименовано слов: {stats['renamed']}")
-        self.stdout.write(f"📊 Объединено слов: {stats['merged']}")
-        self.stdout.write(f"📊 Перенесено связей: {stats['moved_relations']}")
-        self.stdout.write(f"📊 Игровых терминов (пропущено): {len(gaming_terms_found)}")
-        self.stdout.write(f"📊 Коротких слов (пропущено): {len(short_words_found)}")
+            # Итоговая статистика
+            elapsed_time = time.time() - start_time
 
-        # Сбрасываем кэш Trie
-        self.stdout.write("\n" + self.style.SUCCESS("🔄 Сбрасываем кэш Trie..."))
-        try:
-            from games.analyze.keyword_trie import KeywordTrieManager
-            KeywordTrieManager().clear_cache()
-            self.stdout.write(self.style.SUCCESS("✅ Кэш Trie очищен"))
-        except Exception as e:
-            self.stdout.write(self.style.WARNING(f"⚠️ Не удалось очистить кэш: {e}"))
+            self.stdout.write("\n" + "=" * 70)
+            self.stdout.write(self.style.SUCCESS("ИТОГОВАЯ СТАТИСТИКА"))
+            self.stdout.write("=" * 70)
+            self.stdout.write(f"⏱️  Время выполнения: {elapsed_time:.2f} сек")
+            self.stdout.write(f"📊 Найдено групп: {len(base_groups)}")
+            self.stdout.write(f"📊 Переименовано слов: {stats['renamed']}")
+            self.stdout.write(f"📊 Объединено слов: {stats['merged']}")
+            self.stdout.write(f"📊 Перенесено связей: {stats['moved_relations']}")
 
-        self.stdout.write("=" * 70)
+            # Сбрасываем кэш Trie
+            self.stdout.write("\n" + self.style.SUCCESS("🔄 Сбрасываем кэш Trie..."))
+            try:
+                from games.analyze.keyword_trie import KeywordTrieManager
+                KeywordTrieManager().clear_cache()
+                self.stdout.write(self.style.SUCCESS("✅ Кэш Trie очищен"))
+            except Exception as e:
+                self.stdout.write(self.style.WARNING(f"⚠️ Не удалось очистить кэш: {e}"))
+
+            self.stdout.write("=" * 70)
