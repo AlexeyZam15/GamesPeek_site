@@ -19,6 +19,8 @@ urlpatterns = [
     path('games/<int:game_id>/analyze/delete-keyword/', views.delete_keyword, name='delete_keyword'),
     path('games/<int:game_id>/analyze/current-keywords/', views.get_current_keywords, name='get_current_keywords'),
     path('games/<int:game_id>/analyze/found-items/', views.get_found_keywords, name='get_found_keywords'),
+    # НОВЫЙ URL ДЛЯ НОРМАЛИЗАЦИИ
+    path('games/normalize-keyword/', views.normalize_keyword, name='normalize_keyword'),
 ]
 
 # ОБЯЗАТЕЛЬНО: добавляем статические и медиа файлы ТОЛЬКО в режиме DEBUG

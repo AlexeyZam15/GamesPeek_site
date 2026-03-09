@@ -56,7 +56,7 @@ class Command(BaseCommand):
         """
         word_lower = word.lower()
 
-        # Игровые аббревиатуры и сокращения
+        # Игровые аббревиатуры и сокращения (только точные совпадения)
         gaming_abbr = {
             'cod', 'fps', 'rpg', 'mmo', 'rts', 'moba', 'pvp', 'pve',
             'hp', 'mp', 'xp', 'ap', 'dp', 'dps', 'hps', 'gcd', 'cd',
@@ -64,10 +64,11 @@ class Command(BaseCommand):
             'diy', 'dlc', 'gacha', 'rogue', 'roguelike', 'roguelite'
         }
 
+        # Точное совпадение с аббревиатурами
         if word_lower in gaming_abbr:
             return True
 
-        # Игровые атрибуты и характеристики
+        # Игровые атрибуты и характеристики (только точные совпадения)
         gaming_terms = {
             'stamina', 'mana', 'health', 'armor', 'damage', 'defense', 'attack',
             'strength', 'agility', 'intelligence', 'wisdom', 'charisma', 'luck',
@@ -81,9 +82,16 @@ class Command(BaseCommand):
             # Оружие и экипировка
             'sword', 'axe', 'bow', 'staff', 'wand', 'shield', 'helmet',
             'armor', 'boots', 'gloves', 'ring', 'amulet', 'necklace',
+
+            # ИГРОВЫЕ ТЕРМИНЫ В ФОРМЕ ПРОШЕДШЕГО ВРЕМЕНИ
+            'wanted',  # "Most Wanted" - название игры, термин
         }
 
-        return word_lower in gaming_terms
+        # Точное совпадение с игровыми терминами
+        if word_lower in gaming_terms:
+            return True
+
+        return False
 
     def _is_short_word(self, word: str) -> bool:
         """
@@ -97,7 +105,7 @@ class Command(BaseCommand):
             return True
 
         # Но есть исключения - короткие слова, которые могут быть формами
-        short_forms = {'run', 'ran', 'set', 'sit', 'sat', 'eat', 'ate'}
+        short_forms = {'run', 'ran', 'set', 'sit', 'sat', 'eat', 'ate', 'fly', 'flew'}
         if word_lower in short_forms:
             return False
 
@@ -121,32 +129,63 @@ class Command(BaseCommand):
         if self._is_gaming_term(word_lower):
             return word_lower
 
-        # Пробуем разные части речи
-        # Сначала как глагол (самое частое для форм)
+        # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ НАРЕЧИЙ НА -ly ==========
+        if word_lower.endswith('ly') and len(word_lower) > 3:
+            try:
+                from nltk.corpus import wordnet as wn
+
+                # Вариант 1: deadly → dead (убираем ly)
+                base_candidate1 = word_lower[:-2]
+                synsets1 = wn.synsets(base_candidate1)
+                if synsets1:
+                    # Проверяем, что это прилагательное
+                    is_adj = any(s.pos() == 'a' or s.pos() == 's' for s in synsets1)
+                    if is_adj:
+                        return base_candidate1
+
+                # Вариант 2: happily → happy (ily → y)
+                if word_lower.endswith('ily'):
+                    base_candidate2 = word_lower[:-3] + 'y'
+                    if wn.synsets(base_candidate2):
+                        return base_candidate2
+
+                # Вариант 3: basically → basic (убираем ally)
+                if word_lower.endswith('ically'):
+                    base_candidate3 = word_lower[:-5]
+                    if wn.synsets(base_candidate3):
+                        return base_candidate3
+
+                # Вариант 4: gently → gentle (tly → tle)
+                if word_lower.endswith('tly'):
+                    base_candidate4 = word_lower[:-2] + 'le'
+                    if wn.synsets(base_candidate4):
+                        return base_candidate4
+
+            except:
+                # Если WordNet недоступен, просто продолжаем
+                pass
+
+        # Пробуем разные части речи через лемматизатор
         verb_form = self.lemmatizer.lemmatize(word_lower, 'v')
-
-        # Если изменилось - возвращаем
         if verb_form != word_lower:
-            # Проверяем, не получилась ли аббревиатура
-            if self._is_gaming_term(verb_form) or self._is_short_word(verb_form):
-                return word_lower
-            return verb_form
+            if not self._is_gaming_term(verb_form) and not self._is_short_word(verb_form):
+                return verb_form
 
-        # Пробуем как существительное
         noun_form = self.lemmatizer.lemmatize(word_lower, 'n')
         if noun_form != word_lower:
-            if self._is_gaming_term(noun_form) or self._is_short_word(noun_form):
-                return word_lower
-            return noun_form
+            if not self._is_gaming_term(noun_form) and not self._is_short_word(noun_form):
+                return noun_form
 
-        # Пробуем как прилагательное
         adj_form = self.lemmatizer.lemmatize(word_lower, 'a')
         if adj_form != word_lower:
-            if self._is_gaming_term(adj_form) or self._is_short_word(adj_form):
-                return word_lower
-            return adj_form
+            if not self._is_gaming_term(adj_form) and not self._is_short_word(adj_form):
+                return adj_form
 
-        # Если ничего не изменилось, возвращаем как есть
+        adv_form = self.lemmatizer.lemmatize(word_lower, 'r')
+        if adv_form != word_lower:
+            if not self._is_gaming_term(adv_form) and not self._is_short_word(adv_form):
+                return adv_form
+
         return word_lower
 
     def handle(self, *args, **options):
