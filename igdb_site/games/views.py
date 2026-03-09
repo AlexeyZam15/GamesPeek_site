@@ -28,6 +28,7 @@ from .views_parts.analyze_views import (
     delete_keyword,
     get_current_keywords,
     get_found_keywords,
+    normalize_keyword,  # ← ДОБАВЛЯЕМ ЭТУ СТРОКУ
 )
 from .views_parts.base_views import (
     # Helper classes
@@ -76,6 +77,7 @@ __all__ = [
     'delete_keyword',
     'get_current_keywords',
     'get_found_keywords',
+    'normalize_keyword',  # ← ДОБАВЛЯЕМ ЭТУ СТРОКУ
 
     # Helper classes
     'SimpleSourceGame',

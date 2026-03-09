@@ -15,6 +15,7 @@ from ..analyze.game_analyzer_api import GameAnalyzerAPI
 from django.db import models
 import html
 import re
+from games.management.commands.normalize_keywords import Command as NormalizeCommand
 
 
 # ===== УТИЛИТЫ ДЛЯ ПРОВЕРКИ ПРАВ =====
@@ -272,6 +273,7 @@ def find_keywords_in_hyphenated_words(text: str, matches: List[Dict]) -> List[Di
 
     return hyphenated_matches
 
+
 def highlight_words_in_html(html_text: str, words_to_highlight: Dict[str, List[Dict]]) -> str:
     """
     Подсвечивает слова в HTML тексте
@@ -455,6 +457,7 @@ def get_words_to_highlight(pattern_info: Dict) -> Dict[str, List[Dict]]:
                 })
 
     return words_to_highlight
+
 
 def highlight_hyphenated_words(html_text: str, words_to_highlight: Dict[str, List[Dict]]) -> str:
     """
@@ -3357,6 +3360,50 @@ def find_all_matches_in_text_plain(plain_text: str, results: Dict) -> List[Dict]
             start_pos = pos + 1
 
     return matches
+
+
+@login_required
+@user_passes_test(is_staff_or_superuser)
+def normalize_keyword(request: HttpRequest):
+    """Возвращает нормализованную (словарную) форму для переданного слова."""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Invalid request method'}, status=405)
+
+    try:
+        import json
+        data = json.loads(request.body)
+        word = data.get('word', '').strip()
+
+        if not word:
+            return JsonResponse({'success': False, 'message': 'Please enter a word to normalize'})
+
+        # Используем логику из команды normalize_keywords для получения базовой формы
+        # Создаем экземпляр команды и вызываем её метод _get_base_form
+        normalizer = NormalizeCommand()
+        normalizer._init_nltk()  # Убедимся, что WordNet доступен
+
+        # Короткие слова не нормализуем
+        if normalizer._is_short_word(word):
+            base_form = word
+        # Игровые термины не нормализуем
+        elif normalizer._is_gaming_term(word):
+            base_form = word
+        else:
+            base_form = normalizer._get_base_form(word)
+
+        return JsonResponse({
+            'success': True,
+            'original': word,
+            'normalized': base_form,
+            'message': f'Normalized form: "{base_form}"'
+        })
+
+    except Exception as e:
+        print(f"✗ ОШИБКА нормализации слова: {str(e)}")
+        return JsonResponse({
+            'success': False,
+            'message': f'Error normalizing word: {str(e)}'
+        })
 
 
 @login_required
