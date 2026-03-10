@@ -1046,8 +1046,6 @@ def _get_optimized_filter_data() -> Dict[str, List]:
         ).filter(game_count__gt=0).only('id', 'name').order_by('-game_count', 'name'))
 
         print(f"DEBUG fetch_filter_data: Found {len(engines)} engines with games via annotate")
-        for engine in engines[:5]:  # Первые 5 для примера
-            print(f"  Engine: {engine.name} (ID: {engine.id}, game_count: {engine.game_count})")
 
         return {
             'platforms': platforms,
