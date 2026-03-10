@@ -101,250 +101,334 @@ class Command(BaseCommand):
     def _get_base_form(self, word: str) -> str:
         """
         Определяет исходную форму слова используя NLTK
+        ИСПРАВЛЕНО: ПРАВИЛЬНАЯ ОБРАБОТКА СОСТАВНЫХ СЛОВ
         """
         word_lower = word.lower()
 
-        # Пропускаем слова с дефисами и пробелами
-        if '-' in word_lower or ' ' in word_lower:
+        # Фразы с пробелами не нормализуем
+        if ' ' in word_lower:
             return word_lower
 
-        # Короткие слова обычно не нормализуем
-        if self._is_short_word(word_lower):
-            return word_lower
+        # ========== ОБРАБОТКА СОСТАВНЫХ СЛОВ С ДЕФИСАМИ ==========
+        if '-' in word_lower:
+            parts = word_lower.split('-')
 
-        # Проверяем, не является ли слово специальным игровым термином
-        if self._is_gaming_term(word_lower):
-            return word_lower
+            # Если больше 2 частей, оставляем как есть
+            if len(parts) != 2:
+                return word_lower
 
-        # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ СЛОВ НА -ing ==========
-        # killing → kill, drawing → draw, scrolling → scroll
-        # НО: lemming → lemming (оставляем, т.к. это название животного, а не форма глагола)
-        if word_lower.endswith('ing') and len(word_lower) > 4:
-            # Убираем "ing"
-            base_candidate = word_lower[:-3]
+            first, second = parts
 
-            # Обработка удвоенных согласных (killing → kill, а не kil)
-            if len(base_candidate) >= 2 and base_candidate[-1] == base_candidate[-2]:
-                base_candidate = base_candidate[:-1]
-
-            # Проверяем через WordNet
             try:
                 from nltk.corpus import wordnet as wn
 
-                # Получаем синосеты для оригинального слова и кандидата
-                original_synsets = wn.synsets(word_lower)
-                candidate_synsets = wn.synsets(base_candidate)
+                # Нормализуем вторую часть как обычное слово
+                normalized_second = self._normalize_single_word(second)
 
-                # Если кандидат не существует - оставляем оригинал
-                if not candidate_synsets:
+                # Если вторая часть изменилась
+                if normalized_second != second:
+                    # Собираем новое слово
+                    candidate = f"{first}-{normalized_second}"
+
+                    # Проверяем, существует ли кандидат в WordNet
+                    if wn.synsets(candidate):
+                        return candidate
+
+                    # Если не существует, возвращаем оригинал
                     return word_lower
 
-                # Проверяем, является ли оригинал существительным (не глагольной формой)
-                original_is_noun = any(s.pos() == 'n' for s in original_synsets)
-                original_is_verb = any(s.pos() == 'v' for s in original_synsets)
-
-                # Если оригинал - существительное и не является глаголом, это может быть имя существительное
-                # (например, lemming - животное, а не форма глагола "lem")
-                if original_is_noun and not original_is_verb:
-                    # Проверяем, связаны ли значения
-                    # Получаем леммы кандидата
-                    candidate_lemmas = set()
-                    for syn in candidate_synsets:
-                        for lemma in syn.lemmas():
-                            candidate_lemmas.add(lemma.name().lower())
-
-                    # Если оригинал не входит в леммы кандидата - это разные слова
-                    if word_lower not in candidate_lemmas:
-                        return word_lower
-
-                # Если кандидат существует и это глагол - нормализуем
-                candidate_is_verb = any(s.pos() == 'v' for s in candidate_synsets)
-                if candidate_is_verb:
-                    return base_candidate
-
-                # Пробуем добавить 'e' (drawing → draw)
-                if wn.synsets(base_candidate + 'e'):
-                    return base_candidate + 'e'
-
-            except:
-                pass
-
-        # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ ПРИЛАГАТЕЛЬНЫХ НА -al ==========
-        # experimental → experiment, directional → direction, emotional → emotion
-        # НО: primal → primal (оставляем)
-        if word_lower.endswith('al') and len(word_lower) > 4:
-            # Убираем "al"
-            base_candidate = word_lower[:-2]
-
-            try:
-                from nltk.corpus import wordnet as wn
-
-                # Получаем синосеты
-                original_synsets = wn.synsets(word_lower)
-                candidate_synsets = wn.synsets(base_candidate)
-
-                # Если основа не существует - оставляем оригинал
-                if not candidate_synsets:
-                    return word_lower
-
-                # Проверяем семантическую близость через общие слова в определениях
-                # Для простоты - если у кандидата есть значения, не связанные с оригиналом
-
-                # Получаем первые определения
-                original_defs = set()
-                for syn in original_synsets[:3]:
-                    original_defs.update(syn.definition().split()[:5])
-
-                candidate_defs = set()
-                for syn in candidate_synsets[:3]:
-                    candidate_defs.update(syn.definition().split()[:5])
-
-                # Если нет общих слов в определениях - это разные слова
-                common_words = original_defs.intersection(candidate_defs)
-                if not common_words and len(original_defs) > 0 and len(candidate_defs) > 0:
-                    return word_lower
-
-                # Проверяем части речи
-                original_is_adj = any(s.pos() in ['a', 's'] for s in original_synsets)
-                candidate_is_noun = any(s.pos() == 'n' for s in candidate_synsets)
-
-                # Если оригинал - прилагательное, а кандидат - существительное - нормализуем
-                if original_is_adj and candidate_is_noun:
-                    return base_candidate
-
-            except:
-                pass
-
-        # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ СЛОВ НА -ed ==========
-        # focused → focus
-        if word_lower.endswith('ed') and len(word_lower) > 4:
-            base_candidate = word_lower[:-2]  # убираем "ed"
-
-            # Обработка удвоенных согласных (focused → focuse? нет, focus)
-            if len(base_candidate) >= 2 and base_candidate[-1] == base_candidate[-2]:
-                base_candidate = base_candidate[:-1]
-
-            try:
-                from nltk.corpus import wordnet as wn
-                if wn.synsets(base_candidate):
-                    return base_candidate
-            except:
-                pass
-
-        # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ СЛОВ НА -y ==========
-        # bloody → blood
-        # НО: silly → silly (оставляем, т.к. sill это другое слово - "подоконник")
-        if word_lower.endswith('y') and len(word_lower) > 3:
-            base_candidate = word_lower[:-1]  # убираем "y"
-
-            try:
-                from nltk.corpus import wordnet as wn
-
-                # Получаем синосеты
-                original_synsets = wn.synsets(word_lower)
-                candidate_synsets = wn.synsets(base_candidate)
-
-                # Если основа не существует - оставляем оригинал
-                if not candidate_synsets:
-                    return word_lower
-
-                # Проверяем семантическую близость
-                # Получаем леммы (основные формы) для сравнения
-                original_lemmas = set()
-                for syn in original_synsets:
-                    for lemma in syn.lemmas():
-                        original_lemmas.add(lemma.name().lower())
-
-                candidate_lemmas = set()
-                for syn in candidate_synsets:
-                    for lemma in syn.lemmas():
-                        candidate_lemmas.add(lemma.name().lower())
-
-                # Если кандидат не содержит оригинал и оригинал не содержит кандидата
-                if word_lower not in candidate_lemmas and base_candidate not in original_lemmas:
-                    # Проверяем часть речи кандидата
-                    candidate_is_noun = any(s.pos() == 'n' for s in candidate_synsets)
-                    candidate_is_adj = any(s.pos() in ['a', 's'] for s in candidate_synsets)
-
-                    # Если кандидат - существительное, но это явно другое слово (как sill)
-                    if candidate_is_noun and not candidate_is_adj:
-                        # Проверяем, есть ли у кандидата значение, связанное с оригиналом
-                        # Для silly/sill: sill - "подоконник", нет связи с "глупый"
-                        return word_lower
-
-                # Проверяем части речи
-                original_is_adj = any(s.pos() in ['a', 's'] for s in original_synsets)
-                candidate_is_noun = any(s.pos() == 'n' for s in candidate_synsets)
-
-                # Если оригинал - прилагательное, а кандидат - существительное - нормализуем
-                if original_is_adj and candidate_is_noun:
-                    return base_candidate
-
-            except:
-                pass
-
-        # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА ДЛЯ НАРЕЧИЙ НА -ly ==========
-        if word_lower.endswith('ly') and len(word_lower) > 3:
-            try:
-                from nltk.corpus import wordnet as wn
-
-                # Вариант 1: deadly → dead (убираем ly)
-                base_candidate1 = word_lower[:-2]
-                synsets1 = wn.synsets(base_candidate1)
-                if synsets1:
-                    is_adj = any(s.pos() == 'a' or s.pos() == 's' for s in synsets1)
-                    if is_adj:
-                        return base_candidate1
-
-                # Вариант 2: basically → basic (убираем ally)
-                if word_lower.endswith('ically'):
-                    base_candidate2 = word_lower[:-5]
-                    if wn.synsets(base_candidate2):
-                        return base_candidate2
-
-                # Вариант 3: gently → gentle (tly → tle)
-                if word_lower.endswith('tly'):
-                    base_candidate3 = word_lower[:-2] + 'le'
-                    if wn.synsets(base_candidate3):
-                        return base_candidate3
-
-                # Вариант 4: happily → happy (ily → y)
-                if word_lower.endswith('ily') and not word_lower.endswith('thily'):
-                    base_candidate4 = word_lower[:-3] + 'y'
-                    if wn.synsets(base_candidate4):
-                        return base_candidate4
+                return word_lower
 
             except Exception:
-                # Если WordNet недоступен, используем простые правила
-                if word_lower.endswith('thily'):
-                    return word_lower[:-3]
-                elif word_lower.endswith('ily'):
-                    return word_lower[:-3] + 'y'
-                elif word_lower.endswith('ly'):
-                    return word_lower[:-2]
+                return word_lower
 
-        # Пробуем разные части речи через лемматизатор
-        verb_form = self.lemmatizer.lemmatize(word_lower, 'v')
-        if verb_form != word_lower:
-            if not self._is_gaming_term(verb_form) and not self._is_short_word(verb_form):
-                return verb_form
+        # ========== ДЛЯ ОБЫЧНЫХ СЛОВ ==========
+        try:
+            from nltk.corpus import wordnet as wn
 
-        noun_form = self.lemmatizer.lemmatize(word_lower, 'n')
-        if noun_form != word_lower:
-            if not self._is_gaming_term(noun_form) and not self._is_short_word(noun_form):
-                return noun_form
+            # Если слово уже есть в WordNet, оставляем
+            if wn.synsets(word_lower):
+                return word_lower
 
-        adj_form = self.lemmatizer.lemmatize(word_lower, 'a')
-        if adj_form != word_lower:
-            if not self._is_gaming_term(adj_form) and not self._is_short_word(adj_form):
-                return adj_form
+            # Пробуем разные варианты нормализации
+            candidates = []
 
-        adv_form = self.lemmatizer.lemmatize(word_lower, 'r')
-        if adv_form != word_lower:
-            if not self._is_gaming_term(adv_form) and not self._is_short_word(adj_form):
-                return adv_form
+            # -ness
+            if word_lower.endswith('ness') and len(word_lower) > 6:
+                base = word_lower[:-4]
+                if len(base) >= 4:
+                    candidates.append(base)
+
+            # -ty
+            if word_lower.endswith('ty') and len(word_lower) > 5:
+                base = word_lower[:-2]
+                if len(base) >= 4:
+                    candidates.append(base)
+                    candidates.append(base + 'e')
+
+            # -ing
+            if word_lower.endswith('ing') and len(word_lower) > 5:
+                base = word_lower[:-3]
+                if len(base) >= 4:
+                    candidates.append(base)
+                    if base.endswith('e'):
+                        candidates.append(base[:-1])
+
+            # -ed
+            if word_lower.endswith('ed') and len(word_lower) > 5:
+                base = word_lower[:-2]
+                if len(base) >= 4:
+                    candidates.append(base)
+                    candidates.append(base + 'e')
+
+            # -er
+            if word_lower.endswith('er') and len(word_lower) > 5:
+                base = word_lower[:-2]
+                if len(base) >= 4:
+                    candidates.append(base)
+
+            # Множественное число
+            if word_lower.endswith('ies') and len(word_lower) > 5:
+                candidates.append(word_lower[:-3] + 'y')
+
+            if word_lower.endswith('es') and len(word_lower) > 4:
+                candidates.append(word_lower[:-2])
+
+            if word_lower.endswith('s') and len(word_lower) > 4:
+                candidates.append(word_lower[:-1])
+
+            # Проверяем кандидатов
+            for candidate in candidates:
+                if wn.synsets(candidate):
+                    return candidate
+
+            return word_lower
+
+        except Exception:
+            return word_lower
+
+    def _is_grammatical_form(self, word: str, base: str) -> bool:
+        """
+        Проверяет, является ли слово грамматической формой базового слова
+        """
+        # Множественное число
+        if word == base + 's' or word == base + 'es':
+            return True
+        if base.endswith('y') and word == base[:-1] + 'ies':
+            return True
+
+        # -ing формы
+        if word == base + 'ing':
+            return True
+        if base.endswith('e') and word == base[:-1] + 'ing':
+            return True
+
+        # -ed формы
+        if word == base + 'ed' or word == base + 'd':
+            return True
+        if base.endswith('y') and word == base[:-1] + 'ied':
+            return True
+
+        # -er/-est формы
+        if word == base + 'er' or word == base + 'est':
+            return True
+        if base.endswith('y') and (word == base[:-1] + 'ier' or word == base[:-1] + 'iest'):
+            return True
+
+        # -ly формы
+        if word == base + 'ly':
+            return True
+        if base.endswith('y') and word == base[:-1] + 'ily':
+            return True
+
+        return False
+
+    def _normalize_by_rules(self, word: str) -> str:
+        """
+        Нормализует слово по лингвистическим правилам (без WordNet)
+        ИСПРАВЛЕНО: ПРАВИЛЬНАЯ ОБРАБОТКА -ness СУФФИКСА
+        """
+        word_lower = word.lower()
+
+        # ========== СУФФИКС -ness (weightlessness → weightless) ==========
+        # Существительные на -ness образуются от прилагательных
+        if word_lower.endswith('ness') and len(word_lower) > 5:
+            # Убираем "ness"
+            base = word_lower[:-4]
+
+            # Проверяем, что основа существует (должна быть длиной не менее 3)
+            if len(base) >= 3:
+                # Для слов типа weightless → weightless (уже прилагательное)
+                # Не нужно дальше нормализовать
+                return base
+
+            return word_lower
+
+        # ========== ОШИБОЧНЫЕ ФОРМЫ ==========
+        # Если слово заканчивается на "nes" (возможно опечатка от "ness")
+        if word_lower.endswith('nes') and len(word_lower) > 4:
+            # Может быть опечатка: weightlessnes → weightlessness
+            # Но лучше проверить через WordNet
+            pass
+
+        # ========== СУФФИКС -ty (safety → safe) ==========
+        if word_lower.endswith('ty') and len(word_lower) > 4:
+            base = word_lower[:-2]
+            if len(base) >= 3:
+                # Проверяем, не заканчивается ли основа на 'e'
+                if base.endswith('t') and len(base) > 3:
+                    # safety → safe (t → te)
+                    return base + 'e'
+                return base
+
+        # ========== СУФФИКС -ings (buildings → build) ==========
+        if word_lower.endswith('ings') and len(word_lower) > 5:
+            base = word_lower[:-4]
+            if len(base) >= 3:
+                return base
+
+        # ========== СУФФИКС -ing ==========
+        if word_lower.endswith('ing') and len(word_lower) > 4:
+            base = word_lower[:-3]
+            # Удвоение согласной (running → run)
+            if len(base) >= 2 and base[-1] == base[-2]:
+                base = base[:-1]
+            if len(base) >= 3:
+                return base
+
+        # ========== СУФФИКС -ed ==========
+        if word_lower.endswith('ed') and len(word_lower) > 4:
+            base = word_lower[:-2]
+            # Удвоение согласной (planned → plan)
+            if len(base) >= 2 and base[-1] == base[-2]:
+                base = base[:-1]
+            if len(base) >= 3:
+                return base
+
+        # ========== СУФФИКС -er ==========
+        if word_lower.endswith('er') and len(word_lower) > 4:
+            base = word_lower[:-2]
+            if len(base) >= 3:
+                return base
+
+        # ========== МНОЖЕСТВЕННОЕ ЧИСЛО ==========
+        # -ies (cities → city)
+        if word_lower.endswith('ies') and len(word_lower) > 4:
+            return word_lower[:-3] + 'y'
+
+        # -es (boxes → box)
+        if word_lower.endswith('es') and len(word_lower) > 4:
+            base = word_lower[:-2]
+            if len(base) >= 3:
+                return base
+
+        # -s (cats → cat)
+        if word_lower.endswith('s') and len(word_lower) > 3:
+            base = word_lower[:-1]
+            if len(base) >= 3:
+                return base
 
         return word_lower
+
+    def _normalize_single_word(self, word: str) -> str:
+        """
+        Нормализует одно слово (без дефисов) используя существующие правила
+        """
+        original = word
+
+        # Проверяем -ty
+        if word.endswith('ty') and len(word) > 4:
+            base = word[:-2]
+            try:
+                from nltk.corpus import wordnet as wn
+                if wn.synsets(base):
+                    return base
+                if wn.synsets(base + 'e'):
+                    return base + 'e'
+            except:
+                pass
+
+        # Проверяем -ings
+        if word.endswith('ings') and len(word) > 5:
+            base = word[:-4]
+            try:
+                from nltk.corpus import wordnet as wn
+                if wn.synsets(base):
+                    return base
+            except:
+                pass
+
+        # Проверяем -ing
+        if word.endswith('ing') and len(word) > 4:
+            base = word[:-3]
+            if len(base) >= 2 and base[-1] == base[-2]:
+                base = base[:-1]
+            try:
+                from nltk.corpus import wordnet as wn
+                if wn.synsets(base):
+                    return base
+                if wn.synsets(base + 'e'):
+                    return base + 'e'
+            except:
+                pass
+
+        # Проверяем -er
+        if word.endswith('er') and len(word) > 4:
+            base = word[:-2]
+            try:
+                from nltk.corpus import wordnet as wn
+                if wn.synsets(base):
+                    return base
+                if wn.synsets(base + 'e'):
+                    return base + 'e'
+            except:
+                pass
+
+        # Проверяем -ed
+        if word.endswith('ed') and len(word) > 4:
+            base = word[:-2]
+            if len(base) >= 2 and base[-1] == base[-2]:
+                base = base[:-1]
+            try:
+                from nltk.corpus import wordnet as wn
+                if wn.synsets(base):
+                    return base
+            except:
+                pass
+
+        # Проверяем -ly
+        if word.endswith('ly') and len(word) > 3:
+            base = word[:-2]
+            try:
+                from nltk.corpus import wordnet as wn
+                if wn.synsets(base):
+                    return base
+            except:
+                pass
+
+        # Проверяем множественное число
+        if word.endswith('s') and len(word) > 3:
+            base = word[:-1]
+            try:
+                from nltk.corpus import wordnet as wn
+                if wn.synsets(base):
+                    return base
+            except:
+                pass
+
+        # Пробуем лемматизатор
+        try:
+            verb_form = self.lemmatizer.lemmatize(word, 'v')
+            if verb_form != word:
+                return verb_form
+
+            noun_form = self.lemmatizer.lemmatize(word, 'n')
+            if noun_form != word:
+                return noun_form
+        except:
+            pass
+
+        return original
 
     def handle(self, *args, **options):
         dry_run = options['dry_run']

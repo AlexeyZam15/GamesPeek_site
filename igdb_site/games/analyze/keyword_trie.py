@@ -38,7 +38,7 @@ class KeywordTrie:
     def _generate_all_forms(self, word: str) -> Set[str]:
         """
         Генерирует ВСЕ возможные формы слова (существительные, глаголы, прилагательные, наречия)
-        ИСПРАВЛЕНО: НЕ генерирует короткие формы из длинных слов
+        ИСПРАВЛЕНО: ТЕПЕРЬ ГЕНЕРИРУЕТ -ty ФОРМЫ (safe → safety)
         """
         word_lower = word.lower()
 
@@ -51,155 +51,306 @@ class KeywordTrie:
         # Базовая форма всегда добавляется
         forms.add(word_lower)
 
-        # ========== ТОЛЬКО ДЛЯ ДЛИННЫХ СЛОВ (>= 4 букв) ==========
-        # Если слово короткое (3 буквы и меньше), не генерируем дополнительные формы
-        if len(word_lower) <= 3:
-            valid_forms = {word_lower}
+        # ========== ОБРАБОТКА ФРАЗ С ПРОБЕЛАМИ ==========
+        if ' ' in word_lower:
+            # Просто возвращаем исходную фразу
+            self._all_forms_cache[word_lower] = {word_lower}
+            return {word_lower}
+
+        # ========== ОБРАБОТКА СОСТАВНЫХ СЛОВ С ДЕФИСАМИ ==========
+        if '-' in word_lower:
+            parts = word_lower.split('-')
+            forms.add(word_lower)
+            forms.add(' '.join(parts))
+            forms.add(''.join(parts))
+
+            for i, part in enumerate(parts):
+                if len(part) >= 3:
+                    part_forms = self._generate_single_word_forms(part)
+                    for part_form in part_forms:
+                        if part_form != part:
+                            new_parts = parts.copy()
+                            new_parts[i] = part_form
+                            new_word = '-'.join(new_parts)
+                            forms.add(new_word)
+                            forms.add(' '.join(new_parts))
+                            forms.add(''.join(new_parts))
+
+            valid_forms = {f for f in forms if 3 <= len(f) <= 30}
             self._all_forms_cache[word_lower] = valid_forms
             return valid_forms
 
+        # ========== ДЛЯ ОБЫЧНЫХ СЛОВ ==========
+
+        # Если слово короткое (3 буквы и меньше)
+        if len(word_lower) <= 3:
+            self._all_forms_cache[word_lower] = {word_lower}
+            return {word_lower}
+
+        # ========== ФОРМЫ С СУФФИКСОМ -ty (safe → safety) ==========
+        # Прилагательные превращаются в существительные на -ty/-ity/-ety
+        if len(word_lower) >= 4:
+            # Правило 1: добавляем ty (cruel → cruelty)
+            forms.add(word_lower + 'ty')
+
+            # Правило 2: добавляем ity (intense → intensity)
+            forms.add(word_lower + 'ity')
+
+            # Правило 3: добавляем ety (various → variety? нет, various → variety)
+            forms.add(word_lower + 'ety')
+
+            # Правило 4: если слово заканчивается на e, убираем e и добавляем ity
+            # safe → saf + ity → safety
+            if word_lower.endswith('e'):
+                forms.add(word_lower[:-1] + 'ity')
+                forms.add(word_lower[:-1] + 'ety')
+
+            # Правило 5: если слово заканчивается на us, меняем на ity
+            # various → vari + ety? нет, various → variety
+            if word_lower.endswith('ous'):
+                # various → vari + ety? нет, various → variety (убираем ous, добавляем iety)
+                forms.add(word_lower[:-3] + 'iety')
+
+            # Правило 6: если слово заканчивается on, меняем на ity
+            # opinion → opinionity? нет, это не то
+
+            # Правило 7: удвоение согласной перед ity
+            # cruel → cruel + ty? уже есть, но может быть cruellity?
+            vowels = set('aeiou')
+            if len(word_lower) >= 3 and word_lower[-1] not in vowels and word_lower[-2] in vowels:
+                # Односложные слова типа cruel → cruellity? нет
+                pass
+
         # ========== МНОЖЕСТВЕННОЕ ЧИСЛО ==========
-        # Правило 1: y → ies (army → armies)
         if word_lower.endswith('y') and len(word_lower) > 1 and word_lower[-2] not in 'aeiou':
             forms.add(word_lower[:-1] + 'ies')
+        forms.add(word_lower + 's')
 
-        # Правило 2: стандартное s
-        if len(word_lower) > 1:
-            forms.add(word_lower + 's')
-
-        # Правило 3: es для окончаний s, x, z, ch, sh
         if word_lower.endswith(('s', 'x', 'z', 'ch', 'sh')):
             forms.add(word_lower + 'es')
 
         # ========== ГЛАГОЛЬНЫЕ ФОРМЫ ==========
+
         # Формы на -ing
         if len(word_lower) >= 4:
-            # Проверяем, нужно ли удвоение согласной
             if self._should_double_consonant(word_lower):
-                # Удвоение последней согласной (run → running)
-                doubled_form = word_lower + word_lower[-1] + 'ing'
-                forms.add(doubled_form)
+                forms.add(word_lower + word_lower[-1] + 'ing')
             else:
-                # Обычная форма
                 forms.add(word_lower + 'ing')
 
-            # Если заканчивается на e, убираем e (make → making)
             if word_lower.endswith('e') and len(word_lower) >= 4:
                 forms.add(word_lower[:-1] + 'ing')
 
-        # Формы прошедшего времени на -ed
+        # Формы на -ed для слов, заканчивающихся на -y
+        if word_lower.endswith('y') and len(word_lower) > 3 and word_lower[-2] not in 'aeiou':
+            forms.add(word_lower[:-1] + 'ied')
+
+        # Обычные формы на -ed
+        if word_lower.endswith('e'):
+            forms.add(word_lower + 'd')
+        else:
+            if self._should_double_consonant(word_lower):
+                forms.add(word_lower + word_lower[-1] + 'ed')
+            forms.add(word_lower + 'ed')
+
+        # ========== ФОРМЫ С СУФФИКСАМИ -er, -or ==========
+        if len(word_lower) >= 4:
+            forms.add(word_lower + 'er')
+            if word_lower.endswith('e'):
+                forms.add(word_lower[:-1] + 'er')
+            forms.add(word_lower + 'or')
+            if word_lower.endswith('e'):
+                forms.add(word_lower[:-1] + 'or')
+
+        # ========== ФОРМЫ МНОЖЕСТВЕННОГО ЧИСЛА ОТ -ing ФОРМ ==========
+        if len(word_lower) >= 4:
+            ing_form = word_lower + 'ing'
+            if word_lower.endswith('e'):
+                ing_form = word_lower[:-1] + 'ing'
+            forms.add(ing_form + 's')
+
+        er_form = word_lower + 'er'
+        if word_lower.endswith('e'):
+            er_form = word_lower[:-1] + 'er'
+        forms.add(er_form + 's')
+
+        # ========== ФОРМЫ С СУФФИКСАМИ -tion, -sion ==========
         if len(word_lower) >= 4:
             if word_lower.endswith('e'):
-                # Если заканчивается на e, добавляем только d (like → liked)
-                forms.add(word_lower + 'd')
+                forms.add(word_lower[:-1] + 'tion')
             else:
-                # Проверяем, нужно ли удвоение согласной
-                if self._should_double_consonant(word_lower):
-                    # Удвоение согласной (plan → planned)
-                    forms.add(word_lower + word_lower[-1] + 'ed')
-                # Обычная форма
-                forms.add(word_lower + 'ed')
+                forms.add(word_lower + 'tion')
 
-        # ========== СПЕЦИАЛЬНЫЕ ФОРМЫ ПРОШЕДШЕГО ВРЕМЕНИ ==========
-        # Правило для слов, оканчивающихся на "ide" (hide → hidden)
-        if word_lower.endswith('ide') and len(word_lower) >= 4:
-            base = word_lower[:-3]  # убираем "ide"
-            forms.add(base + 'idden')
+            if word_lower.endswith('de'):
+                forms.add(word_lower[:-2] + 'sion')
+            elif word_lower.endswith('d'):
+                forms.add(word_lower + 'sion')
 
-        # Правило для слов, оканчивающихся на "ite" (write → written)
-        if word_lower.endswith('ite') and len(word_lower) >= 4:
-            base = word_lower[:-3]  # убираем "ite"
-            forms.add(base + 'itten')
-
-        # Правило для слов, оканчивающихся на "ake" (take → taken)
-        if word_lower.endswith('ake') and len(word_lower) >= 4:
-            base = word_lower[:-3]  # убираем "ake"
-            forms.add(base + 'aken')
-
-        # Правило для слов, оканчивающихся на "eak" (break → broken)
-        if word_lower.endswith('eak') and len(word_lower) >= 4:
-            base = word_lower[:-3]  # убираем "eak"
-            forms.add(base + 'oken')
-
-        # Формы 3-го лица
+        # ========== ФОРМЫ С СУФФИКСАМИ -ive, -ative ==========
         if len(word_lower) >= 4:
-            if word_lower.endswith(('s', 'x', 'z', 'ch', 'sh')):
-                forms.add(word_lower + 'es')
-            elif word_lower.endswith('y') and len(word_lower) > 1 and word_lower[-2] not in 'aeiou':
-                forms.add(word_lower[:-1] + 'ies')
-            elif word_lower.endswith('o'):
-                forms.add(word_lower + 'es')
+            if word_lower.endswith('e'):
+                forms.add(word_lower[:-1] + 'ive')
             else:
-                forms.add(word_lower + 's')
+                forms.add(word_lower + 'ive')
+            forms.add(word_lower + 'ative')
+
+        # ========== ПРИЛАГАТЕЛЬНЫЕ НА -y ==========
+        if len(word_lower) >= 4:
+            forms.add(word_lower + 'y')
+            if word_lower.endswith('e'):
+                forms.add(word_lower[:-1] + 'y')
+            forms.add(word_lower + 'ier')
+            forms.add(word_lower + 'iest')
 
         # ========== НАРЕЧИЯ НА -ly ==========
-        # Прилагательное → наречие (lethal → lethally)
         if len(word_lower) >= 4:
             forms.add(word_lower + 'ly')
-
-        # Правило 2: если слово оканчивается на -y, меняем y на i и добавляем -ly (happy → happily)
-        if word_lower.endswith('y') and len(word_lower) > 1 and word_lower[-2] not in 'aeiou' and len(word_lower) >= 4:
-            forms.add(word_lower[:-1] + 'ily')
-
-        # Правило 3: если слово оканчивается на -le, меняем e на y (gentle → gently)
-        if word_lower.endswith('le') and len(word_lower) > 2 and len(word_lower) >= 4:
-            forms.add(word_lower[:-2] + 'ly')
-
-        # Правило 4: если слово оканчивается на -ic, добавляем -ally (basic → basically)
-        if word_lower.endswith('ic') and len(word_lower) >= 4:
-            forms.add(word_lower + 'ally')
+            if word_lower.endswith('y') and word_lower[-2] not in 'aeiou':
+                forms.add(word_lower[:-1] + 'ily')
+            if word_lower.endswith('le'):
+                forms.add(word_lower[:-2] + 'ly')
+            if word_lower.endswith('ic'):
+                forms.add(word_lower + 'ally')
 
         # ========== ПРИЛАГАТЕЛЬНЫЕ НА -ful ==========
-        # Существительное → прилагательное (skill → skilful)
         if len(word_lower) >= 4:
-            # Общее правило: добавляем -ful (power → powerful)
             forms.add(word_lower + 'ful')
-
-            # Специальный случай для слов, оканчивающихся на ll (skill → skilful)
-            if word_lower.endswith('ll') and len(word_lower) >= 4:
-                # skill → skilful (убираем одну l)
+            if word_lower.endswith('ll'):
                 forms.add(word_lower[:-1] + 'ful')
-
-            # Слова на y (beauty → beautiful)
-            if word_lower.endswith('y') and len(word_lower) >= 4 and word_lower[-2] not in 'aeiou':
-                # beauty → beautiful (y → i + ful)
+            if word_lower.endswith('y') and word_lower[-2] not in 'aeiou':
                 forms.add(word_lower[:-1] + 'iful')
 
         # ========== ПРИЛАГАТЕЛЬНЫЕ НА -al, -ial, -ual ==========
         if len(word_lower) >= 4:
-            # Правило 1: добавляем -al (music → musical)
             forms.add(word_lower + 'al')
-
-            # Правило 2: если оканчивается на -tion, меняем на -tional (direction → directional)
-            if word_lower.endswith('tion') and len(word_lower) >= 5:
-                # direction → directional
+            if word_lower.endswith('tion'):
                 forms.add(word_lower + 'al')
-
-            # Правило 3: если оканчивается на -ic, меняем на -ical (history → historical)
-            if word_lower.endswith('ic') and len(word_lower) >= 3:
+            if word_lower.endswith('ic'):
                 forms.add(word_lower + 'al')
-
-            # Правило 4: добавляем -ual (effect → effectual)
             forms.add(word_lower + 'ual')
-
-            # Правило 5: добавляем -ial (commerce → commercial)
             forms.add(word_lower + 'ial')
 
-        # ========== УДАЛЯЕМ ОБРАТНЫЕ ФОРМЫ ==========
-        # НЕ генерируем обратные формы, так как они могут создавать ложные совпадения
-        # (например, "be" из "bee")
+        # ========== ФОРМЫ С ПРЕФИКСАМИ ==========
+        if len(word_lower) >= 4:
+            forms.add('re' + word_lower)
+            forms.add('pre' + word_lower)
+            forms.add('over' + word_lower)
+            forms.add('under' + word_lower)
+            forms.add('sub' + word_lower)
+            forms.add('super' + word_lower)
+            forms.add('post' + word_lower)
+            forms.add('anti' + word_lower)
+            forms.add('counter' + word_lower)
 
         # ========== ФИЛЬТРАЦИЯ ==========
         valid_forms = set()
         for form in forms:
-            # Только формы длиной >= 3 символов
-            if 3 <= len(form) <= 30:
-                valid_forms.add(form)
+            if 3 <= len(form) <= 50:
+                if all(c.isalpha() or c in ' -' for c in form):
+                    valid_forms.add(form)
 
         # Сохраняем в кэш
         self._all_forms_cache[word_lower] = valid_forms
 
         return valid_forms
+
+    def _generate_single_word_forms(self, word: str) -> Set[str]:
+        """
+        Генерирует все формы для одного слова (без обработки дефисов)
+        Используется для частей составных слов
+        """
+        forms = {word}
+
+        if len(word) < 3:
+            return forms
+
+        # Множественное число
+        if word.endswith('y') and len(word) > 1 and word[-2] not in 'aeiou':
+            forms.add(word[:-1] + 'ies')
+        forms.add(word + 's')
+
+        if word.endswith(('s', 'x', 'z', 'ch', 'sh')):
+            forms.add(word + 'es')
+
+        # -ing формы
+        if word.endswith('e'):
+            forms.add(word[:-1] + 'ing')
+        else:
+            if self._should_double_consonant(word):
+                forms.add(word + word[-1] + 'ing')
+            forms.add(word + 'ing')
+
+        # -ed формы - ЭТО КЛЮЧЕВОЕ ДЛЯ ended
+        if word.endswith('e'):
+            # Если слово заканчивается на e, добавляем только d
+            # end → end + ed? нет, end заканчивается на d, но не на e
+            # Это условие для слов типа like → liked
+            pass
+
+        # Правильная обработка -ed для ВСЕХ слов
+        # Для слов, заканчивающихся на e
+        if word.endswith('e'):
+            forms.add(word + 'd')  # like → liked
+        else:
+            # Для остальных слов
+            if self._should_double_consonant(word):
+                forms.add(word + word[-1] + 'ed')  # plan → planned
+            forms.add(word + 'ed')  # end → ended
+
+        # -er формы
+        if word.endswith('e'):
+            forms.add(word[:-1] + 'er')
+        else:
+            if self._should_double_consonant(word):
+                forms.add(word + word[-1] + 'er')
+            forms.add(word + 'er')
+
+        # -est формы
+        if word.endswith('e'):
+            forms.add(word[:-1] + 'est')
+        else:
+            if self._should_double_consonant(word):
+                forms.add(word + word[-1] + 'est')
+            forms.add(word + 'est')
+
+        # -ly формы
+        if word.endswith('y') and word[-2] not in 'aeiou':
+            forms.add(word[:-1] + 'ily')
+        elif word.endswith('le'):
+            forms.add(word[:-2] + 'ly')
+        elif word.endswith('ic'):
+            forms.add(word + 'ally')
+        else:
+            forms.add(word + 'ly')
+
+        return forms
+
+    def _generate_ed_forms(self, word: str) -> Set[str]:
+        """
+        Генерирует формы с суффиксом -ed
+        """
+        forms = set()
+        word_lower = word.lower()
+
+        if len(word_lower) < 3:
+            return forms
+
+        # Обычное добавление -ed
+        if word_lower.endswith('e'):
+            # Уже заканчивается на e, добавляем только d
+            forms.add(word_lower + 'd')
+        else:
+            # Проверяем, нужно ли удвоение согласной
+            if self._should_double_consonant(word_lower):
+                forms.add(word_lower + word_lower[-1] + 'ed')
+            forms.add(word_lower + 'ed')
+
+        # Специальные случаи
+        if word_lower.endswith('y') and word_lower[-2] not in 'aeiou':
+            # y меняется на i перед ed (carry → carried)
+            forms.add(word_lower[:-1] + 'ied')
+
+        return forms
 
     def _init_wordnet(self) -> bool:
         """Инициализирует WordNet для определения глаголов"""
@@ -327,18 +478,15 @@ class KeywordTrie:
     def find_all_in_text(self, text: str, unique_only: bool = True) -> List[dict]:
         """
         Находит ключевые слова в тексте
-        ИСПРАВЛЕНО: ТОЛЬКО точные совпадения с целыми словами
+        ИСПРАВЛЕНО: ДЛЯ ФРАЗ - ТОЧНЫЙ ПОИСК, ДЛЯ ОСТАЛЬНОГО - ЧЕРЕЗ TRIE
         """
         import re
 
         text_lower = text.lower()
 
-        # Разбиваем текст на отдельные слова (последовательности букв)
-        # Используем регулярное выражение с \b для точного определения границ слов
-        words_with_positions = []
-
         # Находим все слова с их позициями
-        for match in re.finditer(r'\b[a-z]+\b', text_lower):
+        words_with_positions = []
+        for match in re.finditer(r"[a-z0-9\'-]+", text_lower):
             words_with_positions.append({
                 'word': match.group(),
                 'start': match.start(),
@@ -352,39 +500,175 @@ class KeywordTrie:
 
         results = []
 
+        # ========== СНАЧАЛА ИЩЕМ ФРАЗЫ (ТОЧНЫЕ ВХОЖДЕНИЯ) ==========
+        # Проходим по всем ключевым словам в кэше
+        for keyword_id, keyword_data in self.keywords_cache.items():
+            keyword_lower = keyword_data['name_lower']
+
+            # Проверяем, что это фраза (содержит пробел)
+            if ' ' in keyword_lower:
+                # Ищем точное вхождение фразы в тексте
+                pos = 0
+                while True:
+                    pos = text_lower.find(keyword_lower, pos)
+                    if pos == -1:
+                        break
+
+                    # Проверяем границы слова
+                    start_ok = (pos == 0 or not text_lower[pos - 1].isalnum())
+                    end_pos = pos + len(keyword_lower)
+                    end_ok = (end_pos == len(text_lower) or not text_lower[end_pos].isalnum())
+
+                    if start_ok and end_ok:
+                        result = {
+                            'id': keyword_id,
+                            'name': keyword_data['name'],
+                            'position': pos,
+                            'length': len(keyword_lower),
+                            'text': text_lower[pos:end_pos],
+                            'is_phrase': True
+                        }
+
+                        if unique_only:
+                            if result['id'] not in found_keywords:
+                                found_keywords.add(result['id'])
+                                results.append(result)
+                        else:
+                            results.append(result)
+
+                    pos = end_pos
+
+        # ========== ТЕПЕРЬ ИЩЕМ ОДИНОЧНЫЕ СЛОВА ЧЕРЕЗ TRIE ==========
         # Проверяем каждое слово отдельно
         for word_info in words_with_positions:
-            word = word_info['word']
+            full_word = word_info['word']
 
-            # Ищем слово в Trie
+            # Проверяем полное слово
             node = self.root
             found = True
-
-            for char in word:
+            for char in full_word:
                 if char in node.children:
                     node = node.children[char]
                 else:
                     found = False
                     break
 
-            # Если слово найдено в Trie и это конец ключевого слова
             if found and node.is_end and node.keyword_id:
+                # Проверяем, не нашли ли мы уже это ключевое слово как фразу
+                if unique_only and node.keyword_id in found_keywords:
+                    continue
+
                 result = {
                     'id': node.keyword_id,
                     'name': node.keyword_name,
                     'position': word_info['start'],
-                    'length': len(word),
-                    'text': word
+                    'length': len(full_word),
+                    'text': full_word
                 }
 
                 if unique_only:
-                    if result['id'] not in found_keywords:
-                        found_keywords.add(result['id'])
-                        results.append(result)
+                    found_keywords.add(result['id'])
+                    results.append(result)
                 else:
                     results.append(result)
 
+            # Если слово содержит дефис, проверяем части
+            if '-' in full_word:
+                parts = full_word.split('-')
+                current_pos = word_info['start']
+
+                for part in parts:
+                    if len(part) >= 2:
+                        node = self.root
+                        found = True
+
+                        for char in part:
+                            if char in node.children:
+                                node = node.children[char]
+                            else:
+                                found = False
+                                break
+
+                        if found and node.is_end and node.keyword_id:
+                            if unique_only and node.keyword_id in found_keywords:
+                                continue
+
+                            result = {
+                                'id': node.keyword_id,
+                                'name': node.keyword_name,
+                                'position': current_pos,
+                                'length': len(part),
+                                'text': part,
+                                'matched_in_hyphenated': True,
+                                'full_word': full_word
+                            }
+
+                            if unique_only:
+                                found_keywords.add(result['id'])
+                                results.append(result)
+                            else:
+                                results.append(result)
+
+                    current_pos += len(part) + 1
+
         return results
+
+    def _is_valid_suffix(self, suffix: str) -> bool:
+        """
+        Проверяет, является ли строка допустимым английским суффиксом
+        """
+        if not suffix:
+            return True
+
+        # Распространенные английские суффиксы
+        common_suffixes = {
+            's', 'es', 'ies', 'ed', 'ing', 'er', 'est',
+            'ly', 'ness', 'ment', 'tion', 'sion', 'able',
+            'ible', 'al', 'ial', 'ual', 'ive', 'ative',
+            'ful', 'less', 'ous', 'ious', 'en', 'ize',
+            'ise', 'ify', 'fy', 'ward', 'wise', 'fold'
+        }
+
+        if suffix in common_suffixes:
+            return True
+
+        # Проверяем по длине (разумные суффиксы не длиннее 6 символов)
+        if len(suffix) > 6:
+            return False
+
+        # Проверяем, состоит ли суффикс только из букв
+        if not suffix.isalpha():
+            return False
+
+        return True
+
+    def _is_valid_prefix(self, prefix: str) -> bool:
+        """
+        Проверяет, является ли строка допустимым английским префиксом
+        """
+        if not prefix:
+            return True
+
+        # Распространенные английские префиксы
+        common_prefixes = {
+            're', 'pre', 'post', 'over', 'under', 'sub', 'super',
+            'un', 'in', 'im', 'il', 'ir', 'dis', 'non', 'anti',
+            'de', 'bi', 'tri', 'multi', 'semi', 'mini', 'micro',
+            'macro', 'hyper', 'hypo', 'inter', 'intra', 'extra'
+        }
+
+        if prefix in common_prefixes:
+            return True
+
+        # Проверяем по длине
+        if len(prefix) > 5:
+            return False
+
+        # Проверяем, состоит ли префикс только из букв
+        if not prefix.isalpha():
+            return False
+
+        return True
 
     def find_all_occurrences_in_text(self, text: str, search_text: str, name: str, category: str) -> List[Dict]:
         """
@@ -442,14 +726,17 @@ class KeywordTrie:
     def insert(self, word: str, keyword_id: int, keyword_name: str):
         """Вставляет ключевое слово в дерево"""
         node = self.root
-        for char in word:
+        word_lower = word.lower()
+
+        for char in word_lower:
             if char not in node.children:
                 node.children[char] = KeywordTrieNode()
             node = node.children[char]
+
         node.is_end = True
         node.keyword_id = keyword_id
         node.keyword_name = keyword_name
-        node.length = len(word)
+        node.length = len(word_lower)
 
     def build_from_queryset(self, keywords_queryset):
         """Строит дерево из QuerySet ключевых слов"""
@@ -466,13 +753,17 @@ class KeywordTrie:
         for keyword in keywords_queryset:
             keyword_name_lower = keyword.name.lower()
 
-            # Генерируем ВСЕ формы слова одним методом
-            all_forms = self._generate_all_forms(keyword_name_lower)
+            # Всегда добавляем оригинальное ключевое слово
+            self.insert(keyword_name_lower, keyword.id, keyword.name)
+            total_forms += 1
 
-            # Вставляем все формы в дерево
-            for form in all_forms:
-                self.insert(form, keyword.id, keyword.name)
-                total_forms += 1
+            # Для обычных слов генерируем дополнительные формы
+            if ' ' not in keyword_name_lower and len(keyword_name_lower) > 3:
+                forms = self._generate_all_forms(keyword_name_lower)
+                for form in forms:
+                    if form != keyword_name_lower:
+                        self.insert(form, keyword.id, keyword.name)
+                        total_forms += 1
 
             # Сохраняем в кэш
             self.keywords_cache[keyword.id] = {
