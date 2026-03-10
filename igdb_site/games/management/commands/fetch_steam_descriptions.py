@@ -51,7 +51,6 @@ class SteamRateLimiter:
     def record_failure(self, error_type: str = "unknown") -> float:
         """Запись любой неудачной попытки. Возвращает время ожидания если нужно."""
         try:
-            # Используем таймаут для блокировки
             acquired = self.lock.acquire(timeout=2)
             if not acquired:
                 print(f"⚠️ ТАЙМАУТ record_failure: не удалось получить блокировку")
@@ -66,7 +65,6 @@ class SteamRateLimiter:
                     self.consecutive_403 += 1
                     self.total_403 += 1
 
-                # Проверяем нужно ли делать паузу
                 if self.consecutive_failures >= self.max_consecutive_failures:
                     return self._calculate_wait_time()
             finally:
@@ -98,14 +96,12 @@ class SteamRateLimiter:
 
     def _calculate_wait_time(self) -> float:
         """Расчет времени ожидания с экспоненциальной задержкой."""
-        # Экспоненциальная задержка: 60, 120, 240, 300...
         exponent = self.consecutive_failures - self.max_consecutive_failures + 1
         wait_time = min(
             self.base_wait_time * (2 ** max(0, exponent)),
             self.max_wait_time
         )
 
-        # Добавляем случайную составляющую (±20%)
         wait_time = wait_time * (0.8 + 0.4 * random.random())
 
         self.in_backoff = True
@@ -123,10 +119,8 @@ class SteamRateLimiter:
     def should_backoff(self) -> bool:
         """Проверка нужно ли делать backoff."""
         try:
-            # Пытаемся получить блокировку с таймаутом
             acquired = self.lock.acquire(timeout=1)
             if not acquired:
-                # Если не можем получить блокировку, предполагаем что не в backoff
                 return False
 
             try:
@@ -134,7 +128,6 @@ class SteamRateLimiter:
                     if datetime.now() < self.backoff_until:
                         return True
                     else:
-                        # Время вышло, сбрасываем флаг
                         self.in_backoff = False
                         self.backoff_until = None
                 return False
@@ -165,10 +158,8 @@ class SteamRateLimiter:
     def get_status(self) -> Dict:
         """Получение статуса rate limiter."""
         try:
-            # Используем таймаут для получения блокировки
             acquired = self.lock.acquire(timeout=2)
             if not acquired:
-                # Если не можем получить блокировку, возвращаем статус по умолчанию
                 print(f"⚠️ ТАЙМАУТ get_status: не удалось получить блокировку")
                 return {
                     'consecutive_failures': self.consecutive_failures,
@@ -218,7 +209,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--limit',
             type=int,
-            default=100000,
+            default=10000,
             help='Максимальное количество игр для обработки (по умолчанию: 10000)'
         )
 
@@ -284,6 +275,26 @@ class Command(BaseCommand):
         )
 
         parser.add_argument(
+            '--not-found-file',
+            type=str,
+            default='steam_not_found.txt',
+            help='Файл для списка не найденных игр'
+        )
+
+        parser.add_argument(
+            '--process-not-found',
+            action='store_true',
+            help='Обрабатывать только игры из файла не найденных'
+        )
+
+        parser.add_argument(
+            '--skip-not-found',
+            action='store_true',
+            default=True,
+            help='Пропускать игры из файла не найденных (по умолчанию: True)'
+        )
+
+        parser.add_argument(
             '--force',
             action='store_true',
             help='Принудительное обновление даже если описание уже есть'
@@ -318,8 +329,8 @@ class Command(BaseCommand):
         parser.add_argument(
             '--output-dir',
             type=str,
-            default='steam_fetcher_logs',
-            help='Директория для сохранения файлов'
+            default='fetch_steam_descriptions',  # Изменено с steam_fetcher_logs на fetch_steam_descriptions
+            help='Директория для сохранения файлов (по умолчанию: fetch_steam_descriptions)'
         )
 
         parser.add_argument(
@@ -350,12 +361,20 @@ class Command(BaseCommand):
             help='Порог неудач в батче для паузы (0.0-1.0, по умолчанию: 0.3)'
         )
 
+        parser.add_argument(
+            '--processed',
+            type=int,
+            default=0,
+            help='Количество уже обработанных игр (для продолжения)'
+        )
+
     def __init__(self, *args, **kwargs):
         """Инициализация команды."""
         super().__init__(*args, **kwargs)
         self.stats_lock = Lock()
         self.output_lock = Lock()
         self.descriptions_buffer = []
+        self.not_found_buffer = []
         self.buffer_size = 50
         self.session = self._create_session()
         self.pc_platform = None
@@ -371,14 +390,285 @@ class Command(BaseCommand):
             'error_timeout': 0,
             'error_other': 0,
             'iterations': 0,
-            'backoff_pauses': 0
+            'backoff_pauses': 0,
+            'skipped_not_found': 0
         }
         self.output_dir = None
         self.full_output_path = None
+        self.not_found_file_path = None
+        self.not_found_games = set()
         self.current_offset = 0
         self.error_log = []
         self.rate_limiter = None
-        self.batch_failure_threshold = 0.8
+        self.batch_failure_threshold = 0.3
+        self.batch_size = 30
+        self.workers = 3
+        self.delay = 0.5
+        self.timeout = 5
+        self.output_file = 'steam_descriptions_all.txt'
+        self.not_found_file = 'steam_not_found.txt'
+
+    def _initialize_parameters(self, options: Dict, pc: Platform) -> Optional[Tuple]:
+        """Инициализация параметров из options."""
+        limit_from_args = options['limit']
+        force = options['force']
+        game_name = options['game_name']
+        dry_run = options['dry_run']
+        batch_size = options['batch_size']
+        iteration_pause = options['iteration_pause']
+        self.workers = options['workers']
+        self.delay = options['delay']
+        self.timeout = options['timeout']
+        self.batch_size = batch_size
+        output_file = options['output_file']
+        not_found_file = options['not_found_file']
+        process_not_found = options['process_not_found']
+        skip_not_found = options['skip_not_found']
+        skip_search = options['skip_search']
+        self.debug = options['debug']
+        self.verbose = options['verbose']
+        no_restart = options['no_restart']
+        output_dir = options['output_dir']
+        self.output_file = output_file
+        self.not_found_file = not_found_file
+
+        processed_total = options.get('processed', 0)
+
+        # Создаем директорию
+        self.output_dir = Path(output_dir)
+        try:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            self.log_debug(f"Создана выходная директория: {self.output_dir}")
+        except Exception as e:
+            self.log_debug("Ошибка при создании выходной директории", error=e)
+            self.stdout.write(self.style.ERROR(f'❌ Не удалось создать директорию {output_dir}: {e}'))
+            return None
+
+        # Устанавливаем полные пути к файлам СРАЗУ
+        self.full_output_path = self.output_dir / output_file
+        self.not_found_file_path = self.output_dir / not_found_file
+
+        # Загружаем not_found_games
+        self.not_found_games = self.load_not_found_games()
+
+        if not game_name:
+            base_queryset = Game.objects.filter(platforms=pc)
+
+            if not force:
+                base_queryset = base_queryset.filter(
+                    Q(rawg_description__isnull=True) | Q(rawg_description='')
+                )
+
+            if skip_not_found is True and self.not_found_games:
+                base_queryset = base_queryset.exclude(id__in=self.not_found_games)
+                self.stdout.write(self.style.WARNING(f'📊 Исключено {len(self.not_found_games)} ранее не найденных игр'))
+
+            if process_not_found is True and self.not_found_games:
+                base_queryset = Game.objects.filter(id__in=self.not_found_games)
+                self.stdout.write(
+                    self.style.WARNING(f'📊 Обработка только {len(self.not_found_games)} ранее не найденных игр'))
+
+            total_to_process = base_queryset.count()
+
+            self.stdout.write(self.style.SUCCESS(f'📊 Всего игр на PC: {Game.objects.filter(platforms=pc).count()}'))
+            self.stdout.write(self.style.SUCCESS(f'📊 Игр для обработки: {total_to_process}'))
+
+            if limit_from_args == 10000:
+                limit = total_to_process
+                self.stdout.write(self.style.WARNING(f'🔄 Автоматически установлен limit = {limit} игр'))
+            else:
+                limit = min(limit_from_args, total_to_process)
+                self.stdout.write(self.style.WARNING(f'📊 Ручной limit = {limit} из {total_to_process} доступных'))
+            target_game = None
+        else:
+            result = self._find_specific_game(game_name, pc)
+            if not result:
+                return None
+            target_game, limit, batch_size, no_restart = result
+            self.batch_size = batch_size
+            total_to_process = 1
+            processed_total = 0
+            process_not_found = False
+            skip_not_found = False
+
+        self.current_offset = options['offset']
+
+        return (limit, total_to_process, target_game, processed_total,
+                batch_size, iteration_pause, output_file, output_dir,
+                dry_run, force, skip_search, no_restart, process_not_found, skip_not_found)
+
+    def get_games_batch(self, offset: int, batch_size: int, force: bool,
+                        skip_not_found: bool = True, not_found_set: set = None) -> List[Game]:
+        """Получение батча игр с учетом не найденных."""
+        pc = self.get_pc_platform()
+        if not pc:
+            return []
+
+        try:
+            queryset = Game.objects.filter(platforms=pc)
+
+            if not force:
+                queryset = queryset.filter(
+                    Q(rawg_description__isnull=True) |
+                    Q(rawg_description='')
+                )
+
+            # Исправлено: явная проверка на True
+            if skip_not_found is True and not_found_set:
+                queryset = queryset.exclude(id__in=not_found_set)
+                self.stdout.write(self.style.WARNING(f'📊 Исключено {len(not_found_set)} ранее не найденных игр'))
+
+            games = list(queryset.order_by('-rating_count', 'id')[offset:offset + batch_size])
+
+            if games:
+                self.stdout.write(
+                    self.style.SUCCESS(f'📊 Батч: игры {offset + 1}-{offset + len(games)} (смещение {offset})')
+                )
+
+                if self.debug:
+                    for i, game in enumerate(games[:3], 1):
+                        has_desc = bool(game.rawg_description)
+                        desc_status = "есть описание" if has_desc else "нет описания"
+                        not_found_status = " (была не найдена)" if game.id in (not_found_set or set()) else ""
+                        self.stdout.write(f'    {i}. {game.name} (ID: {game.id}, {desc_status}{not_found_status})')
+
+            return games
+
+        except Exception as e:
+            self.log_debug("Ошибка при получении батча игр", error=e)
+            return []
+
+    def _get_games_to_process(self, target_game: Optional[Game], force: bool,
+                              process_not_found: bool, skip_not_found: bool) -> List[Game]:
+        """Получение списка игр для обработки."""
+        if target_game:
+            return [target_game]
+
+        # Исправлено: явная проверка на True
+        if process_not_found is True and self.not_found_games:
+            games = list(Game.objects.filter(id__in=self.not_found_games).order_by('id')
+                         [self.current_offset:self.current_offset + self.batch_size])
+            self.stdout.write(self.style.WARNING(f'📊 Обработка не найденных игр: {len(games)}'))
+            return games
+
+        return self.get_games_batch(self.current_offset, self.batch_size, force,
+                                    skip_not_found, self.not_found_games)
+
+    def process_game(self, game: Game, skip_search: bool, timeout: float,
+                     delay: float, output_file: str, dry_run: bool, stats: Dict) -> Dict:
+        """Обработка одной игры."""
+        result = {
+            'success': False,
+            'skipped': False,
+            'description': None,
+            'app_id': None,
+            'error_type': None,
+            'error_message': None,
+            'error_details': None,
+            'should_retry': False
+        }
+
+        try:
+            if delay > 0:
+                time.sleep(delay)
+
+            if self.rate_limiter and self.rate_limiter.should_backoff():
+                if not self.check_rate_limit():
+                    result['skipped'] = True
+                    result['error_type'] = 'backoff'
+                    result['error_message'] = 'Пауза из-за ошибок'
+                    result['should_retry'] = True
+                    return result
+
+            app_id = None
+            search_error = None
+            if not skip_search:
+                app_id, search_error = self.search_steam(game.name, timeout)
+
+            if not app_id:
+                with self.stats_lock:
+                    if search_error == 'not_found':
+                        stats['not_found'] += 1
+                        self.total_stats['not_found'] += 1
+                        result['error_type'] = 'not_found'
+                        result['error_message'] = 'Не найдена в Steam'
+
+                        # ТОЛЬКО not_found попадает в файл не найденных игр
+                        if not dry_run:
+                            self.add_to_not_found(game, "not_found")
+                    else:
+                        stats['error'] += 1
+                        self.total_stats['error'] += 1
+                        if search_error == '403':
+                            self.total_stats['error_403'] += 1
+                        elif search_error == 'timeout':
+                            self.total_stats['error_timeout'] += 1
+                        else:
+                            self.total_stats['error_other'] += 1
+                        result['error_type'] = search_error or 'search_error'
+                        result['error_message'] = f'Ошибка поиска: {search_error}'
+                        result['should_retry'] = True  # Технические ошибки нужно повторять
+
+                result['skipped'] = True
+                return result
+
+            description, desc_error = self.fetch_description(app_id, timeout, game.name)
+
+            if not description:
+                with self.stats_lock:
+                    if desc_error == 'no_description':
+                        stats['no_description'] += 1
+                        self.total_stats['no_description'] += 1
+                        result['error_type'] = 'no_description'
+                        result['error_message'] = 'Нет описания'
+                        # Не добавляем в not_found - игра найдена, но описания нет
+                    else:
+                        stats['error'] += 1
+                        self.total_stats['error'] += 1
+                        if desc_error == '403':
+                            self.total_stats['error_403'] += 1
+                        elif desc_error == 'timeout':
+                            self.total_stats['error_timeout'] += 1
+                        else:
+                            self.total_stats['error_other'] += 1
+                        result['error_type'] = desc_error or 'fetch_error'
+                        result['error_message'] = f'Ошибка получения: {desc_error}'
+                        result['should_retry'] = True  # Технические ошибки нужно повторять
+
+                result['skipped'] = True
+                return result
+
+            result['success'] = True
+            result['description'] = description
+            result['app_id'] = app_id
+
+            if output_file:
+                formatted = self.format_for_file(game, description, app_id)
+                with self.output_lock:
+                    self.descriptions_buffer.append(formatted)
+                    if len(self.descriptions_buffer) >= self.buffer_size:
+                        self.save_buffer(output_file, is_first=(self.current_offset == 0))
+
+            with self.stats_lock:
+                stats['success'] += 1
+                self.total_stats['success'] += 1
+
+            return result
+
+        except Exception as e:
+            self.log_debug("Критическая ошибка", game_name=game.name, error=e)
+
+            with self.stats_lock:
+                stats['error'] += 1
+                self.total_stats['error'] += 1
+                self.total_stats['error_other'] += 1
+
+            result['skipped'] = True
+            result['error_type'] = 'exception'
+            result['error_message'] = str(e)[:50]
+            result['error_details'] = traceback.format_exc()
+            result['should_retry'] = True
+            return result
 
     def _create_session(self) -> requests.Session:
         """Создание HTTP сессии без повторов."""
@@ -405,86 +695,12 @@ class Command(BaseCommand):
 
         return session
 
-    def check_rate_limit(self) -> bool:
-        """Проверка rate limiting и выполнение backoff при необходимости."""
-        if self.rate_limiter and self.rate_limiter.should_backoff():
-            remaining = self.rate_limiter.get_wait_time_remaining()
-            if remaining > 0:
-                status = self.rate_limiter.get_status()
-
-                self.stdout.write(self.style.ERROR(
-                    f'\n🚫 ОБНАРУЖЕНО {status["consecutive_failures"]} НЕУДАЧ ПОДРЯД!'
-                ))
-                self.stdout.write(self.style.ERROR(
-                    f'⏳ Пауза на {remaining:.1f}с для снятия блокировки Steam...'
-                ))
-
-                # Закрываем старую сессию перед паузой
-                try:
-                    self.session.close()
-                except:
-                    pass
-
-                # Обратный отсчет
-                last_display = 0
-                last_remaining = remaining
-
-                while remaining > 0 and not self.interrupted:
-                    try:
-                        # Обновляем оставшееся время
-                        current_remaining = self.rate_limiter.get_wait_time_remaining()
-
-                        # Выводим только когда изменилось целое число секунд
-                        if int(current_remaining) != int(last_remaining) or current_remaining <= 5:
-                            if time.time() - last_display > 0.2:
-                                # Используем print для надежности
-                                print(f'\r   Осталось {int(current_remaining)}с...   ', end='', flush=True)
-                                last_display = time.time()
-                                last_remaining = current_remaining
-
-                        time.sleep(0.1)
-                        remaining = current_remaining
-
-                    except KeyboardInterrupt:
-                        self.interrupted = True
-                        break
-                    except Exception as e:
-                        # Игнорируем ошибки во время паузы
-                        pass
-
-                # Переход на новую строку после завершения отсчета
-                print()
-
-                if self.interrupted:
-                    self.stdout.write(self.style.WARNING('\n⚠️ Пауза прервана пользователем'))
-                    return False
-
-                # Создаем новую сессию после паузы
-                try:
-                    self.stdout.write(self.style.WARNING('🔄 Пересоздание HTTP сессии...'))
-                    self.session = self._create_session()
-                    self.stdout.write(self.style.SUCCESS('✅ Сессия пересоздана'))
-                except Exception as e:
-                    self.stdout.write(self.style.ERROR(f'❌ Ошибка при создании сессии: {e}'))
-
-                self.stdout.write(self.style.SUCCESS(
-                    f'✅ Пауза завершена, возобновляем работу'
-                ))
-
-                with self.stats_lock:
-                    self.total_stats['backoff_pauses'] += 1
-
-                return True
-        return False
-
     def signal_handler(self, signum, frame):
         """Обработчик сигнала прерывания (Ctrl+C)."""
         self.stdout.write(self.style.ERROR('\n\n⚠️  Получен сигнал прерывания (Ctrl+C)'))
 
-        # Устанавливаем флаг прерывания
         self.interrupted = True
 
-        # Показываем статистику по ошибкам
         if self.rate_limiter:
             status = self.rate_limiter.get_status()
             self.stdout.write(self.style.ERROR(f'📊 Статистика ошибок:'))
@@ -493,15 +709,12 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f'  Подряд: {status["consecutive_failures"]}'))
             self.stdout.write(self.style.ERROR(f'  Пауз: {status["waits"]}'))
 
-        # Выводим накопленные ошибки
         if self.error_log and self.debug:
             self.stdout.write(self.style.ERROR('\n📋 ПОСЛЕДНИЕ ОШИБКИ:'))
             for i, error in enumerate(self.error_log[-10:], 1):
                 self.stdout.write(self.style.ERROR(f'  {i}. {error[:100]}...'))
 
         self.stdout.write(self.style.ERROR('🛑 ФОРСИРОВАННОЕ ЗАВЕРШЕНИЕ...'))
-
-        # Принудительно завершаем процесс
         os._exit(130)
 
     def log_debug(self, message: str, game_name: str = None, error: Exception = None):
@@ -552,6 +765,70 @@ class Command(BaseCommand):
 
             self.stdout.write(self.style.NOTICE(full_message))
 
+    def check_rate_limit(self) -> bool:
+        """Проверка rate limiting и выполнение backoff при необходимости."""
+        if self.rate_limiter and self.rate_limiter.should_backoff():
+            remaining = self.rate_limiter.get_wait_time_remaining()
+            if remaining > 0:
+                status = self.rate_limiter.get_status()
+
+                self.stdout.write(self.style.ERROR(
+                    f'\n🚫 ОБНАРУЖЕНО {status["consecutive_failures"]} НЕУДАЧ ПОДРЯД!'
+                ))
+                self.stdout.write(self.style.ERROR(
+                    f'⏳ Пауза на {remaining:.1f}с для снятия блокировки Steam...'
+                ))
+
+                try:
+                    self.session.close()
+                except:
+                    pass
+
+                last_display = 0
+                last_remaining = remaining
+
+                while remaining > 0 and not self.interrupted:
+                    try:
+                        current_remaining = self.rate_limiter.get_wait_time_remaining()
+
+                        if int(current_remaining) != int(last_remaining) or current_remaining <= 5:
+                            if time.time() - last_display > 0.2:
+                                print(f'\r   Осталось {int(current_remaining)}с...   ', end='', flush=True)
+                                last_display = time.time()
+                                last_remaining = current_remaining
+
+                        time.sleep(0.1)
+                        remaining = current_remaining
+
+                    except KeyboardInterrupt:
+                        self.interrupted = True
+                        break
+                    except Exception:
+                        pass
+
+                print()
+
+                if self.interrupted:
+                    self.stdout.write(self.style.WARNING('\n⚠️ Пауза прервана пользователем'))
+                    return False
+
+                try:
+                    self.stdout.write(self.style.WARNING('🔄 Пересоздание HTTP сессии...'))
+                    self.session = self._create_session()
+                    self.stdout.write(self.style.SUCCESS('✅ Сессия пересоздана'))
+                except Exception as e:
+                    self.stdout.write(self.style.ERROR(f'❌ Ошибка при создании сессии: {e}'))
+
+                self.stdout.write(self.style.SUCCESS(
+                    f'✅ Пауза завершена, возобновляем работу'
+                ))
+
+                with self.stats_lock:
+                    self.total_stats['backoff_pauses'] += 1
+
+                return True
+        return False
+
     def get_pc_platform(self) -> Optional[Platform]:
         """Получение платформы PC."""
         if self.pc_platform is None:
@@ -591,39 +868,81 @@ class Command(BaseCommand):
 
         return self.pc_platform
 
-    def get_games_batch(self, offset: int, batch_size: int, force: bool) -> List[Game]:
-        """Получение батча игр."""
-        pc = self.get_pc_platform()
-        if not pc:
-            return []
+    def load_not_found_games(self) -> set:
+        """Загрузка списка не найденных игр из файла."""
+        not_found_set = set()
+        file_path = self.not_found_file_path
+
+        if file_path and file_path.exists():
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('=') and not line.startswith(
+                                'STEAM NOT FOUND GAMES') and not line.startswith('Generated:') and not line.startswith(
+                                'Offset:'):
+                            if 'Game ID:' in line:
+                                try:
+                                    game_id = int(line.split('Game ID:')[1].split('-')[0].strip())
+                                    not_found_set.add(game_id)
+                                except (ValueError, IndexError):
+                                    pass
+                self.stdout.write(
+                    self.style.SUCCESS(f'📂 Загружено {len(not_found_set)} не найденных игр из {file_path}'))
+            except Exception as e:
+                self.log_debug(f"Ошибка при загрузке файла не найденных игр", error=e)
+        else:
+            self.stdout.write(self.style.WARNING(f'📂 Файл не найденных игр не существует: {file_path}'))
+
+        return not_found_set
+
+    def save_not_found_buffer(self, is_first: bool = False):
+        """Сохранение буфера не найденных игр в файл."""
+        if not self.not_found_buffer:
+            return
+
+        file_path = self.not_found_file_path
 
         try:
-            queryset = Game.objects.filter(platforms=pc)
-
-            if not force:
-                queryset = queryset.filter(
-                    Q(rawg_description__isnull=True) |
-                    Q(rawg_description='')
-                )
-
-            games = list(queryset.order_by('-rating_count', 'id')[offset:offset + batch_size])
-
-            if games:
-                self.stdout.write(
-                    self.style.SUCCESS(f'📊 Батч: игры {offset + 1}-{offset + len(games)} (смещение {offset})')
-                )
-
-                if self.debug:
-                    for i, game in enumerate(games[:3], 1):
-                        has_desc = bool(game.rawg_description)
-                        desc_status = "есть описание" if has_desc else "нет описания"
-                        self.stdout.write(f'    {i}. {game.name} (ID: {game.id}, {desc_status})')
-
-            return games
-
+            file_path.parent.mkdir(parents=True, exist_ok=True)
         except Exception as e:
-            self.log_debug("Ошибка при получении батча игр", error=e)
-            return []
+            self.log_debug("Ошибка создания директории", error=e)
+            return
+
+        with self.output_lock:
+            try:
+                mode = 'w' if is_first else 'a'
+
+                with open(file_path, mode, encoding='utf-8') as f:
+                    if is_first:
+                        header = f"{'=' * 80}\n"
+                        header += f"STEAM NOT FOUND GAMES\n"
+                        header += f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                        header += f"Offset: {self.current_offset}\n"
+                        header += f"{'=' * 80}\n\n"
+                        f.write(header)
+
+                    for game_info in self.not_found_buffer:
+                        f.write(game_info)
+                        f.write("\n")
+
+                self.not_found_buffer = []
+
+                if is_first:
+                    self.stdout.write(self.style.SUCCESS(f'📁 Создан файл не найденных игр: {file_path}'))
+
+            except IOError as e:
+                self.log_debug("Ошибка записи файла не найденных игр", error=e)
+
+    def add_to_not_found(self, game: Game, reason: str = "not_found"):
+        """Добавление игры в список не найденных."""
+        game_info = f"Game ID: {game.id} - {game.name} (Rating: {game.rating or 'N/A'}) - {reason}"
+        self.not_found_buffer.append(game_info)
+
+        self.not_found_games.add(game.id)
+
+        if len(self.not_found_buffer) >= self.buffer_size:
+            self.save_not_found_buffer(is_first=False)
 
     def clean_html(self, text: Optional[str]) -> Optional[str]:
         """Очистка HTML тегов."""
@@ -635,7 +954,6 @@ class Command(BaseCommand):
 
     def search_steam(self, game_name: str, timeout: float) -> Tuple[Optional[int], Optional[str]]:
         """Поиск игры в Steam. Возвращает (app_id, error_type)."""
-        # Проверяем не в паузе ли мы
         if self.rate_limiter and self.rate_limiter.should_backoff():
             self.check_rate_limit()
             if self.rate_limiter.should_backoff():
@@ -649,7 +967,6 @@ class Command(BaseCommand):
 
         self.log_verbose(f"Поиск в Steam: '{search_name}'", game_name=game_name)
 
-        # Проверяем сессию и пересоздаем если нужно
         try:
             self.session.headers.update({'Connection': 'keep-alive'})
         except (AttributeError, OSError, Exception):
@@ -712,7 +1029,6 @@ class Command(BaseCommand):
         except OSError as e:
             self.log_debug(f"Ошибка сокета, пересоздание сессии", game_name=game_name, error=e)
             self.rate_limiter.record_failure("socket_error")
-            # Пересоздаем сессию и пробуем еще раз
             try:
                 self.session = self._create_session()
                 response = self.session.get(url, params=params, timeout=timeout)
@@ -732,7 +1048,6 @@ class Command(BaseCommand):
     def fetch_description(self, app_id: int, timeout: float, game_name: str = None) -> Tuple[
         Optional[str], Optional[str]]:
         """Получение описания игры. Возвращает (description, error_type)."""
-        # Проверяем не в паузе ли мы
         if self.rate_limiter and self.rate_limiter.should_backoff():
             self.check_rate_limit()
             if self.rate_limiter.should_backoff():
@@ -895,16 +1210,13 @@ class Command(BaseCommand):
             error_403_count = 0
             timeout_count = 0
 
-            # Словарь для отслеживания обработанных игр
             processed_games = set()
 
             while completed < batch_total and not self.interrupted:
-                # Проверяем не в паузе ли мы
                 if self.rate_limiter and self.rate_limiter.should_backoff():
                     if not self.check_rate_limit():
                         break
 
-                # Собираем завершенные future
                 for future in list(futures.keys()):
                     if future in processed_games:
                         continue
@@ -972,19 +1284,15 @@ class Command(BaseCommand):
                                 self.total_stats['error'] += 1
                                 self.total_stats['error_other'] += 1
 
-                # Небольшая пауза чтобы не нагружать процессор
                 time.sleep(0.1)
 
-                # Проверяем не зависли ли future
                 if completed < batch_total:
                     current_time = time.time()
                     for future, game in list(futures.items()):
                         if future not in processed_games:
-                            # Если задача выполняется дольше timeout * 3, считаем её зависшей
                             if hasattr(future, '_start_time'):
                                 elapsed = current_time - future._start_time
                                 if elapsed > timeout * 3:
-                                    # Принудительно отменяем
                                     future.cancel()
                                     processed_games.add(future)
                                     completed += 1
@@ -998,20 +1306,16 @@ class Command(BaseCommand):
                                         self.total_stats['error'] += 1
                                         self.total_stats['error_timeout'] += 1
                             else:
-                                # Запоминаем время старта
                                 future._start_time = current_time
 
-                # Проверяем не был ли получен сигнал прерывания
                 if self.interrupted:
                     self.stdout.write(
                         self.style.WARNING('\n  ⚠️ Получен сигнал прерывания, завершаю обработку батча...'))
-                    # Отменяем все незавершенные задачи
                     for future in list(futures.keys()):
                         if future not in processed_games and not future.done():
                             future.cancel()
                     break
 
-            # Статистика по ошибкам для батча
             if error_403_count > 0:
                 self.stdout.write(self.style.ERROR(
                     f'  🚫 403 ошибок в батче: {error_403_count}'
@@ -1022,7 +1326,6 @@ class Command(BaseCommand):
                     f'  ⌛ Таймаутов в батче: {timeout_count}'
                 ))
 
-            # Анализ результатов батча
             if batch_total > 0:
                 failure_ratio = batch_failures / batch_total
 
@@ -1031,7 +1334,6 @@ class Command(BaseCommand):
                         f'\n  ⚠️ ВЫСОКИЙ УРОВЕНЬ ОШИБОК В БАТЧЕ: {failure_ratio * 100:.1f}%'
                     ))
 
-                    # Принудительно записываем неудачу в rate limiter
                     wait_time = self.rate_limiter.record_failure("batch_failure")
 
                     if wait_time > 0:
@@ -1040,119 +1342,10 @@ class Command(BaseCommand):
                         ))
                         self.check_rate_limit()
 
-        # Сохраняем буфер
         if self.descriptions_buffer:
             self.save_buffer(output_file, is_first)
 
         return games_to_update
-
-    def process_game(self, game: Game, skip_search: bool, timeout: float,
-                     delay: float, output_file: str, dry_run: bool, stats: Dict) -> Dict:
-        """Обработка одной игры."""
-        result = {
-            'success': False,
-            'skipped': False,
-            'description': None,
-            'app_id': None,
-            'error_type': None,
-            'error_message': None,
-            'error_details': None
-        }
-
-        try:
-            if delay > 0:
-                time.sleep(delay)
-
-            # Проверяем не в паузе ли мы
-            if self.rate_limiter and self.rate_limiter.should_backoff():
-                if not self.check_rate_limit():
-                    result['skipped'] = True
-                    result['error_type'] = 'backoff'
-                    result['error_message'] = 'Пауза из-за ошибок'
-                    return result
-
-            app_id = None
-            search_error = None
-            if not skip_search:
-                app_id, search_error = self.search_steam(game.name, timeout)
-
-            if not app_id:
-                with self.stats_lock:
-                    if search_error == 'not_found':
-                        stats['not_found'] += 1
-                        self.total_stats['not_found'] += 1
-                        result['error_type'] = 'not_found'
-                        result['error_message'] = 'Не найдена в Steam'
-                    else:
-                        stats['error'] += 1
-                        self.total_stats['error'] += 1
-                        if search_error == '403':
-                            self.total_stats['error_403'] += 1
-                        elif search_error == 'timeout':
-                            self.total_stats['error_timeout'] += 1
-                        else:
-                            self.total_stats['error_other'] += 1
-                        result['error_type'] = search_error or 'search_error'
-                        result['error_message'] = f'Ошибка поиска: {search_error}'
-
-                result['skipped'] = True
-                return result
-
-            description, desc_error = self.fetch_description(app_id, timeout, game.name)
-
-            if not description:
-                with self.stats_lock:
-                    if desc_error == 'no_description':
-                        stats['no_description'] += 1
-                        self.total_stats['no_description'] += 1
-                        result['error_type'] = 'no_description'
-                        result['error_message'] = 'Нет описания'
-                    else:
-                        stats['error'] += 1
-                        self.total_stats['error'] += 1
-                        if desc_error == '403':
-                            self.total_stats['error_403'] += 1
-                        elif desc_error == 'timeout':
-                            self.total_stats['error_timeout'] += 1
-                        else:
-                            self.total_stats['error_other'] += 1
-                        result['error_type'] = desc_error or 'fetch_error'
-                        result['error_message'] = f'Ошибка получения: {desc_error}'
-
-                result['skipped'] = True
-                return result
-
-            result['success'] = True
-            result['description'] = description
-            result['app_id'] = app_id
-
-            # Сохраняем в файл
-            if output_file:
-                formatted = self.format_for_file(game, description, app_id)
-                with self.output_lock:
-                    self.descriptions_buffer.append(formatted)
-                    if len(self.descriptions_buffer) >= self.buffer_size:
-                        self.save_buffer(output_file, is_first=(self.current_offset == 0))
-
-            with self.stats_lock:
-                stats['success'] += 1
-                self.total_stats['success'] += 1
-
-            return result
-
-        except Exception as e:
-            self.log_debug("Критическая ошибка", game_name=game.name, error=e)
-
-            with self.stats_lock:
-                stats['error'] += 1
-                self.total_stats['error'] += 1
-                self.total_stats['error_other'] += 1
-
-            result['skipped'] = True
-            result['error_type'] = 'exception'
-            result['error_message'] = str(e)[:50]
-            result['error_details'] = traceback.format_exc()
-            return result
 
     def handle(self, *args: Any, **options: Any) -> None:
         """Основной метод выполнения."""
@@ -1162,8 +1355,6 @@ class Command(BaseCommand):
 
         start_time = time.time()
 
-        # Инициализация rate limiter
-        self.stdout.write(self.style.WARNING('🔍 ДИАГНОСТИКА: Инициализация rate limiter'))
         self.rate_limiter = SteamRateLimiter(
             max_consecutive_failures=options['max_consecutive_failures'],
             base_wait_time=options['base_wait'],
@@ -1171,145 +1362,123 @@ class Command(BaseCommand):
         )
         self.batch_failure_threshold = options['batch_failure_threshold']
 
-        # Получаем PC платформу сначала для расчета limit
-        self.stdout.write(self.style.WARNING('🔍 ДИАГНОСТИКА: Получение PC платформы для расчета limit'))
         pc = self.get_pc_platform()
         if not pc:
             self.stdout.write(self.style.ERROR('❌ Критическая ошибка: платформа PC не найдена'))
             return
 
-        # Автоматический расчет количества игр для PC
-        force = options['force']
-        total_games = Game.objects.filter(platforms=pc).count()
+        params = self._initialize_parameters(options, pc)
+        if not params:
+            return
 
-        if not force:
-            # Считаем игры без описаний
-            games_without_desc = Game.objects.filter(
-                platforms=pc,
-                rawg_description__isnull=True
-            ) | Game.objects.filter(
-                platforms=pc,
-                rawg_description=''
-            )
-            games_without_desc = games_without_desc.distinct().count()
-            self.stdout.write(self.style.SUCCESS(f'📊 Всего игр на PC: {total_games}'))
-            self.stdout.write(self.style.SUCCESS(f'📊 Игр без описаний: {games_without_desc}'))
-            auto_limit = games_without_desc
+        (limit, total_to_process, target_game, processed_total,
+         batch_size, iteration_pause, output_file, output_dir,
+         dry_run, force, skip_search, no_restart, process_not_found, skip_not_found) = params
+
+        if not self._create_output_directory(output_dir):
+            return
+
+        self._print_startup_info(limit, total_to_process, processed_total,
+                                 batch_size, iteration_pause, options)
+
+        processed_total, games_per_second = self._main_processing_loop(
+            target_game, limit, batch_size, iteration_pause,
+            skip_search, output_file, dry_run,
+            force, no_restart, processed_total, start_time, options,
+            process_not_found, skip_not_found
+        )
+
+        self._print_final_stats(start_time)
+
+    def _find_specific_game(self, game_name: str, pc: Platform) -> Optional[Tuple]:
+        """Поиск конкретной игры по названию."""
+        self.stdout.write(f'🔍 Поиск игры: "{game_name}"')
+        self.log_debug(f"Начат поиск игры по названию: {game_name}")
+
+        self.stdout.write(f'  Шаг 1: Поиск точного совпадения...')
+        exact_games = Game.objects.filter(
+            Q(name__iexact=game_name) &
+            Q(platforms=pc)
+        ).order_by('-rating_count')
+
+        exact_count = exact_games.count()
+        self.stdout.write(f'  Найдено точных совпадений: {exact_count}')
+
+        if exact_count > 0:
+            target_game = exact_games.first()
+            self.stdout.write(self.style.SUCCESS(
+                f'  ✅ Точное совпадение: {target_game.name} (ID: {target_game.id})'
+            ))
         else:
-            # При force обрабатываем все игры
-            auto_limit = total_games
-            self.stdout.write(self.style.SUCCESS(f'📊 Всего игр на PC: {total_games} (режим force)'))
+            self.stdout.write(f'  Шаг 2: Поиск частичных совпадений...')
 
-        limit = options['limit']
-        # Если limit не указан (равен дефолтному 10000) или равен 0, используем автоматический расчет
-        if limit == 10000 or limit == 0:
-            limit = auto_limit
-            self.stdout.write(self.style.WARNING(f'🔄 Автоматически установлен limit = {limit} игр'))
-        else:
-            self.stdout.write(self.style.WARNING(f'📊 Ручной limit = {limit} игр'))
+            all_matches = Game.objects.filter(
+                Q(name__icontains=game_name) &
+                Q(platforms=pc)
+            ).order_by('-rating_count')
 
-        self.current_offset = options['offset']
-        game_name = options['game_name']
-        dry_run = options['dry_run']
-        batch_size = options['batch_size']
-        iteration_pause = options['iteration_pause']
-        self.workers = options['workers']
-        delay = options['delay']
-        timeout = options['timeout']
-        output_file = options['output_file']
-        force = options['force']
-        skip_search = options['skip_search']
-        self.debug = options['debug']
-        self.verbose = options['verbose']
-        no_restart = options['no_restart']
-        output_dir = options['output_dir']
+            total_matches = all_matches.count()
+            self.stdout.write(f'  Всего найдено частичных совпадений: {total_matches}')
 
-        # Создаем директорию
+            if total_matches > 0:
+                self.stdout.write(f'  Топ-5 по рейтингу:')
+                for i, g in enumerate(all_matches[:5], 1):
+                    self.stdout.write(f'    {i}. {g.name} (ID: {g.id}, рейтинг: {g.rating})')
+
+                target_game = all_matches.first()
+                self.stdout.write(self.style.SUCCESS(
+                    f'  ✅ Выбрана: {target_game.name} (ID: {target_game.id})'
+                ))
+            else:
+                self.stdout.write(self.style.ERROR(f'❌ Игра "{game_name}" не найдена'))
+
+                if self.debug:
+                    similar = Game.objects.filter(platforms=pc)[:10]
+                    self.stdout.write(self.style.WARNING('📋 Доступные игры (первые 10):'))
+                    for g in similar:
+                        self.stdout.write(f'  - {g.name}')
+                return None
+
+        return target_game, 1, 1, True
+
+    def _create_output_directory(self, output_dir: str) -> bool:
+        """Создание выходной директории."""
         self.stdout.write(self.style.WARNING(f'🔍 ДИАГНОСТИКА: Создание директории {output_dir}'))
         self.output_dir = Path(output_dir)
         try:
             self.output_dir.mkdir(parents=True, exist_ok=True)
             self.log_debug(f"Создана выходная директория: {self.output_dir}")
+            return True
         except Exception as e:
             self.log_debug("Ошибка при создании выходной директории", error=e)
             self.stdout.write(self.style.ERROR(f'❌ Не удалось создать директорию {output_dir}: {e}'))
-            return
+            return False
 
+    def _print_startup_info(self, limit: int, total_to_process: int,
+                            processed_total: int, batch_size: int,
+                            iteration_pause: int, options: Dict) -> None:
+        """Вывод информации о запуске."""
         self.stdout.write(self.style.SUCCESS('=' * 60))
         self.stdout.write(self.style.SUCCESS('STEAM DESCRIPTIONS FETCHER'))
         self.stdout.write(self.style.SUCCESS('=' * 60))
 
-        # Поиск конкретной игры
-        target_game = None
-        if game_name:
-            self.stdout.write(f'🔍 Поиск игры: "{game_name}"')
-            self.log_debug(f"Начат поиск игры по названию: {game_name}")
-
-            # Сначала точный поиск
-            self.stdout.write(f'  Шаг 1: Поиск точного совпадения...')
-            exact_games = Game.objects.filter(
-                Q(name__iexact=game_name) &
-                Q(platforms=pc)
-            ).order_by('-rating_count')
-
-            exact_count = exact_games.count()
-            self.stdout.write(f'  Найдено точных совпадений: {exact_count}')
-
-            if exact_count > 0:
-                target_game = exact_games.first()
-                self.stdout.write(self.style.SUCCESS(
-                    f'  ✅ Точное совпадение: {target_game.name} (ID: {target_game.id})'
-                ))
-            else:
-                # Поиск по частичному совпадению
-                self.stdout.write(f'  Шаг 2: Поиск частичных совпадений...')
-
-                all_matches = Game.objects.filter(
-                    Q(name__icontains=game_name) &
-                    Q(platforms=pc)
-                ).order_by('-rating_count')
-
-                total_matches = all_matches.count()
-                self.stdout.write(f'  Всего найдено частичных совпадений: {total_matches}')
-
-                if total_matches > 0:
-                    self.stdout.write(f'  Топ-5 по рейтингу:')
-                    for i, g in enumerate(all_matches[:5], 1):
-                        self.stdout.write(f'    {i}. {g.name} (ID: {g.id}, рейтинг: {g.rating})')
-
-                    target_game = all_matches.first()
-                    self.stdout.write(self.style.SUCCESS(
-                        f'  ✅ Выбрана: {target_game.name} (ID: {target_game.id})'
-                    ))
-                else:
-                    self.stdout.write(self.style.ERROR(f'❌ Игра "{game_name}" не найдена'))
-
-                    # Диагностика: показываем похожие игры
-                    if self.debug:
-                        similar = Game.objects.filter(platforms=pc)[:10]
-                        self.stdout.write(self.style.WARNING('📋 Доступные игры (первые 10):'))
-                        for g in similar:
-                            self.stdout.write(f'  - {g.name}')
-                    return
-
-            # Устанавливаем параметры для одной игры
-            limit = 1
-            self.current_offset = 0
-            batch_size = 1
-            no_restart = True
-
-        # Вывод параметров
         self.stdout.write(f'\n📊 Параметры запуска:')
-        self.stdout.write(f'  Лимит: {limit}')
+        self.stdout.write(f'  Всего для обработки: {total_to_process} игр')
+        self.stdout.write(f'  Лимит за запуск: {limit}')
         self.stdout.write(f'  Текущий offset: {self.current_offset}')
+        self.stdout.write(f'  Уже обработано: {processed_total} игр')
         self.stdout.write(f'  Размер итерации: {batch_size}')
         self.stdout.write(f'  Пауза между итерациями: {iteration_pause}с')
         self.stdout.write(f'  Воркеров: {self.workers}')
-        self.stdout.write(f'  Задержка: {delay}с')
-        self.stdout.write(f'  Таймаут: {timeout}с')
-        self.stdout.write(f'  Dry run: {dry_run}')
-        self.stdout.write(f'  Force: {force}')
-        self.stdout.write(f'  Skip search: {skip_search}')
+        self.stdout.write(f'  Задержка: {self.delay}с')
+        self.stdout.write(f'  Таймаут: {self.timeout}с')
+        self.stdout.write(f'  Dry run: {options["dry_run"]}')
+        self.stdout.write(f'  Force: {options["force"]}')
+        self.stdout.write(f'  Skip search: {options["skip_search"]}')
+        self.stdout.write(f'  Process only not found: {options["process_not_found"]}')
+        self.stdout.write(f'  Skip not found: {options["skip_not_found"]}')
+        self.stdout.write(f'  Not found file: {self.not_found_file}')
+        self.stdout.write(f'  Loaded not found games: {len(self.not_found_games)}')
 
         self.stdout.write(self.style.WARNING(f'\n🚫 Настройки защиты от ошибок:'))
         self.stdout.write(f'  Макс. ошибок подряд: {options["max_consecutive_failures"]}')
@@ -1321,316 +1490,335 @@ class Command(BaseCommand):
         self.stdout.write(self.style.WARNING('⚠️  Нажмите Ctrl+C для завершения'))
         self.stdout.write('=' * 60)
 
-        # Основной цикл
+    def _main_processing_loop(self, target_game: Optional[Game], limit: int,
+                              batch_size: int, iteration_pause: int,
+                              skip_search: bool, output_file: str, dry_run: bool,
+                              force: bool, no_restart: bool, processed_total: int,
+                              start_time: float, options: Dict,
+                              process_not_found: bool, skip_not_found: bool) -> Tuple[int, float]:
+        """Основной цикл обработки игр."""
         iteration = 0
-        processed_total = 0
-        last_eta_update = time.time()
         games_per_second = 0
-
-        self.stdout.write(self.style.WARNING(
-            f'🔍 ДИАГНОСТИКА: Вход в основной цикл, current_offset={self.current_offset}, limit={limit}'))
 
         while self.current_offset < limit and not self.interrupted:
             iteration += 1
             iteration_start_time = time.time()
 
-            self.stdout.write(
-                self.style.WARNING(f'\n🔍 ДИАГНОСТИКА: НАЧАЛО ИТЕРАЦИИ {iteration}, offset={self.current_offset}'))
             self.stdout.write(self.style.SUCCESS(f'\n🔄 ИТЕРАЦИЯ {iteration} (offset {self.current_offset})'))
 
-            # Проверяем rate limiting перед каждой итерацией
-            self.stdout.write(self.style.WARNING('🔍 ДИАГНОСТИКА: Проверка rate limiting'))
+            # Проверяем rate limiting
             if self.rate_limiter and self.rate_limiter.should_backoff():
-                self.stdout.write(self.style.WARNING('🔍 ДИАГНОСТИКА: Обнаружен backoff, вызываю check_rate_limit()'))
                 if not self.check_rate_limit():
-                    self.stdout.write(
-                        self.style.WARNING('🔍 ДИАГНОСТИКА: check_rate_limit() вернул False, прерываю цикл'))
                     break
 
-            # Получаем игры
-            self.stdout.write(self.style.WARNING('🔍 ДИАГНОСТИКА: Получение игр для обработки'))
-            games_to_process = []
-            if target_game:
-                games_to_process = [target_game]
-                self.stdout.write(self.style.SUCCESS(f'📊 Обработка конкретной игры: {target_game.name}'))
-            else:
-                games_to_process = self.get_games_batch(self.current_offset, batch_size, force)
-
-            self.stdout.write(self.style.WARNING(f'🔍 ДИАГНОСТИКА: Получено {len(games_to_process)} игр'))
-
+            # Получаем игры для обработки
+            games_to_process = self._get_games_to_process(target_game, force,
+                                                          process_not_found, skip_not_found)
             if not games_to_process:
                 self.stdout.write(self.style.WARNING('⚠️ Нет игр для обработки в этой итерации'))
-                self.stdout.write(self.style.WARNING('🔍 ДИАГНОСТИКА: Нет игр, прерываю цикл'))
                 break
-
-            # Статистика батча
-            batch_stats = {
-                'success': 0,
-                'not_found': 0,
-                'no_description': 0,
-                'error': 0
-            }
 
             # Обрабатываем батч
-            self.stdout.write(self.style.WARNING('🔍 ДИАГНОСТИКА: Вызов process_batch()'))
-            games_to_update = self.process_batch(
-                games_to_process, skip_search, timeout, delay,
-                output_file, dry_run, batch_stats,
-                is_first=(self.current_offset == 0 and iteration == 1)
+            batch_stats, games_to_update = self._process_games_batch(
+                games_to_process, skip_search, self.timeout, self.delay,
+                output_file, dry_run, self.current_offset == 0 and iteration == 1 and processed_total == 0
             )
-            self.stdout.write(
-                self.style.WARNING(f'🔍 ДИАГНОСТИКА: process_batch() вернул {len(games_to_update)} игр для обновления'))
 
-            # Обновляем processed_total
+            # Обновляем статистику
             processed_total += len(games_to_process)
-
-            # Расчет скорости и ETA
-            iteration_time = time.time() - iteration_start_time
-            current_games_per_second = len(games_to_process) / max(iteration_time, 0.1)
-
-            # Сглаживаем скорость (экспоненциальное скользящее среднее)
-            if games_per_second == 0:
-                games_per_second = current_games_per_second
-            else:
-                games_per_second = games_per_second * 0.7 + current_games_per_second * 0.3
-
-            remaining_games = limit - self.current_offset - len(games_to_process)
-            eta_seconds = remaining_games / max(games_per_second, 0.01) if remaining_games > 0 else 0
-
-            # Форматируем ETA
-            if eta_seconds > 0:
-                eta_hours = int(eta_seconds // 3600)
-                eta_minutes = int((eta_seconds % 3600) // 60)
-                eta_seconds_display = int(eta_seconds % 60)
-
-                if eta_hours > 0:
-                    eta_str = f"{eta_hours}ч {eta_minutes}м {eta_seconds_display}с"
-                elif eta_minutes > 0:
-                    eta_str = f"{eta_minutes}м {eta_seconds_display}с"
-                else:
-                    eta_str = f"{eta_seconds_display}с"
-            else:
-                eta_str = "завершение"
-
-            # Сохраняем буфер
-            self.stdout.write(
-                self.style.WARNING(f'🔍 ДИАГНОСТИКА: Проверка буфера, размер={len(self.descriptions_buffer)}'))
-            if self.descriptions_buffer:
-                self.stdout.write(self.style.WARNING('🔍 ДИАГНОСТИКА: Сохранение буфера'))
-                self.save_buffer(output_file, is_first=(self.current_offset == 0 and iteration == 1))
+            games_per_second = self._update_speed_eta(iteration_start_time, len(games_to_process), games_per_second)
 
             # Обновляем БД
-            if games_to_update and not dry_run:
-                self.stdout.write(self.style.WARNING(f'🔍 ДИАГНОСТИКА: Обновление {len(games_to_update)} игр в БД'))
-                try:
-                    with transaction.atomic():
-                        Game.objects.bulk_update(games_to_update, ['rawg_description'])
-                    self.stdout.write(self.style.SUCCESS(f'✅ Обновлено {len(games_to_update)} игр в БД'))
-                except Exception as e:
-                    self.log_debug("Ошибка при обновлении БД", error=e)
-                    self.stdout.write(self.style.ERROR(f'🔍 ДИАГНОСТИКА: Ошибка при обновлении БД: {e}'))
+            self._update_database(games_to_update, dry_run)
 
-            # Прогресс бар и статистика
-            progress = (processed_total / limit * 100) if limit > 0 else 0
-            elapsed_time = time.time() - start_time
-            elapsed_hours = int(elapsed_time // 3600)
-            elapsed_minutes = int((elapsed_time % 3600) // 60)
-            elapsed_seconds = int(elapsed_time % 60)
+            # Сохраняем буфер не найденных игр (если есть)
+            if self.not_found_buffer:
+                self.save_not_found_buffer(
+                    is_first=(self.current_offset == 0 and iteration == 1 and processed_total == len(games_to_process)))
 
-            if elapsed_hours > 0:
-                elapsed_str = f"{elapsed_hours}ч {elapsed_minutes}м {elapsed_seconds}с"
-            elif elapsed_minutes > 0:
-                elapsed_str = f"{elapsed_minutes}м {elapsed_seconds}с"
-            else:
-                elapsed_str = f"{elapsed_seconds}с"
-
-            # Рисуем прогресс бар
-            bar_length = 40
-            filled_length = int(bar_length * progress / 100)
-            bar = '█' * filled_length + '░' * (bar_length - filled_length)
-
-            self.stdout.write(self.style.SUCCESS(f'\n📊 ПРОГРЕСС: [{bar}] {progress:.1f}%'))
-            self.stdout.write(self.style.SUCCESS(f'📊 Обработано: {processed_total}/{limit} игр'))
-            self.stdout.write(self.style.SUCCESS(
-                f'⏱️ Прошло: {elapsed_str} | ⏳ Осталось: {eta_str} | ⚡ Скорость: {games_per_second:.1f} игр/с'))
-
-            # Статистика итерации
-            total_in_batch = sum(batch_stats.values())
-            success_rate = (batch_stats['success'] / total_in_batch * 100) if total_in_batch > 0 else 0
-
-            self.stdout.write(self.style.WARNING('🔍 ДИАГНОСТИКА: Вывод статистики итерации'))
-            self.stdout.write(self.style.SUCCESS(f'\n📊 ИТОГ ИТЕРАЦИИ {iteration}:'))
-            self.stdout.write(f'  ✓ Успешно: {batch_stats["success"]} ({success_rate:.1f}%)')
-            self.stdout.write(f'  🔍 Не найдено в Steam: {batch_stats["not_found"]}')
-            self.stdout.write(f'  📄 Нет описания: {batch_stats["no_description"]}')
-
-            if batch_stats['error'] > 0:
-                self.stdout.write(self.style.ERROR(f'  💥 Ошибок запросов: {batch_stats["error"]}'))
-
-                # Показываем детализацию ошибок если есть
-                error_details = []
-                if self.total_stats['error_403'] > 0:
-                    error_details.append(f'403: {self.total_stats["error_403"]}')
-                if self.total_stats['error_timeout'] > 0:
-                    error_details.append(f'Таймаут: {self.total_stats["error_timeout"]}')
-                if self.total_stats['error_other'] > 0:
-                    error_details.append(f'Другие: {self.total_stats["error_other"]}')
-
-                if error_details:
-                    self.stdout.write(self.style.WARNING(f'     └─ {", ".join(error_details)}'))
-
-            # Показываем статус rate limiter
-            if self.rate_limiter:
-                rl_status = self.rate_limiter.get_status()
-                if rl_status['total_failures'] > 0:
-                    self.stdout.write(self.style.WARNING(
-                        f'  📊 Статистика ошибок: всего {rl_status["total_failures"]}, подряд {rl_status["consecutive_failures"]}'
-                    ))
-
-            self.total_stats['iterations'] += 1
+            # Выводим прогресс и статистику
+            self._print_progress_and_stats(
+                processed_total, limit, start_time, games_per_second,
+                batch_stats, iteration
+            )
 
             # Подготовка к следующей итерации
-            next_offset = self.current_offset + batch_size
+            self.current_offset += batch_size
 
-            if not no_restart and not target_game and next_offset < limit and not self.interrupted:
-                self.stdout.write(self.style.WARNING(f'\n🔄 Следующая итерация через {iteration_pause}с...'))
+            # Перезапуск если нужно
+            if self._should_restart(no_restart, target_game, self.current_offset, limit):
+                self._restart_process(
+                    limit, self.current_offset, batch_size, iteration_pause,
+                    output_file, str(self.output_dir), dry_run, force, skip_search,
+                    processed_total, options, process_not_found, skip_not_found
+                )
 
-                # Обратный отсчет
-                for i in range(iteration_pause, 0, -1):
-                    if i > 1:
-                        time.sleep(1)
-                        self.stdout.write(self.style.WARNING(f'   Осталось {i}с...'))
-                    else:
-                        time.sleep(1)
-                        break
+        return processed_total, games_per_second
 
-                # Формируем команду для следующего оффсета
-                cmd = [
-                    sys.executable, "manage.py", "fetch_steam_descriptions",
-                    f"--limit={limit}",
-                    f"--offset={next_offset}",
-                    f"--batch-size={batch_size}",
-                    f"--iteration-pause={iteration_pause}",
-                    f"--workers={self.workers}",
-                    f"--delay={delay}",
-                    f"--timeout={timeout}",
-                    f"--output-file={output_file}",
-                    f"--output-dir={output_dir}",
-                    f"--max-consecutive-failures={options['max_consecutive_failures']}",
-                    f"--base-wait={options['base_wait']}",
-                    f"--max-wait={options['max_wait']}",
-                    f"--batch-failure-threshold={options['batch_failure_threshold']}",
-                ]
+    def _process_games_batch(self, games: List[Game], skip_search: bool,
+                             timeout: float, delay: float, output_file: str,
+                             dry_run: bool, is_first: bool) -> Tuple[Dict, List[Game]]:
+        """Обработка батча игр."""
+        batch_stats = {
+            'success': 0,
+            'not_found': 0,
+            'no_description': 0,
+            'error': 0
+        }
 
-                if dry_run:
-                    cmd.append("--dry-run")
-                if force:
-                    cmd.append("--force")
-                if skip_search:
-                    cmd.append("--skip-search")
-                if self.debug:
-                    cmd.append("--debug")
-                if self.verbose:
-                    cmd.append("--verbose")
+        games_to_update = self.process_batch(
+            games, skip_search, timeout, delay,
+            output_file, dry_run, batch_stats, is_first
+        )
 
-                self.stdout.write(self.style.SUCCESS(f'🚀 Запуск: {" ".join(cmd)}'))
-                self.stdout.write('')
+        return batch_stats, games_to_update
 
-                try:
-                    # Показываем время выполнения текущей итерации
-                    elapsed = time.time() - start_time
-                    self.stdout.write(self.style.SUCCESS(f'⏱️ Время выполнения текущей итерации: {elapsed:.1f}с'))
+    def _update_speed_eta(self, iteration_start_time: float,
+                          games_processed: int, current_speed: float) -> float:
+        """Обновление скорости обработки."""
+        iteration_time = time.time() - iteration_start_time
+        current_games_per_second = games_processed / max(iteration_time, 0.1)
 
-                    # Запускаем дочерний процесс и выходим
-                    self.stdout.write(self.style.WARNING('🔄 Завершаю текущий процесс, продолжение в новом...'))
+        if current_speed == 0:
+            return current_games_per_second
+        return current_speed * 0.7 + current_games_per_second * 0.3
 
-                    # Сохраняем буфер перед выходом
-                    if self.descriptions_buffer:
-                        self.save_buffer(output_file, is_first=(self.current_offset == 0 and iteration == 1))
+    def _update_database(self, games_to_update: List[Game], dry_run: bool) -> None:
+        """Обновление базы данных."""
+        if games_to_update and not dry_run:
+            try:
+                with transaction.atomic():
+                    Game.objects.bulk_update(games_to_update, ['rawg_description'])
+                self.stdout.write(self.style.SUCCESS(f'✅ Обновлено {len(games_to_update)} игр в БД'))
+            except Exception as e:
+                self.log_debug("Ошибка при обновлении БД", error=e)
 
-                    # Запускаем новый процесс
-                    subprocess.Popen(cmd, shell=False)
+    def _print_progress_and_stats(self, processed_total: int, limit: int,
+                                  start_time: float, games_per_second: float,
+                                  batch_stats: Dict, iteration: int) -> None:
+        """Вывод прогресса и детальной статистики."""
+        progress = (processed_total / limit * 100) if limit > 0 else 0
+        elapsed = time.time() - start_time
 
-                    # Завершаем текущий процесс
-                    self.stdout.write(self.style.SUCCESS('✅ Текущий процесс завершен, продолжение в новом процессе'))
-                    sys.exit(0)
+        elapsed_str = self._format_time(elapsed)
 
-                except Exception as e:
-                    self.log_debug("Ошибка при перезапуске команды", error=e)
-                    self.stdout.write(self.style.ERROR(f'❌ Ошибка при перезапуске: {e}'))
+        remaining = limit - processed_total
+        eta_str = self._format_eta(remaining, games_per_second)
 
-                    # Пробуем продолжить в текущем процессе
-                    self.current_offset = next_offset
-                    continue
+        bar_length = 40
+        filled = int(bar_length * progress / 100)
+        bar = '█' * filled + '░' * (bar_length - filled)
+
+        self.stdout.write(self.style.SUCCESS(f'\n📊 ПРОГРЕСС: [{bar}] {progress:.1f}%'))
+        self.stdout.write(self.style.SUCCESS(f'📊 Обработано: {processed_total}/{limit} игр'))
+        self.stdout.write(self.style.SUCCESS(
+            f'⏱️ Прошло: {elapsed_str} | ⏳ Осталось: {eta_str} | ⚡ Скорость: {games_per_second:.1f} игр/с'))
+
+        self._print_detailed_stats()
+
+        self._print_iteration_stats(batch_stats, iteration)
+
+    def _format_time(self, seconds: float) -> str:
+        """Форматирование времени в читаемый вид."""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+
+        if hours > 0:
+            return f"{hours}ч {minutes}м {secs}с"
+        elif minutes > 0:
+            return f"{minutes}м {secs}с"
+        else:
+            return f"{secs}с"
+
+    def _format_eta(self, remaining: int, speed: float) -> str:
+        """Форматирование ETA."""
+        if remaining <= 0 or speed <= 0:
+            return "завершение"
+
+        eta_seconds = remaining / speed
+        return self._format_time(eta_seconds)
+
+    def _print_detailed_stats(self) -> None:
+        """Вывод детальной статистики за все время."""
+        total = (self.total_stats['success'] +
+                 self.total_stats['not_found'] +
+                 self.total_stats['no_description'] +
+                 self.total_stats['error'])
+
+        if total == 0:
+            return
+
+        success_pct = (self.total_stats['success'] / total * 100)
+        not_found_pct = (self.total_stats['not_found'] / total * 100)
+        no_desc_pct = (self.total_stats['no_description'] / total * 100)
+        error_pct = (self.total_stats['error'] / total * 100)
+
+        self.stdout.write(self.style.SUCCESS(f'\n📊 ДЕТАЛЬНАЯ СТАТИСТИКА ЗА ВСЕ ВРЕМЯ:'))
+        self.stdout.write(f'  ✅ Успешно обновлено: {self.total_stats["success"]} ({success_pct:.1f}%)')
+        self.stdout.write(f'  🔍 Не найдено в Steam: {self.total_stats["not_found"]} ({not_found_pct:.1f}%)')
+        self.stdout.write(f'  📄 Нет описания: {self.total_stats["no_description"]} ({no_desc_pct:.1f}%)')
+        self.stdout.write(f'  💥 Ошибок запросов: {self.total_stats["error"]} ({error_pct:.1f}%)')
+
+        error_details = []
+        if self.total_stats['error_403'] > 0:
+            error_details.append(f'403: {self.total_stats["error_403"]}')
+        if self.total_stats['error_timeout'] > 0:
+            error_details.append(f'Таймаут: {self.total_stats["error_timeout"]}')
+        if self.total_stats['error_other'] > 0:
+            error_details.append(f'Другие: {self.total_stats["error_other"]}')
+
+        if error_details:
+            self.stdout.write(self.style.WARNING(f'     └─ {", ".join(error_details)}'))
+
+        if self.not_found_file_path and self.not_found_file_path.exists():
+            size = self.not_found_file_path.stat().st_size
+            lines = 0
+            try:
+                with open(self.not_found_file_path, 'r', encoding='utf-8') as f:
+                    lines = sum(1 for line in f if line.strip() and not line.startswith('=') and not line.startswith(
+                        'STEAM') and not line.startswith('Generated') and not line.startswith('Offset'))
+            except:
+                pass
+            self.stdout.write(
+                self.style.WARNING(f'  📁 Не найденные игры: {self.not_found_file_path} ({lines} игр, {size} байт)'))
+
+    def _print_iteration_stats(self, batch_stats: Dict, iteration: int) -> None:
+        """Вывод статистики текущей итерации."""
+        total = sum(batch_stats.values())
+        success_rate = (batch_stats['success'] / total * 100) if total > 0 else 0
+
+        self.stdout.write(self.style.SUCCESS(f'\n📊 ИТОГ ИТЕРАЦИИ {iteration}:'))
+        self.stdout.write(f'  ✓ Успешно: {batch_stats["success"]} ({success_rate:.1f}%)')
+        self.stdout.write(f'  🔍 Не найдено в Steam: {batch_stats["not_found"]}')
+        self.stdout.write(f'  📄 Нет описания: {batch_stats["no_description"]}')
+
+        if batch_stats['error'] > 0:
+            self.stdout.write(self.style.ERROR(f'  💥 Ошибок запросов: {batch_stats["error"]}'))
+
+    def _should_restart(self, no_restart: bool, target_game: Optional[Game],
+                        current_offset: int, limit: int) -> bool:
+        """Проверка необходимости перезапуска."""
+        return (not no_restart and not target_game and
+                current_offset < limit and not self.interrupted)
+
+    def _restart_process(self, limit: int, next_offset: int, batch_size: int,
+                         iteration_pause: int, output_file: str, output_dir: str,
+                         dry_run: bool, force: bool, skip_search: bool,
+                         processed_total: int, options: Dict,
+                         process_not_found: bool, skip_not_found: bool) -> None:
+        """Перезапуск процесса для следующей итерации."""
+        self.stdout.write(self.style.WARNING(f'\n🔄 Следующая итерация через {iteration_pause}с...'))
+
+        for i in range(iteration_pause, 0, -1):
+            if i > 1:
+                time.sleep(1)
+                self.stdout.write(self.style.WARNING(f'   Осталось {i}с...'))
             else:
-                # Завершаем цикл
-                if next_offset >= limit:
-                    self.stdout.write(self.style.SUCCESS('\n✅ Достигнут лимит, все итерации завершены'))
-                elif no_restart:
-                    self.stdout.write(self.style.WARNING('\n⏹️ Автоперезапуск отключен (--no-restart)'))
-                elif target_game:
-                    self.stdout.write(self.style.SUCCESS('\n✅ Обработка конкретной игры завершена'))
+                time.sleep(1)
                 break
 
-        # Финальная статистика
-        self.print_final_stats(start_time)
+        cmd = [
+            sys.executable, "manage.py", "fetch_steam_descriptions",
+            f"--limit={limit}",
+            f"--offset={next_offset}",
+            f"--batch-size={batch_size}",
+            f"--iteration-pause={iteration_pause}",
+            f"--workers={self.workers}",
+            f"--delay={self.delay}",
+            f"--timeout={self.timeout}",
+            f"--output-file={output_file}",
+            f"--not-found-file={self.not_found_file}",
+            f"--output-dir={output_dir}",
+            f"--max-consecutive-failures={options['max_consecutive_failures']}",
+            f"--base-wait={options['base_wait']}",
+            f"--max-wait={options['max_wait']}",
+            f"--batch-failure-threshold={options['batch_failure_threshold']}",
+            f"--processed={processed_total}",
+        ]
 
-    def print_final_stats(self, start_time: float) -> None:
+        if dry_run:
+            cmd.append("--dry-run")
+        if force:
+            cmd.append("--force")
+        if skip_search:
+            cmd.append("--skip-search")
+        if self.debug:
+            cmd.append("--debug")
+        if self.verbose:
+            cmd.append("--verbose")
+        if process_not_found:
+            cmd.append("--process-not-found")
+        if skip_not_found:
+            cmd.append("--skip-not-found")
+
+        self.stdout.write(self.style.SUCCESS(f'🚀 Запуск: {" ".join(cmd)}'))
+
+        try:
+            if self.descriptions_buffer:
+                self.save_buffer(output_file, is_first=False)
+            if self.not_found_buffer:
+                self.save_not_found_buffer(self.not_found_file, is_first=False)
+
+            self.stdout.write(self.style.WARNING('🔄 Запуск нового процесса...'))
+            subprocess.Popen(cmd, shell=False)
+            self.stdout.write(self.style.SUCCESS('✅ Новый процесс запущен'))
+            self.stdout.write(self.style.SUCCESS('✅ Текущий процесс завершен'))
+            sys.exit(0)
+
+        except Exception as e:
+            self.log_debug("Ошибка при перезапуске команды", error=e)
+            self.stdout.write(self.style.ERROR(f'❌ Ошибка при перезапуске: {e}'))
+
+    def _print_final_stats(self, start_time: float) -> None:
         """Вывод финальной статистики."""
-        self.stdout.write(self.style.WARNING('\n🔍 ДИАГНОСТИКА: print_final_stats()'))
-
         elapsed_time = time.time() - start_time
 
         self.stdout.write(self.style.SUCCESS('\n' + '=' * 60))
         self.stdout.write(self.style.SUCCESS('📊 ИТОГОВАЯ СТАТИСТИКА'))
         self.stdout.write('=' * 60)
-        self.stdout.write(f'  ✓ Успешно обработано: {self.total_stats["success"]}')
+
+        total_processed = (self.total_stats['success'] +
+                           self.total_stats['not_found'] +
+                           self.total_stats['no_description'] +
+                           self.total_stats['error'])
+
+        self.stdout.write(f'  ✅ Успешно обновлено: {self.total_stats["success"]}')
         self.stdout.write(f'  🔍 Не найдено в Steam: {self.total_stats["not_found"]}')
         self.stdout.write(f'  📄 Нет описания: {self.total_stats["no_description"]}')
-        self.stdout.write(f'  🚫 403 ошибок: {self.total_stats["error_403"]}')
-        self.stdout.write(f'  ⌛ Таймаутов: {self.total_stats["error_timeout"]}')
-
-        if self.total_stats['error_other'] > 0:
-            self.stdout.write(self.style.ERROR(f'  💥 Прочих ошибок: {self.total_stats["error_other"]}'))
-
-        if self.total_stats['backoff_pauses'] > 0:
-            self.stdout.write(self.style.WARNING(f'  ⏸️ Пауз из-за ошибок: {self.total_stats["backoff_pauses"]}'))
-
+        self.stdout.write(f'  💥 Ошибок запросов: {self.total_stats["error"]}')
+        self.stdout.write(
+            f'  └─ 403: {self.total_stats["error_403"]}, Таймаут: {self.total_stats["error_timeout"]}, Другие: {self.total_stats["error_other"]}')
+        self.stdout.write(f'  ⏸️ Пауз из-за ошибок: {self.total_stats["backoff_pauses"]}')
         self.stdout.write(f'  🔄 Выполнено итераций: {self.total_stats["iterations"]}')
-        self.stdout.write(f'  ⏱️ Общее время: {elapsed_time:.1f}с')
+        self.stdout.write(f'  ⏱️ Общее время: {self._format_time(elapsed_time)}')
+        self.stdout.write(f'  📊 Всего обработано: {total_processed} игр')
 
-        # Финальный вывод о файле
-        if self.full_output_path and self.full_output_path.exists():
-            size = self.full_output_path.stat().st_size
-            line_count = 0
-            try:
-                with open(self.full_output_path, 'r', encoding='utf-8') as f:
-                    line_count = sum(1 for _ in f)
-            except:
-                pass
-
-            self.stdout.write(self.style.SUCCESS(f'\n📁 Результаты сохранены в файл: {self.full_output_path}'))
-            self.stdout.write(self.style.SUCCESS(f'📊 Размер файла: {size:,} байт ({size / 1024:.1f} КБ)'))
-            self.stdout.write(self.style.SUCCESS(f'📝 Строк в файле: ~{line_count}'))
-        else:
-            # Проверяем есть ли файл в директории
-            expected_path = self.output_dir / output_file
-            if expected_path.exists():
-                size = expected_path.stat().st_size
-                self.stdout.write(self.style.SUCCESS(f'\n📁 Результаты сохранены в файл: {expected_path}'))
-                self.stdout.write(self.style.SUCCESS(f'📊 Размер файла: {size:,} байт ({size / 1024:.1f} КБ)'))
-            else:
-                self.stdout.write(self.style.WARNING(f'\n📁 Файл не создан (нет данных или dry run)'))
-
-        # Выводим все ошибки если были
-        if self.error_log and self.debug:
-            self.stdout.write(self.style.WARNING('\n📋 ПОЛНЫЙ ЛОГ ОШИБОК:'))
-            for i, error in enumerate(self.error_log, 1):
-                self.stdout.write(self.style.WARNING(f'  {i}. {error}'))
+        self._print_file_info()
 
         self.stdout.write('=' * 60)
-        self.stdout.write(self.style.WARNING('🔍 ДИАГНОСТИКА: Конец print_final_stats()'))
 
-        # Принудительное завершение на всякий случай
-        sys.stdout.flush()
-        os._exit(0)
+    def _print_file_info(self) -> None:
+        """Вывод информации о выходных файлах."""
+        if self.full_output_path and self.full_output_path.exists():
+            size = self.full_output_path.stat().st_size
+            self.stdout.write(self.style.SUCCESS(f'\n📁 Описания: {self.full_output_path}'))
+            self.stdout.write(self.style.SUCCESS(f'📊 Размер: {size:,} байт ({size / 1024:.1f} КБ)'))
+        else:
+            expected_path = self.output_dir / self.output_file
+            if expected_path.exists():
+                size = expected_path.stat().st_size
+                self.stdout.write(self.style.SUCCESS(f'\n📁 Описания: {expected_path}'))
+                self.stdout.write(self.style.SUCCESS(f'📊 Размер: {size:,} байт ({size / 1024:.1f} КБ)'))
+
+        if self.not_found_file_path and self.not_found_file_path.exists():
+            size = self.not_found_file_path.stat().st_size
+            lines = 0
+            try:
+                with open(self.not_found_file_path, 'r', encoding='utf-8') as f:
+                    lines = sum(1 for line in f if line.strip() and not line.startswith('=') and not line.startswith(
+                        'STEAM') and not line.startswith('Generated'))
+            except:
+                pass
+            self.stdout.write(self.style.WARNING(f'📁 Не найдено: {self.not_found_file_path}'))
+            self.stdout.write(self.style.WARNING(f'📊 Размер: {size:,} байт ({size / 1024:.1f} КБ), игр: {lines}'))
