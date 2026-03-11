@@ -478,7 +478,10 @@ class KeywordTrie:
     def find_all_in_text(self, text: str, unique_only: bool = True) -> List[dict]:
         """
         Находит ключевые слова в тексте
-        ИСПРАВЛЕНО: ДЛЯ ФРАЗ - ТОЧНЫЙ ПОИСК, ДЛЯ ОСТАЛЬНОГО - ЧЕРЕЗ TRIE
+        ИСПРАВЛЕНО: УЧИТЫВАЕТ, ЧТОБЫ ФРАЗЫ И СОСТАВНЫЕ СЛОВА НЕ ПЕРЕСЕКАЛИСЬ
+        - Сначала ищем фразы (с пробелами) - они имеют приоритет
+        - Потом ищем составные слова через дефис целиком
+        - Потом ищем отдельные слова, но только если они не пересекаются с найденными
         """
         import re
 
@@ -500,8 +503,11 @@ class KeywordTrie:
 
         results = []
 
-        # ========== СНАЧАЛА ИЩЕМ ФРАЗЫ (ТОЧНЫЕ ВХОЖДЕНИЯ) ==========
-        # Проходим по всем ключевым словам в кэше
+        # Множество для хранения занятых позиций (диапазоны [start, end))
+        occupied_positions = []
+
+        # ========== СНАЧАЛА ИЩЕМ ФРАЗЫ (С ПРОБЕЛАМИ) ==========
+        # Фразы имеют наивысший приоритет
         for keyword_id, keyword_data in self.keywords_cache.items():
             keyword_lower = keyword_data['name_lower']
 
@@ -520,30 +526,53 @@ class KeywordTrie:
                     end_ok = (end_pos == len(text_lower) or not text_lower[end_pos].isalnum())
 
                     if start_ok and end_ok:
-                        result = {
-                            'id': keyword_id,
-                            'name': keyword_data['name'],
-                            'position': pos,
-                            'length': len(keyword_lower),
-                            'text': text_lower[pos:end_pos],
-                            'is_phrase': True
-                        }
+                        # Проверяем, не пересекается ли с уже найденными фразами
+                        is_occupied = False
+                        for occ_start, occ_end in occupied_positions:
+                            if not (end_pos <= occ_start or pos >= occ_end):
+                                is_occupied = True
+                                break
 
-                        if unique_only:
-                            if result['id'] not in found_keywords:
-                                found_keywords.add(result['id'])
+                        if not is_occupied:
+                            result = {
+                                'id': keyword_id,
+                                'name': keyword_data['name'],
+                                'position': pos,
+                                'length': len(keyword_lower),
+                                'text': text_lower[pos:end_pos],
+                                'is_phrase': True
+                            }
+
+                            if unique_only:
+                                if result['id'] not in found_keywords:
+                                    found_keywords.add(result['id'])
+                                    results.append(result)
+                                    # Добавляем позицию в занятые
+                                    occupied_positions.append((pos, end_pos))
+                            else:
                                 results.append(result)
-                        else:
-                            results.append(result)
+                                occupied_positions.append((pos, end_pos))
 
                     pos = end_pos
 
-        # ========== ТЕПЕРЬ ИЩЕМ ОДИНОЧНЫЕ СЛОВА ЧЕРЕЗ TRIE ==========
-        # Проверяем каждое слово отдельно
+        # ========== ТЕПЕРЬ ИЩЕМ СОСТАВНЫЕ СЛОВА ЧЕРЕЗ ДЕФИС ЦЕЛИКОМ ==========
+        # Проверяем каждое слово целиком
         for word_info in words_with_positions:
             full_word = word_info['word']
+            word_start = word_info['start']
+            word_end = word_info['end']
 
-            # Проверяем полное слово
+            # Проверяем, не занята ли позиция этого слова
+            is_word_position_occupied = False
+            for occ_start, occ_end in occupied_positions:
+                if not (word_end <= occ_start or word_start >= occ_end):
+                    is_word_position_occupied = True
+                    break
+
+            if is_word_position_occupied:
+                continue
+
+            # Проверяем полное слово в Trie
             node = self.root
             found = True
             for char in full_word:
@@ -554,14 +583,13 @@ class KeywordTrie:
                     break
 
             if found and node.is_end and node.keyword_id:
-                # Проверяем, не нашли ли мы уже это ключевое слово как фразу
                 if unique_only and node.keyword_id in found_keywords:
                     continue
 
                 result = {
                     'id': node.keyword_id,
                     'name': node.keyword_name,
-                    'position': word_info['start'],
+                    'position': word_start,
                     'length': len(full_word),
                     'text': full_word
                 }
@@ -569,16 +597,34 @@ class KeywordTrie:
                 if unique_only:
                     found_keywords.add(result['id'])
                     results.append(result)
+                    # Добавляем позицию в занятые
+                    occupied_positions.append((word_start, word_end))
                 else:
                     results.append(result)
+                    occupied_positions.append((word_start, word_end))
 
-            # Если слово содержит дефис, проверяем части
+                continue  # Переходим к следующему слову, так как это слово уже найдено целиком
+
+            # ========== ЕСЛИ СЛОВО НЕ НАЙДЕНО ЦЕЛИКОМ, ПРОВЕРЯЕМ ЧАСТИ ЧЕРЕЗ ДЕФИС ==========
             if '-' in full_word:
                 parts = full_word.split('-')
-                current_pos = word_info['start']
+                current_pos = word_start
 
                 for part in parts:
                     if len(part) >= 2:
+                        # Проверяем, не занята ли позиция этой части
+                        part_end = current_pos + len(part)
+                        is_part_position_occupied = False
+
+                        for occ_start, occ_end in occupied_positions:
+                            if not (part_end <= occ_start or current_pos >= occ_end):
+                                is_part_position_occupied = True
+                                break
+
+                        if is_part_position_occupied:
+                            current_pos += len(part) + 1
+                            continue
+
                         node = self.root
                         found = True
 
@@ -590,7 +636,9 @@ class KeywordTrie:
                                 break
 
                         if found and node.is_end and node.keyword_id:
+                            # Проверяем, не является ли это ключевое слово частью другого найденного
                             if unique_only and node.keyword_id in found_keywords:
+                                current_pos += len(part) + 1
                                 continue
 
                             result = {
@@ -606,8 +654,11 @@ class KeywordTrie:
                             if unique_only:
                                 found_keywords.add(result['id'])
                                 results.append(result)
+                                # Добавляем позицию части в занятые
+                                occupied_positions.append((current_pos, current_pos + len(part)))
                             else:
                                 results.append(result)
+                                occupied_positions.append((current_pos, current_pos + len(part)))
 
                     current_pos += len(part) + 1
 
