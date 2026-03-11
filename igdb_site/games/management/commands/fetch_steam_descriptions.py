@@ -357,6 +357,12 @@ class Command(BaseCommand):
             help='Файл для лога временной шкалы (по умолчанию: steam_fetcher_timeline.log)'
         )
 
+        parser.add_argument(
+            '--stats-file',
+            type=str,
+            help='Файл с накопленной статистикой для загрузки'
+        )
+
     def __init__(self, *args, **kwargs):
         """Инициализация команды."""
         super().__init__(*args, **kwargs)
@@ -1391,6 +1397,26 @@ class Command(BaseCommand):
 
         signal.signal(signal.SIGINT, self.signal_handler)
 
+        # Загрузка накопленной статистики если есть
+        stats_file = options.get('stats_file')
+        if stats_file and os.path.exists(stats_file):
+            try:
+                import json
+                with open(stats_file, 'r', encoding='utf-8') as f:
+                    loaded_stats = json.load(f)
+                    # Обновляем статистику
+                    for key, value in loaded_stats.items():
+                        if key in self.total_stats:
+                            self.total_stats[key] = value
+                self.stdout.write(self.style.SUCCESS(f'📊 Загружена статистика из {stats_file}'))
+                # Удаляем файл после загрузки
+                try:
+                    os.remove(stats_file)
+                except:
+                    pass
+            except Exception as e:
+                self.log_debug("Ошибка при загрузке статистики", error=e)
+
         # Инициализация rate limiter
         self.rate_limiter = SteamRateLimiter(
             max_consecutive_failures=options['max_consecutive_failures'],
@@ -1756,7 +1782,7 @@ class Command(BaseCommand):
                          dry_run: bool, force: bool, skip_search: bool,
                          processed_total: int, options: Dict,
                          process_not_found: bool, skip_not_found: bool) -> None:
-        """Перезапуск процесса для следующей итерации."""
+        """Перезапуск процесса для следующей итерации с передачей накопленной статистики."""
         self.stdout.write(self.style.WARNING(f'\n🔄 Следующая итерация через {iteration_pause}с...'))
 
         for i in range(iteration_pause, 0, -1):
@@ -1786,6 +1812,19 @@ class Command(BaseCommand):
             f"--batch-failure-threshold={options['batch_failure_threshold']}",
             f"--processed={processed_total}",
         ]
+
+        # Добавляем накопленную статистику как аргументы
+        if hasattr(self, 'total_stats'):
+            # Сохраняем статистику во временный файл для передачи между процессами
+            stats_file = self.output_dir / 'steam_fetcher_stats.json'
+            try:
+                import json
+                with open(stats_file, 'w', encoding='utf-8') as f:
+                    json.dump(self.total_stats, f, ensure_ascii=False, indent=2)
+                cmd.append(f"--stats-file={stats_file}")
+                self.stdout.write(self.style.SUCCESS(f'📊 Сохранена статистика в {stats_file}'))
+            except Exception as e:
+                self.log_debug("Ошибка при сохранении статистики", error=e)
 
         if dry_run:
             cmd.append("--dry-run")
