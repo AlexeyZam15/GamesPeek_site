@@ -14,61 +14,11 @@
 
 {% block extra_css %}
     <link rel="stylesheet" href="{% static 'games/css/game_comparison.css' %}">
-    <style>
-        .similarity-header {
-            background: linear-gradient(135deg, rgba(255, 193, 7, 0.1), rgba(33, 37, 41, 0.9));
-            border: 2px solid #ffc107;
-            border-radius: 15px;
-            padding: 1.5rem;
-            margin-bottom: 2rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 2rem;
-        }
-
-        .similarity-visual {
-            min-width: 120px;
-        }
-
-        .similarity-info h3 {
-            font-size: 1.8rem;
-            font-weight: 700;
-        }
-
-        .similarity-overlay {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            background: rgba(0, 0, 0, 0.8);
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 10;
-            border: 2px solid #ffc107;
-        }
-
-        .similarity-percent {
-            font-size: 0.8rem;
-            font-weight: bold;
-            color: white;
-        }
-
-        .similarity-badge {
-            font-size: 1.2rem;
-            font-weight: bold;
-            color: #ffc107;
-            text-shadow: 0 0 10px rgba(255, 193, 7, 0.5);
-        }
-    </style>
 {% endblock %}
 
 {% block content %}
-
-    <div class="container-fluid py-4">
+    <!-- Добавляем data-атрибут с процентом схожести для JS -->
+    <div class="container-fluid py-4" data-similarity-score="{{ similarity_score|default:0 }}">
         <!-- Хедер с общим процентом схожести -->
         {% if not is_criteria_comparison %}
             <div class="row mb-4">
@@ -118,8 +68,102 @@
 
             <div class="col-md-6">
                 <!-- Для игры game2 - передаем similarity_score -->
-                {% include 'games/game_comparison/_comparison_game_card.html' with game=game2 similarity_score=similarity_score %}            </div>
+                {% include 'games/game_comparison/_comparison_game_card.html' with game=game2 similarity_score=similarity_score %}
+            </div>
         </div>
+
+        <!-- Детальная разбивка схожести -->
+        {% if similarity_data and similarity_data.criteria %}
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="shared-section">
+                        <h4 class="section-title">
+                            <i class="bi bi-pie-chart-fill me-2"></i>
+                            Similarity Breakdown
+                        </h4>
+
+                        <div class="similarity-breakdown">
+                            {% for criterion in similarity_data.criteria %}
+                                <div class="similarity-category">
+                                    <div class="category-header">
+                                        <div class="category-info">
+                                            <div class="category-name">
+                                                <span>{{ criterion.icon }}</span>
+                                                {{ criterion.name }}
+                                                <small class="text-muted">
+                                                    ({{ criterion.common }}/{{ criterion.total }})
+                                                </small>
+                                            </div>
+                                            <div class="category-meta">
+                                <span class="weight-badge">
+                                    <i class="bi bi-speedometer2 me-1"></i>
+                                    {{ criterion.weight|floatformat:1 }}%
+                                </span>
+                                                <span class="impact-badge">
+                                    <i class="bi bi-graph-up me-1"></i>
+                                    {{ criterion.percentage|floatformat:1 }}%
+                                </span>
+                                            </div>
+                                        </div>
+                                        <div class="category-contribution">
+                            <span class="contribution-value">
+                                +{{ criterion.contribution|floatformat:1 }}<small>%</small>
+                            </span>
+                                        </div>
+                                    </div>
+
+                                    {% if criterion.common > 0 %}
+                                        <div class="shared-items-grid">
+                        <span class="shared-item bg-{{ criterion.color }}"
+                              data-criterion-type="{{ criterion.map_name }}"
+                              title="Click to see shared {{ criterion.name|lower }}">
+                            <i class="bi bi-check-circle-fill me-1"></i>
+                            {{ criterion.common }} common
+                        </span>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+
+                            <!-- Бонус (если есть) -->
+                            {% if similarity_data.bonus %}
+                                <div class="similarity-category bonus-category">
+                                    <div class="category-header">
+                                        <div class="category-info">
+                                            <div class="category-name">
+                                                <span>✨</span>
+                                                Bonus
+                                                <small class="text-muted">(multiple criteria)</small>
+                                            </div>
+                                        </div>
+                                        <div class="category-contribution">
+                            <span class="contribution-value">
+                                +{{ similarity_data.bonus|floatformat:1 }}<small>%</small>
+                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endif %}
+
+                            <!-- Итог -->
+                            <div class="similarity-category total-category">
+                                <div class="category-header">
+                                    <div class="category-info">
+                                        <div class="category-name">
+                                            <span>📈</span>
+                                            Total Similarity
+                                        </div>
+                                    </div>
+                                    <div class="total-score">
+                                        <span class="similarity-badge">{{ similarity_data.total|floatformat:1 }}%</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
 
         <!-- Quick Stats -->
         <div class="row mb-4">
@@ -169,7 +213,7 @@
 
         <!-- Shared Genres -->
         {% if shared_genres_count > 0 %}
-            <div class="row mb-4">
+            <div class="row mb-4" id="shared-genres-section">
                 <div class="col-12">
                     <div class="shared-section">
                         <h4 class="section-title">🎮 Shared Genres</h4>
@@ -185,7 +229,7 @@
 
         <!-- Shared Themes -->
         {% if shared_themes_count > 0 %}
-            <div class="row mb-4">
+            <div class="row mb-4" id="shared-themes-section">
                 <div class="col-12">
                     <div class="shared-section">
                         <h4 class="section-title">🎭 Shared Themes</h4>
@@ -201,7 +245,7 @@
 
         <!-- Shared Developers -->
         {% if shared_developers_count > 0 %}
-            <div class="row mb-4">
+            <div class="row mb-4" id="shared-developers-section">
                 <div class="col-12">
                     <div class="shared-section">
                         <h4 class="section-title">🏢 Shared Developers</h4>
@@ -217,7 +261,7 @@
 
         <!-- Shared Perspectives -->
         {% if shared_perspectives_count > 0 %}
-            <div class="row mb-4">
+            <div class="row mb-4" id="shared-perspectives-section">
                 <div class="col-12">
                     <div class="shared-section">
                         <h4 class="section-title">👁️ Shared Perspectives</h4>
@@ -233,7 +277,7 @@
 
         <!-- Shared Game Modes -->
         {% if shared_game_modes_count > 0 %}
-            <div class="row mb-4">
+            <div class="row mb-4" id="shared-game-modes-section">
                 <div class="col-12">
                     <div class="shared-section">
                         <h4 class="section-title">🎯 Shared Game Modes</h4>
@@ -249,7 +293,7 @@
 
         <!-- Shared Keywords (Features) -->
         {% if shared_keywords_count > 0 %}
-            <div class="row mb-4">
+            <div class="row mb-4" id="shared-keywords-section">
                 <div class="col-12">
                     <div class="shared-section">
                         <h4 class="section-title">🔑 Shared Features</h4>
@@ -294,25 +338,5 @@
 {% endblock %}
 
 {% block extra_js %}
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Инициализация тултипов для платформ
-            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-            tooltipTriggerList.map(function (tooltipTriggerEl) {
-                return new bootstrap.Tooltip(tooltipTriggerEl);
-            });
-
-            // Подсветка общего процента схожести
-            const similarityScore = {{ similarity_score|default:0 }};
-            const similarityDisplay = document.querySelector('.similarity-header');
-
-            if (similarityScore >= 80) {
-                similarityDisplay.style.borderColor = '#10b981';
-                similarityDisplay.style.background = 'linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(33, 37, 41, 0.9))';
-            } else if (similarityScore >= 60) {
-                similarityDisplay.style.borderColor = '#f59e0b';
-                similarityDisplay.style.background = 'linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(33, 37, 41, 0.9))';
-            }
-        });
-    </script>
+    <script src="{% static 'games/js/game_comparison.js' %}"></script>
 {% endblock %}

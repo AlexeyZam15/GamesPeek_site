@@ -103,7 +103,7 @@ class OutputFormatter:
 
     def print_game_in_batch(self, game: Game, index: int, result: Dict[str, Any],
                             stats: Dict[str, Any], **options):
-        """Выводит результат игры в пакетной обработке - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
+        """Выводит результат игры в пакетной обработке - только найденные слова"""
         only_found = options.get('only_found', False)
         verbose = options.get('verbose', False)
         keywords = options.get('keywords', False)
@@ -128,7 +128,7 @@ class OutputFormatter:
 
         stats['displayed_count'] += 1
 
-        # Пишем в файл только при наличии результатов
+        # Пишем в файл при наличии результатов
         has_output_file = (
                 hasattr(self.command, 'output_file') and
                 self.command.output_file and
@@ -137,29 +137,108 @@ class OutputFormatter:
 
         if has_output_file and result['has_results']:
             try:
-                # Простой вывод без лишней информации
+                # Заголовок игры
                 self.command.output_file.write(f"{index}. 🎮 {game.name} (ID: {game.id})\n")
 
-                # Выводим найденные элементы кратко
+                # Получаем текст игры для поиска
+                game_text = self.command.text_preparer.prepare_text(game)
+                game_text_lower = game_text.lower() if game_text else ""
+
+                # Выводим найденные элементы
                 for key, data in result['results'].items():
                     if data.get('count', 0) > 0:
                         display_name = self._get_display_name(key)
-                        item_names = [item['name'] for item in data.get('items', [])]
-                        self.command.output_file.write(f"   📌 {display_name}: {', '.join(item_names)}\n")
+                        self.command.output_file.write(f"   📌 {display_name}:\n")
 
-                self.command.output_file.write("\n")
-                self.command.output_file.flush()
+                        for item in data.get('items', []):
+                            item_name = item['name']
+                            item_id = item['id']
+                            self.command.output_file.write(f"      • {item_name}")
 
-            except Exception:
-                pass
+                            # Для ключевых слов показываем где найдено
+                            if key == 'keywords' and game_text:
+                                item_lower = item_name.lower()
 
-        # УДАЛЕНО: Добавление игры в батч здесь. Теперь это делается в _handle_analysis_results
-        # через метод _add_to_batch_if_needed
+                                # Получаем информацию о паттернах из result, если она есть
+                                found_text = None
+                                pattern_info = result.get('pattern_info', {})
 
-        # Вывод в терминал ТОЛЬКО если нет прогресс-бара и verbose
+                                # Проверяем есть ли информация о совпадениях для этого ключевого слова
+                                if 'keywords' in pattern_info:
+                                    for match in pattern_info['keywords']:
+                                        if match.get('keyword_id') == item_id and match.get('matched_text'):
+                                            found_text = match.get('matched_text')
+                                            break
+
+                                if found_text:
+                                    # Если есть точная информация из pattern_info, используем её
+                                    self.command.output_file.write(f" (в слове: \"{found_text}\")")
+                                else:
+                                    # Fallback: ищем в тексте любое вхождение
+                                    import re
+
+                                    # Ищем точное вхождение слова как отдельного слова
+                                    pattern = r'\b' + re.escape(item_lower) + r'\b'
+                                    match = re.search(pattern, game_text_lower)
+
+                                    if match:
+                                        # Точное совпадение слова
+                                        start = max(0, match.start() - 20)
+                                        end = min(len(game_text), match.end() + 20)
+                                        context = game_text[start:end]
+                                        if start > 0:
+                                            context = "..." + context
+                                        if end < len(game_text):
+                                            context = context + "..."
+                                        self.command.output_file.write(f" (в слове: \"{context}\")")
+                                    else:
+                                        # Ищем как часть другого слова
+                                        pattern = r'\b\w*' + re.escape(item_lower) + r'\w*\b'
+                                        match = re.search(pattern, game_text_lower)
+
+                                        if match:
+                                            start_pos = match.start()
+                                            end_pos = match.end()
+                                            matched_text = game_text[start_pos:end_pos]
+
+                                            start = max(0, start_pos - 20)
+                                            end = min(len(game_text), end_pos + 20)
+                                            context = game_text[start:end]
+
+                                            if start > 0:
+                                                context = "..." + context
+                                            if end < len(game_text):
+                                                context = context + "..."
+
+                                            self.command.output_file.write(
+                                                f" (в слове: \"{context}\" → найдено как \"{matched_text}\")")
+                                        else:
+                                            # Если совсем не нашли, просто показываем что слово есть в результатах
+                                            self.command.output_file.write(f" (найдено в тексте)")
+
+                            self.command.output_file.write("\n")
+
+                    self.command.output_file.write("\n")
+                    self.command.output_file.flush()
+
+            except Exception as e:
+                # В случае ошибки выводим базовую информацию
+                try:
+                    self.command.output_file.write(f"{index}. 🎮 {game.name} (ID: {game.id})\n")
+                    for key, data in result['results'].items():
+                        if data.get('count', 0) > 0:
+                            display_name = self._get_display_name(key)
+                            item_names = [item['name'] for item in data.get('items', [])]
+                            self.command.output_file.write(f"   📌 {display_name}: {', '.join(item_names)}\n")
+                    self.command.output_file.write("\n")
+                    self.command.output_file.flush()
+                except:
+                    pass
+
+        # Вывод в терминал только если нет прогресс-бара и verbose
         show_in_terminal = (
-                not self.command.progress_bar and  # Нет прогресс-бара
-                verbose  # Только если verbose режим
+                not self.command.progress_bar and
+                verbose
         )
 
         if show_in_terminal and result['has_results']:

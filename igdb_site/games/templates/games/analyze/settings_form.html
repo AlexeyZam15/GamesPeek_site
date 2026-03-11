@@ -1,0 +1,128 @@
+<!-- games/templates/games/analyze/settings_form.html -->
+{% load static %}
+
+<!-- Настройки анализа -->
+<div class="settings-card">
+    <div class="settings-card-header">
+        <i class="bi bi-gear me-2"></i>Analysis Settings
+    </div>
+    <div class="settings-card-body">
+        <form method="post" id="analyze-form" class="row g-3" action="{% url 'analyze_game' game.id %}">
+            {% csrf_token %}
+
+            <!-- Скрытые поля -->
+            <input type="hidden" id="analyze-tab-input" name="analyze_tab" value="{{ active_tab }}">
+            <input type="hidden" id="analyze-mode-input" name="analyze_mode" value="combined">
+            <input type="hidden" id="auto-analyze-input" name="auto_analyze" value="false">
+            <input type="hidden" id="game-id" value="{{ game.id }}">
+            <input type="hidden" name="game_id" value="{{ game.id }}">
+
+            <!-- Группа переключателей режимов -->
+            <div class="col-12">
+                <span id="analysis-mode-label" class="form-label mb-2 d-block">Analysis Mode:</span>
+                <div class="mode-toggle" role="group" aria-labelledby="analysis-mode-label">
+                    <button type="button"
+                            id="mode-btn-combined"
+                            class="mode-btn active"
+                            data-mode="combined"
+                            aria-pressed="true">
+                        <i class="bi bi-search me-2"></i>
+                        <span class="mode-btn-text">
+                            Combined Analysis
+                            <small class="d-block text-xs opacity-75 mt-1">
+                                Find all criteria (genres, themes, perspectives, game modes) and keywords
+                            </small>
+                        </span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Выбор вкладки -->
+            <div class="col-md-6">
+                <label for="analyze-tab-select" class="form-label">Select Description:</label>
+                <select name="analyze_tab_select" class="form-select" id="analyze-tab-select">
+                    {% for tab in description_tabs %}
+                        <option value="{{ tab.key }}" {% if tab.key == active_tab %}selected{% endif %}>
+                            {{ tab.label }} ({{ tab.length }} chars)
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Добавление, удаление и нормализация ключевых слов -->
+            <div class="col-12">
+                <label for="new-keyword-input" class="form-label">Keyword Actions:</label>
+                <div class="input-group">
+                    <input type="text"
+                           class="form-control"
+                           id="new-keyword-input"
+                           name="new_keyword"
+                           placeholder="Enter keyword..."
+                           maxlength="100"
+                           autocomplete="off">
+                    <button type="button"
+                            class="btn btn-outline-success"
+                            id="add-keyword-button">
+                        <i class="bi bi-plus-circle me-1"></i> Add
+                    </button>
+                    <button type="button"
+                            class="btn btn-outline-danger"
+                            id="delete-keyword-button">
+                        <i class="bi bi-trash me-1"></i> Delete
+                    </button>
+                    <button type="button"
+                            class="btn btn-outline-info"
+                            id="normalize-keyword-button"
+                            data-bs-toggle="tooltip"
+                            data-bs-title="Convert to base form (e.g., 'drawing' -> 'draw')">
+                        <i class="bi bi-arrow-repeat me-1"></i> Normalize
+                    </button>
+                </div>
+                <div id="normalization-result" class="form-text mt-2" style="min-height: 24px;"></div>
+            </div>
+
+            <!-- Кнопки действий -->
+            <div class="col-12">
+                <div class="d-flex gap-2 flex-wrap">
+                    <!-- Кнопка анализа -->
+                    <button type="submit"
+                            name="analyze"
+                            class="btn btn-primary px-4"
+                            id="analyze-button"
+                            aria-label="Analyze selected text description">
+                        <i class="bi bi-search me-2"></i> Analyze Text
+                    </button>
+
+                    {% if has_unsaved_results %}
+                        <!-- Кнопка сохранения -->
+                        <button type="submit"
+                                name="save_results"
+                                class="btn btn-success px-4"
+                                id="save-button"
+                                aria-label="Save analysis results to game database">
+                            <i class="bi bi-save me-2"></i> Save Results
+                        </button>
+
+                        <!-- Кнопка очистки -->
+                        <a href="{% url 'clear_analysis_results' game.id %}?tab={{ active_tab }}"
+                           id="clear-results-btn"
+                           class="btn btn-outline-secondary"
+                           data-bs-toggle="tooltip"
+                           data-bs-title="Clear all unsaved analysis results"
+                           aria-label="Clear unsaved analysis results">
+                            <i class="bi bi-x-circle me-1"></i> Clear Results
+                        </a>
+                    {% endif %}
+
+                    <!-- Кнопка назад -->
+                    <a href="{% url 'game_detail' game.id %}"
+                       id="back-to-game-btn"
+                       class="btn btn-outline-info ms-auto"
+                       aria-label="Go back to game details page">
+                        <i class="bi bi-arrow-left me-1"></i> Back to Game
+                    </a>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>

@@ -15,8 +15,9 @@ class TextAnalyzer:
 
     def __init__(self, verbose: bool = False):
         self.verbose = verbose
+        self.debug = False  # ДОБАВЛЯЕМ АТРИБУТ debug
         self._patterns = None
-        self._trie_manager = KeywordTrieManager()  # Используем менеджер Trie
+        self._trie_manager = KeywordTrieManager()
         self._trie = None
         self._keywords_count = 0
 
@@ -45,6 +46,7 @@ class TextAnalyzer:
         """
         Анализ ключевых слов для добавления к игре
         Возвращает только НОВЫЕ ключевые слова, которых еще нет у игры
+        ИСПРАВЛЕНО: правильно использует Trie для поиска
         """
         if not text:
             return {'keywords': []}
@@ -57,8 +59,19 @@ class TextAnalyzer:
         if existing_game and exclude_existing:
             existing_keyword_ids = set(existing_game.keywords.values_list('id', flat=True))
 
-        # Поиск через Trie (только уникальные ключевые слова)
-        trie_results = self._trie.find_all_in_text(text)
+        # Поиск через Trie - получаем все вхождения с позициями
+        trie_results = self._trie.find_all_in_text(text, unique_only=False)
+
+        # ПРИНУДИТЕЛЬНЫЙ ВЫВОД В КОНСОЛЬ
+        import sys
+        sys.stderr.write(f"\n=== ОТЛАДКА _analyze_keywords_for_game ===\n")
+        sys.stderr.write(f"Игра ID: {existing_game.id if existing_game else 'unknown'}\n")
+        sys.stderr.write(f"Длина текста: {len(text)}\n")
+        sys.stderr.write(f"Всего совпадений в тексте: {len(trie_results)}\n")
+        for r in trie_results:
+            sys.stderr.write(f"  - ID: {r['id']}, текст: '{r['text']}', позиция: {r['position']}\n")
+        sys.stderr.write("=" * 50 + "\n")
+        sys.stderr.flush()
 
         # Фильтруем по существующим у игры
         filtered_results = []
@@ -81,12 +94,23 @@ class TextAnalyzer:
         found_keywords = []
         seen_ids = set()
 
+        # Словарь для хранения найденного текста
+        found_text_dict = {}
+
         for result in valid_results:
             if result['id'] not in seen_ids:
                 seen_ids.add(result['id'])
                 try:
                     kw_obj = Keyword.objects.get(id=result['id'])
                     found_keywords.append(kw_obj)
+
+                    # Сохраняем текст, который был найден (первое вхождение)
+                    if result['id'] not in found_text_dict:
+                        found_text_dict[result['id']] = result['text']
+
+                    if self.verbose:
+                        print(
+                            f"🔍 DEBUG: Для {kw_obj.name} найден текст '{result['text']}' на позиции {result['position']}")
                 except Keyword.DoesNotExist:
                     continue
 
@@ -95,7 +119,26 @@ class TextAnalyzer:
             if len(found_keywords) == 0 and len(trie_results) > 0:
                 print(f"ℹ️ Все найденные ключевые слова уже есть у игры")
 
-        return {'keywords': found_keywords}
+            # Показываем найденный текст для verbose режима
+            if found_text_dict and found_keywords:
+                print(f"📌 Найденный текст:")
+                for kw in found_keywords:
+                    if kw.id in found_text_dict:
+                        found_text = found_text_dict[kw.id]
+                        print(f"   • {kw.name} → найдено как \"{found_text}\"")
+
+        # Возвращаем ключевые слова и найденный текст
+        result_dict = {
+            'keywords': found_keywords,
+            '_found_text': found_text_dict
+        }
+
+        if self.verbose:
+            print(f"🔍 DEBUG _analyze_keywords_for_game возвращает: {list(result_dict.keys())}")
+            if found_text_dict:
+                print(f"🔍 DEBUG _analyze_keywords_for_game _found_text: {found_text_dict}")
+
+        return result_dict
 
     def _analyze_keywords_for_highlight(
             self,
@@ -105,7 +148,7 @@ class TextAnalyzer:
     ) -> Tuple[Dict[str, List], Dict[str, List]]:
         """
         Анализ ключевых слов для подсветки текста
-        Возвращает все вхождения и pattern_info
+        ИСПРАВЛЕНО: использует тот же метод поиска, что и прямой Trie
         """
         if not text:
             return {'keywords': []}, {'keywords': []}
@@ -113,71 +156,59 @@ class TextAnalyzer:
         # Загружаем Trie если нужно
         self._ensure_trie_loaded()
 
-        # Существующие ключевые слова игры
+        # Существующие ключевые слова игры (только для информации)
         existing_keyword_ids = set()
         if existing_game and exclude_existing:
             existing_keyword_ids = set(existing_game.keywords.values_list('id', flat=True))
 
-        # Поиск через Trie (ВСЕ вхождения)
-        # Используем метод с параметром unique_only=False
+        # Прямой поиск через Trie - используем тот же метод, что и в тесте
         trie_results = self._trie.find_all_in_text(text, unique_only=False)
 
-        # Фильтруем по существующим
-        filtered_results = []
-        for result in trie_results:
-            if result['id'] not in existing_keyword_ids:
-                filtered_results.append(result)
+        print(f"\n=== DEBUG _analyze_keywords_for_highlight ===")
+        print(f"Всего найдено вхождений в тексте: {len(trie_results)}")
+        for r in trie_results:
+            print(f"  - ID: {r['id']}, текст: '{r['text']}', позиция: {r['position']}")
 
-        # Группируем результаты по ключевым словам для pattern_info
-        keyword_groups = {}
-        pattern_info = []
-
-        for result in filtered_results:
-            kw_id = result['id']
-
-            if kw_id not in keyword_groups:
-                keyword_data = self._trie.keywords_cache.get(kw_id)
-                if keyword_data:
-                    keyword_groups[kw_id] = {
-                        'id': kw_id,
-                        'name': keyword_data['name'],
-                        'count': 0,
-                        'positions': [],
-                        'texts': []
-                    }
-
-            if kw_id in keyword_groups:
-                keyword_groups[kw_id]['count'] += 1
-                keyword_groups[kw_id]['positions'].append(result['position'])
-                keyword_groups[kw_id]['texts'].append(result['text'])
-
-        # Собираем объекты Keyword (уникальные для добавления)
+        # Собираем уникальные ключевые слова для добавления
         found_keywords = []
         seen_ids = set()
 
-        for result in filtered_results:
-            if result['id'] not in seen_ids:
-                seen_ids.add(result['id'])
+        # Создаем pattern_info для ВСЕХ вхождений
+        pattern_info = []
+
+        for result in trie_results:
+            kw_id = result['id']
+
+            # Получаем данные ключевого слова из кэша
+            keyword_data = self._trie.keywords_cache.get(kw_id)
+            if not keyword_data:
+                continue
+
+            # Добавляем в pattern_info (для всех вхождений)
+            pattern_info.append({
+                'name': keyword_data['name'],
+                'status': 'found',
+                'pattern': 'exact_match',
+                'matched_text': result['text'],
+                'position': result['position'],
+                'matched_word': result['text'],
+                'context': self._get_context(text, result['position'], result['position'] + len(result['text'])),
+                'keyword_id': kw_id,
+                'already_exists': kw_id in existing_keyword_ids
+            })
+
+            # Для добавления - только уникальные и не существующие
+            if kw_id not in seen_ids and kw_id not in existing_keyword_ids:
+                seen_ids.add(kw_id)
                 try:
-                    kw_obj = Keyword.objects.get(id=result['id'])
+                    kw_obj = Keyword.objects.get(id=kw_id)
                     found_keywords.append(kw_obj)
                 except Keyword.DoesNotExist:
                     continue
 
-        # Создаем pattern_info для ВСЕХ вхождений
-        for kw_id, kw_data in keyword_groups.items():
-            for pos, txt in zip(kw_data['positions'], kw_data['texts']):
-                pattern_info.append({
-                    'name': kw_data['name'],
-                    'status': 'found',
-                    'pattern': 'exact_match',
-                    'matched_text': txt,
-                    'position': pos,
-                    'matched_word': txt,
-                    'context': self._get_context(text, pos, pos + len(txt)),
-                    'keyword_id': kw_id,
-                    'count': kw_data['count']
-                })
+        print(f"Создано pattern_info: {len(pattern_info)} записей")
+        print(f"Найдено уникальных ключевых слов для добавления: {len(found_keywords)}")
+        print("=" * 50)
 
         return {'keywords': found_keywords}, {'keywords': pattern_info}
 
@@ -190,7 +221,6 @@ class TextAnalyzer:
     ) -> Tuple[Dict[str, List], Dict[str, List]]:
         """
         ОПТИМИЗИРОВАННЫЙ: Анализ ключевых слов с использованием Trie
-        УЛУЧШЕНО: находит ключевые слова в составных словах (через дефис)
         """
         start_time = time.time()
 
@@ -414,6 +444,7 @@ class TextAnalyzer:
     ) -> Dict[str, Any]:
         """
         Основной метод анализа
+        ИСПРАВЛЕНО: для ключевых слов всегда используем _analyze_keywords_for_highlight
         """
         start_time = time.time()
 
@@ -432,26 +463,16 @@ class TextAnalyzer:
             text = text[:10000]
 
         if analyze_keywords:
-            # Выбираем нужную функцию в зависимости от контекста
-            if detailed_patterns:
-                # Для отображения с подсветкой - используем все вхождения
-                keywords_results, keywords_patterns = self._analyze_keywords_for_highlight(
-                    text=text,
-                    existing_game=existing_game,
-                    exclude_existing=exclude_existing
-                )
-            else:
-                # Для простого анализа (только уникальные)
-                keywords_results = self._analyze_keywords_for_game(
-                    text=text,
-                    existing_game=existing_game,
-                    exclude_existing=exclude_existing
-                )
-                keywords_patterns = {'keywords': []}
+            # ВСЕГДА используем _analyze_keywords_for_highlight для получения pattern_info
+            keywords_results, keywords_patterns = self._analyze_keywords_for_highlight(
+                text=text,
+                existing_game=existing_game,
+                exclude_existing=exclude_existing
+            )
 
             total_found = len(keywords_results.get('keywords', []))
 
-            return {
+            result = {
                 'success': True,
                 'results': keywords_results,
                 'summary': {
@@ -459,12 +480,14 @@ class TextAnalyzer:
                     'has_results': total_found > 0,
                     'mode': 'keywords_only'
                 },
-                'pattern_info': keywords_patterns if detailed_patterns else {},
+                'pattern_info': keywords_patterns,  # Всегда возвращаем pattern_info
                 'processing_time': time.time() - start_time,
                 'has_results': total_found > 0
             }
+
+            return result
         else:
-            # Анализ критериев (оставляем старый алгоритм, он уже быстрый)
+            # Анализ критериев (оставляем без изменений)
             patterns = self._get_patterns()
             text_lower = text.lower()
 
@@ -472,7 +495,6 @@ class TextAnalyzer:
             pattern_info = {}
             total_found = 0
 
-            # Существующие критерии игры
             existing_items = {}
             if existing_game and exclude_existing:
                 existing_items = {
@@ -482,7 +504,6 @@ class TextAnalyzer:
                     'game_modes': set(existing_game.game_modes.values_list('name', flat=True))
                 }
 
-            # Анализируем каждый тип критериев
             for criteria_type in ['genres', 'themes', 'perspectives', 'game_modes']:
                 model = self._get_model_for_criteria(criteria_type)
                 found_items = []
@@ -492,7 +513,6 @@ class TextAnalyzer:
                     pattern_info[criteria_type] = []
 
                 for name, pattern_list in patterns_for_type.items():
-                    # Пропускаем если уже существует у игры
                     if exclude_existing:
                         existing_names_lower = {n.lower() for n in existing_items.get(criteria_type, set())}
                         if name.lower() in existing_names_lower:
@@ -504,17 +524,14 @@ class TextAnalyzer:
                                 })
                             continue
 
-                    # Проверяем паттерны
                     for pattern in pattern_list:
                         if pattern.search(text_lower):
-                            # Нашли совпадение
                             try:
                                 obj = model.objects.filter(name__iexact=name).first()
                                 if obj and obj not in found_items:
                                     found_items.append(obj)
 
                                     if detailed_patterns:
-                                        # Находим ВСЕ совпадения для подсветки
                                         matches = pattern.finditer(text_lower)
                                         for match in matches:
                                             pattern_info[criteria_type].append({
@@ -526,7 +543,7 @@ class TextAnalyzer:
                                                 'matched_word': text_lower[match.start():match.end()],
                                                 'context': self._get_context(text, match.start(), match.end())
                                             })
-                                    break  # Нашли один паттерн - достаточно
+                                    break
                             except Exception:
                                 pass
 
@@ -557,11 +574,10 @@ class TextAnalyzer:
             text: str,
             existing_game=None,
             detailed_patterns: bool = True,
-            exclude_existing: bool = False  # Добавляем параметр
+            exclude_existing: bool = False
     ) -> Dict[str, Any]:
         """
         ОПТИМИЗИРОВАННЫЙ: Комплексный анализ с быстрыми ключевыми словами
-        Теперь поддерживает exclude_existing параметр
         """
         start_time = time.time()
 
@@ -580,24 +596,39 @@ class TextAnalyzer:
         if len(text) > 10000:
             text = text[:10000]
 
+        # Отладка только если включен debug
+        if self.debug:
+            import sys
+            sys.stderr.write(f"\n=== ОТЛАДКА analyze_comprehensive ===\n")
+            sys.stderr.write(f"Игра ID: {existing_game.id if existing_game else 'unknown'}\n")
+            sys.stderr.write(f"Длина текста: {len(text)}\n")
+            sys.stderr.write(f"detailed_patterns: {detailed_patterns}\n")
+            sys.stderr.write(f"exclude_existing: {exclude_existing}\n")
+            sys.stderr.flush()
+
         # БЫСТРЫЙ анализ ключевых слов через Trie с поддержкой exclude_existing
         keywords_results, keywords_patterns = self._analyze_keywords_fast(
             text=text,
             existing_game=existing_game,
             collect_patterns=detailed_patterns,
-            exclude_existing=exclude_existing  # Передаем параметр
+            exclude_existing=exclude_existing
         )
 
-        # Анализ критериев (существующий алгоритм)
+        if self.debug:
+            import sys
+            sys.stderr.write(f"keywords_results: {keywords_results}\n")
+            sys.stderr.write(f"keywords_patterns: {len(keywords_patterns.get('keywords', []))} паттернов\n")
+            sys.stderr.flush()
+
+        # Анализ критериев
         patterns = self._get_patterns()
         text_lower = text.lower()
 
         results = {}
         pattern_info = {}
 
-        # Существующие критерии игры
         existing_items = {}
-        if existing_game and exclude_existing:  # ТОЛЬКО если exclude_existing=True
+        if existing_game and exclude_existing:
             existing_items = {
                 'genres': set(existing_game.genres.values_list('name', flat=True)),
                 'themes': set(existing_game.themes.values_list('name', flat=True)),
@@ -605,7 +636,6 @@ class TextAnalyzer:
                 'game_modes': set(existing_game.game_modes.values_list('name', flat=True))
             }
 
-        # Анализируем критерии
         for criteria_type in ['genres', 'themes', 'perspectives', 'game_modes']:
             model = self._get_model_for_criteria(criteria_type)
             found_items = []
@@ -615,7 +645,6 @@ class TextAnalyzer:
                 pattern_info[criteria_type] = []
 
             for name, pattern_list in patterns_for_type.items():
-                # Пропускаем если уже существует у игры И exclude_existing=True
                 if exclude_existing:
                     existing_names_lower = {n.lower() for n in existing_items.get(criteria_type, set())}
                     if name.lower() in existing_names_lower:
@@ -656,7 +685,6 @@ class TextAnalyzer:
                     'items': [{'id': i.id, 'name': i.name} for i in found_items]
                 }
 
-        # Добавляем ключевые слова (уже отфильтрованные в _analyze_keywords_fast)
         if keywords_results.get('keywords'):
             results['keywords'] = {
                 'count': len(keywords_results['keywords']),
@@ -666,7 +694,6 @@ class TextAnalyzer:
         if detailed_patterns and keywords_patterns.get('keywords'):
             pattern_info['keywords'] = keywords_patterns['keywords']
 
-        # Считаем итоги
         total_found = sum(len(results.get(key, {}).get('items', []))
                           for key in ['genres', 'themes', 'perspectives', 'game_modes', 'keywords'])
         total_matches = sum(len(pattern_info.get(key, [])) for key in pattern_info)
@@ -676,7 +703,7 @@ class TextAnalyzer:
             'has_results': total_found > 0,
             'mode': 'comprehensive',
             'total_matches': total_matches,
-            'exclude_existing': exclude_existing  # Добавляем информацию о режиме
+            'exclude_existing': exclude_existing
         }
 
         processing_time = time.time() - start_time

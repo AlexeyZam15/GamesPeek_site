@@ -179,7 +179,7 @@ class AnalyzerCommand(BaseCommand):
                 'found_count': self.stats.get('keywords_found', 0),  # 🎯
                 'total_criteria_found': self.stats.get('keywords_count', 0),  # 📈
                 'skipped_total': self.stats.get('skipped_games', 0),  # ⏭️
-                'not_found_count': self.stats.get('keywords_not_found', 0),  # 🔍
+                'not_found_count': self.stats.get('keywords_not_found', 0),  # ⚪ - изменено с 🔍 на ⚪
                 'errors': self.stats.get('error_games', 0),  # ❌
                 'updated': self.stats.get('updated_games', 0),  # 💾
                 'in_batch': self.stats.get('in_batch', 0),  # 📦
@@ -193,7 +193,7 @@ class AnalyzerCommand(BaseCommand):
                 debug_info += f"  📈 keywords_count: {self.stats.get('keywords_count', 0)} "
                 debug_info += f"  📦 in_batch: {self.stats.get('in_batch', 0)} "
                 debug_info += f"  ⏭️ skipped_games: {self.stats.get('skipped_games', 0)} "
-                debug_info += f"  🔍 keywords_not_found: {self.stats.get('keywords_not_found', 0)} "
+                debug_info += f"  ⚪ keywords_not_found: {self.stats.get('keywords_not_found', 0)} "  # изменено
                 debug_info += f"  ❌ error_games: {self.stats.get('error_games', 0)} "
                 debug_info += f"  💾 updated_games: {self.stats.get('updated_games', 0)}\n"
 
@@ -214,7 +214,8 @@ class AnalyzerCommand(BaseCommand):
                 'found_count': self.stats.get('found_games', 0),  # 🎯 - игры с найденными критериями
                 'total_criteria_found': self.stats.get('found_elements', 0),  # 📈 - всего найдено элементов
                 'skipped_total': self.stats.get('skipped_games', 0),  # ⏭️ - пропущено игр
-                'not_found_count': self.stats.get('not_found_count', 0),  # 🔍 - игр без найденных критериев
+                'not_found_count': self.stats.get('not_found_count', 0),
+                # ⚪ - игр без найденных критериев (изменено с 🔍)
                 'errors': self.stats.get('error_games', 0),  # ❌ - игр с ошибками
                 'updated': self.stats.get('updated_games', 0),  # 💾 - обновлено игр
                 'in_batch': self.stats.get('in_batch', 0),  # 📦 - игр в батче
@@ -355,10 +356,7 @@ class AnalyzerCommand(BaseCommand):
 
         # Проверяем наличие текста
         if not text:
-            if self.debug and self.original_stdout:
-                self.original_stdout.write(f"DEBUG: Игра {game.id} без текста\n")
-                self.original_stdout.flush()
-
+            # УБРАНО ЛИШНЕЕ СООБЩЕНИЕ
             # Восстанавливаем позицию курсора
             if has_progress_bar and sys.stderr:
                 sys.stderr.write("\033[u")  # Восстанавливаем позицию курсора
@@ -369,11 +367,7 @@ class AnalyzerCommand(BaseCommand):
 
         # Проверяем длину текста
         if len(text) < self.min_text_length:
-            if self.debug and self.original_stdout:
-                self.original_stdout.write(
-                    f"DEBUG: Игра {game.id} с коротким текстом ({len(text)} < {self.min_text_length})\n")
-                self.original_stdout.flush()
-
+            # УБРАНО ЛИШНЕЕ СООБЩЕНИЕ
             # Восстанавливаем позицию курсора
             if has_progress_bar and sys.stderr:
                 sys.stderr.write("\033[u")  # Восстанавливаем позицию курсора
@@ -382,10 +376,6 @@ class AnalyzerCommand(BaseCommand):
             self._handle_short_text_game(game)
             return
 
-        if self.debug and self.original_stdout:
-            self.original_stdout.write(f"DEBUG: Игра {game.id} с текстом, длина: {len(text)}\n")
-            self.original_stdout.flush()
-
         # Восстанавливаем позицию курсора ПЕРЕД обработкой
         if has_progress_bar and sys.stderr:
             sys.stderr.write("\033[u")  # Восстанавливаем позицию курсора
@@ -393,6 +383,19 @@ class AnalyzerCommand(BaseCommand):
 
         # Обрабатываем игру с текстом
         self._process_game_with_text(game, text, checked_criteria, force_process)
+
+        # Проверяем, не пора ли обновить батч после обработки игры
+        if self.update_game and self.batch_updater and not getattr(self, '_in_batch_update', False):
+            games_in_batch = len(self.batch_updater.games_to_update) if hasattr(self.batch_updater,
+                                                                                'games_to_update') else 0
+
+            # Используем self.batch_size для определения порога
+            # Порог = половина от batch_size, но не меньше 10 и не больше 500
+            update_threshold = min(max(self.batch_size // 2, 10), 500)
+
+            if games_in_batch >= update_threshold:
+                # УБРАНО ЛИШНЕЕ СООБЩЕНИЕ
+                self._check_and_update_batch()
 
     def _handle_game_without_text(self, game):
         """Обрабатывает игру без текста"""
@@ -440,7 +443,7 @@ class AnalyzerCommand(BaseCommand):
     def _process_game_with_text(self, game, text, checked_criteria, force_process):
         """Обрабатывает игру с текстом"""
         self.stats['processed_with_text'] += 1
-        self.stats['processed'] += 1  # ВАЖНО: увеличиваем общий счетчик! ← ДОБАВЛЕНО
+        self.stats['processed'] += 1
 
         try:
             # Определяем настройки для исключения существующих критериев
@@ -452,6 +455,7 @@ class AnalyzerCommand(BaseCommand):
                 self.original_stdout.write(f"📄 Текст получен, длина: {len(text)} символов\n")
                 self.original_stdout.write(f"⚙️ Настройки: exclude_existing={exclude_existing}\n")
                 self.original_stdout.flush()
+            # УБРАНО ЛИШНЕЕ СООБЩЕНИЕ
 
             # Анализируем текст с поддержкой exclude_existing
             result = self._analyze_game_text(game, text, exclude_existing)
@@ -522,13 +526,38 @@ class AnalyzerCommand(BaseCommand):
             self._update_progress_bar_with_stats()
 
     def _handle_analysis_results(self, game, result, force_process, exclude_existing):
-        """Обрабатывает результаты анализа игры (основная функция)"""
+        """Обрабатывает результаты анализа игры"""
+
+        # Отладка только если включен debug
+        if self.debug:
+            import sys
+            sys.stderr.write(f"\n=== ОТЛАДКА: _handle_analysis_results для игры {game.id} ===\n")
+            sys.stderr.write(f"self.update_game = {self.update_game}\n")
+            sys.stderr.flush()
+
         # ОБНОВЛЯЕМ ПРОГРЕСС ДЛЯ ЛЮБОЙ ОБРАБОТАННОЙ ИГРЫ
         if self.progress_bar:
             self.progress_bar.update(1)
 
+        # Проверяем тип result['results'] - если это список, преобразуем в словарь
+        if isinstance(result['results'], list):
+            if self.keywords:
+                result['results'] = {'keywords': {'items': result['results'], 'count': len(result['results'])}}
+            else:
+                result['results'] = {}
+            if self.debug:
+                import sys
+                sys.stderr.write(f"Преобразовали result['results'] в: {result['results']}\n")
+                sys.stderr.flush()
+
         # Определяем, есть ли новые элементы
         has_new_elements, new_elements_count = self._calculate_new_elements(game, result)
+
+        if self.debug:
+            import sys
+            sys.stderr.write(f"has_new_elements = {has_new_elements}\n")
+            sys.stderr.write(f"new_elements_count = {new_elements_count}\n")
+            sys.stderr.flush()
 
         # ВАЖНО: Сначала обновляем статистику
         self._update_statistics_after_analysis(game, result, has_new_elements, new_elements_count)
@@ -549,25 +578,16 @@ class AnalyzerCommand(BaseCommand):
             exclude_existing=exclude_existing
         )
 
-        # ВАЖНО: Добавляем в батч только если игра считается "найденной"
-        if self.update_game and self.keywords:
-            # Для ключевых слов: добавляем только если игра в статистике keywords_found
-            if self.stats['keywords_found'] > 0:
-                # Проверяем, добавлена ли игра на предыдущем шаге в keywords_found
-                keywords_data = result['results'].get('keywords', {})
-                items = keywords_data.get('items', [])
-
-                if items:
-                    keyword_ids = [k['id'] for k in items]
-                    existing_game_ids = set(game.keywords.values_list('id', flat=True))
-                    new_ids = [kid for kid in keyword_ids if kid not in existing_game_ids]
-
-                    if new_ids:
-                        # Есть новые ключевые слова - добавляем в батч
-                        added_count = self._add_to_batch_if_needed(game, result, has_new_elements)
-
-                        # ВАЖНО: Проверяем батч после добавления игры
-                        self._check_batch_update()
+        # ВАЖНО: Добавляем в батч
+        if self.update_game:
+            if self.debug:
+                import sys
+                sys.stderr.write(f"Вызываем _add_to_batch_if_needed для игры {game.id}\n")
+                sys.stderr.flush()
+            added = self._add_to_batch_if_needed(game, result, has_new_elements)
+            if self.debug:
+                sys.stderr.write(f"_add_to_batch_if_needed вернул: {added}\n")
+                sys.stderr.flush()
 
         # Всегда добавляем в StateManager
         self.state_manager.add_processed_game(game.id)
@@ -578,6 +598,11 @@ class AnalyzerCommand(BaseCommand):
 
         # Обновляем статистику прогресс-бара
         self._update_progress_bar_with_stats()
+
+        if self.debug:
+            import sys
+            sys.stderr.write("=== КОНЕЦ ОТЛАДКИ _handle_analysis_results ===\n\n")
+            sys.stderr.flush()
 
     def _calculate_new_elements(self, game, result):
         """Определяет, есть ли новые элементы для добавления и их количество"""
@@ -710,36 +735,34 @@ class AnalyzerCommand(BaseCommand):
             return 0
 
         try:
-            # ДЛЯ КЛЮЧЕВЫХ СЛОВ: проверяем есть ли реальные ключевые слова
+            # ДЛЯ КЛЮЧЕВЫХ СЛОВ
             if self.keywords:
                 keywords_data = result.get('results', {}).get('keywords', {})
                 items = keywords_data.get('items', [])
 
+                # ОТЛАДКА ТОЛЬКО ПРИ --debug
+                if self.debug and hasattr(self, 'original_stdout') and self.original_stdout:
+                    import sys
+                    sys.stderr.write(f"\n=== ОТЛАДКА _add_to_batch_if_needed для игры {game.id} ===\n")
+                    sys.stderr.write(f"keywords_data: {keywords_data}\n")
+                    sys.stderr.write(f"items: {items}\n")
+                    sys.stderr.write(f"has_new_elements: {has_new_elements}\n")
+                    sys.stderr.flush()
+
                 if not items:
-                    # Нет ключевых слов - не добавляем в батч
                     return 0
 
-                # ВАЖНО: Добавляем ТОЛЬКО если есть новые элементы
                 if not has_new_elements:
-                    if self.verbose and self.original_stdout:
-                        self.original_stdout.write(f"ℹ️ Игра {game.id} не добавлена в батч: нет новых ключевых слов\n")
-                        self.original_stdout.flush()
+                    # УБРАНО ЛИШНЕЕ СООБЩЕНИЕ
                     return 0
 
-                # Добавляем в батч
                 added = self.batch_updater.add_game_for_update(
                     game_id=game.id,
                     results=result['results'],
                     is_keywords=True
                 )
 
-                if added > 0:
-                    self.stats['updated'] += added
-                    self.stats['updated_games'] += added  # 💾 ОБНОВЛЯЕМ СТАТИСТИКУ
-
-                    if self.verbose and self.original_stdout:
-                        self.original_stdout.write(f"💾 Игра {game.id} добавлена в батч\n")
-                        self.original_stdout.flush()
+                # УБРАНО ЛИШНЕЕ СООБЩЕНИЕ
 
                 # ВАЖНО: Получаем АКТУАЛЬНОЕ количество игр в батче
                 if self.batch_updater:
@@ -753,28 +776,53 @@ class AnalyzerCommand(BaseCommand):
 
                 return added
 
+            # ДЛЯ ОБЫЧНЫХ КРИТЕРИЕВ
+            else:
+                if not has_new_elements:
+                    # УБРАНО ЛИШНЕЕ СООБЩЕНИЕ
+                    return 0
+
+                added = self.batch_updater.add_game_for_update(
+                    game_id=game.id,
+                    results=result['results'],
+                    is_keywords=False
+                )
+
+                # УБРАНО ЛИШНЕЕ СООБЩЕНИЕ
+
+                if self.batch_updater:
+                    if hasattr(self.batch_updater, 'games_to_update'):
+                        self.stats['in_batch'] = len(self.batch_updater.games_to_update)
+                    else:
+                        self.stats['in_batch'] = 0
+
+                    self._update_progress_bar_with_stats()
+
+                return added
+
         except Exception as e:
+            # УБРАНО ЛИШНЕЕ СООБЩЕНИЕ, оставляем только при verbose
             if self.verbose:
                 self.stderr.write(f"⚠️ Ошибка при добавлении в батч: {e}")
             return 0
 
     def _check_batch_update(self):
-        """Проверяет и обновляет батч если накопилось много игр"""
-        # Проверяем и обновляем батч
+        """Проверяет и обновляет батч если накопилось много игр (использует batch_size)"""
         if self.update_game and self.batch_updater and not getattr(self, '_in_batch_update', False):
             if hasattr(self.batch_updater, 'games_to_update'):
                 games_in_batch = len(self.batch_updater.games_to_update)
             else:
                 games_in_batch = 0
 
-            # ВАЖНО: Обновляем статистику in_batch ПЕРЕД проверкой
-            self.stats['in_batch'] = games_in_batch
-
             if self.debug and self.original_stdout:
                 self.original_stdout.write(f"DEBUG: Проверка батча: {games_in_batch} игр\n")
                 self.original_stdout.flush()
 
-            if games_in_batch >= 50:  # Обновляем каждые 50 игр в батче
+            # Используем batch_size для определения порога
+            # Порог = половина от batch_size, но не меньше 10 и не больше 500
+            update_threshold = min(max(self.batch_size // 2, 10), 500)
+
+            if games_in_batch >= update_threshold:
                 self._in_batch_update = True
                 try:
                     remaining_updates = self.batch_updater.flush()
@@ -782,16 +830,12 @@ class AnalyzerCommand(BaseCommand):
                         self.stats['updated'] += remaining_updates
                         self.stats['updated_games'] += remaining_updates
 
-                    # ВАЖНО: После flush батч очищен - сбрасываем счетчик
-                    self.stats['in_batch'] = 0  # 📦 сбрасываем на 0
-
-                    # Обновляем прогресс-бар СРАЗУ
+                    self.stats['in_batch'] = 0
                     self._update_progress_bar_with_stats()
 
                     if self.debug and self.original_stdout:
                         self.original_stdout.write(f"DEBUG: Батч обновлен, updated={remaining_updates}, in_batch=0\n")
                         self.original_stdout.flush()
-
                 finally:
                     self._in_batch_update = False
 
@@ -983,12 +1027,6 @@ class AnalyzerCommand(BaseCommand):
 
             if self.keywords:
                 # ДЛЯ КЛЮЧЕВЫХ СЛОВ: отключаем пропуск по проверенным критериям
-                # Всегда анализируем игры, даже если ключевые слова уже проверены
-                # Это нужно потому что ключевые слова могут быть найдены в тексте,
-                # даже если они уже были назначены игре ранее
-
-                # ИГНОРИРУЕМ проверенные ключевые слова и всегда возвращаем False
-                # чтобы игра анализировалась заново
                 return False
             else:
                 # Для обычных критериев: проверяем по типам
@@ -1021,11 +1059,6 @@ class AnalyzerCommand(BaseCommand):
                     mode_ids = set(str(m.id) for m in existing_modes)
                     if not mode_ids.issubset(checked_criteria):
                         should_skip = False
-
-                if should_skip and self.verbose:
-                    if self.original_stdout:
-                        self.original_stdout.write(f"⏭️ Игра {game_id} пропущена - все критерии уже проверены\n")
-                        self.original_stdout.flush()
 
                 return should_skip
 
@@ -1551,6 +1584,21 @@ class AnalyzerCommand(BaseCommand):
             traceback.print_exc(file=self.stderr._out)
             raise
 
+    def _print_progress_bar_legend(self):
+        """Выводит легенду значков прогресс-бара прямо перед ним"""
+        if self.original_stdout and not self.no_progress:
+            self.original_stdout.write("\n📊 ЗНАЧКИ В ПРОГРЕСС-БАРЕ:")
+            self.original_stdout.write("   🎯 = игры с новыми элементами")
+            self.original_stdout.write("   📈 = всего найдено элементов")
+            self.original_stdout.write("   📦 = игр в батче (ожидают сохранения)\n")
+            self.original_stdout.write("⏭️ = пропущено игр (нет текста/короткий текст)")
+            self.original_stdout.write("   ⚪ = игр без найденных элементов")
+            self.original_stdout.write("   ❌ = ошибки")
+            self.original_stdout.write("   💾 = сохранено в БД")
+            self.original_stdout.write("   🕒 = время: прошло < осталось\n")
+            self.original_stdout.write("")  # Пустая строка перед прогресс-баром
+            self.original_stdout.flush()
+
     def _execute_game_analysis(self, games, total_games, games_to_process, estimated_new_games,
                                already_processed, checked_criteria, new_criteria,
                                should_process_all, start_time):
@@ -1568,6 +1616,9 @@ class AnalyzerCommand(BaseCommand):
         if self.progress_bar:
             self.progress_bar.finish()
             self.progress_bar = None
+
+        # ВЫВОДИМ ЛЕГЕНДУ ЗНАЧКОВ ПЕРЕД ПРОГРЕСС-БАРОМ
+        self._print_progress_bar_legend()
 
         # Инициализируем прогресс-бар с НУЛЯ
         if not self.no_progress and estimated_new_games > 1:
@@ -1814,7 +1865,7 @@ class AnalyzerCommand(BaseCommand):
             self.output_file.flush()
 
     def _process_games_batch(self, games, should_process_all, new_criteria, checked_criteria, start_time):
-        """Обрабатывает батч игр - УПРОЩЕННАЯ версия без хранения пропусков"""
+        """Обрабатывает батч игр"""
         processed_in_this_run = 0
         skipped_because_already_processed = 0
 
@@ -1825,15 +1876,14 @@ class AnalyzerCommand(BaseCommand):
         # Инициализируем статистику перед началом обработки
         self._init_stats()
 
-        # Отладочный вывод
         if self.debug and self.original_stdout:
             self.original_stdout.write(f"\nDEBUG: Начинаем обработку батча. Инициализирована статистика\n")
             self.original_stdout.flush()
 
-        # ВАЖНО: Устанавливаем начальное состояние для прогресс-бара
+        # Устанавливаем начальное состояние для прогресс-бара
         self._initialize_progress_bar_for_batch()
 
-        # Оптимизация: используем bulk итерацию
+        # Оптимизация: используем bulk итерацию с chunk_size = self.batch_size
         batch_counter = 0
 
         for game in games.iterator(chunk_size=self.batch_size):
@@ -1851,9 +1901,21 @@ class AnalyzerCommand(BaseCommand):
 
             batch_counter += 1
 
-            # Оптимизация: проверяем батч каждые 25 игр
-            if batch_counter % 25 == 0:
-                self._check_and_update_batch()
+            # Оптимизация: проверяем батч для обновления БД
+            # Используем динамический порог на основе self.batch_size
+            if self.update_game and self.batch_updater:
+                games_in_batch = len(self.batch_updater.games_to_update) if hasattr(self.batch_updater,
+                                                                                    'games_to_update') else 0
+                # Порог для обновления: половина от batch_size, но не меньше 10 и не больше 500
+                update_threshold = min(max(self.batch_size // 2, 10), 500)
+
+                if games_in_batch >= update_threshold:
+                    if self.debug and self.original_stdout:
+                        self.original_stdout.write(
+                            f"\nDEBUG: Достигнут порог {update_threshold} игр в батче, вызываем _check_and_update_batch\n")
+                        self.original_stdout.flush()
+
+                    self._check_and_update_batch()
 
             # Оптимизация: сохраняем состояние каждые 1000 игр
             if processed_in_this_run % 1000 == 0 and processed_in_this_run > 0:
@@ -1868,7 +1930,6 @@ class AnalyzerCommand(BaseCommand):
         # Выводим статистику обработки
         self._print_batch_processing_stats(processed_in_this_run, skipped_because_already_processed)
 
-        # Финальный отладочный вывод
         if self.debug and self.original_stdout:
             self._print_final_debug_statistics()
 
@@ -2116,31 +2177,26 @@ class AnalyzerCommand(BaseCommand):
 
     def _check_and_update_batch(self):
         """Проверяет и обновляет батч если накопилось много игр"""
-        # Сохраняем состояние каждые 500 игр
-        if self.stats['processed'] % 500 == 0:
-            try:
-                self.state_manager.save_state(self.stats['processed'])
-            except Exception:
-                pass
-
-        # Проверяем и обновляем батч каждые 100 обработанных игр
         if self.update_game and self.batch_updater and not getattr(self, '_in_batch_update', False):
             games_in_batch = len(self.batch_updater.games_to_update) if hasattr(self.batch_updater,
                                                                                 'games_to_update') else 0
-            if games_in_batch >= 100:  # Обновляем каждые 100 игр в батче
+
+            # Используем self.batch_size для определения порога
+            # Порог = половина от batch_size, но не меньше 10 и не больше 500
+            update_threshold = min(max(self.batch_size // 2, 10), 500)
+
+            if games_in_batch >= update_threshold:
                 self._in_batch_update = True
                 try:
-                    remaining_updates = self.batch_updater.flush()
-                    if remaining_updates > 0:
-                        self.stats['updated'] += remaining_updates
-                        self.stats['updated_games'] += remaining_updates  # 💾 ОБНОВЛЯЕМ СТАТИСТИКУ
+                    # Получаем РЕАЛЬНОЕ количество обновленных игр
+                    real_updated = self.batch_updater.flush()
+                    if real_updated > 0:
+                        self.stats['updated'] += real_updated
+                        self.stats['updated_games'] += real_updated
 
-                        # ВАЖНО: Обновляем прогресс-бар после обновления батча
-                        self._update_progress_bar_with_stats()  # ← ИЗМЕНЕНО!
-
-                        # Выводим отладочное сообщение если verbose
                         if self.verbose and self.original_stdout:
-                            self.original_stdout.write(f"💾 Обновлен батч: {remaining_updates} игр\n")
+                            self.original_stdout.write(
+                                f"💾 Реально обновлено {real_updated} игр (порог: {update_threshold})\n")
                             self.original_stdout.flush()
                 finally:
                     self._in_batch_update = False
@@ -2157,20 +2213,25 @@ class AnalyzerCommand(BaseCommand):
             if games_in_batch > 0:
                 self._in_batch_update = True
                 try:
-                    remaining_updates = self.batch_updater.flush()
-                    if remaining_updates > 0:
-                        self.stats['updated'] += remaining_updates
-                        self.stats['updated_games'] += remaining_updates  # 💾 ОБНОВЛЯЕМ СТАТИСТИКУ
+                    # Получаем РЕАЛЬНОЕ количество обновленных игр
+                    real_updated = self.batch_updater.flush()
+                    if real_updated > 0:
+                        self.stats['updated'] += real_updated
+                        self.stats['updated_games'] += real_updated
 
                     # ВАЖНО: После flush батч очищен
-                    self.stats['in_batch'] = 0  # 📦 сбрасываем на 0
+                    self.stats['in_batch'] = 0
 
                     # Обновляем статистику прогресс-бара
                     if self.progress_bar:
                         self.progress_bar.update_stats({
-                            'updated': self.stats['updated_games'],  # 💾
-                            'in_batch': 0  # Сбрасываем после финального обновления
+                            'updated': self.stats['updated_games'],
+                            'in_batch': 0
                         })
+
+                    if self.verbose and self.original_stdout:
+                        self.original_stdout.write(f"💾 Финальное обновление: сохранено {real_updated} игр\n")
+                        self.original_stdout.flush()
 
                 finally:
                     self._in_batch_update = False
@@ -2403,10 +2464,12 @@ class AnalyzerCommand(BaseCommand):
             from games.analyze import GameAnalyzerAPI
 
             # ИСПРАВЛЕНИЕ: Всегда отключаем verbose в API чтобы не было лишнего вывода
-            # который ломает прогресс-бар
-            api_verbose = False  # ⬅️ ВСЕГДА False, даже если self.verbose=True
-
+            api_verbose = False
             self.api = GameAnalyzerAPI(verbose=api_verbose)
+
+            # ПЕРЕДАЕМ debug ИЗ КОМАНДЫ В API
+            self.api.debug = self.debug
+
             self.stdout.write("   ✅ GameAnalyzerAPI инициализирован")
 
             # 2. Очищаем кеш если нужно
@@ -2421,18 +2484,16 @@ class AnalyzerCommand(BaseCommand):
             self.state_manager = StateManager(
                 output_path=self.output_path,
                 keywords_mode=self.keywords,
-                force_restart=self.force_restart
+                force_restart=self.force_restart,
+                verbose=self.verbose
             )
             self.stdout.write(f"   ✅ StateManager инициализирован (файл: {self.state_manager.state_file})")
 
-            # 4. Батч-апдейтер - ПЕРЕДАЕМ verbose параметр И ССЫЛКУ НА КОМАНДУ
+            # 4. Батч-апдейтер
             self.stdout.write("   🔧 Инициализируем BatchUpdater...")
             from .batch_updater import BatchUpdater
-            self.batch_updater = BatchUpdater(verbose=self.verbose)  # Передаем флаг verbose
-
-            # ВАЖНО: Передаем ссылку на command instance для доступа к прогресс-бару
+            self.batch_updater = BatchUpdater(verbose=self.verbose)
             self.batch_updater.command_instance = self
-
             self.stdout.write("   ✅ BatchUpdater инициализирован")
 
             # 5. Форматировщик вывода
@@ -2447,7 +2508,6 @@ class AnalyzerCommand(BaseCommand):
             self.text_preparer = TextPreparer(self)
             self.stdout.write(f"   ✅ TextPreparer инициализирован (режим: {self.text_preparer.text_source_mode})")
 
-            # ИСПРАВЛЕНИЕ: Предупреждение о конфликте ТОЛЬКО при включенном progress bar
             if not self.no_progress and self.verbose:
                 self.stdout.write("⚠️  ВНИМАНИЕ: С включенным прогресс-баром подробный вывод будет ограничен")
                 self.stdout.write("⚠️  Используйте --no-progress для полного verbose вывода")
@@ -2508,7 +2568,7 @@ class AnalyzerCommand(BaseCommand):
                 sys.stderr.write(f"❌ Ошибка открытия файла: {e}\n")
 
     def _print_options_summary(self):
-        """Выводит сводку опций"""
+        """Выводит сводку опций и легенду значков прогресс-бара и служебных сообщений"""
         # В файл - полная информация
         if self.output_file:
             self.stdout.write("=" * 60)
@@ -2529,6 +2589,29 @@ class AnalyzerCommand(BaseCommand):
             self.stdout.write(f"📚 Источник текста: {self.text_preparer.get_source_description()}")
             self.stdout.write(f"📦 Размер батча: {self.batch_size}")
             self.stdout.write(f"📊 Прогресс-бар: {'✅ ВКЛ' if not self.no_progress else '❌ ВЫКЛ'}")
+
+            # ЛЕГЕНДА ЗНАЧКОВ - ПЕРЕД ПРОГРЕСС-БАРОМ (КОНКРЕТНО ВАШИ ЗНАЧКИ)
+            self.stdout.write("=" * 60)
+            self.stdout.write("📊 ЗНАЧКИ В СООБЩЕНИЯХ ПЕРЕД ПРОГРЕСС-БАРОМ:")
+            self.stdout.write("   🎯 = ОБНАРУЖЕНО N НОВЫХ КРИТЕРИЕВ - найдены новые критерии в системе")
+            self.stdout.write("   ℹ️ = информационное сообщение (новые критерии добавлены к проверенным)")
+            self.stdout.write("   ♻️ = принудительный перезапуск (очищены проверенные критерии и обработанные игры)")
+            self.stdout.write("   📍 = информация об оффсете (с какой позиции начинаем)")
+            self.stdout.write("   ⚠️ = предупреждение/ошибка")
+            self.stdout.write("   ✅ = успешное завершение")
+            self.stdout.write("   💾 = сохранение данных/состояния")
+
+            self.stdout.write("=" * 60)
+            self.stdout.write("📊 ЗНАЧКИ В ПРОГРЕСС-БАРЕ:")
+            self.stdout.write("   🎯 = игры с новыми элементами")
+            self.stdout.write("   📈 = всего найдено элементов")
+            self.stdout.write("   📦 = игр в батче (ожидают сохранения)")
+            self.stdout.write("   ⏭️ = пропущено игр (нет текста/короткий текст)")
+            self.stdout.write("   ⚪ = игр без найденных элементов")
+            self.stdout.write("   ❌ = ошибки")
+            self.stdout.write("   💾 = сохранено в БД")
+            self.stdout.write("   🕒 = время выполнения (прошло < осталось)")
+
             self.stdout.write("=" * 60)
             self.stdout.write("")
 

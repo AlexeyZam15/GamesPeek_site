@@ -7,58 +7,15 @@
 {% block extra_css %}
     <link rel="stylesheet" href="{% static 'games/css/game_list/filters.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/game_list/date_filter.css' %}">
-    <link rel="stylesheet" href="{% static 'games/css/game_list/sticky-button.css' %}">
+    <!-- Убрали ссылку на sticky-button.css -->
     <link rel="stylesheet" href="{% static 'games/css/components/cards.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/game_list/keywords_pagination.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/game_list/games_pagination.css' %}">
-
-    <!-- Добавляем стили для AJAX загрузки -->
-    <style>
-        .games-container.loading {
-            opacity: 0.7;
-            pointer-events: none;
-            position: relative;
-            min-height: 200px;
-        }
-        .games-container.loading::after {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 50px;
-            height: 50px;
-            border: 3px solid rgba(255, 107, 53, 0.2);
-            border-top: 3px solid var(--secondary-color, #ff6b35);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            z-index: 1000;
-        }
-        @keyframes spin {
-            0% { transform: translate(-50%, -50%) rotate(0deg); }
-            100% { transform: translate(-50%, -50%) rotate(360deg); }
-        }
-        .games-container {
-            transition: opacity 0.3s ease;
-        }
-
-        /* Стили для кнопки Compare */
-        .btn-outline-warning.compare-button-added {
-            border: 2px solid var(--warning-color);
-            color: var(--warning-color);
-            background: transparent;
-            font-weight: 600;
-            transition: all 0.3s ease;
-        }
-
-        .btn-outline-warning.compare-button-added:hover {
-            background: var(--gradient-warning);
-            color: var(--primary-color);
-            border-color: var(--warning-color);
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-button);
-        }
-    </style>
+    <link rel="stylesheet" href="{% static 'games/css/game_list.css' %}">
+    <!-- Подключаем стили для заглушки фильтров -->
+    <link rel="stylesheet" href="{% static 'games/css/game_list/filters-skeleton.css' %}">
+    <!-- Стили для вкладок -->
+    <link rel="stylesheet" href="{% static 'games/css/game_list/filter-tabs.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -74,9 +31,31 @@
         <!-- Форма фильтров -->
         {% include 'games/game_list/_filters_form.html' %}
 
-        <!-- Результаты (будут обновляться через AJAX) -->
+        <!-- Результаты - пустой контейнер, будет заполнен через AJAX -->
         <div id="games-results-container">
-            {% include 'games/game_list/_games_results.html' %}
+            <!-- Скрытые поля с параметрами для JS -->
+            <div style="display: none;">
+                <input type="hidden" id="server-current-page" value="1">
+                <input type="hidden" id="server-total-pages" value="1">
+                <input type="hidden" id="server-total-count" value="0">
+                <input type="hidden" id="server-items-per-page" value="{{ items_per_page|default:16 }}">
+
+                {% if source_game_obj and source_game_obj.id %}
+                    <input type="hidden" id="server-source-game-id" value="{{ source_game_obj.id }}">
+                    <input type="hidden" id="server-source-game-name" value="{{ source_game_obj.name }}">
+                {% endif %}
+
+                {% if find_similar %}
+                    <input type="hidden" id="server-find-similar" value="1">
+                {% endif %}
+            </div>
+
+            <!-- Индикатор загрузки (виден сразу) -->
+            <div class="games-container loading-visible">
+                <div class="loading-text" style="display: block;">Loading games...</div>
+                <!-- Пустой контейнер для игр -->
+                <div class="row" id="games-grid-row"></div>
+            </div>
         </div>
     </div>
 {% endblock %}
@@ -88,26 +67,9 @@
     <!-- AJAX ПАГИНАЦИЯ -->
     <script src="{% static 'games/js/game_list/ajax-pagination.js' %}"></script>
 
-    <!-- SIMILARITY BADGES -->
-    <script src="{% static 'games/js/game_list/similarity-badges.js' %}"></script>
-
     <!-- SIMILARITY COMPARE BUTTONS -->
     <script src="{% static 'games/js/game_list/similarity-compare.js' %}"></script>
 
-    <!-- Индикатор режима похожих игр -->
-    {% if show_similarity %}
-        <div style="display: none;" class="similarity-mode-indicator" data-mode="similar"></div>
-        <script>
-            window.similarityMap = {
-            {% for game_item in games_with_similarity %}
-                {% if game_item.game.id and game_item.similarity %}
-                "{{ game_item.game.id }}": "{{ game_item.similarity }}",
-            {% endif %}
-            {% endfor %}
-            };
-            window.sourceGameId = {% if source_game and source_game.id %}{{ source_game.id }}{% else %}null{% endif %};
-            window.sourceGameName = {% if source_game and source_game.name %}"{{ source_game.name|escapejs }}"{% else %}
-            null{% endif %};
-        </script>
-    {% endif %}
+    <!-- SIMILARITY DISPLAY -->
+    <script src="{% static 'games/js/game_list/similarity-display.js' %}"></script>
 {% endblock %}

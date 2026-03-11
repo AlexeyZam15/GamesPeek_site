@@ -25,13 +25,13 @@ class ProgressBar:
 
         self.current = 0
         self.errors = 0
-        self.saved = 0  # Новый счетчик сохраненных
+        self.not_found = 0  # Счетчик для "не найдено"
+        self.saved = 0
         self.start_time = time.time()
         self.last_update = 0
         self.last_count = 0
         self.speed = 0
         self.chunk_info = ""
-        self.saved_info = ""  # Информация о сохраненных
         self.completed = False
 
         # Очищаем строку перед началом
@@ -79,8 +79,11 @@ class ProgressBar:
         if self.show_saved and self.saved > 0:
             line_parts.append(f'💾 {self.saved:,} ')
 
-        if self.show_errors and self.errors > 0:
-            line_parts.append(f'🚫 {self.errors:,} ')
+        if self.show_errors:
+            if self.not_found > 0:
+                line_parts.append(f'⚪ {self.not_found:,} ')
+            if self.errors > 0:
+                line_parts.append(f'❌ {self.errors:,} ')
 
         if self.show_speed and self.speed > 0:
             # Преобразуем скорость в читаемый формат
@@ -120,11 +123,13 @@ class ProgressBar:
         sys.stdout.write(line)
         sys.stdout.flush()
 
-    def increment(self, amount: int = 1, is_error: bool = False, is_saved: bool = False):
+    def increment(self, amount: int = 1, is_error: bool = False, is_not_found: bool = False, is_saved: bool = False):
         """Увеличить счетчик"""
         self.current += amount
         if is_error:
             self.errors += 1
+        if is_not_found:
+            self.not_found += 1
         if is_saved:
             self.saved += amount
         self.update()
@@ -139,16 +144,13 @@ class ProgressBar:
         self.chunk_info = chunk_info
         self.update()
 
-    def set_saved_info(self, saved_info: str):
-        """Установить информацию о сохраненных"""
-        self.saved_info = saved_info
-        self.update()
-
-    def set_progress(self, current: int, errors: int = None, saved: int = None):
+    def set_progress(self, current: int, errors: int = None, not_found: int = None, saved: int = None):
         """Установить прогресс"""
         self.current = current
         if errors is not None:
             self.errors = errors
+        if not_found is not None:
+            self.not_found = not_found
         if saved is not None:
             self.saved = saved
         self.update(force=True)
@@ -171,8 +173,10 @@ class ProgressBar:
         if self.saved > 0:
             line_parts.append(f'💾 {self.saved:,} ')
 
+        if self.not_found > 0:
+            line_parts.append(f'⚪ {self.not_found:,} ')
         if self.errors > 0:
-            line_parts.append(f'🚫 {self.errors:,} ')
+            line_parts.append(f'❌ {self.errors:,} ')
 
         if elapsed < 60:
             time_str = f'{elapsed:.1f}с'

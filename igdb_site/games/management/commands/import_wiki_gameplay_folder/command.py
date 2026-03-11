@@ -23,6 +23,10 @@ class Command(BaseCommand):
         # Запускаем асинхронный event loop
         asyncio.run(self.async_handle(*args, **options))
 
+    def show_interruption_tips(self, options):
+        """Подсказки теперь в show_results_summary"""
+        pass
+
     async def async_handle(self, *args, **options):
         """Асинхронный обработчик команды"""
         self.show_header()
@@ -74,7 +78,6 @@ class Command(BaseCommand):
         """Показать статистику"""
         print(f"📊 Всего игр в базе: {stats['total_games']:,}")
         print(f"📝 Без описания Wikipedia: {stats['games_without_wiki']:,}")
-        print(f"🚫 Без любого описания: {stats['games_without_any_desc']:,}")
 
         if limit > 0:
             print(f"🎯 Лимит обработки: {limit:,} игр")
@@ -98,17 +101,7 @@ class Command(BaseCommand):
         """Показать настройки импорта"""
         settings_line = f"⚙️  Батч: {options.get('chunk_size', 200)} | "
         settings_line += f"Соединений: {options.get('max_concurrent', 50)} | "
-        settings_line += f"Язык: {options.get('lang', 'en')} | "
-        settings_line += f"Задержка: {options.get('delay', 0.3)}с"
-
-        # Добавляем статус включения ненайденных
-        if options.get('include_not_found', False):
-            settings_line += " | ⚠️ Включены ненайденные"
-        else:
-            settings_line += " | ⏭️ Пропускаем ненайденные"
-
-        if options.get('save_each_batch', True):
-            settings_line += " | 💾 Сохранение в реальном времени"
+        settings_line += f"Язык: {options.get('lang', 'en')}"
 
         if limit > 0:
             settings_line += f" | Лимит: {limit:,}"
@@ -140,10 +133,24 @@ class Command(BaseCommand):
         """Запуск асинхронного импорта"""
         # Инициализируем логгер ошибок
         failed_logger = FailedGamesLogger(options.get('failed_file', "logs/failed_wiki_games.csv"))
+        debug_mode = options.get('debug', False)
+
+        # Показываем легенду значков перед прогресс-баром (только если не debug режим)
+        if not debug_mode and progress_bar:
+            print(f"\n📊 Легенда значков:")
+            print(f"   📈 - прогресс обработки")
+            print(f"   💾 - сохранено описаний в БД")
+            print(f"   ⚪ - не найдено в Wikipedia")
+            print(f"   ❌ - ошибки запросов")
+            print(f"   ⚡ - скорость обработки (игр/сек)")
+            print(f"   ⏱️  - оставшееся время (ETA)")
+            print(f"   ↻ - текущий батч")
+            print()
 
         # Если это режим retry-failed, очищаем файл перед началом
         if options.get('retry_failed', False):
-            print(f"🗑️  Очищаем файл ошибок перед повторной попыткой...")
+            if debug_mode:
+                print(f"🗑️  Очищаем файл ошибок перед повторной попыткой...")
             failed_logger.clear_failures()
 
         async with AsyncWikiImporter(
@@ -156,58 +163,93 @@ class Command(BaseCommand):
             delay = options.get('delay', 0.3)
             total_chunks = (len(games) + chunk_size - 1) // chunk_size
             total_saved = 0
-            total_failed = 0
+            total_not_found = 0
+            total_errors = 0
             start_time = time.time()
+            interrupted = False
 
-            for chunk_num in range(total_chunks):
-                start_idx = chunk_num * chunk_size
-                end_idx = min(start_idx + chunk_size, len(games))
-                chunk = games[start_idx:end_idx]
+            try:
+                for chunk_num in range(total_chunks):
+                    # Проверяем прерывание в начале каждой итерации
+                    if interrupted:
+                        break
 
-                if progress_bar:
-                    progress_bar.set_chunk_info(f"Батч {chunk_num + 1}/{total_chunks}")
+                    start_idx = chunk_num * chunk_size
+                    end_idx = min(start_idx + chunk_size, len(games))
+                    chunk = games[start_idx:end_idx]
 
-                # Обработка батча
-                chunk_start = time.time()
-                chunk_results = await importer.process_batch(chunk)
-                chunk_time = time.time() - chunk_start
-
-                # Добавляем успешные результаты
-                results.update(chunk_results)
-
-                # Сохраняем после каждого батча
-                if chunk_results and options.get('save_each_batch', True):
-                    saved_in_batch = await save_batch_async(chunk_results)
-                    total_saved += saved_in_batch
-
-                    # Обновляем счетчик сохраненных в прогресс-баре
                     if progress_bar:
-                        progress_bar.increment_saved(saved_in_batch)
+                        progress_bar.set_chunk_info(f"Батч {chunk_num + 1}/{total_chunks}")
 
-                # Логируем только те, что не удалось найти
-                if not options.get('skip_errors', False) and not options.get('no_save_failed', False):
-                    successful_ids = set(chunk_results.keys())
-                    for game in chunk:
-                        if game['id'] not in successful_ids:
-                            failed_logger.add_failed_game(
-                                game['id'],
-                                game['name'],
-                                "Не найдена страница Wikipedia"
-                            )
-                            total_failed += 1
+                    # Обработка батча
+                    chunk_start = time.time()
+                    try:
+                        chunk_results = await importer.process_batch(chunk)
+                    except asyncio.CancelledError:
+                        interrupted = True
+                        break
+                    except Exception as e:
+                        if debug_mode:
+                            print(f"\n❌ Ошибка обработки батча: {e}")
+                        total_errors += len(chunk)
+                        if progress_bar:
+                            progress_bar.errors += len(chunk)
+                            progress_bar.current += len(chunk)
+                            progress_bar.update()
+                        continue
 
-                # Обновление прогресса
-                if progress_bar:
-                    processed = len(chunk_results)
-                    failed = len(chunk) - processed
-                    progress_bar.current += len(chunk)
-                    progress_bar.errors += failed
-                    progress_bar.speed = len(chunk) / chunk_time if chunk_time > 0 else 0
-                    progress_bar.update()
+                    chunk_time = time.time() - chunk_start
 
-                # Задержка между батчами
-                if chunk_num + 1 < total_chunks:
-                    await asyncio.sleep(delay)
+                    # Добавляем успешные результаты
+                    results.update(chunk_results)
+
+                    # Сохраняем после каждого батча
+                    if chunk_results and options.get('save_each_batch', True):
+                        try:
+                            saved_in_batch = await save_batch_async(chunk_results)
+                            total_saved += saved_in_batch
+
+                            # Обновляем счетчик сохраненных в прогресс-баре
+                            if progress_bar:
+                                progress_bar.increment_saved(saved_in_batch)
+                        except Exception as e:
+                            if debug_mode:
+                                print(f"\n❌ Ошибка сохранения батча: {e}")
+                            total_errors += len(chunk_results)
+
+                    # Логируем только те, что не удалось найти
+                    if not options.get('skip_errors', False) and not options.get('no_save_failed', False):
+                        successful_ids = set(chunk_results.keys())
+                        for game in chunk:
+                            if game['id'] not in successful_ids:
+                                failed_logger.add_failed_game(
+                                    game['id'],
+                                    game['name'],
+                                    "Не найдена страница Wikipedia"
+                                )
+                                total_not_found += 1
+
+                    # Обновление прогресса
+                    if progress_bar:
+                        processed = len(chunk_results)
+                        not_found = len(chunk) - processed
+                        progress_bar.current += len(chunk)
+                        progress_bar.not_found += not_found
+                        progress_bar.speed = len(chunk) / chunk_time if chunk_time > 0 else 0
+                        progress_bar.update()
+
+                    # Задержка между батчами
+                    if chunk_num + 1 < total_chunks and not interrupted:
+                        try:
+                            await asyncio.sleep(delay)
+                        except asyncio.CancelledError:
+                            interrupted = True
+                            break
+
+            except KeyboardInterrupt:
+                interrupted = True
+                # Даем время на завершение текущих задач
+                await asyncio.sleep(0.5)
 
             elapsed_time = time.time() - start_time
 
@@ -215,8 +257,11 @@ class Command(BaseCommand):
             return {
                 'results': results,
                 'total_saved': total_saved,
-                'total_failed': total_failed,
+                'total_not_found': total_not_found,
+                'total_errors': total_errors,
                 'elapsed_time': elapsed_time,
+                'interrupted': interrupted,
+                'games_processed': progress_bar.current if progress_bar else total_saved + total_not_found + total_errors,
                 'importer_stats': {
                     'api_calls': importer.api_calls,
                     'cache_hits': importer.cache_hits,
@@ -232,8 +277,11 @@ class Command(BaseCommand):
 
         # Получаем данные из результата
         saved_count = result.get('total_saved', 0)
-        failed_count = result.get('total_failed', 0)
+        not_found_count = result.get('total_not_found', 0)
+        errors_count = result.get('total_errors', 0)
         elapsed_time = result.get('elapsed_time', 0)
+        games_processed = result.get('games_processed', saved_count + not_found_count + errors_count)
+        was_interrupted = result.get('interrupted', False)
 
         # Текущая статистика
         from .async_helpers import get_games_without_wiki_count
@@ -241,42 +289,52 @@ class Command(BaseCommand):
 
         # Показываем итоги
         self.show_results_summary(
-            total, saved_count, failed_count, elapsed_time,
-            initial_stats, current_without_wiki, options
+            games_processed, saved_count, not_found_count, errors_count, elapsed_time,
+            initial_stats, current_without_wiki, options,
+            was_interrupted=was_interrupted
         )
 
-        # Показываем статистику импортера если есть
-        if 'importer_stats' in result:
+        # Показываем статистику импортера если есть (только в debug режиме)
+        if options.get('debug', False) and 'importer_stats' in result:
             self.show_importer_stats(result['importer_stats'])
 
-    def show_results_summary(self, total, saved, failed, elapsed, initial_stats, current_without, options):
+    def show_results_summary(self, processed, saved, not_found, errors, elapsed, initial_stats, current_without,
+                             options, was_interrupted=False):
         """Показать сводку результатов"""
         print(f"\n{'=' * 70}")
-        print(f"📊 РЕЗУЛЬТАТЫ ИМПОРТА")
+        if was_interrupted:
+            print(f"📊 ИМПОРТ ПРЕРВАН - ПРОМЕЖУТОЧНЫЕ РЕЗУЛЬТАТЫ")
+        else:
+            print(f"📊 РЕЗУЛЬТАТЫ ИМПОРТА")
         print(f"{'=' * 70}")
 
         # Основные метрики
         print(f"\n✅  Завершено: {time.strftime('%H:%M:%S')}")
         print(f"⏱️  Время выполнения: {elapsed:.1f}с")
         print()
-        print(f"📈  Обработано игр:    {total:,}")
+        print(f"📈  Обработано игр:    {processed:,}")
         print(f"✅  Получено описаний: {saved:,}")
-        print(f"🚫  Не удалось получить: {failed:,}")
+        print(f"⚪  Не найдено в Wikipedia: {not_found:,}")
+        print(f"❌  Ошибок запросов:   {errors:,}")
 
-        if total > 0:
-            success_rate = (saved / total) * 100
-            print(f"📊  Процент успеха:   {success_rate:.1f}%")
+        if processed > 0:
+            success_rate = (saved / processed) * 100
+            not_found_rate = (not_found / processed) * 100
+            error_rate = (errors / processed) * 100
+            print(f"\n📊  Процент успеха:     {success_rate:.1f}%")
+            print(f"📊  Процент не найдено: {not_found_rate:.1f}%")
+            print(f"📊  Процент ошибок:     {error_rate:.1f}%")
 
         if elapsed > 0:
-            speed = total / elapsed
-            print(f"⚡  Скорость:         {speed:.1f} игр/с")
+            speed = processed / elapsed
+            print(f"\n⚡  Средняя скорость:   {speed:.1f} игр/с")
 
         # Статус базы данных
         print(f"\n📋  СТАТУС БАЗЫ ДАННЫХ")
         print(f"   📦  Было без описания:   {initial_stats['games_without_wiki']:,}")
         print(f"   📦  Осталось без описания: {current_without:,}")
 
-        if initial_stats['total_games'] > 0:
+        if initial_stats['total_games'] > 0 and not was_interrupted:
             before_fill = ((initial_stats['total_games'] - initial_stats['games_without_wiki']) / initial_stats[
                 'total_games']) * 100
             after_fill = ((initial_stats['total_games'] - current_without) / initial_stats['total_games']) * 100
@@ -287,15 +345,25 @@ class Command(BaseCommand):
             print(f"   📈  Улучшение:           +{improvement:.1f}%")
 
         # Информация об ошибках
-        if failed > 0:
-            print(f"\n⚠️  Не удалось получить описания для {failed:,} игр")
+        if not_found > 0 or errors > 0:
+            print(f"\n⚠️  Проблемные игры:")
+            if not_found > 0:
+                print(f"   ⚪ Не найдено: {not_found:,} игр")
+            if errors > 0:
+                print(f"   ❌ Ошибки: {errors:,} игр")
+
             failed_file = options.get('failed_file', "logs/failed_wiki_games.csv")
-            print(f"   📄  Проверьте файл: {failed_file}")
+            print(f"   📄  Список сохранен в: {failed_file}")
+
+        # Если было прерывание, показываем простую подсказку
+        if was_interrupted:
+            print(f"\n💡 Для продолжения используйте: python manage.py import_wiki_gameplay --skip-failed")
 
         print(f"\n{'=' * 70}")
 
     def show_importer_stats(self, stats):
         """Показать статистику импортера"""
+        # Эта статистика будет показываться только при --debug
         print(f"\n📡 СТАТИСТИКА ИМПОРТЕРА")
         print(f"   📞  API вызовов:       {stats.get('api_calls', 0):,}")
         print(f"   💾  Кэш попаданий:     {stats.get('cache_hits', 0):,}")
@@ -306,12 +374,8 @@ class Command(BaseCommand):
             print(f"   📊  Эффективность кэша: {cache_rate:.1f}%")
 
     def handle_interruption(self, progress_bar):
-        """Обработать прерывание пользователем"""
-        if progress_bar:
-            progress_bar.complete()
-        print(f"\n\n{'=' * 70}")
-        print(f"⚠️  ИМПОРТ ПРЕРВАН ПОЛЬЗОВАТЕЛЕМ")
-        print(f"{'=' * 70}")
+        """Обработать прерывание пользователем - ничего не делаем, все в run_async_import"""
+        pass
 
     def handle_error(self, error, progress_bar):
         """Обработать ошибку"""
@@ -325,23 +389,25 @@ class Command(BaseCommand):
         """Асинхронно подготовить список игр для обработки с учетом лимита"""
         # Инициализируем логгер ошибок
         failed_logger = FailedGamesLogger(options.get('failed_file', "logs/failed_wiki_games.csv"))
+        debug_mode = options.get('debug', False)
 
         # Определяем флаг включения ненайденных игр
         include_not_found = options.get('include_not_found', False)
 
         # Загружаем ID из файла ненайденных игр
         not_found_ids = set()
-        if not include_not_found:  # Только если НЕ включаем ненайденные
+        if not include_not_found:
             not_found_ids = failed_logger.get_failed_ids_from_file()
-            if not_found_ids:
+            if not_found_ids and debug_mode:
                 print(f"⏭️  Пропускаем {len(not_found_ids):,} игр из файла ненайденных")
-        else:
+        elif debug_mode:
             print(f"⚠️  Включены игры из файла ненайденных (--include-not-found)")
 
         # Очищаем файл ошибок если нужно
         if options.get('clear_failed', False):
             failed_logger.clear_failures()
-            print(f"🗑️  Файл ошибок очищен: {failed_logger.get_filename()}")
+            if debug_mode:
+                print(f"🗑️  Файл ошибок очищен: {failed_logger.get_filename()}")
 
         # Режим обработки только неудачных игр
         if options.get('retry_failed', False):
@@ -350,29 +416,21 @@ class Command(BaseCommand):
                 print(f"ℹ️  В файле ошибок нет игр для повторной обработки")
                 return []
 
-            # Применяем лимит
             if limit > 0:
                 games_for_retry = games_for_retry[:limit]
 
             total_to_retry = len(games_for_retry)
             if total_to_retry > 0:
                 print(f"🔄 Повторная обработка {total_to_retry:,} игр из файла ошибок")
-                if len(games_for_retry) < len(failed_logger.get_failed_games()):
-                    print(f"   (лимит: {limit:,} из {len(failed_logger.get_failed_games()):,})")
 
-                # Показываем примеры
-                print(f"📋 Примеры для повторной обработки:")
-                for i, game in enumerate(games_for_retry[:3], 1):
-                    print(f"   {i}. {game['name']} (ID: {game['id']})")
-                if len(games_for_retry) > 3:
-                    print(f"   ... и ещё {len(games_for_retry) - 3} игр")
+                if debug_mode and len(games_for_retry) < len(failed_logger.get_failed_games()):
+                    print(f"   (лимит: {limit:,} из {len(failed_logger.get_failed_games()):,})")
 
             return games_for_retry
 
         # Обработка одной игры
         if options.get('game_id'):
             try:
-                # Используем асинхронный хелпер
                 from .async_helpers import get_game_by_id_async
                 game = await get_game_by_id_async(options['game_id'])
 
@@ -380,15 +438,18 @@ class Command(BaseCommand):
                     print(f"\n❌ Игра с ID {options['game_id']} не найдена")
                     return []
 
-                # Проверяем, не в списке ли ненайденных игр
                 if not include_not_found and game['id'] in not_found_ids:
-                    print(f"⏭️  Игра в файле ненайденных, пропускаем: {game['name']}")
-                    print(f"   Используйте --include-not-found чтобы включить её")
+                    if debug_mode:
+                        print(f"⏭️  Игра в файле ненайденных, пропускаем: {game['name']}")
+                    else:
+                        print(f"\n❌ Игра в списке ненайденных, используйте --include-not-found")
                     return []
 
-                # Проверяем, не в списке ли ошибок (если включен skip-failed)
                 if options.get('skip_failed', False) and failed_logger.is_failed(game['id']):
-                    print(f"⏭️  Игра уже в списке ошибок, пропускаем: {game['name']}")
+                    if debug_mode:
+                        print(f"⏭️  Игра уже в списке ошибок, пропускаем: {game['name']}")
+                    else:
+                        print(f"\n❌ Игра в списке ошибок")
                     return []
 
                 print(f"\n🎯 Обработка одной игры: {game['name']}")
@@ -397,15 +458,15 @@ class Command(BaseCommand):
                 print(f"\n❌ Ошибка при получении игры: {e}")
                 return []
 
-        # Массовая обработка - используем асинхронный хелпер
+        # Массовая обработка
         games = await get_games_for_processing(
             skip_existing=options.get('skip_existing', True) and not options.get('force_update'),
             only_empty=options.get('only_empty', False),
             skip_failed=options.get('skip_failed', False),
             failed_ids=list(failed_logger.get_failed_ids()) if options.get('skip_failed', False) else [],
             limit=limit,
-            include_not_found=include_not_found,  # Передаем флаг
-            not_found_ids=not_found_ids  # Передаем ID ненайденных
+            include_not_found=include_not_found,
+            not_found_ids=not_found_ids
         )
 
         if games:
@@ -414,22 +475,20 @@ class Command(BaseCommand):
             if limit > 0 and len(games) == limit:
                 print(f"   (достигнут лимит {limit:,} игр)")
 
-            if not include_not_found and not_found_ids:
+            if debug_mode and not include_not_found and not_found_ids:
                 print(f"   ⏭️  Пропущено из файла ненайденных: {len(not_found_ids):,} игр")
-            elif include_not_found:
+            elif debug_mode and include_not_found:
                 print(f"   ⚠️  Включены игры из файла ненайденных")
 
-            if len(games) > 0:
+            if debug_mode and len(games) > 0:
                 print(f"   📝 Примеры:")
                 for i, game in enumerate(games[:3], 1):
                     print(f"   {i}. {game['name']}")
                 if len(games) > 3:
                     print(f"   ... и ещё {len(games) - 3} игр")
 
-        elif not games and not_found_ids and not include_not_found:
-            # Специальное сообщение, если все игры в списке ненайденных
+        elif not games and not_found_ids and not include_not_found and debug_mode:
             print(f"\n⚠️  Все подходящие игры находятся в файле ненайденных")
             print(f"   Используйте --include-not-found чтобы обработать их")
-            print(f"   Или --retry-failed чтобы обработать только ненайденные")
 
         return games

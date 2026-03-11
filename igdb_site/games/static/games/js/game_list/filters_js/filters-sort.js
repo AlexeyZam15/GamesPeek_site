@@ -1,18 +1,46 @@
 // games/static/games/js/game_list/filters-sort.js
 
+// Добавляем служебный объект для таймеров
+const FilterSortDebugTimer = {
+    marks: {},
+    start(label) {
+        this.marks[label] = performance.now();
+    },
+    end(label) {
+        const endTime = performance.now();
+        const startTime = this.marks[label];
+        if (startTime) {
+            const duration = (endTime - startTime).toFixed(2);
+            console.warn(`[TIMER] ${label} took ${duration} ms`);
+            delete this.marks[label];
+        } else {
+            console.warn(`[TIMER] No start mark found for: ${label}`);
+        }
+    }
+};
+
 const FilterSort = {
     // Список всех типов фильтров для обработки
     filterTypes: [
-        // Search Filters (не влияют на find_similar)
+        // Search Filters (оригинальные)
         { container: '.platform-grid', itemClass: 'platform-item', checkboxClass: 'platform-checkbox' },
         { container: '.game-type-grid', itemClass: 'game-type-item', checkboxClass: 'game-type-checkbox' },
 
-        // Similarity Filters (влияют на find_similar)
+        // Search Filters (новые с префиксом search-)
+        { container: '.search-genre-grid', itemClass: 'search-genre-item', checkboxClass: 'search-genre-checkbox' },
+        { container: '.search-keyword-grid', itemClass: 'search-keyword-item', checkboxClass: 'search-keyword-checkbox' },
+        { container: '.search-theme-grid', itemClass: 'search-theme-item', checkboxClass: 'search-theme-checkbox' },
+        { container: '.search-perspective-grid', itemClass: 'search-perspective-item', checkboxClass: 'search-perspective-checkbox' },
+        { container: '.search-game-mode-grid', itemClass: 'search-game-mode-item', checkboxClass: 'search-game-mode-checkbox' },
+        { container: '.search-engine-grid', itemClass: 'search-engine-item', checkboxClass: 'search-engine-checkbox' },
+
+        // Similarity Filters (оригинальные)
         { container: '.genre-grid', itemClass: 'genre-item', checkboxClass: 'genre-checkbox' },
         { container: '.keyword-grid', itemClass: 'keyword-item', checkboxClass: 'keyword-checkbox' },
         { container: '.theme-grid', itemClass: 'theme-item', checkboxClass: 'theme-checkbox' },
         { container: '.perspective-grid', itemClass: 'perspective-item', checkboxClass: 'perspective-checkbox' },
-        { container: '.game-mode-grid', itemClass: 'game-mode-item', checkboxClass: 'game-mode-checkbox' }
+        { container: '.game-mode-grid', itemClass: 'game-mode-item', checkboxClass: 'game-mode-checkbox' },
+        { container: '.engine-grid', itemClass: 'engine-item', checkboxClass: 'engine-checkbox' }
     ],
 
     // Флаг для предотвращения множественных сортировок
@@ -23,6 +51,7 @@ const FilterSort = {
         if (this.isSorting) return;
 
         this.isSorting = true;
+        FilterSortDebugTimer.start('sortFilterLists');
         console.log('Sorting filter lists...');
 
         try {
@@ -33,6 +62,7 @@ const FilterSort = {
             console.error('Error sorting filter lists:', error);
         } finally {
             this.isSorting = false;
+            FilterSortDebugTimer.end('sortFilterLists');
         }
     },
 
@@ -103,6 +133,7 @@ const FilterSort = {
 
     // Обновление порядка элементов в контейнере (оптимизированная версия)
     updateContainerOrder(container, sortedItems) {
+        FilterSortDebugTimer.start('updateContainerOrder');
         try {
             // Используем DocumentFragment для минимальной перерисовки
             const fragment = document.createDocumentFragment();
@@ -121,6 +152,7 @@ const FilterSort = {
         } catch (error) {
             console.error('Error updating container order:', error);
         }
+        FilterSortDebugTimer.end('updateContainerOrder');
     },
 
     // Быстрая сортировка для одного типа (оптимизированная версия)
@@ -160,7 +192,15 @@ const FilterSort = {
             'themes': { container: '.theme-grid', itemClass: 'theme-item', checkboxClass: 'theme-checkbox' },
             'perspectives': { container: '.perspective-grid', itemClass: 'perspective-item', checkboxClass: 'perspective-checkbox' },
             'game_modes': { container: '.game-mode-grid', itemClass: 'game-mode-item', checkboxClass: 'game-mode-checkbox' },
-            'game_types': { container: '.game-type-grid', itemClass: 'game-type-item', checkboxClass: 'game-type-checkbox' }
+            'game_types': { container: '.game-type-grid', itemClass: 'game-type-item', checkboxClass: 'game-type-checkbox' },
+            'engines': { container: '.engine-grid', itemClass: 'engine-item', checkboxClass: 'engine-checkbox' },
+            // Search Filters версии
+            'search_genres': { container: '.search-genre-grid', itemClass: 'search-genre-item', checkboxClass: 'search-genre-checkbox' },
+            'search_keywords': { container: '.search-keyword-grid', itemClass: 'search-keyword-item', checkboxClass: 'search-keyword-checkbox' },
+            'search_themes': { container: '.search-theme-grid', itemClass: 'search-theme-item', checkboxClass: 'search-theme-checkbox' },
+            'search_perspectives': { container: '.search-perspective-grid', itemClass: 'search-perspective-item', checkboxClass: 'search-perspective-checkbox' },
+            'search_game_modes': { container: '.search-game-mode-grid', itemClass: 'search-game-mode-item', checkboxClass: 'search-game-mode-checkbox' },
+            'search_engines': { container: '.search-engine-grid', itemClass: 'search-engine-item', checkboxClass: 'search-engine-checkbox' }
         };
 
         const filterType = filterMap[filterName];

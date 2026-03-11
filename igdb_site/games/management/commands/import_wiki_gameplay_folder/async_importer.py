@@ -156,22 +156,21 @@ class AsyncWikiImporter:
         return all_results[:5]  # Возвращаем не более 5 результатов
 
     async def get_page_content(self, title: str, get_full_text: bool = False) -> Optional[str]:
-        """Получение содержимого страницы С абзацами"""
-        cache_key = f"content:{title}:{'full' if get_full_text else 'intro'}:paragraphs"  # ← Измените ключ кэша
+        """Получение содержимого страницы с абзацами"""
+        cache_key = f"content:{title}:{'full' if get_full_text else 'intro'}:paragraphs"
         cached = await self.get_from_cache('content', cache_key)
         if cached:
             return cached
 
         url = f"https://{self.lang}.wikipedia.org/w/api.php"
 
-        # Ключевое изменение: используем exsectionformat=wiki для структуры
         params = {
             'action': 'query',
             'prop': 'extracts',
             'titles': title,
             'explaintext': 1,
             'format': 'json',
-            'exsectionformat': 'wiki'  # ← Это сохраняет структуру!
+            'exsectionformat': 'wiki'
         }
 
         if not get_full_text:
@@ -189,13 +188,9 @@ class AsyncWikiImporter:
             if page_id != '-1':
                 content = page_data.get('extract', '')
                 if content:
-                    print(f"📄 Получена страница '{title}': {len(content)} символов")
-
-                    # Ключевое: добавляем отступы между разделами
                     formatted_content = self.add_paragraphs_to_content(content)
-
                     await self.set_to_cache('content', cache_key, formatted_content)
-                    return formatted_content  # ← Возвращаем с отступами
+                    return formatted_content
         return None
 
     @staticmethod
@@ -320,24 +315,19 @@ class AsyncWikiImporter:
     async def get_game_description(self, game_name: str, game_year: int = None) -> Optional[str]:
         """Получить описание игры с учетом года выпуска"""
         try:
-            print(f"\n🔍 Поиск описания для: '{game_name}' (год: {game_year})")
-
             # Получаем полный текст
             content = await self.get_page_content(game_name.replace(' ', '_'), get_full_text=True)
 
             if content:
-                print(f"✅ Найдена страница: '{game_name}' ({len(content)} символов)")
-
                 # Извлекаем Gameplay
                 description = self.extract_gameplay_fast(content)
                 if description:
-                    print(f"🎮 Найден раздел Gameplay ({len(description)} символов)")
-                    return description  # Возвращаем ПОЛНЫЙ текст
+                    return description
 
             return None
 
         except Exception as e:
-            print(f"❌ Ошибка: {e}")
+            # Ошибки логируются только при --debug через логгер
             return None
 
     async def process_batch(self, games_batch: List[Dict]) -> Dict[int, str]:

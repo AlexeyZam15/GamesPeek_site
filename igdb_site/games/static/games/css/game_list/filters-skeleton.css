@@ -1,0 +1,178 @@
+/* games/static/games/css/game_list/filters-skeleton.css */
+/* ===== FILTERS SKELETON LOADING STYLES ===== */
+
+/* Заглушка занимает то же место, что и настоящие фильтры */
+#filters-skeleton {
+    margin-bottom: 1.5rem;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--border-radius);
+}
+
+/* Скрываем заглушку, когда фильтры загружены */
+#filters-skeleton.skeleton-hidden {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    display: none;
+}
+
+/* ===== СТИЛИ ДЛЯ ВКЛАДОК ===== */
+
+.skeleton-tab {
+    height: 42px;
+    background: linear-gradient(90deg, var(--border) 25%, var(--surface) 50%, var(--border) 75%);
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.5s infinite;
+    border-radius: 8px 8px 0 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 10px;
+    margin: 0 2px;
+}
+
+/* ===== РАЗМЫТАЯ НАДПИСЬ ===== */
+
+.skeleton-blurred-text {
+    filter: blur(3px);
+    opacity: 0.5;
+    pointer-events: none;
+    user-select: none;
+    padding: 15px;
+    margin: 5px 0;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+}
+
+/* ===== ОБЩИЕ СТИЛИ ===== */
+
+.skeleton-label {
+    height: 24px;
+    width: 60px;
+    background: linear-gradient(90deg, var(--border) 25%, var(--surface) 50%, var(--border) 75%);
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.5s infinite;
+    border-radius: 4px;
+}
+
+.skeleton-select {
+    height: 38px;
+    width: 100%;
+    background: linear-gradient(90deg, var(--border) 25%, var(--surface) 50%, var(--border) 75%);
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.5s infinite;
+    border-radius: 6px;
+}
+
+.skeleton-button-apply {
+    height: 38px;
+    width: 100%;
+    background: linear-gradient(90deg, var(--border) 25%, var(--surface) 50%, var(--border) 75%);
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.5s infinite;
+    border-radius: 6px;
+}
+
+.skeleton-icon {
+    color: transparent;
+    background: linear-gradient(90deg, var(--border) 25%, var(--surface) 50%, var(--border) 75%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    animation: skeleton-loading 1.5s infinite;
+    width: 16px;
+    height: 16px;
+    display: inline-block;
+}
+
+.skeleton-text {
+    color: transparent;
+    background: linear-gradient(90deg, var(--border) 25%, var(--surface) 50%, var(--border) 75%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    animation: skeleton-loading 1.5s infinite;
+    font-weight: 600;
+    height: 24px;
+    line-height: 24px;
+    display: inline-block;
+}
+
+.skeleton-button-primary {
+    height: 42px;
+    width: 140px;
+    background: linear-gradient(90deg, var(--border) 25%, var(--surface) 50%, var(--border) 75%);
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.5s infinite;
+    border-radius: 6px;
+}
+
+.skeleton-button-secondary {
+    height: 42px;
+    width: 140px;
+    background: linear-gradient(90deg, var(--border) 25%, var(--surface) 50%, var(--border) 75%);
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.5s infinite;
+    border-radius: 6px;
+}
+
+/* Анимация пульсации */
+@keyframes skeleton-loading {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+/* Контейнер настоящих фильтров */
+#real-filters-container {
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    animation: fadeInFilters 0.4s ease;
+}
+
+/* Анимация появления */
+@keyframes fadeInFilters {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+    .skeleton-button-primary,
+    .skeleton-button-secondary {
+        width: 120px;
+        height: 38px;
+    }
+
+    .skeleton-tab {
+        height: 36px;
+    }
+}
+
+@media (max-width: 576px) {
+    .skeleton-button-primary,
+    .skeleton-button-secondary {
+        width: 100%;
+    }
+
+    .skeleton-tab {
+        height: 34px;
+        font-size: 0.8rem;
+    }
+
+    .skeleton-text[style*="width: 200px"] {
+        width: 150px !important;
+    }
+}

@@ -107,6 +107,12 @@ class Command(BaseCommand):
             default=False,
             help='Включить игры из файла ненайденных (по умолчанию: False)'
         )
+        parser.add_argument(
+            '--debug',
+            action='store_true',
+            default=False,
+            help='Режим отладки - показывает все детальные логи'
+        )
 
     def handle(self, *args, **options):
         """Обработать поиск по имени и делегировать выполнение"""

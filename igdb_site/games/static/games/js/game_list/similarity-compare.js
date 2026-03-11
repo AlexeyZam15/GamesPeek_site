@@ -1,6 +1,27 @@
 // games/static/games/js/game_list/similarity-compare.js
+
+// Добавляем служебный объект для таймеров
+const SimilarityCompareDebugTimer = {
+    marks: {},
+    start(label) {
+        this.marks[label] = performance.now();
+    },
+    end(label) {
+        const endTime = performance.now();
+        const startTime = this.marks[label];
+        if (startTime) {
+            const duration = (endTime - startTime).toFixed(2);
+            console.warn(`[TIMER] ${label} took ${duration} ms`);
+            delete this.marks[label];
+        } else {
+            console.warn(`[TIMER] No start mark found for: ${label}`);
+        }
+    }
+};
+
 const SimilarityCompare = {
     init: function() {
+        SimilarityCompareDebugTimer.start('SimilarityCompare.init');
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => this.initCompareButtons());
         } else {
@@ -38,15 +59,18 @@ const SimilarityCompare = {
             childList: true,
             subtree: true
         });
+        SimilarityCompareDebugTimer.end('SimilarityCompare.init');
     },
 
     initCompareButtons: function() {
+        SimilarityCompareDebugTimer.start('SimilarityCompare.initCompareButtons');
         // Проверяем, находимся ли мы в режиме похожих игр
         const isSimilarMode = this.isSimilarMode();
 
         if (!isSimilarMode) {
             // Удаляем все кнопки Compare если не в режиме похожих
             this.removeAllCompareButtons();
+            SimilarityCompareDebugTimer.end('SimilarityCompare.initCompareButtons');
             return;
         }
 
@@ -55,6 +79,7 @@ const SimilarityCompare = {
 
         if (!sourceGameId) {
             console.warn('Source game not found, cannot add Compare buttons');
+            SimilarityCompareDebugTimer.end('SimilarityCompare.initCompareButtons');
             return;
         }
 
@@ -76,6 +101,7 @@ const SimilarityCompare = {
                 this.addCompareButton(card, sourceGameId, gameId);
             }
         });
+        SimilarityCompareDebugTimer.end('SimilarityCompare.initCompareButtons');
     },
 
     isSimilarMode: function() {
@@ -185,34 +211,20 @@ const SimilarityCompare = {
         // Создаем URL для сравнения
         const compareUrl = this.buildCompareUrl(sourceGameId, targetGameId);
 
-        // Создаем кнопку без процента
+        // Создаем компактную кнопку БЕЗ тултипа
         const button = document.createElement('a');
         button.href = compareUrl;
         button.className = 'btn btn-sm btn-outline-warning compare-button-added';
         button.innerHTML = '<i class="bi bi-arrow-left-right"></i> Compare';
-        button.setAttribute('data-bs-toggle', 'tooltip');
-        button.setAttribute('data-bs-placement', 'top');
-        button.setAttribute('title', `Compare with ${this.getSourceGameName()}`);
+        // НЕ добавляем атрибуты для тултипа
 
         // Добавляем кнопку в футер
         footer.appendChild(button);
-
-        // Инициализируем тултип Bootstrap
-        if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip) {
-            new bootstrap.Tooltip(button);
-        }
     },
 
     removeAllCompareButtons: function() {
         const compareButtons = document.querySelectorAll('.compare-button-added');
         compareButtons.forEach(button => {
-            // Уничтожаем тултип если есть
-            if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip && bootstrap.Tooltip.getInstance) {
-                const tooltip = bootstrap.Tooltip.getInstance(button);
-                if (tooltip) {
-                    tooltip.dispose();
-                }
-            }
             button.remove();
         });
     },

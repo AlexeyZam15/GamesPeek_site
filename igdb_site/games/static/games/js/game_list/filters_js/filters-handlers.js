@@ -1,4 +1,24 @@
 // games/static/games/js/game_list/filters-handlers.js
+
+// Добавляем служебный объект для таймеров
+const FilterHandlersDebugTimer = {
+    marks: {},
+    start(label) {
+        this.marks[label] = performance.now();
+    },
+    end(label) {
+        const endTime = performance.now();
+        const startTime = this.marks[label];
+        if (startTime) {
+            const duration = (endTime - startTime).toFixed(2);
+            console.warn(`[TIMER] ${label} took ${duration} ms`);
+            delete this.marks[label];
+        } else {
+            console.warn(`[TIMER] No start mark found for: ${label}`);
+        }
+    }
+};
+
 const FilterHandlers = {
     // Глобальные переменные
     form: null,
@@ -27,6 +47,7 @@ const FilterHandlers = {
 
     // Восстановление выбранных чекбоксов
     restoreSelectedCheckboxes() {
+        FilterHandlersDebugTimer.start('restoreSelectedCheckboxes');
         console.log('Restoring selected checkboxes...');
 
         const checkboxTypes = [
@@ -36,7 +57,8 @@ const FilterHandlers = {
             { selector: '.theme-checkbox', name: 'Theme' },
             { selector: '.perspective-checkbox', name: 'Perspective' },
             { selector: '.game-mode-checkbox', name: 'Game Mode' },
-            { selector: '.game-type-checkbox', name: 'Game Type' }
+            { selector: '.game-type-checkbox', name: 'Game Type' },
+            { selector: '.engine-checkbox', name: 'Engine' }
         ];
 
         checkboxTypes.forEach(({ selector, name }) => {
@@ -46,10 +68,12 @@ const FilterHandlers = {
         });
 
         console.log('Checkbox restoration completed');
+        FilterHandlersDebugTimer.end('restoreSelectedCheckboxes');
     },
 
     // Обновление скрытых полей формы
     updateHiddenFields() {
+        FilterHandlersDebugTimer.start('updateHiddenFields');
         console.log('Updating hidden fields...');
 
         // Маппинг полей
@@ -60,7 +84,8 @@ const FilterHandlers = {
             { selector: '.theme-checkbox:checked', field: 'themes-field' },
             { selector: '.perspective-checkbox:checked', field: 'perspectives-field' },
             { selector: '.game-mode-checkbox:checked', field: 'game-modes-field' },
-            { selector: '.game-type-checkbox:checked', field: 'game-types-field' }
+            { selector: '.game-type-checkbox:checked', field: 'game-types-field' },
+            { selector: '.engine-checkbox:checked', field: 'engines-field' }
         ];
 
         // Обновляем каждое поле
@@ -79,6 +104,7 @@ const FilterHandlers = {
 
         // Обновляем поле поиска похожих игр
         this.updateFindSimilarField();
+        FilterHandlersDebugTimer.end('updateHiddenFields');
     },
 
     // Обновление полей даты
@@ -111,7 +137,8 @@ const FilterHandlers = {
             document.querySelectorAll('.keyword-checkbox:checked').length,
             document.querySelectorAll('.theme-checkbox:checked').length,
             document.querySelectorAll('.perspective-checkbox:checked').length,
-            document.querySelectorAll('.game-mode-checkbox:checked').length
+            document.querySelectorAll('.game-mode-checkbox:checked').length,
+            document.querySelectorAll('.engine-checkbox:checked').length
         ];
 
         const hasSimilarityCriteria = similarityCriteria.some(count => count > 0);
@@ -121,11 +148,13 @@ const FilterHandlers = {
 
     // Настройка обработчиков чекбоксов
     setupCheckboxListeners() {
+        FilterHandlersDebugTimer.start('setupCheckboxListeners');
         console.log('Setting up checkbox listeners...');
 
         const allCheckboxes = document.querySelectorAll(
             '.genre-checkbox, .keyword-checkbox, .platform-checkbox, ' +
-            '.theme-checkbox, .perspective-checkbox, .game-mode-checkbox, .game-type-checkbox'
+            '.theme-checkbox, .perspective-checkbox, .game-mode-checkbox, .game-type-checkbox, ' +
+            '.engine-checkbox'
         );
 
         allCheckboxes.forEach(checkbox => {
@@ -142,10 +171,12 @@ const FilterHandlers = {
         });
 
         console.log(`Set up listeners for ${allCheckboxes.length} checkboxes`);
+        FilterHandlersDebugTimer.end('setupCheckboxListeners');
     },
 
     // Настройка кнопок очистки
     setupClearButtons() {
+        FilterHandlersDebugTimer.start('setupClearButtons');
         console.log('Setting up clear buttons...');
 
         const clearButtons = [
@@ -178,6 +209,10 @@ const FilterHandlers = {
                 param: 'gt'
             },
             {
+                selector: '.clear-engines-btn',
+                param: 'e'
+            },
+            {
                 selector: '.clear-date-filter-btn',
                 param: 'yr,ys,ye'
             }
@@ -204,10 +239,12 @@ const FilterHandlers = {
                 });
             }
         });
+        FilterHandlersDebugTimer.end('setupClearButtons');
     },
 
     // Очистка фильтра и перезагрузка страницы
     clearFilterAndReload(param) {
+        FilterHandlersDebugTimer.start('clearFilterAndReload');
         const url = new URL(window.location.href);
 
         // Обработка нескольких параметров (например, для даты: yr,ys,ye)
@@ -220,9 +257,9 @@ const FilterHandlers = {
         });
 
         // Также удаляем find_similar если очищаются жанры, ключевые слова и т.д.
-        if (['g', 'k', 't', 'pp', 'gm', 'gt'].includes(param)) {
+        if (['g', 'k', 't', 'pp', 'gm', 'gt', 'e'].includes(param)) {
             // Проверяем, остались ли другие критерии похожести
-            const otherSimilarityParams = ['g', 'k', 't', 'pp', 'gm', 'gt']
+            const otherSimilarityParams = ['g', 'k', 't', 'pp', 'gm', 'gt', 'e']
                 .filter(p => !paramsToClear.includes(p) && url.searchParams.has(p));
 
             if (otherSimilarityParams.length === 0) {
@@ -236,10 +273,12 @@ const FilterHandlers = {
         setTimeout(() => {
             window.location.href = url.toString();
         }, 50);
+        FilterHandlersDebugTimer.end('clearFilterAndReload');
     },
 
     // Удаление активных тегов
     setupActiveTagRemoval() {
+        FilterHandlersDebugTimer.start('setupActiveTagRemoval');
         console.log('Setting up active tag removal...');
 
         document.addEventListener('click', (e) => {
@@ -280,6 +319,11 @@ const FilterHandlers = {
                     param: 'gt'
                 },
                 {
+                    class: 'active-engine-tag',
+                    attr: 'data-engine-id',
+                    param: 'e'
+                },
+                {
                     class: 'active-date-filter-tag',
                     attr: 'data-date-range',
                     param: 'yr'
@@ -312,10 +356,12 @@ const FilterHandlers = {
                 }
             });
         });
+        FilterHandlersDebugTimer.end('setupActiveTagRemoval');
     },
 
     // Удаление одного фильтра и перезагрузка
     removeSingleFilterAndReload(param, id) {
+        FilterHandlersDebugTimer.start('removeSingleFilterAndReload');
         const url = new URL(window.location.href);
 
         // Особый случай для фильтра даты
@@ -334,8 +380,8 @@ const FilterHandlers = {
                 url.searchParams.delete(param);
 
                 // Если это критерий похожести, отключаем find_similar
-                if (['g', 'k', 't', 'pp', 'gm', 'gt'].includes(param)) {
-                    const otherSimilarityParams = ['g', 'k', 't', 'pp', 'gm', 'gt']
+                if (['g', 'k', 't', 'pp', 'gm', 'gt', 'e'].includes(param)) {
+                    const otherSimilarityParams = ['g', 'k', 't', 'pp', 'gm', 'gt', 'e']
                         .filter(p => p !== param && url.searchParams.has(p));
 
                     if (otherSimilarityParams.length === 0) {
@@ -350,6 +396,7 @@ const FilterHandlers = {
         setTimeout(() => {
             window.location.href = url.toString();
         }, 50);
+        FilterHandlersDebugTimer.end('removeSingleFilterAndReload');
     },
 
     // Автоотправка формы для сортировки
@@ -372,6 +419,7 @@ const FilterHandlers = {
 
     // Триггер сортировки с debounce и принудительной сортировкой
     triggerSort() {
+        FilterHandlersDebugTimer.start('triggerSort');
         console.log('Triggering sort...');
 
         // Используем debounce для предотвращения множественных сортировок
@@ -388,6 +436,7 @@ const FilterHandlers = {
             }
             this.debounceTimer = null;
         }, 100);
+        FilterHandlersDebugTimer.end('triggerSort');
     },
 
     // Триггер с задержкой для гарантии отработки
@@ -399,6 +448,7 @@ const FilterHandlers = {
 
     // Настройка обработчиков для фильтра даты
     setupDateFilterListeners() {
+        FilterHandlersDebugTimer.start('setupDateFilterListeners');
         console.log('Setting up date filter listeners...');
 
         // Слушатели изменения ползунков
@@ -447,10 +497,12 @@ const FilterHandlers = {
                 });
             }
         });
+        FilterHandlersDebugTimer.end('setupDateFilterListeners');
     },
 
     // Инициализация всех обработчиков
     initializeAllHandlers() {
+        FilterHandlersDebugTimer.start('FilterHandlers.initializeAllHandlers');
         console.log('Initializing all filter handlers...');
 
         try {
@@ -474,6 +526,7 @@ const FilterHandlers = {
         } catch (error) {
             console.error('Error initializing filter handlers:', error);
         }
+        FilterHandlersDebugTimer.end('FilterHandlers.initializeAllHandlers');
     }
 };
 

@@ -1,0 +1,55 @@
+/* ===== GAME COMPARISON VARIABLES ===== */
+:root {
+  /* Размеры текста */
+  --similarity-score-size: 3rem;
+  --similarity-score-size-lg: 2.5rem;
+  --similarity-score-size-md: 2rem;
+  --similarity-score-size-sm: 1.8rem;
+
+  --stat-number-size: 2.5rem;
+  --stat-number-size-md: 2rem;
+  --stat-number-size-sm: 1.8rem;
+
+  /* Цвета градиентов */
+  --gradient-primary: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
+  --gradient-success: linear-gradient(90deg, var(--success-color), #2ecc71);
+  --gradient-warning: linear-gradient(90deg, var(--warning-color), #f1c40f);
+  --gradient-info: linear-gradient(90deg, var(--info-color), #3498db);
+
+  /* Фоны */
+  --hero-bg: linear-gradient(135deg,
+    rgba(255, 107, 53, 0.1) 0%,
+    rgba(255, 140, 0, 0.05) 50%,
+    rgba(52, 152, 219, 0.1) 100%);
+
+  --similarity-card-bg: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
+
+  /* Тени */
+  --card-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+  --stat-shadow: 0 5px 15px rgba(255, 107, 53, 0.2);
+  --section-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+  --section-hover-shadow: 0 6px 15px rgba(0, 0, 0, 0.3);
+
+  /* Отступы */
+  --hero-padding: 2rem;
+  --hero-padding-md: 1.5rem;
+  --hero-padding-sm: 1rem;
+
+  --similarity-card-padding: 2rem 1rem;
+  --similarity-card-padding-sm: 1.5rem 0.5rem;
+
+  /* Прогресс-бар */
+  --progress-height: 30px;
+  --progress-height-sm: 25px;
+
+  /* Категории */
+  --category-padding: 1.5rem;
+  --category-padding-sm: 1rem;
+
+  /* Высота карточек сравнения */
+  --comparison-card-height: 500px;
+  --comparison-cover-height: 220px;
+  --comparison-cover-height-md: 180px;
+  --comparison-cover-height-sm: 150px;
+  --comparison-cover-height-xs: 120px;
+}

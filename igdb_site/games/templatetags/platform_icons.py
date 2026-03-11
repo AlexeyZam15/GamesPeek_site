@@ -319,6 +319,18 @@ def platform_badge(platform_name):
 
 
 @register.filter
+def intdiv(value, divisor):
+    """
+    Возвращает целочисленное деление.
+    Используется для разделения платформ на примерно равные ряды.
+    """
+    try:
+        return value // divisor
+    except (ValueError, ZeroDivisionError, TypeError):
+        return 0
+
+
+@register.filter
 def split_platforms(platforms, per_row=8):
     """
     Разделяет платформы на ряды, но старается оставить в первом ряду больше,
@@ -359,11 +371,18 @@ def split_platforms(platforms, per_row=8):
 
 @register.filter
 def limit_platforms(platforms, limit=8):
-    """Фильтр для ограничения количества платформ"""
+    """
+    Фильтр для ограничения количества платформ до указанного лимита.
+    Всегда возвращает список длиной не более limit.
+    """
+    if not platforms:
+        return []
     return platforms[:limit]
 
 
 @register.filter
 def has_more_platforms(platforms, limit=8):
     """Проверяет, есть ли еще платформы сверх лимита"""
+    if not platforms:
+        return False
     return len(platforms) > limit

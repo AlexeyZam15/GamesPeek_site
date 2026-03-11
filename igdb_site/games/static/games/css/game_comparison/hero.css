@@ -1,0 +1,47 @@
+/* ===== COMPARISON HERO STYLES ===== */
+.comparison-hero {
+  background: var(--hero-bg);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--border-radius);
+  padding: var(--hero-padding);
+  margin-bottom: 2rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.comparison-hero::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(255, 107, 53, 0.1) 0%, transparent 70%);
+  animation: pulse 8s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.1); opacity: 0.8; }
+}
+
+.similarity-header {
+  background: linear-gradient(135deg, rgba(255, 193, 7, 0.1), rgba(33, 37, 41, 0.9));
+  border: 2px solid #ffc107;
+  border-radius: 15px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2rem;
+}
+
+.similarity-visual {
+  min-width: 120px;
+}
+
+.similarity-info h3 {
+  font-size: 1.8rem;
+  font-weight: 700;
+}

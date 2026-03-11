@@ -1,3 +1,4 @@
+// games/static/games/js/analyze/handlers.js
 /**
  * Обработчики событий для Game Analyzer
  */
@@ -11,27 +12,27 @@ import {
     clearTabScrollPositions
 } from './utils.js';
 
-// Обработчик кнопки удаления ключевого слова
+/* ============================================
+   DELETE KEYWORD HANDLER
+   ============================================ */
+
 class DeleteKeywordHandler {
     constructor(analyzer) {
         this.analyzer = analyzer;
-        this.gameId = this._getGameId(); // Получаем gameId при создании
+        this.gameId = this._getGameId();
     }
 
     _getGameId() {
-        // Пробуем несколько способов получить gameId
         const gameIdElement = document.getElementById('game-id');
         if (gameIdElement && gameIdElement.value) {
             return gameIdElement.value;
         }
 
-        // Ищем в URL: /games/123/analyze/
         const urlMatch = window.location.pathname.match(/\/games\/(\d+)\/analyze/);
         if (urlMatch && urlMatch[1]) {
             return urlMatch[1];
         }
 
-        // Ищем в скрытых полях формы
         const gameIdInput = document.querySelector('input[name="game_id"], input[name="game-id"]');
         if (gameIdInput && gameIdInput.value) {
             return gameIdInput.value;
@@ -47,7 +48,6 @@ class DeleteKeywordHandler {
 
         if (!deleteButton) return;
 
-        // Проверяем наличие gameId
         if (!this.gameId) {
             console.error('Cannot bind delete button: Game ID not available');
             deleteButton.disabled = true;
@@ -55,13 +55,11 @@ class DeleteKeywordHandler {
             return;
         }
 
-        // Обработчик клика на кнопку удаления
         deleteButton.addEventListener('click', (e) => {
             e.preventDefault();
             this.handleDeleteKeyword();
         });
 
-        // Обработчик Shift+Enter для удаления
         if (keywordInput) {
             keywordInput.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' && e.shiftKey) {
@@ -91,7 +89,6 @@ class DeleteKeywordHandler {
             return;
         }
 
-        // Используем сохраненный gameId
         if (!this.gameId) {
             this.analyzer.showMessage('Game ID not found. Please refresh the page.', 'error');
             return;
@@ -104,10 +101,8 @@ class DeleteKeywordHandler {
             deleteButton.disabled = true;
         }
 
-        // Сохраняем текущую вкладку
         const currentTab = this.analyzer.currentTab || 'summary';
 
-        // Используем this.gameId
         fetch(`/games/${this.gameId}/analyze/delete-keyword/`, {
             method: 'POST',
             headers: {
@@ -117,12 +112,11 @@ class DeleteKeywordHandler {
             },
             body: JSON.stringify({
                 keyword: keyword,
-                tab: currentTab, // Передаем текущую вкладку
-                auto_analyze: true // Флаг для автоматического анализа
+                tab: currentTab,
+                auto_analyze: true
             })
         })
         .then(response => {
-            // Проверяем статус ответа перед парсингом JSON
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
@@ -145,9 +139,8 @@ class DeleteKeywordHandler {
                 this.refreshCurrentKeywords();
                 this.refreshFoundItems();
 
-                // ВАЖНОЕ ИСПРАВЛЕНИЕ: Выполняем автоматический анализ после удаления
                 if (data.analyze_after_delete) {
-                    this.analyzer.showMessage('🔄 Выполняем повторный анализ текста...', 'info');
+                    this.analyzer.showMessage('🔄 Performing text re-analysis...', 'info');
                     this.performAutoAnalysis(currentTab);
                 }
 
@@ -167,7 +160,6 @@ class DeleteKeywordHandler {
         });
     }
 
-    // Новый метод для автоматического анализа
     performAutoAnalysis(tabName) {
         const form = document.getElementById('analyze-form');
         if (!form) {
@@ -175,7 +167,6 @@ class DeleteKeywordHandler {
             return;
         }
 
-        // Устанавливаем параметры для анализа
         const analyzeTabInput = document.getElementById('analyze-tab-input');
         if (analyzeTabInput) {
             analyzeTabInput.value = tabName;
@@ -186,7 +177,6 @@ class DeleteKeywordHandler {
             autoAnalyzeInput.value = 'true';
         }
 
-        // Добавляем скрытое поле для анализа
         let analyzeField = form.querySelector('input[name="analyze"]');
         if (!analyzeField) {
             analyzeField = document.createElement('input');
@@ -196,12 +186,10 @@ class DeleteKeywordHandler {
             form.appendChild(analyzeField);
         }
 
-        // Сохраняем позиции прокрутки
         this.analyzer.saveCurrentTab();
         this.analyzer.saveScrollPosition();
         this.analyzer.saveTabScrollPosition(tabName);
 
-        // Отправляем форму
         setTimeout(() => {
             try {
                 form.submit();
@@ -218,7 +206,6 @@ class DeleteKeywordHandler {
             return;
         }
 
-        // Ищем контейнер с ключевыми словами
         const allCategories = document.querySelectorAll('.current-data-category');
         let currentKeywordsContainer = null;
 
@@ -236,7 +223,6 @@ class DeleteKeywordHandler {
 
         fetch(`/games/${this.gameId}/analyze/current-keywords/`)
         .then(response => {
-            // Проверяем Content-Type
             const contentType = response.headers.get("content-type");
             if (!contentType || !contentType.includes("application/json")) {
                 return response.text().then(text => {
@@ -267,7 +253,6 @@ class DeleteKeywordHandler {
             return;
         }
 
-        // Ищем контейнер с ключевыми словами
         const allCategories = document.querySelectorAll('.found-items-category');
         let foundKeywordsContainer = null;
 
@@ -285,7 +270,6 @@ class DeleteKeywordHandler {
         const activeTab = this.analyzer.currentTab || 'summary';
         fetch(`/games/${this.gameId}/analyze/found-items/?tab=${activeTab}`)
         .then(response => {
-            // Проверяем Content-Type
             const contentType = response.headers.get("content-type");
             if (!contentType || !contentType.includes("application/json")) {
                 return response.text().then(text => {
@@ -329,7 +313,116 @@ class DeleteKeywordHandler {
 }
 
 /* ============================================
-   ADD KEYWORD HANDLER - НОВЫЙ МЕТОД
+   NORMALIZE KEYWORD HANDLER
+   ============================================ */
+
+class NormalizeKeywordHandler {
+    constructor(analyzer) {
+        this.analyzer = analyzer;
+    }
+
+    bind() {
+        const normalizeButton = document.getElementById('normalize-keyword-button');
+        const keywordInput = document.getElementById('new-keyword-input');
+
+        if (!normalizeButton || !keywordInput) {
+            console.warn('Normalize button or input not found');
+            return;
+        }
+
+        normalizeButton.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.handleNormalize();
+        });
+
+        keywordInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && e.ctrlKey) {
+                e.preventDefault();
+                this.handleNormalize();
+            }
+        });
+    }
+
+    handleNormalize() {
+        const keywordInput = document.getElementById('new-keyword-input');
+        const resultDiv = document.getElementById('normalization-result');
+        const word = keywordInput ? keywordInput.value.trim() : '';
+
+        if (!word) {
+            this.analyzer.showMessage('Please enter a word to normalize', 'error');
+            if (resultDiv) {
+                resultDiv.innerHTML = '<span class="text-danger"><i class="bi bi-exclamation-circle me-1"></i>Enter a word first.</span>';
+            }
+            return;
+        }
+
+        const csrfToken = this.analyzer.getCSRFToken();
+        if (!csrfToken) {
+            this.analyzer.showMessage('Security token missing', 'error');
+            return;
+        }
+
+        const normalizeButton = document.getElementById('normalize-keyword-button');
+        const originalHTML = normalizeButton ? normalizeButton.innerHTML : '';
+        if (normalizeButton) {
+            normalizeButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Normalizing...';
+            normalizeButton.disabled = true;
+        }
+
+        if (resultDiv) {
+            resultDiv.innerHTML = '<span class="text-info"><i class="bi bi-hourglass-split me-1"></i>Normalizing...</span>';
+        }
+
+        fetch('/games/normalize-keyword/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: JSON.stringify({ word: word })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                if (resultDiv) {
+                    resultDiv.innerHTML = `
+                        <span class="text-success">
+                            <i class="bi bi-check-circle me-1"></i>
+                            <strong>${data.original}</strong> → <strong>${data.normalized}</strong>
+                        </span>`;
+                }
+                this.analyzer.showMessage(data.message, 'success', 3000);
+            } else {
+                if (resultDiv) {
+                    resultDiv.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${data.message}</span>`;
+                }
+                this.analyzer.showMessage('❌ ' + data.message, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error normalizing keyword:', error);
+            if (resultDiv) {
+                resultDiv.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>Error: ${error.message}</span>`;
+            }
+            this.analyzer.showMessage('❌ Error normalizing word: ' + error.message, 'error');
+        })
+        .finally(() => {
+            if (normalizeButton) {
+                normalizeButton.innerHTML = originalHTML;
+                normalizeButton.disabled = false;
+            }
+        });
+    }
+}
+
+/* ============================================
+   ADD KEYWORD HANDLER
    ============================================ */
 
 function bindAddKeywordButton(analyzer) {
@@ -360,30 +453,6 @@ function bindAddKeywordButton(analyzer) {
         handleAddKeywordSubmission(analyzer);
     });
 }
-
-function bindDeleteKeywordButton(analyzer) {
-    console.log('Binding delete keyword button...');
-
-    const deleteButton = document.getElementById('delete-keyword-button');
-    console.log('Delete button found:', deleteButton);
-
-    if (!deleteButton) {
-        console.error('Delete button not found!');
-        return;
-    }
-
-    const deleteHandler = new DeleteKeywordHandler(analyzer);
-    deleteHandler.bind();
-
-    // Проверяем, удалось ли получить gameId
-    if (!deleteHandler.gameId) {
-        console.error('Failed to get game ID. Check HTML for <input id="game-id" value="...">');
-    }
-}
-
-/* ============================================
-   LOCAL HELPER FUNCTION FOR ADDING KEYWORDS
-   ============================================ */
 
 function handleAddKeywordSubmission(analyzer) {
     const keywordInput = document.getElementById('new-keyword-input');
@@ -446,13 +515,29 @@ function handleAddKeywordSubmission(analyzer) {
     }, 100);
 }
 
-/* ============================================
-   UTILITY FUNCTION TO GET CSRF TOKEN
-   ============================================ */
+function bindDeleteKeywordButton(analyzer) {
+    console.log('Binding delete keyword button...');
 
-function getCSRFToken() {
-    const csrfInput = document.querySelector('[name="csrfmiddlewaretoken"]');
-    return csrfInput ? csrfInput.value : null;
+    const deleteButton = document.getElementById('delete-keyword-button');
+    console.log('Delete button found:', deleteButton);
+
+    if (!deleteButton) {
+        console.error('Delete button not found!');
+        return;
+    }
+
+    const deleteHandler = new DeleteKeywordHandler(analyzer);
+    deleteHandler.bind();
+
+    if (!deleteHandler.gameId) {
+        console.error('Failed to get game ID. Check HTML for <input id="game-id" value="...">');
+    }
+}
+
+function bindNormalizeKeywordButton(analyzer) {
+    console.log('Binding normalize keyword button...');
+    const normalizeHandler = new NormalizeKeywordHandler(analyzer);
+    normalizeHandler.bind();
 }
 
 /* ============================================
@@ -1057,10 +1142,16 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+function getCSRFToken() {
+    const csrfInput = document.querySelector('[name="csrfmiddlewaretoken"]');
+    return csrfInput ? csrfInput.value : null;
+}
+
 // Экспортируем все функции
 export {
     bindAddKeywordButton,
-    bindDeleteKeywordButton,  // ← ДОБАВИТЬ ЭТО
+    bindDeleteKeywordButton,
+    bindNormalizeKeywordButton,
     bindTabSelect,
     bindTabScrollEvents,
     bindBootstrapTabs,

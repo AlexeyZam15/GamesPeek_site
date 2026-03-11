@@ -1,5 +1,24 @@
 // games/static/games/js/game_list/keywords-pagination.js
 
+// Добавляем служебный объект для таймеров
+const KeywordsPaginationDebugTimer = {
+    marks: {},
+    start(label) {
+        this.marks[label] = performance.now();
+    },
+    end(label) {
+        const endTime = performance.now();
+        const startTime = this.marks[label];
+        if (startTime) {
+            const duration = (endTime - startTime).toFixed(2);
+            console.warn(`[TIMER] ${label} took ${duration} ms`);
+            delete this.marks[label];
+        } else {
+            console.warn(`[TIMER] No start mark found for: ${label}`);
+        }
+    }
+};
+
 const KeywordsPagination = {
     // Конфигурация
     config: {
@@ -24,12 +43,14 @@ const KeywordsPagination = {
 
     // Инициализация
     init() {
+        KeywordsPaginationDebugTimer.start('KeywordsPagination.init');
         console.log('🚀 KeywordsPagination: Initializing...');
 
         // Находим контейнер с ключевыми словами
         const keywordContainer = document.querySelector('.keyword-list');
         if (!keywordContainer) {
             console.log('KeywordsPagination: Keyword container not found');
+            KeywordsPaginationDebugTimer.end('KeywordsPagination.init');
             return;
         }
 
@@ -42,6 +63,7 @@ const KeywordsPagination = {
 
         if (this.state.totalItems <= this.config.itemsPerPage) {
             console.log(`KeywordsPagination: Only ${this.state.totalItems} keywords, pagination not needed`);
+            KeywordsPaginationDebugTimer.end('KeywordsPagination.init');
             return;
         }
 
@@ -71,6 +93,7 @@ const KeywordsPagination = {
 
         this.state.isInitialized = true;
         console.log(`KeywordsPagination: Initialized successfully with ${this.state.totalPages} pages`);
+        KeywordsPaginationDebugTimer.end('KeywordsPagination.init');
     },
 
     // Создание элементов пагинации
@@ -530,10 +553,12 @@ const KeywordsPagination = {
 
     // Обновить после поиска
     updateAfterSearch() {
+        KeywordsPaginationDebugTimer.start('KeywordsPagination.updateAfterSearch');
         console.log('KeywordsPagination: Updating after search...');
 
         if (!this.state.isInitialized) {
             console.log('KeywordsPagination: Not initialized yet, skipping update');
+            KeywordsPaginationDebugTimer.end('KeywordsPagination.updateAfterSearch');
             return;
         }
 
@@ -567,14 +592,17 @@ const KeywordsPagination = {
             this.updatePageNumbers();
             this.updateNavigationButtons();
         }
+        KeywordsPaginationDebugTimer.end('KeywordsPagination.updateAfterSearch');
     },
 
     // Принудительное обновление (после очистки поиска)
     forceUpdate() {
+        KeywordsPaginationDebugTimer.start('KeywordsPagination.forceUpdate');
         console.log('KeywordsPagination: Force updating...');
 
         if (!this.state.isInitialized) {
             this.init();
+            KeywordsPaginationDebugTimer.end('KeywordsPagination.forceUpdate');
             return;
         }
 
@@ -607,6 +635,7 @@ const KeywordsPagination = {
                 item.style.display = 'block';
             });
         }
+        KeywordsPaginationDebugTimer.end('KeywordsPagination.forceUpdate');
     },
 
     // Деструктор (очистка)

@@ -44,22 +44,86 @@ class Command(BaseCommand):
                             help='Сбросить сохраненный offset и начать с начала')
         parser.add_argument('--update-missing-data', action='store_true',
                             help='Обновить отсутствующие данные у существующих игр. Можно использовать с --game-names или без для обновления всех игр')
-        # НОВЫЙ АРГУМЕНТ
         parser.add_argument('--update-covers', action='store_true',
                             help='Обновить только обложки у существующих игр')
 
+        parser.add_argument('--no-cache', action='store_true',
+                            help='Отключить кэширование загрузки из БД')
+        parser.add_argument('--cache-ttl', type=int, default=3600,
+                            help='Время жизни кэша в секундах (по умолчанию 3600 - 1 час)')
+        parser.add_argument('--clear-db-cache', action='store_true',
+                            help='Очистить кэш данных из БД перед запуском')
+
     def handle(self, *args, **options):
         """Основной метод выполнения команды"""
-        # Если используется --update-covers
+        from django.core.cache import cache
+        from .load_igdb.game_cache import GameCacheManager
+
+        options['use_cache'] = not options.get('no_cache', False)
+
+        # Очистка кэша
+        if options.get('clear_cache', False):
+            self.stdout.write('\n🧹 ОЧИСТКА КЭША')
+            self.stdout.write('=' * 50)
+
+            # Очищаем кэш проверенных игр
+            try:
+                cleared_count = GameCacheManager.clear_cache()
+                self.stdout.write(f'   ✅ Кэш проверенных игр очищен: {cleared_count} записей')
+            except Exception as e:
+                self.stdout.write(f'   ⚠️ Ошибка очистки кэша проверенных игр: {e}')
+
+            # Очищаем кэш relations
+            try:
+                cache.delete("games_relations_cache")
+                self.stdout.write('   ✅ Кэш relations очищен')
+            except Exception as e:
+                self.stdout.write(f'   ⚠️ Ошибка очистки кэша relations: {e}')
+
+            self.stdout.write('=' * 50)
+
+        if options.get('clear_db_cache', False):
+            self.stdout.write('\n🧹 ОЧИСТКА КЭША БД')
+            self.stdout.write('=' * 50)
+
+            try:
+                cleared_count = 0
+                cache_keys = []
+
+                try:
+                    cache_keys = cache.keys("games_relations_*")
+                    if cache_keys:
+                        cache.delete_many(cache_keys)
+                        cleared_count = len(cache_keys)
+                except:
+                    cache.clear()
+                    cleared_count = -1
+
+                if cleared_count == -1:
+                    self.stdout.write('   ✅ Весь кэш БД очищен')
+                elif cleared_count > 0:
+                    self.stdout.write(f'   ✅ Удалено {cleared_count} записей кэша игр')
+                else:
+                    self.stdout.write('   📭 Кэш игр пуст')
+
+            except Exception as e:
+                self.stdout.write(f'   ❌ Ошибка очистки кэша: {e}')
+
+            self.stdout.write('=' * 50)
+
+            if not options.get('force', False):
+                response = input('\nПродолжить выполнение команды? (y/n): ')
+                if response.lower() != 'y':
+                    self.stdout.write('⏹️ Команда отменена')
+                    return
+
         if options['update_covers']:
             self.stdout.write('🖼️  РЕЖИМ: ОБНОВЛЕНИЕ ОБЛОЖЕК')
 
-            # Отключаем другие режимы
             options['overwrite'] = False
             options['count_only'] = False
             options['update_missing_data'] = False
 
-            # Определяем, какие игры будут обновляться
             update_all_covers = not any([
                 options['game_names'],
                 options['game_modes'],
@@ -81,20 +145,16 @@ class Command(BaseCommand):
             elif options['keywords']:
                 self.stdout.write(f'🎮 Обновление обложек для игр с ключевыми словами: {options["keywords"]}')
 
-            # Создаем экземпляр GameLoader и делегируем ему работу
             loader = GameLoader(self.stdout, self.stderr)
             loader.execute_command(options)
             return
 
-        # Если используется --update-missing-data
         elif options['update_missing_data']:
             self.stdout.write('🔄 РЕЖИМ: ОБНОВЛЕНИЕ ОТСУТСТВУЮЩИХ ДАННЫХ')
 
-            # Отключаем overwrite и count-only в этом режиме
             options['overwrite'] = False
             options['count_only'] = False
 
-            # Определяем, какие игры будут обновляться
             update_all_games = not any([
                 options['game_names'],
                 options['game_modes'],
@@ -116,21 +176,16 @@ class Command(BaseCommand):
             elif options['keywords']:
                 self.stdout.write(f'🎮 Обновление данных для игр с ключевыми словами: {options["keywords"]}')
 
-            # Устанавливаем специальный флаг для режима обновления всех игр
             options['update_all_games'] = update_all_games
 
-        # Если используется --game-modes без update-missing-data
         elif options['game_modes']:
             self.stdout.write(f'🎮 РЕЖИМ ЗАГРУЗКИ ПО РЕЖИМАМ ИГРЫ: {options["game_modes"]}')
 
-        # Если используется --game-names без update-missing-data
         elif options['game_names']:
             self.stdout.write(f'🎮 РЕЖИМ ЗАГРУЗКИ ПО ИМЕНАМ ИГР: {options["game_names"]}')
-            # Принудительно устанавливаем однократное выполнение без лимитов
             options['repeat'] = -1
             options['limit'] = 0
             options['iteration_limit'] = 1000
 
-        # Создаем экземпляр GameLoader и делегируем ему работу
         loader = GameLoader(self.stdout, self.stderr)
         loader.execute_command(options)
