@@ -101,7 +101,7 @@ class Command(BaseCommand):
     def _get_base_form(self, word: str) -> str:
         """
         Определяет исходную форму слова используя NLTK
-        ИСПРАВЛЕНО: ПРАВИЛЬНАЯ ОБРАБОТКА СОСТАВНЫХ СЛОВ
+        ИСПРАВЛЕНО: СНАЧАЛА НОРМАЛИЗУЕМ ПО ПРАВИЛАМ, ПОТОМ ПРОВЕРЯЕМ
         """
         word_lower = word.lower()
 
@@ -146,61 +146,176 @@ class Command(BaseCommand):
         try:
             from nltk.corpus import wordnet as wn
 
-            # Если слово уже есть в WordNet, оставляем
-            if wn.synsets(word_lower):
+            # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА -ing ФОРМ ==========
+            if word_lower.endswith('ing') and len(word_lower) > 4:
+                # Базовая форма без 'ing'
+                base = word_lower[:-3]
+
+                # Пробуем разные варианты
+                candidates = []
+
+                # 1. Просто убираем ing (stretching → stretch)
+                candidates.append(base)
+
+                # 2. Для слов типа running → run (убираем удвоенную)
+                if len(base) >= 2 and base[-1] == base[-2]:
+                    candidates.append(base[:-1])
+
+                # 3. Для слов типа taking → take (добавляем e)
+                if len(base) >= 2 and base[-1] not in 'aeiou' and not base.endswith('e'):
+                    candidates.append(base + 'e')
+
+                # 4. Для слов типа lying → lie (спецслучай)
+                if base.endswith('y') and len(base) >= 3:
+                    candidates.append(base[:-1] + 'ie')
+
+                # Проверяем кандидатов (они уже нормализованы по правилам)
+                for candidate in candidates:
+                    if candidate and wn.synsets(candidate):
+                        return candidate
+
+                # Если ни один кандидат не найден в WordNet,
+                # но у нас есть разумный кандидат, возвращаем первый
+                if candidates:
+                    return candidates[0]
+
                 return word_lower
 
-            # Пробуем разные варианты нормализации
-            candidates = []
+            # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА -ed ФОРМ ==========
+            if word_lower.endswith('ed') and len(word_lower) > 4:
+                base = word_lower[:-2]
+                candidates = [base]
 
-            # -ness
+                # planned → plan
+                if len(base) >= 2 and base[-1] == base[-2]:
+                    candidates.append(base[:-1])
+
+                # created → create
+                if len(base) >= 2 and base[-1] not in 'aeiou' and not base.endswith('e'):
+                    candidates.append(base + 'e')
+
+                for candidate in candidates:
+                    if candidate and wn.synsets(candidate):
+                        return candidate
+
+                if candidates:
+                    return candidates[0]
+
+                return word_lower
+
+            # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА -er ФОРМ ==========
+            if word_lower.endswith('er') and len(word_lower) > 4:
+                base = word_lower[:-2]
+                candidates = [base]
+
+                # bigger → big
+                if len(base) >= 2 and base[-1] == base[-2]:
+                    candidates.append(base[:-1])
+
+                # driver → drive
+                if len(base) >= 2 and base[-1] not in 'aeiou' and not base.endswith('e'):
+                    candidates.append(base + 'e')
+
+                for candidate in candidates:
+                    if candidate and wn.synsets(candidate):
+                        return candidate
+
+                if candidates:
+                    return candidates[0]
+
+                return word_lower
+
+            # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА -ness (существительные от прилагательных) ==========
             if word_lower.endswith('ness') and len(word_lower) > 6:
+                # Убираем "ness" (weightlessness → weightless)
                 base = word_lower[:-4]
-                if len(base) >= 4:
-                    candidates.append(base)
 
-            # -ty
+                if len(base) >= 4:
+                    # Проверяем базовую форму (прилагательное)
+                    if wn.synsets(base):
+                        return base
+
+                    # Пробуем с 'y' если заканчивается на 'i' (happiness → happy)
+                    if base.endswith('i') and len(base) > 3:
+                        happy_form = base[:-1] + 'y'
+                        if wn.synsets(happy_form):
+                            return happy_form
+
+                return word_lower
+
+            # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА -ty (существительные от прилагательных) ==========
             if word_lower.endswith('ty') and len(word_lower) > 5:
                 base = word_lower[:-2]
-                if len(base) >= 4:
-                    candidates.append(base)
-                    candidates.append(base + 'e')
+                candidates = [base, base + 'e']
 
-            # -ing
-            if word_lower.endswith('ing') and len(word_lower) > 5:
-                base = word_lower[:-3]
-                if len(base) >= 4:
-                    candidates.append(base)
-                    if base.endswith('e'):
-                        candidates.append(base[:-1])
+                # safety → safe
+                if base.endswith('t') and len(base) > 3:
+                    candidates.append(base[:-1] + 'fe')
 
-            # -ed
-            if word_lower.endswith('ed') and len(word_lower) > 5:
+                for candidate in candidates:
+                    if candidate and wn.synsets(candidate):
+                        return candidate
+
+                return word_lower
+
+            # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА -ly (наречия) ==========
+            if word_lower.endswith('ly') and len(word_lower) > 5:
                 base = word_lower[:-2]
-                if len(base) >= 4:
-                    candidates.append(base)
-                    candidates.append(base + 'e')
 
-            # -er
-            if word_lower.endswith('er') and len(word_lower) > 5:
-                base = word_lower[:-2]
-                if len(base) >= 4:
-                    candidates.append(base)
+                # quickly → quick
+                if wn.synsets(base):
+                    return base
 
-            # Множественное число
+                # happily → happy
+                if base.endswith('i') and len(base) > 3:
+                    happy_form = base[:-1] + 'y'
+                    if wn.synsets(happy_form):
+                        return happy_form
+
+                return word_lower
+
+            # ========== МНОЖЕСТВЕННОЕ ЧИСЛО ==========
+            # -ies (cities → city)
             if word_lower.endswith('ies') and len(word_lower) > 5:
-                candidates.append(word_lower[:-3] + 'y')
+                base = word_lower[:-3] + 'y'
+                if wn.synsets(base):
+                    return base
+                return word_lower
 
-            if word_lower.endswith('es') and len(word_lower) > 4:
-                candidates.append(word_lower[:-2])
+            # -es (boxes → box)
+            if word_lower.endswith('es') and len(word_lower) > 5:
+                base = word_lower[:-2]
+                if wn.synsets(base):
+                    return base
 
-            if word_lower.endswith('s') and len(word_lower) > 4:
-                candidates.append(word_lower[:-1])
+                # Добавляем проверку для слов типа matches → match
+                if base.endswith('t') and len(base) > 3:
+                    if wn.synsets(base):
+                        return base
 
-            # Проверяем кандидатов
-            for candidate in candidates:
-                if wn.synsets(candidate):
-                    return candidate
+                return word_lower
+
+            # -s (cats → cat)
+            if word_lower.endswith('s') and len(word_lower) > 4 and not word_lower.endswith('ss'):
+                base = word_lower[:-1]
+                if wn.synsets(base):
+                    return base
+                return word_lower
+
+            # ========== ЕСЛИ НИЧЕГО НЕ ПОДОШЛО ==========
+            # Проверяем через лемматизатор NLTK
+            try:
+                # Пробуем как глагол
+                verb_form = self.lemmatizer.lemmatize(word_lower, 'v')
+                if verb_form != word_lower and wn.synsets(verb_form):
+                    return verb_form
+
+                # Пробуем как существительное
+                noun_form = self.lemmatizer.lemmatize(word_lower, 'n')
+                if noun_form != word_lower and wn.synsets(noun_form):
+                    return noun_form
+            except:
+                pass
 
             return word_lower
 
@@ -333,6 +448,7 @@ class Command(BaseCommand):
     def _normalize_single_word(self, word: str) -> str:
         """
         Нормализует одно слово (без дефисов) используя существующие правила
+        ИСПРАВЛЕНО: УЛУЧШЕННАЯ ОБРАБОТКА -ing ФОРМ
         """
         original = word
 
@@ -358,17 +474,26 @@ class Command(BaseCommand):
             except:
                 pass
 
-        # Проверяем -ing
+        # ========== ИСПРАВЛЕНО: ПРОВЕРКА -ing ==========
         if word.endswith('ing') and len(word) > 4:
             base = word[:-3]
+
+            # Пробуем разные варианты
+            candidates = [base]
+
+            # Если после удаления ing слово заканчивается на удвоенную согласную
             if len(base) >= 2 and base[-1] == base[-2]:
-                base = base[:-1]
+                candidates.append(base[:-1])
+
+            # Для слов типа taking → take
+            if len(base) >= 2 and base[-1] not in 'aeiou':
+                candidates.append(base + 'e')
+
             try:
                 from nltk.corpus import wordnet as wn
-                if wn.synsets(base):
-                    return base
-                if wn.synsets(base + 'e'):
-                    return base + 'e'
+                for candidate in candidates:
+                    if wn.synsets(candidate):
+                        return candidate
             except:
                 pass
 
@@ -387,12 +512,14 @@ class Command(BaseCommand):
         # Проверяем -ed
         if word.endswith('ed') and len(word) > 4:
             base = word[:-2]
+            candidates = [base]
             if len(base) >= 2 and base[-1] == base[-2]:
-                base = base[:-1]
+                candidates.append(base[:-1])
             try:
                 from nltk.corpus import wordnet as wn
-                if wn.synsets(base):
-                    return base
+                for candidate in candidates:
+                    if wn.synsets(candidate):
+                        return candidate
             except:
                 pass
 
