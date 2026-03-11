@@ -32,14 +32,12 @@ class GameCardCreator:
         Returns:
             Tuple of (card object, created_new)
         """
-        # Check if card already exists and we don't want to force recreate
-        if not force:
-            existing_card = GameCardCache.get_card_for_game(
-                game.id, show_similarity, similarity_percent, card_size
-            )
+        # Проверяем существующую карточку (только по game_id)
+        existing_card = GameCardCache.get_card_for_game(game.id)
 
-            if existing_card:
-                return existing_card, False
+        # Если карточка существует, не пересоздаем (если только force=True)
+        if existing_card and not force:
+            return existing_card, False
 
         # Load game with all related data
         game_with_data = cls._load_game_with_data(game.id)
@@ -60,10 +58,7 @@ class GameCardCreator:
                 card, created = GameCardCache.get_or_create_card(
                     game=game_with_data,
                     rendered_card=rendered_card,
-                    show_similarity=show_similarity,
-                    similarity_percent=similarity_percent,
-                    card_size=card_size,
-                    **related_data
+                    **related_data  # Убираем show_similarity, similarity_percent, card_size
                 )
 
             logger.info(f"{'Created' if created else 'Updated'} card cache for game {game.id} ({game.name})")
@@ -103,12 +98,10 @@ class GameCardCreator:
             # Extract related data
             related_data = cls._extract_related_data(game)
 
+            # Убираем show_similarity, similarity_percent, card_size из данных
             batch_cards.append((
                 game,
                 rendered_card,
-                show_similarity,
-                None,
-                'normal',
                 related_data
             ))
 

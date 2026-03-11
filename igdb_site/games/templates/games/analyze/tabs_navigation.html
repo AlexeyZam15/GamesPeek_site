@@ -1,0 +1,26 @@
+<!-- games/templates/games/analyze/tabs_navigation.html -->
+{% load static %}
+
+<!-- Навигация табов -->
+<ul class="nav nav-tabs mb-4" id="analyzeTabs" role="tablist">
+    {% for tab in description_tabs %}
+        <li class="nav-item" role="presentation">
+            <a class="nav-link {% if tab.key == active_tab %}active{% endif %}"
+               id="{{ tab.key }}-tab"
+               data-bs-toggle="tab"
+               href="#{{ tab.key }}"
+               role="tab"
+               aria-controls="{{ tab.key }}"
+               aria-selected="{% if tab.key == active_tab %}true{% else %}false{% endif %}">
+                <i class="bi
+                    {% if tab.key == 'summary' %}bi-file-text
+                    {% elif tab.key == 'storyline' %}bi-book
+                    {% elif tab.key == 'rawg' %}bi-globe
+                    {% else %}bi-wikipedia{% endif %}
+                    me-2"></i>
+                {{ tab.label }}
+                <span class="badge bg-secondary ms-2">{{ tab.length }} chars</span>
+            </a>
+        </li>
+    {% endfor %}
+</ul>

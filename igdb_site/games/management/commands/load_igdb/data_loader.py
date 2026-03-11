@@ -6,10 +6,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from games.igdb_api import make_igdb_request
 from games.models import (
     Game, Genre, Keyword, Platform, Series,
-    Company, Theme, PlayerPerspective, GameMode, Screenshot
+    Company, Theme, PlayerPerspective, GameMode, Screenshot,
+    GameEngine
 )
 import requests
 from urllib.parse import urlparse
+
 
 class DataLoader:
     """Класс для загрузки данных из IGDB"""
@@ -23,7 +25,45 @@ class DataLoader:
         self._min_request_interval = 0.25
         self._retry_delay = 2.0
         self._interrupted = threading.Event()
-        self.debug_mode = False  # Добавляем атрибут
+        self.debug_mode = False
+
+    def set_interrupted(self):
+        """Устанавливает флаг прерывания"""
+        self._interrupted.set()
+
+    def is_interrupted(self):
+        """Проверяет прерывание"""
+        return self._interrupted.is_set()
+
+    def load_engines_parallel(self, engine_ids, debug=False):
+        """Параллельная загрузка игровых движков"""
+        if not engine_ids:
+            if debug:
+                self.stdout.write('   ⚙️ Нет ID движков для загрузки')
+            return {}
+
+        if debug:
+            self.stdout.write(f'   ⚙️ Загрузка {len(engine_ids)} движков...')
+            self.stdout.write(f'   ⚙️ ID движков: {engine_ids}')
+
+        def process_batch(batch_num, batch_ids, result_map, lock, total_batches, name, debug):
+            if debug:
+                with lock:
+                    self.stdout.write(f'      🔄 Обработка пачки {batch_num}: {batch_ids}')
+
+            return self._process_batch_template(
+                batch_num, batch_ids, result_map, lock, total_batches, name, debug,
+                'game_engines', GameEngine
+            )
+
+        result = self._batch_processor_regular(engine_ids, process_batch, '⚙️', 'движков', debug)
+
+        if debug:
+            self.stdout.write(f'   ⚙️ Результат загрузки движков: {len(result)} из {len(engine_ids)}')
+            for engine_id, engine in result.items():
+                self.stdout.write(f'      ✅ {engine.name} (ID: {engine.igdb_id})')
+
+        return result
 
     def debug_cover_format(self, cover_id, debug=False):
         """Отладочный метод для проверки формата обложки"""
@@ -45,7 +85,6 @@ class DataLoader:
                 self.stdout.write(f'   • image_id: {cover.get("image_id")}')
                 self.stdout.write(f'   • url: {cover.get("url")}')
 
-                # Пробуем разные форматы URL
                 if cover.get('image_id'):
                     image_id = cover['image_id']
                     self.stdout.write(f'\n   🔗 Варианты URL через image_id:')
@@ -79,7 +118,6 @@ class DataLoader:
         from django.utils import timezone
         from datetime import datetime
 
-        # Получаем существующие ID за один запрос
         igdb_ids = [g.get('id') for g in games_data_list if g.get('id')]
         existing_game_ids = set()
         skipped_games = 0
@@ -98,7 +136,6 @@ class DataLoader:
                     self.stdout.write(f'   ⏭️  Игра уже существует: {game_id}')
                 return None
 
-            # Создаем объект игры напрямую
             game = Game(
                 igdb_id=game_id,
                 name=game_data.get('name', ''),
@@ -108,7 +145,6 @@ class DataLoader:
                 rating_count=game_data.get('rating_count', 0)
             )
 
-            # Сохраняем game_type из данных игры
             game_type = game_data.get('game_type')
             if game_type is not None:
                 game.game_type = game_type
@@ -120,7 +156,6 @@ class DataLoader:
             return game
 
         games_to_create = []
-        # Используем обычный цикл вместо ThreadPoolExecutor для простоты
         for game_data in games_data_list:
             try:
                 game = process_single_game(game_data)
@@ -139,7 +174,6 @@ class DataLoader:
             except Exception as e:
                 if debug:
                     self.stderr.write(f'   ❌ Ошибка bulk_create игр: {e}')
-                # Fallback: создаем по одной
                 created_count = 0
                 for game in games_to_create:
                     try:
@@ -161,7 +195,6 @@ class DataLoader:
         """Простая обработка объекта без сложной логики кодировки"""
         with self._db_lock:
             try:
-                # Пробуем получить существующий объект
                 if debug and hasattr(self, 'stdout'):
                     self.stdout.write(f'      🔍 Поиск существующего объекта {obj_id} ({model_class.__name__})...')
 
@@ -171,20 +204,16 @@ class DataLoader:
                     if debug and hasattr(self, 'stdout'):
                         self.stdout.write(f'      ✅ Объект уже существует: {existing.name}')
 
-                    # Проверяем, нужно ли обновить имя
                     needs_update = False
 
-                    # Для Series: обновляем если имя начинается с "Series "
                     if model_class == Series and existing.name.startswith('Series ') and not item_name.startswith(
                             'Series '):
                         existing.name = item_name
                         needs_update = True
-                    # Для всех: обновляем если текущее имя пустое или по умолчанию
                     elif not existing.name.strip() and item_name.strip():
                         existing.name = item_name
                         needs_update = True
                     elif existing.name != item_name and item_name.strip():
-                        # Также обновляем если имена разные (опционально)
                         existing.name = item_name
                         needs_update = True
 
@@ -197,26 +226,19 @@ class DataLoader:
                     if debug and hasattr(self, 'stdout'):
                         self.stdout.write(f'      🆕 Создаем новый объект: {item_name}')
 
-                    # Создаем новый объект
+                    # СОХРАНЯЕМ СРАЗУ, чтобы получить primary key
                     obj = model_class(igdb_id=obj_id, name=item_name)
+                    obj.save()  # ← Сохраняем сразу!
 
-                    # Проверяем объект перед сохранением
                     if debug and hasattr(self, 'stdout'):
                         self.stdout.write(f'      🔍 Проверка объекта перед сохранением:')
-                        self.stdout.write(f'         • ID: {obj.igdb_id}')
+                        self.stdout.write(f'         • ID в БД: {obj.id}')
+                        self.stdout.write(f'         • IGDB ID: {obj.igdb_id}')
                         self.stdout.write(f'         • Имя: {repr(obj.name)}')
-                        self.stdout.write(f'         • Тип имени: {type(obj.name)}')
-                        self.stdout.write(f'         • Длина имени: {len(obj.name) if obj.name else 0}')
-
-                    obj.save()
-
-                    if debug and hasattr(self, 'stdout'):
-                        self.stdout.write(f'      ✅ Объект успешно создан')
 
                     return (obj_id, obj)
 
             except Exception as e:
-                # ПОДРОБНЫЙ ВЫВОД ОШИБКИ
                 error_msg = f"""
           ❌ КРИТИЧЕСКАЯ ОШИБКА создания объекта {obj_id} ({model_class.__name__}):
              • Ошибка: {type(e).__name__}: {e}
@@ -228,7 +250,6 @@ class DataLoader:
                 if hasattr(self, 'stderr'):
                     self.stderr.write(error_msg)
 
-                    # Полная трассировка
                     import traceback
                     self.stderr.write(f"""
           📋 ПОЛНАЯ ТРАССИРОВКА ОШИБКИ:""")
@@ -238,12 +259,11 @@ class DataLoader:
                         if line.strip():
                             self.stderr.write(f'         {line}')
 
-                # Пробуем создать с упрощенным именем и БЕЗ использования строки из параметров
+                # Пробуем восстановиться
                 try:
                     if debug and hasattr(self, 'stdout'):
-                        self.stdout.write(f'      🛠️  Попытка восстановления с чистым именем...')
+                        self.stdout.write(f'      🛠️  Попытка восстановления...')
 
-                    # Используем БУКВАЛЬНЫЕ строки, не из параметров
                     fallback_name = f"Object {obj_id}"
                     if model_class == Series:
                         fallback_name = f"Series {obj_id}"
@@ -262,65 +282,29 @@ class DataLoader:
                     elif model_class == Company:
                         fallback_name = f"Company {obj_id}"
 
-                    self.stderr.write(f"""
-          🛠️  ПОПЫТКА ВОССТАНОВЛЕНИЯ:
-             • Используем имя: {fallback_name}
-             • Имя создано как буквальная строка
-          """)
-
-                    # Проверяем, существует ли уже объект (вдруг был создан в другом потоке)
+                    # Еще раз проверяем существование
                     existing = model_class.objects.filter(igdb_id=obj_id).first()
                     if existing:
-                        self.stderr.write(f"         • Объект уже существует, возвращаем его")
+                        if debug and hasattr(self, 'stdout'):
+                            self.stdout.write(f"      ✅ Объект уже существует, возвращаем его")
                         return (obj_id, existing)
 
-                    # Создаем объект с буквальной строкой
+                    # СОХРАНЯЕМ СРАЗУ
                     obj = model_class(igdb_id=obj_id, name=fallback_name)
+                    obj.save()  # ← Сохраняем сразу!
 
-                    # Проверяем перед сохранением
                     if debug and hasattr(self, 'stdout'):
-                        self.stdout.write(f'      🔍 Проверка fallback объекта:')
-                        self.stdout.write(f'         • ID: {obj.igdb_id}')
-                        self.stdout.write(f'         • Имя: {repr(obj.name)}')
-                        self.stdout.write(f'         • Тип имени: {type(obj.name)}')
-
-                    obj.save()
-
-                    self.stderr.write(f"         • ✅ Объект успешно создан с именем по умолчанию")
+                        self.stdout.write(f"      ✅ Объект создан с именем по умолчанию (ID в БД: {obj.id})")
                     return (obj_id, obj)
 
                 except Exception as e2:
-                    # Если и это не получилось, показываем разницу между ошибками
                     if hasattr(self, 'stderr'):
                         self.stderr.write(f"""
           💥 ДВОЙНАЯ ОШИБКА:
              • Первая ошибка: {type(e).__name__}: {e}
              • Вторая ошибка: {type(e2).__name__}: {e2}
-             • Ошибки {'одинаковые' if str(e) == str(e2) else 'разные'}
-
-          🔍 ВОЗМОЖНЫЕ ПРИЧИНЫ:
-             1. Проблема с кодировкой в самой Django или базе данных
-             2. Проблема с миграциями модели
-             3. Проблема с параметрами базы данных (collation)
-             4. Конфликт потоков/блокировок
           """)
-
-                        # Проверяем, существует ли объект сейчас
-                        try:
-                            exists_now = model_class.objects.filter(igdb_id=obj_id).exists()
-                            self.stderr.write(f"         • Объект сейчас в базе: {'ДА' if exists_now else 'НЕТ'}")
-                        except:
-                            self.stderr.write(f"         • Не удалось проверить наличие объекта в базе")
-
                     return None
-
-    def set_interrupted(self):
-        """Устанавливает флаг прерывания"""
-        self._interrupted.set()
-
-    def is_interrupted(self):
-        """Проверяет прерывание"""
-        return self._interrupted.is_set()
 
     def _batch_processor_weighted(self, items_list, process_batch_func, emoji, name,
                                   weight_calculator_func, extra_data=None, debug=False):
@@ -330,20 +314,14 @@ class DataLoader:
                 self.stdout.write(f'      ⏹️  Прерывание: пропускаем загрузку {name}')
             return {}
 
-        # Создаем пачки с учетом веса
         batches = self._create_weighted_batches(
             items_list, weight_calculator_func, extra_data, debug=debug
         )
         total_batches = len(batches)
 
-        if debug:
-            # ... существующий код диагностики ...
-            pass
-
         result_map = {}
         lock = threading.Lock()
 
-        # Адаптивное количество воркеров
         if total_batches <= 3:
             max_workers = total_batches
         elif any(len(batch) == 1 for batch in batches):
@@ -354,7 +332,6 @@ class DataLoader:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for batch_num, batch_items in enumerate(batches, 1):
-                # Проверка прерывания перед созданием задачи
                 if self.is_interrupted():
                     if debug:
                         self.stdout.write(f'      ⏹️  Прерывание: отменяем создание пачек {name}')
@@ -363,24 +340,21 @@ class DataLoader:
                 future = executor.submit(
                     process_batch_func,
                     batch_num, batch_items, result_map,
-                    lock, total_batches, name, debug  # Добавлен debug
+                    lock, total_batches, name, debug
                 )
                 futures.append(future)
 
-            # Обработка с проверкой прерывания БЕЗ обработки ошибок
             for future in as_completed(futures):
                 if self.is_interrupted():
                     if debug:
                         self.stdout.write(f'      ⏹️  Прерывание: прерываем выполнение {name}')
-                    # Отменяем оставшиеся фьючерсы
                     for f in futures:
                         if not f.done():
                             f.cancel()
                     break
 
-                # УБРАН try-except блок - теперь ошибки будут пробрасываться
                 try:
-                    future.result(timeout=60)  # Таймаут 60 секунд
+                    future.result(timeout=60)
                 except Exception as e:
                     if debug:
                         with lock:
@@ -416,7 +390,6 @@ class DataLoader:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for batch_num, batch_ids in enumerate(batches, 1):
-                # Проверка прерывания перед созданием задачи
                 if self.is_interrupted():
                     if debug:
                         self.stdout.write(f'      ⏹️  Прерывание: отменяем создание пачек {name}')
@@ -431,14 +404,13 @@ class DataLoader:
                 if self.is_interrupted():
                     if debug:
                         self.stdout.write(f'      ⏹️  Прерывание: прерываем выполнение {name}')
-                    # Отменяем оставшиеся фьючерсы
                     for f in futures:
                         if not f.done():
                             f.cancel()
                     break
 
                 try:
-                    future.result(timeout=60)  # Таймаут 60 секунд
+                    future.result(timeout=60)
                 except Exception as e:
                     if debug:
                         with lock:
@@ -480,9 +452,10 @@ class DataLoader:
                 collected_data['all_platform_ids'], 'platforms', Platform, '🖥️', 'платформ', debug), 'platform_map'),
             ('🔑 Ключевые слова', 'keywords', lambda: self.load_keywords_parallel_with_weights(
                 collected_data['all_keyword_ids'], debug), 'keyword_map'),
+            ('⚙️ Движки', 'engines', lambda: self.load_engines_parallel(
+                collected_data.get('all_engine_ids', []), debug), 'engine_map'),
         ]
 
-        # Загружаем только основные данные
         for i, (display_name, key, load_func, map_key) in enumerate(steps, 1):
             if self.is_interrupted():
                 if debug:
@@ -499,7 +472,6 @@ class DataLoader:
             if debug and map_key in data_maps:
                 self.stdout.write(f'   📊 Результат: {len(data_maps[map_key])} объектов')
 
-        # Загружаем дополнительные данные только если не было прерывания
         if not self.is_interrupted():
             additional_steps = [
                 ('📚 Серии', 'series', lambda: self.load_data_parallel_generic(
@@ -538,7 +510,6 @@ class DataLoader:
 
     def _rate_limited_request(self, endpoint, query, debug=False, max_retries=3):
         """Выполняет запрос к API с rate limiting и retry логикой"""
-        # Проверяем и корректируем лимит в запросе
         limit_match = re.search(r'limit\s+(\d+)', query, re.IGNORECASE)
         if limit_match:
             limit_value = int(limit_match.group(1))
@@ -573,9 +544,8 @@ class DataLoader:
         if not game_data:
             return 1.0
 
-        weight = 1.0  # Базовая стоимость игры
+        weight = 1.0
 
-        # Упрощенный расчет
         if game_data.get('genres'):
             weight += min(len(game_data['genres']) * 0.1, 1.0)
 
@@ -585,7 +555,6 @@ class DataLoader:
         if game_data.get('keywords'):
             weight += min(len(game_data['keywords']) * 0.15, 2.0)
 
-        # СКРИНШОТЫ - уменьшено влияние
         game_id = game_data.get('id')
         if game_id and screenshots_info.get(game_id, 0) > 0:
             screenshot_count = screenshots_info[game_id]
@@ -598,7 +567,6 @@ class DataLoader:
             else:
                 weight += 6.0 + (screenshot_count - 30) * 0.05
 
-        # Ограничиваем максимальный вес
         return min(weight, 15.0)
 
     def _create_weighted_batches(self, items_list, weight_calculator_func, extra_data=None,
@@ -607,7 +575,6 @@ class DataLoader:
         if not items_list:
             return []
 
-        # Рассчитываем вес для всех элементов
         items_with_weight = []
         for item in items_list:
             if extra_data:
@@ -616,7 +583,6 @@ class DataLoader:
                 weight = weight_calculator_func(item)
             items_with_weight.append((item, weight))
 
-        # Сортируем по весу (от большего к меньшему)
         items_with_weight.sort(key=lambda x: x[1], reverse=True)
 
         all_batches = []
@@ -624,7 +590,6 @@ class DataLoader:
         current_weight = 0
 
         for item, weight in items_with_weight:
-            # Пытаемся добавить в текущую пачку
             can_add = (
                     len(current_batch) < max_batch_size and
                     current_weight + weight <= max_batch_weight
@@ -634,18 +599,14 @@ class DataLoader:
                 current_batch.append(item)
                 current_weight += weight
             else:
-                # Если пачка не пустая, сохраняем её
                 if current_batch:
                     all_batches.append(current_batch)
-                # Начинаем новую пачку
                 current_batch = [item]
                 current_weight = weight
 
-        # Добавляем последнюю пачку
         if current_batch:
             all_batches.append(current_batch)
 
-        # Объединяем очень маленькие пачки
         if len(all_batches) > 1:
             optimized_batches = []
             small_batches = []
@@ -656,7 +617,6 @@ class DataLoader:
                 else:
                     optimized_batches.append(batch)
 
-            # Создаем нормальные пачки из маленьких
             if small_batches:
                 for i in range(0, len(small_batches), min_batch_size):
                     chunk = small_batches[i:i + min_batch_size]
@@ -680,32 +640,27 @@ class DataLoader:
         if not game_id:
             return 1.0
 
-        # Извлекаем данные из кортежа
         game_data_map, screenshots_info = game_data_map_and_screenshots
-
-        # Получаем game_data по game_id
         game_data = game_data_map.get(game_id, {})
 
-        # Используем существующий метод расчета веса
         return self._calculate_data_weight(game_data, screenshots_info)
 
     def _calculate_weight_for_simple(self, item_id, extra_data=None):
         """Простой расчет веса для элементов без сложных данных"""
-        return 1.0  # Все элементы имеют одинаковый вес
+        return 1.0
 
     def _generic_process_single(self, obj_id, data_by_id, name, model_class, debug=False):
         """Универсальная обработка одного объекта"""
-        # ПЕРВОЕ: Проверяем существование в базе БЕЗ использования data_by_id
+        # Сначала проверяем, не появился ли объект в базе за время обработки
         with self._db_lock:
             existing = model_class.objects.filter(igdb_id=obj_id).first()
             if existing:
-                if debug and hasattr(self, 'stdout'):
+                if debug:
                     self.stdout.write(f'      ✅ Объект уже существует в базе: {obj_id} ({model_class.__name__})')
                 return (obj_id, existing)
 
-        # ВТОРОЕ: Если нет в базе, используем данные из API
         if obj_id not in data_by_id:
-            if debug and hasattr(self, 'stdout'):
+            if debug:
                 self.stdout.write(f'      ⚠️  Объект {obj_id} не найден в данных API')
             return None
 
@@ -714,15 +669,14 @@ class DataLoader:
         try:
             item_name = item_data.get('name', f'{name} {obj_id}')
 
-            if debug and hasattr(self, 'stdout'):
+            if debug:
                 self.stdout.write(f'      🆕 Создаем новый объект: {item_name}')
 
-            # Создаем новый объект
             obj = model_class(igdb_id=obj_id, name=item_name)
-            obj.save()
+            obj.save()  # Сразу сохраняем, чтобы получить primary key
 
-            if debug and hasattr(self, 'stdout'):
-                self.stdout.write(f'      ✅ Объект успешно создан')
+            if debug:
+                self.stdout.write(f'      ✅ Объект успешно создан (ID в БД: {obj.id})')
 
             return (obj_id, obj)
 
@@ -730,19 +684,20 @@ class DataLoader:
             error_msg = f"""
             ❌ ОШИБКА создания объекта {obj_id} ({model_class.__name__}):
             • Ошибка: {type(e).__name__}: {e}
+            • Имя для сохранения: {repr(item_name) if 'item_name' in locals() else 'None'}
             """
 
             if hasattr(self, 'stderr'):
                 self.stderr.write(error_msg)
 
-            # Пробуем создать с упрощенным именем
+            # Пробуем восстановиться с именем по умолчанию
             try:
-                if debug and hasattr(self, 'stdout'):
-                    self.stdout.write(f'      🛠️  Попытка восстановления с чистым именем...')
+                if debug:
+                    self.stdout.write(f'      🛠️  Попытка восстановления с именем по умолчанию...')
 
                 fallback_name = f"{model_class.__name__} {obj_id}"
 
-                # Проверяем еще раз (на случай создания в другом потоке)
+                # Еще раз проверяем существование (на случай гонки)
                 with self._db_lock:
                     existing = model_class.objects.filter(igdb_id=obj_id).first()
                     if existing:
@@ -751,7 +706,8 @@ class DataLoader:
                 obj = model_class(igdb_id=obj_id, name=fallback_name)
                 obj.save()
 
-                self.stderr.write(f"        • ✅ Объект создан с именем по умолчанию")
+                if debug:
+                    self.stdout.write(f'      ✅ Объект создан с именем по умолчанию')
                 return (obj_id, obj)
 
             except Exception as e2:
@@ -765,7 +721,6 @@ class DataLoader:
 
     def _process_item_with_encoding(self, obj_id, item_name, name, model_class, debug=False):
         """Обработка с попыткой разных кодировок"""
-        # Пробуем разные стратегии декодирования
         encoding_attempts = [
             ('utf-8', 'strict'),
             ('utf-8', 'ignore'),
@@ -779,19 +734,15 @@ class DataLoader:
 
         for encoding, errors in encoding_attempts:
             try:
-                # Если item_name - байты, декодируем
                 if isinstance(item_name, bytes):
                     decoded_name = item_name.decode(encoding, errors)
                 else:
-                    # Если это уже строка, проверяем ее
                     decoded_name = item_name
 
-                # Записываем успешную попытку
                 if debug:
                     with open(f'encoding_success_{obj_id}.txt', 'a', encoding='utf-8') as f:
                         f.write(f"Success with {encoding}/{errors}: {decoded_name[:50]}\n")
 
-                # Используем этот вариант
                 item_name = decoded_name
                 break
 
@@ -801,14 +752,12 @@ class DataLoader:
                     with open(f'encoding_fail_{obj_id}.txt', 'a', encoding='utf-8') as f:
                         f.write(f"Failed with {encoding}/{errors}: {str(e)}\n")
 
-        # Если все попытки не удались, используем запасной вариант
         if last_exception:
             item_name = f'{name} {obj_id}'
             if debug:
                 with open(f'encoding_fallback_{obj_id}.txt', 'w', encoding='utf-8') as f:
                     f.write(f"Using fallback name for {obj_id}\n")
 
-        # Оригинальный код продолжается здесь
         with self._db_lock:
             existing = model_class.objects.filter(igdb_id=obj_id).first()
 
@@ -835,19 +784,20 @@ class DataLoader:
         if debug:
             with lock:
                 self.stdout.write(f'         🔄 Пачка {name} {batch_num}/{total_batches}: {len(batch_ids)} объектов')
+                if len(batch_ids) <= 10:
+                    self.stdout.write(f'         🔍 ID для загрузки: {batch_ids}')
 
-        # ШАГ 1: Сначала проверяем существующие в базе
         existing_in_db = {}
         with self._db_lock:
             existing_objects = model_class.objects.filter(igdb_id__in=batch_ids)
             existing_in_db = {obj.igdb_id: obj for obj in existing_objects}
 
-        # Добавляем существующие объекты в результат
         for obj_id, obj in existing_in_db.items():
             with lock:
                 result_map[obj_id] = obj
+                if debug:
+                    self.stdout.write(f'         ✅ Объект уже существует: {obj.name} (ID: {obj_id})')
 
-        # ШАГ 2: Определяем, какие объекты еще нужно загрузить из API
         ids_to_load = [obj_id for obj_id in batch_ids if obj_id not in existing_in_db]
 
         if not ids_to_load:
@@ -856,11 +806,19 @@ class DataLoader:
                     self.stdout.write(f'         ✅ Все объекты уже в базе')
             return
 
-        # ШАГ 3: Загружаем только недостающие объекты из API
+        if debug:
+            with lock:
+                self.stdout.write(f'         🔄 Загружаем из API: {ids_to_load}')
+
         id_list = ','.join(map(str, ids_to_load))
         query = f'fields id,name; where id = ({id_list});'
         try:
             batch_data = self._rate_limited_request(endpoint, query, debug=debug)
+            if debug:
+                with lock:
+                    self.stdout.write(f'         📥 Получено из API: {len(batch_data)} объектов')
+                    for item in batch_data:
+                        self.stdout.write(f'            • {item.get("name")} (ID: {item.get("id")})')
         except Exception as e:
             if debug:
                 with lock:
@@ -870,24 +828,85 @@ class DataLoader:
         data_by_id = {item['id']: item for item in batch_data if 'id' in item}
 
         batch_map = {}
-        with ThreadPoolExecutor(max_workers=min(len(ids_to_load), 10)) as executor:
-            futures = {executor.submit(
-                lambda obj_id: self._generic_process_single(obj_id, data_by_id, name, model_class, debug),
-                obj_id
-            ): obj_id for obj_id in ids_to_load}
 
-            for future in as_completed(futures):
-                obj_id = futures[future]
-                try:
-                    result = future.result()
-                    if result:
-                        obj_id, obj = result
-                        batch_map[obj_id] = obj
-                except Exception as e:
+        # Обрабатываем каждый объект последовательно
+        for obj_id in ids_to_load:
+            try:
+                if obj_id not in data_by_id:
                     if debug:
                         with lock:
-                            self.stderr.write(f'            ❌ Ошибка future для объекта {obj_id}: {e}')
+                            self.stdout.write(f'         ⚠️ Объект {obj_id} не найден в данных API')
+                    continue
 
+                item_data = data_by_id[obj_id]
+                item_name = item_data.get('name', f'{name} {obj_id}')
+
+                # Проверяем еще раз, не появился ли объект в базе
+                with self._db_lock:
+                    existing = model_class.objects.filter(igdb_id=obj_id).first()
+                    if existing:
+                        with lock:
+                            result_map[obj_id] = existing
+                            if debug:
+                                self.stdout.write(
+                                    f'         ✅ Объект уже существует (появился во время загрузки): {existing.name}')
+                        continue
+
+                # СОЗДАЕМ И СРАЗУ СОХРАНЯЕМ объект
+                if debug:
+                    with lock:
+                        self.stdout.write(f'         🆕 Создаем новый объект: {item_name} (ID: {obj_id})')
+
+                # Создаем и сразу сохраняем, чтобы получить primary key
+                obj = model_class(igdb_id=obj_id, name=item_name)
+                obj.save()  # ← КРИТИЧЕСКИ ВАЖНО: сохраняем СРАЗУ!
+
+                if debug:
+                    with lock:
+                        self.stdout.write(f'         ✅ Объект сохранен: {obj.name} (ID в БД: {obj.id})')
+
+                # Добавляем в результат УЖЕ СОХРАНЕННЫЙ объект
+                with lock:
+                    batch_map[obj_id] = obj
+
+            except Exception as e:
+                if debug:
+                    with lock:
+                        self.stderr.write(f'         ❌ Ошибка для объекта {obj_id}: {e}')
+                        import traceback
+                        self.stderr.write(f'         📋 Трассировка: {traceback.format_exc()[:200]}')
+
+                # Пробуем восстановиться с именем по умолчанию
+                try:
+                    fallback_name = f"{model_class.__name__} {obj_id}"
+
+                    # Проверяем еще раз
+                    with self._db_lock:
+                        existing = model_class.objects.filter(igdb_id=obj_id).first()
+                        if existing:
+                            with lock:
+                                batch_map[obj_id] = existing
+                            if debug:
+                                with lock:
+                                    self.stdout.write(f'         ✅ Найден существующий объект при восстановлении')
+                            continue
+
+                    # Создаем с запасным именем и сразу сохраняем
+                    obj = model_class(igdb_id=obj_id, name=fallback_name)
+                    obj.save()  # ← Сохраняем сразу!
+
+                    with lock:
+                        batch_map[obj_id] = obj
+
+                    if debug:
+                        with lock:
+                            self.stdout.write(f'         ✅ Объект создан с именем по умолчанию: {fallback_name}')
+                except Exception as e2:
+                    if debug:
+                        with lock:
+                            self.stderr.write(f'         💥 Двойная ошибка для объекта {obj_id}: {e2}')
+
+        # Добавляем все обработанные объекты в result_map
         with lock:
             result_map.update(batch_map)
 
@@ -935,28 +954,23 @@ class DataLoader:
             url = cover_data.get('url', '')
 
             if url:
-                # Заменяем t_thumb на t_cover_big
                 if 't_thumb' in url:
                     url = url.replace('t_thumb', 't_cover_big')
 
-                # Всегда используем JPG формат
                 if url.endswith('.webp'):
                     url = url.replace('.webp', '.jpg')
                 elif not url.endswith('.jpg'):
                     url += '.jpg'
 
-                # Добавляем https если нужно
                 if url.startswith('//'):
                     url = f"https:{url}"
 
                 return (cover_id, url)
 
-            # Если нет URL, используем image_id
             elif cover_data.get('image_id'):
                 image_id = cover_data['image_id']
                 return (cover_id, f"https://images.igdb.com/igdb/image/upload/t_cover_big/{image_id}.jpg")
 
-            # Запасной вариант
             else:
                 return (cover_id, f"https://images.igdb.com/igdb/image/upload/t_cover_big/{cover_id}.jpg")
 
@@ -1096,10 +1110,8 @@ class DataLoader:
                 game_data_map, screenshots_info
             )
 
-        # Подготавливаем данные для функции расчета веса
         game_data_and_screenshots = (game_data_map, screenshots_info)
 
-        # Используем взвешенную систему для скриншотов
         result_map = self._batch_processor_weighted(
             game_ids, process_batch, '📸', 'скриншотов',
             self._calculate_weight_for_game, game_data_and_screenshots, debug
@@ -1127,14 +1139,12 @@ class DataLoader:
 
             avg_weight = batch_weight / len(batch_game_ids) if batch_game_ids else 0
 
-            # ИСПРАВЛЕНИЕ: лимит не должен превышать 500
-            query_limit = 500  # МАКСИМУМ для IGDB API
+            query_limit = 500
 
-            # Можно уменьшить лимит если вес большой, но не превышать 500
             if avg_weight > 6:
-                query_limit = min(500, 300)  # 300 максимум для тяжелых игр
+                query_limit = min(500, 300)
             elif avg_weight < 2:
-                query_limit = 500  # 500 максимум для легких игр
+                query_limit = 500
 
             id_list = ','.join(map(str, batch_game_ids))
             query = f'''
@@ -1196,10 +1206,8 @@ class DataLoader:
                 game_data_map, screenshots_info
             )
 
-        # Подготавливаем данные для функции расчета веса
         game_data_and_screenshots = (game_data_map, screenshots_info)
 
-        # Используем взвешенную систему для доп. данных
         return self._batch_processor_weighted(
             game_ids, process_batch, '📚', 'доп. данных',
             self._calculate_weight_for_game, game_data_and_screenshots, debug
@@ -1325,13 +1333,11 @@ class DataLoader:
                 }
                 response = requests.head(url, headers=headers, timeout=5, allow_redirects=True)
 
-                # ЯВНО проверяем статус код - если 404 или другие ошибки, изображение недоступно
                 if response.status_code != 200:
                     if debug:
                         self.stdout.write(f'      ⚠️  Изображение недоступно, статус: {response.status_code}')
                     return False
 
-                # Проверяем content-type
                 content_type = response.headers.get('content-type', '').lower()
                 if 'image' not in content_type:
                     if debug:
@@ -1357,11 +1363,9 @@ class DataLoader:
                         self.stdout.write(f'      Текущая: {current_url}')
                         self.stdout.write(f'      Новая: {new_cover_url}')
 
-                    # Всегда проверяем доступность текущей обложки
                     if current_url:
                         current_accessible = check_image_accessible(current_url)
                         if not current_accessible:
-                            # Текущая обложка недоступна (404 или другая ошибка)
                             new_accessible = check_image_accessible(new_cover_url)
                             if new_accessible:
                                 if debug:
@@ -1373,7 +1377,6 @@ class DataLoader:
                         elif debug:
                             self.stdout.write(f'   ✅ Текущая обложка доступна: {game.name}')
                     else:
-                        # У игры нет обложки - устанавливаем новую
                         new_accessible = check_image_accessible(new_cover_url)
                         if new_accessible:
                             if debug:
@@ -1414,7 +1417,6 @@ class DataLoader:
                 'keywords', Keyword
             )
 
-        # Используем взвешенную систему для ключевых слов
         return self._batch_processor_weighted(
             keyword_ids, process_batch, '🔑', 'ключевых слов',
             self._calculate_weight_for_simple, None, debug

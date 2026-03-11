@@ -1,0 +1,82 @@
+/* games/static/games/css/game_list/filter-tabs.css */
+
+/* Контейнер вкладок */
+.filter-tabs-container {
+    padding: 0;
+    margin-bottom: 1.5rem !important;
+    border-bottom: 1px solid var(--border);
+    background: transparent;
+}
+
+/* Стили для вкладок */
+.filter-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    padding-left: 0;
+    margin-bottom: 0;
+    list-style: none;
+    gap: 2px;
+}
+
+.filter-tab-item {
+    flex: 1 1 auto;
+    text-align: center;
+}
+
+.filter-tab-link {
+    display: block;
+    padding: 0.85rem 0.5rem;
+    font-weight: 700;
+    font-size: 1rem;
+    letter-spacing: 0.3px;
+    color: var(--text-dark);
+    background-color: rgba(255, 255, 255, 0.02);
+    border: none;
+    border-bottom: 3px solid transparent;
+    border-radius: 8px 8px 0 0;
+    transition: all 0.2s ease-in-out;
+    cursor: pointer;
+    width: 100%;
+    position: relative;
+    overflow: hidden;
+    text-decoration: none;
+}
+
+.filter-tab-link:hover {
+    color: var(--secondary-color);
+    border-bottom-color: var(--secondary-color);
+    background-color: rgba(255, 107, 53, 0.05);
+}
+
+.filter-tab-link.active {
+    color: var(--secondary-color);
+    background-color: rgba(255, 107, 53, 0.1);
+    border-bottom: 3px solid var(--secondary-color);
+    font-weight: 800;
+    box-shadow: 0 4px 12px rgba(255, 107, 53, 0.15);
+}
+
+/* Контейнеры содержимого */
+.filter-tab-pane {
+    display: none;
+}
+
+.filter-tab-pane.active {
+    display: block;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+    .filter-tab-link {
+        padding: 0.7rem 0.25rem;
+        font-size: 0.9rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .filter-tab-link {
+        padding: 0.6rem 0.15rem;
+        font-size: 0.8rem;
+        white-space: nowrap;
+    }
+}

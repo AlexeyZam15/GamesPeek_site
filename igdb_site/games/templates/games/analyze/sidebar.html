@@ -1,0 +1,272 @@
+<!-- games/templates/games/analyze/sidebar.html -->
+{% load static %}
+
+<!-- Легенда подсветки -->
+<div class="sidebar-card">
+    <div class="sidebar-card-header">
+        <i class="bi bi-palette me-2"></i>Highlight Legend
+    </div>
+    <div class="sidebar-card-body">
+        <div class="legend-grid">
+            <div class="legend-item">
+                <div class="legend-color genre"></div>
+                <div class="legend-text">Genres</div>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color theme"></div>
+                <div class="legend-text">Themes</div>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color perspective"></div>
+                <div class="legend-text">Perspectives</div>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color game_mode"></div>
+                <div class="legend-text">Game Modes</div>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color keyword"></div>
+                <div class="legend-text">Keywords</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Найденные элементы -->
+{% if found_items %}
+    <div class="sidebar-card">
+        <div class="sidebar-card-header bg-success text-white">
+            <i class="bi bi-check-circle me-2"></i>Found Elements
+            <span class="badge bg-light text-success ms-2">
+                {{ found_items.total_found|default:0 }} total
+            </span>
+        </div>
+        <div class="sidebar-card-body">
+            <div class="found-items-grid" id="found-items-container">
+                {% if found_items.genres %}
+                    <div class="found-items-category" data-category="genres">
+                        <h6>
+                            Genres ({{ found_items.genres|length }})
+                            {% if found_items.genres_new_count > 0 %}
+                                <span class="badge bg-success ms-2" data-bs-toggle="tooltip"
+                                      title="New elements (not saved yet)">
+                                    {{ found_items.genres_new_count }} new
+                                </span>
+                            {% endif %}
+                        </h6>
+                        <div class="found-items-list">
+                            {% for item in found_items.genres %}
+                                <span class="badge {% if item.is_new %}bg-success{% else %}bg-secondary{% endif %} found-item-badge"
+                                      data-name="{{ item.name }}"
+                                      data-bs-toggle="tooltip"
+                                      title="{% if item.is_new %}New genre (not saved yet) - Click to scroll to highlight{% else %}Already exists in game - Click to scroll to highlight{% endif %}">
+                                    {{ item.name }}
+                                    {% if item.is_new %}
+                                        <i class="bi bi-plus-circle ms-1"></i>
+                                    {% else %}
+                                        <i class="bi bi-check-circle ms-1"></i>
+                                    {% endif %}
+                                </span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                {% endif %}
+
+                {% if found_items.themes %}
+                    <div class="found-items-category" data-category="themes">
+                        <h6>
+                            Themes ({{ found_items.themes|length }})
+                            {% if found_items.themes_new_count > 0 %}
+                                <span class="badge bg-success ms-2" data-bs-toggle="tooltip"
+                                      title="New elements (not saved yet)">
+                                    {{ found_items.themes_new_count }} new
+                                </span>
+                            {% endif %}
+                        </h6>
+                        <div class="found-items-list">
+                            {% for item in found_items.themes %}
+                                <span class="badge {% if item.is_new %}bg-danger{% else %}bg-secondary{% endif %} found-item-badge"
+                                      data-name="{{ item.name }}"
+                                      data-bs-toggle="tooltip"
+                                      title="{% if item.is_new %}New theme (not saved yet) - Click to scroll to highlight{% else %}Already exists in game - Click to scroll to highlight{% endif %}">
+                                    {{ item.name }}
+                                    {% if item.is_new %}
+                                        <i class="bi bi-plus-circle ms-1"></i>
+                                    {% else %}
+                                        <i class="bi bi-check-circle ms-1"></i>
+                                    {% endif %}
+                                </span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                {% endif %}
+
+                {% if found_items.perspectives %}
+                    <div class="found-items-category" data-category="perspectives">
+                        <h6>
+                            Perspectives ({{ found_items.perspectives|length }})
+                            {% if found_items.perspectives_new_count > 0 %}
+                                <span class="badge bg-success ms-2" data-bs-toggle="tooltip"
+                                      title="New elements (not saved yet)">
+                                    {{ found_items.perspectives_new_count }} new
+                                </span>
+                            {% endif %}
+                        </h6>
+                        <div class="found-items-list">
+                            {% for item in found_items.perspectives %}
+                                <span class="badge {% if item.is_new %}bg-primary{% else %}bg-secondary{% endif %} found-item-badge"
+                                      data-name="{{ item.name }}"
+                                      data-bs-toggle="tooltip"
+                                      title="{% if item.is_new %}New perspective (not saved yet) - Click to scroll to highlight{% else %}Already exists in game - Click to scroll to highlight{% endif %}">
+                                    {{ item.name }}
+                                    {% if item.is_new %}
+                                        <i class="bi bi-plus-circle ms-1"></i>
+                                    {% else %}
+                                        <i class="bi bi-check-circle ms-1"></i>
+                                    {% endif %}
+                                </span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                {% endif %}
+
+                {% if found_items.game_modes %}
+                    <div class="found-items-category" data-category="game_modes">
+                        <h6>
+                            Game Modes ({{ found_items.game_modes|length }})
+                            {% if found_items.game_modes_new_count > 0 %}
+                                <span class="badge bg-success ms-2" data-bs-toggle="tooltip"
+                                      title="New elements (not saved yet)">
+                                    {{ found_items.game_modes_new_count }} new
+                                </span>
+                            {% endif %}
+                        </h6>
+                        <div class="found-items-list">
+                            {% for item in found_items.game_modes %}
+                                <span class="badge {% if item.is_new %}bg-purple{% else %}bg-secondary{% endif %} found-item-badge"
+                                      data-name="{{ item.name }}"
+                                      data-bs-toggle="tooltip"
+                                      title="{% if item.is_new %}New game mode (not saved yet) - Click to scroll to highlight{% else %}Already exists in game - Click to scroll to highlight{% endif %}">
+                                    {{ item.name }}
+                                    {% if item.is_new %}
+                                        <i class="bi bi-plus-circle ms-1"></i>
+                                    {% else %}
+                                        <i class="bi bi-check-circle ms-1"></i>
+                                    {% endif %}
+                                </span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                {% endif %}
+
+                <!-- Found Items: Keywords section -->
+                {% if found_items.keywords %}
+                    <div class="found-items-category" data-category="keywords">
+                        <h6>
+                            Keywords ({{ found_items.keywords|length }})
+                            {% if found_items.keywords_new_count > 0 %}
+                                <span class="badge bg-success ms-2" data-bs-toggle="tooltip"
+                                      title="New elements (not saved yet)">
+                                    {{ found_items.keywords_new_count }} new
+                                </span>
+                            {% endif %}
+                        </h6>
+                        <div class="found-items-list">
+                            {% for keyword in found_items.keywords %}
+                                <span class="badge {% if keyword.is_new %}bg-warning text-dark{% else %}bg-secondary{% endif %} found-item-badge"
+                                      data-name="{{ keyword.name }}"
+                                      data-bs-toggle="tooltip"
+                                      title="{% if keyword.is_new %}New keyword (not saved yet) - Click to scroll to highlight{% else %}Already exists in game - Click to scroll to highlight{% endif %}">
+                                    {{ keyword.name }}
+                                    {% if keyword.is_new %}
+                                        <i class="bi bi-plus-circle ms-1"></i>
+                                    {% else %}
+                                        <i class="bi bi-check-circle ms-1"></i>
+                                    {% endif %}
+                                </span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+
+            {% if has_unsaved_results %}
+                <div class="mt-3 pt-3 border-top border-secondary">
+                    <div class="alert alert-info mb-0 py-2">
+                        <small>
+                            <i class="bi bi-info-circle me-1"></i>
+                            Found elements are displayed but not saved to database yet.
+                            Click "Save Results" button to save.
+                        </small>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+{% endif %}
+
+<!-- Текущие критерии игры -->
+<div class="sidebar-card">
+    <div class="sidebar-card-header">
+        <i class="bi bi-info-circle me-2"></i>Current Game Data
+    </div>
+    <div class="sidebar-card-body">
+        <div class="current-data-grid" id="current-items-container">
+            {% if current_genres %}
+                <div class="current-data-category">
+                    <h6>Genres ({{ current_genres|length }})</h6>
+                    <div class="current-items-list">
+                        {% for genre in current_genres %}
+                            <span class="current-item">{{ genre.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+
+            {% if current_themes %}
+                <div class="current-data-category">
+                    <h6>Themes ({{ current_themes|length }})</h6>
+                    <div class="current-items-list">
+                        {% for theme in current_themes %}
+                            <span class="current-item">{{ theme.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+
+            {% if current_perspectives %}
+                <div class="current-data-category">
+                    <h6>Perspectives ({{ current_perspectives|length }})</h6>
+                    <div class="current-items-list">
+                        {% for perspective in current_perspectives %}
+                            <span class="current-item">{{ perspective.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+
+            {% if current_game_modes %}
+                <div class="current-data-category">
+                    <h6>Game Modes ({{ current_game_modes|length }})</h6>
+                    <div class="current-items-list">
+                        {% for mode in current_game_modes %}
+                            <span class="current-item">{{ mode.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+
+            <!-- Current Data: Keywords section -->
+            {% if current_keywords %}
+                <div class="current-data-category">
+                    <h6>Keywords ({{ current_keywords|length }})</h6>
+                    <div class="current-items-list">
+                        {% for keyword in current_keywords %}
+                            <span class="current-item">{{ keyword.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>

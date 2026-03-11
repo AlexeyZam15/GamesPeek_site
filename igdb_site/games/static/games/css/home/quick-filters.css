@@ -1,0 +1,49 @@
+/* ===== QUICK ACTIONS & FILTERS ===== */
+
+.quick-actions {
+  margin-bottom: 2.5rem;
+  position: relative;
+  z-index: 1;
+}
+
+.quick-actions .btn {
+  padding: var(--hero-btn-padding);
+  font-size: 1.1rem;
+  margin: 0 0.5rem 1rem;
+}
+
+.quick-filters {
+  max-width: 800px;
+  margin: 2rem auto;
+  position: relative;
+  z-index: 1;
+}
+
+.quick-filters h6 {
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+  font-weight: 600;
+}
+
+.quick-filters .btn {
+  margin: 0.25rem;
+  font-size: 0.9rem;
+  transition: var(--transition);
+}
+
+.quick-filters .btn:hover {
+  transform: var(--btn-hover-transform);
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+  .quick-actions .btn {
+    width: 100%;
+    margin: 0 0 0.75rem;
+    padding: var(--hero-btn-padding-sm);
+  }
+  .quick-filters .btn {
+    margin: 0.15rem;
+    font-size: 0.8rem;
+  }
+}

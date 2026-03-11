@@ -1,0 +1,29 @@
+<!-- games/templates/games/analyze/tab_content.html -->
+{% load static %}
+
+<!-- Контент табов -->
+<div class="tab-content" id="analyzeTabsContent">
+    {% for tab in description_tabs %}
+        <div class="tab-pane fade {% if tab.key == active_tab %}show active{% endif %}"
+             id="{{ tab.key }}"
+             role="tabpanel"
+             aria-labelledby="{{ tab.key }}-tab">
+
+            <div class="analyze-tab-content">
+                <div class="text-display-area">
+                    <div class="text-content">
+                        {% if tab.text %}
+                            {{ tab.text }}
+                        {% else %}
+                            <div class="no-highlights text-center py-5">
+                                <i class="bi bi-emoji-frown display-4 text-muted mb-3"></i>
+                                <h5 class="text-muted mb-2">No Content Available</h5>
+                                <p class="text-muted mb-0">This description is empty</p>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endfor %}
+</div>

@@ -31,16 +31,13 @@ def get_cached_game_card(
     Returns:
         Rendered HTML card
     """
-    # Try to get from cache
-    cached_card = GameCardCache.get_card_for_game(
-        game.id, show_similarity, similarity_percent, card_size
-    )
+    # Try to get from cache - только game_id
+    cached_card = GameCardCache.get_card_for_game(game.id)
 
     if cached_card:
         return mark_safe(cached_card.rendered_card)
 
     # If not in cache, we'll need to render it
-    # This function should be called from a view that will handle cache population
     return ""
 
 

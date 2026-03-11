@@ -4,16 +4,22 @@
 import os
 import json
 import hashlib
+import time
+import threading
 from django.conf import settings
 from collections import OrderedDict
 
 
 class OffsetManager:
-    """Менеджер для сохранения и загрузки offset с отдельными файлами"""
+    """Менеджер для сохранения и загрузки offset с отдельными файлами и кэшированием"""
 
     OFFSET_DIR = os.path.join(settings.BASE_DIR, 'offset_data')
     OFFSET_FILE_PREFIX = 'offset_'
-    CACHE = {}  # Кэш для быстрого доступа
+
+    _CACHE = {}
+    _CACHE_TIMESTAMP = {}
+    _CACHE_LOCK = threading.RLock()
+    _CACHE_TTL = 300
 
     @classmethod
     def _ensure_offset_dir(cls):
@@ -24,16 +30,12 @@ class OffsetManager:
     @classmethod
     def _normalize_params(cls, params_dict):
         """Нормализует параметры для создания стабильного ключа"""
-        # Сортируем ключи в алфавитном порядке
         sorted_items = sorted(params_dict.items())
 
-        # Преобразуем в упорядоченный словарь
         normalized = OrderedDict()
         for key, value in sorted_items:
-            # Преобразуем None в пустую строку
             if value is None:
                 normalized[key] = ''
-            # Для строк удаляем пробелы
             elif isinstance(value, str):
                 normalized[key] = value.strip()
             else:
@@ -46,26 +48,26 @@ class OffsetManager:
         """Генерирует хэш из параметров"""
         normalized = cls._normalize_params(params_dict)
 
-        # Создаем строку для хэширования
         param_string = ""
         for key, value in normalized.items():
             param_string += f"{key}={value}|"
 
-        # Удаляем последний разделитель
         param_string = param_string.rstrip('|')
 
-        # Создаем MD5 хэш
         return hashlib.md5(param_string.encode()).hexdigest()[:12]
+
+    @classmethod
+    def _get_cache_key(cls, params_dict):
+        """Получает ключ для кэша"""
+        return cls._generate_params_hash(params_dict)
 
     @classmethod
     def _get_offset_filename(cls, params_dict):
         """Получает имя файла для сохранения offset"""
         cls._ensure_offset_dir()
 
-        # Генерируем хэш параметров
         params_hash = cls._generate_params_hash(params_dict)
 
-        # Создаем удобочитаемую часть имени
         readable_part = ""
         if params_dict.get('game_modes'):
             mode = params_dict['game_modes'].split(',')[0][:20]
@@ -85,18 +87,11 @@ class OffsetManager:
         else:
             readable_part = "_popular"
 
-        # Очищаем от недопустимых символов в имени файла
         import re
         readable_part = re.sub(r'[^\w\-_]', '_', readable_part)
 
-        # Формируем имя файла
         filename = f"{cls.OFFSET_FILE_PREFIX}{params_hash}{readable_part}.json"
         return os.path.join(cls.OFFSET_DIR, filename)
-
-    @classmethod
-    def _get_cache_key(cls, params_dict):
-        """Получает ключ для кэша"""
-        return cls._generate_params_hash(params_dict)
 
     @classmethod
     def save_offset(cls, params_dict, offset):
@@ -104,20 +99,19 @@ class OffsetManager:
         try:
             filename = cls._get_offset_filename(params_dict)
 
-            # Данные для сохранения
             offset_data = {
                 'params': cls._normalize_params(params_dict),
                 'offset': offset,
                 'timestamp': time.time()
             }
 
-            # Сохраняем в файл
             with open(filename, 'w', encoding='utf-8') as f:
                 json.dump(offset_data, f, indent=2, ensure_ascii=False)
 
-            # Обновляем кэш
             cache_key = cls._get_cache_key(params_dict)
-            cls.CACHE[cache_key] = offset_data
+            with cls._CACHE_LOCK:
+                cls._CACHE[cache_key] = offset
+                cls._CACHE_TIMESTAMP[cache_key] = time.time()
 
             if os.environ.get('DEBUG', False):
                 print(f"✅ Offset сохранен в {os.path.basename(filename)}: {offset}")
@@ -133,10 +127,12 @@ class OffsetManager:
     def load_offset(cls, params_dict):
         """Загружает offset для конкретного набора параметров"""
         try:
-            # Проверяем кэш
             cache_key = cls._get_cache_key(params_dict)
-            if cache_key in cls.CACHE:
-                return cls.CACHE[cache_key].get('offset')
+
+            with cls._CACHE_LOCK:
+                if cache_key in cls._CACHE:
+                    if time.time() - cls._CACHE_TIMESTAMP.get(cache_key, 0) < cls._CACHE_TTL:
+                        return cls._CACHE[cache_key]
 
             filename = cls._get_offset_filename(params_dict)
 
@@ -146,12 +142,17 @@ class OffsetManager:
             with open(filename, 'r', encoding='utf-8') as f:
                 offset_data = json.load(f)
 
-            # Обновляем кэш
-            cls.CACHE[cache_key] = offset_data
+            offset = offset_data.get('offset')
 
-            return offset_data.get('offset')
+            with cls._CACHE_LOCK:
+                cls._CACHE[cache_key] = offset
+                cls._CACHE_TIMESTAMP[cache_key] = time.time()
 
-        except Exception:
+            return offset
+
+        except Exception as e:
+            if os.environ.get('DEBUG', False):
+                print(f"❌ Error loading offset: {e}")
             return None
 
     @classmethod
@@ -161,17 +162,16 @@ class OffsetManager:
             cls._ensure_offset_dir()
 
             if params_dict:
-                # Удаляем конкретный offset файл
                 filename = cls._get_offset_filename(params_dict)
                 if os.path.exists(filename):
                     os.remove(filename)
-                    # Удаляем из кэша
                     cache_key = cls._get_cache_key(params_dict)
-                    cls.CACHE.pop(cache_key, None)
+                    with cls._CACHE_LOCK:
+                        cls._CACHE.pop(cache_key, None)
+                        cls._CACHE_TIMESTAMP.pop(cache_key, None)
                     return True
                 return False
             else:
-                # Очищаем всю директорию
                 deleted_count = 0
                 for filename in os.listdir(cls.OFFSET_DIR):
                     if filename.startswith(cls.OFFSET_FILE_PREFIX) and filename.endswith('.json'):
@@ -179,16 +179,52 @@ class OffsetManager:
                         os.remove(filepath)
                         deleted_count += 1
 
-                # Очищаем кэш
-                cls.CACHE.clear()
+                with cls._CACHE_LOCK:
+                    cls._CACHE.clear()
+                    cls._CACHE_TIMESTAMP.clear()
 
                 if os.environ.get('DEBUG', False):
                     print(f"🗑️  Удалено offset файлов: {deleted_count}")
 
                 return deleted_count > 0
 
-        except Exception:
+        except Exception as e:
+            if os.environ.get('DEBUG', False):
+                print(f"❌ Error clearing offsets: {e}")
             return False
+
+    @classmethod
+    def get_offset_info(cls, params_dict):
+        """Получает информацию о сохраненном offset"""
+        try:
+            filename = cls._get_offset_filename(params_dict)
+
+            if not os.path.exists(filename):
+                return {
+                    'exists': False,
+                    'filename': os.path.basename(filename),
+                    'cached': cls._get_cache_key(params_dict) in cls._CACHE
+                }
+
+            with open(filename, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            cache_key = cls._get_cache_key(params_dict)
+            in_cache = cache_key in cls._CACHE
+
+            return {
+                'exists': True,
+                'filename': os.path.basename(filename),
+                'params': data.get('params', {}),
+                'offset': data.get('offset', 0),
+                'timestamp': data.get('timestamp', 0),
+                'size': os.path.getsize(filename),
+                'in_cache': in_cache,
+                'cache_age': time.time() - cls._CACHE_TIMESTAMP.get(cache_key, 0) if in_cache else None
+            }
+
+        except Exception as e:
+            return {'error': str(e), 'exists': False}
 
     @classmethod
     def list_offset_files(cls):
@@ -216,32 +252,31 @@ class OffsetManager:
 
             return offset_files
 
-        except Exception:
+        except Exception as e:
+            if os.environ.get('DEBUG', False):
+                print(f"❌ Error listing offset files: {e}")
             return []
 
     @classmethod
-    def get_offset_info(cls, params_dict):
-        """Получает информацию о сохраненном offset"""
-        try:
-            filename = cls._get_offset_filename(params_dict)
+    def clear_cache(cls):
+        """Очищает только кэш, без удаления файлов"""
+        with cls._CACHE_LOCK:
+            cache_size = len(cls._CACHE)
+            cls._CACHE.clear()
+            cls._CACHE_TIMESTAMP.clear()
 
-            if not os.path.exists(filename):
-                return {'exists': False, 'filename': os.path.basename(filename)}
+        if os.environ.get('DEBUG', False):
+            print(f"🗑️  Очищен кэш offset ({cache_size} записей)")
 
-            with open(filename, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+        return cache_size
 
+    @classmethod
+    def get_cache_stats(cls):
+        """Возвращает статистику по кэшу"""
+        with cls._CACHE_LOCK:
             return {
-                'exists': True,
-                'filename': os.path.basename(filename),
-                'params': data.get('params', {}),
-                'offset': data.get('offset', 0),
-                'size': os.path.getsize(filename)
+                'size': len(cls._CACHE),
+                'oldest': min(cls._CACHE_TIMESTAMP.values()) if cls._CACHE_TIMESTAMP else 0,
+                'newest': max(cls._CACHE_TIMESTAMP.values()) if cls._CACHE_TIMESTAMP else 0,
+                'ttl': cls._CACHE_TTL
             }
-
-        except Exception as e:
-            return {'error': str(e)}
-
-
-# Импортируем time здесь, чтобы избежать ошибки
-import time

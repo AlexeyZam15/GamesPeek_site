@@ -1,10 +1,29 @@
-// games/static/games/js/game_listfilters-ui.js
+// games/static/games/js/game_list/filters_js/filters-ui.js
+
+// Добавляем служебный объект для таймеров
+const FilterUIDebugTimer = {
+    marks: {},
+    start(label) {
+        this.marks[label] = performance.now();
+    },
+    end(label) {
+        const endTime = performance.now();
+        const startTime = this.marks[label];
+        if (startTime) {
+            const duration = (endTime - startTime).toFixed(2);
+            console.warn(`[TIMER] ${label} took ${duration} ms`);
+            delete this.marks[label];
+        } else {
+            console.warn(`[TIMER] No start mark found for: ${label}`);
+        }
+    }
+};
 
 const FilterUI = {
     // Инициализация секций
     initializeSections() {
         console.log('Initializing sections...');
-        
+
         // Восстановление состояний из localStorage
         setTimeout(() => {
             this.restoreSectionStates();
@@ -13,16 +32,19 @@ const FilterUI = {
 
     // Настройка кнопок "Show all"
     setupShowAllToggles() {
+        FilterUIDebugTimer.start('setupShowAllToggles');
         console.log('Setting up show all toggles...');
 
         const toggles = [
+            // Search Filters
+            { btn: '.show-all-platforms-btn', list: '.platform-list' },
+            { btn: '.show-all-game-types-btn', list: '.game-type-list' },
             { btn: '.show-all-genres-btn', list: '.genre-list' },
             { btn: '.show-all-keywords-btn', list: '.keyword-list' },
-            { btn: '.show-all-platforms-btn', list: '.platform-list' },
             { btn: '.show-all-themes-btn', list: '.theme-list' },
             { btn: '.show-all-perspectives-btn', list: '.perspective-list' },
             { btn: '.show-all-game-modes-btn', list: '.game-mode-list' },
-            { btn: '.show-all-game-types-btn', list: '.game-type-list' }
+            { btn: '.show-all-engines-btn', list: '.engine-list' }
         ];
 
         toggles.forEach(({ btn, list }) => {
@@ -76,6 +98,7 @@ const FilterUI = {
                 });
             }
         });
+        FilterUIDebugTimer.end('setupShowAllToggles');
     },
 
     // Сохранение состояния "Show all"
@@ -99,6 +122,7 @@ const FilterUI = {
 
     // Настройка переключения секций с сохранением состояния
     setupSectionToggles() {
+        FilterUIDebugTimer.start('setupSectionToggles');
         console.log('Setting up section toggles...');
 
         // Сохранение состояния в localStorage
@@ -239,10 +263,12 @@ const FilterUI = {
                 }, 100);
             });
         });
+        FilterUIDebugTimer.end('setupSectionToggles');
     },
 
     // Восстановление состояний секций
     restoreSectionStates() {
+        FilterUIDebugTimer.start('restoreSectionStates');
         console.log('Restoring section states...');
 
         // Восстанавливаем состояния главных секций
@@ -294,16 +320,25 @@ const FilterUI = {
                 }
             }
         });
+        FilterUIDebugTimer.end('restoreSectionStates');
     },
 
     // Настройка поиска по фильтрам
     setupSearchInputs() {
+        FilterUIDebugTimer.start('setupSearchInputs');
         console.log('Setting up search inputs...');
 
         const searchInputs = [
-            'genre-search', 'keyword-search', 'platform-search',
-            'theme-search', 'perspective-search', 'game-mode-search',
-            'game-type-search'
+            // Search Filters
+            'platform-search', 'game-type-search',
+            'search-genre-search', 'search-keyword-search',
+            'search-theme-search', 'search-perspective-search',
+            'search-game-mode-search', 'search-engine-search',
+
+            // Similarity Filters
+            'genre-search', 'keyword-search',
+            'theme-search', 'perspective-search',
+            'game-mode-search', 'engine-search'
         ];
 
         searchInputs.forEach(inputId => {
@@ -372,10 +407,12 @@ const FilterUI = {
                 updateClearButton();
             }
         });
+        FilterUIDebugTimer.end('setupSearchInputs');
     },
 
     // Настройка визуальных эффектов для бейджей
     setupBadgeEffects() {
+        FilterUIDebugTimer.start('setupBadgeEffects');
         console.log('Setting up badge effects...');
 
         const badgeSelectors = [
@@ -385,7 +422,8 @@ const FilterUI = {
             '.active-theme-tag',
             '.active-perspective-tag',
             '.active-game-mode-tag',
-            '.active-game-type-tag'
+            '.active-game-type-tag',
+            '.active-engine-tag'
         ];
 
         badgeSelectors.forEach(selector => {
@@ -411,10 +449,12 @@ const FilterUI = {
                 });
             });
         });
+        FilterUIDebugTimer.end('setupBadgeEffects');
     },
 
     // Анимация переключения чекбоксов
     setupCheckboxAnimations() {
+        FilterUIDebugTimer.start('setupCheckboxAnimations');
         console.log('Setting up checkbox animations...');
 
         const checkboxSelectors = [
@@ -424,7 +464,14 @@ const FilterUI = {
             '.theme-checkbox',
             '.perspective-checkbox',
             '.game-mode-checkbox',
-            '.game-type-checkbox'
+            '.game-type-checkbox',
+            '.engine-checkbox',
+            '.search-genre-checkbox',
+            '.search-keyword-checkbox',
+            '.search-theme-checkbox',
+            '.search-perspective-checkbox',
+            '.search-game-mode-checkbox',
+            '.search-engine-checkbox'
         ];
 
         checkboxSelectors.forEach(selector => {
@@ -446,10 +493,14 @@ const FilterUI = {
                 });
             });
         });
+        FilterUIDebugTimer.end('setupCheckboxAnimations');
     },
+
+    // Удаляем setupFilterTabs() - теперь это делает простой JS в HTML
 
     // Инициализация всех UI компонентов
     initializeAllUI() {
+        FilterUIDebugTimer.start('FilterUI.initializeAllUI');
         console.log('Initializing all UI components...');
 
         try {
@@ -459,11 +510,13 @@ const FilterUI = {
             this.setupSearchInputs();
             this.setupBadgeEffects();
             this.setupCheckboxAnimations();
+            // Убрали вызов setupFilterTabs()
 
             console.log('All UI components initialized successfully');
         } catch (error) {
             console.error('Error initializing UI components:', error);
         }
+        FilterUIDebugTimer.end('FilterUI.initializeAllUI');
     }
 };
 

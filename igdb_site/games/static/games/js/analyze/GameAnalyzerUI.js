@@ -22,6 +22,7 @@ import {
     bindSaveButton,
     bindAddKeywordButton,
     bindDeleteKeywordButton,
+    bindNormalizeKeywordButton,
     bindClearResultsButton,
     bindBackToGameButton,
     bindScrollToTop,
@@ -87,12 +88,10 @@ class GameAnalyzerUI {
         console.log('Game Analyzer UI initialized');
     }
 
-    // Обновление текущих ключевых слов игры
     refreshCurrentKeywords() {
         const currentKeywordsContainer = document.querySelector('.current-data-category:has(h6:contains("Keywords"))');
         if (!currentKeywordsContainer) return;
 
-        // Обновляем через AJAX запрос
         fetch(`/games/${this.options.gameId}/analyze/current-keywords/`)
         .then(response => response.json())
         .then(data => {
@@ -110,12 +109,10 @@ class GameAnalyzerUI {
         });
     }
 
-    // Обновление найденных элементов
     refreshFoundItems() {
         const foundKeywordsContainer = document.querySelector('.found-items-category[data-category="keywords"]');
         if (!foundKeywordsContainer) return;
 
-        // Обновляем через AJAX запрос
         const activeTab = this.currentTab;
         fetch(`/games/${this.options.gameId}/analyze/found-items/?tab=${activeTab}`)
         .then(response => response.json())
@@ -133,7 +130,6 @@ class GameAnalyzerUI {
                         </span>`
                     ).join('');
 
-                    // Обновляем счетчик
                     const countBadge = foundKeywordsContainer.querySelector('h6 .badge');
                     if (countBadge) {
                         const newCount = data.keywords.filter(k => k.is_new).length;
@@ -146,10 +142,6 @@ class GameAnalyzerUI {
             console.error('Error refreshing found items:', error);
         });
     }
-
-    /* ============================================
-       SCROLL POSITION RESTORATION AFTER TAB LOAD
-       ============================================ */
 
     restoreScrollPositionAfterTabLoad(tabName) {
         if (this.isRestoringScroll) return;
@@ -167,10 +159,6 @@ class GameAnalyzerUI {
             }
         }, 500);
     }
-
-    /* ============================================
-       ADD KEYWORD METHOD - ДОБАВЛЕН НОВЫЙ МЕТОД
-       ============================================ */
 
     handleAddKeyword() {
         const keywordInput = document.getElementById('new-keyword-input');
@@ -233,15 +221,11 @@ class GameAnalyzerUI {
         }, 100);
     }
 
-    /* ============================================
-       AUTO ANALYZE CHECK
-       ============================================ */
-
     checkForAutoAnalyze() {
         const urlParams = new URLSearchParams(window.location.search);
 
         if (urlParams.get('cleared') === '1') {
-            this.showMessage('✅ Несохранённые результаты успешно очищены.', 'success');
+            this.showMessage('✅ Unsaved results successfully cleared.', 'success');
             setTimeout(() => this.removeUrlParam('cleared'), 3000);
         }
 
@@ -250,7 +234,7 @@ class GameAnalyzerUI {
 
             if (urlParams.get('auto_analyze') === '1') {
                 setTimeout(() => {
-                    this.showMessage('🔍 Текст автоматически проанализирован после добавления ключевого слова. Все совпадения подсвечены.', 'info');
+                    this.showMessage('🔍 Text automatically analyzed after keyword addition. All matches highlighted.', 'info');
                 }, 500);
             }
 
@@ -266,10 +250,6 @@ class GameAnalyzerUI {
         }
     }
 
-    /* ============================================
-       ELEMENT CACHING
-       ============================================ */
-
     cacheElements() {
         this.elements = {
             modeButtons: document.querySelectorAll('.mode-btn'),
@@ -277,6 +257,8 @@ class GameAnalyzerUI {
             tabSelect: document.getElementById('analyze-tab-select'),
             newKeywordInput: document.getElementById('new-keyword-input'),
             addKeywordButton: document.getElementById('add-keyword-button'),
+            deleteKeywordButton: document.getElementById('delete-keyword-button'),
+            normalizeKeywordButton: document.getElementById('normalize-keyword-button'),
             highlightToggle: document.getElementById('highlight-toggle'),
             analyzeTabs: document.getElementById('analyzeTabs'),
             analyzeTabLinks: document.querySelectorAll('#analyzeTabs .nav-link'),
@@ -308,10 +290,6 @@ class GameAnalyzerUI {
         this.currentMode = 'combined';
     }
 
-    /* ============================================
-       EVENT BINDING
-       ============================================ */
-
     bindEvents() {
         console.log('=== BINDING EVENTS ===');
 
@@ -320,7 +298,8 @@ class GameAnalyzerUI {
         bindAnalyzeButton(this);
         bindSaveButton(this);
         bindAddKeywordButton(this);
-        bindDeleteKeywordButton(this);  // ← УБЕДИТЬСЯ ЧТО ЭТО ЕСТЬ
+        bindDeleteKeywordButton(this);
+        bindNormalizeKeywordButton(this);
         bindClearResultsButton(this);
         bindBackToGameButton(this);
         bindBootstrapTabs(this);
@@ -329,10 +308,6 @@ class GameAnalyzerUI {
 
         console.log('=== ALL EVENTS BOUND ===');
     }
-
-    /* ============================================
-       TAB & SCROLL MANAGEMENT
-       ============================================ */
 
     loadUrlParams() {
         const urlParams = new URLSearchParams(window.location.search);
@@ -380,17 +355,9 @@ class GameAnalyzerUI {
         return removeUrlParam(param);
     }
 
-    /* ============================================
-       TEXT ALIGNMENT
-       ============================================ */
-
     forceTextAlignmentFix() {
         return forceTextAlignmentFix(this);
     }
-
-    /* ============================================
-       ACTIONS
-       ============================================ */
 
     scrollToHighlight(elementName) {
         return scrollToHighlight(this, elementName);
@@ -403,10 +370,6 @@ class GameAnalyzerUI {
     handleScroll() {
         return handleScroll(this);
     }
-
-    /* ============================================
-       UTILITY METHODS
-       ============================================ */
 
     showMessage(text, type = 'info', duration = 5000) {
         return showMessage(text, type, duration);
@@ -428,10 +391,6 @@ class GameAnalyzerUI {
         }
     }
 
-    /* ============================================
-       TAB PERSISTENCE METHODS (реэкспортированные)
-       ============================================ */
-
     saveCurrentTab() {
         return saveCurrentTab(this);
     }
@@ -443,10 +402,6 @@ class GameAnalyzerUI {
     clearTabStorage() {
         return clearTabStorage(this);
     }
-
-    /* ============================================
-       SCROLL POSITION METHODS (реэкспортированные)
-       ============================================ */
 
     saveScrollPosition() {
         return saveScrollPosition(this);

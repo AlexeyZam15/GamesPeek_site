@@ -1,6 +1,9 @@
 <!-- games/templates/games/game_list/_filters_form.html -->
-<!-- Блок фильтров -->
-<div class="card mb-4">
+<!-- ЗАГЛУШКА (точная копия видимой части) -->
+{% include 'games/game_list/_filters_skeleton.html' %}
+
+<!-- НАСТОЯЩИЕ ФИЛЬТРЫ (скрыты при загрузке) -->
+<div class="card mb-4" id="real-filters-container" style="display: none;">
     <div class="card-body">
         <form method="get" id="main-search-form">
             <!-- Скрытые параметры -->
@@ -13,6 +16,7 @@
             <input type="hidden" name="pp" id="perspectives-field" value="{{ selected_perspectives|join:',' }}">
             <input type="hidden" name="gm" id="game-modes-field" value="{{ selected_game_modes|join:',' }}">
             <input type="hidden" name="gt" id="game-types-field" value="{{ selected_game_types|join:',' }}">
+            <input type="hidden" name="e" id="engines-field" value="{{ selected_engines|join:',' }}">
             <input type="hidden" name="yr" id="year-range-field" value="">
             <input type="hidden" name="ys" id="year-start-field" value="{{ selected_release_year_start|default:'' }}">
             <input type="hidden" name="ye" id="year-end-field" value="{{ selected_release_year_end|default:'' }}">
@@ -21,11 +25,34 @@
                 <!-- Встроенная сортировка -->
                 {% include 'games/game_list/_sort_form.html' %}
 
-                <!-- Поисковые фильтры -->
-                {% include 'games/game_list/_search_filters.html' %}
+                <!-- ===== ВКЛАДКИ (чистый CSS, без Bootstrap JS) ===== -->
+                <div class="filter-tabs-container mb-3">
+                    <div class="filter-tabs" id="filterTabs">
+                        <div class="filter-tab-item">
+                            <a href="#" class="filter-tab-link active" data-tab="search-filters-pane">
+                                🔍 Search Filters
+                            </a>
+                        </div>
+                        <div class="filter-tab-item">
+                            <a href="#" class="filter-tab-link" data-tab="similarity-filters-pane">
+                                🎯 Similarity Filters
+                            </a>
+                        </div>
+                    </div>
+                </div>
 
-                <!-- Фильтры похожести -->
-                {% include 'games/game_list/_similarity_filters.html' %}
+                <!-- Контейнеры для содержимого вкладок (ОБА ЗАГРУЖЕНЫ) -->
+                <div class="filter-tab-content">
+                    <!-- Панель Search Filters (активная по умолчанию) -->
+                    <div class="filter-tab-pane active" id="search-filters-pane">
+                        {% include 'games/game_list/_search_filters.html' %}
+                    </div>
+
+                    <!-- Панель Similarity Filters (скрыта, но HTML загружен) -->
+                    <div class="filter-tab-pane" id="similarity-filters-pane">
+                        {% include 'games/game_list/_similarity_filters.html' %}
+                    </div>
+                </div>
 
                 <!-- Основные кнопки -->
                 <div class="col-12">
@@ -45,21 +72,73 @@
 
 <!-- JavaScript логика -->
 <script>
-    // Передаем данные о годах из Django в JavaScript
     window.minYear = {{ years_range.min_year }};
     window.maxYear = {{ years_range.max_year }};
     window.currentYear = {{ current_year }};
-
-    // Добавляем данные к элементу для легкого доступа
-    document.addEventListener('DOMContentLoaded', function() {
-        const dateFilter = document.querySelector('.release-date-filter');
-        if (dateFilter) {
-            dateFilter.setAttribute('data-min-year', {{ years_range.min_year }});
-            dateFilter.setAttribute('data-max-year', {{ years_range.max_year }});
-            dateFilter.setAttribute('data-current-year', {{ current_year }});
-        }
-    });
 </script>
 
-<!-- Подключаем JavaScript файл с функциями фильтров -->
+<!-- Простой JS для переключения вкладок (без Bootstrap) -->
+<script>
+    (function() {
+        // Переключение вкладок через делегирование событий
+        document.addEventListener('click', function(e) {
+            const tabLink = e.target.closest('.filter-tab-link');
+            if (!tabLink) return;
+
+            e.preventDefault();
+
+            const tabId = tabLink.dataset.tab;
+            if (!tabId) return;
+
+            // Деактивируем все вкладки
+            document.querySelectorAll('.filter-tab-link').forEach(link => {
+                link.classList.remove('active');
+            });
+
+            // Активируем текущую вкладку
+            tabLink.classList.add('active');
+
+            // Деактивируем все панели
+            document.querySelectorAll('.filter-tab-pane').forEach(pane => {
+                pane.classList.remove('active');
+            });
+
+            // Активируем нужную панель
+            const targetPane = document.getElementById(tabId);
+            if (targetPane) {
+                targetPane.classList.add('active');
+            }
+
+            // Сохраняем в localStorage
+            try {
+                localStorage.setItem('activeFilterTab', tabId);
+            } catch (e) {}
+        });
+
+        // Восстанавливаем последнюю активную вкладку
+        try {
+            const activeTabId = localStorage.getItem('activeFilterTab');
+            if (activeTabId) {
+                const tabToActivate = document.querySelector(`.filter-tab-link[data-tab="${activeTabId}"]`);
+                if (tabToActivate) {
+                    // Деактивируем все
+                    document.querySelectorAll('.filter-tab-link').forEach(link => {
+                        link.classList.remove('active');
+                    });
+                    document.querySelectorAll('.filter-tab-pane').forEach(pane => {
+                        pane.classList.remove('active');
+                    });
+
+                    // Активируем сохраненную вкладку
+                    tabToActivate.classList.add('active');
+                    const targetPane = document.getElementById(activeTabId);
+                    if (targetPane) {
+                        targetPane.classList.add('active');
+                    }
+                }
+            }
+        } catch (e) {}
+    })();
+</script>
+
 <script type="module" src="/static/games/js/game_list/filters-init.js"></script>

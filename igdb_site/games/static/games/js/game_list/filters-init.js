@@ -1,5 +1,23 @@
 // games/static/games/js/game_list/filters-init.js
-// Этот файл содержит JavaScript код, который раньше был в _filters_js.html
+
+// Добавляем служебный объект для таймеров
+const FiltersInitDebugTimer = {
+    marks: {},
+    start(label) {
+        this.marks[label] = performance.now();
+    },
+    end(label) {
+        const endTime = performance.now();
+        const startTime = this.marks[label];
+        if (startTime) {
+            const duration = (endTime - startTime).toFixed(2);
+            console.warn(`[TIMER] ${label} took ${duration} ms`);
+            delete this.marks[label];
+        } else {
+            console.warn(`[TIMER] No start mark found for: ${label}`);
+        }
+    }
+};
 
 (function() {
     'use strict';
@@ -7,7 +25,9 @@
     console.log('Loading filters initialization script...');
 
     // ===== ГЛОБАЛЬНЫЕ ФУНКЦИИ ДЛЯ КНОПОК SHOW MORE/LESS =====
+    // (ОРИГИНАЛЬНЫЕ ДЛЯ SIMILARITY FILTERS)
 
+    // Platforms (для Similarity)
     window.toggleMoreplatforms = function(button) {
         const hiddenSection = document.getElementById('hidden-platforms-badges');
         const showLessBtn = button.nextElementSibling;
@@ -15,13 +35,6 @@
             hiddenSection.style.display = 'block';
             button.style.display = 'none';
             if (showLessBtn) showLessBtn.style.display = 'inline-block';
-
-            // Сортируем после изменения
-            setTimeout(() => {
-                if (window.FilterManager && window.FilterManager.sort) {
-                    window.FilterManager.sort.sortFilterLists();
-                }
-            }, 100);
         }
     };
 
@@ -35,6 +48,7 @@
         }
     };
 
+    // Genres (для Similarity)
     window.toggleMoregenres = function(button) {
         const hiddenSection = document.getElementById('hidden-genres-badges');
         const showLessBtn = button.nextElementSibling;
@@ -42,13 +56,6 @@
             hiddenSection.style.display = 'block';
             button.style.display = 'none';
             if (showLessBtn) showLessBtn.style.display = 'inline-block';
-
-            // Сортируем после изменения
-            setTimeout(() => {
-                if (window.FilterManager && window.FilterManager.sort) {
-                    window.FilterManager.sort.sortFilterLists();
-                }
-            }, 100);
         }
     };
 
@@ -62,6 +69,7 @@
         }
     };
 
+    // Keywords (для Similarity)
     window.toggleMorekeywords = function(button) {
         const hiddenSection = document.getElementById('hidden-keywords-badges');
         const showLessBtn = button.nextElementSibling;
@@ -82,6 +90,7 @@
         }
     };
 
+    // Themes (для Similarity)
     window.toggleMorethemes = function(button) {
         const hiddenSection = document.getElementById('hidden-themes-badges');
         const showLessBtn = button.nextElementSibling;
@@ -102,6 +111,7 @@
         }
     };
 
+    // Perspectives (для Similarity)
     window.toggleMoreperspectives = function(button) {
         const hiddenSection = document.getElementById('hidden-perspectives-badges');
         const showLessBtn = button.nextElementSibling;
@@ -122,19 +132,212 @@
         }
     };
 
-    // ===== ФУНКЦИИ ДЛЯ УПРАВЛЕНИЯ ФИЛЬТРОМ ДАТЫ =====
+    // Game Modes (для Similarity)
+    window.toggleMoregameModes = function(button) {
+        const hiddenSection = document.getElementById('hidden-game-modes-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleLessgameModes = function(button) {
+        const hiddenSection = document.getElementById('hidden-game-modes-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
+    // Engines (для Similarity)
+    window.toggleMoreengines = function(button) {
+        const hiddenSection = document.getElementById('hidden-engines-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleLessengines = function(button) {
+        const hiddenSection = document.getElementById('hidden-engines-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
+    // ===== НОВЫЕ ФУНКЦИИ ДЛЯ SEARCH FILTERS =====
+
+    // Platforms (для Search)
+    window.toggleSearchMorePlatforms = function(button) {
+        const hiddenSection = document.getElementById('search-hidden-platforms-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleSearchLessPlatforms = function(button) {
+        const hiddenSection = document.getElementById('search-hidden-platforms-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
+    // Genres (для Search)
+    window.toggleSearchMoreGenres = function(button) {
+        const hiddenSection = document.getElementById('search-hidden-genres-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleSearchLessGenres = function(button) {
+        const hiddenSection = document.getElementById('search-hidden-genres-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
+    // Keywords (для Search)
+    window.toggleSearchMoreKeywords = function(button) {
+        const hiddenSection = document.getElementById('search-hidden-keywords-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleSearchLessKeywords = function(button) {
+        const hiddenSection = document.getElementById('search-hidden-keywords-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
+    // Themes (для Search)
+    window.toggleSearchMoreThemes = function(button) {
+        const hiddenSection = document.getElementById('search-hidden-themes-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleSearchLessThemes = function(button) {
+        const hiddenSection = document.getElementById('search-hidden-themes-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
+    // Perspectives (для Search)
+    window.toggleSearchMorePerspectives = function(button) {
+        const hiddenSection = document.getElementById('search-hidden-perspectives-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleSearchLessPerspectives = function(button) {
+        const hiddenSection = document.getElementById('search-hidden-perspectives-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
+    // Game Modes (для Search)
+    window.toggleSearchMoreGameModes = function(button) {
+        const hiddenSection = document.getElementById('search-hidden-game-modes-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleSearchLessGameModes = function(button) {
+        const hiddenSection = document.getElementById('search-hidden-game-modes-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
+    // Engines (для Search)
+    window.toggleSearchMoreEngines = function(button) {
+        const hiddenSection = document.getElementById('search-hidden-engines-badges');
+        const showLessBtn = button.nextElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'block';
+            button.style.display = 'none';
+            if (showLessBtn) showLessBtn.style.display = 'inline-block';
+        }
+    };
+
+    window.toggleSearchLessEngines = function(button) {
+        const hiddenSection = document.getElementById('search-hidden-engines-badges');
+        const showMoreBtn = button.previousElementSibling;
+        if (hiddenSection) {
+            hiddenSection.style.display = 'none';
+            button.style.display = 'none';
+            if (showMoreBtn) showMoreBtn.style.display = 'inline-block';
+        }
+    };
+
+    // ===== ФУНКЦИИ ДЛЯ УПРАВЛЕНИЯ ФИЛЬТРОМ ДАТЫ (SEARCH) =====
 
     let minYear = window.minYear || 1970;
     let maxYear = window.maxYear || new Date().getFullYear();
     let currentYear = window.currentYear || new Date().getFullYear();
 
-    window.updateYearRange = function(type) {
-        const minSlider = document.getElementById('year-range-slider-min');
-        const maxSlider = document.getElementById('year-range-slider-max');
+    // Функции для Search Filters
+    window.updateSearchYearRange = function(type) {
+        const minSlider = document.getElementById('search-year-range-slider-min');
+        const maxSlider = document.getElementById('search-year-range-slider-max');
+        if (!minSlider || !maxSlider) return;
+
         const minValue = parseInt(minSlider.value);
         const maxValue = parseInt(maxSlider.value);
 
-        // Гарантируем, что min <= max
         if (type === 'min' && minValue > maxValue) {
             minSlider.value = maxValue;
         }
@@ -142,35 +345,32 @@
             maxSlider.value = minValue;
         }
 
-        // Обновляем отображаемые значения
-        const minYearValue = document.getElementById('min-year-value');
-        const maxYearValue = document.getElementById('max-year-value');
+        const minYearValue = document.getElementById('search-min-year-value');
+        const maxYearValue = document.getElementById('search-max-year-value');
         if (minYearValue) minYearValue.textContent = minSlider.value;
         if (maxYearValue) maxYearValue.textContent = maxSlider.value;
 
-        // Обновляем поля ручного ввода
-        const manualStart = document.getElementById('manual-year-start');
-        const manualEnd = document.getElementById('manual-year-end');
+        const manualStart = document.getElementById('search-manual-year-start');
+        const manualEnd = document.getElementById('search-manual-year-end');
         if (manualStart) manualStart.value = minSlider.value;
         if (manualEnd) manualEnd.value = maxSlider.value;
 
-        // Обновляем скрытые поля формы
         const yearStartField = document.getElementById('year-start-field');
         const yearEndField = document.getElementById('year-end-field');
         if (yearStartField) yearStartField.value = minSlider.value;
         if (yearEndField) yearEndField.value = maxSlider.value;
 
-        // Обновляем комбинированное поле
         updateCombinedYearField();
     };
 
-    window.updateYearFromInput = function(type) {
-        const startInput = document.getElementById('manual-year-start');
-        const endInput = document.getElementById('manual-year-end');
-        let startValue = startInput ? parseInt(startInput.value) || minYear : minYear;
-        let endValue = endInput ? parseInt(endInput.value) || maxYear : maxYear;
+    window.updateSearchYearFromInput = function(type) {
+        const startInput = document.getElementById('search-manual-year-start');
+        const endInput = document.getElementById('search-manual-year-end');
+        if (!startInput || !endInput) return;
 
-        // Валидация значений
+        let startValue = parseInt(startInput.value) || minYear;
+        let endValue = parseInt(endInput.value) || maxYear;
+
         if (startValue < minYear) startValue = minYear;
         if (startValue > maxYear) startValue = maxYear;
         if (endValue < minYear) endValue = minYear;
@@ -180,48 +380,152 @@
             if (type === 'end') startValue = endValue;
         }
 
-        // Обновляем поля
-        if (startInput) startInput.value = startValue;
-        if (endInput) endInput.value = endValue;
+        startInput.value = startValue;
+        endInput.value = endValue;
 
-        // Обновляем ползунки
-        const minSlider = document.getElementById('year-range-slider-min');
-        const maxSlider = document.getElementById('year-range-slider-max');
+        const minSlider = document.getElementById('search-year-range-slider-min');
+        const maxSlider = document.getElementById('search-year-range-slider-max');
         if (minSlider) minSlider.value = startValue;
         if (maxSlider) maxSlider.value = endValue;
 
-        // Обновляем отображаемые значения
-        const minYearValue = document.getElementById('min-year-value');
-        const maxYearValue = document.getElementById('max-year-value');
+        const minYearValue = document.getElementById('search-min-year-value');
+        const maxYearValue = document.getElementById('search-max-year-value');
         if (minYearValue) minYearValue.textContent = startValue;
         if (maxYearValue) maxYearValue.textContent = endValue;
 
-        // Обновляем скрытые поля формы
         const yearStartField = document.getElementById('year-start-field');
         const yearEndField = document.getElementById('year-end-field');
         if (yearStartField) yearStartField.value = startValue;
         if (yearEndField) yearEndField.value = endValue;
 
-        // Обновляем комбинированное поле
         updateCombinedYearField();
     };
 
-    function updateCombinedYearField() {
-        const startField = document.getElementById('year-start-field');
-        const endField = document.getElementById('year-end-field');
-        const combinedField = document.getElementById('year-range-field');
+    window.setSearchYearRange = function(rangeType) {
+        let startYear, endYear;
 
-        if (startField && endField && combinedField) {
-            const startValue = startField.value;
-            const endValue = endField.value;
-
-            if (startValue && endValue) {
-                combinedField.value = `${startValue}-${endValue}`;
-            } else {
-                combinedField.value = '';
-            }
+        switch(rangeType) {
+            case 'last5':
+                endYear = currentYear;
+                startYear = currentYear - 4;
+                break;
+            case '2010s':
+                startYear = 2010;
+                endYear = 2019;
+                break;
+            case '2000s':
+                startYear = 2000;
+                endYear = 2009;
+                break;
+            case '1990s':
+                startYear = 1990;
+                endYear = 1999;
+                break;
+            case '1980s':
+                startYear = 1980;
+                endYear = 1989;
+                break;
+            default:
+                return;
         }
-    }
+
+        if (startYear < minYear) startYear = minYear;
+        if (endYear > maxYear) endYear = maxYear;
+
+        const minSlider = document.getElementById('search-year-range-slider-min');
+        const maxSlider = document.getElementById('search-year-range-slider-max');
+        if (minSlider) minSlider.value = startYear;
+        if (maxSlider) maxSlider.value = endYear;
+
+        const minYearValue = document.getElementById('search-min-year-value');
+        const maxYearValue = document.getElementById('search-max-year-value');
+        if (minYearValue) minYearValue.textContent = startYear;
+        if (maxYearValue) maxYearValue.textContent = endYear;
+
+        const manualStart = document.getElementById('search-manual-year-start');
+        const manualEnd = document.getElementById('search-manual-year-end');
+        if (manualStart) manualStart.value = startYear;
+        if (manualEnd) manualEnd.value = endYear;
+
+        const yearStartField = document.getElementById('year-start-field');
+        const yearEndField = document.getElementById('year-end-field');
+        if (yearStartField) yearStartField.value = startYear;
+        if (yearEndField) yearEndField.value = endYear;
+
+        updateCombinedYearField();
+    };
+
+    // Функции для Similarity Filters (оригинальные)
+    window.updateYearRange = function(type) {
+        const minSlider = document.getElementById('year-range-slider-min');
+        const maxSlider = document.getElementById('year-range-slider-max');
+        if (!minSlider || !maxSlider) return;
+
+        const minValue = parseInt(minSlider.value);
+        const maxValue = parseInt(maxSlider.value);
+
+        if (type === 'min' && minValue > maxValue) {
+            minSlider.value = maxValue;
+        }
+        if (type === 'max' && maxValue < minValue) {
+            maxSlider.value = minValue;
+        }
+
+        const minYearValue = document.getElementById('min-year-value');
+        const maxYearValue = document.getElementById('max-year-value');
+        if (minYearValue) minYearValue.textContent = minSlider.value;
+        if (maxYearValue) maxYearValue.textContent = maxSlider.value;
+
+        const manualStart = document.getElementById('manual-year-start');
+        const manualEnd = document.getElementById('manual-year-end');
+        if (manualStart) manualStart.value = minSlider.value;
+        if (manualEnd) manualEnd.value = maxSlider.value;
+
+        const yearStartField = document.getElementById('year-start-field');
+        const yearEndField = document.getElementById('year-end-field');
+        if (yearStartField) yearStartField.value = minSlider.value;
+        if (yearEndField) yearEndField.value = maxSlider.value;
+
+        updateCombinedYearField();
+    };
+
+    window.updateYearFromInput = function(type) {
+        const startInput = document.getElementById('manual-year-start');
+        const endInput = document.getElementById('manual-year-end');
+        if (!startInput || !endInput) return;
+
+        let startValue = parseInt(startInput.value) || minYear;
+        let endValue = parseInt(endInput.value) || maxYear;
+
+        if (startValue < minYear) startValue = minYear;
+        if (startValue > maxYear) startValue = maxYear;
+        if (endValue < minYear) endValue = minYear;
+        if (endValue > maxYear) endValue = maxYear;
+        if (startValue > endValue) {
+            if (type === 'start') endValue = startValue;
+            if (type === 'end') startValue = endValue;
+        }
+
+        startInput.value = startValue;
+        endInput.value = endValue;
+
+        const minSlider = document.getElementById('year-range-slider-min');
+        const maxSlider = document.getElementById('year-range-slider-max');
+        if (minSlider) minSlider.value = startValue;
+        if (maxSlider) maxSlider.value = endValue;
+
+        const minYearValue = document.getElementById('min-year-value');
+        const maxYearValue = document.getElementById('max-year-value');
+        if (minYearValue) minYearValue.textContent = startValue;
+        if (maxYearValue) maxYearValue.textContent = endValue;
+
+        const yearStartField = document.getElementById('year-start-field');
+        const yearEndField = document.getElementById('year-end-field');
+        if (yearStartField) yearStartField.value = startValue;
+        if (yearEndField) yearEndField.value = endValue;
+
+        updateCombinedYearField();
+    };
 
     window.setYearRange = function(rangeType) {
         let startYear, endYear;
@@ -251,46 +555,59 @@
                 return;
         }
 
-        // Гарантируем, что годы в пределах допустимого диапазона
         if (startYear < minYear) startYear = minYear;
         if (endYear > maxYear) endYear = maxYear;
 
-        // Обновляем ползунки
         const minSlider = document.getElementById('year-range-slider-min');
         const maxSlider = document.getElementById('year-range-slider-max');
         if (minSlider) minSlider.value = startYear;
         if (maxSlider) maxSlider.value = endYear;
 
-        // Обновляем отображаемые значения
         const minYearValue = document.getElementById('min-year-value');
         const maxYearValue = document.getElementById('max-year-value');
         if (minYearValue) minYearValue.textContent = startYear;
         if (maxYearValue) maxYearValue.textContent = endYear;
 
-        // Обновляем поля ручного ввода
         const manualStart = document.getElementById('manual-year-start');
         const manualEnd = document.getElementById('manual-year-end');
         if (manualStart) manualStart.value = startYear;
         if (manualEnd) manualEnd.value = endYear;
 
-        // Обновляем скрытые поля формы
         const yearStartField = document.getElementById('year-start-field');
         const yearEndField = document.getElementById('year-end-field');
         if (yearStartField) yearStartField.value = startYear;
         if (yearEndField) yearEndField.value = endYear;
 
-        // Обновляем комбинированное поле
         updateCombinedYearField();
     };
+
+    function updateCombinedYearField() {
+        const startField = document.getElementById('year-start-field');
+        const endField = document.getElementById('year-end-field');
+        const combinedField = document.getElementById('year-range-field');
+
+        if (startField && endField && combinedField) {
+            const startValue = startField.value;
+            const endValue = endField.value;
+
+            if (startValue && endValue) {
+                combinedField.value = `${startValue}-${endValue}`;
+            } else {
+                combinedField.value = '';
+            }
+        }
+    }
 
     // ===== ИНИЦИАЛИЗАЦИЯ ПАГИНАЦИИ КЛЮЧЕВЫХ СЛОВ =====
 
     function initKeywordsPagination() {
+        FiltersInitDebugTimer.start('initKeywordsPagination');
         console.log('Initializing keywords pagination...');
 
         const keywordContainer = document.querySelector('.keyword-list');
         if (!keywordContainer) {
             console.log('KeywordsPagination: Keyword container not found');
+            FiltersInitDebugTimer.end('initKeywordsPagination');
             return;
         }
 
@@ -299,12 +616,12 @@
 
         if (totalKeywords <= 30) {
             console.log(`KeywordsPagination: Only ${totalKeywords} keywords, pagination not needed`);
+            FiltersInitDebugTimer.end('initKeywordsPagination');
             return;
         }
 
         console.log(`KeywordsPagination: Found ${totalKeywords} keywords, checking module...`);
 
-        // Проверяем доступность модуля KeywordsPagination
         setTimeout(function() {
             if (typeof window.KeywordsPagination !== 'undefined' &&
                 typeof window.KeywordsPagination.init === 'function') {
@@ -312,22 +629,22 @@
                 window.KeywordsPagination.init();
             } else {
                 console.log('KeywordsPagination: Module not loaded yet, trying again in 1 second...');
-                // Пробуем еще раз через 1 секунду
                 setTimeout(function() {
                     if (typeof window.KeywordsPagination !== 'undefined' &&
                         typeof window.KeywordsPagination.init === 'function') {
                         window.KeywordsPagination.init();
                     } else {
                         console.log('KeywordsPagination: Loading module from static files...');
-                        // Пытаемся загрузить модуль
                         loadKeywordsPaginationModule();
                     }
                 }, 1000);
             }
         }, 500);
+        FiltersInitDebugTimer.end('initKeywordsPagination');
     }
 
     function loadKeywordsPaginationModule() {
+        FiltersInitDebugTimer.start('loadKeywordsPaginationModule');
         const script = document.createElement('script');
         script.src = '/static/games/js/game_list/keywords-pagination.js';
         script.type = 'module';
@@ -340,24 +657,24 @@
                     window.KeywordsPagination.init();
                 }, 100);
             }
+            FiltersInitDebugTimer.end('loadKeywordsPaginationModule');
         };
 
         script.onerror = function() {
             console.error('KeywordsPagination: Failed to load module');
+            FiltersInitDebugTimer.end('loadKeywordsPaginationModule');
         };
 
         document.head.appendChild(script);
     }
 
-    // ===== CSS ПЕРЕМЕННЫЕ ДЛЯ ОРАНЖЕВОГО ЦВЕТА =====
+    // ===== CSS ПЕРЕМЕННЫЕ =====
 
     function ensureCSSVariables() {
-        // Проверяем наличие CSS переменных для оранжевого цвета
         const style = getComputedStyle(document.documentElement);
         const primaryColor = style.getPropertyValue('--primary-color').trim();
         const secondaryColor = style.getPropertyValue('--secondary-color').trim();
 
-        // Устанавливаем значения по умолчанию если CSS переменные не заданы
         if (!primaryColor || primaryColor === '') {
             document.documentElement.style.setProperty('--primary-color', '#ff6b35');
         }
@@ -378,15 +695,39 @@
         }
     }
 
-    // ===== ИНИЦИАЛИЗАЦИЯ ПРИ ЗАГРУЗКЕ DOM =====
+    // ===== ИНИЦИАЛИЗАЦИЯ =====
 
     document.addEventListener('DOMContentLoaded', function() {
+        FiltersInitDebugTimer.start('filters-init.DOMContentLoaded');
         console.log('Filters initialization: DOM loaded');
 
-        // Устанавливаем CSS переменные
         ensureCSSVariables();
 
-        // Инициализируем значения даты, если они есть
+        // Инициализируем значения даты для Search Filters
+        const searchStartYearInput = document.getElementById('search-manual-year-start');
+        const searchEndYearInput = document.getElementById('search-manual-year-end');
+
+        if (searchStartYearInput && searchStartYearInput.value) {
+            const yearStart = parseInt(searchStartYearInput.value);
+            if (!isNaN(yearStart)) {
+                const minSlider = document.getElementById('search-year-range-slider-min');
+                if (minSlider) minSlider.value = yearStart;
+                const minYearValue = document.getElementById('search-min-year-value');
+                if (minYearValue) minYearValue.textContent = yearStart;
+            }
+        }
+
+        if (searchEndYearInput && searchEndYearInput.value) {
+            const yearEnd = parseInt(searchEndYearInput.value);
+            if (!isNaN(yearEnd)) {
+                const maxSlider = document.getElementById('search-year-range-slider-max');
+                if (maxSlider) maxSlider.value = yearEnd;
+                const maxYearValue = document.getElementById('search-max-year-value');
+                if (maxYearValue) maxYearValue.textContent = yearEnd;
+            }
+        }
+
+        // Инициализируем значения даты для Similarity Filters
         const startYearInput = document.getElementById('manual-year-start');
         const endYearInput = document.getElementById('manual-year-end');
 
@@ -395,7 +736,6 @@
             if (!isNaN(yearStart)) {
                 const minSlider = document.getElementById('year-range-slider-min');
                 if (minSlider) minSlider.value = yearStart;
-
                 const minYearValue = document.getElementById('min-year-value');
                 if (minYearValue) minYearValue.textContent = yearStart;
             }
@@ -406,16 +746,13 @@
             if (!isNaN(yearEnd)) {
                 const maxSlider = document.getElementById('year-range-slider-max');
                 if (maxSlider) maxSlider.value = yearEnd;
-
                 const maxYearValue = document.getElementById('max-year-value');
                 if (maxYearValue) maxYearValue.textContent = yearEnd;
             }
         }
 
-        // Обновляем комбинированное поле
         updateCombinedYearField();
 
-        // Получаем данные о годах из Django
         const releaseDateFilter = document.querySelector('.release-date-filter');
         if (releaseDateFilter) {
             const minYearAttr = releaseDateFilter.getAttribute('data-min-year');
@@ -427,41 +764,53 @@
             if (currentYearAttr) currentYear = parseInt(currentYearAttr);
         }
 
-        // Инициализируем пагинацию ключевых слов
         setTimeout(initKeywordsPagination, 1000);
 
-        // Добавляем стили для корректного отображения пагинации
         const existingStyles = document.getElementById('filters-init-styles');
         if (!existingStyles) {
             const styleElement = document.createElement('style');
             styleElement.id = 'filters-init-styles';
             styleElement.textContent = `
-                /* Стили для корректного отображения пагинации */
                 .keyword-pagination {
                     margin-top: 1rem !important;
                     padding: 1rem !important;
                 }
-
                 .keyword-pagination .page-link,
                 .keyword-pagination .page-number-btn {
                     border: 1px solid var(--border, rgba(255, 107, 53, 0.2)) !important;
                 }
-
                 .keyword-pagination .page-item.active .page-link,
                 .keyword-pagination .page-number-btn.btn-primary {
                     border-color: var(--secondary-color, #ff6b35) !important;
                 }
-
-                /* Оранжевые рамки для всех кнопок фильтров */
                 .clear-keywords-btn,
                 .show-more-keywords,
                 .show-less-keywords,
                 .show-all-keywords-btn {
                     border: 2px solid var(--secondary-color, #ff6b35) !important;
                 }
+                .clear-engines-btn,
+                .show-more-engines,
+                .show-less-engines,
+                .show-all-engines-btn {
+                    border: 2px solid var(--secondary-color, #ff6b35) !important;
+                }
+                .search-clear-keywords-btn,
+                .search-show-more-keywords,
+                .search-show-less-keywords,
+                .search-show-all-keywords-btn {
+                    border: 2px solid var(--secondary-color, #ff6b35) !important;
+                }
+                .search-clear-engines-btn,
+                .search-show-more-engines,
+                .search-show-less-engines,
+                .search-show-all-engines-btn {
+                    border: 2px solid var(--secondary-color, #ff6b35) !important;
+                }
             `;
             document.head.appendChild(styleElement);
         }
+        FiltersInitDebugTimer.end('filters-init.DOMContentLoaded');
     });
 
     console.log('Filters initialization script loaded successfully');

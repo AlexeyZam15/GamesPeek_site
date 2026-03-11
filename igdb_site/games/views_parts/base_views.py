@@ -22,11 +22,9 @@ from django.template.loader import render_to_string
 
 # ===== LOCAL IMPORTS =====
 from ..similarity import GameSimilarity, VirtualGame
-from ..models import (
-    Game, Genre, Keyword, KeywordCategory, Platform,
-    Theme, PlayerPerspective, Company, Series, GameMode,
-    GameTypeEnum
-)
+from ..models import Game, Genre, Keyword, KeywordCategory, Platform, Theme, PlayerPerspective, Company, Series, \
+    GameMode, GameTypeEnum, GameEngine
+
 from ..helpers import generate_compact_url_params
 
 # ===== CACHE CONFIGURATION =====
@@ -61,7 +59,7 @@ CACHE_TIMES = {
 }
 
 # Versioned cache keys для инвалидации
-CACHE_VERSION = 'v20'
+CACHE_VERSION = 'v21'
 
 # Добавьте настройки логов
 logger = logging.getLogger('game_similarity')
@@ -118,6 +116,7 @@ class SimpleSourceGame:
             self._perspective_ids = criteria.get('perspectives', []) if criteria else []
             self._developer_ids = criteria.get('developers', []) if criteria else []
             self._game_mode_ids = criteria.get('game_modes', []) if criteria else []
+            self._engine_ids = criteria.get('engines', []) if criteria else []  # ДОБАВЛЕНО
 
     def _cache_game_ids(self):
         """Cache IDs from game object for faster access."""
@@ -172,6 +171,14 @@ class SimpleSourceGame:
         else:
             self._game_mode_ids = []
 
+        # Cache engine IDs
+        if hasattr(self.game_obj, '_cached_engine_ids'):
+            self._engine_ids = self.game_obj._cached_engine_ids
+        elif hasattr(self.game_obj, 'engines') and hasattr(self.game_obj.engines, 'all'):
+            self._engine_ids = [e.id for e in self.game_obj.engines.all()]
+        else:
+            self._engine_ids = []
+
     # ===== METHODS FOR TEMPLATE TAGS COMPATIBILITY =====
 
     def genres_list(self):
@@ -197,6 +204,10 @@ class SimpleSourceGame:
     def game_modes_list(self):
         """Return list of game mode IDs for template tags."""
         return self._game_mode_ids
+
+    def engines_list(self):
+        """Return list of engine IDs for template tags."""
+        return self._engine_ids
 
     # ===== PROPERTIES FOR DIRECT ACCESS =====
 
@@ -229,6 +240,11 @@ class SimpleSourceGame:
     def game_modes_ids(self):
         """Get game mode IDs (alias for compatibility)."""
         return self._game_mode_ids
+
+    @property
+    def engines_ids(self):
+        """Get engine IDs (alias for compatibility)."""
+        return self._engine_ids
 
     # ===== DUMMY METHODS FOR TEMPLATE COMPATIBILITY =====
 
@@ -311,6 +327,12 @@ def convert_params_to_lists(params_dict: Dict[str, str]) -> Dict[str, List[int]]
         except ValueError:
             pass
 
+    # ОТЛАДКА: проверяем параметр 'e'
+    engines_param = params_dict.get('e', '')
+    print(f"DEBUG convert_params_to_lists: engines param raw = '{engines_param}'")
+    engines_list = parse_int_list(engines_param)
+    print(f"DEBUG convert_params_to_lists: engines_list = {engines_list}")
+
     return {
         'genres': parse_int_list(params_dict.get('g')),
         'keywords': parse_int_list(params_dict.get('k')),
@@ -320,7 +342,8 @@ def convert_params_to_lists(params_dict: Dict[str, str]) -> Dict[str, List[int]]
         'developers': parse_int_list(params_dict.get('d')),
         'game_modes': parse_int_list(params_dict.get('gm')),
         'game_types': parse_int_list(params_dict.get('gt')),
-        'release_years': [],  # Legacy, not used
+        'engines': engines_list,  # ИЗМЕНЕНО: используем переменную с отладкой
+        'release_years': [],
         'release_year_start': release_year_start,
         'release_year_end': release_year_end,
     }
@@ -349,12 +372,15 @@ def _apply_filters(queryset: models.QuerySet, selected_criteria: Dict[str, List[
         ('perspectives', 'player_perspectives__id__in'),
         ('developers', 'developers__id__in'),
         ('game_modes', 'game_modes__id__in'),
-        ('game_types', 'game_type__in')
+        ('game_types', 'game_type__in'),
+        ('engines', 'engines__id__in'),  # ДОБАВЛЕНО
     ]
 
     for field, model_field in other_fields:
-        if selected_criteria[field]:
-            main_filters &= Q(**{model_field: selected_criteria[field]})
+        field_value = selected_criteria.get(field, [])
+        if field_value:
+            print(f"DEBUG _apply_filters: applying filter {field} = {field_value}")
+            main_filters &= Q(**{model_field: field_value})
             has_main_filters = True
 
     # Фильтр по диапазону годов
@@ -499,6 +525,9 @@ def _format_similar_games_data(similar_games_data: List, limit: int = 500) -> Li
     if not similar_games_data:
         return []
 
+    print(f"\n=== FORMAT SIMILAR GAMES DATA DEBUG ===")
+    print(f"Input similar_games_data length: {len(similar_games_data)}")
+
     game_ids = []
     similarity_map = {}
 
@@ -507,13 +536,19 @@ def _format_similar_games_data(similar_games_data: List, limit: int = 500) -> Li
         if isinstance(item, dict):
             game = item.get('game')
             similarity = item.get('similarity', 0)
+            print(f"  Dict item - game: {getattr(game, 'id', 'unknown')}, similarity: {similarity}")
         else:
             game = item
             similarity = 0
+            print(f"  Object item - game: {getattr(game, 'id', 'unknown')}")
 
         if hasattr(game, 'id'):
             game_ids.append(game.id)
             similarity_map[game.id] = similarity
+            print(f"    Added to map: ID {game.id} -> similarity {similarity}")
+
+    print(f"Game IDs collected: {len(game_ids)}")
+    print(f"Similarity map: {similarity_map}")
 
     games_dict = {}
     if game_ids:
@@ -529,6 +564,7 @@ def _format_similar_games_data(similar_games_data: List, limit: int = 500) -> Li
 
         for game in games_with_prefetch:
             games_dict[game.id] = game
+        print(f"Games loaded from DB: {len(games_dict)}")
 
     # Форматируем в структуру, ожидаемую шаблоном
     formatted = []
@@ -540,18 +576,30 @@ def _format_similar_games_data(similar_games_data: List, limit: int = 500) -> Li
             game = item
             similarity = similarity_map.get(getattr(game, 'id', None), 0)
 
+        original_id = getattr(game, 'id', None)
+        print(f"Processing item - original game ID: {original_id}, similarity from item: {similarity}")
+
         if hasattr(game, 'id') and game.id in games_dict:
             game = games_dict[game.id]
+            print(f"  Replaced with DB game: ID {game.id}")
 
         # ВАЖНО: добавляем similarity непосредственно к объекту игры
-        # для прямого доступа в шаблоне: game.similarity
-        game.similarity = similarity
+        if similarity:
+            game.similarity = similarity
+            print(f"  SET game.similarity = {similarity} for game {game.id}")
+        else:
+            if hasattr(game, 'similarity'):
+                delattr(game, 'similarity')
+                print(f"  REMOVED game.similarity for game {game.id}")
 
         formatted.append({
-            'game': game,  # Объект с атрибутом similarity
-            'similarity': similarity,  # Для обратной совместимости
+            'game': game,
+            'similarity': similarity,
         })
+        print(f"  Appended to formatted: game ID {game.id}, similarity in dict: {similarity}")
 
+    print(f"Formatted results: {len(formatted)}")
+    print("=== END FORMAT DEBUG ===\n")
     return formatted
 
 
@@ -955,7 +1003,8 @@ def _get_optimized_filter_data() -> Dict[str, List]:
     cache_key = get_cache_key('optimized_filter_data')
 
     def fetch_filter_data():
-        from django.db.models import Prefetch
+        from django.db.models import Prefetch, Count
+        from ..models import GameEngine
 
         platforms = list(Platform.objects.annotate(
             game_count=Count('game', distinct=True)
@@ -989,6 +1038,15 @@ def _get_optimized_filter_data() -> Dict[str, List]:
             developed_game_count=Count('developed_games', distinct=True)
         ).filter(developed_game_count__gt=0).only('id', 'name').order_by('name'))
 
+        # ИСПРАВЛЕНО: используем annotate с правильным related_name='games'
+        print("DEBUG fetch_filter_data: Loading engines with annotate")
+
+        engines = list(GameEngine.objects.annotate(
+            game_count=Count('games', distinct=True)  # related_name='games'
+        ).filter(game_count__gt=0).only('id', 'name').order_by('-game_count', 'name'))
+
+        print(f"DEBUG fetch_filter_data: Found {len(engines)} engines with games via annotate")
+
         return {
             'platforms': platforms,
             'keywords': keywords,
@@ -997,6 +1055,7 @@ def _get_optimized_filter_data() -> Dict[str, List]:
             'perspectives': perspectives,
             'game_modes': game_modes,
             'developers': developers,
+            'engines': engines,
         }
 
     return cache_get_or_set(
@@ -1042,6 +1101,8 @@ def _get_cached_filter_data() -> Dict[str, List]:
     filter_data = cache.get('optimized_filter_data_v6')
 
     if not filter_data:
+        from ..models import GameEngine
+
         filter_data = {
             'platforms': list(Platform.objects.annotate(
                 game_count=Count('game', distinct=True)
@@ -1074,6 +1135,10 @@ def _get_cached_filter_data() -> Dict[str, List]:
             'developers': list(Company.objects.annotate(
                 developed_game_count=Count('developed_games', distinct=True)
             ).filter(developed_game_count__gt=0).only('id', 'name').order_by('name')),
+
+            'engines': list(GameEngine.objects.annotate(
+                game_count=Count('games', distinct=True)  # ДОБАВЛЕНО
+            ).filter(game_count__gt=0).only('id', 'name').order_by('-game_count', 'name')),
         }
         cache.set('optimized_filter_data_v6', filter_data, 7200)
 
