@@ -37,17 +37,20 @@ class SteamRateLimiter:
     def __init__(self, max_consecutive_failures=10, base_wait_time=60, max_wait_time=300):
         self.consecutive_failures = 0
         self.consecutive_403 = 0
+        self.consecutive_429 = 0  # Счетчик для ошибок 429
         self.max_consecutive_failures = max_consecutive_failures
         self.base_wait_time = base_wait_time
         self.max_wait_time = max_wait_time
         self.last_failure_time = None
         self.total_failures = 0
         self.total_403 = 0
+        self.total_429 = 0  # Общий счетчик 429 для статистики
         self.wait_history = []
         self.lock = Lock()
         self.in_backoff = False
         self.backoff_until = None
         self.pause_start_time = None
+        self.last_429_time = None  # Время последней ошибки 429
 
     def record_failure(self, error_type: str = "unknown") -> float:
         """Запись любой неудачной попытки. Возвращает время ожидания если нужно."""
@@ -61,12 +64,36 @@ class SteamRateLimiter:
                 self.total_failures += 1
                 self.last_failure_time = datetime.now()
 
+                # Специальная обработка для разных типов ошибок
                 if error_type == "403":
                     self.consecutive_403 += 1
                     self.total_403 += 1
+                elif error_type == "429":
+                    self.consecutive_429 += 1
+                    self.total_429 += 1
+                    self.last_429_time = datetime.now()
 
+                    # 429 требует немедленной паузы при превышении порога
+                    if self.consecutive_429 >= 3:  # 3 ошибки 429 = пауза
+                        wait_time = self.base_wait_time  # Используем базовое время
+                        self.in_backoff = True
+                        self.backoff_until = datetime.now() + timedelta(seconds=wait_time)
+                        self.pause_start_time = datetime.now()
+
+                        self.wait_history.append({
+                            'time': datetime.now(),
+                            'wait': wait_time,
+                            'consecutive': self.consecutive_failures,
+                            'consecutive_429': self.consecutive_429,
+                            'reason': f"{self.consecutive_429} ошибок 429"
+                        })
+
+                        return wait_time
+
+                # Стандартная проверка для остальных ошибок
                 if self.consecutive_failures >= self.max_consecutive_failures:
                     return self._calculate_wait_time()
+
             finally:
                 self.lock.release()
         except Exception:
@@ -75,19 +102,24 @@ class SteamRateLimiter:
         return 0
 
     def record_success(self):
-        """Сброс счетчика при успешном запросе."""
+        """Сброс счетчика при успешном запросе, но НЕ для 429."""
         try:
             acquired = self.lock.acquire(timeout=2)
             if not acquired:
                 return
 
             try:
+                # Сбрасываем обычные ошибки, но оставляем счетчик 429
                 if self.consecutive_failures > 0:
                     self.consecutive_failures = 0
                     self.consecutive_403 = 0
                     self.in_backoff = False
                     self.backoff_until = None
                     self.pause_start_time = None
+
+                # НЕ сбрасываем consecutive_429!
+                # Они сбрасываются только после успешной паузы или вручную
+
             finally:
                 self.lock.release()
         except Exception:
@@ -111,6 +143,7 @@ class SteamRateLimiter:
             'time': datetime.now(),
             'wait': wait_time,
             'consecutive': self.consecutive_failures,
+            'consecutive_429': self.consecutive_429,
             'reason': f"{self.consecutive_failures} ошибок подряд"
         })
 
@@ -382,6 +415,7 @@ class Command(BaseCommand):
             'no_description': 0,
             'error': 0,
             'error_403': 0,
+            'error_429': 0,  # ДОБАВИТЬ
             'error_timeout': 0,
             'error_other': 0,
             'iterations': 0,
@@ -1736,6 +1770,8 @@ class Command(BaseCommand):
         self.stdout.write(f'  💥 Ошибок запросов: {self.total_stats["error"]} ({error_pct:.1f}%)')
 
         error_details = []
+        if self.total_stats.get('error_429', 0) > 0:  # Добавить в total_stats в __init__
+            error_details.append(f'429: {self.total_stats["error_429"]}')
         if self.total_stats['error_403'] > 0:
             error_details.append(f'403: {self.total_stats["error_403"]}')
         if self.total_stats['error_timeout'] > 0:
