@@ -250,36 +250,36 @@ class Command(BaseCommand):
         parser.add_argument(
             '--batch-size',
             type=int,
-            default=20,  # Изменено с 30 на 20
-            help='Размер итерации (по умолчанию: 20)'
+            default=40,  # Изменено с 20 на 50
+            help='Размер итерации (по умолчанию: 50)'
         )
 
         parser.add_argument(
             '--iteration-pause',
             type=int,
-            default=1,
-            help='Пауза между итерациями в секундах (по умолчанию: 1)'
+            default=0,  # Изменено с 1 на 0
+            help='Пауза между итерациями в секундах (по умолчанию: 0)'
         )
 
         parser.add_argument(
             '--workers',
             type=int,
-            default=5,  # Изменено с 3 на 5
-            help='Количество параллельных воркеров (по умолчанию: 5)'
+            default=8,  # Изменено с 5 на 10
+            help='Количество параллельных воркеров (по умолчанию: 10)'
         )
 
         parser.add_argument(
             '--delay',
             type=float,
-            default=0.5,  # Изменено с 0.5 (оставил как есть)
-            help='Задержка между запросами в секундах (по умолчанию: 0.5)'
+            default=0.1,  # Изменено с 0.5 на 0.1
+            help='Задержка между запросами в секундах (по умолчанию: 0.1)'
         )
 
         parser.add_argument(
             '--timeout',
             type=float,
-            default=2.8,  # Изменено с 5 на 2.8
-            help='Таймаут запроса в секундах (по умолчанию: 2.8)'
+            default=4.0,  # Изменено с 2.8 на 4.0
+            help='Таймаут запроса в секундах (по умолчанию: 4.0)'
         )
 
         parser.add_argument(
@@ -371,29 +371,29 @@ class Command(BaseCommand):
         parser.add_argument(
             '--max-consecutive-failures',
             type=int,
-            default=7,  # Изменено с 3 на 7
-            help='Максимальное количество ЛЮБЫХ ошибок подряд перед паузой (по умолчанию: 7)'
+            default=15,  # Изменено с 7 на 15
+            help='Максимальное количество ЛЮБЫХ ошибок подряд перед паузой (по умолчанию: 15)'
         )
 
         parser.add_argument(
             '--base-wait',
             type=int,
-            default=15,  # Изменено с 60 на 15
-            help='Базовая пауза при ошибках в секундах (по умолчанию: 15)'
+            default=180,  # Изменено с 15 на 180
+            help='Базовая пауза при ошибках в секундах (по умолчанию: 180)'
         )
 
         parser.add_argument(
             '--max-wait',
             type=int,
-            default=35,  # Изменено с 180 на 35
-            help='Максимальная пауза при ошибках в секундах (по умолчанию: 35)'
+            default=300,  # Изменено с 35 на 300
+            help='Максимальная пауза при ошибках в секундах (по умолчанию: 300)'
         )
 
         parser.add_argument(
             '--batch-failure-threshold',
             type=float,
-            default=0.6,  # Изменено с 0.3 на 0.6
-            help='Порог неудач в батче для паузы (0.0-1.0, по умолчанию: 0.6)'
+            default=0.8,  # Изменено с 0.6 на 0.8
+            help='Порог неудач в батче для паузы (0.0-1.0, по умолчанию: 0.8)'
         )
 
         parser.add_argument(
@@ -466,6 +466,28 @@ class Command(BaseCommand):
         self.start_time = None
         self.processed_before_pause = 0  # Сколько игр обработано до паузы
         self._pause_active = False  # Флаг активной паузы
+
+    def _get_games_batch_for_offset(self, target_game: Optional[Game], force: bool,
+                                    process_not_found: bool, skip_not_found: bool,
+                                    process_no_description: bool, skip_no_description: bool,
+                                    start_offset: int, count: int) -> List[Game]:
+        """Получение конкретной порции игр для обработки внутри offset."""
+        if target_game:
+            return [target_game] if start_offset == 0 else []
+
+        if process_not_found is True and self.not_found_games:
+            games = list(Game.objects.filter(id__in=self.not_found_games).order_by('id')
+                         [start_offset:start_offset + count])
+            return games
+
+        if process_no_description is True and self.no_description_games:
+            games = list(Game.objects.filter(id__in=self.no_description_games).order_by('id')
+                         [start_offset:start_offset + count])
+            return games
+
+        return self.get_games_batch(start_offset, count, force,
+                                    skip_not_found, self.not_found_games,
+                                    skip_no_description, self.no_description_games)
 
     def add_to_no_description(self, game: Game, reason: str = "no_description", error_details: str = None):
         """Добавление игры в список без описания."""
@@ -765,7 +787,7 @@ class Command(BaseCommand):
         # Сохраняем в файл
         self.save_not_found_buffer()
 
-        self.log_debug(f"Добавлена не найденная игра: {game.name} (ID: {game.id})")
+        self.log_debug(f"Добавлена не найденная игра: {game.name} (ID: {game.id}) - {reason}")
 
     def _create_session(self) -> requests.Session:
         """Создание HTTP сессии без повторов."""
@@ -882,7 +904,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.NOTICE(full_message))
 
     def check_rate_limit(self) -> bool:
-        """Проверка rate limiting и выполнение backoff при необходимости."""
+        """Проверка rate limiting и выполнение backoff при необходимости. Возвращает True если была пауза."""
         # Если пауза уже активна, не начинаем новую
         if hasattr(self, '_pause_active') and self._pause_active:
             return True
@@ -965,8 +987,8 @@ class Command(BaseCommand):
                 # Снимаем флаг активной паузы
                 self._pause_active = False
 
-                return True
-        return False
+                return True  # Была пауза
+        return False  # Не было паузы
 
     def get_pc_platform(self) -> Optional[Platform]:
         """Получение платформы PC."""
@@ -1587,14 +1609,33 @@ class Command(BaseCommand):
 
             if not app_id:
                 with self.stats_lock:
-                    if search_error == 'not_found':
+                    # Все случаи, когда игра НЕ НАЙДЕНА в Steam
+                    if search_error in ['not_found', 'invalid_name', 'app_id_not_found', 'app_not_success']:
                         stats['not_found'] += 1
                         self.total_stats['not_found'] += 1
                         result['error_type'] = 'not_found'
-                        result['error_message'] = 'Не найдена в Steam'
 
+                        if search_error == 'not_found':
+                            result['error_message'] = 'Не найдена в Steam'
+                            error_reason = "not_found"
+                        elif search_error == 'invalid_name':
+                            result['error_message'] = 'Некорректное название'
+                            error_reason = "invalid_name"
+                        elif search_error == 'app_id_not_found':
+                            result['error_message'] = 'App ID не найден'
+                            error_reason = "app_id_not_found"
+                        elif search_error == 'app_not_success':
+                            result['error_message'] = 'Игра не доступна'
+                            error_reason = "app_not_success"
+                        else:
+                            result['error_message'] = 'Не найдена в Steam'
+                            error_reason = "not_found"
+
+                        # Добавляем в файл НЕ НАЙДЕННЫХ игр
                         if not dry_run:
-                            self.add_to_not_found(game, "not_found")
+                            self.add_to_not_found(game, error_reason)
+
+                    # Реальные ошибки запросов при поиске
                     else:
                         stats['error'] += 1
                         self.total_stats['error'] += 1
@@ -1617,22 +1658,57 @@ class Command(BaseCommand):
 
             if not description:
                 with self.stats_lock:
-                    # Все случаи отсутствия описания
-                    if desc_error in ['no_description', 'None', None, '', 'empty_after_clean', 'empty_response',
-                                      'no_game_data']:
+                    # Случаи, когда игра НЕ НАЙДЕНА в Steam
+                    if desc_error in ['app_id_not_found', 'app_not_success', 'invalid_app_id']:
+                        stats['not_found'] += 1
+                        self.total_stats['not_found'] += 1
+                        result['error_type'] = 'not_found'
+
+                        if desc_error == 'app_id_not_found':
+                            result['error_message'] = 'App ID не найден'
+                            error_reason = "app_id_not_found"
+                        elif desc_error == 'app_not_success':
+                            result['error_message'] = 'Игра не доступна'
+                            error_reason = "app_not_success"
+                        elif desc_error == 'invalid_app_id':
+                            result['error_message'] = 'Некорректный App ID'
+                            error_reason = "invalid_app_id"
+                        else:
+                            result['error_message'] = 'Не найдена в Steam'
+                            error_reason = "not_found"
+
+                        # Добавляем в файл НЕ НАЙДЕННЫХ игр
+                        if not dry_run:
+                            self.add_to_not_found(game, error_reason)
+
+                    # Случаи, когда игра найдена, но это НЕ ИГРА (demo, video, etc)
+                    elif desc_error and desc_error.startswith('not_game_'):
+                        stats['not_found'] += 1
+                        self.total_stats['not_found'] += 1
+                        result['error_type'] = 'not_found'
+
+                        game_type = desc_error.replace('not_game_', '')
+                        result['error_message'] = f'Не игра (тип: {game_type})'
+
+                        if not dry_run:
+                            self.add_to_not_found(game, f"not_game_{game_type}")
+
+                    # Все случаи отсутствия описания (игра найдена, но нет описания)
+                    elif desc_error in ['no_description', 'None', None, '', 'empty_after_clean', 'empty_response',
+                                        'no_game_data']:
                         stats['no_description'] += 1
                         self.total_stats['no_description'] += 1
                         result['error_type'] = 'no_description'
 
-                        # Формируем понятное сообщение и причину
+                        # Формируем причину
                         if desc_error == 'no_description':
                             result['error_message'] = 'Нет описания'
                             error_reason = "no_description"
                         elif desc_error == 'empty_after_clean':
-                            result['error_message'] = 'Описание пустое после очистки HTML'
+                            result['error_message'] = 'Пусто после очистки HTML'
                             error_reason = "empty_after_clean"
                         elif desc_error == 'empty_response':
-                            result['error_message'] = 'Пустой ответ от API'
+                            result['error_message'] = 'Пустой ответ API'
                             error_reason = "empty_response"
                         elif desc_error == 'no_game_data':
                             result['error_message'] = 'Нет данных игры'
@@ -1641,12 +1717,12 @@ class Command(BaseCommand):
                             result['error_message'] = f'Нет описания ({desc_error or "None"})'
                             error_reason = f"no_description_{desc_error or 'none'}"
 
-                        # Добавляем в файл игр без описания
+                        # Добавляем в файл игр БЕЗ ОПИСАНИЯ
                         if not dry_run:
                             self.add_to_no_description(game, error_reason, f"App ID: {app_id}")
 
                     else:
-                        # Реальные ошибки запросов
+                        # Реальные ошибки запросов (429, 403, timeout, connection, etc)
                         stats['error'] += 1
                         self.total_stats['error'] += 1
 
@@ -1669,12 +1745,6 @@ class Command(BaseCommand):
                         elif desc_error == 'json_error' or desc_error == 'json_parse_error':
                             self.total_stats['error_other'] += 1
                             error_display = 'ошибка JSON'
-                        elif desc_error == 'app_id_not_found' or desc_error == 'app_not_success':
-                            self.total_stats['error_other'] += 1
-                            error_display = 'app_id не найден'
-                        elif desc_error == 'invalid_app_id':
-                            self.total_stats['error_other'] += 1
-                            error_display = 'некорректный app_id'
                         else:
                             self.total_stats['error_other'] += 1
                             error_display = desc_error or 'неизвестная ошибка'
@@ -1900,38 +1970,73 @@ class Command(BaseCommand):
         # Сохраняем processed_total как атрибут класса для доступа из других методов
         self.processed_total = processed_total
 
+        # Счетчик игр обработанных в текущем offset
+        games_processed_in_offset = 0
+        offset_start = self.current_offset
+
         try:
             while self.current_offset < limit and not self.interrupted:
                 iteration += 1
                 iteration_start_time = time.time()
+                pause_occurred = False
+                games_processed_this_iteration = 0
 
                 self.stdout.write(self.style.SUCCESS(f'\n🔄 ИТЕРАЦИЯ {iteration} (offset {self.current_offset})'))
+                self.stdout.write(
+                    self.style.WARNING(f'  📍 Игр обработано в этом offset: {games_processed_in_offset}/{batch_size}'))
 
                 # Проверяем rate limiting
                 if self.rate_limiter and self.rate_limiter.should_backoff():
-                    if not self.check_rate_limit():
-                        break
+                    pause_occurred = self.check_rate_limit()
+                    if pause_occurred:
+                        self.stdout.write(self.style.WARNING(f'  ⏸️ Была пауза - offset НЕ увеличивается'))
 
-                # Получаем игры для обработки
-                games_to_process = self._get_games_to_process(
+                # Если была пауза и мы прервались - выходим
+                if self.interrupted:
+                    break
+
+                # Получаем игры для обработки с учетом уже обработанных в этом offset
+                remaining_in_offset = batch_size - games_processed_in_offset
+                if remaining_in_offset <= 0:
+                    # Весь offset обработан, переходим к следующему
+                    self.current_offset += batch_size
+                    games_processed_in_offset = 0
+                    offset_start = self.current_offset
+                    self.stdout.write(
+                        self.style.SUCCESS(f'  ➡️ Offset полностью обработан, переходим к {self.current_offset}'))
+                    continue
+
+                # Получаем следующие игры из текущего offset
+                games_to_process = self._get_games_batch_for_offset(
                     target_game, force,
                     process_not_found, skip_not_found,
-                    process_no_description, skip_no_description
+                    process_no_description, skip_no_description,
+                    self.current_offset + games_processed_in_offset,  # Смещение внутри offset
+                    remaining_in_offset
                 )
 
                 if not games_to_process:
                     self.stdout.write(self.style.WARNING('⚠️ Нет игр для обработки в этой итерации'))
-                    break
+                    # Весь offset обработан (пусто)
+                    self.current_offset += batch_size
+                    games_processed_in_offset = 0
+                    continue
 
                 # Обрабатываем батч
                 batch_stats, games_to_update = self._process_games_batch(
                     games_to_process, skip_search, self.timeout, self.delay,
-                    output_file, dry_run, self.current_offset == 0 and iteration == 1 and self.processed_total == 0
+                    output_file, dry_run,
+                    self.current_offset == 0 and iteration == 1 and self.processed_total == 0
                 )
 
-                # Обновляем статистику
-                self.processed_total += len(games_to_process)
-                games_per_second = self._update_speed_eta(iteration_start_time, len(games_to_process), games_per_second)
+                # Обновляем счетчики
+                games_processed_this_iteration = len(games_to_process)
+                games_processed_in_offset += games_processed_this_iteration
+                self.processed_total += games_processed_this_iteration
+
+                # Обновляем скорость
+                games_per_second = self._update_speed_eta(iteration_start_time, games_processed_this_iteration,
+                                                          games_per_second)
 
                 # Обновляем БД
                 self._update_database(games_to_update, dry_run)
@@ -1948,10 +2053,13 @@ class Command(BaseCommand):
                     batch_stats, iteration
                 )
 
-                # Подготовка к следующей итерации
-                self.current_offset += batch_size
+                # Если была пауза, делаем дополнительную паузу между итерациями
+                if pause_occurred and iteration_pause > 0 and not self.interrupted:
+                    self.stdout.write(
+                        self.style.WARNING(f'\n⏸️ Дополнительная пауза {iteration_pause}с после ошибок...'))
+                    time.sleep(iteration_pause)
 
-                # Перезапуск если нужно
+                # Проверяем, нужно ли перезапустить процесс
                 if self._should_restart(no_restart, target_game, self.current_offset, limit):
                     self._restart_process(
                         limit, self.current_offset, batch_size, iteration_pause,
