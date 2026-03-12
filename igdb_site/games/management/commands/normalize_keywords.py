@@ -19,6 +19,10 @@ from collections import defaultdict
 class Command(BaseCommand):
     help = 'Нормализует ключевые слова используя NLTK лемматизатор'
 
+    # Константы для семантической проверки
+    PATH_SIMILARITY_THRESHOLD = 0.3  # Порог для path similarity (0.167 слишком низкое)
+    WUP_SIMILARITY_THRESHOLD = 0.7  # Порог для Wu & Palmer similarity
+
     def add_arguments(self, parser):
         parser.add_argument(
             '--dry-run',
@@ -47,6 +51,83 @@ class Command(BaseCommand):
             nltk.download('omw-1.4', quiet=False)
 
         self.lemmatizer = WordNetLemmatizer()
+
+    def _check_semantic_relation(self, word1: str, word2: str) -> bool:
+        """
+        Проверяет семантическую связь между двумя словами через WordNet
+        Возвращает True, если слова связаны (однокоренные или грамматические формы)
+
+        ПОРОГОВЫЕ ЗНАЧЕНИЯ:
+        - path_similarity > PATH_SIMILARITY_THRESHOLD (0.3)
+        - wup_similarity > WUP_SIMILARITY_THRESHOLD (0.7)
+        - общие леммы
+        """
+        if word1 == word2:
+            return True
+
+        try:
+            from nltk.corpus import wordnet as wn
+
+            word1_lower = word1.lower()
+            word2_lower = word2.lower()
+
+            # Получаем все synsets для обоих слов
+            synsets1 = wn.synsets(word1_lower)
+            synsets2 = wn.synsets(word2_lower)
+
+            if not synsets1 or not synsets2:
+                return False
+
+            # Собираем все леммы для первого слова
+            lemmas1 = set()
+            for syn in synsets1:
+                for lemma in syn.lemmas():
+                    lemma_name = lemma.name().lower().replace('_', ' ')
+                    lemmas1.add(lemma_name)
+
+            # Собираем все леммы для второго слова
+            lemmas2 = set()
+            for syn in synsets2:
+                for lemma in syn.lemmas():
+                    lemma_name = lemma.name().lower().replace('_', ' ')
+                    lemmas2.add(lemma_name)
+
+            # Если есть общие леммы, слова связаны
+            common_lemmas = lemmas1.intersection(lemmas2)
+            if common_lemmas:
+                return True
+
+            # Проверяем path similarity для всех пар synsets
+            max_path_sim = 0.0
+            max_wup_sim = 0.0
+
+            for s1 in synsets1:
+                for s2 in synsets2:
+                    try:
+                        # path similarity от 0 до 1, чем ближе к 1, тем ближе слова
+                        path_sim = s1.path_similarity(s2)
+                        if path_sim and path_sim > max_path_sim:
+                            max_path_sim = path_sim
+
+                        # wup similarity (Wu & Palmer)
+                        wup_sim = s1.wup_similarity(s2)
+                        if wup_sim and wup_sim > max_wup_sim:
+                            max_wup_sim = wup_sim
+                    except:
+                        continue
+
+            # ПРОВЕРКА ПО ПОРОГОВЫМ ЗНАЧЕНИЯМ
+            if max_path_sim > self.PATH_SIMILARITY_THRESHOLD:
+                return True
+
+            if max_wup_sim > self.WUP_SIMILARITY_THRESHOLD:
+                return True
+
+            return False
+
+        except Exception as e:
+            # В случае ошибки считаем, что слова не связаны
+            return False
 
     def _is_gaming_term(self, word: str) -> bool:
         """
@@ -107,280 +188,47 @@ class Command(BaseCommand):
     def _get_base_form(self, word: str) -> str:
         """
         Определяет исходную форму слова используя NLTK
-        ИСПРАВЛЕНО: ПРИОРИТЕТ ФОРМАМ С 'e' (changing → change, даже если 'chang' существует)
+        ИСПРАВЛЕНО: СНАЧАЛА ПРОВЕРЯЕМ ИСКЛЮЧЕНИЯ
         """
         word_lower = word.lower()
 
-        # Фразы с пробелами не нормализуем
-        if ' ' in word_lower:
-            return word_lower
+        # ========== СНАЧАЛА ПРОВЕРЯЕМ ИСКЛЮЧЕНИЯ ==========
+        exception_result = self._apply_exceptions(word)
+        if exception_result is not None:
+            return exception_result
 
         # ========== ПРОВЕРКА ИГРОВЫХ ТЕРМИНОВ ==========
-        # Если слово игровой термин, возвращаем как есть
         if self._is_gaming_term(word_lower):
+            return word_lower
+
+        # ========== НЕ ОБРАБАТЫВАЕМ КОРОТКИЕ СЛОВА ==========
+        if len(word_lower) <= 4:
+            return word_lower
+
+        # ========== ОБРАБОТКА ФРАЗ С ПРОБЕЛАМИ ==========
+        if ' ' in word_lower:
+            parts = word_lower.split()
+
+            if len(parts) == 2:
+                first, second = parts
+                normalized_second = self._normalize_single_word(second)
+                return f"{first} {normalized_second}"
+
             return word_lower
 
         # ========== ОБРАБОТКА СОСТАВНЫХ СЛОВ С ДЕФИСАМИ ==========
         if '-' in word_lower:
             parts = word_lower.split('-')
 
-            # Если больше 2 частей, оставляем как есть
             if len(parts) != 2:
                 return word_lower
 
             first, second = parts
-
-            try:
-                from nltk.corpus import wordnet as wn
-
-                # Нормализуем вторую часть как обычное слово
-                normalized_second = self._normalize_single_word(second)
-
-                # Если вторая часть изменилась
-                if normalized_second != second:
-                    # Собираем новое слово
-                    candidate = f"{first}-{normalized_second}"
-
-                    # Проверяем, является ли кандидат игровым термином
-                    if self._is_gaming_term(candidate):
-                        return candidate
-
-                    # Проверяем, существует ли кандидат в WordNet
-                    if wn.synsets(candidate):
-                        return candidate
-
-                    # Если не существует, возвращаем оригинал
-                    return word_lower
-
-                return word_lower
-
-            except Exception:
-                return word_lower
+            normalized_second = self._normalize_single_word(second)
+            return f"{first}-{normalized_second}"
 
         # ========== ДЛЯ ОБЫЧНЫХ СЛОВ ==========
-        try:
-            from nltk.corpus import wordnet as wn
-
-            # ========== ОБРАБОТКА -ness (weightlessness → weight) ==========
-            if word_lower.endswith('ness') and len(word_lower) > 6:
-                base = word_lower[:-4]
-
-                if len(base) >= 4:
-                    # Проверяем, является ли база игровым термином
-                    if self._is_gaming_term(base):
-                        return base
-
-                    if wn.synsets(base):
-                        if base.endswith('less') and len(base) > 4:
-                            core_base = base[:-4]
-                            if core_base:
-                                if self._is_gaming_term(core_base):
-                                    return core_base
-                                if wn.synsets(core_base):
-                                    return core_base
-                        return base
-
-                    if base.endswith('i') and len(base) > 3:
-                        happy_form = base[:-1] + 'y'
-                        if self._is_gaming_term(happy_form):
-                            return happy_form
-                        if wn.synsets(happy_form):
-                            if happy_form.endswith('less') and len(happy_form) > 4:
-                                core_base = happy_form[:-4]
-                                if core_base:
-                                    if self._is_gaming_term(core_base):
-                                        return core_base
-                                    if wn.synsets(core_base):
-                                        return core_base
-                            return happy_form
-
-                return word_lower
-
-            # ========== ИСПРАВЛЕНО: СПЕЦИАЛЬНАЯ ОБРАБОТКА -ing ФОРМ ==========
-            if word_lower.endswith('ing') and len(word_lower) > 4:
-                base = word_lower[:-3]  # Убираем 'ing' → получаем "chang"
-
-                # Список кандидатов для проверки
-                candidates = []
-
-                # 1. Просто убираем ing (changing → chang)
-                candidates.append(base)
-
-                # 2. Убираем удвоенную согласную (running → run)
-                if len(base) >= 2 and base[-1] == base[-2]:
-                    candidates.append(base[:-1])
-
-                # 3. Добавляем 'e' (changing → change)
-                candidates.append(base + 'e')
-
-                # 4. Для слов, где основа уже заканчивается на 'e' (taking → take)
-                if base.endswith('e'):
-                    candidates.append(base)
-
-                # Убираем дубликаты, сохраняя порядок
-                unique_candidates = []
-                for candidate in candidates:
-                    if candidate and candidate not in unique_candidates:
-                        unique_candidates.append(candidate)
-
-                # СПЕЦИАЛЬНАЯ ЛОГИКА: сначала ищем кандидаты с 'e' в WordNet
-                # Это нужно, чтобы "change" имел приоритет над "chang"
-                for candidate in unique_candidates:
-                    if candidate.endswith('e'):
-                        if self._is_gaming_term(candidate):
-                            return candidate
-                        if wn.synsets(candidate):
-                            return candidate
-
-                # Затем проверяем остальные кандидаты
-                for candidate in unique_candidates:
-                    if not candidate.endswith('e'):  # Пропускаем те, что уже проверили
-                        if self._is_gaming_term(candidate):
-                            return candidate
-                        if wn.synsets(candidate):
-                            return candidate
-
-                # Если ни один кандидат не найден в WordNet
-                if unique_candidates:
-                    # Отдаем предпочтение кандидатам с 'e' на конце
-                    for candidate in unique_candidates:
-                        if candidate.endswith('e'):
-                            return candidate
-                    # Иначе возвращаем первый кандидат
-                    return unique_candidates[0]
-
-                return word_lower
-
-            # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА -ed ФОРМ ==========
-            if word_lower.endswith('ed') and len(word_lower) > 4:
-                base = word_lower[:-2]
-                candidates = [base]
-
-                if len(base) >= 2 and base[-1] == base[-2]:
-                    candidates.append(base[:-1])
-
-                if len(base) >= 2 and base[-1] not in 'aeiou' and not base.endswith('e'):
-                    candidates.append(base + 'e')
-
-                # Приоритет кандидатам с 'e'
-                for candidate in candidates:
-                    if candidate and candidate.endswith('e'):
-                        if self._is_gaming_term(candidate):
-                            return candidate
-                        if wn.synsets(candidate):
-                            return candidate
-
-                for candidate in candidates:
-                    if candidate and not candidate.endswith('e'):
-                        if self._is_gaming_term(candidate):
-                            return candidate
-                        if wn.synsets(candidate):
-                            return candidate
-
-                if candidates:
-                    return candidates[0]
-
-                return word_lower
-
-            # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА -er ФОРМ ==========
-            if word_lower.endswith('er') and len(word_lower) > 4:
-                base = word_lower[:-2]
-                candidates = [base]
-
-                if len(base) >= 2 and base[-1] == base[-2]:
-                    candidates.append(base[:-1])
-
-                if len(base) >= 2 and base[-1] not in 'aeiou' and not base.endswith('e'):
-                    candidates.append(base + 'e')
-
-                # Приоритет кандидатам с 'e'
-                for candidate in candidates:
-                    if candidate and candidate.endswith('e'):
-                        if self._is_gaming_term(candidate):
-                            return candidate
-                        if wn.synsets(candidate):
-                            return candidate
-
-                for candidate in candidates:
-                    if candidate and not candidate.endswith('e'):
-                        if self._is_gaming_term(candidate):
-                            return candidate
-                        if wn.synsets(candidate):
-                            return candidate
-
-                if candidates:
-                    return candidates[0]
-
-                return word_lower
-
-            # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА -ly (наречия) ==========
-            if word_lower.endswith('ly') and len(word_lower) > 5:
-                base = word_lower[:-2]
-
-                if self._is_gaming_term(base):
-                    return base
-                if wn.synsets(base):
-                    return base
-
-                if base.endswith('i') and len(base) > 3:
-                    happy_form = base[:-1] + 'y'
-                    if self._is_gaming_term(happy_form):
-                        return happy_form
-                    if wn.synsets(happy_form):
-                        return happy_form
-
-                return word_lower
-
-            # ========== МНОЖЕСТВЕННОЕ ЧИСЛО ==========
-            # -ies (cities → city)
-            if word_lower.endswith('ies') and len(word_lower) > 5:
-                base = word_lower[:-3] + 'y'
-                if self._is_gaming_term(base):
-                    return base
-                if wn.synsets(base):
-                    return base
-                return word_lower
-
-            # -es (boxes → box)
-            if word_lower.endswith('es') and len(word_lower) > 5:
-                base = word_lower[:-2]
-                if self._is_gaming_term(base):
-                    return base
-                if wn.synsets(base):
-                    return base
-                return word_lower
-
-            # -s (cats → cat)
-            if word_lower.endswith('s') and len(word_lower) > 4 and not word_lower.endswith('ss'):
-                base = word_lower[:-1]
-                if self._is_gaming_term(base):
-                    return base
-                if wn.synsets(base):
-                    return base
-                return word_lower
-
-            # ========== ЕСЛИ НИЧЕГО НЕ ПОДОШЛО ==========
-            try:
-                verb_form = self.lemmatizer.lemmatize(word_lower, 'v')
-                if verb_form != word_lower:
-                    if self._is_gaming_term(verb_form):
-                        return verb_form
-                    if wn.synsets(verb_form):
-                        return verb_form
-
-                noun_form = self.lemmatizer.lemmatize(word_lower, 'n')
-                if noun_form != word_lower:
-                    if self._is_gaming_term(noun_form):
-                        return noun_form
-                    if wn.synsets(noun_form):
-                        return noun_form
-            except:
-                pass
-
-            return word_lower
-
-        except Exception:
-            return word_lower
+        return self._normalize_single_word(word_lower)
 
     def _is_grammatical_form(self, word: str, base: str) -> bool:
         """
@@ -505,154 +353,194 @@ class Command(BaseCommand):
 
         return word_lower
 
+    def _apply_exceptions(self, word: str) -> str:
+        """
+        Применяет специальные исключения для нормализации слов
+        Возвращает нормализованное слово или None, если исключение не применимо
+        """
+        word_lower = word.lower()
+
+        # Словарь исключений: неправильная форма -> правильная форма
+        exceptions = {
+            # Только два исключения
+            'riding': 'ride',
+            'coding': 'code',
+        }
+
+        # Проверяем точное совпадение
+        if word_lower in exceptions:
+            return exceptions[word_lower]
+
+        # Для составных слов и фраз
+        if ' ' in word_lower or '-' in word_lower:
+            # Проверяем, заканчивается ли слово на 'riding' или 'coding'
+            if word_lower.endswith('riding'):
+                # dragon riding → dragon ride
+                base = word_lower[:-6]  # убираем 'riding'
+                if base.endswith(' ') or base.endswith('-'):
+                    return f"{base}ride"
+                return f"{base} ride"
+
+            if word_lower.endswith('coding'):
+                # game coding → game code
+                base = word_lower[:-6]  # убираем 'coding'
+                if base.endswith(' ') or base.endswith('-'):
+                    return f"{base}code"
+                return f"{base} code"
+
+        return None
+
     def _normalize_single_word(self, word: str) -> str:
         """
         Нормализует одно слово (без дефисов) используя существующие правила
-        С ОТЛАДКОЙ: ВИДИМ ВСЕ КАНДИДАТЫ ДЛЯ -ing ФОРМ
+        ИСПРАВЛЕНО: ИСПОЛЬЗОВАНИЕ PATH SIMILARITY ПОРОГА
         """
         original = word
 
-        # Проверяем -ty
-        if word.endswith('ty') and len(word) > 4:
-            base = word[:-2]
-            try:
-                from nltk.corpus import wordnet as wn
-                if wn.synsets(base):
-                    return base
-                if wn.synsets(base + 'e'):
-                    return base + 'e'
-            except:
-                pass
+        # Слова короче 4 символов не нормализуем
+        if len(word) <= 4:
+            return original
 
-        # Проверяем -ings
-        if word.endswith('ings') and len(word) > 5:
-            base = word[:-4]
-            try:
-                from nltk.corpus import wordnet as wn
-                if wn.synsets(base):
-                    return base
-            except:
-                pass
+        # Список всех возможных кандидатов
+        all_candidates = []
 
-        # ========== С ОТЛАДКОЙ: ПРОВЕРКА -ing ==========
+        # ========== ПРОВЕРКА -ing ==========
         if word.endswith('ing') and len(word) > 4:
             base = word[:-3]
 
-            print(f"\n🔍 _normalize_single_word для '{word}':")
-            print(f"   base = '{base}'")
+            # Просто убираем ing (splattering → splatter)
+            all_candidates.append(base)
 
-            # Всегда пробуем все варианты
-            candidates = []
-
-            # Просто убираем ing
-            candidates.append(base)
-            print(f"   1. без ing: '{base}'")
-
-            # Убираем удвоенную согласную
+            # Убираем удвоенную согласную (running → run)
             if len(base) >= 2 and base[-1] == base[-2]:
-                candidate = base[:-1]
-                candidates.append(candidate)
-                print(f"   2. без удвоения: '{candidate}'")
+                all_candidates.append(base[:-1])
 
-            # ВСЕГДА добавляем вариант с 'e'
-            candidate_e = base + 'e'
-            candidates.append(candidate_e)
-            print(f"   3. с 'e': '{candidate_e}'")
+            # Добавляем 'e' (changing → change)
+            all_candidates.append(base + 'e')
 
-            # Если основа уже с 'e'
-            if base.endswith('e'):
-                candidates.append(base)
-                print(f"   4. уже с e: '{base}'")
+            # Для splatter → splat (убираем ter)
+            if base.endswith('ter') and len(base) > 5:
+                all_candidates.append(base[:-3])
 
-            # Убираем дубликаты
-            unique_candidates = []
-            for candidate in candidates:
-                if candidate and candidate not in unique_candidates:
-                    unique_candidates.append(candidate)
+            # Для слова с удвоением перед ing (splitting → split)
+            if len(word) > 6 and word[-4] == word[-5]:
+                all_candidates.append(word[:-4])
 
-            print(f"   Уникальные кандидаты: {unique_candidates}")
-
-            try:
-                from nltk.corpus import wordnet as wn
-                for candidate in unique_candidates:
-                    if wn.synsets(candidate):
-                        print(f"   ✅ Найден в WordNet: '{candidate}'")
-                        return candidate
-                    else:
-                        print(f"   ❌ Не найден в WordNet: '{candidate}'")
-
-                # Если ни один не найден в WordNet, отдаем предпочтение варианту с 'e'
-                for candidate in unique_candidates:
-                    if candidate.endswith('e'):
-                        print(f"   🔄 Возвращаем кандидат с 'e': '{candidate}'")
-                        return candidate
-
-                # Иначе возвращаем первый кандидат
-                if unique_candidates:
-                    print(f"   🔄 Возвращаем первый кандидат: '{unique_candidates[0]}'")
-                    return unique_candidates[0]
-            except:
-                pass
-
-        # Проверяем -er
-        if word.endswith('er') and len(word) > 4:
-            base = word[:-2]
-            try:
-                from nltk.corpus import wordnet as wn
-                if wn.synsets(base):
-                    return base
-                if wn.synsets(base + 'e'):
-                    return base + 'e'
-            except:
-                pass
-
-        # Проверяем -ed
+        # ========== ПРОВЕРКА -ed ==========
         if word.endswith('ed') and len(word) > 4:
             base = word[:-2]
-            candidates = [base]
+
+            # Просто убираем ed (played → play)
+            all_candidates.append(base)
+
+            # Убираем удвоенную согласную (planned → plan)
             if len(base) >= 2 and base[-1] == base[-2]:
-                candidates.append(base[:-1])
-            try:
-                from nltk.corpus import wordnet as wn
-                for candidate in candidates:
-                    if wn.synsets(candidate):
-                        return candidate
-            except:
-                pass
+                all_candidates.append(base[:-1])
 
-        # Проверяем -ly
-        if word.endswith('ly') and len(word) > 3:
+            # Добавляем 'e' (based → base)
+            all_candidates.append(base + 'e')
+
+        # ========== ПРОВЕРКА -er ==========
+        if word.endswith('er') and len(word) > 4:
             base = word[:-2]
-            try:
-                from nltk.corpus import wordnet as wn
-                if wn.synsets(base):
-                    return base
-            except:
-                pass
 
-        # Проверяем множественное число
-        if word.endswith('s') and len(word) > 3:
-            base = word[:-1]
-            try:
-                from nltk.corpus import wordnet as wn
-                if wn.synsets(base):
-                    return base
-            except:
-                pass
+            # Просто убираем er (parser → pars)
+            all_candidates.append(base)
 
-        # Пробуем лемматизатор
+            # Добавляем 'e' (player → play)
+            all_candidates.append(base + 'e')
+
+            # Для слов типа runner → run
+            if len(base) >= 2 and base[-1] == base[-2]:
+                all_candidates.append(base[:-1])
+
+        # ========== ПРОВЕРКА -ly ==========
+        if word.endswith('ly') and len(word) > 5:
+            base = word[:-2]
+            all_candidates.append(base)
+
+            # happily → happy
+            if base.endswith('i') and len(base) > 3:
+                all_candidates.append(base[:-1] + 'y')
+
+        # ========== ПРОВЕРКА МНОЖЕСТВЕННОГО ЧИСЛА ==========
+        if word.endswith('ies') and len(word) > 5:
+            # cities → city
+            all_candidates.append(word[:-3] + 'y')
+
+        if word.endswith('es') and len(word) > 5:
+            # boxes → box
+            all_candidates.append(word[:-2])
+
+        if word.endswith('s') and len(word) > 4 and not word.endswith('ss'):
+            # cats → cat
+            all_candidates.append(word[:-1])
+
+        # ========== ПРОВЕРКА -ness ==========
+        if word.endswith('ness') and len(word) > 6:
+            # happiness → happy
+            base = word[:-4]
+            all_candidates.append(base)
+            if base.endswith('i'):
+                all_candidates.append(base[:-1] + 'y')
+
+        # Убираем дубликаты и пустые строки
+        unique_candidates = []
+        for candidate in all_candidates:
+            if candidate and len(candidate) >= 3 and candidate not in unique_candidates:
+                unique_candidates.append(candidate)
+
+        # Если нет кандидатов, возвращаем оригинал
+        if not unique_candidates:
+            return original
+
         try:
-            verb_form = self.lemmatizer.lemmatize(word, 'v')
-            if verb_form != word:
-                return verb_form
+            from nltk.corpus import wordnet as wn
 
-            noun_form = self.lemmatizer.lemmatize(word, 'n')
-            if noun_form != word:
-                return noun_form
-        except:
-            pass
+            # Получаем synsets для исходного слова
+            word_synsets = wn.synsets(word.lower())
 
-        return original
+            best_candidate = None
+            best_path_sim = 0.0
+            best_candidate_exists = False
+
+            # Проверяем каждого кандидата
+            for candidate in unique_candidates:
+                candidate_synsets = wn.synsets(candidate.lower())
+
+                # Проверка 1: Существует ли кандидат в WordNet?
+                candidate_exists = len(candidate_synsets) > 0
+
+                # Проверка 2: Семантическая близость
+                if word_synsets and candidate_synsets:
+                    max_path_sim = 0.0
+                    for s1 in word_synsets:
+                        for s2 in candidate_synsets:
+                            try:
+                                path_sim = s1.path_similarity(s2)
+                                if path_sim and path_sim > max_path_sim:
+                                    max_path_sim = path_sim
+                            except:
+                                continue
+
+                    # Если кандидат существует в WordNet И path similarity выше порога
+                    if candidate_exists and max_path_sim > self.PATH_SIMILARITY_THRESHOLD:
+                        # Выбираем кандидата с наибольшей path similarity
+                        if max_path_sim > best_path_sim:
+                            best_path_sim = max_path_sim
+                            best_candidate = candidate
+                            best_candidate_exists = True
+
+            # Если нашли подходящего кандидата, возвращаем его
+            if best_candidate:
+                return best_candidate
+
+            # Если ни один кандидат не прошел проверку, возвращаем оригинал
+            return original
+
+        except Exception as e:
+            # В случае ошибки возвращаем оригинал
+            return original
 
     def handle(self, *args, **options):
         dry_run = options['dry_run']
