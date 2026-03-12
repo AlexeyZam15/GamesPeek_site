@@ -24,6 +24,379 @@ def is_staff_or_superuser(user):
     return user.is_authenticated and (user.is_staff or user.is_superuser)
 
 
+# ===== НОВЫЕ AJAX ФУНКЦИИ =====
+@login_required
+@user_passes_test(is_staff_or_superuser)
+def add_keyword_ajax(request: HttpRequest, game_id: int):
+    """AJAX добавление ключевого слова без перезагрузки страницы"""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Invalid request method'}, status=405)
+
+    try:
+        import json
+        data = json.loads(request.body)
+        keyword_name = data.get('keyword', '').strip()
+
+        if not keyword_name:
+            return JsonResponse({'success': False, 'message': 'Please enter a keyword'})
+
+        game = get_object_or_404(Game, pk=game_id)
+
+        # Создаем или получаем ключевое слово
+        keyword = Keyword.objects.filter(name__iexact=keyword_name).first()
+        was_created = False
+
+        if not keyword:
+            other_category, created = KeywordCategory.objects.get_or_create(
+                name='Other',
+                defaults={'description': 'Manually added keywords'}
+            )
+
+            max_igdb_id = Keyword.objects.aggregate(models.Max('igdb_id'))['igdb_id__max'] or 1000000
+            new_igdb_id = max_igdb_id + 1
+
+            keyword = Keyword.objects.create(
+                name=keyword_name,
+                category=other_category,
+                igdb_id=new_igdb_id,
+                cached_usage_count=1
+            )
+            was_created = True
+            print(f"✅ Ключевое слово '{keyword_name}' создано (Trie будет обновлен при следующем анализе)")
+
+        # Добавляем ключевое слово к игре (если его еще нет)
+        already_exists = False
+        if keyword in game.keywords.all():
+            already_exists = True
+        else:
+            game.keywords.add(keyword)
+            # Обновляем кэш
+            keyword.update_cached_count(force=True)
+            game.update_cached_counts(force=True)
+
+        return JsonResponse({
+            'success': True,
+            'message': f'Keyword "{keyword_name}" added to game!',
+            'keyword': {
+                'id': keyword.id,
+                'name': keyword.name
+            },
+            'was_created': was_created,
+            'already_exists': already_exists
+        })
+
+    except Exception as e:
+        print(f"✗ ОШИБКА добавления ключевого слова: {str(e)}")
+        return JsonResponse({
+            'success': False,
+            'message': f'Error adding keyword: {str(e)}'
+        })
+
+
+@login_required
+@user_passes_test(is_staff_or_superuser)
+def delete_keyword_ajax(request: HttpRequest, game_id: int):
+    """AJAX удаление ключевого слова без перезагрузки страницы"""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Invalid request method'}, status=405)
+
+    try:
+        import json
+        data = json.loads(request.body)
+        keyword_name = data.get('keyword', '').strip()
+
+        if not keyword_name:
+            return JsonResponse({'success': False, 'message': 'Please enter a keyword'})
+
+        game = get_object_or_404(Game, pk=game_id)
+        keyword = Keyword.objects.filter(name__iexact=keyword_name).first()
+
+        if not keyword:
+            return JsonResponse({
+                'success': False,
+                'message': f'Keyword "{keyword_name}" not found in database'
+            })
+
+        # Проверяем, есть ли ключевое слово у этой игры
+        if keyword not in game.keywords.all():
+            return JsonResponse({
+                'success': False,
+                'message': f'Keyword "{keyword_name}" is not associated with this game'
+            })
+
+        # Удаляем связь с игрой
+        game.keywords.remove(keyword)
+
+        # Обновляем кэш игры
+        game.update_cached_counts(force=True)
+
+        # Получаем популярность (сколько игр используют это ключевое слово)
+        popularity = keyword.game_set.count()
+
+        return JsonResponse({
+            'success': True,
+            'message': f'Keyword "{keyword_name}" removed from game',
+            'keyword': {
+                'id': keyword.id,
+                'name': keyword.name
+            },
+            'popularity': popularity,
+            'still_exists_in_db': popularity > 0
+        })
+
+    except Exception as e:
+        print(f"✗ ОШИБКА удаления ключевого слова: {str(e)}")
+        return JsonResponse({
+            'success': False,
+            'message': f'Error deleting keyword: {str(e)}'
+        })
+
+@login_required
+@user_passes_test(is_staff_or_superuser)
+def analyze_single_game(request: HttpRequest, game_id: int):
+    """Анализ одной игры - ТОЛЬКО комбинированный режим"""
+
+    # Проверяем, нужно ли выполнить автоматический анализ (удаляем эту логику - не нужна)
+    # Весь блок с auto_analyze_key удаляем
+
+    # ДОБАВЛЯЕМ: Обновляем Trie перед каждым GET запросом (для актуальности данных)
+    try:
+        from games.analyze.keyword_trie import KeywordTrieManager
+        KeywordTrieManager().clear_cache()
+        print(f"✅ Кэш Trie обновлен при загрузке страницы для игры {game_id}")
+    except Exception as e:
+        print(f"⚠️ Ошибка при обновлении Trie: {e}")
+
+    # Инициализация
+    game, original_descriptions, active_tab = _initialize_analysis_context(request, game_id)
+
+    # Обработка POST запросов
+    if request.method == 'POST':
+        return _handle_post_request(request, game, original_descriptions, active_tab)
+
+    # Подготовка контекста для GET запроса
+    context = _prepare_get_context(request, game, original_descriptions, active_tab)
+
+    return render(request, 'games/analyze.html', context)
+
+
+def _handle_post_request(request: HttpRequest, game: Game, original_descriptions: Dict, active_tab: str):
+    """Обработка POST запросов"""
+
+    # Добавление ключевого слова (старый метод - оставляем для обратной совместимости)
+    if 'add_keyword' in request.POST:
+        return _handle_add_keyword(request, game, original_descriptions, active_tab)
+
+    # Анализ текста
+    elif 'analyze' in request.POST:
+        # ДОБАВЛЯЕМ: Принудительное обновление Trie перед анализом
+        try:
+            from games.analyze.keyword_trie import KeywordTrieManager
+            KeywordTrieManager().clear_cache()
+            print(f"✅ Кэш Trie обновлен перед анализом для игры {game.id}")
+        except Exception as e:
+            print(f"⚠️ Ошибка при обновлении Trie перед анализом: {e}")
+
+        return _handle_analyze_request(request, game, original_descriptions, active_tab)
+
+    # Сохранение результатов
+    elif 'save_results' in request.POST:
+        return _handle_save_results(request, game, original_descriptions, active_tab)
+
+    # По умолчанию - редирект на ту же вкладку
+    return _redirect_to_tab(game.id, active_tab)
+
+
+def _handle_add_keyword(request: HttpRequest, game: Game, original_descriptions: Dict, active_tab: str):
+    """Обработка добавления ключевого слова (старый метод - только для обратной совместимости)"""
+    keyword_name = request.POST.get('new_keyword', '').strip()
+    analyze_tab = request.POST.get('analyze_tab', active_tab)
+
+    if not keyword_name:
+        messages.error(request, '❌ Please enter a keyword')
+        return _redirect_to_tab(game.id, analyze_tab)
+
+    try:
+        # Создаем или получаем ключевое слово
+        keyword = Keyword.objects.filter(name__iexact=keyword_name).first()
+
+        if not keyword:
+            other_category, created = KeywordCategory.objects.get_or_create(
+                name='Other',
+                defaults={'description': 'Manually added keywords'}
+            )
+
+            max_igdb_id = Keyword.objects.aggregate(models.Max('igdb_id'))['igdb_id__max'] or 1000000
+            new_igdb_id = max_igdb_id + 1
+
+            keyword = Keyword.objects.create(
+                name=keyword_name,
+                category=other_category,
+                igdb_id=new_igdb_id,
+                cached_usage_count=1
+            )
+            messages.success(request, f'✅ Created new keyword: "{keyword_name}"')
+        else:
+            messages.info(request, f'ℹ️ Keyword "{keyword_name}" already exists')
+
+        # Добавляем ключевое слово к игре
+        game.keywords.add(keyword)
+
+        # Обновляем кэш
+        keyword.update_cached_count(force=True)
+        game.update_cached_counts(force=True)
+
+        messages.success(request, f'✅ Keyword "{keyword_name}" added to game!')
+
+        # УБИРАЕМ весь автоанализ - не нужно
+
+        redirect_url = reverse('analyze_game', args=[game.id])
+        params = []
+        if analyze_tab and analyze_tab != 'summary':
+            params.append(f'tab={analyze_tab}')
+        params.append('keyword_added=1')
+        if params:
+            redirect_url += '?' + '&'.join(params)
+
+        return redirect(redirect_url)
+
+    except Exception as e:
+        messages.error(request, f'❌ Error adding keyword: {str(e)}')
+        return _redirect_to_tab(game.id, analyze_tab)
+
+
+def _handle_analyze_request(request: HttpRequest, game: Game, original_descriptions: Dict, active_tab: str):
+    """Обработка запроса на анализ"""
+    analyze_tab = request.POST.get('analyze_tab', active_tab)
+
+    # Обновляем флаг подсветки
+    highlight_toggle = request.POST.get('highlight_toggle')
+    if highlight_toggle is not None:
+        highlight_enabled = (highlight_toggle == 'on')
+        request.session[f'highlight_enabled_{game.id}'] = highlight_enabled
+
+    # Проверяем наличие текста для анализа
+    if analyze_tab not in original_descriptions:
+        messages.error(request, '❌ Selected tab has no text')
+        return _redirect_to_tab(game.id, active_tab)
+
+    text = original_descriptions[analyze_tab]
+
+    if not text:
+        messages.error(request, '❌ No text to analyze.')
+        return _redirect_to_tab(game.id, active_tab)
+
+    try:
+        analyzer = GameAnalyzerAPI(verbose=True)
+
+        # Выполняем анализ оригинального текста
+        analysis_result = analyzer.analyze_game_text_comprehensive(
+            text=text,
+            game_id=game.id,
+            existing_game=game,
+            exclude_existing=False
+        )
+
+        if analysis_result['success']:
+            # Сохраняем результаты анализа
+            _save_analysis_results(request, game.id, analyze_tab, text, analysis_result)
+
+            # Сообщение о результатах
+            total_found = analysis_result['summary'].get('found_count', 0)
+            total_matches = analysis_result.get('total_matches', 0)
+
+            if total_found > 0:
+                messages.success(request,
+                                 f'🔍 Found {total_found} elements with {total_matches} total matches. '
+                                 f'All matches highlighted. Click "Save Results" to save new elements to database.')
+            else:
+                messages.info(request,
+                              'ℹ️ No new elements found in text. Existing elements are highlighted.')
+
+            # Обновляем активную вкладку
+            active_tab = analyze_tab
+        else:
+            messages.error(request, f'❌ Analysis error: {analysis_result.get("error", "Unknown error")}')
+
+    except Exception as e:
+        messages.error(request, f'❌ Error during analysis: {str(e)}')
+
+    return _redirect_to_tab(game.id, active_tab)
+
+
+def delete_keyword(request: HttpRequest, game_id: int):
+    """Обработка удаления ключевого слова (старый метод - только для обратной совместимости)"""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Invalid request method'}, status=405)
+
+    try:
+        import json
+        data = json.loads(request.body)
+        keyword_name = data.get('keyword', '').strip()
+        tab = data.get('tab', 'summary')
+        auto_analyze = data.get('auto_analyze', False)
+
+        if not keyword_name:
+            return JsonResponse({'success': False, 'message': 'Please enter a keyword'})
+
+        game = get_object_or_404(Game, pk=game_id)
+        keyword = Keyword.objects.filter(name__iexact=keyword_name).first()
+
+        if not keyword:
+            return JsonResponse({
+                'success': False,
+                'message': f'Keyword "{keyword_name}" not found in database'
+            })
+
+        # Проверяем, есть ли ключевое слово у этой игры
+        if keyword not in game.keywords.all():
+            return JsonResponse({
+                'success': False,
+                'message': f'Keyword "{keyword_name}" is not associated with this game'
+            })
+
+        # Удаляем связь с игрой
+        game.keywords.remove(keyword)
+
+        # Обновляем кэш игры
+        game.update_cached_counts(force=True)
+
+        # УБИРАЕМ весь автоанализ
+        # Даже если auto_analyze=True - игнорируем
+
+        return JsonResponse({
+            'success': True,
+            'message': f'Keyword "{keyword_name}" removed from game',
+            'popularity': keyword.game_set.count()
+        })
+
+    except Exception as e:
+        print(f"✗ ОШИБКА: {str(e)}")
+        return JsonResponse({
+            'success': False,
+            'message': f'Error deleting keyword: {str(e)}'
+        })
+
+
+# Обновляем метод get_current_keywords для поддержки AJAX
+@login_required
+@user_passes_test(is_staff_or_superuser)
+def get_current_keywords(request: HttpRequest, game_id: int):
+    try:
+        game = get_object_or_404(Game, pk=game_id)
+        keywords = list(game.keywords.values_list('name', flat=True).order_by('name'))
+
+        return JsonResponse({
+            'success': True,
+            'keywords': keywords,
+            'count': len(keywords)
+        })
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Error getting keywords: {str(e)}'
+        })
+
 @login_required
 @user_passes_test(is_staff_or_superuser)
 def delete_keyword(request: HttpRequest, game_id: int):
@@ -207,6 +580,17 @@ def analyze_single_game(request: HttpRequest, game_id: int):
 
         # Устанавливаем флаг для автоматического анализа
         request.session[f'auto_analyze_{game_id}'] = True
+
+    # ДОБАВЛЯЕМ: Проверяем, нужно ли обновить Trie перед анализом
+    # Это происходит при каждом анализе, гарантируя актуальность данных
+    if request.method == 'POST' and 'analyze' in request.POST:
+        try:
+            from games.analyze.keyword_trie import KeywordTrieManager
+            # Очищаем кэш Trie перед анализом, чтобы получить актуальные данные
+            KeywordTrieManager().clear_cache()
+            print(f"✅ Кэш Trie обновлен перед анализом для игры {game_id}")
+        except Exception as e:
+            print(f"⚠️ Ошибка при обновлении Trie: {e}")
 
     # Инициализация
     game, original_descriptions, active_tab = _initialize_analysis_context(request, game_id)
@@ -646,202 +1030,6 @@ def _initialize_analysis_context(request: HttpRequest, game_id: int) -> Tuple[Ga
         active_tab = next(iter(available_descriptions.keys()), 'summary')
 
     return game, original_descriptions, active_tab
-
-
-def _handle_post_request(request: HttpRequest, game: Game, original_descriptions: Dict, active_tab: str):
-    """Обработка POST запросов"""
-
-    # Добавление ключевого слова
-    if 'add_keyword' in request.POST:
-        return _handle_add_keyword(request, game, original_descriptions, active_tab)
-
-    # Анализ текста
-    elif 'analyze' in request.POST:
-        return _handle_analyze_request(request, game, original_descriptions, active_tab)
-
-    # Сохранение результатов
-    elif 'save_results' in request.POST:
-        return _handle_save_results(request, game, original_descriptions, active_tab)
-
-    # По умолчанию - редирект на ту же вкладку
-    return _redirect_to_tab(game.id, active_tab)
-
-
-def _handle_add_keyword(request: HttpRequest, game: Game, original_descriptions: Dict, active_tab: str):
-    """Обработка добавления ключевого слова"""
-    keyword_name = request.POST.get('new_keyword', '').strip()
-
-    # ИСПРАВЛЕНИЕ: получаем вкладку из POST запроса
-    analyze_tab = request.POST.get('analyze_tab', active_tab)
-    auto_analyze = request.POST.get('auto_analyze', 'false') == 'true'
-
-    if not keyword_name:
-        messages.error(request, '❌ Please enter a keyword')
-        return _redirect_to_tab(game.id, analyze_tab)  # Используем analyze_tab
-
-    try:
-        # Создаем или получаем ключевое слово
-        keyword = Keyword.objects.filter(name__iexact=keyword_name).first()
-
-        if not keyword:
-            other_category, created = KeywordCategory.objects.get_or_create(
-                name='Other',
-                defaults={'description': 'Manually added keywords'}
-            )
-
-            max_igdb_id = Keyword.objects.aggregate(models.Max('igdb_id'))['igdb_id__max'] or 1000000
-            new_igdb_id = max_igdb_id + 1
-
-            keyword = Keyword.objects.create(
-                name=keyword_name,
-                category=other_category,
-                igdb_id=new_igdb_id,
-                cached_usage_count=1
-            )
-            messages.success(request, f'✅ Created new keyword: "{keyword_name}"')
-
-            # ВАЖНОЕ ИСПРАВЛЕНИЕ: Очищаем кэш Trie после создания нового ключевого слова
-            from games.analyze.keyword_trie import KeywordTrieManager
-            KeywordTrieManager().clear_cache()
-            print(f"✅ Кэш Trie очищен после создания ключевого слова '{keyword_name}'")
-        else:
-            messages.info(request, f'ℹ️ Keyword "{keyword_name}" already exists')
-
-        # Добавляем ключевое слово к игре
-        game.keywords.add(keyword)
-
-        # Обновляем кэш
-        keyword.update_cached_count(force=True)
-        game.update_cached_counts(force=True)
-
-        # Обновляем данные игры
-        game.refresh_from_db()
-        messages.success(request, f'✅ Keyword "{keyword_name}" added to game!')
-
-        # ВАЖНОЕ ИСПРАВЛЕНИЕ: Обновляем сессию для немедленного отображения
-        # Получаем текущую сессию анализа
-        session_key = f'unsaved_results_{game.id}'
-        unsaved_results = request.session.get(session_key, {})
-
-        # Если есть сохраненные результаты анализа, обновляем их с новым ключевым словом
-        if unsaved_results.get('analysis_data', {}).get(analyze_tab):
-            text = original_descriptions.get(analyze_tab, '')
-            if text:
-                try:
-                    analyzer = GameAnalyzerAPI(verbose=True)
-                    analysis_result = analyzer.analyze_game_text_comprehensive(
-                        text=text,
-                        game_id=game.id,
-                        existing_game=game,
-                        exclude_existing=False
-                    )
-
-                    if analysis_result['success']:
-                        # Сохраняем обновленные результаты
-                        _save_analysis_results(request, game.id, analyze_tab, text, analysis_result)
-                        messages.info(request,
-                                      f'🔍 Text automatically analyzed after adding keyword (tab: {analyze_tab}).')
-                except Exception as e:
-                    messages.warning(request, f'⚠️ Keyword added, but analysis error: {str(e)}')
-        else:
-            # Если нет сохраненного анализа, выполняем автоматический анализ
-            if auto_analyze and analyze_tab in original_descriptions:
-                text = original_descriptions[analyze_tab]
-                if text:
-                    try:
-                        analyzer = GameAnalyzerAPI(verbose=True)
-                        analysis_result = analyzer.analyze_game_text_comprehensive(
-                            text=text,
-                            game_id=game.id,
-                            existing_game=game,
-                            exclude_existing=False
-                        )
-
-                        if analysis_result['success']:
-                            _save_analysis_results(request, game.id, analyze_tab, text, analysis_result)
-                            messages.info(request,
-                                          f'🔍 Text automatically analyzed after adding keyword (tab: {analyze_tab}).')
-                    except Exception as e:
-                        messages.warning(request, f'⚠️ Keyword added, but analysis error: {str(e)}')
-
-        # Редирект с параметрами
-        redirect_url = reverse('analyze_game', args=[game.id])
-
-        # Правильное формирование параметров
-        params = []
-        if analyze_tab and analyze_tab != 'summary':
-            params.append(f'tab={analyze_tab}')
-        params.append('keyword_added=1')
-        if auto_analyze:
-            params.append('auto_analyze=1')
-
-        if params:
-            redirect_url += '?' + '&'.join(params)
-
-        return redirect(redirect_url)
-
-    except Exception as e:
-        messages.error(request, f'❌ Error adding keyword: {str(e)}')
-        return _redirect_to_tab(game.id, analyze_tab)
-
-
-def _handle_analyze_request(request: HttpRequest, game: Game, original_descriptions: Dict, active_tab: str):
-    """Обработка запроса на анализ"""
-    analyze_tab = request.POST.get('analyze_tab', active_tab)
-
-    # Обновляем флаг подсветки
-    highlight_toggle = request.POST.get('highlight_toggle')
-    if highlight_toggle is not None:
-        highlight_enabled = (highlight_toggle == 'on')
-        request.session[f'highlight_enabled_{game.id}'] = highlight_enabled
-
-    # Проверяем наличие текста для анализа
-    if analyze_tab not in original_descriptions:
-        messages.error(request, '❌ Selected tab has no text')
-        return _redirect_to_tab(game.id, active_tab)
-
-    text = original_descriptions[analyze_tab]
-
-    if not text:
-        messages.error(request, '❌ No text to analyze.')
-        return _redirect_to_tab(game.id, active_tab)
-
-    try:
-        analyzer = GameAnalyzerAPI(verbose=True)
-
-        # Выполняем анализ оригинального текста
-        analysis_result = analyzer.analyze_game_text_comprehensive(
-            text=text,
-            game_id=game.id,
-            existing_game=game,
-            exclude_existing=False
-        )
-
-        if analysis_result['success']:
-            # Сохраняем результаты анализа
-            _save_analysis_results(request, game.id, analyze_tab, text, analysis_result)
-
-            # Сообщение о результатах
-            total_found = analysis_result['summary'].get('found_count', 0)
-            total_matches = analysis_result.get('total_matches', 0)
-
-            if total_found > 0:
-                messages.success(request,
-                                 f'🔍 Found {total_found} elements with {total_matches} total matches. '
-                                 f'All matches highlighted. Click "Save Results" to save new elements to database.')
-            else:
-                messages.info(request,
-                              'ℹ️ No new elements found in text. Existing elements are highlighted.')
-
-            # Обновляем активную вкладку
-            active_tab = analyze_tab
-        else:
-            messages.error(request, f'❌ Analysis error: {analysis_result.get("error", "Unknown error")}')
-
-    except Exception as e:
-        messages.error(request, f'❌ Error during analysis: {str(e)}')
-
-    return _redirect_to_tab(game.id, active_tab)
 
 
 def _handle_save_results(request: HttpRequest, game: Game, original_descriptions: Dict, active_tab: str):
