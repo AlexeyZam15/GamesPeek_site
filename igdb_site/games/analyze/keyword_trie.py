@@ -478,23 +478,32 @@ class KeywordTrie:
     def find_all_in_text(self, text: str, unique_only: bool = True) -> List[dict]:
         """
         Находит ключевые слова в тексте
-        ИСПРАВЛЕНО: УЧИТЫВАЕТ, ЧТОБЫ ФРАЗЫ И СОСТАВНЫЕ СЛОВА НЕ ПЕРЕСЕКАЛИСЬ
-        - Сначала ищем фразы (с пробелами) - они имеют приоритет
-        - Потом ищем составные слова через дефис целиком
-        - Потом ищем отдельные слова, но только если они не пересекаются с найденными
+        ИСПРАВЛЕНО: ПОИСК ОТ САМЫХ ДЛИННЫХ К КОРОТКИМ
         """
         import re
 
         text_lower = text.lower()
 
-        # Находим все слова с их позициями
+        # Находим все слова, исключая кавычки из токенов
         words_with_positions = []
-        for match in re.finditer(r"[a-z0-9\'-]+", text_lower):
-            words_with_positions.append({
-                'word': match.group(),
-                'start': match.start(),
-                'end': match.end()
-            })
+        i = 0
+        while i < len(text_lower):
+            if text_lower[i] in '\'"':
+                i += 1
+                continue
+
+            start = i
+            while i < len(text_lower) and (text_lower[i].isalnum() or text_lower[i] == '-'):
+                i += 1
+
+            if i > start:
+                words_with_positions.append({
+                    'word': text_lower[start:i],
+                    'start': start,
+                    'end': i
+                })
+            else:
+                i += 1
 
         if unique_only:
             found_keywords = set()
@@ -502,31 +511,31 @@ class KeywordTrie:
             found_keywords = None
 
         results = []
-
-        # Множество для хранения занятых позиций (диапазоны [start, end))
         occupied_positions = []
 
+        # ========== СОРТИРУЕМ КЛЮЧЕВЫЕ СЛОВА ПО ДЛИНЕ (СНАЧАЛА САМЫЕ ДЛИННЫЕ) ==========
+        sorted_keywords = sorted(
+            self.keywords_cache.items(),
+            key=lambda item: len(item[1]['name_lower']),
+            reverse=True
+        )
+
         # ========== СНАЧАЛА ИЩЕМ ФРАЗЫ (С ПРОБЕЛАМИ) ==========
-        # Фразы имеют наивысший приоритет
-        for keyword_id, keyword_data in self.keywords_cache.items():
+        for keyword_id, keyword_data in sorted_keywords:
             keyword_lower = keyword_data['name_lower']
 
-            # Проверяем, что это фраза (содержит пробел)
             if ' ' in keyword_lower:
-                # Ищем точное вхождение фразы в тексте
                 pos = 0
                 while True:
                     pos = text_lower.find(keyword_lower, pos)
                     if pos == -1:
                         break
 
-                    # Проверяем границы слова
                     start_ok = (pos == 0 or not text_lower[pos - 1].isalnum())
                     end_pos = pos + len(keyword_lower)
                     end_ok = (end_pos == len(text_lower) or not text_lower[end_pos].isalnum())
 
                     if start_ok and end_ok:
-                        # Проверяем, не пересекается ли с уже найденными фразами
                         is_occupied = False
                         for occ_start, occ_end in occupied_positions:
                             if not (end_pos <= occ_start or pos >= occ_end):
@@ -547,7 +556,6 @@ class KeywordTrie:
                                 if result['id'] not in found_keywords:
                                     found_keywords.add(result['id'])
                                     results.append(result)
-                                    # Добавляем позицию в занятые
                                     occupied_positions.append((pos, end_pos))
                             else:
                                 results.append(result)
@@ -555,21 +563,23 @@ class KeywordTrie:
 
                     pos = end_pos
 
-        # ========== ТЕПЕРЬ ИЩЕМ СОСТАВНЫЕ СЛОВА ЧЕРЕЗ ДЕФИС ЦЕЛИКОМ ==========
-        # Проверяем каждое слово целиком
+        # ========== ТЕПЕРЬ ИЩЕМ ОТДЕЛЬНЫЕ СЛОВА (ТОЖЕ ОТ ДЛИННЫХ К КОРОТКИМ) ==========
+        # Сначала собираем все возможные совпадения для каждого слова
+        word_matches = []
+
         for word_info in words_with_positions:
             full_word = word_info['word']
             word_start = word_info['start']
             word_end = word_info['end']
 
-            # Проверяем, не занята ли позиция этого слова
-            is_word_position_occupied = False
+            # Проверяем, не занята ли позиция
+            is_occupied = False
             for occ_start, occ_end in occupied_positions:
                 if not (word_end <= occ_start or word_start >= occ_end):
-                    is_word_position_occupied = True
+                    is_occupied = True
                     break
 
-            if is_word_position_occupied:
+            if is_occupied:
                 continue
 
             # Проверяем полное слово в Trie
@@ -583,51 +593,38 @@ class KeywordTrie:
                     break
 
             if found and node.is_end and node.keyword_id:
-                if unique_only and node.keyword_id in found_keywords:
-                    continue
+                if not (unique_only and node.keyword_id in found_keywords):
+                    word_matches.append({
+                        'id': node.keyword_id,
+                        'name': node.keyword_name,
+                        'position': word_start,
+                        'length': len(full_word),
+                        'text': full_word,
+                        'word_length': len(full_word)
+                    })
+                continue
 
-                result = {
-                    'id': node.keyword_id,
-                    'name': node.keyword_name,
-                    'position': word_start,
-                    'length': len(full_word),
-                    'text': full_word
-                }
-
-                if unique_only:
-                    found_keywords.add(result['id'])
-                    results.append(result)
-                    # Добавляем позицию в занятые
-                    occupied_positions.append((word_start, word_end))
-                else:
-                    results.append(result)
-                    occupied_positions.append((word_start, word_end))
-
-                continue  # Переходим к следующему слову, так как это слово уже найдено целиком
-
-            # ========== ЕСЛИ СЛОВО НЕ НАЙДЕНО ЦЕЛИКОМ, ПРОВЕРЯЕМ ЧАСТИ ЧЕРЕЗ ДЕФИС ==========
+            # Проверка составных слов через дефис
             if '-' in full_word:
                 parts = full_word.split('-')
                 current_pos = word_start
 
                 for part in parts:
                     if len(part) >= 2:
-                        # Проверяем, не занята ли позиция этой части
                         part_end = current_pos + len(part)
-                        is_part_position_occupied = False
 
+                        is_part_occupied = False
                         for occ_start, occ_end in occupied_positions:
                             if not (part_end <= occ_start or current_pos >= occ_end):
-                                is_part_position_occupied = True
+                                is_part_occupied = True
                                 break
 
-                        if is_part_position_occupied:
+                        if is_part_occupied:
                             current_pos += len(part) + 1
                             continue
 
                         node = self.root
                         found = True
-
                         for char in part:
                             if char in node.children:
                                 node = node.children[char]
@@ -636,31 +633,32 @@ class KeywordTrie:
                                 break
 
                         if found and node.is_end and node.keyword_id:
-                            # Проверяем, не является ли это ключевое слово частью другого найденного
-                            if unique_only and node.keyword_id in found_keywords:
-                                current_pos += len(part) + 1
-                                continue
-
-                            result = {
-                                'id': node.keyword_id,
-                                'name': node.keyword_name,
-                                'position': current_pos,
-                                'length': len(part),
-                                'text': part,
-                                'matched_in_hyphenated': True,
-                                'full_word': full_word
-                            }
-
-                            if unique_only:
-                                found_keywords.add(result['id'])
-                                results.append(result)
-                                # Добавляем позицию части в занятые
-                                occupied_positions.append((current_pos, current_pos + len(part)))
-                            else:
-                                results.append(result)
-                                occupied_positions.append((current_pos, current_pos + len(part)))
+                            if not (unique_only and node.keyword_id in found_keywords):
+                                word_matches.append({
+                                    'id': node.keyword_id,
+                                    'name': node.keyword_name,
+                                    'position': current_pos,
+                                    'length': len(part),
+                                    'text': part,
+                                    'word_length': len(part),
+                                    'matched_in_hyphenated': True,
+                                    'full_word': full_word
+                                })
 
                     current_pos += len(part) + 1
+
+        # Сортируем совпадения по длине (сначала самые длинные)
+        word_matches.sort(key=lambda x: x['word_length'], reverse=True)
+
+        # Добавляем отсортированные совпадения
+        for match in word_matches:
+            if unique_only and match['id'] in found_keywords:
+                continue
+
+            results.append(match)
+            if unique_only:
+                found_keywords.add(match['id'])
+            occupied_positions.append((match['position'], match['position'] + match['length']))
 
         return results
 
