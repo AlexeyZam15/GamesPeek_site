@@ -75,7 +75,7 @@ class GameAnalyzerUI {
         this.handleScroll();
         this.loadUrlParams();
         this.forceTextAlignmentFix();
-        this.checkForAutoAnalyze();
+        // Убираем вызов checkForAutoAnalyze()
 
         const restoredTab = restoreCurrentTab(this);
 
@@ -160,95 +160,8 @@ class GameAnalyzerUI {
         }, 500);
     }
 
-    handleAddKeyword() {
-        const keywordInput = document.getElementById('new-keyword-input');
-        const keyword = keywordInput ? keywordInput.value.trim() : '';
-
-        if (!keyword) {
-            this.showMessage('Please enter a keyword', 'error');
-            return;
-        }
-
-        const csrfToken = this.getCSRFToken();
-        if (!csrfToken) {
-            this.showMessage('Security token missing', 'error');
-            return;
-        }
-
-        const form = this.elements.analyzeForm;
-        if (!form) {
-            this.showMessage('Form not found', 'error');
-            return;
-        }
-
-        const autoAnalyzeInput = document.getElementById('auto-analyze-input');
-        if (autoAnalyzeInput) {
-            autoAnalyzeInput.value = 'true';
-        }
-
-        const newKeywordInput = document.createElement('input');
-        newKeywordInput.type = 'hidden';
-        newKeywordInput.name = 'new_keyword';
-        newKeywordInput.value = keyword;
-        form.appendChild(newKeywordInput);
-
-        const addKeywordInput = document.createElement('input');
-        addKeywordInput.type = 'hidden';
-        addKeywordInput.name = 'add_keyword';
-        addKeywordInput.value = 'true';
-        form.appendChild(addKeywordInput);
-
-        const currentTab = this.currentTab;
-        const analyzeTabInput = document.getElementById('analyze-tab-input');
-        if (analyzeTabInput) {
-            analyzeTabInput.value = currentTab;
-        }
-
-        setTimeout(() => {
-            try {
-                form.submit();
-            } catch (error) {
-                console.error('Error submitting form:', error);
-                this.showMessage('Error adding keyword: ' + error.message, 'error');
-
-                if (newKeywordInput.parentNode === form) {
-                    form.removeChild(newKeywordInput);
-                }
-                if (addKeywordInput.parentNode === form) {
-                    form.removeChild(addKeywordInput);
-                }
-            }
-        }, 100);
-    }
-
-    checkForAutoAnalyze() {
-        const urlParams = new URLSearchParams(window.location.search);
-
-        if (urlParams.get('cleared') === '1') {
-            this.showMessage('✅ Unsaved results successfully cleared.', 'success');
-            setTimeout(() => this.removeUrlParam('cleared'), 3000);
-        }
-
-        if (urlParams.get('keyword_added') === '1') {
-            this.showMessage('✅ Keyword added successfully!', 'success');
-
-            if (urlParams.get('auto_analyze') === '1') {
-                setTimeout(() => {
-                    this.showMessage('🔍 Text automatically analyzed after keyword addition. All matches highlighted.', 'info');
-                }, 500);
-            }
-
-            setTimeout(() => {
-                this.removeUrlParam('keyword_added');
-                this.removeUrlParam('auto_analyze');
-            }, 3000);
-        }
-
-        if (urlParams.get('saved') === '1') {
-            this.showMessage('✅ Results saved successfully!', 'success');
-            setTimeout(() => this.removeUrlParam('saved'), 3000);
-        }
-    }
+    // Удаляем метод handleAddKeyword() - теперь используется AJAX
+    // Удаляем метод checkForAutoAnalyze()
 
     cacheElements() {
         this.elements = {
@@ -297,8 +210,8 @@ class GameAnalyzerUI {
         bindTabScrollEvents(this);
         bindAnalyzeButton(this);
         bindSaveButton(this);
-        bindAddKeywordButton(this);
-        bindDeleteKeywordButton(this);
+        bindAddKeywordButton(this);      // AJAX версия
+        bindDeleteKeywordButton(this);   // AJAX версия
         bindNormalizeKeywordButton(this);
         bindClearResultsButton(this);
         bindBackToGameButton(this);

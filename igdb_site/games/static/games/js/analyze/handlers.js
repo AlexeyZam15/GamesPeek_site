@@ -12,11 +12,14 @@ import {
     clearTabScrollPositions
 } from './utils.js';
 
+// ИМПОРТИРУЕМ НОВЫЕ КЛАССЫ
+import { AddKeywordHandler, DeleteKeywordHandler } from './keyword-handlers.js';
+
 /* ============================================
-   DELETE KEYWORD HANDLER
+   DELETE KEYWORD HANDLER (LEGACY - для обратной совместимости)
    ============================================ */
 
-class DeleteKeywordHandler {
+class LegacyDeleteKeywordHandler {
     constructor(analyzer) {
         this.analyzer = analyzer;
         this.gameId = this._getGameId();
@@ -113,7 +116,7 @@ class DeleteKeywordHandler {
             body: JSON.stringify({
                 keyword: keyword,
                 tab: currentTab,
-                auto_analyze: true
+                auto_analyze: false // Явно отключаем автоанализ
             })
         })
         .then(response => {
@@ -139,10 +142,11 @@ class DeleteKeywordHandler {
                 this.refreshCurrentKeywords();
                 this.refreshFoundItems();
 
-                if (data.analyze_after_delete) {
-                    this.analyzer.showMessage('🔄 Performing text re-analysis...', 'info');
-                    this.performAutoAnalysis(currentTab);
-                }
+                // Убираем автоанализ
+                // if (data.analyze_after_delete) {
+                //     this.analyzer.showMessage('🔄 Performing text re-analysis...', 'info');
+                //     this.performAutoAnalysis(currentTab);
+                // }
 
             } else {
                 this.analyzer.showMessage(`❌ ${data.message}`, 'error');
@@ -158,46 +162,6 @@ class DeleteKeywordHandler {
                 deleteButton.disabled = false;
             }
         });
-    }
-
-    performAutoAnalysis(tabName) {
-        const form = document.getElementById('analyze-form');
-        if (!form) {
-            console.error('Analyze form not found');
-            return;
-        }
-
-        const analyzeTabInput = document.getElementById('analyze-tab-input');
-        if (analyzeTabInput) {
-            analyzeTabInput.value = tabName;
-        }
-
-        const autoAnalyzeInput = document.getElementById('auto-analyze-input');
-        if (autoAnalyzeInput) {
-            autoAnalyzeInput.value = 'true';
-        }
-
-        let analyzeField = form.querySelector('input[name="analyze"]');
-        if (!analyzeField) {
-            analyzeField = document.createElement('input');
-            analyzeField.type = 'hidden';
-            analyzeField.name = 'analyze';
-            analyzeField.value = 'true';
-            form.appendChild(analyzeField);
-        }
-
-        this.analyzer.saveCurrentTab();
-        this.analyzer.saveScrollPosition();
-        this.analyzer.saveTabScrollPosition(tabName);
-
-        setTimeout(() => {
-            try {
-                form.submit();
-            } catch (error) {
-                console.error('Error submitting form for auto-analysis:', error);
-                this.analyzer.showMessage('❌ Error performing auto-analysis: ' + error.message, 'error');
-            }
-        }, 500);
     }
 
     refreshCurrentKeywords() {
@@ -422,10 +386,10 @@ class NormalizeKeywordHandler {
 }
 
 /* ============================================
-   ADD KEYWORD HANDLER
+   ADD KEYWORD HANDLER (LEGACY - для обратной совместимости)
    ============================================ */
 
-function bindAddKeywordButton(analyzer) {
+function bindLegacyAddKeywordButton(analyzer) {
     const addButton = document.getElementById('add-keyword-button');
     const keywordInput = document.getElementById('new-keyword-input');
 
@@ -439,7 +403,7 @@ function bindAddKeywordButton(analyzer) {
             saveScrollPosition(analyzer);
             analyzer.saveTabScrollPosition(analyzer.currentTab);
 
-            handleAddKeywordSubmission(analyzer);
+            handleLegacyAddKeywordSubmission(analyzer);
         }
     });
 
@@ -450,11 +414,11 @@ function bindAddKeywordButton(analyzer) {
         saveScrollPosition(analyzer);
         analyzer.saveTabScrollPosition(analyzer.currentTab);
 
-        handleAddKeywordSubmission(analyzer);
+        handleLegacyAddKeywordSubmission(analyzer);
     });
 }
 
-function handleAddKeywordSubmission(analyzer) {
+function handleLegacyAddKeywordSubmission(analyzer) {
     const keywordInput = document.getElementById('new-keyword-input');
     const keyword = keywordInput ? keywordInput.value.trim() : '';
 
@@ -477,7 +441,7 @@ function handleAddKeywordSubmission(analyzer) {
 
     const autoAnalyzeInput = document.getElementById('auto-analyze-input');
     if (autoAnalyzeInput) {
-        autoAnalyzeInput.value = 'true';
+        autoAnalyzeInput.value = 'false'; // Явно отключаем автоанализ
     }
 
     const newKeywordInput = document.createElement('input');
@@ -515,26 +479,23 @@ function handleAddKeywordSubmission(analyzer) {
     }, 100);
 }
 
-function bindDeleteKeywordButton(analyzer) {
-    console.log('Binding delete keyword button...');
+/* ============================================
+   ОБНОВЛЕННЫЕ ФУНКЦИИ БИНДИНГА - ИСПОЛЬЗУЕМ AJAX
+   ============================================ */
 
-    const deleteButton = document.getElementById('delete-keyword-button');
-    console.log('Delete button found:', deleteButton);
-
-    if (!deleteButton) {
-        console.error('Delete button not found!');
-        return;
-    }
-
-    const deleteHandler = new DeleteKeywordHandler(analyzer);
-    deleteHandler.bind();
-
-    if (!deleteHandler.gameId) {
-        console.error('Failed to get game ID. Check HTML for <input id="game-id" value="...">');
-    }
+export function bindAddKeywordButton(analyzer) {
+    console.log('Binding AJAX add keyword handler...');
+    const addHandler = new AddKeywordHandler(analyzer);
+    addHandler.bind();
 }
 
-function bindNormalizeKeywordButton(analyzer) {
+export function bindDeleteKeywordButton(analyzer) {
+    console.log('Binding AJAX delete keyword handler...');
+    const deleteHandler = new DeleteKeywordHandler(analyzer);
+    deleteHandler.bind();
+}
+
+export function bindNormalizeKeywordButton(analyzer) {
     console.log('Binding normalize keyword button...');
     const normalizeHandler = new NormalizeKeywordHandler(analyzer);
     normalizeHandler.bind();
@@ -544,7 +505,7 @@ function bindNormalizeKeywordButton(analyzer) {
    TAB HANDLERS
    ============================================ */
 
-function bindTabSelect(analyzer) {
+export function bindTabSelect(analyzer) {
     if (!analyzer.elements.tabSelect) return;
 
     analyzer.elements.tabSelect.addEventListener('change', (e) => {
@@ -561,7 +522,7 @@ function bindTabSelect(analyzer) {
     });
 }
 
-function bindTabScrollEvents(analyzer) {
+export function bindTabScrollEvents(analyzer) {
     const tabPanes = document.querySelectorAll('.tab-pane');
     tabPanes.forEach(tabPane => {
         const textDisplayArea = tabPane.querySelector('.text-display-area');
@@ -578,7 +539,7 @@ function bindTabScrollEvents(analyzer) {
     });
 }
 
-function bindBootstrapTabs(analyzer) {
+export function bindBootstrapTabs(analyzer) {
     if (!analyzer.elements.analyzeTabLinks || analyzer.elements.analyzeTabLinks.length === 0) return;
 
     analyzer.elements.analyzeTabLinks.forEach(link => {
@@ -618,7 +579,7 @@ function bindBootstrapTabs(analyzer) {
    FORM HANDLERS
    ============================================ */
 
-function bindAnalyzeButton(analyzer) {
+export function bindAnalyzeButton(analyzer) {
     if (!analyzer.elements.analyzeButton) {
         console.error('ANALYZE BUTTON NOT FOUND!');
         showMessage('Error: Analyze button not found. Please refresh page.', 'error');
@@ -662,6 +623,12 @@ function bindAnalyzeButton(analyzer) {
             analyzer.elements.analyzeForm.appendChild(analyzeField);
         }
 
+        // Отключаем автоанализ в форме
+        const autoAnalyzeInput = document.getElementById('auto-analyze-input');
+        if (autoAnalyzeInput) {
+            autoAnalyzeInput.value = 'false';
+        }
+
         const originalHTML = analyzer.elements.analyzeButton.innerHTML;
         analyzer.elements.analyzeButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Analyzing...';
         analyzer.elements.analyzeButton.disabled = true;
@@ -680,7 +647,7 @@ function bindAnalyzeButton(analyzer) {
     });
 }
 
-function bindSaveButton(analyzer) {
+export function bindSaveButton(analyzer) {
     if (!analyzer.elements.saveButton) return;
 
     const newButton = analyzer.elements.saveButton.cloneNode(true);
@@ -697,7 +664,7 @@ function bindSaveButton(analyzer) {
     });
 }
 
-function bindClearResultsButton(analyzer) {
+export function bindClearResultsButton(analyzer) {
     if (!analyzer.elements.clearResultsBtn) return;
 
     const originalButton = analyzer.elements.clearResultsBtn;
@@ -770,7 +737,7 @@ function bindClearResultsButton(analyzer) {
     });
 }
 
-function bindBackToGameButton(analyzer) {
+export function bindBackToGameButton(analyzer) {
     if (!analyzer.elements.backToGameBtn) return;
 
     analyzer.elements.backToGameBtn.addEventListener('click', (e) => {
@@ -784,7 +751,7 @@ function bindBackToGameButton(analyzer) {
    SCROLL HANDLERS
    ============================================ */
 
-function bindScrollToTop(analyzer) {
+export function bindScrollToTop(analyzer) {
     if (!analyzer.elements.scrollToTopBtn) return;
 
     analyzer.elements.scrollToTopBtn.addEventListener('click', () => analyzer.scrollToTop());
@@ -795,7 +762,7 @@ function bindScrollToTop(analyzer) {
    FOUND ITEMS HANDLERS
    ============================================ */
 
-function bindFoundItemsClicks(analyzer) {
+export function bindFoundItemsClicks(analyzer) {
     document.addEventListener('click', (e) => {
         const target = e.target;
         if (!target || !target.closest) return;
@@ -822,7 +789,7 @@ function bindFoundItemsClicks(analyzer) {
    UI SETUP HANDLERS
    ============================================ */
 
-function setupTooltips(analyzer) {
+export function setupTooltips(analyzer) {
     const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
     tooltipTriggerList.forEach(tooltipTriggerEl => {
         const existingTooltip = window.bootstrap && bootstrap.Tooltip.getInstance(tooltipTriggerEl);
@@ -872,7 +839,7 @@ function setupTooltips(analyzer) {
     }
 }
 
-function setupMultiCriteriaTooltips(analyzer) {
+export function setupMultiCriteriaTooltips(analyzer) {
     document.addEventListener('mouseenter', (e) => {
         const target = e.target;
         if (!target || !target.closest) return;
@@ -894,7 +861,7 @@ function setupMultiCriteriaTooltips(analyzer) {
     }, true);
 }
 
-function setupHighlightEvents(analyzer) {
+export function setupHighlightEvents(analyzer) {
     document.addEventListener('mouseenter', (e) => {
         const target = e.target;
         if (!target || !target.closest) return;
@@ -1146,22 +1113,3 @@ function getCSRFToken() {
     const csrfInput = document.querySelector('[name="csrfmiddlewaretoken"]');
     return csrfInput ? csrfInput.value : null;
 }
-
-// Экспортируем все функции
-export {
-    bindAddKeywordButton,
-    bindDeleteKeywordButton,
-    bindNormalizeKeywordButton,
-    bindTabSelect,
-    bindTabScrollEvents,
-    bindBootstrapTabs,
-    bindAnalyzeButton,
-    bindSaveButton,
-    bindClearResultsButton,
-    bindBackToGameButton,
-    bindScrollToTop,
-    bindFoundItemsClicks,
-    setupTooltips,
-    setupMultiCriteriaTooltips,
-    setupHighlightEvents
-};

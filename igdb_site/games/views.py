@@ -28,7 +28,10 @@ from .views_parts.analyze_views import (
     delete_keyword,
     get_current_keywords,
     get_found_keywords,
-    normalize_keyword,  # ← ДОБАВЛЯЕМ ЭТУ СТРОКУ
+    normalize_keyword,
+    # НОВЫЕ AJAX ФУНКЦИИ
+    add_keyword_ajax,
+    delete_keyword_ajax,
 )
 from .views_parts.base_views import (
     # Helper classes
@@ -77,7 +80,10 @@ __all__ = [
     'delete_keyword',
     'get_current_keywords',
     'get_found_keywords',
-    'normalize_keyword',  # ← ДОБАВЛЯЕМ ЭТУ СТРОКУ
+    'normalize_keyword',
+    # НОВЫЕ AJAX ФУНКЦИИ
+    'add_keyword_ajax',
+    'delete_keyword_ajax',
 
     # Helper classes
     'SimpleSourceGame',
