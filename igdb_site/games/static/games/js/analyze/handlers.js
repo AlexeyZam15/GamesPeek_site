@@ -354,6 +354,11 @@ class NormalizeKeywordHandler {
         })
         .then(data => {
             if (data.success) {
+                // Подставляем нормализованную форму в поле ввода
+                if (keywordInput) {
+                    keywordInput.value = data.normalized;
+                }
+
                 if (resultDiv) {
                     resultDiv.innerHTML = `
                         <span class="text-success">
