@@ -107,7 +107,7 @@ class Command(BaseCommand):
     def _get_base_form(self, word: str) -> str:
         """
         Определяет исходную форму слова используя NLTK
-        ИСПРАВЛЕНО: ИГРОВЫЕ ТЕРМИНЫ НЕ ПРОВЕРЯЕМ ЧЕРЕЗ WORDNET
+        ИСПРАВЛЕНО: ПРИОРИТЕТ ФОРМАМ С 'e' (changing → change, даже если 'chang' существует)
         """
         word_lower = word.lower()
 
@@ -196,31 +196,58 @@ class Command(BaseCommand):
 
                 return word_lower
 
-            # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА -ing ФОРМ ==========
+            # ========== ИСПРАВЛЕНО: СПЕЦИАЛЬНАЯ ОБРАБОТКА -ing ФОРМ ==========
             if word_lower.endswith('ing') and len(word_lower) > 4:
-                base = word_lower[:-3]
-                candidates = [base]
+                base = word_lower[:-3]  # Убираем 'ing' → получаем "chang"
 
+                # Список кандидатов для проверки
+                candidates = []
+
+                # 1. Просто убираем ing (changing → chang)
+                candidates.append(base)
+
+                # 2. Убираем удвоенную согласную (running → run)
                 if len(base) >= 2 and base[-1] == base[-2]:
                     candidates.append(base[:-1])
 
-                if len(base) >= 2 and base[-1] not in 'aeiou' and not base.endswith('e'):
-                    candidates.append(base + 'e')
+                # 3. Добавляем 'e' (changing → change)
+                candidates.append(base + 'e')
 
-                if base.endswith('y') and len(base) >= 3:
-                    candidates.append(base[:-1] + 'ie')
+                # 4. Для слов, где основа уже заканчивается на 'e' (taking → take)
+                if base.endswith('e'):
+                    candidates.append(base)
 
+                # Убираем дубликаты, сохраняя порядок
+                unique_candidates = []
                 for candidate in candidates:
-                    if candidate:
-                        # Проверяем игровые термины
+                    if candidate and candidate not in unique_candidates:
+                        unique_candidates.append(candidate)
+
+                # СПЕЦИАЛЬНАЯ ЛОГИКА: сначала ищем кандидаты с 'e' в WordNet
+                # Это нужно, чтобы "change" имел приоритет над "chang"
+                for candidate in unique_candidates:
+                    if candidate.endswith('e'):
                         if self._is_gaming_term(candidate):
                             return candidate
-                        # Проверяем WordNet
                         if wn.synsets(candidate):
                             return candidate
 
-                if candidates:
-                    return candidates[0]
+                # Затем проверяем остальные кандидаты
+                for candidate in unique_candidates:
+                    if not candidate.endswith('e'):  # Пропускаем те, что уже проверили
+                        if self._is_gaming_term(candidate):
+                            return candidate
+                        if wn.synsets(candidate):
+                            return candidate
+
+                # Если ни один кандидат не найден в WordNet
+                if unique_candidates:
+                    # Отдаем предпочтение кандидатам с 'e' на конце
+                    for candidate in unique_candidates:
+                        if candidate.endswith('e'):
+                            return candidate
+                    # Иначе возвращаем первый кандидат
+                    return unique_candidates[0]
 
                 return word_lower
 
@@ -235,8 +262,16 @@ class Command(BaseCommand):
                 if len(base) >= 2 and base[-1] not in 'aeiou' and not base.endswith('e'):
                     candidates.append(base + 'e')
 
+                # Приоритет кандидатам с 'e'
                 for candidate in candidates:
-                    if candidate:
+                    if candidate and candidate.endswith('e'):
+                        if self._is_gaming_term(candidate):
+                            return candidate
+                        if wn.synsets(candidate):
+                            return candidate
+
+                for candidate in candidates:
+                    if candidate and not candidate.endswith('e'):
                         if self._is_gaming_term(candidate):
                             return candidate
                         if wn.synsets(candidate):
@@ -258,8 +293,16 @@ class Command(BaseCommand):
                 if len(base) >= 2 and base[-1] not in 'aeiou' and not base.endswith('e'):
                     candidates.append(base + 'e')
 
+                # Приоритет кандидатам с 'e'
                 for candidate in candidates:
-                    if candidate:
+                    if candidate and candidate.endswith('e'):
+                        if self._is_gaming_term(candidate):
+                            return candidate
+                        if wn.synsets(candidate):
+                            return candidate
+
+                for candidate in candidates:
+                    if candidate and not candidate.endswith('e'):
                         if self._is_gaming_term(candidate):
                             return candidate
                         if wn.synsets(candidate):
@@ -465,7 +508,7 @@ class Command(BaseCommand):
     def _normalize_single_word(self, word: str) -> str:
         """
         Нормализует одно слово (без дефисов) используя существующие правила
-        ИСПРАВЛЕНО: УЛУЧШЕННАЯ ОБРАБОТКА -ing ФОРМ
+        С ОТЛАДКОЙ: ВИДИМ ВСЕ КАНДИДАТЫ ДЛЯ -ing ФОРМ
         """
         original = word
 
@@ -491,26 +534,63 @@ class Command(BaseCommand):
             except:
                 pass
 
-        # ========== ИСПРАВЛЕНО: ПРОВЕРКА -ing ==========
+        # ========== С ОТЛАДКОЙ: ПРОВЕРКА -ing ==========
         if word.endswith('ing') and len(word) > 4:
             base = word[:-3]
 
-            # Пробуем разные варианты
-            candidates = [base]
+            print(f"\n🔍 _normalize_single_word для '{word}':")
+            print(f"   base = '{base}'")
 
-            # Если после удаления ing слово заканчивается на удвоенную согласную
+            # Всегда пробуем все варианты
+            candidates = []
+
+            # Просто убираем ing
+            candidates.append(base)
+            print(f"   1. без ing: '{base}'")
+
+            # Убираем удвоенную согласную
             if len(base) >= 2 and base[-1] == base[-2]:
-                candidates.append(base[:-1])
+                candidate = base[:-1]
+                candidates.append(candidate)
+                print(f"   2. без удвоения: '{candidate}'")
 
-            # Для слов типа taking → take
-            if len(base) >= 2 and base[-1] not in 'aeiou':
-                candidates.append(base + 'e')
+            # ВСЕГДА добавляем вариант с 'e'
+            candidate_e = base + 'e'
+            candidates.append(candidate_e)
+            print(f"   3. с 'e': '{candidate_e}'")
+
+            # Если основа уже с 'e'
+            if base.endswith('e'):
+                candidates.append(base)
+                print(f"   4. уже с e: '{base}'")
+
+            # Убираем дубликаты
+            unique_candidates = []
+            for candidate in candidates:
+                if candidate and candidate not in unique_candidates:
+                    unique_candidates.append(candidate)
+
+            print(f"   Уникальные кандидаты: {unique_candidates}")
 
             try:
                 from nltk.corpus import wordnet as wn
-                for candidate in candidates:
+                for candidate in unique_candidates:
                     if wn.synsets(candidate):
+                        print(f"   ✅ Найден в WordNet: '{candidate}'")
                         return candidate
+                    else:
+                        print(f"   ❌ Не найден в WordNet: '{candidate}'")
+
+                # Если ни один не найден в WordNet, отдаем предпочтение варианту с 'e'
+                for candidate in unique_candidates:
+                    if candidate.endswith('e'):
+                        print(f"   🔄 Возвращаем кандидат с 'e': '{candidate}'")
+                        return candidate
+
+                # Иначе возвращаем первый кандидат
+                if unique_candidates:
+                    print(f"   🔄 Возвращаем первый кандидат: '{unique_candidates[0]}'")
+                    return unique_candidates[0]
             except:
                 pass
 
