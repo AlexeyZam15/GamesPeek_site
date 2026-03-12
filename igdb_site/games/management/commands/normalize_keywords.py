@@ -67,11 +67,17 @@ class Command(BaseCommand):
         if word_lower in gaming_abbr:
             return True
 
-        # Игровые термины (только указанные)
+        # Игровые термины
         gaming_terms = {
-            'wanted',  # "Most Wanted" - название игры, термин
-            'stamina',  # Игровая характеристика
+            'wanted',
+            'stamina',
             'leveling',
+            'hitpoint',
+            'manapoint',
+            'healthpoint',
+            'skillpoint',
+            'spellpoint',
+            'stat',
         }
 
         # Точное совпадение с игровыми терминами
@@ -101,12 +107,17 @@ class Command(BaseCommand):
     def _get_base_form(self, word: str) -> str:
         """
         Определяет исходную форму слова используя NLTK
-        ИСПРАВЛЕНО: СНАЧАЛА НОРМАЛИЗУЕМ ПО ПРАВИЛАМ, ПОТОМ ПРОВЕРЯЕМ
+        ИСПРАВЛЕНО: ИГРОВЫЕ ТЕРМИНЫ НЕ ПРОВЕРЯЕМ ЧЕРЕЗ WORDNET
         """
         word_lower = word.lower()
 
         # Фразы с пробелами не нормализуем
         if ' ' in word_lower:
+            return word_lower
+
+        # ========== ПРОВЕРКА ИГРОВЫХ ТЕРМИНОВ ==========
+        # Если слово игровой термин, возвращаем как есть
+        if self._is_gaming_term(word_lower):
             return word_lower
 
         # ========== ОБРАБОТКА СОСТАВНЫХ СЛОВ С ДЕФИСАМИ ==========
@@ -130,6 +141,10 @@ class Command(BaseCommand):
                     # Собираем новое слово
                     candidate = f"{first}-{normalized_second}"
 
+                    # Проверяем, является ли кандидат игровым термином
+                    if self._is_gaming_term(candidate):
+                        return candidate
+
                     # Проверяем, существует ли кандидат в WordNet
                     if wn.synsets(candidate):
                         return candidate
@@ -146,36 +161,64 @@ class Command(BaseCommand):
         try:
             from nltk.corpus import wordnet as wn
 
+            # ========== ОБРАБОТКА -ness (weightlessness → weight) ==========
+            if word_lower.endswith('ness') and len(word_lower) > 6:
+                base = word_lower[:-4]
+
+                if len(base) >= 4:
+                    # Проверяем, является ли база игровым термином
+                    if self._is_gaming_term(base):
+                        return base
+
+                    if wn.synsets(base):
+                        if base.endswith('less') and len(base) > 4:
+                            core_base = base[:-4]
+                            if core_base:
+                                if self._is_gaming_term(core_base):
+                                    return core_base
+                                if wn.synsets(core_base):
+                                    return core_base
+                        return base
+
+                    if base.endswith('i') and len(base) > 3:
+                        happy_form = base[:-1] + 'y'
+                        if self._is_gaming_term(happy_form):
+                            return happy_form
+                        if wn.synsets(happy_form):
+                            if happy_form.endswith('less') and len(happy_form) > 4:
+                                core_base = happy_form[:-4]
+                                if core_base:
+                                    if self._is_gaming_term(core_base):
+                                        return core_base
+                                    if wn.synsets(core_base):
+                                        return core_base
+                            return happy_form
+
+                return word_lower
+
             # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА -ing ФОРМ ==========
             if word_lower.endswith('ing') and len(word_lower) > 4:
-                # Базовая форма без 'ing'
                 base = word_lower[:-3]
+                candidates = [base]
 
-                # Пробуем разные варианты
-                candidates = []
-
-                # 1. Просто убираем ing (stretching → stretch)
-                candidates.append(base)
-
-                # 2. Для слов типа running → run (убираем удвоенную)
                 if len(base) >= 2 and base[-1] == base[-2]:
                     candidates.append(base[:-1])
 
-                # 3. Для слов типа taking → take (добавляем e)
                 if len(base) >= 2 and base[-1] not in 'aeiou' and not base.endswith('e'):
                     candidates.append(base + 'e')
 
-                # 4. Для слов типа lying → lie (спецслучай)
                 if base.endswith('y') and len(base) >= 3:
                     candidates.append(base[:-1] + 'ie')
 
-                # Проверяем кандидатов (они уже нормализованы по правилам)
                 for candidate in candidates:
-                    if candidate and wn.synsets(candidate):
-                        return candidate
+                    if candidate:
+                        # Проверяем игровые термины
+                        if self._is_gaming_term(candidate):
+                            return candidate
+                        # Проверяем WordNet
+                        if wn.synsets(candidate):
+                            return candidate
 
-                # Если ни один кандидат не найден в WordNet,
-                # но у нас есть разумный кандидат, возвращаем первый
                 if candidates:
                     return candidates[0]
 
@@ -186,17 +229,18 @@ class Command(BaseCommand):
                 base = word_lower[:-2]
                 candidates = [base]
 
-                # planned → plan
                 if len(base) >= 2 and base[-1] == base[-2]:
                     candidates.append(base[:-1])
 
-                # created → create
                 if len(base) >= 2 and base[-1] not in 'aeiou' and not base.endswith('e'):
                     candidates.append(base + 'e')
 
                 for candidate in candidates:
-                    if candidate and wn.synsets(candidate):
-                        return candidate
+                    if candidate:
+                        if self._is_gaming_term(candidate):
+                            return candidate
+                        if wn.synsets(candidate):
+                            return candidate
 
                 if candidates:
                     return candidates[0]
@@ -208,53 +252,21 @@ class Command(BaseCommand):
                 base = word_lower[:-2]
                 candidates = [base]
 
-                # bigger → big
                 if len(base) >= 2 and base[-1] == base[-2]:
                     candidates.append(base[:-1])
 
-                # driver → drive
                 if len(base) >= 2 and base[-1] not in 'aeiou' and not base.endswith('e'):
                     candidates.append(base + 'e')
 
                 for candidate in candidates:
-                    if candidate and wn.synsets(candidate):
-                        return candidate
+                    if candidate:
+                        if self._is_gaming_term(candidate):
+                            return candidate
+                        if wn.synsets(candidate):
+                            return candidate
 
                 if candidates:
                     return candidates[0]
-
-                return word_lower
-
-            # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА -ness (существительные от прилагательных) ==========
-            if word_lower.endswith('ness') and len(word_lower) > 6:
-                # Убираем "ness" (weightlessness → weightless)
-                base = word_lower[:-4]
-
-                if len(base) >= 4:
-                    # Проверяем базовую форму (прилагательное)
-                    if wn.synsets(base):
-                        return base
-
-                    # Пробуем с 'y' если заканчивается на 'i' (happiness → happy)
-                    if base.endswith('i') and len(base) > 3:
-                        happy_form = base[:-1] + 'y'
-                        if wn.synsets(happy_form):
-                            return happy_form
-
-                return word_lower
-
-            # ========== СПЕЦИАЛЬНАЯ ОБРАБОТКА -ty (существительные от прилагательных) ==========
-            if word_lower.endswith('ty') and len(word_lower) > 5:
-                base = word_lower[:-2]
-                candidates = [base, base + 'e']
-
-                # safety → safe
-                if base.endswith('t') and len(base) > 3:
-                    candidates.append(base[:-1] + 'fe')
-
-                for candidate in candidates:
-                    if candidate and wn.synsets(candidate):
-                        return candidate
 
                 return word_lower
 
@@ -262,13 +274,15 @@ class Command(BaseCommand):
             if word_lower.endswith('ly') and len(word_lower) > 5:
                 base = word_lower[:-2]
 
-                # quickly → quick
+                if self._is_gaming_term(base):
+                    return base
                 if wn.synsets(base):
                     return base
 
-                # happily → happy
                 if base.endswith('i') and len(base) > 3:
                     happy_form = base[:-1] + 'y'
+                    if self._is_gaming_term(happy_form):
+                        return happy_form
                     if wn.synsets(happy_form):
                         return happy_form
 
@@ -278,6 +292,8 @@ class Command(BaseCommand):
             # -ies (cities → city)
             if word_lower.endswith('ies') and len(word_lower) > 5:
                 base = word_lower[:-3] + 'y'
+                if self._is_gaming_term(base):
+                    return base
                 if wn.synsets(base):
                     return base
                 return word_lower
@@ -285,35 +301,36 @@ class Command(BaseCommand):
             # -es (boxes → box)
             if word_lower.endswith('es') and len(word_lower) > 5:
                 base = word_lower[:-2]
+                if self._is_gaming_term(base):
+                    return base
                 if wn.synsets(base):
                     return base
-
-                # Добавляем проверку для слов типа matches → match
-                if base.endswith('t') and len(base) > 3:
-                    if wn.synsets(base):
-                        return base
-
                 return word_lower
 
             # -s (cats → cat)
             if word_lower.endswith('s') and len(word_lower) > 4 and not word_lower.endswith('ss'):
                 base = word_lower[:-1]
+                if self._is_gaming_term(base):
+                    return base
                 if wn.synsets(base):
                     return base
                 return word_lower
 
             # ========== ЕСЛИ НИЧЕГО НЕ ПОДОШЛО ==========
-            # Проверяем через лемматизатор NLTK
             try:
-                # Пробуем как глагол
                 verb_form = self.lemmatizer.lemmatize(word_lower, 'v')
-                if verb_form != word_lower and wn.synsets(verb_form):
-                    return verb_form
+                if verb_form != word_lower:
+                    if self._is_gaming_term(verb_form):
+                        return verb_form
+                    if wn.synsets(verb_form):
+                        return verb_form
 
-                # Пробуем как существительное
                 noun_form = self.lemmatizer.lemmatize(word_lower, 'n')
-                if noun_form != word_lower and wn.synsets(noun_form):
-                    return noun_form
+                if noun_form != word_lower:
+                    if self._is_gaming_term(noun_form):
+                        return noun_form
+                    if wn.synsets(noun_form):
+                        return noun_form
             except:
                 pass
 
