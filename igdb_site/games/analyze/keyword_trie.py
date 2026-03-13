@@ -35,10 +35,96 @@ class KeywordTrie:
             else:
                 print("⚠️ WordNet недоступен. Глагольные формы определяться не будут.")
 
+    def _generate_single_word_forms(self, word: str) -> Set[str]:
+        """
+        Генерирует все формы для одного слова (без обработки дефисов)
+        Используется для частей составных слов
+        ИСПРАВЛЕНО: Добавлена генерация всех необходимых форм
+        """
+        forms = {word}
+
+        if len(word) < 3:
+            return forms
+
+        # ========== МНОЖЕСТВЕННОЕ ЧИСЛО ==========
+        if word.endswith('y') and len(word) > 1 and word[-2] not in 'aeiou':
+            forms.add(word[:-1] + 'ies')
+        forms.add(word + 's')
+
+        if word.endswith(('s', 'x', 'z', 'ch', 'sh')):
+            forms.add(word + 'es')
+
+        # ========== -ing ФОРМЫ ==========
+        if self._should_double_consonant(word):
+            forms.add(word + word[-1] + 'ing')
+        else:
+            forms.add(word + 'ing')
+
+        if word.endswith('e'):
+            forms.add(word[:-1] + 'ing')
+
+        # ========== -ed ФОРМЫ (ЭТО КЛЮЧЕВОЕ ДЛЯ base → based) ==========
+        if word.endswith('e'):
+            # Для слов на e добавляем только d
+            forms.add(word + 'd')
+        else:
+            if self._should_double_consonant(word):
+                forms.add(word + word[-1] + 'ed')
+            forms.add(word + 'ed')
+
+        # Формы на -ed для слов, заканчивающихся на -y
+        if word.endswith('y') and len(word) > 3 and word[-2] not in 'aeiou':
+            forms.add(word[:-1] + 'ied')
+
+        # ========== -er ФОРМЫ ==========
+        if word.endswith('e'):
+            forms.add(word[:-1] + 'er')
+        else:
+            if self._should_double_consonant(word):
+                forms.add(word + word[-1] + 'er')
+            forms.add(word + 'er')
+
+        # ========== -est ФОРМЫ ==========
+        if word.endswith('e'):
+            forms.add(word[:-1] + 'est')
+        else:
+            if self._should_double_consonant(word):
+                forms.add(word + word[-1] + 'est')
+            forms.add(word + 'est')
+
+        # ========== -ly ФОРМЫ ==========
+        if word.endswith('y') and word[-2] not in 'aeiou':
+            forms.add(word[:-1] + 'ily')
+        elif word.endswith('le'):
+            forms.add(word[:-2] + 'ly')
+        elif word.endswith('ic'):
+            forms.add(word + 'ally')
+        else:
+            forms.add(word + 'ly')
+
+        # ========== -tion/-sion ФОРМЫ ==========
+        if word.endswith('e'):
+            forms.add(word[:-1] + 'tion')
+        else:
+            forms.add(word + 'tion')
+
+        if word.endswith('de'):
+            forms.add(word[:-2] + 'sion')
+        elif word.endswith('d'):
+            forms.add(word + 'sion')
+
+        # ========== -ive ФОРМЫ ==========
+        if word.endswith('e'):
+            forms.add(word[:-1] + 'ive')
+        else:
+            forms.add(word + 'ive')
+
+        return forms
+
     def _generate_all_forms(self, word: str) -> Set[str]:
         """
         Генерирует ВСЕ возможные формы слова (существительные, глаголы, прилагательные, наречия)
-        ИСПРАВЛЕНО: ТЕПЕРЬ ГЕНЕРИРУЕТ -ty ФОРМЫ (safe → safety)
+        ИСПРАВЛЕНО: ТЕПЕРЬ ГЕНЕРИРУЕТ -ty ФОРМЫ (safe → safety) И ОБРАБАТЫВАЕТ ФРАЗЫ
         """
         word_lower = word.lower()
 
@@ -53,9 +139,34 @@ class KeywordTrie:
 
         # ========== ОБРАБОТКА ФРАЗ С ПРОБЕЛАМИ ==========
         if ' ' in word_lower:
-            # Просто возвращаем исходную фразу
-            self._all_forms_cache[word_lower] = {word_lower}
-            return {word_lower}
+            # Разбиваем фразу на отдельные слова
+            words = word_lower.split()
+
+            # Если фраза из 2 слов, генерируем комбинации форм
+            if len(words) == 2:
+                word1, word2 = words
+
+                # Генерируем формы для каждого слова отдельно
+                forms1 = self._generate_single_word_forms(word1)
+                forms2 = self._generate_single_word_forms(word2)
+
+                # Создаем все комбинации
+                for f1 in forms1:
+                    for f2 in forms2:
+                        combined = f"{f1} {f2}"
+                        if 3 <= len(combined) <= 50:
+                            forms.add(combined)
+
+            # Добавляем вариант без пробела (как одно слово)
+            forms.add(word_lower.replace(' ', ''))
+
+            # Добавляем вариант с дефисом
+            forms.add(word_lower.replace(' ', '-'))
+
+            # Фильтруем
+            valid_forms = {f for f in forms if 3 <= len(f) <= 50}
+            self._all_forms_cache[word_lower] = valid_forms
+            return valid_forms
 
         # ========== ОБРАБОТКА СОСТАВНЫХ СЛОВ С ДЕФИСАМИ ==========
         if '-' in word_lower:
@@ -111,16 +222,6 @@ class KeywordTrie:
                 # various → vari + ety? нет, various → variety (убираем ous, добавляем iety)
                 forms.add(word_lower[:-3] + 'iety')
 
-            # Правило 6: если слово заканчивается on, меняем на ity
-            # opinion → opinionity? нет, это не то
-
-            # Правило 7: удвоение согласной перед ity
-            # cruel → cruel + ty? уже есть, но может быть cruellity?
-            vowels = set('aeiou')
-            if len(word_lower) >= 3 and word_lower[-1] not in vowels and word_lower[-2] in vowels:
-                # Односложные слова типа cruel → cruellity? нет
-                pass
-
         # ========== МНОЖЕСТВЕННОЕ ЧИСЛО ==========
         if word_lower.endswith('y') and len(word_lower) > 1 and word_lower[-2] not in 'aeiou':
             forms.add(word_lower[:-1] + 'ies')
@@ -145,8 +246,9 @@ class KeywordTrie:
         if word_lower.endswith('y') and len(word_lower) > 3 and word_lower[-2] not in 'aeiou':
             forms.add(word_lower[:-1] + 'ied')
 
-        # Обычные формы на -ed
+        # Обычные формы на -ed (ЭТО КЛЮЧЕВОЕ ДЛЯ base → based)
         if word_lower.endswith('e'):
+            # Для слов на e добавляем только d
             forms.add(word_lower + 'd')
         else:
             if self._should_double_consonant(word_lower):
@@ -253,77 +355,6 @@ class KeywordTrie:
         self._all_forms_cache[word_lower] = valid_forms
 
         return valid_forms
-
-    def _generate_single_word_forms(self, word: str) -> Set[str]:
-        """
-        Генерирует все формы для одного слова (без обработки дефисов)
-        Используется для частей составных слов
-        """
-        forms = {word}
-
-        if len(word) < 3:
-            return forms
-
-        # Множественное число
-        if word.endswith('y') and len(word) > 1 and word[-2] not in 'aeiou':
-            forms.add(word[:-1] + 'ies')
-        forms.add(word + 's')
-
-        if word.endswith(('s', 'x', 'z', 'ch', 'sh')):
-            forms.add(word + 'es')
-
-        # -ing формы
-        if word.endswith('e'):
-            forms.add(word[:-1] + 'ing')
-        else:
-            if self._should_double_consonant(word):
-                forms.add(word + word[-1] + 'ing')
-            forms.add(word + 'ing')
-
-        # -ed формы - ЭТО КЛЮЧЕВОЕ ДЛЯ ended
-        if word.endswith('e'):
-            # Если слово заканчивается на e, добавляем только d
-            # end → end + ed? нет, end заканчивается на d, но не на e
-            # Это условие для слов типа like → liked
-            pass
-
-        # Правильная обработка -ed для ВСЕХ слов
-        # Для слов, заканчивающихся на e
-        if word.endswith('e'):
-            forms.add(word + 'd')  # like → liked
-        else:
-            # Для остальных слов
-            if self._should_double_consonant(word):
-                forms.add(word + word[-1] + 'ed')  # plan → planned
-            forms.add(word + 'ed')  # end → ended
-
-        # -er формы
-        if word.endswith('e'):
-            forms.add(word[:-1] + 'er')
-        else:
-            if self._should_double_consonant(word):
-                forms.add(word + word[-1] + 'er')
-            forms.add(word + 'er')
-
-        # -est формы
-        if word.endswith('e'):
-            forms.add(word[:-1] + 'est')
-        else:
-            if self._should_double_consonant(word):
-                forms.add(word + word[-1] + 'est')
-            forms.add(word + 'est')
-
-        # -ly формы
-        if word.endswith('y') and word[-2] not in 'aeiou':
-            forms.add(word[:-1] + 'ily')
-        elif word.endswith('le'):
-            forms.add(word[:-2] + 'ly')
-        elif word.endswith('ic'):
-            forms.add(word + 'ally')
-        else:
-            forms.add(word + 'ly')
-
-        return forms
 
     def _generate_ed_forms(self, word: str) -> Set[str]:
         """
@@ -478,7 +509,7 @@ class KeywordTrie:
     def find_all_in_text(self, text: str, unique_only: bool = True) -> List[dict]:
         """
         Находит ключевые слова в тексте
-        ИСПРАВЛЕНО: ПОИСК ОТ САМЫХ ДЛИННЫХ К КОРОТКИМ
+        ИСПРАВЛЕНО: Сначала ищет фразы (с пробелами), потом отдельные слова
         """
         import re
 
@@ -524,44 +555,49 @@ class KeywordTrie:
         for keyword_id, keyword_data in sorted_keywords:
             keyword_lower = keyword_data['name_lower']
 
-            if ' ' in keyword_lower:
-                pos = 0
-                while True:
-                    pos = text_lower.find(keyword_lower, pos)
-                    if pos == -1:
-                        break
+            # Получаем все формы ключевого слова
+            all_forms = self._all_forms_cache.get(keyword_lower, {keyword_lower})
 
-                    start_ok = (pos == 0 or not text_lower[pos - 1].isalnum())
-                    end_pos = pos + len(keyword_lower)
-                    end_ok = (end_pos == len(text_lower) or not text_lower[end_pos].isalnum())
+            # Для каждой формы ищем в тексте
+            for form in all_forms:
+                if ' ' in form:  # Ищем только формы с пробелами
+                    pos = 0
+                    while True:
+                        pos = text_lower.find(form, pos)
+                        if pos == -1:
+                            break
 
-                    if start_ok and end_ok:
-                        is_occupied = False
-                        for occ_start, occ_end in occupied_positions:
-                            if not (end_pos <= occ_start or pos >= occ_end):
-                                is_occupied = True
-                                break
+                        start_ok = (pos == 0 or not text_lower[pos - 1].isalnum())
+                        end_pos = pos + len(form)
+                        end_ok = (end_pos == len(text_lower) or not text_lower[end_pos].isalnum())
 
-                        if not is_occupied:
-                            result = {
-                                'id': keyword_id,
-                                'name': keyword_data['name'],
-                                'position': pos,
-                                'length': len(keyword_lower),
-                                'text': text_lower[pos:end_pos],
-                                'is_phrase': True
-                            }
+                        if start_ok and end_ok:
+                            is_occupied = False
+                            for occ_start, occ_end in occupied_positions:
+                                if not (end_pos <= occ_start or pos >= occ_end):
+                                    is_occupied = True
+                                    break
 
-                            if unique_only:
-                                if result['id'] not in found_keywords:
-                                    found_keywords.add(result['id'])
+                            if not is_occupied:
+                                result = {
+                                    'id': keyword_id,
+                                    'name': keyword_data['name'],
+                                    'position': pos,
+                                    'length': len(form),
+                                    'text': text_lower[pos:end_pos],
+                                    'is_phrase': True
+                                }
+
+                                if unique_only:
+                                    if result['id'] not in found_keywords:
+                                        found_keywords.add(result['id'])
+                                        results.append(result)
+                                        occupied_positions.append((pos, end_pos))
+                                else:
                                     results.append(result)
                                     occupied_positions.append((pos, end_pos))
-                            else:
-                                results.append(result)
-                                occupied_positions.append((pos, end_pos))
 
-                    pos = end_pos
+                        pos = end_pos
 
         # ========== ТЕПЕРЬ ИЩЕМ ОТДЕЛЬНЫЕ СЛОВА (ТОЖЕ ОТ ДЛИННЫХ К КОРОТКИМ) ==========
         # Сначала собираем все возможные совпадения для каждого слова
@@ -806,8 +842,8 @@ class KeywordTrie:
             self.insert(keyword_name_lower, keyword.id, keyword.name)
             total_forms += 1
 
-            # Для обычных слов генерируем дополнительные формы
-            if ' ' not in keyword_name_lower and len(keyword_name_lower) > 3:
+            # Генерируем дополнительные формы для ВСЕХ ключевых слов (включая фразы)
+            if len(keyword_name_lower) > 3:
                 forms = self._generate_all_forms(keyword_name_lower)
                 for form in forms:
                     if form != keyword_name_lower:
