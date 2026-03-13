@@ -61,29 +61,15 @@ def analyze_game_ajax(request: HttpRequest, game_id: int):
         print(f"Длина текста: {len(original_text)}")
         print(f"Первые 200 символов: {original_text[:200]}")
 
-        # ПРИНУДИТЕЛЬНО ИНИЦИАЛИЗИРУЕМ TRIE
+        # Очищаем кэш Trie перед анализом
         try:
             from games.analyze.keyword_trie import KeywordTrieManager
-            from games.models import Keyword
-
-            # Очищаем кэш
             KeywordTrieManager().clear_cache()
-
-            # Получаем Trie с принудительной перестройкой
-            trie_manager = KeywordTrieManager()
-            keywords_count = Keyword.objects.count()
-            print(f"Количество ключевых слов в БД: {keywords_count}")
-
-            # Принудительно строим Trie
-            trie = trie_manager.get_trie(verbose=True, force_rebuild=True)
-            print(f"✅ Trie построен и содержит {trie_manager.keywords_count} ключевых слов")
-
+            print("✅ Кэш Trie очищен")
         except Exception as e:
-            print(f"❌ Ошибка при инициализации Trie: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"⚠️ Ошибка при очистке кэша Trie: {e}")
 
-        # 1. Выполняем анализ текста
+        # Выполняем анализ текста
         analyzer = GameAnalyzerAPI(verbose=True)
 
         analysis_result = analyzer.analyze_game_text_comprehensive(
@@ -107,25 +93,30 @@ def analyze_game_ajax(request: HttpRequest, game_id: int):
                     for item in data['items']:
                         print(f"    - {item.get('name', 'Unknown')}")
 
-        if 'pattern_info' in analysis_result:
-            for category, matches in analysis_result['pattern_info'].items():
-                if matches:
-                    print(f"  pattern_info[{category}]: {len(matches)} совпадений")
-
         if not analysis_result['success']:
             return JsonResponse({
                 'success': False,
                 'error': analysis_result.get('error', 'Unknown analysis error')
             })
 
-        # 2. Сохраняем результаты в сессию
+        # Форматируем текст в HTML с сохранением абзацев
         formatted_text = format_text_with_html(original_text)
-        highlighted_text = simple_highlight_text(formatted_text, analysis_result)
 
+        # Применяем подсветку используя pattern_info из результата анализа
+        # Передаем и оригинальный текст для поиска позиций
+        highlighted_text = apply_highlights_from_pattern_info(
+            formatted_text,
+            original_text,
+            analysis_result.get('pattern_info', {})
+        )
+
+        # Извлекаем найденные элементы с правильным флагом is_new
         found_items = extract_found_items_combined(analysis_result, game)
 
+        # Подготавливаем данные для сохранения
         save_data = prepare_save_data(analysis_result, game, tab_key)
 
+        # Сохраняем результаты в сессию
         session_key = f'unsaved_results_{game_id}'
         unsaved_results = request.session.get(session_key, {
             'highlighted_text': {},
@@ -149,7 +140,7 @@ def analyze_game_ajax(request: HttpRequest, game_id: int):
         request.session[session_key] = unsaved_results
         request.session.modified = True
 
-        # 3. Формируем успешный JSON ответ
+        # Формируем успешный JSON ответ
         total_found = analysis_result['summary'].get('found_count', 0)
         total_matches = analysis_result.get('total_matches', 0)
 
@@ -177,6 +168,7 @@ def analyze_game_ajax(request: HttpRequest, game_id: int):
         import traceback
         traceback.print_exc()
         return JsonResponse({'success': False, 'error': f'Server error: {str(e)}'})
+
 @login_required
 @user_passes_test(is_staff_or_superuser)
 def add_keyword_ajax(request: HttpRequest, game_id: int):
@@ -331,6 +323,366 @@ def analyze_single_game(request: HttpRequest, game_id: int):
 
     return render(request, 'games/analyze.html', context)
 
+
+def remove_existing_highlights(html_text: str) -> str:
+    """
+    Удаляет существующие span теги подсветки из HTML текста
+    """
+    import re
+
+    def remove_span(match):
+        # Возвращаем только текст внутри span
+        return match.group(1)
+
+    # Удаляем все span с классами highlight-
+    pattern = r'<span[^>]*class="[^"]*highlight-[^"]*"[^>]*>(.*?)</span>'
+
+    # Продолжаем заменять, пока есть совпадения
+    prev_text = None
+    current_text = html_text
+
+    while prev_text != current_text:
+        prev_text = current_text
+        current_text = re.sub(pattern, remove_span, current_text, flags=re.DOTALL | re.IGNORECASE)
+
+    return current_text
+
+
+def find_html_position(html_text: str, clean_text: str, clean_pos: int) -> int:
+    """
+    Находит позицию в HTML тексте, соответствующую позиции в чистом тексте
+    """
+    html_idx = 0
+    clean_idx = 0
+    in_tag = False
+
+    while html_idx < len(html_text) and clean_idx <= clean_pos:
+        char = html_text[html_idx]
+
+        if char == '<':
+            in_tag = True
+            html_idx += 1
+            continue
+        elif char == '>':
+            in_tag = False
+            html_idx += 1
+            continue
+
+        if not in_tag:
+            if clean_idx == clean_pos:
+                return html_idx
+            clean_idx += 1
+
+        html_idx += 1
+
+    return -1
+
+
+def is_inside_html_tag(html_text: str, position: int) -> bool:
+    """
+    Проверяет, находится ли позиция внутри HTML тега
+    """
+    if position < 0 or position >= len(html_text):
+        return False
+
+    # Находим последний '<' до этой позиции
+    last_lt = html_text.rfind('<', 0, position)
+    if last_lt == -1:
+        return False
+
+    # Находим следующий '>' после этого '<'
+    next_gt = html_text.find('>', last_lt)
+    if next_gt == -1:
+        return True  # Незакрытый тег
+
+    # Если позиция между '<' и '>', значит внутри тега
+    return last_lt < position < next_gt
+
+
+def apply_highlights_from_pattern_info(html_text: str, original_text: str, pattern_info: Dict) -> str:
+    """
+    Применяет подсветку к HTML тексту, используя данные из pattern_info.
+    Исправлено: предотвращение вложенных подсветок.
+    """
+    if not html_text or not pattern_info or not original_text:
+        return html_text
+
+    try:
+        # Удаляем старую подсветку
+        html_text = remove_existing_highlights(html_text)
+
+        # Получаем чистый текст из HTML для поиска
+        import re
+        clean_text = re.sub(r'<[^>]+>', '', html_text)
+
+        if not clean_text:
+            return html_text
+
+        # Собираем все совпадения для подсветки
+        categories = ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']
+        category_classes = {
+            'genres': 'highlight-genre',
+            'themes': 'highlight-theme',
+            'perspectives': 'highlight-perspective',
+            'game_modes': 'highlight-game_mode',
+            'keywords': 'highlight-keyword'
+        }
+
+        # Словарь для хранения всех позиций для подсветки
+        highlight_positions = []
+
+        for category in categories:
+            for match in pattern_info.get(category, []):
+                if match.get('status') == 'found':
+                    matched_text = match.get('matched_text', '')
+
+                    if not matched_text:
+                        continue
+
+                    # Ищем все вхождения этого текста в чистом тексте
+                    search_text = matched_text.lower()
+                    clean_lower = clean_text.lower()
+
+                    pos = 0
+                    while True:
+                        found_pos = clean_lower.find(search_text, pos)
+                        if found_pos == -1:
+                            break
+
+                        # Проверяем границы слова
+                        is_valid = True
+
+                        # Проверяем начало
+                        if found_pos > 0:
+                            prev_char = clean_text[found_pos - 1]
+                            if prev_char.isalnum() and prev_char != '-':
+                                is_valid = False
+
+                        # Проверяем конец
+                        end_pos = found_pos + len(matched_text)
+                        if end_pos < len(clean_text):
+                            next_char = clean_text[end_pos]
+                            if next_char.isalnum() and next_char not in "s'-":
+                                is_valid = False
+
+                        if is_valid:
+                            # Находим соответствующую позицию в HTML
+                            html_start = find_html_position(html_text, clean_text, found_pos)
+                            if html_start != -1:
+                                html_end = html_start + len(matched_text)
+
+                                # Проверяем, что не внутри HTML тега
+                                if not is_inside_html_tag(html_text, html_start):
+                                    highlight_positions.append({
+                                        'start': html_start,
+                                        'end': html_end,
+                                        'name': match['name'],
+                                        'category': category,
+                                        'class_name': category_classes[category],
+                                        'matched_text': matched_text,
+                                        'length': len(matched_text)
+                                    })
+
+                        pos = found_pos + 1
+
+        if not highlight_positions:
+            return html_text
+
+        # Удаляем дубликаты (одинаковые позиции)
+        unique_positions = []
+        seen = set()
+        for pos in highlight_positions:
+            key = (pos['start'], pos['end'])
+            if key not in seen:
+                seen.add(key)
+                unique_positions.append(pos)
+
+        # Находим и разрешаем конфликты (пересекающиеся диапазоны)
+        # Сортируем по длине (сначала самые длинные)
+        unique_positions.sort(key=lambda x: x['length'], reverse=True)
+
+        # Отмечаем, какие позиции уже заняты
+        occupied = []
+        final_positions = []
+
+        for pos in unique_positions:
+            # Проверяем, не пересекается ли с уже занятыми
+            overlaps = False
+            for occ_start, occ_end in occupied:
+                if not (pos['end'] <= occ_start or pos['start'] >= occ_end):
+                    overlaps = True
+                    break
+
+            if not overlaps:
+                final_positions.append(pos)
+                occupied.append((pos['start'], pos['end']))
+
+        # Сортируем финальные позиции от конца к началу
+        final_positions.sort(key=lambda x: x['start'], reverse=True)
+
+        # Применяем подсветку
+        highlighted_text = html_text
+        for pos in final_positions:
+            try:
+                # Проверяем границы
+                if pos['start'] < 0 or pos['end'] > len(highlighted_text):
+                    continue
+                if pos['start'] >= pos['end']:
+                    continue
+
+                # Получаем текст для подсветки
+                text_to_highlight = highlighted_text[pos['start']:pos['end']]
+
+                # Пропускаем, если текст уже содержит span
+                if '<span' in text_to_highlight and '</span>' in text_to_highlight:
+                    continue
+
+                # Создаем подсвеченный span
+                category_display = {
+                    'genres': 'Genre',
+                    'themes': 'Theme',
+                    'perspectives': 'Perspective',
+                    'game_modes': 'Game Mode',
+                    'keywords': 'Keyword'
+                }.get(pos['category'], pos['category'])
+
+                # Экранируем текст
+                safe_text = html.escape(text_to_highlight)
+
+                highlighted_span = (
+                    f'<span class="{pos["class_name"]}" '
+                    f'data-element-name="{html.escape(pos["name"])}" '
+                    f'data-category="{pos["category"]}" '
+                    f'title="{category_display}: {html.escape(pos["name"])}">'
+                    f'{safe_text}'
+                    f'</span>'
+                )
+
+                # Заменяем в тексте
+                highlighted_text = (
+                        highlighted_text[:pos['start']] +
+                        highlighted_span +
+                        highlighted_text[pos['end']:]
+                )
+
+            except Exception as e:
+                print(f"Ошибка при подсветке: {e}")
+                continue
+
+        return highlighted_text
+
+    except Exception as e:
+        print(f"❌ Ошибка в apply_highlights_from_pattern_info: {e}")
+        import traceback
+        traceback.print_exc()
+        return html_text
+
+
+def extract_found_items_combined(analysis_result: Dict, game=None) -> Dict:
+    """
+    Извлекает найденные элементы с правильным флагом is_new
+    """
+    results = {}
+    categories = ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']
+
+    for category in categories:
+        items = analysis_result.get('results', {}).get(category, {}).get('items', [])
+        if items:
+            found_items = []
+            new_count = 0
+            seen_ids = set()
+
+            for item in items:
+                # Пропускаем дубликаты по ID
+                if item['id'] in seen_ids:
+                    continue
+                seen_ids.add(item['id'])
+
+                # Проверяем, есть ли уже у игры
+                is_new = True
+                if game:
+                    if category == 'keywords':
+                        is_new = not game.keywords.filter(id=item['id']).exists()
+                    elif category == 'genres':
+                        is_new = not game.genres.filter(id=item['id']).exists()
+                    elif category == 'themes':
+                        is_new = not game.themes.filter(id=item['id']).exists()
+                    elif category == 'perspectives':
+                        is_new = not game.player_perspectives.filter(id=item['id']).exists()
+                    elif category == 'game_modes':
+                        is_new = not game.game_modes.filter(id=item['id']).exists()
+
+                if is_new:
+                    new_count += 1
+
+                found_items.append({
+                    'name': item['name'],
+                    'id': item['id'],
+                    'is_new': is_new
+                })
+
+            results[category] = found_items
+            results[f'{category}_new_count'] = new_count
+        else:
+            results[f'{category}_new_count'] = 0
+
+    # Общая статистика
+    total_found = 0
+    for category in categories:
+        total_found += len(results.get(category, []))
+    results['total_found'] = total_found
+
+    return results
+
+
+def prepare_save_data(analysis_result: Dict, game: Game, tab: str) -> Dict:
+    """
+    Подготавливает данные для сохранения - ТОЛЬКО НОВЫЕ элементы
+    """
+    save_data = {
+        'text_source': tab,
+        'results': {},
+        'found_count': 0
+    }
+
+    categories = ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']
+    total_new = 0
+
+    for category in categories:
+        items = analysis_result.get('results', {}).get(category, {}).get('items', [])
+        if not items:
+            continue
+
+        # Получаем существующие ID игры
+        if category == 'keywords':
+            existing_ids = set(game.keywords.values_list('id', flat=True))
+        elif category == 'genres':
+            existing_ids = set(game.genres.values_list('id', flat=True))
+        elif category == 'themes':
+            existing_ids = set(game.themes.values_list('id', flat=True))
+        elif category == 'perspectives':
+            existing_ids = set(game.player_perspectives.values_list('id', flat=True))
+        elif category == 'game_modes':
+            existing_ids = set(game.game_modes.values_list('id', flat=True))
+        else:
+            existing_ids = set()
+
+        # Фильтруем только новые элементы
+        category_new_items = []
+        seen_ids = set()
+
+        for item in items:
+            # Проверяем по ID
+            if item['id'] not in existing_ids and item['id'] not in seen_ids:
+                seen_ids.add(item['id'])
+                category_new_items.append(item)
+
+        if category_new_items:
+            save_data['results'][category] = {'items': category_new_items}
+            total_new += len(category_new_items)
+
+    save_data['found_count'] = total_new
+    return save_data
 
 def _handle_post_request(request: HttpRequest, game: Game, original_descriptions: Dict, active_tab: str):
     """Обработка POST запросов"""
@@ -905,27 +1257,6 @@ def create_single_criteria_span(text: str, criteria: Dict) -> str:
            f'{text}</span>'
 
 
-def is_inside_html_tag(html_text: str, position: int) -> bool:
-    """
-    Проверяет, находится ли позиция внутри HTML тега
-    """
-    if position < 0 or position >= len(html_text):
-        return False
-
-    # Находим последний '<' до этой позиции
-    last_lt = html_text.rfind('<', 0, position)
-    if last_lt == -1:
-        return False
-
-    # Находим следующий '>' после этого '<'
-    next_gt = html_text.find('>', last_lt)
-    if next_gt == -1:
-        return True  # Незакрытый тег
-
-    # Если позиция между '<' и '>', значит внутри тега
-    return last_lt < position < next_gt
-
-
 def is_inside_span(html_text: str, position: int) -> bool:
     """
     Проверяет, находится ли позиция внутри span тега
@@ -1352,25 +1683,6 @@ def simple_highlight_text(html_text: str, analysis_result: Dict) -> str:
         import traceback
         traceback.print_exc()
         return html_text
-
-
-def remove_existing_highlights(html_text: str) -> str:
-    """
-    Удаляет существующие span теги подсветки
-    """
-    import re
-
-    # Удаляем span теги, но сохраняем текст внутри них
-    def remove_span(match):
-        # Возвращаем только текст внутри span
-        content = match.group(1)
-        return content
-
-    # Удаляем все span с классами highlight-
-    pattern = r'<span[^>]*class="[^"]*highlight-[^"]*"[^>]*>(.*?)</span>'
-    html_text = re.sub(pattern, remove_span, html_text, flags=re.DOTALL | re.IGNORECASE)
-
-    return html_text
 
 
 def collect_all_matches(pattern_info: Dict) -> List[Dict]:
@@ -2063,112 +2375,6 @@ def format_text_with_html(text: str) -> str:
     else:
         safe_text = html.escape(text.replace('\n', '<br>'))
         return f'<p>{safe_text}</p>'
-
-
-def prepare_save_data(analysis_result: Dict, game: Game, tab: str) -> Dict:
-    """
-    Подготавливает данные для сохранения
-    """
-    save_data = {
-        'text_source': tab,
-        'results': {},
-        'found_count': 0
-    }
-
-    categories = ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']
-    total_new = 0
-
-    for category in categories:
-        items = analysis_result.get('results', {}).get(category, {}).get('items', [])
-        if not items:
-            continue
-
-        # Получаем существующие ID
-        if category == 'keywords':
-            existing_ids = set(game.keywords.values_list('id', flat=True))
-        elif category == 'genres':
-            existing_ids = set(game.genres.values_list('id', flat=True))
-        elif category == 'themes':
-            existing_ids = set(game.themes.values_list('id', flat=True))
-        elif category == 'perspectives':
-            existing_ids = set(game.player_perspectives.values_list('id', flat=True))
-        elif category == 'game_modes':
-            existing_ids = set(game.game_modes.values_list('id', flat=True))
-        else:
-            existing_ids = set()
-
-        # Фильтруем новые элементы
-        category_new_items = []
-        seen_names = set()
-
-        for item in items:
-            if item['id'] not in existing_ids:
-                name_lower = item['name'].lower()
-                if name_lower not in seen_names:
-                    seen_names.add(name_lower)
-                    category_new_items.append(item)
-
-        if category_new_items:
-            save_data['results'][category] = {'items': category_new_items}
-            total_new += len(category_new_items)
-
-    save_data['found_count'] = total_new
-    return save_data
-
-
-def extract_found_items_combined(analysis_result: Dict, game=None) -> Dict:
-    """
-    Извлекает найденные элементы
-    """
-    results = {}
-    categories = ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']
-
-    for category in categories:
-        items = analysis_result.get('results', {}).get(category, {}).get('items', [])
-        if items:
-            found_items = []
-            new_count = 0
-            seen_names = set()
-
-            for item in items:
-                name_lower = item['name'].lower()
-                if name_lower in seen_names:
-                    continue
-
-                seen_names.add(name_lower)
-
-                is_new = True
-                if game:
-                    if category == 'keywords':
-                        is_new = not game.keywords.filter(id=item['id']).exists()
-                    elif category == 'genres':
-                        is_new = not game.genres.filter(id=item['id']).exists()
-                    elif category == 'themes':
-                        is_new = not game.themes.filter(id=item['id']).exists()
-                    elif category == 'perspectives':
-                        is_new = not game.player_perspectives.filter(id=item['id']).exists()
-                    elif category == 'game_modes':
-                        is_new = not game.game_modes.filter(id=item['id']).exists()
-
-                if is_new:
-                    new_count += 1
-
-                found_items.append({
-                    'name': item['name'],
-                    'id': item['id'],
-                    'is_new': is_new
-                })
-
-            results[category] = found_items
-            results[f'{category}_new_count'] = new_count
-        else:
-            results[f'{category}_new_count'] = 0
-
-    # Статистика
-    total_found = sum(len(results.get(cat, [])) for cat in categories)
-    results['total_found'] = total_found
-
-    return results
 
 
 def create_highlighted_html(html_text: str, analysis_result: Dict) -> str:
