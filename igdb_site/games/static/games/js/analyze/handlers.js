@@ -12,269 +12,7 @@ import {
     clearTabScrollPositions
 } from './utils.js';
 
-// ИМПОРТИРУЕМ НОВЫЕ КЛАССЫ
 import { AddKeywordHandler, DeleteKeywordHandler } from './keyword-handlers.js';
-
-/* ============================================
-   DELETE KEYWORD HANDLER (LEGACY - для обратной совместимости)
-   ============================================ */
-
-class LegacyDeleteKeywordHandler {
-    constructor(analyzer) {
-        this.analyzer = analyzer;
-        this.gameId = this._getGameId();
-    }
-
-    _getGameId() {
-        const gameIdElement = document.getElementById('game-id');
-        if (gameIdElement && gameIdElement.value) {
-            return gameIdElement.value;
-        }
-
-        const urlMatch = window.location.pathname.match(/\/games\/(\d+)\/analyze/);
-        if (urlMatch && urlMatch[1]) {
-            return urlMatch[1];
-        }
-
-        const gameIdInput = document.querySelector('input[name="game_id"], input[name="game-id"]');
-        if (gameIdInput && gameIdInput.value) {
-            return gameIdInput.value;
-        }
-
-        console.error('Game ID not found on page');
-        return null;
-    }
-
-    bind() {
-        const deleteButton = document.getElementById('delete-keyword-button');
-        const keywordInput = document.getElementById('new-keyword-input');
-
-        if (!deleteButton) return;
-
-        if (!this.gameId) {
-            console.error('Cannot bind delete button: Game ID not available');
-            deleteButton.disabled = true;
-            deleteButton.title = 'Game ID not available';
-            return;
-        }
-
-        deleteButton.addEventListener('click', (e) => {
-            e.preventDefault();
-            this.handleDeleteKeyword();
-        });
-
-        if (keywordInput) {
-            keywordInput.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter' && e.shiftKey) {
-                    e.preventDefault();
-                    this.handleDeleteKeyword();
-                }
-            });
-        }
-    }
-
-    handleDeleteKeyword() {
-        const keywordInput = document.getElementById('new-keyword-input');
-        const keyword = keywordInput ? keywordInput.value.trim() : '';
-
-        if (!keyword) {
-            this.analyzer.showMessage('Please enter a keyword to delete', 'error');
-            return;
-        }
-
-        if (!confirm(`Are you sure you want to delete keyword "${keyword}"?\n\nThis will remove the keyword from all games and delete it from the database.`)) {
-            return;
-        }
-
-        const csrfToken = this.getCSRFToken();
-        if (!csrfToken) {
-            this.analyzer.showMessage('Security token missing', 'error');
-            return;
-        }
-
-        if (!this.gameId) {
-            this.analyzer.showMessage('Game ID not found. Please refresh the page.', 'error');
-            return;
-        }
-
-        const deleteButton = document.getElementById('delete-keyword-button');
-        const originalHTML = deleteButton ? deleteButton.innerHTML : '';
-        if (deleteButton) {
-            deleteButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Deleting...';
-            deleteButton.disabled = true;
-        }
-
-        const currentTab = this.analyzer.currentTab || 'summary';
-
-        fetch(`/games/${this.gameId}/analyze/delete-keyword/`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': csrfToken,
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            body: JSON.stringify({
-                keyword: keyword,
-                tab: currentTab,
-                auto_analyze: false // Явно отключаем автоанализ
-            })
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.success) {
-                this.analyzer.showMessage(`✅ ${data.message}`, 'success');
-
-                if (data.popularity !== undefined) {
-                    setTimeout(() => {
-                        this.analyzer.showMessage(`📊 Keyword was used in ${data.popularity} game(s) before deletion.`, 'info', 3000);
-                    }, 500);
-                }
-
-                if (keywordInput) {
-                    keywordInput.value = '';
-                }
-
-                this.refreshCurrentKeywords();
-                this.refreshFoundItems();
-
-                // Убираем автоанализ
-                // if (data.analyze_after_delete) {
-                //     this.analyzer.showMessage('🔄 Performing text re-analysis...', 'info');
-                //     this.performAutoAnalysis(currentTab);
-                // }
-
-            } else {
-                this.analyzer.showMessage(`❌ ${data.message}`, 'error');
-            }
-        })
-        .catch(error => {
-            console.error('Error deleting keyword:', error);
-            this.analyzer.showMessage('❌ Error deleting keyword: ' + error.message, 'error');
-        })
-        .finally(() => {
-            if (deleteButton) {
-                deleteButton.innerHTML = originalHTML;
-                deleteButton.disabled = false;
-            }
-        });
-    }
-
-    refreshCurrentKeywords() {
-        if (!this.gameId) {
-            console.error('Cannot refresh keywords: Game ID not available');
-            return;
-        }
-
-        const allCategories = document.querySelectorAll('.current-data-category');
-        let currentKeywordsContainer = null;
-
-        allCategories.forEach(container => {
-            const h6 = container.querySelector('h6');
-            if (h6 && h6.textContent.includes('Keywords')) {
-                currentKeywordsContainer = container;
-            }
-        });
-
-        if (!currentKeywordsContainer) {
-            console.error('Keywords container not found');
-            return;
-        }
-
-        fetch(`/games/${this.gameId}/analyze/current-keywords/`)
-        .then(response => {
-            const contentType = response.headers.get("content-type");
-            if (!contentType || !contentType.includes("application/json")) {
-                return response.text().then(text => {
-                    throw new Error(`Expected JSON but got: ${text.substring(0, 100)}...`);
-                });
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.success && data.keywords) {
-                const itemsList = currentKeywordsContainer.querySelector('.current-items-list');
-                if (itemsList) {
-                    itemsList.innerHTML = data.keywords.map(keyword =>
-                        `<span class="current-item">${keyword}</span>`
-                    ).join('');
-                }
-            }
-        })
-        .catch(error => {
-            console.error('Error refreshing keywords:', error);
-            this.analyzer.showMessage('⚠️ Could not refresh keywords: ' + error.message, 'warning');
-        });
-    }
-
-    refreshFoundItems() {
-        if (!this.gameId) {
-            console.error('Cannot refresh found items: Game ID not available');
-            return;
-        }
-
-        const allCategories = document.querySelectorAll('.found-items-category');
-        let foundKeywordsContainer = null;
-
-        allCategories.forEach(container => {
-            if (container.getAttribute('data-category') === 'keywords') {
-                foundKeywordsContainer = container;
-            }
-        });
-
-        if (!foundKeywordsContainer) {
-            console.warn('Found keywords container not found');
-            return;
-        }
-
-        const activeTab = this.analyzer.currentTab || 'summary';
-        fetch(`/games/${this.gameId}/analyze/found-items/?tab=${activeTab}`)
-        .then(response => {
-            const contentType = response.headers.get("content-type");
-            if (!contentType || !contentType.includes("application/json")) {
-                return response.text().then(text => {
-                    throw new Error(`Expected JSON but got: ${text.substring(0, 100)}...`);
-                });
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.success && data.keywords) {
-                const itemsList = foundKeywordsContainer.querySelector('.found-items-list');
-                if (itemsList) {
-                    itemsList.innerHTML = data.keywords.map(keyword =>
-                        `<span class="badge ${keyword.is_new ? 'bg-warning text-dark' : 'bg-secondary'} found-item-badge"
-                              data-name="${keyword.name}"
-                              data-bs-toggle="tooltip"
-                              title="${keyword.is_new ? 'New keyword (not saved yet) - Click to scroll to highlight' : 'Already exists in game - Click to scroll to highlight'}">
-                            ${keyword.name}
-                            ${keyword.is_new ? '<i class="bi bi-plus-circle ms-1"></i>' : '<i class="bi bi-check-circle ms-1"></i>'}
-                        </span>`
-                    ).join('');
-
-                    const countBadge = foundKeywordsContainer.querySelector('h6 .badge');
-                    if (countBadge) {
-                        const newCount = data.keywords.filter(k => k.is_new).length;
-                        countBadge.textContent = `${newCount} new`;
-                    }
-                }
-            }
-        })
-        .catch(error => {
-            console.error('Error refreshing found items:', error);
-            this.analyzer.showMessage('⚠️ Could not refresh found items: ' + error.message, 'warning');
-        });
-    }
-
-    getCSRFToken() {
-        const csrfInput = document.querySelector('[name="csrfmiddlewaretoken"]');
-        return csrfInput ? csrfInput.value : null;
-    }
-}
 
 /* ============================================
    NORMALIZE KEYWORD HANDLER
@@ -354,7 +92,6 @@ class NormalizeKeywordHandler {
         })
         .then(data => {
             if (data.success) {
-                // Подставляем нормализованную форму в поле ввода
                 if (keywordInput) {
                     keywordInput.value = data.normalized;
                 }
@@ -388,122 +125,6 @@ class NormalizeKeywordHandler {
             }
         });
     }
-}
-
-/* ============================================
-   ADD KEYWORD HANDLER (LEGACY - для обратной совместимости)
-   ============================================ */
-
-function bindLegacyAddKeywordButton(analyzer) {
-    const addButton = document.getElementById('add-keyword-button');
-    const keywordInput = document.getElementById('new-keyword-input');
-
-    if (!addButton || !keywordInput) return;
-
-    keywordInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-
-            saveCurrentTab(analyzer);
-            saveScrollPosition(analyzer);
-            analyzer.saveTabScrollPosition(analyzer.currentTab);
-
-            handleLegacyAddKeywordSubmission(analyzer);
-        }
-    });
-
-    addButton.addEventListener('click', (e) => {
-        e.preventDefault();
-
-        saveCurrentTab(analyzer);
-        saveScrollPosition(analyzer);
-        analyzer.saveTabScrollPosition(analyzer.currentTab);
-
-        handleLegacyAddKeywordSubmission(analyzer);
-    });
-}
-
-function handleLegacyAddKeywordSubmission(analyzer) {
-    const keywordInput = document.getElementById('new-keyword-input');
-    const keyword = keywordInput ? keywordInput.value.trim() : '';
-
-    if (!keyword) {
-        showMessage('Please enter a keyword', 'error');
-        return;
-    }
-
-    const csrfToken = getCSRFToken();
-    if (!csrfToken) {
-        showMessage('Security token missing', 'error');
-        return;
-    }
-
-    const form = document.getElementById('analyze-form');
-    if (!form) {
-        showMessage('Form not found', 'error');
-        return;
-    }
-
-    const autoAnalyzeInput = document.getElementById('auto-analyze-input');
-    if (autoAnalyzeInput) {
-        autoAnalyzeInput.value = 'false'; // Явно отключаем автоанализ
-    }
-
-    const newKeywordInput = document.createElement('input');
-    newKeywordInput.type = 'hidden';
-    newKeywordInput.name = 'new_keyword';
-    newKeywordInput.value = keyword;
-    form.appendChild(newKeywordInput);
-
-    const addKeywordInput = document.createElement('input');
-    addKeywordInput.type = 'hidden';
-    addKeywordInput.name = 'add_keyword';
-    addKeywordInput.value = 'true';
-    form.appendChild(addKeywordInput);
-
-    const currentTab = analyzer.currentTab;
-    const analyzeTabInput = document.getElementById('analyze-tab-input');
-    if (analyzeTabInput) {
-        analyzeTabInput.value = currentTab;
-    }
-
-    setTimeout(() => {
-        try {
-            form.submit();
-        } catch (error) {
-            console.error('Error submitting form:', error);
-            showMessage('Error adding keyword: ' + error.message, 'error');
-
-            if (newKeywordInput.parentNode === form) {
-                form.removeChild(newKeywordInput);
-            }
-            if (addKeywordInput.parentNode === form) {
-                form.removeChild(addKeywordInput);
-            }
-        }
-    }, 100);
-}
-
-/* ============================================
-   ОБНОВЛЕННЫЕ ФУНКЦИИ БИНДИНГА - ИСПОЛЬЗУЕМ AJAX
-   ============================================ */
-
-export function bindAddKeywordButton(analyzer) {
-    console.log('Binding AJAX add keyword handler...');
-    const addHandler = new AddKeywordHandler(analyzer);
-    addHandler.bind();
-}
-
-export function bindDeleteKeywordButton(analyzer) {
-    console.log('Binding AJAX delete keyword handler...');
-    const deleteHandler = new DeleteKeywordHandler(analyzer);
-    deleteHandler.bind();
-}
-
-export function bindNormalizeKeywordButton(analyzer) {
-    console.log('Binding normalize keyword button...');
-    const normalizeHandler = new NormalizeKeywordHandler(analyzer);
-    normalizeHandler.bind();
 }
 
 /* ============================================
@@ -587,69 +208,211 @@ export function bindBootstrapTabs(analyzer) {
 export function bindAnalyzeButton(analyzer) {
     if (!analyzer.elements.analyzeButton) {
         console.error('ANALYZE BUTTON NOT FOUND!');
-        showMessage('Error: Analyze button not found. Please refresh page.', 'error');
+        analyzer.showMessage('Error: Analyze button not found. Please refresh page.', 'error');
         return;
     }
 
-    const originalButton = analyzer.elements.analyzeButton;
-    const newButton = originalButton.cloneNode(true);
-    originalButton.parentNode.replaceChild(newButton, originalButton);
-    analyzer.elements.analyzeButton = newButton;
+    if (analyzer.analyzeClickHandler) {
+        analyzer.elements.analyzeButton.removeEventListener('click', analyzer.analyzeClickHandler);
+    }
 
-    analyzer.elements.analyzeButton.addEventListener('click', (e) => {
-        console.log('=== ANALYZE BUTTON CLICKED ===');
+    analyzer.analyzeClickHandler = async (e) => {
+        console.log('=== ANALYZE BUTTON CLICKED (AJAX) ===');
         e.preventDefault();
         e.stopPropagation();
 
         if (!analyzer.elements.analyzeForm) {
             console.error('Form element not found');
-            showMessage('Error: Form not found', 'error');
+            analyzer.showMessage('Error: Form not found', 'error');
             return;
         }
 
-        saveCurrentTab(analyzer);
-        saveScrollPosition(analyzer);
+        analyzer.saveCurrentTab();
+        analyzer.saveScrollPosition();
         analyzer.saveTabScrollPosition(analyzer.currentTab);
         analyzer.updateHiddenFields();
 
-        const csrfToken = document.querySelector('[name="csrfmiddlewaretoken"]');
+        const csrfToken = analyzer.getCSRFToken();
         if (!csrfToken) {
             console.error('CSRF token not found');
-            showMessage('Error: Security token missing. Please refresh page.', 'error');
+            analyzer.showMessage('Error: Security token missing. Please refresh page.', 'error');
             return;
         }
 
-        let analyzeField = analyzer.elements.analyzeForm.querySelector('input[name="analyze"]');
-        if (!analyzeField) {
-            analyzeField = document.createElement('input');
-            analyzeField.type = 'hidden';
-            analyzeField.name = 'analyze';
-            analyzeField.value = 'true';
-            analyzer.elements.analyzeForm.appendChild(analyzeField);
+        const gameId = analyzer.options.gameId;
+        const activeTab = analyzer.currentTab;
+
+        if (!gameId) {
+            analyzer.showMessage('Error: Game ID not found.', 'error');
+            return;
         }
 
-        // Отключаем автоанализ в форме
-        const autoAnalyzeInput = document.getElementById('auto-analyze-input');
-        if (autoAnalyzeInput) {
-            autoAnalyzeInput.value = 'false';
-        }
-
-        const originalHTML = analyzer.elements.analyzeButton.innerHTML;
+        const originalButtonHTML = analyzer.elements.analyzeButton.innerHTML;
         analyzer.elements.analyzeButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Analyzing...';
         analyzer.elements.analyzeButton.disabled = true;
 
-        setTimeout(() => {
-            try {
-                analyzer.elements.analyzeForm.submit();
-            } catch (error) {
-                console.error('Error submitting form:', error);
-                showMessage('Error submitting form: ' + error.message, 'error');
+        try {
+            const response = await fetch(`/games/${gameId}/analyze/ajax/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken,
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: JSON.stringify({
+                    tab: activeTab
+                })
+            });
 
-                analyzer.elements.analyzeButton.innerHTML = originalHTML;
-                analyzer.elements.analyzeButton.disabled = false;
+            const contentType = response.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+                const text = await response.text();
+                throw new Error(`Received non-JSON response: ${text.substring(0, 100)}`);
             }
-        }, 300);
+
+            const data = await response.json();
+
+            if (data.success) {
+                const activePane = document.getElementById(activeTab);
+                if (activePane) {
+                    const textDisplayArea = activePane.querySelector('.text-display-area .text-content');
+                    if (textDisplayArea) {
+                        textDisplayArea.innerHTML = data.highlighted_html;
+                    }
+                }
+
+                updateFoundItemsSidebar(analyzer, data.found_items, true);
+
+                if (data.summary.found_count > 0) {
+                    analyzer.showMessage(`✅ ${data.message}`, 'success', 5000);
+                } else {
+                    analyzer.showMessage(`ℹ️ ${data.message}`, 'info', 4000);
+                }
+
+                analyzer.hasUnsavedResults = true;
+
+                setTimeout(() => {
+                    analyzer.setupTooltips();
+                }, 100);
+
+            } else {
+                analyzer.showMessage(`❌ ${data.error || 'Unknown error during analysis.'}`, 'error');
+            }
+
+        } catch (error) {
+            console.error('Error during AJAX analysis:', error);
+            analyzer.showMessage(`❌ Network or server error: ${error.message}`, 'error');
+        } finally {
+            analyzer.elements.analyzeButton.innerHTML = originalButtonHTML;
+            analyzer.elements.analyzeButton.disabled = false;
+        }
+    };
+
+    analyzer.elements.analyzeButton.addEventListener('click', analyzer.analyzeClickHandler);
+}
+
+function updateFoundItemsSidebar(analyzer, foundItemsData, hasUnsavedResults) {
+    const sidebarContainer = document.querySelector('.col-lg-4');
+    if (!sidebarContainer) return;
+
+    let targetSidebarCard = null;
+    const sidebarCards = sidebarContainer.querySelectorAll('.sidebar-card');
+
+    sidebarCards.forEach(card => {
+        const header = card.querySelector('.sidebar-card-header');
+        if (header && header.innerText.includes('Found Elements')) {
+            targetSidebarCard = card;
+        }
     });
+
+    if (!targetSidebarCard) {
+        console.error('Could not locate Found Elements sidebar card.');
+        return;
+    }
+
+    const cardBody = targetSidebarCard.querySelector('.sidebar-card-body');
+    if (!cardBody) return;
+
+    const hasAnyItems = foundItemsData && Object.keys(foundItemsData).some(key =>
+        ['genres', 'themes', 'perspectives', 'game_modes', 'keywords'].includes(key) &&
+        foundItemsData[key]?.length > 0
+    );
+
+    if (!hasAnyItems) {
+        cardBody.innerHTML = `
+            <div class="found-items-grid">
+                <p class="text-muted text-center my-3">No elements found in this text.</p>
+            </div>
+        `;
+        return;
+    }
+
+    let html = '<div class="found-items-grid" id="found-items-container">';
+    const categoryNames = {
+        'genres': 'Genres',
+        'themes': 'Themes',
+        'perspectives': 'Perspectives',
+        'game_modes': 'Game Modes',
+        'keywords': 'Keywords'
+    };
+    const categoryColors = {
+        'genres': 'bg-success',
+        'themes': 'bg-danger',
+        'perspectives': 'bg-primary',
+        'game_modes': 'bg-purple',
+        'keywords': 'bg-warning text-dark'
+    };
+
+    for (const [catKey, catName] of Object.entries(categoryNames)) {
+        const items = foundItemsData[catKey];
+        if (items && items.length > 0) {
+            const newCount = foundItemsData[`${catKey}_new_count`] || 0;
+            html += `
+                <div class="found-items-category" data-category="${catKey}">
+                    <h6>
+                        ${catName} (${items.length})
+                        ${newCount > 0 ? `<span class="badge bg-success ms-2" data-bs-toggle="tooltip" title="New elements (not saved yet)">${newCount} new</span>` : ''}
+                    </h6>
+                    <div class="found-items-list">`;
+
+            items.forEach(item => {
+                const badgeClass = item.is_new ? categoryColors[catKey] : 'bg-secondary';
+                html += `<span class="badge ${badgeClass} found-item-badge"
+                              data-name="${item.name}"
+                              data-bs-toggle="tooltip"
+                              title="${item.is_new ? 'New (not saved yet) - Click to scroll to highlight' : 'Already exists in game - Click to scroll to highlight'}">
+                            ${item.name}
+                            ${item.is_new ? '<i class="bi bi-plus-circle ms-1"></i>' : '<i class="bi bi-check-circle ms-1"></i>'}
+                        </span>`;
+            });
+
+            html += `</div></div>`;
+        }
+    }
+
+    html += '</div>';
+
+    if (hasUnsavedResults) {
+        html += `
+            <div class="mt-3 pt-3 border-top border-secondary">
+                <div class="alert alert-info mb-0 py-2">
+                    <small>
+                        <i class="bi bi-info-circle me-1"></i>
+                        Found elements are displayed but not saved to database yet.
+                        Click "Save Results" button to save.
+                    </small>
+                </div>
+            </div>`;
+    }
+
+    cardBody.innerHTML = html;
+
+    setTimeout(() => {
+        if (typeof bindFoundItemsClicks === 'function') {
+            bindFoundItemsClicks(analyzer);
+        }
+        analyzer.setupTooltips();
+    }, 50);
 }
 
 export function bindSaveButton(analyzer) {
@@ -667,6 +430,24 @@ export function bindSaveButton(analyzer) {
         analyzer.saveTabScrollPosition(analyzer.currentTab);
         handleSaveResults(analyzer, e);
     });
+}
+
+export function bindAddKeywordButton(analyzer) {
+    console.log('Binding AJAX add keyword handler...');
+    const addHandler = new AddKeywordHandler(analyzer);
+    addHandler.bind();
+}
+
+export function bindDeleteKeywordButton(analyzer) {
+    console.log('Binding AJAX delete keyword handler...');
+    const deleteHandler = new DeleteKeywordHandler(analyzer);
+    deleteHandler.bind();
+}
+
+export function bindNormalizeKeywordButton(analyzer) {
+    console.log('Binding normalize keyword button...');
+    const normalizeHandler = new NormalizeKeywordHandler(analyzer);
+    normalizeHandler.bind();
 }
 
 export function bindClearResultsButton(analyzer) {
@@ -698,7 +479,7 @@ export function bindClearResultsButton(analyzer) {
 
         if (!clearUrl) {
             console.error('Clear URL not found');
-            showMessage('Error: Clear URL not found', 'error');
+            analyzer.showMessage('Error: Clear URL not found', 'error');
             resetClearButton(clearBtn, originalHTML);
             return;
         }
@@ -717,7 +498,7 @@ export function bindClearResultsButton(analyzer) {
                 const data = await response.json();
 
                 if (data.success) {
-                    showMessage('✅ ' + data.message, 'success');
+                    analyzer.showMessage('✅ ' + data.message, 'success');
 
                     if (data.redirect_url) {
                         setTimeout(() => {
@@ -736,7 +517,7 @@ export function bindClearResultsButton(analyzer) {
             }
         } catch (error) {
             console.error('Error clearing results:', error);
-            showMessage(`❌ Error clearing results: ${error.message}`, 'error');
+            analyzer.showMessage(`❌ Error clearing results: ${error.message}`, 'error');
             resetClearButton(clearBtn, originalHTML);
         }
     });
@@ -752,20 +533,12 @@ export function bindBackToGameButton(analyzer) {
     });
 }
 
-/* ============================================
-   SCROLL HANDLERS
-   ============================================ */
-
 export function bindScrollToTop(analyzer) {
     if (!analyzer.elements.scrollToTopBtn) return;
 
     analyzer.elements.scrollToTopBtn.addEventListener('click', () => analyzer.scrollToTop());
     window.addEventListener('scroll', () => analyzer.handleScroll());
 }
-
-/* ============================================
-   FOUND ITEMS HANDLERS
-   ============================================ */
 
 export function bindFoundItemsClicks(analyzer) {
     document.addEventListener('click', (e) => {
@@ -790,57 +563,9 @@ export function bindFoundItemsClicks(analyzer) {
     });
 }
 
-/* ============================================
-   UI SETUP HANDLERS
-   ============================================ */
-
 export function setupTooltips(analyzer) {
-    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-    tooltipTriggerList.forEach(tooltipTriggerEl => {
-        const existingTooltip = window.bootstrap && bootstrap.Tooltip.getInstance(tooltipTriggerEl);
-        if (existingTooltip) {
-            existingTooltip.dispose();
-        }
-        if (window.bootstrap) {
-            new bootstrap.Tooltip(tooltipTriggerEl, {
-                trigger: 'hover focus',
-                placement: 'top'
-            });
-        }
-    });
-
-    const activePane = document.querySelector(`#${analyzer.currentTab}.tab-pane.active`);
-    if (activePane) {
-        const highlights = activePane.querySelectorAll(`
-            .highlight-genre, .highlight-theme, .highlight-perspective,
-            .highlight-game_mode, .highlight-keyword, .highlight-multi
-        `);
-
-        highlights.forEach(highlight => {
-            if (!highlight.hasAttribute('data-bs-toggle')) {
-                if (highlight.classList.contains('highlight-multi')) {
-                    highlight.removeAttribute('data-bs-toggle');
-                    highlight.removeAttribute('data-bs-title');
-                } else {
-                    const elementName = highlight.dataset.elementName || 'Found element';
-                    const category = highlight.dataset.category || 'element';
-                    highlight.setAttribute('data-bs-toggle', 'tooltip');
-                    highlight.setAttribute('data-bs-title', `${category}: ${elementName}`);
-                    highlight.setAttribute('data-bs-placement', 'top');
-
-                    if (window.bootstrap) {
-                        const existingTooltip = bootstrap.Tooltip.getInstance(highlight);
-                        if (existingTooltip) {
-                            existingTooltip.dispose();
-                        }
-                        new bootstrap.Tooltip(highlight, {
-                            trigger: 'hover focus',
-                            placement: 'top'
-                        });
-                    }
-                }
-            }
-        });
+    if (analyzer && typeof analyzer.setupTooltips === 'function') {
+        analyzer.setupTooltips();
     }
 }
 
@@ -910,7 +635,7 @@ function handleSaveResults(analyzer, e) {
     }
 
     if (!analyzer.elements.analyzeForm) {
-        showMessage('Error: Form not found. Cannot save results.', 'error');
+        analyzer.showMessage('Error: Form not found. Cannot save results.', 'error');
         return;
     }
 
@@ -922,7 +647,7 @@ function handleSaveResults(analyzer, e) {
         saveButton.dataset.originalHTML = originalHTML;
     }
 
-    showMessage('Saving results to database...', 'info');
+    analyzer.showMessage('Saving results to database...', 'info');
 
     const saveInput = document.createElement('input');
     saveInput.type = 'hidden';
@@ -934,7 +659,7 @@ function handleSaveResults(analyzer, e) {
         try {
             analyzer.elements.analyzeForm.submit();
         } catch (error) {
-            showMessage('❌ Error submitting form: ' + error.message, 'error');
+            analyzer.showMessage('❌ Error submitting form: ' + error.message, 'error');
 
             if (saveButton && saveButton.dataset.originalHTML) {
                 saveButton.innerHTML = saveButton.dataset.originalHTML;
@@ -1112,9 +837,4 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
-}
-
-function getCSRFToken() {
-    const csrfInput = document.querySelector('[name="csrfmiddlewaretoken"]');
-    return csrfInput ? csrfInput.value : null;
 }

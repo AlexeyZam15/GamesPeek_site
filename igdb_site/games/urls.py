@@ -25,6 +25,7 @@ urlpatterns = [
     # НОВЫЕ AJAX URL ДЛЯ ДОБАВЛЕНИЯ/УДАЛЕНИЯ КЛЮЧЕВЫХ СЛОВ БЕЗ ПЕРЕЗАГРУЗКИ
     path('games/<int:game_id>/analyze/add-keyword-ajax/', views.add_keyword_ajax, name='add_keyword_ajax'),
     path('games/<int:game_id>/analyze/delete-keyword-ajax/', views.delete_keyword_ajax, name='delete_keyword_ajax'),
+    path('games/<int:game_id>/analyze/ajax/', views.analyze_game_ajax, name='analyze_game_ajax'),
 ]
 
 # ОБЯЗАТЕЛЬНО: добавляем статические и медиа файлы ТОЛЬКО в режиме DEBUG

@@ -25,6 +25,158 @@ def is_staff_or_superuser(user):
 
 
 # ===== НОВЫЕ AJAX ФУНКЦИИ =====
+
+@login_required
+@user_passes_test(is_staff_or_superuser)
+def analyze_game_ajax(request: HttpRequest, game_id: int):
+    """
+    AJAX обработчик для анализа текста игры без перезагрузки страницы.
+    Возвращает JSON с подсвеченным HTML и информацией о найденных элементах.
+    """
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Invalid request method'}, status=405)
+
+    try:
+        data = json.loads(request.body)
+        tab_key = data.get('tab', 'summary')
+
+        game = get_object_or_404(Game, pk=game_id)
+
+        # Получаем оригинальный текст для указанной вкладки
+        text_sources = {
+            'summary': game.summary,
+            'storyline': game.storyline,
+            'rawg': game.rawg_description,
+            'wiki': game.wiki_description,
+        }
+        original_text = text_sources.get(tab_key, '')
+
+        if not original_text:
+            return JsonResponse({
+                'success': False,
+                'error': f'No text found for the "{tab_key}" tab.'
+            })
+
+        print(f"\n=== АНАЛИЗ ТЕКСТА для игры {game_id}, вкладка {tab_key} ===")
+        print(f"Длина текста: {len(original_text)}")
+        print(f"Первые 200 символов: {original_text[:200]}")
+
+        # ПРИНУДИТЕЛЬНО ИНИЦИАЛИЗИРУЕМ TRIE
+        try:
+            from games.analyze.keyword_trie import KeywordTrieManager
+            from games.models import Keyword
+
+            # Очищаем кэш
+            KeywordTrieManager().clear_cache()
+
+            # Получаем Trie с принудительной перестройкой
+            trie_manager = KeywordTrieManager()
+            keywords_count = Keyword.objects.count()
+            print(f"Количество ключевых слов в БД: {keywords_count}")
+
+            # Принудительно строим Trie
+            trie = trie_manager.get_trie(verbose=True, force_rebuild=True)
+            print(f"✅ Trie построен и содержит {trie_manager.keywords_count} ключевых слов")
+
+        except Exception as e:
+            print(f"❌ Ошибка при инициализации Trie: {e}")
+            import traceback
+            traceback.print_exc()
+
+        # 1. Выполняем анализ текста
+        analyzer = GameAnalyzerAPI(verbose=True)
+
+        analysis_result = analyzer.analyze_game_text_comprehensive(
+            text=original_text,
+            game_id=game.id,
+            existing_game=game,
+            exclude_existing=False  # Находим все, включая существующие
+        )
+
+        print(f"\n=== РЕЗУЛЬТАТЫ АНАЛИЗА ===")
+        print(f"Успех: {analysis_result['success']}")
+        print(f"Есть результаты: {analysis_result.get('has_results', False)}")
+        print(f"Найдено элементов: {analysis_result['summary'].get('found_count', 0)}")
+        print(f"Всего совпадений: {analysis_result.get('total_matches', 0)}")
+
+        # Детальный вывод результатов
+        if 'results' in analysis_result:
+            for category, data in analysis_result['results'].items():
+                if data and 'items' in data:
+                    print(f"  {category}: {len(data['items'])} элементов")
+                    for item in data['items']:
+                        print(f"    - {item.get('name', 'Unknown')}")
+
+        if 'pattern_info' in analysis_result:
+            for category, matches in analysis_result['pattern_info'].items():
+                if matches:
+                    print(f"  pattern_info[{category}]: {len(matches)} совпадений")
+
+        if not analysis_result['success']:
+            return JsonResponse({
+                'success': False,
+                'error': analysis_result.get('error', 'Unknown analysis error')
+            })
+
+        # 2. Сохраняем результаты в сессию
+        formatted_text = format_text_with_html(original_text)
+        highlighted_text = simple_highlight_text(formatted_text, analysis_result)
+
+        found_items = extract_found_items_combined(analysis_result, game)
+
+        save_data = prepare_save_data(analysis_result, game, tab_key)
+
+        session_key = f'unsaved_results_{game_id}'
+        unsaved_results = request.session.get(session_key, {
+            'highlighted_text': {},
+            'found_items': {},
+            'analysis_data': {},
+            'save_data': {}
+        })
+
+        unsaved_results['highlighted_text'][tab_key] = highlighted_text
+        unsaved_results['found_items'][tab_key] = found_items
+        unsaved_results['analysis_data'][tab_key] = {
+            'text_source': tab_key,
+            'results': analysis_result.get('results', {}),
+            'summary': analysis_result.get('summary', {}),
+            'pattern_info': analysis_result.get('pattern_info', {}),
+            'original_text': original_text,
+            'formatted_text': formatted_text
+        }
+        unsaved_results['save_data'] = save_data
+
+        request.session[session_key] = unsaved_results
+        request.session.modified = True
+
+        # 3. Формируем успешный JSON ответ
+        total_found = analysis_result['summary'].get('found_count', 0)
+        total_matches = analysis_result.get('total_matches', 0)
+
+        response_data = {
+            'success': True,
+            'highlighted_html': highlighted_text,
+            'found_items': found_items,
+            'summary': {
+                'found_count': total_found,
+                'total_matches': total_matches,
+                'has_results': total_found > 0,
+            },
+            'message': f'Found {total_found} elements with {total_matches} matches.',
+            'has_unsaved_results': True
+        }
+
+        print(f"✅ Отправляем ответ с {total_found} элементами")
+        return JsonResponse(response_data)
+
+    except Game.DoesNotExist:
+        print(f"❌ Игра {game_id} не найдена")
+        return JsonResponse({'success': False, 'error': 'Game not found.'})
+    except Exception as e:
+        print(f"❌ ОШИБКА в analyze_game_ajax: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'success': False, 'error': f'Server error: {str(e)}'})
 @login_required
 @user_passes_test(is_staff_or_superuser)
 def add_keyword_ajax(request: HttpRequest, game_id: int):
