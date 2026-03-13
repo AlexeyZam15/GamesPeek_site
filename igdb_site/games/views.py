@@ -23,6 +23,7 @@ from .views_parts.other_views import (
 )
 from .views_parts.analyze_views import (
     analyze_single_game,
+    analyze_game_ajax,  # <-- ДОБАВЛЯЕМ ЭТУ СТРОКУ
     clear_analysis_results,
     is_staff_or_superuser,
     delete_keyword,
@@ -75,6 +76,7 @@ __all__ = [
     'game_search',
     'auto_login_admin',
     'analyze_single_game',
+    'analyze_game_ajax',  # <-- ДОБАВЛЯЕМ ЭТУ СТРОКУ
     'clear_analysis_results',
     'is_staff_or_superuser',
     'delete_keyword',
