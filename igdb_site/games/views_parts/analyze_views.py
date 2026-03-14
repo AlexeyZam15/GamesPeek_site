@@ -59,7 +59,7 @@ def analyze_game_ajax(request: HttpRequest, game_id: int):
 
         print(f"\n=== АНАЛИЗ ТЕКСТА для игры {game_id}, вкладка {tab_key} ===")
         print(f"Длина текста: {len(original_text)}")
-        print(f"Первые 200 символов: {original_text[:200]}")
+        print(f"Текст: '{original_text}'")
 
         # Очищаем кэш Trie перед анализом
         try:
@@ -86,12 +86,11 @@ def analyze_game_ajax(request: HttpRequest, game_id: int):
         print(f"Всего совпадений: {analysis_result.get('total_matches', 0)}")
 
         # Детальный вывод результатов
-        if 'results' in analysis_result:
-            for category, data in analysis_result['results'].items():
-                if data and 'items' in data:
-                    print(f"  {category}: {len(data['items'])} элементов")
-                    for item in data['items']:
-                        print(f"    - {item.get('name', 'Unknown')}")
+        if 'pattern_info' in analysis_result:
+            keywords_patterns = analysis_result['pattern_info'].get('keywords', [])
+            print(f"Pattern info keywords: {len(keywords_patterns)}")
+            for p in keywords_patterns:
+                print(f"  - '{p.get('matched_text')}' → лемма '{p.get('matched_lemma')}' (поз.{p.get('position')})")
 
         if not analysis_result['success']:
             return JsonResponse({
@@ -103,7 +102,6 @@ def analyze_game_ajax(request: HttpRequest, game_id: int):
         formatted_text = format_text_with_html(original_text)
 
         # Применяем подсветку используя pattern_info из результата анализа
-        # Передаем и оригинальный текст для поиска позиций
         highlighted_text = apply_highlights_from_pattern_info(
             formatted_text,
             original_text,
@@ -168,6 +166,7 @@ def analyze_game_ajax(request: HttpRequest, game_id: int):
         import traceback
         traceback.print_exc()
         return JsonResponse({'success': False, 'error': f'Server error: {str(e)}'})
+
 
 @login_required
 @user_passes_test(is_staff_or_superuser)
@@ -295,6 +294,7 @@ def delete_keyword_ajax(request: HttpRequest, game_id: int):
             'message': f'Error deleting keyword: {str(e)}'
         })
 
+
 @login_required
 @user_passes_test(is_staff_or_superuser)
 def analyze_single_game(request: HttpRequest, game_id: int):
@@ -324,96 +324,31 @@ def analyze_single_game(request: HttpRequest, game_id: int):
     return render(request, 'games/analyze.html', context)
 
 
-def remove_existing_highlights(html_text: str) -> str:
-    """
-    Удаляет существующие span теги подсветки из HTML текста
-    """
-    import re
-
-    def remove_span(match):
-        # Возвращаем только текст внутри span
-        return match.group(1)
-
-    # Удаляем все span с классами highlight-
-    pattern = r'<span[^>]*class="[^"]*highlight-[^"]*"[^>]*>(.*?)</span>'
-
-    # Продолжаем заменять, пока есть совпадения
-    prev_text = None
-    current_text = html_text
-
-    while prev_text != current_text:
-        prev_text = current_text
-        current_text = re.sub(pattern, remove_span, current_text, flags=re.DOTALL | re.IGNORECASE)
-
-    return current_text
-
-
-def find_html_position(html_text: str, clean_text: str, clean_pos: int) -> int:
-    """
-    Находит позицию в HTML тексте, соответствующую позиции в чистом тексте
-    """
-    html_idx = 0
-    clean_idx = 0
-    in_tag = False
-
-    while html_idx < len(html_text) and clean_idx <= clean_pos:
-        char = html_text[html_idx]
-
-        if char == '<':
-            in_tag = True
-            html_idx += 1
-            continue
-        elif char == '>':
-            in_tag = False
-            html_idx += 1
-            continue
-
-        if not in_tag:
-            if clean_idx == clean_pos:
-                return html_idx
-            clean_idx += 1
-
-        html_idx += 1
-
-    return -1
-
-
-def is_inside_html_tag(html_text: str, position: int) -> bool:
-    """
-    Проверяет, находится ли позиция внутри HTML тега
-    """
-    if position < 0 or position >= len(html_text):
-        return False
-
-    # Находим последний '<' до этой позиции
-    last_lt = html_text.rfind('<', 0, position)
-    if last_lt == -1:
-        return False
-
-    # Находим следующий '>' после этого '<'
-    next_gt = html_text.find('>', last_lt)
-    if next_gt == -1:
-        return True  # Незакрытый тег
-
-    # Если позиция между '<' и '>', значит внутри тега
-    return last_lt < position < next_gt
-
-
 def apply_highlights_from_pattern_info(html_text: str, original_text: str, pattern_info: Dict) -> str:
     """
     Применяет подсветку к HTML тексту, используя данные из pattern_info.
-    Исправлено: предотвращение вложенных подсветок.
+    ИСПРАВЛЕНО: Декодирует HTML-сущности перед поиском и правильно обрабатывает кавычки
     """
     if not html_text or not pattern_info or not original_text:
         return html_text
 
     try:
-        # Удаляем старую подсветку
-        html_text = remove_existing_highlights(html_text)
+        import re
+        import html
+
+        # ИСПРАВЛЕНИЕ: Декодируем HTML-сущности в тексте перед обработкой
+        # Заменяем &quot; на " для правильного поиска
+        html_text = html.unescape(html_text)
+
+        # ПРОВЕРКА: если текст уже содержит span'ы подсветки, нужно сначала их удалить
+        if re.search(r'<span[^>]*class="[^"]*highlight-[^"]*"[^>]*>', html_text):
+            # Удаляем старую подсветку
+            html_text = remove_existing_highlights(html_text)
+            print("✅ Удалена старая подсветка перед применением новой")
 
         # Получаем чистый текст из HTML для поиска
-        import re
         clean_text = re.sub(r'<[^>]+>', '', html_text)
+        clean_text_lower = clean_text.lower()
 
         if not clean_text:
             return html_text
@@ -428,26 +363,28 @@ def apply_highlights_from_pattern_info(html_text: str, original_text: str, patte
             'keywords': 'highlight-keyword'
         }
 
-        # Словарь для хранения всех позиций для подсветки
-        highlight_positions = []
+        # Словарь для хранения занятых позиций в ЧИСТОМ тексте
+        occupied_clean_positions = []
+        # Словарь для хранения всех найденных совпадений
+        all_matches = []
 
+        # Сначала собираем ВСЕ совпадения (и фразы, и отдельные слова)
         for category in categories:
             for match in pattern_info.get(category, []):
                 if match.get('status') == 'found':
                     matched_text = match.get('matched_text', '')
-
-                    if not matched_text:
+                    if not matched_text or len(matched_text) < 2:
                         continue
 
                     # Ищем все вхождения этого текста в чистом тексте
                     search_text = matched_text.lower()
-                    clean_lower = clean_text.lower()
-
                     pos = 0
                     while True:
-                        found_pos = clean_lower.find(search_text, pos)
+                        found_pos = clean_text_lower.find(search_text, pos)
                         if found_pos == -1:
                             break
+
+                        end_pos = found_pos + len(matched_text)
 
                         # Проверяем границы слова
                         is_valid = True
@@ -459,31 +396,121 @@ def apply_highlights_from_pattern_info(html_text: str, original_text: str, patte
                                 is_valid = False
 
                         # Проверяем конец
-                        end_pos = found_pos + len(matched_text)
                         if end_pos < len(clean_text):
                             next_char = clean_text[end_pos]
                             if next_char.isalnum() and next_char not in "s'-":
                                 is_valid = False
 
                         if is_valid:
-                            # Находим соответствующую позицию в HTML
-                            html_start = find_html_position(html_text, clean_text, found_pos)
-                            if html_start != -1:
-                                html_end = html_start + len(matched_text)
-
-                                # Проверяем, что не внутри HTML тега
-                                if not is_inside_html_tag(html_text, html_start):
-                                    highlight_positions.append({
-                                        'start': html_start,
-                                        'end': html_end,
-                                        'name': match['name'],
-                                        'category': category,
-                                        'class_name': category_classes[category],
-                                        'matched_text': matched_text,
-                                        'length': len(matched_text)
-                                    })
+                            # Добавляем в список всех совпадений
+                            all_matches.append({
+                                'clean_start': found_pos,
+                                'clean_end': end_pos,
+                                'category': category,
+                                'class_name': category_classes[category],
+                                'name': match['name'],
+                                'matched_text': matched_text,
+                                'length': len(matched_text),
+                                'is_phrase': ' ' in matched_text or '-' in matched_text
+                            })
 
                         pos = found_pos + 1
+
+        if not all_matches:
+            return html_text
+
+        # Сортируем совпадения: сначала фразы (по длине), потом отдельные слова
+        all_matches.sort(key=lambda x: (-x['length'], not x['is_phrase']))
+
+        # Группируем пересекающиеся совпадения
+        grouped_matches = []
+        for match in all_matches:
+            # Проверяем, не пересекается ли с уже добавленными
+            is_overlapping = False
+            for group in grouped_matches:
+                # Проверяем пересечение по позициям в чистом тексте
+                if not (match['clean_end'] <= group['clean_start'] or match['clean_start'] >= group['clean_end']):
+                    # Пересекается - объединяем группы
+                    group['clean_start'] = min(group['clean_start'], match['clean_start'])
+                    group['clean_end'] = max(group['clean_end'], match['clean_end'])
+                    group['matches'].append(match)
+                    is_overlapping = True
+                    break
+
+            if not is_overlapping:
+                grouped_matches.append({
+                    'clean_start': match['clean_start'],
+                    'clean_end': match['clean_end'],
+                    'matches': [match]
+                })
+
+        # Теперь для каждой группы находим позиции в HTML и создаем подсветку
+        highlight_positions = []
+
+        for group in grouped_matches:
+            # Находим соответствующую позицию в HTML
+            html_start = find_html_position(html_text, clean_text, group['clean_start'])
+            if html_start == -1:
+                continue
+
+            # Находим конец в HTML (ищем соответствующий конец в чистом тексте)
+            html_end = html_start
+            clean_pos = group['clean_start']
+            html_pos = html_start
+
+            in_tag = False
+            in_entity = False
+
+            while clean_pos < group['clean_end'] and html_pos < len(html_text):
+                char = html_text[html_pos]
+
+                if char == '<':
+                    in_tag = True
+                elif char == '>':
+                    in_tag = False
+                elif char == '&' and not in_tag:
+                    in_entity = True
+                elif char == ';' and in_entity:
+                    in_entity = False
+                    clean_pos += 1
+                elif not in_tag and not in_entity:
+                    # Это текстовый символ
+                    if clean_pos == group['clean_end'] - 1:
+                        html_end = html_pos + 1
+                        break
+                    clean_pos += 1
+
+                html_pos += 1
+
+            # Проверяем, что не внутри существующего span'а (хотя мы их удалили, но на всякий случай)
+            if is_inside_html_tag(html_text, html_start):
+                continue
+
+            # Определяем тип подсветки (одиночный или множественный)
+            if len(group['matches']) > 1:
+                # Множественные критерии
+                unique_categories = set(m['category'] for m in group['matches'])
+
+                if len(unique_categories) >= 2:
+                    # Используем мульти-подсветку
+                    highlight_positions.append({
+                        'start': html_start,
+                        'end': html_end,
+                        'type': 'multi',
+                        'matches': group['matches'],
+                        'num_criteria': len(unique_categories)
+                    })
+                    continue
+
+            # Если дошли сюда - одиночный критерий или все критерии одной категории
+            for match in group['matches']:
+                highlight_positions.append({
+                    'start': html_start,
+                    'end': html_end,
+                    'type': 'single',
+                    'match': match
+                })
+                break  # Берем только первый (они все одной категории или мы уже обработали мульти)
 
         if not highlight_positions:
             return html_text
@@ -497,76 +524,70 @@ def apply_highlights_from_pattern_info(html_text: str, original_text: str, patte
                 seen.add(key)
                 unique_positions.append(pos)
 
-        # Находим и разрешаем конфликты (пересекающиеся диапазоны)
-        # Сортируем по длине (сначала самые длинные)
-        unique_positions.sort(key=lambda x: x['length'], reverse=True)
-
-        # Отмечаем, какие позиции уже заняты
-        occupied = []
-        final_positions = []
-
-        for pos in unique_positions:
-            # Проверяем, не пересекается ли с уже занятыми
-            overlaps = False
-            for occ_start, occ_end in occupied:
-                if not (pos['end'] <= occ_start or pos['start'] >= occ_end):
-                    overlaps = True
-                    break
-
-            if not overlaps:
-                final_positions.append(pos)
-                occupied.append((pos['start'], pos['end']))
-
-        # Сортируем финальные позиции от конца к началу
-        final_positions.sort(key=lambda x: x['start'], reverse=True)
+        # Сортируем от конца к началу для корректной замены
+        unique_positions.sort(key=lambda x: x['start'], reverse=True)
 
         # Применяем подсветку
         highlighted_text = html_text
-        for pos in final_positions:
+
+        for pos_info in unique_positions:
             try:
-                # Проверяем границы
-                if pos['start'] < 0 or pos['end'] > len(highlighted_text):
+                if pos_info['start'] < 0 or pos_info['end'] > len(highlighted_text):
                     continue
-                if pos['start'] >= pos['end']:
-                    continue
-
-                # Получаем текст для подсветки
-                text_to_highlight = highlighted_text[pos['start']:pos['end']]
-
-                # Пропускаем, если текст уже содержит span
-                if '<span' in text_to_highlight and '</span>' in text_to_highlight:
+                if pos_info['start'] >= pos_info['end']:
                     continue
 
-                # Создаем подсвеченный span
-                category_display = {
-                    'genres': 'Genre',
-                    'themes': 'Theme',
-                    'perspectives': 'Perspective',
-                    'game_modes': 'Game Mode',
-                    'keywords': 'Keyword'
-                }.get(pos['category'], pos['category'])
+                # Получаем оригинальный текст из HTML
+                original_html = highlighted_text[pos_info['start']:pos_info['end']]
 
-                # Экранируем текст
-                safe_text = html.escape(text_to_highlight)
+                # Пропускаем, если уже содержит span (дополнительная проверка)
+                if '<span' in original_html and '</span>' in original_html:
+                    continue
 
-                highlighted_span = (
-                    f'<span class="{pos["class_name"]}" '
-                    f'data-element-name="{html.escape(pos["name"])}" '
-                    f'data-category="{pos["category"]}" '
-                    f'title="{category_display}: {html.escape(pos["name"])}">'
-                    f'{safe_text}'
-                    f'</span>'
-                )
+                # Экранируем текст для безопасности
+                safe_text = html.escape(original_html)
+
+                if pos_info['type'] == 'multi':
+                    # Множественные критерии
+                    highlighted_span = create_multi_highlight_span(
+                        safe_text,
+                        pos_info['matches'],
+                        pos_info['num_criteria']
+                    )
+                else:
+                    # Одиночный критерий
+                    match = pos_info['match']
+                    category_display = {
+                        'genres': 'Genre',
+                        'themes': 'Theme',
+                        'perspectives': 'Perspective',
+                        'game_modes': 'Game Mode',
+                        'keywords': 'Keyword'
+                    }.get(match['category'], match['category'])
+
+                    # ИСПРАВЛЕНИЕ: Используем html.escape для всех атрибутов,
+                    # а для кавычек в title используем &quot; через замену
+                    safe_name = html.escape(match['name']).replace('"', '&quot;')
+                    safe_category_display = html.escape(category_display).replace('"', '&quot;')
+
+                    highlighted_span = (
+                        f'<span class="{match["class_name"]}" '
+                        f'data-element-name="{safe_name}" '
+                        f'data-category="{match["category"]}" '
+                        f'title="{safe_category_display}: {safe_name}">'
+                        f'{safe_text}'
+                        f'</span>'
+                    )
 
                 # Заменяем в тексте
                 highlighted_text = (
-                        highlighted_text[:pos['start']] +
+                        highlighted_text[:pos_info['start']] +
                         highlighted_span +
-                        highlighted_text[pos['end']:]
+                        highlighted_text[pos_info['end']:]
                 )
 
             except Exception as e:
-                print(f"Ошибка при подсветке: {e}")
+                print(f"❌ Ошибка при подсветке: {e}")
                 continue
 
         return highlighted_text
@@ -576,6 +597,400 @@ def apply_highlights_from_pattern_info(html_text: str, original_text: str, patte
         import traceback
         traceback.print_exc()
         return html_text
+
+
+def create_multi_highlight_span(text: str, matches: List[Dict], num_criteria: int) -> str:
+    """
+    Создает span для МНОЖЕСТВЕННЫХ критериев
+    ИСПРАВЛЕНО: Использует &quot; для кавычек в атрибутах
+    """
+    import html
+
+    # Собираем уникальные категории и имена
+    unique_matches = {}
+    for match in matches:
+        key = f"{match['name']}|{match['category']}"
+        if key not in unique_matches:
+            unique_matches[key] = match
+
+    # Собираем информацию для тултипа
+    category_names = {
+        'genres': 'Genre',
+        'themes': 'Theme',
+        'perspectives': 'Perspective',
+        'game_modes': 'Game Mode',
+        'keywords': 'Keyword'
+    }
+
+    tooltip_parts = []
+    names_list = []
+    categories_list = []
+    all_classes = set()
+
+    for match in unique_matches.values():
+        category_display = category_names.get(match['category'], match['category'])
+        # ИСПРАВЛЕНИЕ: Экранируем и заменяем кавычки на &quot;
+        safe_name = html.escape(match['name']).replace('"', '&quot;')
+        safe_category_display = html.escape(category_display).replace('"', '&quot;')
+        tooltip_parts.append(f"{safe_category_display}: {safe_name}")
+        names_list.append(match['name'])
+        categories_list.append(match['category'])
+        all_classes.add(match['class_name'])
+
+    tooltip_text = " | ".join(tooltip_parts)
+    class_str = ' '.join(all_classes)
+
+    # Экранируем имена для data-атрибутов
+    safe_names = ','.join([html.escape(name).replace('"', '&quot;') for name in names_list])
+    safe_categories = ','.join(categories_list)
+
+    # Определяем стиль полосатой подсветки в зависимости от количества критериев
+    if num_criteria == 2:
+        striped_style = "background: repeating-linear-gradient(45deg, rgba(220, 53, 69, 0.2), rgba(220, 53, 69, 0.2) 5px, rgba(255, 193, 7, 0.2) 5px, rgba(255, 193, 7, 0.2) 10px) !important;"
+    elif num_criteria >= 3:
+        striped_style = "background: repeating-linear-gradient(45deg, rgba(220, 53, 69, 0.15), rgba(220, 53, 69, 0.15) 4px, rgba(255, 193, 7, 0.15) 4px, rgba(255, 193, 7, 0.15) 8px, rgba(0, 123, 255, 0.15) 8px, rgba(0, 123, 255, 0.15) 12px) !important;"
+    else:
+        striped_style = ""
+
+    return f'<span class="highlight-multi {class_str}" ' \
+           f'style="{striped_style}" ' \
+           f'data-element-names="{safe_names}" ' \
+           f'data-categories="{safe_categories}" ' \
+           f'data-num-criteria="{num_criteria}" ' \
+           f'title="{tooltip_text}">{text}</span>'
+
+
+def simple_highlight_text(html_text: str, analysis_result: Dict) -> str:
+    """
+    ПРОСТОЙ метод подсветки текста
+    ИСПРАВЛЕНО: подсвечивает только отдельные слова, не захватывая весь текст между ними,
+    и правильно обрабатывает кавычки
+    """
+    if not html_text or not analysis_result.get('pattern_info'):
+        return html_text
+
+    try:
+        import re
+        import html
+
+        # ИСПРАВЛЕНИЕ: Декодируем HTML-сущности перед обработкой
+        html_text = html.unescape(html_text)
+
+        # Собираем все слова для подсветки
+        words_to_highlight = {}
+        categories = ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']
+        category_classes = {
+            'genres': 'highlight-genre',
+            'themes': 'highlight-theme',
+            'perspectives': 'highlight-perspective',
+            'game_modes': 'highlight-game_mode',
+            'keywords': 'highlight-keyword'
+        }
+
+        for category in categories:
+            category_matches = analysis_result['pattern_info'].get(category, [])
+            for match in category_matches:
+                if match.get('status') == 'found':
+                    word = match.get('matched_text', '')
+                    name = match.get('name', '')
+                    if word and name:
+                        word_lower = word.lower()
+                        if word_lower not in words_to_highlight:
+                            words_to_highlight[word_lower] = {
+                                'word': word,
+                                'name': name,
+                                'category': category,
+                                'class_name': category_classes[category]
+                            }
+
+        if not words_to_highlight:
+            return html_text
+
+        # Разбиваем HTML на части: теги и текст
+        result_parts = []
+        remaining_text = html_text
+
+        # Находим все теги
+        tag_pattern = re.compile(r'(<[^>]+>)')
+
+        while remaining_text:
+            # Ищем следующий тег
+            tag_match = tag_pattern.search(remaining_text)
+
+            if tag_match:
+                # Текст до тега
+                before_tag = remaining_text[:tag_match.start()]
+                if before_tag:
+                    # Обрабатываем текст
+                    processed = process_text_chunk(before_tag, words_to_highlight)
+                    result_parts.append(processed)
+
+                # Добавляем тег как есть
+                result_parts.append(tag_match.group(1))
+
+                # Оставшийся текст после тега
+                remaining_text = remaining_text[tag_match.end():]
+            else:
+                # Нет больше тегов, обрабатываем оставшийся текст
+                if remaining_text:
+                    processed = process_text_chunk(remaining_text, words_to_highlight)
+                    result_parts.append(processed)
+                break
+
+        return ''.join(result_parts)
+
+    except Exception as e:
+        print(f"❌ Error in simple_highlight_text: {e}")
+        import traceback
+        traceback.print_exc()
+        return html_text
+
+
+def process_text_chunk(text: str, words_to_highlight: Dict) -> str:
+    """
+    Обрабатывает кусок текста (без HTML тегов), подсвечивая слова
+    ИСПРАВЛЕНО: Использует &quot; для кавычек в атрибутах
+    """
+    import re
+    import html
+
+    # Экранируем спецсимволы в словах
+    words = list(words_to_highlight.keys())
+    words.sort(key=len, reverse=True)  # Сначала длинные слова
+
+    # Создаем паттерн для поиска слов
+    escaped_words = [re.escape(w) for w in words]
+    pattern = re.compile(r'\b(' + '|'.join(escaped_words) + r')\b', re.IGNORECASE)
+
+    def replace_word(match):
+        matched_word = match.group(1)
+        word_lower = matched_word.lower()
+        word_info = words_to_highlight[word_lower]
+
+        category_display = {
+            'genres': 'Genre',
+            'themes': 'Theme',
+            'perspectives': 'Perspective',
+            'game_modes': 'Game Mode',
+            'keywords': 'Keyword'
+        }.get(word_info['category'], word_info['category'])
+
+        # ИСПРАВЛЕНИЕ: Экранируем и заменяем кавычки на &quot;
+        safe_name = html.escape(word_info['name']).replace('"', '&quot;')
+        safe_category_display = html.escape(category_display).replace('"', '&quot;')
+
+        return (f'<span class="{word_info["class_name"]}" '
+                f'data-element-name="{safe_name}" '
+                f'data-category="{word_info["category"]}" '
+                f'title="{safe_category_display}: {safe_name}">'
+                f'{matched_word}</span>')
+
+    # Заменяем все вхождения
+    return pattern.sub(replace_word, text)
+
+
+def create_single_highlight_span(text: str, match: Dict) -> str:
+    """
+    Создает span для одиночного критерия
+    ИСПРАВЛЕНО: Использует &quot; для кавычек в атрибутах
+    """
+    import html
+
+    category_display = {
+        'genres': 'Genre',
+        'themes': 'Theme',
+        'perspectives': 'Perspective',
+        'game_modes': 'Game Mode',
+        'keywords': 'Keyword'
+    }.get(match['category'], match['category'])
+
+    # ИСПРАВЛЕНИЕ: Экранируем и заменяем кавычки на &quot;
+    safe_name = html.escape(match['name']).replace('"', '&quot;')
+    safe_category_display = html.escape(category_display).replace('"', '&quot;')
+
+    title = f"{safe_category_display}: {safe_name}"
+
+    return f'<span class="{match["class_name"]}" ' \
+           f'data-element-name="{safe_name}" ' \
+           f'data-category="{match["category"]}" ' \
+           f'title="{title}">{html.escape(text)}</span>'
+
+
+def format_text_with_html(text: str) -> str:
+    """
+    Форматирует текст в HTML
+    ИСПРАВЛЕНО: Декодирует HTML-сущности перед форматированием
+    """
+    if not text:
+        return ""
+
+    import html
+
+    # Если уже есть HTML
+    if '<p>' in text:
+        return text
+
+    # ИСПРАВЛЕНИЕ: Декодируем HTML-сущности перед обработкой
+    text = html.unescape(text)
+
+    # Разбиваем на абзацы
+    paragraphs = text.split('\n\n')
+    formatted = []
+
+    for para in paragraphs:
+        if para.strip():
+            # Экранируем HTML
+            safe_para = html.escape(para.strip())
+            # Сохраняем переносы строк внутри абзаца
+            safe_para = safe_para.replace('\n', '<br>')
+            formatted.append(f'<p>{safe_para}</p>')
+
+    if formatted:
+        return '\n'.join(formatted)
+    else:
+        safe_text = html.escape(text.replace('\n', '<br>'))
+        return f'<p>{safe_text}</p>'
+
+
+def remove_existing_highlights(html_text: str) -> str:
+    """
+    Удаляет существующие span теги подсветки из HTML текста
+    ИСПРАВЛЕНО: Более надежное удаление с учетом вложенных span'ов
+    """
+    import re
+
+    if not html_text:
+        return html_text
+
+    # Паттерн для поиска span'ов подсветки
+    # Ищем span с классом, содержащим "highlight-"
+    pattern = r'<span[^>]*class="[^"]*highlight-[^"]*"[^>]*>(.*?)</span>'
+
+    # Рекурсивно удаляем все span'ы подсветки, пока они есть
+    prev_text = None
+    current_text = html_text
+
+    iteration = 0
+    while prev_text != current_text and iteration < 10:  # Ограничиваем итерации
+        prev_text = current_text
+        # Заменяем span на его содержимое
+        current_text = re.sub(pattern, r'\1', current_text, flags=re.DOTALL | re.IGNORECASE)
+        iteration += 1
+
+    # Дополнительная очистка: удаляем возможные остатки атрибутов данных
+    # (на случай, если какие-то span'ы остались из-за вложенности)
+    current_text = re.sub(r'<span[^>]*data-element-name[^>]*>(.*?)</span>', r'\1', current_text, flags=re.DOTALL)
+
+    return current_text
+
+
+def is_inside_existing_span(html_text: str, position: int) -> bool:
+    """
+    Проверяет, находится ли позиция внутри существующего span тега подсветки
+    ИСПРАВЛЕНО: Более надежная проверка с учетом вложенных тегов
+    """
+    if position < 0 or position >= len(html_text):
+        return False
+
+    # Находим все открывающие span'ы до этой позиции
+    span_starts = []
+    pos = 0
+    while True:
+        span_start = html_text.find('<span', pos, position)
+        if span_start == -1:
+            break
+
+        # Проверяем, что это span подсветки
+        tag_end = html_text.find('>', span_start)
+        if tag_end != -1 and tag_end < position:
+            tag_content = html_text[span_start:tag_end]
+            if 'class="' in tag_content and 'highlight-' in tag_content:
+                span_starts.append((span_start, tag_end))
+
+        pos = span_start + 1
+
+    if not span_starts:
+        return False
+
+    # Для каждого найденного span'а проверяем, есть ли закрывающий тег после позиции
+    for span_start, tag_end in span_starts:
+        closing_span = html_text.find('</span>', tag_end)
+        if closing_span != -1 and position < closing_span:
+            # Находимся внутри этого span'а
+            return True
+
+    return False
+
+
+def find_html_position(html_text: str, clean_text: str, clean_pos: int) -> int:
+    """
+    Находит позицию в HTML тексте, соответствующую позиции в чистом тексте
+    ИСПРАВЛЕНО: Более точное сопоставление позиций
+    """
+    if clean_pos < 0 or clean_pos >= len(clean_text):
+        return -1
+
+    html_idx = 0
+    clean_idx = 0
+    in_tag = False
+    in_entity = False
+
+    while html_idx < len(html_text) and clean_idx <= clean_pos:
+        char = html_text[html_idx]
+
+        if char == '<':
+            in_tag = True
+            html_idx += 1
+            continue
+        elif char == '>':
+            in_tag = False
+            html_idx += 1
+            continue
+        elif char == '&' and not in_tag:
+            in_entity = True
+            html_idx += 1
+            continue
+        elif char == ';' and in_entity:
+            in_entity = False
+            html_idx += 1
+            # HTML entity считается как 1 символ в чистом тексте
+            clean_idx += 1
+            continue
+
+        if not in_tag and not in_entity:
+            # Это обычный текстовый символ
+            if clean_idx == clean_pos:
+                return html_idx
+            clean_idx += 1
+
+        html_idx += 1
+
+    return -1
+
+
+def is_inside_html_tag(text: str, position: int) -> bool:
+    """
+    Проверяет, находится ли позиция внутри HTML тега
+    """
+    if position < 0 or position >= len(text):
+        return False
+
+    # Находим последний открывающий тег до этой позиции
+    last_lt = text.rfind('<', 0, position)
+    if last_lt == -1:
+        return False
+
+    # Находим последний закрывающий тег до этой позиции
+    last_gt = text.rfind('>', 0, position)
+
+    # Если есть < без соответствующего > после него, значит мы внутри тега
+    if last_lt > last_gt:
+        # Проверяем, не является ли это закрывающим тегом
+        if position < len(text) and text[position:position + 2] == '</':
+            return False
+        return True
+
+    return False
 
 
 def extract_found_items_combined(analysis_result: Dict, game=None) -> Dict:
@@ -683,6 +1098,7 @@ def prepare_save_data(analysis_result: Dict, game: Game, tab: str) -> Dict:
 
     save_data['found_count'] = total_new
     return save_data
+
 
 def _handle_post_request(request: HttpRequest, game: Game, original_descriptions: Dict, active_tab: str):
     """Обработка POST запросов"""
@@ -900,6 +1316,7 @@ def get_current_keywords(request: HttpRequest, game_id: int):
             'success': False,
             'message': f'Error getting keywords: {str(e)}'
         })
+
 
 @login_required
 @user_passes_test(is_staff_or_superuser)
@@ -1633,58 +2050,6 @@ def _save_analysis_results(request: HttpRequest, game_id: int, tab: str, origina
         traceback.print_exc()
 
 
-def simple_highlight_text(html_text: str, analysis_result: Dict) -> str:
-    """
-    ПРОСТОЙ метод подсветки текста БЕЗ вложенных тегов
-    УЛУЧШЕНО: Подсвечивает ключевые слова внутри составных слов через дефис
-    """
-    if not html_text or not analysis_result.get('pattern_info'):
-        return html_text
-
-    try:
-        # Удаляем существующую подсветку
-        html_text = remove_existing_highlights(html_text)
-
-        # Собираем ВСЕ совпадения
-        all_matches = collect_all_matches(analysis_result['pattern_info'])
-
-        if not all_matches:
-            return html_text
-
-        # Получаем чистый текст из HTML для поиска
-        clean_text = get_clean_text_from_html(html_text)
-
-        # Находим ВСЕ позиции всех совпадений в ЧИСТОМ тексте
-        text_positions = find_all_text_positions(clean_text, all_matches)
-
-        # ДОБАВЛЯЕМ: Поиск ключевых слов внутри составных слов через дефис
-        hyphenated_matches = find_keywords_in_hyphenated_words(clean_text, all_matches)
-        text_positions.extend(hyphenated_matches)
-
-        if not text_positions:
-            return html_text
-
-        # Группируем пересечения в ЧИСТОМ тексте
-        clean_groups = group_overlapping_positions(text_positions)
-
-        # Преобразуем группы в формат для замены
-        replacements = prepare_replacements_from_groups(clean_text, clean_groups)
-
-        if not replacements:
-            return html_text
-
-        # Применяем подсветку к HTML (прямая замена по тексту)
-        highlighted_text = apply_direct_highlights(html_text, replacements)
-
-        return highlighted_text
-
-    except Exception as e:
-        print(f"❌ Error in simple_highlight_text: {e}")
-        import traceback
-        traceback.print_exc()
-        return html_text
-
-
 def collect_all_matches(pattern_info: Dict) -> List[Dict]:
     """
     Собирает все совпадения из pattern_info
@@ -1782,156 +2147,104 @@ def prepare_replacements_from_groups(clean_text: str, clean_groups: List[Dict]) 
 def apply_direct_highlights(html_text: str, replacements: List[Dict]) -> str:
     """
     Заменяет текст в HTML на основе УЖЕ НАЙДЕННЫХ и ПРОВЕРЕННЫХ совпадений
-    Использует исходный текст для поиска, затем применяет все замены за один проход
+    ИСПРАВЛЕНО: предотвращает создание вложенных span'ов
     """
     if not replacements:
         return html_text
 
-    # Используем ОРИГИНАЛЬНЫЙ текст для поиска всех позиций
-    # Собираем все позиции для замены из исходного текста
-    all_positions = []
+    # Сортируем замены по длине (от самых длинных к коротким) и по позиции
+    replacements.sort(key=lambda x: (-len(x['text']), -x.get('priority', 0)))
+
+    highlighted_text = html_text
+    applied_spans = []  # Список кортежей (start, end) уже примененных span'ов
 
     for replacement in replacements:
         search_text = replacement['text']
 
-        # Ищем все вхождения этого текста в ОРИГИНАЛЬНОМ HTML
+        # Ищем все вхождения этого текста
         start_pos = 0
-
         while True:
-            # Регистронезависимый поиск
-            found_pos = html_text.lower().find(search_text.lower(), start_pos)
+            # Находим следующее вхождение
+            found_pos = highlighted_text.lower().find(search_text.lower(), start_pos)
             if found_pos == -1:
                 break
 
-            # Проверяем границы слова в ОРИГИНАЛЬНОМ тексте
+            end_pos = found_pos + len(search_text)
+
+            # ПРОВЕРКА 1: Не внутри HTML тега
+            if is_inside_html_tag(highlighted_text, found_pos):
+                start_pos = found_pos + 1
+                continue
+
+            # ПРОВЕРКА 2: Не пересекается с уже примененными span'ами
+            is_inside_existing = False
+            for span_start, span_end in applied_spans:
+                # Если найденная позиция полностью внутри существующего span'а
+                if found_pos >= span_start and end_pos <= span_end:
+                    is_inside_existing = True
+                    break
+                # Если частично пересекается - тоже пропускаем (не должно быть)
+                if not (end_pos <= span_start or found_pos >= span_end):
+                    is_inside_existing = True
+                    break
+
+            if is_inside_existing:
+                start_pos = found_pos + 1
+                continue
+
+            # ПРОВЕРКА 3: Проверяем границы слова
             is_valid = True
 
             # Проверяем начало
             if found_pos > 0:
-                prev_char = html_text[found_pos - 1]
-                if prev_char.isalnum():
-                    is_valid = False
+                prev_char = highlighted_text[found_pos - 1]
+                if prev_char.isalnum() and prev_char != '-':
+                    # Проверяем особый случай: слово с дефисом
+                    if not (prev_char == '-' and found_pos > 1 and
+                            highlighted_text[found_pos - 2].isalnum()):
+                        is_valid = False
 
             # Проверяем конец
-            end_pos = found_pos + len(search_text)
-            if end_pos < len(html_text):
-                next_char = html_text[end_pos]
-                if next_char.isalnum() and next_char != 's' and next_char != '-':
+            if end_pos < len(highlighted_text):
+                next_char = highlighted_text[end_pos]
+                if next_char.isalnum() and next_char not in "s'-":
                     is_valid = False
 
-            if is_valid:
-                all_positions.append({
-                    'start': found_pos,
-                    'end': end_pos,
-                    'replacement': replacement,
-                    'text': html_text[found_pos:end_pos]
-                })
-
-            start_pos = found_pos + 1
-
-    if not all_positions:
-        return html_text
-
-    # Сортируем позиции от конца к началу для корректной замены
-    all_positions.sort(key=lambda x: x['start'], reverse=True)
-
-    # Применяем все замены за один проход
-    highlighted_text = html_text
-
-    for pos_info in all_positions:
-        try:
-            start = pos_info['start']
-            end = pos_info['end']
-            replacement = pos_info['replacement']
-            original_text = pos_info['text']
-
-            # Пропускаем, если позиции вышли за границы (после предыдущих замен)
-            if start < 0 or end > len(highlighted_text) or start >= end:
+            if not is_valid:
+                start_pos = found_pos + 1
                 continue
 
-            # Проверяем, что на этой позиции все еще тот же текст
-            current_text = highlighted_text[start:end]
-            if current_text.lower() != original_text.lower():
-                continue
+            # Получаем оригинальный текст
+            original_text = highlighted_text[found_pos:end_pos]
 
             # Создаем подсветку
             if replacement['type'] == 'multi':
-                span_html = create_multi_highlight_span(original_text, replacement['matches'],
-                                                        replacement['num_criteria'])
+                span_html = create_multi_highlight_span(
+                    original_text,
+                    replacement['matches'],
+                    replacement['num_criteria']
+                )
             else:
                 span_html = create_single_highlight_span(original_text, replacement['match'])
 
-            # Заменяем
-            highlighted_text = highlighted_text[:start] + span_html + highlighted_text[end:]
+            # Применяем замену
+            highlighted_text = (
+                    highlighted_text[:found_pos] +
+                    span_html +
+                    highlighted_text[end_pos:]
+            )
 
-        except Exception:
-            continue
+            # Запоминаем позицию примененного span'а (с учетом изменения длины)
+            new_end = found_pos + len(span_html)
+            applied_spans.append((found_pos, new_end))
+
+            # Сортируем span'ы для эффективного поиска
+            applied_spans.sort()
+
+            # Продолжаем поиск после этого span'а
+            start_pos = new_end
 
     return highlighted_text
-
-
-def create_single_highlight_span(text: str, match: Dict) -> str:
-    """
-    Создает span для одиночного критерия
-    """
-    category_display = {
-        'genres': 'Genre',
-        'themes': 'Theme',
-        'perspectives': 'Perspective',
-        'game_modes': 'Game Mode',
-        'keywords': 'Keyword'
-    }.get(match['category'], match['category'])
-
-    title = f"{category_display}: {html.escape(match['name'])}"
-
-    return f'<span class="{match["class_name"]}" ' \
-           f'data-element-name="{html.escape(match["name"])}" ' \
-           f'data-category="{match["category"]}" ' \
-           f'title="{title}">{html.escape(text)}</span>'
-
-
-def create_multi_highlight_span(text: str, matches: List[Dict], num_criteria: int) -> str:
-    """
-    Создает span для МНОЖЕСТВЕННЫХ критериев
-    """
-    # Собираем информацию
-    category_names = {
-        'genres': 'Genre',
-        'themes': 'Theme',
-        'perspectives': 'Perspective',
-        'game_modes': 'Game Mode',
-        'keywords': 'Keyword'
-    }
-
-    tooltip_parts = []
-    names_list = []
-    categories_list = []
-    all_classes = set()
-
-    for match in matches:
-        category_display = category_names.get(match['category'], match['category'])
-        tooltip_parts.append(f"{category_display}: {html.escape(match['name'])}")
-        names_list.append(match['name'])
-        categories_list.append(match['category'])
-        all_classes.add(match['class_name'])
-
-    tooltip_text = " | ".join(tooltip_parts)
-    class_str = ' '.join(all_classes)
-
-    # Определяем стиль полосатой подсветки
-    if num_criteria == 2:
-        striped_style = "background: repeating-linear-gradient(45deg, rgba(220, 53, 69, 0.2), rgba(220, 53, 69, 0.2) 5px, rgba(255, 193, 7, 0.2) 5px, rgba(255, 193, 7, 0.2) 10px) !important;"
-    elif num_criteria >= 3:
-        striped_style = "background: repeating-linear-gradient(45deg, rgba(220, 53, 69, 0.15), rgba(220, 53, 69, 0.15) 4px, rgba(255, 193, 7, 0.15) 4px, rgba(255, 193, 7, 0.15) 8px, rgba(0, 123, 255, 0.15) 8px, rgba(0, 123, 255, 0.15) 12px) !important;"
-    else:
-        striped_style = ""
-
-    return f'<span class="highlight-multi {class_str}" ' \
-           f'style="{striped_style}" ' \
-           f'data-element-names="{html.escape(",".join(names_list))}" ' \
-           f'data-categories="{",".join(categories_list)}" ' \
-           f'title="{tooltip_text}">{html.escape(text)}</span>'
-
 
 def get_clean_text_from_html(html_text: str) -> str:
     """
@@ -1986,7 +2299,7 @@ def find_all_text_positions(clean_text: str, all_matches: List[Dict]) -> List[Di
             end_pos = found_pos + len(search_text)
             if end_pos < len(clean_text):
                 next_char = clean_text[end_pos]
-                # Допускаем дефис после слова (часть составного слова)
+                # ИСПРАВЛЕНИЕ: Разрешаем дефис после слова (часть составного слова)
                 if next_char.isalnum() and next_char not in "s'-":
                     is_valid = False
                 # Разрешаем 's' для множественного числа
@@ -1996,30 +2309,18 @@ def find_all_text_positions(clean_text: str, all_matches: List[Dict]) -> List[Di
                         is_valid = False
 
             if is_valid:
-                # ДЛЯ КЛЮЧЕВЫХ СЛОВ: особый случай - можем быть частью составного слова
-                if match['category'] == 'keywords':
-                    # Проверяем, является ли это частью составного слова через дефис
-                    # "devil" в "devil-worshipping" - допустимо
-                    if found_pos > 0 and clean_text[found_pos - 1] == '-':
-                        # Слово после дефиса - валидно
-                        is_valid = True
-                    if end_pos < len(clean_text) and clean_text[end_pos] == '-':
-                        # Слово перед дефисом - валидно
-                        is_valid = True
+                # Создаем запись с расширенным текстом
+                extended_text = clean_text[found_pos:end_pos]
 
-                if is_valid:
-                    # Создаем запись с расширенным текстом
-                    extended_text = clean_text[found_pos:end_pos]
-
-                    text_positions.append({
-                        'start': found_pos,
-                        'end': end_pos,
-                        'name': match['name'],
-                        'category': match['category'],
-                        'class_name': match['class_name'],
-                        'color': match['color'],
-                        'text': extended_text
-                    })
+                text_positions.append({
+                    'start': found_pos,
+                    'end': end_pos,
+                    'name': match['name'],
+                    'category': match['category'],
+                    'class_name': match['class_name'],
+                    'color': match['color'],
+                    'text': extended_text
+                })
 
             pos = found_pos + 1
 
@@ -2347,36 +2648,6 @@ def filter_duplicate_patterns(pattern_info: Dict) -> Dict:
     return filtered_info
 
 
-def format_text_with_html(text: str) -> str:
-    """
-    Форматирует текст в HTML
-    """
-    if not text:
-        return ""
-
-    # Если уже есть HTML
-    if '<p>' in text:
-        return text
-
-    # Разбиваем на абзацы
-    paragraphs = text.split('\n\n')
-    formatted = []
-
-    for para in paragraphs:
-        if para.strip():
-            # Экранируем HTML
-            safe_para = html.escape(para.strip())
-            # Сохраняем переносы строк внутри абзаца
-            safe_para = safe_para.replace('\n', '<br>')
-            formatted.append(f'<p>{safe_para}</p>')
-
-    if formatted:
-        return '\n'.join(formatted)
-    else:
-        safe_text = html.escape(text.replace('\n', '<br>'))
-        return f'<p>{safe_text}</p>'
-
-
 def create_highlighted_html(html_text: str, analysis_result: Dict) -> str:
     """
     Создает подсвеченный HTML текст на основе результатов анализа
@@ -2531,29 +2802,6 @@ def find_html_positions_for_match(html_text: str, clean_text: str,
         html_pos += 1
 
     return None
-
-
-def is_inside_existing_span(html_text: str, position: int) -> bool:
-    """
-    Проверяет, находится ли позиция внутри существующего span
-    """
-    # Находим последний открывающий span до этой позиции
-    last_span_start = html_text.rfind('<span', 0, position)
-    if last_span_start == -1:
-        return False
-
-    # Находим закрывающий span для этого открывающего
-    span_content_start = html_text.find('>', last_span_start)
-    if span_content_start == -1:
-        return False
-
-    span_end = html_text.find('</span>', span_content_start)
-    if span_end == -1:
-        return False
-
-    # Проверяем, находится ли позиция между началом и концом span
-    return span_content_start < position < span_end
-
 
 def find_overlapping_matches(matches: List[Dict]) -> Dict:
     """
@@ -2765,7 +3013,7 @@ def apply_highlights(html_text: str, replacements: List[Dict]) -> str:
 
 def _prepare_get_context(request: HttpRequest, game: Game, original_descriptions: Dict, active_tab: str) -> Dict:
     """Подготовка контекста для GET запроса
-    ИСПРАВЛЕНИЕ: Упрощенная логика с сохранением абзацной структуры
+    ИСПРАВЛЕНИЕ: Упрощенная логика с сохранением абзацной структуры и правильной обработкой подсветки
     """
 
     # Проверяем флаг auto_analyze в URL
@@ -2793,6 +3041,7 @@ def _prepare_get_context(request: HttpRequest, game: Game, original_descriptions
 
     if unsaved_highlighted_text and highlight_enabled:
         # Текст уже в HTML формате из сессии, применяем mark_safe
+        # ВАЖНО: Не удаляем старую подсветку здесь - она уже правильная
         display_text = mark_safe(unsaved_highlighted_text)
         found_items = unsaved_found_items
     elif active_tab in original_descriptions:
@@ -3923,19 +4172,22 @@ def normalize_keyword(request: HttpRequest):
         if not word:
             return JsonResponse({'success': False, 'message': 'Please enter a word to normalize'})
 
-        # Используем логику из команды normalize_keywords для получения базовой формы
-        # Создаем экземпляр команды и вызываем её метод _get_base_form
-        normalizer = NormalizeCommand()
-        normalizer._init_nltk()  # Убедимся, что WordNet доступен
+        # Используем WordNetAPI для получения базовой формы
+        from games.analyze.wordnet_api import get_wordnet_api
+
+        wordnet_api = get_wordnet_api(verbose=False)
+
+        if not wordnet_api.is_available():
+            return JsonResponse({
+                'success': False,
+                'message': 'WordNetAPI недоступен. Невозможно выполнить нормализацию.'
+            })
 
         # Короткие слова не нормализуем
-        if normalizer._is_short_word(word):
-            base_form = word
-        # Игровые термины не нормализуем
-        elif normalizer._is_gaming_term(word):
+        if len(word) <= 3:
             base_form = word
         else:
-            base_form = normalizer._get_base_form(word)
+            base_form = wordnet_api.get_best_base_form(word)
 
         return JsonResponse({
             'success': True,
