@@ -5,7 +5,7 @@
 
 from django.core.management.base import BaseCommand
 from games.models import Keyword
-from .normalize_keywords import Command as NormalizeCommand
+from games.management.commands.normalize_keywords import Command as NormalizeCommand
 import time
 
 
@@ -40,9 +40,13 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("ТЕСТИРОВАНИЕ НОРМАЛИЗАЦИИ СЛОВ"))
         self.stdout.write("=" * 70)
 
-        # Создаем экземпляр команды нормализации для доступа к методам
+        # Создаем экземпляр команды нормализации
+        self.stdout.write("🔧 Создание экземпляра нормализатора...")
         normalize_cmd = NormalizeCommand()
-        normalize_cmd._init_nltk()
+        normalize_cmd.verbose = verbose
+
+        self.stdout.write("✅ Нормализатор готов")
+        self.stdout.write("")
 
         # Проверяем наличие в базе если нужно
         if check_db:
@@ -63,67 +67,66 @@ class Command(BaseCommand):
 
         for word in words:
             self.stdout.write(f"\n📌 Слово: '{word}'")
+            self.stdout.write("-" * 40)
 
-            # Проверяем, является ли игровым термином
+            # Детальный вывод процесса нормализации
+            self.stdout.write("\n   🔄 ПРОЦЕСС ПОИСКА ФОРМ:")
+
+            # 1. Проверяем игровые термины
             is_gaming = normalize_cmd._is_gaming_term(word)
+            self.stdout.write(f"     1. Проверка игрового термина: {'✅ ДА' if is_gaming else '❌ НЕТ'}")
 
-            # Проверяем, короткое ли слово
+            # 2. Проверяем короткие слова
             is_short = normalize_cmd._is_short_word(word)
+            self.stdout.write(f"     2. Проверка короткого слова: {'✅ ДА' if is_short else '❌ НЕТ'}")
 
             if is_gaming or is_short:
-                self.stdout.write(self.style.WARNING(f"   ⏺️ НЕ ИЗМЕНЯЕТСЯ {word} = {word}"))
+                reason = "игровой термин" if is_gaming else "короткое слово"
+                self.stdout.write(self.style.WARNING(f"\n   ⏺️ Досрочная остановка: {reason}"))
+                self.stdout.write(f"\n   📊 ИТОГОВЫЕ ДАННЫЕ:")
+                self.stdout.write(f"   🎯 Базовая форма: '{word}'")
+                self.stdout.write(f"   🎮 Игровой термин: {'✅' if is_gaming else '❌'}")
+                self.stdout.write(f"   📏 Короткое слово: {'✅' if is_short else '❌'}")
+                self.stdout.write(self.style.WARNING(f"\n   ⏺️ НЕ БУДЕТ НОРМАЛИЗОВАНО ({reason})"))
                 continue
 
-            # Получаем базовую форму
+            # 3. Получаем базовую форму
+            self.stdout.write(f"     3. Вызов _get_base_form('{word}')...")
             base_form = normalize_cmd._get_base_form(word)
+            self.stdout.write(f"        Результат: '{base_form}'")
 
-            # Проверяем семантическую связь
-            try:
-                from nltk.corpus import wordnet as wn
+            # 4. Проверяем семантическую связь
+            self.stdout.write(f"\n     4. Вызов _are_semantically_related('{word}', '{base_form}')...")
+            are_related = normalize_cmd._are_semantically_related(word, base_form)
+            self.stdout.write(f"        Результат: {'✅ Связаны' if are_related else '❌ Не связаны'}")
 
-                synsets1 = wn.synsets(word.lower())
-                synsets2 = wn.synsets(base_form.lower())
+            # 5. Проверяем, нужно ли нормализовать
+            self.stdout.write(f"\n     5. Вызов _should_normalize('{word}', '{base_form}')...")
+            should_normalize = normalize_cmd._should_normalize(word, base_form)
+            self.stdout.write(f"        Результат: {'✅ Да' if should_normalize else '❌ Нет'}")
 
-                if synsets1 and synsets2:
-                    # Проверяем path similarity
-                    max_path_sim = 0.0
-
-                    for s1 in synsets1:
-                        for s2 in synsets2:
-                            try:
-                                path_sim = s1.path_similarity(s2)
-                                if path_sim and path_sim > max_path_sim:
-                                    max_path_sim = path_sim
-                            except:
-                                continue
-
-                    PATH_THRESHOLD = normalize_cmd.PATH_SIMILARITY_THRESHOLD
-
-                    # Всегда показываем path similarity и порог
-                    self.stdout.write(f"   Path similarity: {max_path_sim:.3f} (порог: {PATH_THRESHOLD})")
-
-                    if verbose:
-                        # Показываем WUP similarity только в подробном режиме
-                        max_wup_sim = 0.0
-                        for s1 in synsets1:
-                            for s2 in synsets2:
-                                try:
-                                    wup_sim = s1.wup_similarity(s2)
-                                    if wup_sim and wup_sim > max_wup_sim:
-                                        max_wup_sim = wup_sim
-                                except:
-                                    continue
-                        self.stdout.write(
-                            f"   WUP similarity: {max_wup_sim:.3f} (порог: {normalize_cmd.WUP_SIMILARITY_THRESHOLD})")
-
-            except Exception as e:
-                if verbose:
-                    self.stdout.write(f"   ❌ Ошибка: {e}")
+            # Итоговые данные
+            self.stdout.write(f"\n   📊 ИТОГОВЫЕ ДАННЫЕ:")
+            self.stdout.write(f"   🎯 Базовая форма: '{base_form}'")
+            self.stdout.write(f"   🎮 Игровой термин: {'✅' if is_gaming else '❌'}")
+            self.stdout.write(f"   📏 Короткое слово: {'✅' if is_short else '❌'}")
+            self.stdout.write(f"   🔗 Семантическая связь: {'✅' if are_related else '❌'}")
 
             # Результат нормализации
-            if base_form == word.lower():
-                self.stdout.write(self.style.WARNING(f"   ⏺️ НЕ ИЗМЕНЯЕТСЯ {word} = {word}"))
+            if should_normalize:
+                self.stdout.write(self.style.SUCCESS(f"\n   ✅ БУДЕТ НОРМАЛИЗОВАНО: '{word}' → '{base_form}'"))
             else:
-                self.stdout.write(self.style.SUCCESS(f"   ✅ ИЗМЕНЯЕТСЯ {word} → {base_form}"))
+                reasons = []
+                if is_gaming:
+                    reasons.append("игровой термин")
+                if is_short:
+                    reasons.append("короткое слово")
+                if word.lower() == base_form:
+                    reasons.append("уже базовая форма")
+                elif not are_related:
+                    reasons.append("нет семантической связи")
+
+                reason_str = ", ".join(reasons) if reasons else "неизвестная причина"
+                self.stdout.write(self.style.WARNING(f"\n   ⏺️ НЕ БУДЕТ НОРМАЛИЗОВАНО ({reason_str})"))
 
         self.stdout.write("\n" + "=" * 70)

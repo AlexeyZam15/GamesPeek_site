@@ -1,32 +1,24 @@
 # games/management/commands/normalize_keywords.py
 """
-Django команда для нормализации ключевых слов:
-- Использует WordNetAPI для определения исходных форм слов
-- Объединяет связанные слова (trader → trade, player → play)
-- Игнорирует специальные игровые термины и аббревиатуры
+Команда для нормализации ключевых слов с использованием WordNet
 """
 
 from django.core.management.base import BaseCommand
-from django.db import transaction
 from games.models import Keyword
 from games.analyze.wordnet_api import get_wordnet_api
+from django.db import transaction
+from tqdm import tqdm
 import time
-from collections import defaultdict
 
 
 class Command(BaseCommand):
-    help = 'Нормализует ключевые слова используя WordNetAPI'
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.verbose = False
-        self.wordnet_api = None
+    help = 'Нормализует ключевые слова с использованием WordNet'
 
     def add_arguments(self, parser):
         parser.add_argument(
             '--dry-run',
             action='store_true',
-            help='Показать что будет сделано без фактических изменений',
+            help='Показать что будет изменено без реальных изменений',
         )
         parser.add_argument(
             '--verbose',
@@ -34,330 +26,319 @@ class Command(BaseCommand):
             help='Подробный вывод',
         )
         parser.add_argument(
-            '--fix-specific',
-            type=str,
-            help='Исправить конкретное слово (например, "trader")',
+            '--limit',
+            type=int,
+            help='Ограничить количество обрабатываемых ключевых слов',
+        )
+        parser.add_argument(
+            '--batch-size',
+            type=int,
+            default=100,
+            help='Размер пакета для обработки',
         )
 
-    def _is_gaming_term(self, word: str) -> bool:
-        """
-        Проверяет, является ли слово специальным игровым термином,
-        который не нужно нормализовать
-        """
-        word_lower = word.lower()
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.wordnet_api = None
 
-        # Игровые аббревиатуры и сокращения
-        gaming_abbr = {
-            'cod', 'fps', 'rpg', 'mmo', 'rts', 'moba', 'pvp', 'pve',
-            'hp', 'mp', 'xp', 'ap', 'dp', 'dps', 'hps', 'gcd', 'cd',
-            'boss', 'mob', 'npc', 'pc', 'ai', 'ui', 'gui', 'hud',
-            'diy', 'dlc', 'gacha', 'rogue', 'roguelike', 'roguelite'
-        }
-
-        if word_lower in gaming_abbr:
-            return True
-
-        # Игровые термины
-        gaming_terms = {
+        # Игровые термины, которые не нужно нормализовать
+        self.gaming_terms = {
             'wanted', 'stamina', 'leveling', 'hitpoint', 'manapoint',
             'healthpoint', 'skillpoint', 'spellpoint', 'stat',
         }
 
-        if word_lower in gaming_terms:
-            return True
+        # Пороги семантической близости
+        self.PATH_SIMILARITY_THRESHOLD = 0.2
+        self.WUP_SIMILARITY_THRESHOLD = 0.3
 
-        return False
+    def _is_gaming_term(self, word: str) -> bool:
+        """Проверяет, является ли слово игровым термином"""
+        return word.lower() in self.gaming_terms
 
     def _is_short_word(self, word: str) -> bool:
-        """
-        Проверяет, является ли слово коротким (3 буквы или меньше)
-        """
-        word_lower = word.lower()
-
-        if len(word_lower) <= 3:
-            return True
-
-        short_forms = {'run', 'ran', 'set', 'sit', 'sat', 'eat', 'ate', 'fly', 'flew'}
-        if word_lower in short_forms:
-            return False
-
-        return False
+        """Проверяет, является ли слово слишком коротким для нормализации"""
+        return len(word) <= 3
 
     def _get_base_form(self, word: str) -> str:
+        """Получает базовую форму слова через WordNet"""
+        try:
+            import nltk
+            from nltk.corpus import wordnet as wn
+            from nltk.stem import WordNetLemmatizer
+
+            word_lower = word.lower()
+
+            if self.verbose:
+                self.stdout.write(f"\n        🔍 Анализ слова/фразы '{word_lower}':")
+
+            # Специальная обработка для фраз с пробелами
+            if ' ' in word_lower:
+                parts = word_lower.split()
+                if self.verbose:
+                    self.stdout.write(f"        Обнаружена фраза из {len(parts)} слов: {parts}")
+
+                # Приводим каждое слово к базовой форме
+                normalized_parts = []
+                for i, part in enumerate(parts):
+                    if len(part) >= 3:
+                        part_base = self._get_base_form_single(part)
+                        if self.verbose:
+                            self.stdout.write(f"          Слово {i + 1} '{part}' → '{part_base}'")
+                        normalized_parts.append(part_base)
+                    else:
+                        normalized_parts.append(part)
+
+                # Собираем обратно через пробел
+                result = ' '.join(normalized_parts)
+
+                if self.verbose:
+                    self.stdout.write(f"        Результат: '{result}'")
+
+                return result
+
+            # Специальная обработка для слов с дефисом
+            if '-' in word_lower:
+                parts = word_lower.split('-')
+                if self.verbose:
+                    self.stdout.write(f"        Обнаружен дефис, разбиваем на части: {parts}")
+
+                # Приводим каждую часть к базовой форме
+                normalized_parts = []
+                for i, part in enumerate(parts):
+                    if len(part) >= 3:
+                        part_base = self._get_base_form_single(part)
+                        if self.verbose:
+                            self.stdout.write(f"          Часть {i + 1} '{part}' → '{part_base}'")
+                        normalized_parts.append(part_base)
+                    else:
+                        normalized_parts.append(part)
+
+                # Собираем обратно с дефисом
+                result = '-'.join(normalized_parts)
+
+                if self.verbose:
+                    self.stdout.write(f"        Результат: '{result}'")
+
+                return result
+
+            # Для одиночных слов - обычная нормализация
+            result = self._get_base_form_single(word_lower)
+
+            if self.verbose:
+                self.stdout.write(f"        Результат: '{result}'")
+
+            return result
+
+        except Exception as e:
+            if self.verbose:
+                self.stdout.write(f"        Ошибка: {e}")
+            return word.lower()
+
+    def _get_base_form_single(self, word: str) -> str:
+        """Получает базовую форму для одного слова через WordNetAPI"""
+        try:
+            if not self.wordnet_api:
+                from games.analyze.wordnet_api import get_wordnet_api
+                self.wordnet_api = get_wordnet_api(verbose=self.verbose)
+
+            word_lower = word.lower()
+
+            if self.verbose:
+                self.stdout.write(f"\n        🔍 Анализ отдельного слова '{word_lower}':")
+
+            # Используем тот же метод, что и при анализе текста
+            base_form = self.wordnet_api.get_best_base_form(word_lower)
+
+            if self.verbose:
+                if base_form != word_lower:
+                    self.stdout.write(f"        ✅ Базовая форма: '{base_form}'")
+                else:
+                    self.stdout.write(f"        ⏺️ Слово уже в базовой форме: '{base_form}'")
+
+            return base_form
+
+        except Exception as e:
+            if self.verbose:
+                self.stdout.write(f"        Ошибка: {e}")
+            return word.lower()
+
+    def _are_semantically_related(self, word1: str, word2: str) -> bool:
         """
-        Определяет исходную форму слова используя WordNetAPI
-
-        Args:
-            word: Слово для нормализации (например: "trader", "player", "drawing")
-
-        Returns:
-            Базовая форма слова (например: "trade", "play", "draw")
+        Проверяет семантическую связанность двух слов через WordNet
         """
-        word_lower = word.lower()
+        try:
+            from nltk.corpus import wordnet as wn
+            from nltk.stem import PorterStemmer
 
-        # ========== ПРОВЕРЯЕМ ИГРОВЫЕ ТЕРМИНЫ ==========
-        if self._is_gaming_term(word_lower):
-            return word_lower
+            word1_lower = word1.lower()
+            word2_lower = word2.lower()
 
-        # ========== НЕ ОБРАБАТЫВАЕМ КОРОТКИЕ СЛОВА ==========
-        if self._is_short_word(word_lower):
-            return word_lower
+            # Если слова совпадают - они связаны
+            if word1_lower == word2_lower:
+                return True
 
-        # ========== ОБРАБОТКА ФРАЗ С ПРОБЕЛАМИ ==========
-        if ' ' in word_lower:
-            parts = word_lower.split()
-            if len(parts) == 2:
-                first, second = parts
-                normalized_second = self._get_base_form(second)
-                return f"{first} {normalized_second}"
-            return word_lower
+            # Проверяем через стемминг (safe vs safety)
+            stemmer = PorterStemmer()
+            if stemmer.stem(word1_lower) == stemmer.stem(word2_lower):
+                return True
 
-        # ========== ОБРАБОТКА СОСТАВНЫХ СЛОВ С ДЕФИСАМИ ==========
-        if '-' in word_lower:
-            parts = word_lower.split('-')
-            if len(parts) == 2:
-                first, second = parts
-                normalized_second = self._get_base_form(second)
-                return f"{first}-{normalized_second}"
-            return word_lower
+            # Проверяем через WordNet синонимы и гипонимы
+            synsets1 = wn.synsets(word1_lower)
+            synsets2 = wn.synsets(word2_lower)
 
-        # ========== ДЛЯ ОБЫЧНЫХ СЛОВ ИСПОЛЬЗУЕМ WORDNETAPI ==========
-        return self.wordnet_api.get_best_base_form(word_lower)
+            if not synsets1 or not synsets2:
+                return False
+
+            # Проверяем path similarity
+            for s1 in synsets1:
+                for s2 in synsets2:
+                    try:
+                        path_sim = s1.path_similarity(s2)
+                        if path_sim and path_sim >= self.PATH_SIMILARITY_THRESHOLD:
+                            return True
+
+                        wup_sim = s1.wup_similarity(s2)
+                        if wup_sim and wup_sim >= self.WUP_SIMILARITY_THRESHOLD:
+                            return True
+                    except:
+                        continue
+
+            return False
+
+        except Exception as e:
+            if self.verbose:
+                self.stdout.write(f"Ошибка в _are_semantically_related: {e}")
+            return False
+
+    def _should_normalize(self, word: str, base_form: str) -> bool:
+        """
+        Определяет, нужно ли нормализовать слово
+        """
+        if word == base_form:
+            return False
+
+        # Не нормализуем игровые термины
+        if self._is_gaming_term(word):
+            if self.verbose:
+                self.stdout.write(f"   ⏺️ Игровой термин: '{word}'")
+            return False
+
+        # Не нормализуем короткие слова
+        if self._is_short_word(word):
+            if self.verbose:
+                self.stdout.write(f"   ⏺️ Короткое слово: '{word}'")
+            return False
+
+        # Проверяем семантическую связанность
+        if not self._are_semantically_related(word, base_form):
+            if self.verbose:
+                self.stdout.write(f"   ⏺️ Нет семантической связи: '{word}' -> '{base_form}'")
+            return False
+
+        return True
 
     def handle(self, *args, **options):
         dry_run = options['dry_run']
-        verbose = options['verbose']
-        fix_specific = options['fix_specific']
-
-        # Сохраняем verbose как атрибут класса
-        self.verbose = verbose
-
-        # Инициализируем WordNetAPI
-        self.wordnet_api = get_wordnet_api(verbose=verbose)
-
-        start_time = time.time()
+        self.verbose = options['verbose']
+        limit = options['limit']
+        batch_size = options['batch_size']
 
         self.stdout.write("=" * 70)
-        self.stdout.write(self.style.SUCCESS("НОРМАЛИЗАЦИЯ КЛЮЧЕВЫХ СЛОВ (WordNetAPI)"))
+        self.stdout.write(self.style.SUCCESS("НОРМАЛИЗАЦИЯ КЛЮЧЕВЫХ СЛОВ"))
         self.stdout.write("=" * 70)
+
+        if dry_run:
+            self.stdout.write(self.style.WARNING("🔧 РЕЖИМ ПРОСМОТРА (без изменений)"))
+        self.stdout.write("")
+
+        # Получаем WordNetAPI
+        self.stdout.write("🔧 Инициализация WordNetAPI...")
+        self.wordnet_api = get_wordnet_api(verbose=self.verbose)
 
         if not self.wordnet_api.is_available():
-            self.stdout.write(self.style.ERROR("❌ WordNetAPI недоступен. Невозможно выполнить нормализацию."))
+            self.stdout.write(self.style.ERROR("❌ WordNetAPI недоступен"))
             return
 
-        if dry_run:
-            self.stdout.write(self.style.WARNING("🏃 РЕЖИМ DRY RUN - изменения не будут сохранены"))
+        self.stdout.write("✅ WordNetAPI готов")
+        self.stdout.write("")
 
-        # Получаем все ключевые слова
-        if fix_specific:
-            keywords = list(Keyword.objects.filter(name__iexact=fix_specific))
-            if not keywords:
-                keywords = list(Keyword.objects.filter(name__icontains=fix_specific))
-            self.stdout.write(f"🔍 Ищем слова, содержащие '{fix_specific}': найдено {len(keywords)}")
-        else:
-            keywords = list(Keyword.objects.all().order_by('name'))
-            self.stdout.write(f"📊 Всего ключевых слов в базе: {len(keywords)}")
+        # Получаем ключевые слова
+        keywords = Keyword.objects.all().order_by('name')
+        if limit:
+            keywords = keywords[:limit]
 
-        # Создаем словарь для быстрого поиска
-        keyword_by_name = {kw.name.lower(): kw for kw in keywords}
+        total = keywords.count()
+        self.stdout.write(f"📊 Найдено ключевых слов: {total}")
+        self.stdout.write("")
 
-        # Группируем слова по их исходной форме
-        base_groups = defaultdict(list)
-        gaming_terms_found = []
-        short_words_found = []
+        stats = {
+            'processed': 0,
+            'normalized': 0,
+            'skipped_gaming': 0,
+            'skipped_short': 0,
+            'skipped_no_semantic': 0,
+            'errors': 0
+        }
 
-        # Показываем пример для fix_specific
-        if fix_specific and verbose:
-            self.stdout.write("\n" + "=" * 70)
-            self.stdout.write(self.style.SUCCESS(f"АНАЛИЗ СЛОВА: {fix_specific}"))
-            self.stdout.write("=" * 70)
+        changes = []
 
-            # Показываем прямые деривации
-            derivations = self.wordnet_api.get_direct_derivations(fix_specific)
-            if derivations:
-                self.stdout.write(f"\n📌 Прямые деривации для '{fix_specific}':")
-                for deriv in sorted(derivations)[:10]:
-                    self.stdout.write(f"   • {deriv}")
+        # Обрабатываем ключевые слова
+        with tqdm(total=total, desc="Обработка", disable=not self.verbose) as pbar:
+            for keyword in keywords:
+                try:
+                    original_name = keyword.name
+                    base_form = self._get_base_form(original_name)
 
-            # Показываем базовую форму
-            base_form = self._get_base_form(fix_specific)
-            self.stdout.write(f"\n✅ Базовая форма: '{base_form}'")
+                    if self._should_normalize(original_name, base_form):
+                        stats['normalized'] += 1
+                        changes.append({
+                            'id': keyword.id,
+                            'old': original_name,
+                            'new': base_form
+                        })
 
-        # Анализируем все ключевые слова
-        for kw in keywords:
-            word_lower = kw.name.lower()
+                        if not dry_run:
+                            keyword.name = base_form
+                            keyword.save()
 
-            # Проверяем короткие слова
-            if self._is_short_word(word_lower):
-                short_words_found.append(kw.name)
-                continue
-
-            # Проверяем, не игровой ли это термин
-            if self._is_gaming_term(word_lower):
-                gaming_terms_found.append(kw.name)
-                continue
-
-            base_form = self._get_base_form(word_lower)
-
-            if base_form != word_lower:
-                base_groups[base_form].append(kw)
-
-        # Показываем найденные группы
-        self.stdout.write("\n" + "=" * 70)
-        self.stdout.write(self.style.SUCCESS("НАЙДЕННЫЕ ГРУППЫ СЛОВ"))
-        self.stdout.write("=" * 70)
-
-        # Сортируем группы по размеру
-        sorted_groups = sorted(base_groups.items(), key=lambda x: len(x[1]), reverse=True)
-
-        for base_form, words in sorted_groups:
-            self.stdout.write(f"\n📌 {base_form.upper()} (группа из {len(words)} слов):")
-
-            # Проверяем, есть ли исходная форма в базе
-            base_exists = base_form in keyword_by_name
-
-            if base_exists:
-                base_word = keyword_by_name[base_form]
-                self.stdout.write(
-                    f"   ✅ Исходная форма есть: {base_word.name} (ID: {base_word.id}) - игр: {base_word.game_set.count()}")
-            else:
-                self.stdout.write(f"   ⚠️ Исходной формы '{base_form}' НЕТ в базе")
-
-            # Показываем все слова в группе
-            for w in sorted(words, key=lambda x: x.game_set.count(), reverse=True):
-                if base_exists and w.name.lower() == base_form:
-                    continue
-                self.stdout.write(f"   • {w.name} (ID: {w.id}) - игр: {w.game_set.count()}")
-
-        # Показываем статистику по игровым терминам и коротким словам
-        if gaming_terms_found:
-            self.stdout.write(f"\n🎮 Игровые термины (не нормализуются): {len(gaming_terms_found)}")
-            if verbose:
-                self.stdout.write(f"   {', '.join(gaming_terms_found[:20])}")
-
-        if short_words_found:
-            self.stdout.write(f"\n📏 Короткие слова (не нормализуются): {len(short_words_found)}")
-
-        # Если dry-run, показываем только статистику
-        if dry_run:
-            elapsed_time = time.time() - start_time
-            self.stdout.write("\n" + "=" * 70)
-            self.stdout.write(self.style.SUCCESS("СТАТИСТИКА"))
-            self.stdout.write("=" * 70)
-            self.stdout.write(f"⏱️  Время выполнения: {elapsed_time:.2f} сек")
-            self.stdout.write(f"📊 Найдено групп: {len(base_groups)}")
-
-            total_forms = sum(len(words) for words in base_groups.values())
-            self.stdout.write(f"📊 Всего слов-форм: {total_forms}")
-
-            self.stdout.write("\n" + self.style.WARNING("🏃 DRY RUN - запустите без --dry-run для применения"))
-            return
-
-        # Если fix_specific и не dry_run, показываем только группы и завершаем
-        if fix_specific and not dry_run:
-            self.stdout.write(
-                "\n" + self.style.WARNING(f"🔍 Режим --fix-specific: группы для '{fix_specific}' показаны выше"))
-            self.stdout.write(self.style.WARNING("Для применения изменений запустите без --fix-specific"))
-            return
-
-        # Применяем изменения (только если не dry_run и не fix_specific)
-        if not dry_run and not fix_specific:
-            self.stdout.write("\n" + "=" * 70)
-            self.stdout.write(self.style.SUCCESS("ПРИМЕНЕНИЕ ИЗМЕНЕНИЙ"))
-            self.stdout.write("=" * 70)
-
-            stats = {
-                'renamed': 0,
-                'merged': 0,
-                'moved_relations': 0
-            }
-
-            with transaction.atomic():
-                for base_form, words in base_groups.items():
-                    base_exists = base_form in keyword_by_name
-
-                    if base_exists:
-                        # Исходная форма есть - переносим все связи
-                        base_word = keyword_by_name[base_form]
-                        forms = [w for w in words if w.name.lower() != base_form]
-
-                        if not forms:
-                            continue
-
-                        self.stdout.write(f"\n📌 Группа: {base_form}")
-                        self.stdout.write(f"   ✅ Исходная форма: {base_word.name} (ID: {base_word.id})")
-
-                        for form in forms:
-                            games = list(form.game_set.all())
-                            if games:
-                                self.stdout.write(f"   🔄 Переносим {len(games)} игр с '{form.name}'")
-                                for game in games:
-                                    if not game.keywords.filter(id=base_word.id).exists():
-                                        game.keywords.add(base_word)
-                                        stats['moved_relations'] += 1
-
-                            form.delete()
-                            stats['merged'] += 1
-                            self.stdout.write(f"   ✅ Удалена форма '{form.name}'")
+                        if self.verbose:
+                            self.stdout.write(f"   ✅ {original_name} -> {base_form}")
 
                     else:
-                        # Исходной формы нет - выбираем самое популярное слово
-                        words.sort(key=lambda w: w.game_set.count(), reverse=True)
-                        base_word = words[0]
-                        other_forms = words[1:]
+                        if original_name.lower() != base_form:
+                            stats['skipped_no_semantic'] += 1
+                        elif self._is_gaming_term(original_name):
+                            stats['skipped_gaming'] += 1
+                        elif self._is_short_word(original_name):
+                            stats['skipped_short'] += 1
 
-                        self.stdout.write(f"\n📌 Группа: {base_form}")
-                        self.stdout.write(f"   🔄 Выбираем базовым: {base_word.name} (ID: {base_word.id})")
+                    stats['processed'] += 1
+                    pbar.update(1)
 
-                        # Переименовываем
-                        if base_word.name.lower() != base_form:
-                            old_name = base_word.name
-                            base_word.name = base_form
-                            base_word.save()
-                            stats['renamed'] += 1
-                            self.stdout.write(f"   🔄 Переименовано: '{old_name}' -> '{base_form}'")
+                except Exception as e:
+                    stats['errors'] += 1
+                    if self.verbose:
+                        self.stdout.write(self.style.ERROR(f"❌ Ошибка: {keyword.name} - {e}"))
 
-                        # Переносим связи с других форм
-                        for form in other_forms:
-                            games = list(form.game_set.all())
-                            if games:
-                                self.stdout.write(f"   🔄 Переносим {len(games)} игр с '{form.name}'")
-                                for game in games:
-                                    if not game.keywords.filter(id=base_word.id).exists():
-                                        game.keywords.add(base_word)
-                                        stats['moved_relations'] += 1
+        # Выводим статистику
+        self.stdout.write("\n" + "=" * 70)
+        self.stdout.write(self.style.SUCCESS("СТАТИСТИКА"))
+        self.stdout.write("=" * 70)
+        self.stdout.write(f"📊 Всего обработано: {stats['processed']}")
+        self.stdout.write(f"✅ Нормализовано: {stats['normalized']}")
+        self.stdout.write(f"⏺️ Пропущено (игровые термины): {stats['skipped_gaming']}")
+        self.stdout.write(f"⏺️ Пропущено (короткие слова): {stats['skipped_short']}")
+        self.stdout.write(f"⏺️ Пропущено (нет семантики): {stats['skipped_no_semantic']}")
+        self.stdout.write(f"❌ Ошибок: {stats['errors']}")
 
-                            form.delete()
-                            stats['merged'] += 1
-                            self.stdout.write(f"   ✅ Удалена форма '{form.name}'")
-
-            # Итоговая статистика
-            elapsed_time = time.time() - start_time
-
+        if changes and self.verbose:
             self.stdout.write("\n" + "=" * 70)
-            self.stdout.write(self.style.SUCCESS("ИТОГОВАЯ СТАТИСТИКА"))
+            self.stdout.write(self.style.SUCCESS("ИЗМЕНЕНИЯ"))
             self.stdout.write("=" * 70)
-            self.stdout.write(f"⏱️  Время выполнения: {elapsed_time:.2f} сек")
-            self.stdout.write(f"📊 Найдено групп: {len(base_groups)}")
-            self.stdout.write(f"📊 Переименовано слов: {stats['renamed']}")
-            self.stdout.write(f"📊 Объединено слов: {stats['merged']}")
-            self.stdout.write(f"📊 Перенесено связей: {stats['moved_relations']}")
+            for change in changes[:20]:  # Показываем первые 20
+                self.stdout.write(f"  {change['old']} -> {change['new']}")
+            if len(changes) > 20:
+                self.stdout.write(f"  ... и еще {len(changes) - 20} изменений")
 
-            # Сбрасываем кэш Trie
-            self.stdout.write("\n" + self.style.SUCCESS("🔄 Сбрасываем кэш Trie..."))
-            try:
-                from games.analyze.keyword_trie import KeywordTrieManager
-                KeywordTrieManager().clear_cache()
-                self.stdout.write(self.style.SUCCESS("✅ Кэш Trie очищен"))
-            except Exception as e:
-                self.stdout.write(self.style.WARNING(f"⚠️ Не удалось очистить кэш: {e}"))
-
-            # Сбрасываем кэш WordNetAPI
-            self.stdout.write(self.style.SUCCESS("🔄 Сбрасываем кэш WordNetAPI..."))
-            try:
-                self.wordnet_api.clear_cache()
-                self.stdout.write(self.style.SUCCESS("✅ Кэш WordNetAPI очищен"))
-            except Exception as e:
-                self.stdout.write(self.style.WARNING(f"⚠️ Не удалось очистить кэш WordNetAPI: {e}"))
-
-            self.stdout.write("=" * 70)
+        if dry_run:
+            self.stdout.write("\n" + self.style.WARNING("🔧 РЕЖИМ ПРОСМОТРА - изменения не сохранены"))

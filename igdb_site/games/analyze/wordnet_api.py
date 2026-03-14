@@ -222,9 +222,10 @@ class WordNetAPI:
         Определяет наилучшую базовую форму слова
 
         Стратегия:
-        1. Сначала проверяем прямые деривации (trader → trade)
-        2. Если нет, используем самую короткую лемму
-        3. Если ничего не подходит, возвращаем исходное слово
+        1. Для слов с дефисом: обрабатываем каждую часть отдельно
+        2. Сначала проверяем прямые деривации (trader → trade)
+        3. Если нет, используем самую короткую лемму
+        4. Если ничего не подходит, возвращаем исходное слово
 
         Args:
             word: Слово для нормализации
@@ -236,6 +237,29 @@ class WordNetAPI:
             return word.lower()
 
         word_lower = word.lower()
+
+        # Специальная обработка для слов с дефисом
+        if '-' in word_lower:
+            parts = word_lower.split('-')
+            if self.verbose:
+                print(f"   Обнаружен дефис: {parts}")
+
+            # Обрабатываем каждую часть отдельно
+            normalized_parts = []
+            for part in parts:
+                if len(part) >= 3:
+                    # Рекурсивно обрабатываем каждую часть
+                    normalized_part = self.get_best_base_form(part)
+                    normalized_parts.append(normalized_part)
+                else:
+                    normalized_parts.append(part)
+
+            # Собираем обратно с дефисом
+            result = '-'.join(normalized_parts)
+            if result != word_lower:
+                if self.verbose:
+                    print(f"   Нормализовано через части: {word_lower} → {result}")
+                return result
 
         # 1. Проверяем прямые деривации
         derivations = self.get_direct_derivations(word_lower)
