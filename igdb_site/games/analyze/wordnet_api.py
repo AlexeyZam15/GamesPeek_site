@@ -219,26 +219,50 @@ class WordNetAPI:
     @lru_cache(maxsize=2000)
     def get_best_base_form(self, word: str) -> str:
         """
-        Определяет наилучшую базовую форму слова
+        Определяет наилучшую базовую форму слова или фразы.
 
         Стратегия:
-        1. Для слов с дефисом: обрабатываем каждую часть отдельно
-        2. Сначала проверяем прямые деривации (trader → trade)
-        3. Если нет, используем самую короткую лемму
-        4. Если ничего не подходит, возвращаем исходное слово
+        1. Для фраз с пробелами: разбиваем на слова и нормализуем каждое отдельно
+        2. Для слов с дефисом: обрабатываем каждую часть отдельно
+        3. Сначала проверяем прямые деривации (trader → trade)
+        4. Если нет, используем самую короткую лемму
+        5. Если ничего не подходит, возвращаем исходное слово/фразу
 
         Args:
-            word: Слово для нормализации
+            word: Слово или фраза для нормализации
 
         Returns:
-            Базовая форма слова
+            Базовая форма слова или фразы
         """
         if not self.is_available() or len(word) < 3:
             return word.lower()
 
         word_lower = word.lower()
 
-        # Специальная обработка для слов с дефисом
+        # ИСПРАВЛЕНИЕ 1: Обработка фраз с пробелами
+        if ' ' in word_lower:
+            parts = word_lower.split()
+            if self.verbose:
+                print(f"   Обнаружена фраза из {len(parts)} слов: {parts}")
+
+            # Обрабатываем каждое слово отдельно
+            normalized_parts = []
+            for i, part in enumerate(parts):
+                if len(part) >= 3:
+                    # Рекурсивно обрабатываем каждое слово
+                    normalized_part = self.get_best_base_form(part)
+                    normalized_parts.append(normalized_part)
+                else:
+                    normalized_parts.append(part)
+
+            # Собираем обратно через пробел
+            result = ' '.join(normalized_parts)
+            if result != word_lower:
+                if self.verbose:
+                    print(f"   Нормализовано через слова: {word_lower} → {result}")
+                return result
+
+        # ИСПРАВЛЕНИЕ 2: Обработка слов с дефисом
         if '-' in word_lower:
             parts = word_lower.split('-')
             if self.verbose:
