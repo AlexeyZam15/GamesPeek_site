@@ -1,18 +1,17 @@
 # games/management/commands/normalize_keywords.py
 """
-Команда для нормализации ключевых слов с использованием WordNet
+Команда для нормализации ключевых слов с использованием WordNetAPI.
+Теперь использует единый метод WordNetAPI.get_best_base_form.
 """
 
 from django.core.management.base import BaseCommand
 from games.models import Keyword
 from games.analyze.wordnet_api import get_wordnet_api
-from django.db import transaction
 from tqdm import tqdm
-import time
 
 
 class Command(BaseCommand):
-    help = 'Нормализует ключевые слова с использованием WordNet'
+    help = 'Нормализует ключевые слова с использованием WordNetAPI'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -30,26 +29,15 @@ class Command(BaseCommand):
             type=int,
             help='Ограничить количество обрабатываемых ключевых слов',
         )
-        parser.add_argument(
-            '--batch-size',
-            type=int,
-            default=100,
-            help='Размер пакета для обработки',
-        )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.wordnet_api = None
-
         # Игровые термины, которые не нужно нормализовать
         self.gaming_terms = {
             'wanted', 'stamina', 'leveling', 'hitpoint', 'manapoint',
             'healthpoint', 'skillpoint', 'spellpoint', 'stat',
         }
-
-        # Пороги семантической близости
-        self.PATH_SIMILARITY_THRESHOLD = 0.2
-        self.WUP_SIMILARITY_THRESHOLD = 0.3
 
     def _is_gaming_term(self, word: str) -> bool:
         """Проверяет, является ли слово игровым термином"""
@@ -60,93 +48,26 @@ class Command(BaseCommand):
         return len(word) <= 3
 
     def _get_base_form(self, word: str) -> str:
-        """Получает базовую форму слова через WordNet"""
+        """
+        Получает базовую форму слова через WordNetAPI.
+        УПРОЩЕНО: Использует единый метод API.
+        """
         try:
-            import nltk
-            from nltk.corpus import wordnet as wn
-            from nltk.stem import WordNetLemmatizer
-
             word_lower = word.lower()
 
             if self.verbose:
                 self.stdout.write(f"\n        🔍 Анализ слова/фразы '{word_lower}':")
 
-            # Специальная обработка для фраз с пробелами
-            if ' ' in word_lower:
-                parts = word_lower.split()
+            # 1. Проверка на игровой термин (делаем здесь для оптимизации)
+            if self._is_gaming_term(word_lower):
                 if self.verbose:
-                    self.stdout.write(f"        Обнаружена фраза из {len(parts)} слов: {parts}")
+                    self.stdout.write(f"        ⏺️ Игровой термин, пропускаем нормализацию.")
+                return word_lower
 
-                # Приводим каждое слово к базовой форме
-                normalized_parts = []
-                for i, part in enumerate(parts):
-                    if len(part) >= 3:
-                        part_base = self._get_base_form_single(part)
-                        if self.verbose:
-                            self.stdout.write(f"          Слово {i + 1} '{part}' → '{part_base}'")
-                        normalized_parts.append(part_base)
-                    else:
-                        normalized_parts.append(part)
-
-                # Собираем обратно через пробел
-                result = ' '.join(normalized_parts)
-
-                if self.verbose:
-                    self.stdout.write(f"        Результат: '{result}'")
-
-                return result
-
-            # Специальная обработка для слов с дефисом
-            if '-' in word_lower:
-                parts = word_lower.split('-')
-                if self.verbose:
-                    self.stdout.write(f"        Обнаружен дефис, разбиваем на части: {parts}")
-
-                # Приводим каждую часть к базовой форме
-                normalized_parts = []
-                for i, part in enumerate(parts):
-                    if len(part) >= 3:
-                        part_base = self._get_base_form_single(part)
-                        if self.verbose:
-                            self.stdout.write(f"          Часть {i + 1} '{part}' → '{part_base}'")
-                        normalized_parts.append(part_base)
-                    else:
-                        normalized_parts.append(part)
-
-                # Собираем обратно с дефисом
-                result = '-'.join(normalized_parts)
-
-                if self.verbose:
-                    self.stdout.write(f"        Результат: '{result}'")
-
-                return result
-
-            # Для одиночных слов - обычная нормализация
-            result = self._get_base_form_single(word_lower)
-
-            if self.verbose:
-                self.stdout.write(f"        Результат: '{result}'")
-
-            return result
-
-        except Exception as e:
-            if self.verbose:
-                self.stdout.write(f"        Ошибка: {e}")
-            return word.lower()
-
-    def _get_base_form_single(self, word: str) -> str:
-        """Получает базовую форму для одного слова через WordNetAPI"""
-        try:
+            # 2. Используем WordNetAPI для получения лучшей базовой формы
             if not self.wordnet_api:
-                from games.analyze.wordnet_api import get_wordnet_api
                 self.wordnet_api = get_wordnet_api(verbose=self.verbose)
 
-            word_lower = word.lower()
-
-            if self.verbose:
-                self.stdout.write(f"\n        🔍 Анализ отдельного слова '{word_lower}':")
-
-            # Используем тот же метод, что и при анализе текста
             base_form = self.wordnet_api.get_best_base_form(word_lower)
 
             if self.verbose:
@@ -162,89 +83,13 @@ class Command(BaseCommand):
                 self.stdout.write(f"        Ошибка: {e}")
             return word.lower()
 
-    def _are_semantically_related(self, word1: str, word2: str) -> bool:
-        """
-        Проверяет семантическую связанность двух слов через WordNet
-        """
-        try:
-            from nltk.corpus import wordnet as wn
-            from nltk.stem import PorterStemmer
-
-            word1_lower = word1.lower()
-            word2_lower = word2.lower()
-
-            # Если слова совпадают - они связаны
-            if word1_lower == word2_lower:
-                return True
-
-            # Проверяем через стемминг (safe vs safety)
-            stemmer = PorterStemmer()
-            if stemmer.stem(word1_lower) == stemmer.stem(word2_lower):
-                return True
-
-            # Проверяем через WordNet синонимы и гипонимы
-            synsets1 = wn.synsets(word1_lower)
-            synsets2 = wn.synsets(word2_lower)
-
-            if not synsets1 or not synsets2:
-                return False
-
-            # Проверяем path similarity
-            for s1 in synsets1:
-                for s2 in synsets2:
-                    try:
-                        path_sim = s1.path_similarity(s2)
-                        if path_sim and path_sim >= self.PATH_SIMILARITY_THRESHOLD:
-                            return True
-
-                        wup_sim = s1.wup_similarity(s2)
-                        if wup_sim and wup_sim >= self.WUP_SIMILARITY_THRESHOLD:
-                            return True
-                    except:
-                        continue
-
-            return False
-
-        except Exception as e:
-            if self.verbose:
-                self.stdout.write(f"Ошибка в _are_semantically_related: {e}")
-            return False
-
-    def _should_normalize(self, word: str, base_form: str) -> bool:
-        """
-        Определяет, нужно ли нормализовать слово
-        """
-        if word == base_form:
-            return False
-
-        # Не нормализуем игровые термины
-        if self._is_gaming_term(word):
-            if self.verbose:
-                self.stdout.write(f"   ⏺️ Игровой термин: '{word}'")
-            return False
-
-        # Не нормализуем короткие слова
-        if self._is_short_word(word):
-            if self.verbose:
-                self.stdout.write(f"   ⏺️ Короткое слово: '{word}'")
-            return False
-
-        # Проверяем семантическую связанность
-        if not self._are_semantically_related(word, base_form):
-            if self.verbose:
-                self.stdout.write(f"   ⏺️ Нет семантической связи: '{word}' -> '{base_form}'")
-            return False
-
-        return True
-
     def handle(self, *args, **options):
         dry_run = options['dry_run']
         self.verbose = options['verbose']
         limit = options['limit']
-        batch_size = options['batch_size']
 
         self.stdout.write("=" * 70)
-        self.stdout.write(self.style.SUCCESS("НОРМАЛИЗАЦИЯ КЛЮЧЕВЫХ СЛОВ"))
+        self.stdout.write(self.style.SUCCESS("НОРМАЛИЗАЦИЯ КЛЮЧЕВЫХ СЛОВ (Упрощенная)"))
         self.stdout.write("=" * 70)
 
         if dry_run:
@@ -276,7 +121,6 @@ class Command(BaseCommand):
             'normalized': 0,
             'skipped_gaming': 0,
             'skipped_short': 0,
-            'skipped_no_semantic': 0,
             'errors': 0
         }
 
@@ -287,9 +131,20 @@ class Command(BaseCommand):
             for keyword in keywords:
                 try:
                     original_name = keyword.name
+                    original_lower = original_name.lower()
+
+                    # Пропускаем короткие слова
+                    if self._is_short_word(original_lower):
+                        stats['skipped_short'] += 1
+                        stats['processed'] += 1
+                        pbar.update(1)
+                        continue
+
+                    # Получаем базовую форму
                     base_form = self._get_base_form(original_name)
 
-                    if self._should_normalize(original_name, base_form):
+                    # Проверяем, нужно ли обновить
+                    if base_form != original_lower and not self._is_gaming_term(original_lower):
                         stats['normalized'] += 1
                         changes.append({
                             'id': keyword.id,
@@ -303,14 +158,9 @@ class Command(BaseCommand):
 
                         if self.verbose:
                             self.stdout.write(f"   ✅ {original_name} -> {base_form}")
-
                     else:
-                        if original_name.lower() != base_form:
-                            stats['skipped_no_semantic'] += 1
-                        elif self._is_gaming_term(original_name):
+                        if self._is_gaming_term(original_lower):
                             stats['skipped_gaming'] += 1
-                        elif self._is_short_word(original_name):
-                            stats['skipped_short'] += 1
 
                     stats['processed'] += 1
                     pbar.update(1)
@@ -328,14 +178,13 @@ class Command(BaseCommand):
         self.stdout.write(f"✅ Нормализовано: {stats['normalized']}")
         self.stdout.write(f"⏺️ Пропущено (игровые термины): {stats['skipped_gaming']}")
         self.stdout.write(f"⏺️ Пропущено (короткие слова): {stats['skipped_short']}")
-        self.stdout.write(f"⏺️ Пропущено (нет семантики): {stats['skipped_no_semantic']}")
         self.stdout.write(f"❌ Ошибок: {stats['errors']}")
 
         if changes and self.verbose:
             self.stdout.write("\n" + "=" * 70)
             self.stdout.write(self.style.SUCCESS("ИЗМЕНЕНИЯ"))
             self.stdout.write("=" * 70)
-            for change in changes[:20]:  # Показываем первые 20
+            for change in changes[:20]:
                 self.stdout.write(f"  {change['old']} -> {change['new']}")
             if len(changes) > 20:
                 self.stdout.write(f"  ... и еще {len(changes) - 20} изменений")

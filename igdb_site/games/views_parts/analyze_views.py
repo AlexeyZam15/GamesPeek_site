@@ -4172,35 +4172,31 @@ def normalize_keyword(request: HttpRequest):
         if not word:
             return JsonResponse({'success': False, 'message': 'Please enter a word to normalize'})
 
-        # Используем команду normalize_keywords для последовательной логики
-        from games.management.commands.normalize_keywords import Command as NormalizeCommand
+        # Используем WordNetAPI напрямую для нормализации
+        from games.analyze.wordnet_api import get_wordnet_api
 
-        # Создаем экземпляр команды
-        normalize_cmd = NormalizeCommand()
+        # Получаем API
+        wordnet_api = get_wordnet_api(verbose=True)
 
-        # Включаем verbose для отладки (можно убрать в production)
-        normalize_cmd.verbose = True
+        # Проверяем доступность
+        if not wordnet_api.is_available():
+            return JsonResponse({
+                'success': False,
+                'message': 'WordNet API is not available'
+            })
 
-        # Получаем базовую форму через метод команды
-        base_form = normalize_cmd._get_base_form(word)
-
-        # Проверяем семантическую связь (для отладки)
-        are_related = normalize_cmd._are_semantically_related(word, base_form)
-        should_normalize = normalize_cmd._should_normalize(word, base_form)
+        # Получаем базовую форму через API
+        base_form = wordnet_api.get_best_base_form(word)
 
         # Для отладки выводим информацию
         print(f"\n=== НОРМАЛИЗАЦИЯ СЛОВА '{word}' ===")
         print(f"Базовая форма: '{base_form}'")
-        print(f"Семантическая связь: {are_related}")
-        print(f"Нужно нормализовать: {should_normalize}")
 
         # Формируем сообщение
-        if should_normalize:
-            message = f'Нормализованная форма: "{base_form}"'
-        elif word.lower() == base_form.lower():
+        if word.lower() == base_form.lower():
             message = f'Слово уже в базовой форме: "{word}"'
         else:
-            message = f'Слово "{word}" не нормализуется (нет семантической связи)'
+            message = f'Нормализованная форма: "{base_form}"'
 
         return JsonResponse({
             'success': True,
