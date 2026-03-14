@@ -235,91 +235,59 @@ class TextAnalyzer:
         if existing_game and exclude_existing:
             existing_keyword_ids = set(existing_game.keywords.values_list('id', flat=True))
 
-        # БЫСТРЫЙ ПОИСК через Trie с улучшенной логикой
-        if self.verbose:
-            print(f"🔍 Поиск ключевых слов в тексте ({len(text)} символов)...")
-
-        # Шаг 1: Поиск через Trie (обычные слова)
+        # Поиск через Trie
         trie_results = self._trie.find_all_in_text(text, unique_only=False)
-
-        if self.verbose:
-            print(f"✅ Найдено {len(trie_results)} совпадений за {(time.time() - start_time) * 1000:.1f}ms")
-
-        # Шаг 2: Поиск в составных словах через дефис
-        hyphenated_results = self._find_keywords_in_hyphenated_words(
-            text,
-            self._trie.keywords_cache,
-            existing_keyword_ids
-        )
-
-        # Объединяем результаты
-        all_results = trie_results + hyphenated_results
 
         # Фильтруем по существующим
         filtered_results = []
-        for result in all_results:
+        for result in trie_results:
             if result['id'] not in existing_keyword_ids:
                 filtered_results.append(result)
 
-        # Группируем уникальные ключевые слова ДЛЯ ДОБАВЛЕНИЯ
+        # Группируем уникальные ключевые слова
         unique_keywords = {}
         pattern_info = []
 
         for result in filtered_results:
             kw_id = result['id']
+            # ВАЖНО: используем оригинальный текст из result
+            matched_text = result['text']
+            position = result['position']
+            matched_lemma = result.get('matched_lemma', matched_text)
 
-            # Для добавления - только уникальные
             if kw_id not in unique_keywords:
-                # Получаем объект Keyword
                 keyword_data = self._trie.keywords_cache.get(kw_id)
                 if keyword_data:
                     unique_keywords[kw_id] = {
                         'id': kw_id,
                         'name': keyword_data['name'],
-                        'count': 0,
-                        'positions': [],
-                        'texts': []
+                        'count': 0
                     }
 
-            # Собираем все вхождения для подсветки
             if kw_id in unique_keywords:
                 unique_keywords[kw_id]['count'] += 1
-                unique_keywords[kw_id]['positions'].append(result['position'])
-                unique_keywords[kw_id]['texts'].append(result['text'])
 
-        # Собираем объекты Keyword ДЛЯ ДОБАВЛЕНИЯ
+                if collect_patterns:
+                    context = self._get_context(text, position, position + len(matched_text))
+
+                    pattern_info.append({
+                        'name': unique_keywords[kw_id]['name'],
+                        'status': 'found',
+                        'matched_text': matched_text,  # Оригинальный текст!
+                        'position': position,
+                        'matched_lemma': matched_lemma,
+                        'context': context,
+                        'keyword_id': kw_id
+                    })
+
+        # Собираем объекты Keyword
         found_keywords = []
-        for kw_id, kw_data in unique_keywords.items():
+        for kw_id in unique_keywords:
             try:
                 kw_obj = Keyword.objects.get(id=kw_id)
                 found_keywords.append(kw_obj)
-
-                if collect_patterns:
-                    # Добавляем информацию о ВСЕХ совпадениях для подсветки
-                    for pos, txt in zip(kw_data['positions'], kw_data['texts']):
-                        pattern_info.append({
-                            'name': kw_data['name'],
-                            'status': 'found',
-                            'pattern': 'exact_match',
-                            'matched_text': txt,
-                            'position': pos,
-                            'matched_word': txt,
-                            'context': self._get_context(text, pos, pos + len(txt)),
-                            'keyword_id': kw_id,
-                            'count': kw_data['count'],
-                            'is_hyphenated_part': result.get('is_hyphenated_part', False)
-                        })
             except Keyword.DoesNotExist:
                 continue
-
-        processing_time = time.time() - start_time
-
-        if self.verbose:
-            print(f"⚡ Быстрый анализ ключевых слов завершен за {processing_time:.3f} секунд")
-            print(f"📊 Найдено уникальных ключевых слов: {len(found_keywords)}")
-            print(f"📊 Найдено всего вхождений: {len(filtered_results)}")
-            if hyphenated_results:
-                print(f"📊 Из них в составных словах: {len(hyphenated_results)}")
 
         return {'keywords': found_keywords}, {'keywords': pattern_info}
 
@@ -711,6 +679,7 @@ class TextAnalyzer:
         if self.verbose:
             print(f"⚡ Комплексный анализ завершен за {processing_time:.2f}s")
             print(f"📊 Найдено элементов: {total_found}, совпадений: {total_matches}")
+            print(f"📊 Pattern info keywords: {len(pattern_info.get('keywords', []))}")
             if exclude_existing:
                 print(f"🚫 Режим: исключать существующие критерии")
 
