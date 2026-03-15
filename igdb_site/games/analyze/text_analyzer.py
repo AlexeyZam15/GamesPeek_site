@@ -63,15 +63,16 @@ class TextAnalyzer:
         trie_results = self._trie.find_all_in_text(text, unique_only=False)
 
         # ПРИНУДИТЕЛЬНЫЙ ВЫВОД В КОНСОЛЬ
-        import sys
-        sys.stderr.write(f"\n=== ОТЛАДКА _analyze_keywords_for_game ===\n")
-        sys.stderr.write(f"Игра ID: {existing_game.id if existing_game else 'unknown'}\n")
-        sys.stderr.write(f"Длина текста: {len(text)}\n")
-        sys.stderr.write(f"Всего совпадений в тексте: {len(trie_results)}\n")
-        for r in trie_results:
-            sys.stderr.write(f"  - ID: {r['id']}, текст: '{r['text']}', позиция: {r['position']}\n")
-        sys.stderr.write("=" * 50 + "\n")
-        sys.stderr.flush()
+        if self.debug:
+            import sys
+            sys.stderr.write(f"\n=== ОТЛАДКА _analyze_keywords_for_game ===\n")
+            sys.stderr.write(f"Игра ID: {existing_game.id if existing_game else 'unknown'}\n")
+            sys.stderr.write(f"Длина текста: {len(text)}\n")
+            sys.stderr.write(f"Всего совпадений в тексте: {len(trie_results)}\n")
+            for r in trie_results:
+                sys.stderr.write(f"  - ID: {r['id']}, текст: '{r['text']}', позиция: {r['position']}\n")
+            sys.stderr.write("=" * 50 + "\n")
+            sys.stderr.flush()
 
         # Фильтруем по существующим у игры
         filtered_results = []
@@ -164,10 +165,12 @@ class TextAnalyzer:
         # Прямой поиск через Trie - используем тот же метод, что и в тесте
         trie_results = self._trie.find_all_in_text(text, unique_only=False)
 
-        print(f"\n=== DEBUG _analyze_keywords_for_highlight ===")
-        print(f"Всего найдено вхождений в тексте: {len(trie_results)}")
-        for r in trie_results:
-            print(f"  - ID: {r['id']}, текст: '{r['text']}', позиция: {r['position']}")
+        # ИСПРАВЛЕНИЕ: Отладочный вывод только если включен self.debug
+        if self.debug:
+            print(f"\n=== DEBUG _analyze_keywords_for_highlight ===")
+            print(f"Всего найдено вхождений в тексте: {len(trie_results)}")
+            for r in trie_results:
+                print(f"  - ID: {r['id']}, текст: '{r['text']}', позиция: {r['position']}")
 
         # Собираем уникальные ключевые слова для добавления
         found_keywords = []
@@ -206,9 +209,10 @@ class TextAnalyzer:
                 except Keyword.DoesNotExist:
                     continue
 
-        print(f"Создано pattern_info: {len(pattern_info)} записей")
-        print(f"Найдено уникальных ключевых слов для добавления: {len(found_keywords)}")
-        print("=" * 50)
+        if self.debug:
+            print(f"Создано pattern_info: {len(pattern_info)} записей")
+            print(f"Найдено уникальных ключевых слов для добавления: {len(found_keywords)}")
+            print("=" * 50)
 
         return {'keywords': found_keywords}, {'keywords': pattern_info}
 
