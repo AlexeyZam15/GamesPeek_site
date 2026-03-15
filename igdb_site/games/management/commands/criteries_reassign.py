@@ -392,6 +392,9 @@ class Command(BaseCommand):
             'sandbox': 'Sandbox',
             'survival': 'Survival',
             'real-time combat': 'Real-time Combat',
+            'base building': 'Base Building',
+            'simulator': 'Simulator',
+            'squad management': 'Squad Management',
         }
 
     def get_keyword_to_theme_mapping(self):
