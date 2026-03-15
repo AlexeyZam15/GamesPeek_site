@@ -98,7 +98,7 @@ class KeywordTrie:
         """
         Находит ключевые слова в тексте используя лемматизацию каждого слова
         и derivationally related forms из WordNetAPI
-        ИСПРАВЛЕНО: добавлен поиск фраз из двух слов с лемматизацией второго слова
+        ИСПРАВЛЕНО: всё приводится к нижнему регистру для поиска
         """
         wordnet_api = self._ensure_wordnet()
 
@@ -108,11 +108,10 @@ class KeywordTrie:
         try:
             text_lower = text.lower()
 
-            # Создаем структуры для быстрого поиска
-            keyword_bases = {}  # базовые формы -> id
+            # Создаем структуры для быстрого поиска - ТОЛЬКО ОРИГИНАЛЬНЫЕ ключевые слова
             exact_phrases = {}  # точные фразы с пробелами -> id
             hyphenated_keywords = {}  # составные слова с дефисом -> id
-            two_word_phrases = {}  # ДВУХСЛОВНЫЕ ФРАЗЫ ДЛЯ ЛЕММАТИЗАЦИИ
+            two_word_phrases = {}  # ДВУХСЛОВНЫЕ ФРАЗЫ
             all_keywords = {}  # все ключевые слова (оригинальные названия) -> id
 
             for kid, kdata in self.keywords_cache.items():
@@ -135,16 +134,6 @@ class KeywordTrie:
                 # Сохраняем составные слова с дефисом
                 if '-' in name_lower:
                     hyphenated_keywords[name_lower] = kid
-
-                # Получаем базовую форму через WordNet
-                base_form = wordnet_api.get_best_base_form(name_lower)
-                keyword_bases[base_form] = kid
-                keyword_bases[name_lower] = kid
-
-                # Получаем прямые деривации
-                derivations = wordnet_api.get_direct_derivations(name_lower)
-                for deriv in derivations:
-                    keyword_bases[deriv] = kid
 
             if self.verbose:
                 print(f"🔍 Загружено {len(all_keywords)} ключевых слов")
@@ -192,7 +181,7 @@ class KeywordTrie:
                                 'position': pos,
                                 'length': len(phrase),
                                 'text': original_text,
-                                'matched_lemma': phrase
+                                'matched_phrase': phrase
                             })
 
                             occupied_positions.append((pos, end_pos))
@@ -241,16 +230,16 @@ class KeywordTrie:
                                 'position': pos,
                                 'length': actual_end - pos,
                                 'text': original_text,
-                                'matched_lemma': hyphenated_word
+                                'matched_hyphenated': hyphenated_word
                             })
 
                             occupied_positions.append((pos, actual_end))
                             if self.verbose:
-                                print(f"  ✅ Найдено составное слово: '{original_text}' (основа '{hyphenated_word}')")
+                                print(f"  ✅ Найдено составное слово: '{original_text}'")
 
                     pos = end_pos
 
-            # ========== ПРИОРИТЕТ 3: Поиск двухсловных фраз с лемматизацией ==========
+            # ========== ПРИОРИТЕТ 3: Поиск двухсловных фраз с лемматизацией второго слова ==========
             if self.verbose:
                 print("\n🔍 ПРИОРИТЕТ 3: Поиск двухсловных фраз с лемматизацией")
 
@@ -345,49 +334,88 @@ class KeywordTrie:
                 if is_occupied:
                     continue
 
-                if len(word) < 3:
-                    continue
+                # Для коротких слов (2-3 буквы) не проверяем границы
+                if len(word) <= 3:
+                    # Просто проверяем точное совпадение
+                    if word in all_keywords:
+                        kid = all_keywords[word]
+                        keyword_data = self.keywords_cache[kid]
+                        original_text = text[start:end]
 
-                # Проверяем точное совпадение
-                if word in all_keywords:
-                    kid = all_keywords[word]
-                    keyword_data = self.keywords_cache[kid]
-                    original_text = text[start:end]
+                        results.append({
+                            'id': kid,
+                            'name': keyword_data['name'],
+                            'position': start,
+                            'length': len(word),
+                            'text': original_text,
+                            'matched_exact': word
+                        })
 
-                    results.append({
-                        'id': kid,
-                        'name': keyword_data['name'],
-                        'position': start,
-                        'length': len(word),
-                        'text': original_text,
-                        'matched_lemma': word
-                    })
+                        occupied_positions.append((start, end))
+                        if self.verbose:
+                            print(f"  ✅ Найдено короткое слово: '{original_text}'")
+                        continue
 
-                    occupied_positions.append((start, end))
-                    if self.verbose:
-                        print(f"  ✅ Найдено точное слово: '{original_text}'")
-                    continue
+                # Для длинных слов проверяем границы
+                else:
+                    # Проверяем границы
+                    is_valid = True
 
-                # Получаем базовую форму
-                base_form = wordnet_api.get_best_base_form(word)
+                    # Проверяем начало
+                    if start > 0:
+                        prev_char = text[start - 1]
+                        if prev_char.isalnum() and prev_char != '-':
+                            is_valid = False
 
-                if base_form in keyword_bases:
-                    kid = keyword_bases[base_form]
-                    keyword_data = self.keywords_cache[kid]
-                    original_text = text[start:end]
+                    # Проверяем конец
+                    if end < len(text):
+                        next_char = text[end]
+                        if next_char.isalnum() and next_char not in "s'-":
+                            is_valid = False
 
-                    results.append({
-                        'id': kid,
-                        'name': keyword_data['name'],
-                        'position': start,
-                        'length': len(word),
-                        'text': original_text,
-                        'matched_lemma': base_form
-                    })
+                    if not is_valid:
+                        continue
 
-                    occupied_positions.append((start, end))
-                    if self.verbose:
-                        print(f"  ✅ Найдено слово: '{original_text}' → '{base_form}'")
+                    # Проверяем точное совпадение
+                    if word in all_keywords:
+                        kid = all_keywords[word]
+                        keyword_data = self.keywords_cache[kid]
+                        original_text = text[start:end]
+
+                        results.append({
+                            'id': kid,
+                            'name': keyword_data['name'],
+                            'position': start,
+                            'length': len(word),
+                            'text': original_text,
+                            'matched_exact': word
+                        })
+
+                        occupied_positions.append((start, end))
+                        if self.verbose:
+                            print(f"  ✅ Найдено точное слово: '{original_text}'")
+                        continue
+
+                    # Если точного совпадения нет, пробуем нормализацию
+                    base_form = wordnet_api.get_best_base_form(word)
+
+                    if base_form in all_keywords:
+                        kid = all_keywords[base_form]
+                        keyword_data = self.keywords_cache[kid]
+                        original_text = text[start:end]
+
+                        results.append({
+                            'id': kid,
+                            'name': keyword_data['name'],
+                            'position': start,
+                            'length': len(word),
+                            'text': original_text,
+                            'matched_lemma': base_form
+                        })
+
+                        occupied_positions.append((start, end))
+                        if self.verbose:
+                            print(f"  ✅ Найдено слово через нормализацию: '{original_text}' → '{base_form}'")
 
             # Удаляем дубликаты если нужно
             if unique_only:
@@ -405,6 +433,27 @@ class KeywordTrie:
             if self.verbose:
                 print(f"⚠️ Ошибка при поиске: {e}")
             raise
+
+    def _tokenize_text(self, text: str) -> List[Dict]:
+        """Разбивает текст на слова с позициями"""
+        words = []
+        i = 0
+        while i < len(text):
+            if not text[i].isalnum():
+                i += 1
+                continue
+
+            start = i
+            while i < len(text) and (text[i].isalnum() or text[i] == "'"):
+                i += 1
+
+            if i > start:
+                words.append({
+                    'word': text[start:i],
+                    'start': start,
+                    'end': i
+                })
+        return words
 
     def _add_result(self, results, found_keywords, keyword_id, position, text, lemma):
         """Добавляет результат в список"""
