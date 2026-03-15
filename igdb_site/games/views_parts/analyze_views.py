@@ -239,12 +239,16 @@ def add_keyword_ajax(request: HttpRequest, game_id: int):
 @login_required
 @user_passes_test(is_staff_or_superuser)
 def delete_keyword_ajax(request: HttpRequest, game_id: int):
-    """AJAX удаление ключевого слова из БД"""
+    """AJAX удаление ключевого слова из БД с прогресс-баром и расчётом времени"""
     if request.method != 'POST':
         return JsonResponse({'success': False, 'message': 'Invalid request method'}, status=405)
 
     try:
         import json
+        import sys
+        import time
+        from datetime import datetime, timedelta
+
         data = json.loads(request.body)
         keyword_name = data.get('keyword', '').strip()
 
@@ -296,9 +300,14 @@ def delete_keyword_ajax(request: HttpRequest, game_id: int):
 
             # Получаем все игры одним запросом
             games_to_update = Game.objects.filter(id__in=game_ids_with_keyword)
+            total_games = games_to_update.count()
 
+            # Инициализируем прогресс-бар и таймер
             updated_count = 0
-            for g in games_to_update:
+            bar_length = 30
+            start_time = time.time()
+
+            for i, g in enumerate(games_to_update, 1):
                 # Обновляем материализованный вектор keyword_ids
                 new_keyword_ids = list(g.keywords.values_list('igdb_id', flat=True))
 
@@ -309,9 +318,30 @@ def delete_keyword_ajax(request: HttpRequest, game_id: int):
                     g._cached_keyword_count = len(new_keyword_ids)
                     g.save(update_fields=['keyword_ids', '_cache_updated_at', '_cached_keyword_count'])
                     updated_count += 1
-                    print(f"  ✓ Игра {g.id}: обновлен вектор (теперь {len(new_keyword_ids)} ключевых слов)")
 
-            print(f"✓ Обновлены векторы для {updated_count} игр")
+                # Расчёт ETA
+                elapsed = time.time() - start_time
+                games_per_second = i / elapsed if elapsed > 0 else 0
+                eta_seconds = (total_games - i) / games_per_second if games_per_second > 0 else 0
+                eta = str(timedelta(seconds=int(eta_seconds)))
+
+                # Обновляем прогресс-бар
+                percent = i / total_games
+                filled_length = int(bar_length * percent)
+                bar = '█' * filled_length + '░' * (bar_length - filled_length)
+
+                # Выводим прогресс-бар в одну строку
+                sys.stdout.write(
+                    f'\r  Прогресс: |{bar}| {i}/{total_games} игр '
+                    f'({int(percent * 100)}%) | '
+                    f'⚡ {games_per_second:.1f} игр/сек | '
+                    f'⏱️ ETA: {eta}'
+                )
+                sys.stdout.flush()
+
+            # Переходим на новую строку после завершения
+            total_time = str(timedelta(seconds=int(time.time() - start_time)))
+            print(f"\n  ✓ Обновлены векторы для {updated_count} игр за {total_time}")
         else:
             print(f"✓ Нет игр для обновления")
 
