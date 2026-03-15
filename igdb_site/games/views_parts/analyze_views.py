@@ -239,7 +239,7 @@ def add_keyword_ajax(request: HttpRequest, game_id: int):
 @login_required
 @user_passes_test(is_staff_or_superuser)
 def delete_keyword_ajax(request: HttpRequest, game_id: int):
-    """AJAX удаление ключевого слова без перезагрузки страницы"""
+    """AJAX удаление ключевого слова из БД"""
     if request.method != 'POST':
         return JsonResponse({'success': False, 'message': 'Invalid request method'}, status=405)
 
@@ -248,47 +248,90 @@ def delete_keyword_ajax(request: HttpRequest, game_id: int):
         data = json.loads(request.body)
         keyword_name = data.get('keyword', '').strip()
 
+        print(f"\n=== УДАЛЕНИЕ КЛЮЧЕВОГО СЛОВА ИЗ БД ===")
+        print(f"Игра ID: {game_id}")
+        print(f"Искомое слово: '{keyword_name}'")
+
         if not keyword_name:
+            print(f"❌ Пустое ключевое слово")
             return JsonResponse({'success': False, 'message': 'Please enter a keyword'})
 
         game = get_object_or_404(Game, pk=game_id)
+        print(f"Игра: '{game.name}' (ID: {game.id})")
+
+        # Ищем ключевое слово в БД
+        from django.db.models import Q
+
+        # Пробуем найти точное совпадение
         keyword = Keyword.objects.filter(name__iexact=keyword_name).first()
 
         if not keyword:
+            print(f"⚠️ Точное совпадение не найдено, ищем по частичному совпадению...")
+            # Пробуем частичное совпадение
+            keyword = Keyword.objects.filter(name__icontains=keyword_name).first()
+
+        if not keyword:
+            print(f"❌ Ключевое слово '{keyword_name}' не найдено в БД")
             return JsonResponse({
                 'success': False,
                 'message': f'Keyword "{keyword_name}" not found in database'
             })
 
-        # Проверяем, есть ли ключевое слово у этой игры
-        if keyword not in game.keywords.all():
-            return JsonResponse({
-                'success': False,
-                'message': f'Keyword "{keyword_name}" is not associated with this game'
-            })
+        print(f"✅ Найдено ключевое слово: '{keyword.name}' (ID: {keyword.id})")
 
-        # Удаляем связь с игрой
-        game.keywords.remove(keyword)
+        # Получаем список ID всех игр, которые используют это ключевое слово ДО удаления
+        game_ids_with_keyword = list(keyword.game_set.values_list('id', flat=True))
+        print(f"📊 Ключевое слово используется в {len(game_ids_with_keyword)} играх")
 
-        # Обновляем кэш игры
-        game.update_cached_counts(force=True)
+        # Сохраняем популярность для ответа
+        popularity = len(game_ids_with_keyword)
 
-        # Получаем популярность (сколько игр используют это ключевое слово)
-        popularity = keyword.game_set.count()
+        # Удаляем ключевое слово из БД
+        keyword.delete()
+        print(f"✓ Ключевое слово удалено из БД")
+
+        # Обновляем векторы для ВСЕХ игр, которые использовали это ключевое слово
+        if game_ids_with_keyword:
+            print(f"🔄 Обновляем векторы для {len(game_ids_with_keyword)} игр...")
+
+            # Получаем все игры одним запросом
+            games_to_update = Game.objects.filter(id__in=game_ids_with_keyword)
+
+            updated_count = 0
+            for g in games_to_update:
+                # Обновляем материализованный вектор keyword_ids
+                new_keyword_ids = list(g.keywords.values_list('igdb_id', flat=True))
+
+                # Проверяем, изменились ли данные
+                if set(new_keyword_ids) != set(g.keyword_ids or []):
+                    g.keyword_ids = new_keyword_ids
+                    g._cache_updated_at = timezone.now()
+                    g._cached_keyword_count = len(new_keyword_ids)
+                    g.save(update_fields=['keyword_ids', '_cache_updated_at', '_cached_keyword_count'])
+                    updated_count += 1
+                    print(f"  ✓ Игра {g.id}: обновлен вектор (теперь {len(new_keyword_ids)} ключевых слов)")
+
+            print(f"✓ Обновлены векторы для {updated_count} игр")
+        else:
+            print(f"✓ Нет игр для обновления")
+
+        print(f"✅ Готово\n")
 
         return JsonResponse({
             'success': True,
-            'message': f'Keyword "{keyword_name}" removed from game',
+            'message': f'Keyword "{keyword_name}" deleted successfully',
             'keyword': {
                 'id': keyword.id,
                 'name': keyword.name
             },
             'popularity': popularity,
-            'still_exists_in_db': popularity > 0
+            'still_exists_in_db': False
         })
 
     except Exception as e:
         print(f"✗ ОШИБКА удаления ключевого слова: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return JsonResponse({
             'success': False,
             'message': f'Error deleting keyword: {str(e)}'
@@ -1244,6 +1287,8 @@ def _handle_analyze_request(request: HttpRequest, game: Game, original_descripti
     return _redirect_to_tab(game.id, active_tab)
 
 
+@login_required
+@user_passes_test(is_staff_or_superuser)
 def delete_keyword(request: HttpRequest, game_id: int):
     """Обработка удаления ключевого слова (старый метод - только для обратной совместимости)"""
     if request.method != 'POST':
@@ -1278,8 +1323,16 @@ def delete_keyword(request: HttpRequest, game_id: int):
         # Удаляем связь с игрой
         game.keywords.remove(keyword)
 
-        # Обновляем кэш игры
+        # Обновляем кэш и материализованные векторы для этой игры
         game.update_cached_counts(force=True)
+
+        # Обновляем keyword_ids (материализованный вектор)
+        new_keyword_ids = list(game.keywords.values_list('igdb_id', flat=True))
+        game.keyword_ids = new_keyword_ids
+        game._cache_updated_at = timezone.now()
+        game.save(update_fields=['keyword_ids', '_cache_updated_at', '_cached_keyword_count'])
+
+        print(f"✓ Обновлен вектор для игры {game.id}: keyword_ids = {new_keyword_ids}")
 
         # УБИРАЕМ весь автоанализ
         # Даже если auto_analyze=True - игнорируем
@@ -1316,124 +1369,6 @@ def get_current_keywords(request: HttpRequest, game_id: int):
             'success': False,
             'message': f'Error getting keywords: {str(e)}'
         })
-
-
-@login_required
-@user_passes_test(is_staff_or_superuser)
-def delete_keyword(request: HttpRequest, game_id: int):
-    if request.method != 'POST':
-        return JsonResponse({'success': False, 'message': 'Invalid request method'}, status=405)
-
-    try:
-        import json
-        data = json.loads(request.body)
-        keyword_name = data.get('keyword', '').strip()
-        tab = data.get('tab', 'summary')
-        auto_analyze = data.get('auto_analyze', False)
-
-        if not keyword_name:
-            return JsonResponse({'success': False, 'message': 'Please enter a keyword'})
-
-        keyword = Keyword.objects.filter(name__iexact=keyword_name).first()
-
-        if not keyword:
-            return JsonResponse({
-                'success': False,
-                'message': f'Keyword "{keyword_name}" not found in database'
-            })
-
-        # Получаем список ID всех игр, которые используют это ключевое слово
-        game_ids_with_keyword = list(keyword.game_set.values_list('id', flat=True))
-
-        # Сохраняем популярность (сколько игр используют этот ключевое слово)
-        popularity = len(game_ids_with_keyword)
-
-        print(f"\n--- Удаление ключевого слова: {keyword_name} (ID: {keyword.id}) ---")
-        print(f"Затронуто игр: {popularity}")
-
-        # Удаляем ключевое слово из базы данных
-        keyword.delete()
-        print(f"✓ Ключевое слово удалено из БД")
-
-        # ВАЖНОЕ ИСПРАВЛЕНИЕ: Очищаем кэш Trie после удаления ключевого слова
-        from games.analyze.keyword_trie import KeywordTrieManager
-        KeywordTrieManager().clear_cache()
-        print(f"✓ Кэш Trie очищен")
-
-        # Обновляем кэш и материализованные векторы для ВСЕХ игр, которые использовали это ключевое слово
-        if game_ids_with_keyword:
-            # Оптимизация: Используем bulk_update для массового обновления
-            games_to_update = []
-
-            # Получаем все игры одним запросом
-            games = Game.objects.filter(id__in=game_ids_with_keyword).prefetch_related('keywords')
-
-            for game in games:
-                # Пересчитываем количество ключевых слов
-                keyword_count = game.keywords.count()
-
-                # ВАЖНО: Обновляем материализованный вектор keyword_ids
-                # Получаем актуальные ID ключевых слов
-                new_keyword_ids = list(game.keywords.values_list('igdb_id', flat=True))
-
-                # Проверяем, изменились ли данные
-                needs_update = (
-                        game._cached_keyword_count != keyword_count or
-                        set(new_keyword_ids) != set(game.keyword_ids or [])
-                )
-
-                if needs_update:
-                    # Обновляем кэшированные счетчики
-                    game._cached_keyword_count = keyword_count
-                    game._cache_updated_at = timezone.now()
-
-                    # Обновляем материализованный вектор
-                    game.keyword_ids = new_keyword_ids
-
-                    games_to_update.append(game)
-
-            # Массовое обновление
-            if games_to_update:
-                Game.objects.bulk_update(
-                    games_to_update,
-                    ['_cached_keyword_count', '_cache_updated_at', 'keyword_ids'],
-                    batch_size=100
-                )
-                print(f"✓ Обновлены векторы для {len(games_to_update)} игр")
-            else:
-                print(f"✓ Игры не требуют обновления")
-        else:
-            print(f"✓ Нет игр для обновления")
-
-        response_data = {
-            'success': True,
-            'message': f'Keyword "{keyword_name}" deleted successfully',
-            'popularity': popularity
-        }
-
-        # ВАЖНОЕ ИСПРАВЛЕНИЕ: Добавляем флаг для автоматического анализа
-        if auto_analyze:
-            response_data['analyze_after_delete'] = True
-            response_data['tab'] = tab
-            response_data['message'] += ' и выполняется повторный анализ текста'
-
-            # Сохраняем в сессии информацию для выполнения анализа
-            request.session[f'auto_analyze_after_delete_{game_id}'] = {
-                'tab': tab,
-                'keyword_deleted': keyword_name
-            }
-            print(f"✓ Запланирован автоанализ для игры {game_id}")
-
-        print(f"✓ Готово\n")
-        return JsonResponse(response_data)
-
-    except Exception as e:
-        print(f"✗ ОШИБКА: {str(e)}")
-        return JsonResponse({
-            'success': False,
-            'message': f'Error deleting keyword: {str(e)}'
-        })
-
 
 @login_required
 @user_passes_test(is_staff_or_superuser)

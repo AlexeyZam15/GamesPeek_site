@@ -216,103 +216,97 @@ class WordNetAPI:
 
         return False
 
+    def _check_exceptions(self, word: str) -> tuple:
+        """
+        Проверяет, является ли слово исключением.
+
+        Returns:
+            tuple: (is_exception, base_form)
+        """
+        word_lower = word.lower()
+
+        exceptions = {
+            # Раны/травмы
+            'wound': 'wound',
+            'wounded': 'wound',
+            'wounds': 'wound',
+
+            # Боссы/враги
+            'boss': 'boss',
+            'bosses': 'boss',
+
+            # Игровые термины
+            'stats': 'stats',
+            'stat': 'stats',
+            'stamina': 'stamina',
+        }
+
+        if word_lower in exceptions:
+            return True, exceptions[word_lower]
+
+        return False, word
+
     @lru_cache(maxsize=2000)
     def get_best_base_form(self, word: str) -> str:
         """
-        Определяет наилучшую базовую форму слова или фразы.
+        Определяет базовую форму слова используя WordNet.
 
-        Стратегия:
-        1. Для фраз с пробелами: разбиваем на слова и нормализуем каждое отдельно
-        2. Для слов с дефисом: обрабатываем каждую часть отдельно
-        3. Сначала проверяем прямые деривации (trader → trade)
-        4. Если нет, используем самую короткую лемму
-        5. Если ничего не подходит, возвращаем исходное слово/фразу
+        Для глаголов: возвращает инфинитив
+        Для существительных: возвращает единственное число
+        Для прилагательных: возвращает базовую форму
 
         Args:
-            word: Слово или фраза для нормализации
+            word: Слово для нормализации (может содержать кавычки)
 
         Returns:
-            Базовая форма слова или фразы
+            Базовая форма слова без кавычек
         """
         if not self.is_available() or len(word) < 3:
             return word.lower()
 
+        # Сохраняем оригинал для вывода
+        original = word
+
+        # Убираем все виды кавычек из слова
+        import re
+        word = re.sub(r'["\']', '', word)
         word_lower = word.lower()
 
-        # ИСПРАВЛЕНИЕ 1: Обработка фраз с пробелами
-        if ' ' in word_lower:
-            parts = word_lower.split()
+        if self.verbose and original != word:
+            print(f"   Убраны кавычки: {original} → {word}")
+
+        # Если после удаления кавычек слово изменилось, возвращаем его как базовую форму
+        if original != word:
+            return word_lower
+
+        # Проверяем исключения
+        is_exception, base_form = self._check_exceptions(word)
+        if is_exception:
             if self.verbose:
-                print(f"   Обнаружена фраза из {len(parts)} слов: {parts}")
+                print(f"   Исключение: {word_lower} → {base_form}")
+            return base_form
 
-            # Обрабатываем каждое слово отдельно
-            normalized_parts = []
-            for i, part in enumerate(parts):
-                if len(part) >= 3:
-                    # Рекурсивно обрабатываем каждое слово
-                    normalized_part = self.get_best_base_form(part)
-                    normalized_parts.append(normalized_part)
-                else:
-                    normalized_parts.append(part)
-
-            # Собираем обратно через пробел
-            result = ' '.join(normalized_parts)
-            if result != word_lower:
+        # Сначала проверяем, есть ли слово в WordNet как существительное
+        if self.wordnet.synsets(word_lower, pos='n'):
+            noun_lemma = self.lemmatize(word_lower, pos='n')
+            if noun_lemma != word_lower:
                 if self.verbose:
-                    print(f"   Нормализовано через слова: {word_lower} → {result}")
-                return result
+                    print(f"   Лемматизация (существительное): {word_lower} → {noun_lemma}")
+                return noun_lemma
 
-        # ИСПРАВЛЕНИЕ 2: Обработка слов с дефисом
-        if '-' in word_lower:
-            parts = word_lower.split('-')
-            if self.verbose:
-                print(f"   Обнаружен дефис: {parts}")
+        # Пробуем другие части речи
+        for pos, pos_name in [('v', 'глагол'), ('n', 'существительное'), ('a', 'прилагательное'), ('r', 'наречие')]:
+            if pos == 'n' and self.wordnet.synsets(word_lower, pos='n'):
+                continue
 
-            # Обрабатываем каждую часть отдельно
-            normalized_parts = []
-            for part in parts:
-                if len(part) >= 3:
-                    # Рекурсивно обрабатываем каждую часть
-                    normalized_part = self.get_best_base_form(part)
-                    normalized_parts.append(normalized_part)
-                else:
-                    normalized_parts.append(part)
-
-            # Собираем обратно с дефисом
-            result = '-'.join(normalized_parts)
-            if result != word_lower:
-                if self.verbose:
-                    print(f"   Нормализовано через части: {word_lower} → {result}")
-                return result
-
-        # 1. Проверяем прямые деривации
-        derivations = self.get_direct_derivations(word_lower)
-
-        # Сортируем деривации: сначала те, которые являются подстрокой исходного слова
-        good_derivations = [d for d in derivations if d in word_lower and len(d) < len(word_lower)]
-        if good_derivations:
-            good_derivations.sort(key=len)  # самые короткие первыми
-            if self.verbose:
-                print(f"   Найдена прямая деривация: {word_lower} → {good_derivations[0]}")
-            return good_derivations[0]
-
-        # 2. Пробуем лемматизацию
-        candidates = []
-        for pos in ['v', 'n', 'a', 'r']:
             lemma = self.lemmatize(word_lower, pos=pos)
-            candidates.append(lemma)
-
-        # Убираем дубликаты и сортируем по длине
-        unique_candidates = list(set(candidates))
-        unique_candidates.sort(key=len)
-
-        # Выбираем самую короткую лемму
-        if unique_candidates and unique_candidates[0] != word_lower:
-            if self.verbose:
-                print(f"   Лемматизация: {word_lower} → {unique_candidates[0]}")
-            return unique_candidates[0]
+            if lemma != word_lower:
+                if self.verbose:
+                    print(f"   Лемматизация ({pos_name}): {word_lower} → {lemma}")
+                return lemma
 
         return word_lower
+
 
     def clear_cache(self):
         """Очищает все кэши WordNet"""
