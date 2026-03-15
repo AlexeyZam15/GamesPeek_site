@@ -239,7 +239,7 @@ def add_keyword_ajax(request: HttpRequest, game_id: int):
 @login_required
 @user_passes_test(is_staff_or_superuser)
 def delete_keyword_ajax(request: HttpRequest, game_id: int):
-    """AJAX удаление ключевого слова из БД с прогресс-баром и расчётом времени"""
+    """AJAX удаление ключевого слова из БД с вызовом команды обновления векторов"""
     if request.method != 'POST':
         return JsonResponse({'success': False, 'message': 'Invalid request method'}, status=405)
 
@@ -248,6 +248,8 @@ def delete_keyword_ajax(request: HttpRequest, game_id: int):
         import sys
         import time
         from datetime import datetime, timedelta
+        from django.core.management import call_command
+        from io import StringIO
 
         data = json.loads(request.body)
         keyword_name = data.get('keyword', '').strip()
@@ -285,65 +287,53 @@ def delete_keyword_ajax(request: HttpRequest, game_id: int):
 
         # Получаем список ID всех игр, которые используют это ключевое слово ДО удаления
         game_ids_with_keyword = list(keyword.game_set.values_list('id', flat=True))
-        print(f"📊 Ключевое слово используется в {len(game_ids_with_keyword)} играх")
+        total_affected_games = len(game_ids_with_keyword)
+        print(f"📊 Ключевое слово используется в {total_affected_games} играх")
 
         # Сохраняем популярность для ответа
-        popularity = len(game_ids_with_keyword)
+        popularity = total_affected_games
 
         # Удаляем ключевое слово из БД
         keyword.delete()
         print(f"✓ Ключевое слово удалено из БД")
 
-        # Обновляем векторы для ВСЕХ игр, которые использовали это ключевое слово
-        if game_ids_with_keyword:
-            print(f"🔄 Обновляем векторы для {len(game_ids_with_keyword)} игр...")
+        # Запускаем команду обновления векторов, если были затронутые игры
+        if total_affected_games > 0:
+            print(f"\n🔄 Запуск обновления векторов для {total_affected_games} затронутых игр...")
 
-            # Получаем все игры одним запросом
-            games_to_update = Game.objects.filter(id__in=game_ids_with_keyword)
-            total_games = games_to_update.count()
-
-            # Инициализируем прогресс-бар и таймер
-            updated_count = 0
-            bar_length = 30
+            # Перехватываем вывод команды
+            output = StringIO()
             start_time = time.time()
 
-            for i, g in enumerate(games_to_update, 1):
-                # Обновляем материализованный вектор keyword_ids
-                new_keyword_ids = list(g.keywords.values_list('igdb_id', flat=True))
+            # Запускаем команду update_vectors
+            call_command('update_vectors', stdout=output, stderr=output)
 
-                # Проверяем, изменились ли данные
-                if set(new_keyword_ids) != set(g.keyword_ids or []):
-                    g.keyword_ids = new_keyword_ids
-                    g._cache_updated_at = timezone.now()
-                    g._cached_keyword_count = len(new_keyword_ids)
-                    g.save(update_fields=['keyword_ids', '_cache_updated_at', '_cached_keyword_count'])
-                    updated_count += 1
+            total_time = time.time() - start_time
 
-                # Расчёт ETA
-                elapsed = time.time() - start_time
-                games_per_second = i / elapsed if elapsed > 0 else 0
-                eta_seconds = (total_games - i) / games_per_second if games_per_second > 0 else 0
-                eta = str(timedelta(seconds=int(eta_seconds)))
+            # Получаем вывод команды
+            command_output = output.getvalue()
 
-                # Обновляем прогресс-бар
-                percent = i / total_games
-                filled_length = int(bar_length * percent)
-                bar = '█' * filled_length + '░' * (bar_length - filled_length)
+            # Выводим только ключевую информацию
+            print(f"  ✓ Команда update_vectors выполнена за {total_time:.2f} сек")
 
-                # Выводим прогресс-бар в одну строку
-                sys.stdout.write(
-                    f'\r  Прогресс: |{bar}| {i}/{total_games} игр '
-                    f'({int(percent * 100)}%) | '
-                    f'⚡ {games_per_second:.1f} игр/сек | '
-                    f'⏱️ ETA: {eta}'
-                )
-                sys.stdout.flush()
+            # Извлекаем статистику из вывода команды
+            import re
 
-            # Переходим на новую строку после завершения
-            total_time = str(timedelta(seconds=int(time.time() - start_time)))
-            print(f"\n  ✓ Обновлены векторы для {updated_count} игр за {total_time}")
+            # Ищем количество обновленных записей
+            updated_match = re.search(r'✅ Обновлено записей: (\d+)', command_output)
+            updated_count = updated_match.group(1) if updated_match else "?"
+
+            # Ищем статистику по ключевым словам
+            keywords_match = re.search(r'Ключевые слова: (\d+) игр имеют (\d+) связей', command_output)
+            if keywords_match:
+                games_with_keywords = keywords_match.group(1)
+                total_keyword_relations = keywords_match.group(2)
+                print(
+                    f"  ✓ После обновления: {games_with_keywords} игр имеют {total_keyword_relations} связей с ключевыми словами")
+
+            print(f"  ✓ Все векторы успешно обновлены")
         else:
-            print(f"✓ Нет игр для обновления")
+            print(f"✓ Нет игр для обновления векторов")
 
         print(f"✅ Готово\n")
 
@@ -355,7 +345,9 @@ def delete_keyword_ajax(request: HttpRequest, game_id: int):
                 'name': keyword.name
             },
             'popularity': popularity,
-            'still_exists_in_db': False
+            'still_exists_in_db': False,
+            'vectors_updated': total_affected_games > 0,
+            'affected_games': total_affected_games
         })
 
     except Exception as e:
