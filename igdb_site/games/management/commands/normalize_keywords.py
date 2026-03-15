@@ -1,17 +1,19 @@
 # games/management/commands/normalize_keywords.py
 """
-Команда для нормализации ключевых слов с использованием WordNetAPI.
+Команда для нормализации ключевых слов с использованием WordNetAPI и объединения дубликатов.
 Использует только методы из wordnet_api.py, не добавляя своей логики.
 """
 
 from django.core.management.base import BaseCommand
+from django.db import transaction
 from games.models import Keyword
 from games.analyze.wordnet_api import get_wordnet_api
 from tqdm import tqdm
+from collections import defaultdict
 
 
 class Command(BaseCommand):
-    help = 'Нормализует ключевые слова или показывает формы через WordNetAPI'
+    help = 'Нормализует ключевые слова, объединяет дубликаты и показывает формы через WordNetAPI'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -39,6 +41,16 @@ class Command(BaseCommand):
             '--check-db',
             action='store_true',
             help='Проверить наличие слов в базе данных (только с --words)',
+        )
+        parser.add_argument(
+            '--skip-merge',
+            action='store_true',
+            help='Пропустить объединение дубликатов (по умолчанию дубликаты объединяются)',
+        )
+        parser.add_argument(
+            '--merge-only',
+            action='store_true',
+            help='Только объединить дубликаты без нормализации',
         )
 
     def __init__(self, *args, **kwargs):
@@ -102,9 +114,17 @@ class Command(BaseCommand):
             for word in words:
                 exists = Keyword.objects.filter(name__iexact=word).exists()
                 if exists:
-                    kw = Keyword.objects.get(name__iexact=word)
-                    games_count = kw.game_set.count()
-                    self.stdout.write(f"📌 '{word}': ✅ ЕСТЬ в базе (ID: {kw.id}, игр: {games_count})")
+                    duplicates = Keyword.objects.filter(name__iexact=word)
+                    count = duplicates.count()
+                    if count > 1:
+                        kw = duplicates.first()
+                        games_count = kw.game_set.count()
+                        self.stdout.write(
+                            f"📌 '{word}': ✅ ЕСТЬ в базе (ID: {kw.id}, дубликатов: {count}, игр: {games_count})")
+                    else:
+                        kw = Keyword.objects.get(name__iexact=word)
+                        games_count = kw.game_set.count()
+                        self.stdout.write(f"📌 '{word}': ✅ ЕСТЬ в базе (ID: {kw.id}, игр: {games_count})")
                 else:
                     self.stdout.write(f"📌 '{word}': ❌ НЕТ в базе")
 
@@ -132,16 +152,125 @@ class Command(BaseCommand):
 
         self.stdout.write("\n" + "=" * 70)
 
+    def _merge_duplicate_keywords(self, dry_run=False):
+        """
+        Объединяет дубликаты ключевых слов с одинаковым именем (регистронезависимо)
+        """
+        self.stdout.write("\n" + "=" * 70)
+        self.stdout.write(self.style.SUCCESS("ОБЪЕДИНЕНИЕ ДУБЛИКАТОВ КЛЮЧЕВЫХ СЛОВ"))
+        self.stdout.write("=" * 70)
+
+        if dry_run:
+            self.stdout.write(self.style.WARNING("🔧 РЕЖИМ ПРОСМОТРА (без изменений)"))
+        self.stdout.write("")
+
+        # Находим все дубликаты по имени (регистронезависимо)
+        all_keywords = Keyword.objects.all()
+
+        # Группируем по нижнему регистру
+        groups = defaultdict(list)
+        for kw in all_keywords:
+            groups[kw.name.lower()].append(kw)
+
+        # Фильтруем только группы с дубликатами
+        duplicate_groups = {name: kws for name, kws in groups.items() if len(kws) > 1}
+
+        total_duplicate_groups = len(duplicate_groups)
+        total_duplicate_keywords = sum(len(kws) for kws in duplicate_groups.values())
+
+        self.stdout.write(f"📊 Найдено групп с дубликатами: {total_duplicate_groups}")
+        self.stdout.write(f"📊 Всего ключевых слов-дубликатов: {total_duplicate_keywords}")
+
+        if total_duplicate_groups == 0:
+            self.stdout.write(self.style.SUCCESS("✅ Дубликаты не найдены"))
+            return {'merged_groups': 0, 'merged_keywords': 0, 'deleted_keywords': 0}
+
+        stats = {
+            'merged_groups': 0,
+            'merged_keywords': 0,
+            'deleted_keywords': 0
+        }
+
+        # Сначала показываем список групп если нужно
+        if self.verbose and not dry_run:
+            self.stdout.write("\n📌 НАЙДЕННЫЕ ГРУППЫ ДУБЛИКАТОВ:")
+            self.stdout.write("-" * 50)
+            for name_lower, keywords in list(duplicate_groups.items())[:10]:
+                names = [f"'{kw.name}' (ID:{kw.id})" for kw in keywords]
+                self.stdout.write(f"  {name_lower}: {', '.join(names)}")
+            if len(duplicate_groups) > 10:
+                self.stdout.write(f"  ... и еще {len(duplicate_groups) - 10} групп")
+            self.stdout.write("")
+
+        # Обрабатываем каждую группу дубликатов
+        with tqdm(total=len(duplicate_groups), desc="Объединение дубликатов", disable=not self.verbose, position=0,
+                  leave=True) as pbar:
+            for name_lower, keywords in duplicate_groups.items():
+                # Сортируем по ID (оставляем наименьший ID как основной)
+                keywords.sort(key=lambda x: x.id)
+                main_keyword = keywords[0]
+                duplicates_to_merge = keywords[1:]
+
+                # В verbose режиме показываем детали, но без нарушения прогресс-бара
+                if self.verbose and pbar.n < 3:  # Показываем только первые 3 группы для примера
+                    pbar.write(
+                        f"  📌 Группа '{name_lower}': основной {main_keyword.name} (ID:{main_keyword.id}), дубликатов: {len(duplicates_to_merge)}")
+
+                if not dry_run:
+                    with transaction.atomic():
+                        # Переносим все связи с дубликатов на основной
+                        for dup in duplicates_to_merge:
+                            # Получаем все игры, связанные с дубликатом
+                            games_with_dup = list(dup.game_set.all())
+
+                            for game in games_with_dup:
+                                # Добавляем основной ключ, если его ещё нет
+                                if main_keyword not in game.keywords.all():
+                                    game.keywords.add(main_keyword)
+
+                            # Обновляем счётчик использования основного ключа
+                            main_keyword.update_cached_count(force=True)
+
+                            # Удаляем дубликат
+                            dup.delete()
+                            stats['deleted_keywords'] += 1
+
+                stats['merged_groups'] += 1
+                stats['merged_keywords'] += len(duplicates_to_merge)
+                pbar.update(1)
+
+        # Финальная статистика
+        self.stdout.write("\n" + "=" * 70)
+        self.stdout.write(self.style.SUCCESS("СТАТИСТИКА ОБЪЕДИНЕНИЯ"))
+        self.stdout.write("=" * 70)
+        self.stdout.write(f"📊 Обработано групп: {stats['merged_groups']}")
+        self.stdout.write(f"✅ Объединено ключевых слов: {stats['merged_keywords']}")
+        self.stdout.write(f"🗑️ Удалено дубликатов: {stats['deleted_keywords']}")
+
+        if dry_run:
+            self.stdout.write(self.style.WARNING("\n🔧 РЕЖИМ ПРОСМОТРА - изменения не сохранены"))
+        else:
+            self.stdout.write(self.style.SUCCESS(f"\n✅ Объединение завершено"))
+
+        return stats
+
     def handle(self, *args, **options):
         dry_run = options['dry_run']
         self.verbose = options['verbose']
         limit = options['limit']
         words = options.get('words')
         check_db = options.get('check_db', False)
+        skip_merge = options.get('skip_merge', False)
+        merge_only = options.get('merge_only', False)
 
         # Если указаны слова - показываем формы
         if words:
             self._show_word_forms(words, check_db)
+            return
+
+        # Если merge_only - только объединяем дубликаты без нормализации
+        if merge_only:
+            self._merge_duplicate_keywords(dry_run=dry_run)
             return
 
         self.stdout.write("=" * 70)
@@ -218,9 +347,9 @@ class Command(BaseCommand):
                     if self.verbose:
                         self.stdout.write(self.style.ERROR(f"❌ Ошибка: {keyword.name} - {e}"))
 
-        # Выводим статистику
+        # Выводим статистику нормализации
         self.stdout.write("\n" + "=" * 70)
-        self.stdout.write(self.style.SUCCESS("СТАТИСТИКА"))
+        self.stdout.write(self.style.SUCCESS("СТАТИСТИКА НОРМАЛИЗАЦИИ"))
         self.stdout.write("=" * 70)
         self.stdout.write(f"📊 Всего обработано: {stats['processed']}")
         self.stdout.write(f"✅ Нормализовано: {stats['normalized']}")
@@ -234,6 +363,52 @@ class Command(BaseCommand):
                 self.stdout.write(f"  {change['old']} -> {change['new']}")
             if len(changes) > 20:
                 self.stdout.write(f"  ... и еще {len(changes) - 20} изменений")
+
+        # После нормализации показываем информацию о дубликатах
+        if not skip_merge:
+            self.stdout.write("\n" + "=" * 70)
+            self.stdout.write(self.style.SUCCESS("ПРОВЕРКА ДУБЛИКАТОВ"))
+            self.stdout.write("=" * 70)
+
+            # Находим все дубликаты по имени (регистронезависимо)
+            all_keywords = Keyword.objects.all()
+
+            # Группируем по нижнему регистру
+            groups = defaultdict(list)
+            for kw in all_keywords:
+                groups[kw.name.lower()].append(kw)
+
+            # Фильтруем только группы с дубликатами
+            duplicate_groups = {name: kws for name, kws in groups.items() if len(kws) > 1}
+
+            total_duplicate_groups = len(duplicate_groups)
+            total_duplicate_keywords = sum(len(kws) for kws in duplicate_groups.values())
+
+            if total_duplicate_groups > 0:
+                self.stdout.write(f"\n📊 Найдено групп с дубликатами: {total_duplicate_groups}")
+                self.stdout.write(f"📊 Всего ключевых слов-дубликатов: {total_duplicate_keywords}")
+
+                if self.verbose:
+                    self.stdout.write("\n📌 ГРУППЫ ДУБЛИКАТОВ:")
+                    self.stdout.write("-" * 50)
+                    for name_lower, kws in list(duplicate_groups.items())[:10]:
+                        names = [f"'{kw.name}' (ID:{kw.id})" for kw in kws]
+                        self.stdout.write(f"  {name_lower}: {', '.join(names)}")
+                        # Показываем количество игр для каждого
+                        for kw in kws:
+                            games_count = kw.game_set.count()
+                            self.stdout.write(f"    ↳ игр: {games_count}")
+                    if len(duplicate_groups) > 10:
+                        self.stdout.write(f"  ... и еще {len(duplicate_groups) - 10} групп")
+
+                if dry_run:
+                    self.stdout.write(self.style.WARNING("\n🔧 РЕЖИМ ПРОСМОТРА - дубликаты НЕ будут объединены"))
+                    self.stdout.write("   Чтобы объединить дубликаты, запустите без --dry-run")
+                else:
+                    self.stdout.write("\n🔄 Автоматическое объединение дубликатов...")
+                    self._merge_duplicate_keywords(dry_run=False)
+            else:
+                self.stdout.write(self.style.SUCCESS("✅ Дубликаты не найдены"))
 
         if dry_run:
             self.stdout.write("\n" + self.style.WARNING("🔧 РЕЖИМ ПРОСМОТРА - изменения не сохранены"))
