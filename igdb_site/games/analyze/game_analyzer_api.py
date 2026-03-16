@@ -288,35 +288,40 @@ class GameAnalyzerAPI:
         self.verbose = False
 
         try:
-            if analyze_keywords:
-                if self.debug:
-                    import sys
-                    sys.stderr.write("→ вызываем analyze_comprehensive\n")
-                    sys.stderr.flush()
+            # ВСЕГДА используем analyze_comprehensive для получения pattern_info
+            if self.debug:
+                import sys
+                sys.stderr.write("→ вызываем analyze_comprehensive\n")
+                sys.stderr.flush()
 
-                analysis_result = self.text_analyzer.analyze_comprehensive(
-                    text=text,
-                    existing_game=existing_game,
-                    detailed_patterns=detailed_patterns,
-                    exclude_existing=exclude_existing
-                )
-                # Фильтруем только ключевые слова
-                if 'keywords' in analysis_result.get('results', {}):
-                    analysis_result['results'] = {'keywords': analysis_result['results']['keywords']}
-            else:
-                if self.debug:
-                    import sys
-                    sys.stderr.write("→ вызываем _analyze_criteria_only\n")
-                    sys.stderr.flush()
+            analysis_result = self.text_analyzer.analyze_comprehensive(
+                text=text,
+                existing_game=existing_game,
+                detailed_patterns=detailed_patterns,
+                exclude_existing=exclude_existing
+            )
 
-                analysis_result = self._analyze_criteria_only(
-                    text=text,
-                    existing_game=existing_game,
-                    detailed_patterns=detailed_patterns,
-                    exclude_existing=exclude_existing
-                )
+            # Если нужны только ключевые слова - фильтруем результаты
+            if analyze_keywords and 'keywords' in analysis_result.get('results', {}):
+                analysis_result['results'] = {'keywords': analysis_result['results']['keywords']}
+
+            # Если нужны только критерии - убираем ключевые слова из результатов
+            elif not analyze_keywords and 'keywords' in analysis_result.get('results', {}):
+                # Создаем копию results без keywords
+                filtered_results = {}
+                for key, value in analysis_result['results'].items():
+                    if key != 'keywords':
+                        filtered_results[key] = value
+                analysis_result['results'] = filtered_results
 
             processing_time = time.time() - start_time
+
+            # Получаем pattern_info из результата анализа
+            pattern_info = analysis_result.get('pattern_info', {})
+
+            # Убеждаемся, что pattern_info - это словарь
+            if not isinstance(pattern_info, dict):
+                pattern_info = {}
 
             # Формируем стандартизированный ответ
             response = {
@@ -330,6 +335,7 @@ class GameAnalyzerAPI:
                     'found_count': 0,
                     'has_results': False
                 }),
+                'pattern_info': pattern_info,  # Всегда словарь
                 'has_results': analysis_result.get('has_results', False),
                 'exclude_existing': exclude_existing,
                 'cached': False,
@@ -338,10 +344,6 @@ class GameAnalyzerAPI:
                 'analyzed_text': text
             }
 
-            # Добавляем информацию о паттернах если нужно
-            if detailed_patterns and 'pattern_info' in analysis_result:
-                response['pattern_info'] = analysis_result['pattern_info']
-
             # Добавляем ID игры
             if game_id:
                 response['game_id'] = game_id
@@ -349,6 +351,8 @@ class GameAnalyzerAPI:
             if self.debug:
                 import sys
                 sys.stderr.write(f"→ response keys: {list(response.keys())}\n")
+                sys.stderr.write(f"→ pattern_info type: {type(response['pattern_info'])}\n")
+                sys.stderr.write(f"→ pattern_info keys: {list(response['pattern_info'].keys())}\n")
                 sys.stderr.write(f"→ has_results: {response['has_results']}\n")
                 sys.stderr.flush()
 
