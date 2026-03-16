@@ -17,7 +17,7 @@
                 <div id="genres-content">
                     <!-- Активные жанры -->
                     <div id="active-genres" class="mb-2">
-                        {% if selected_genres %}
+                        {% if similarity_selected_genres %}
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <div class="d-flex align-items-center gap-2">
                                     <button type="button"
@@ -27,7 +27,7 @@
                                         <i class="bi bi-x-circle me-1"></i>Clear All
                                     </button>
                                     <small class="text-muted" style="font-weight: 500;">
-                                        Selected genres ({{ selected_genres|length }})
+                                        Selected genres ({{ similarity_selected_genres|length }})
                                     </small>
                                 </div>
                             </div>
@@ -35,7 +35,7 @@
 
                         <!-- Видимые жанры (первые 27) -->
                         <div id="visible-genres-badges">
-                            {% for genre in selected_genres_objects|slice:":27" %}
+                            {% for genre in similarity_selected_genres_objects|slice:":27" %}
                                 <span class="badge bg-primary me-1 mb-1 active-genre-tag"
                                       data-genre-id="{{ genre.id }}"
                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
@@ -46,9 +46,9 @@
                         </div>
 
                         <!-- Скрытые жанры (остальные) -->
-                        {% if selected_genres_objects|length > 27 %}
+                        {% if similarity_selected_genres_objects|length > 27 %}
                             <div id="hidden-genres-badges" style="display: none;">
-                                {% for genre in selected_genres_objects|slice:"27:" %}
+                                {% for genre in similarity_selected_genres_objects|slice:"27:" %}
                                     <span class="badge bg-primary me-1 mb-1 active-genre-tag"
                                           data-genre-id="{{ genre.id }}"
                                           style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
@@ -64,7 +64,7 @@
                                         class="btn btn-sm btn-outline-secondary show-more-genres"
                                         onclick="toggleMoregenres(this)">
                                     <i class="bi bi-chevron-down"></i> Show all
-                                    ({{ selected_genres_objects|length }})
+                                    ({{ similarity_selected_genres_objects|length }})
                                 </button>
                                 <button type="button"
                                         class="btn btn-sm btn-outline-secondary show-less-genres"
@@ -91,7 +91,7 @@
                                         <input class="form-check-input genre-checkbox"
                                                type="checkbox"
                                                value="{{ genre.id }}" id="genre_{{ genre.id }}"
-                                               {% if genre.id in selected_genres %}checked{% endif %}>
+                                               {% if genre.id in similarity_selected_genres %}checked{% endif %}>
                                         <label class="form-check-label small"
                                                for="genre_{{ genre.id }}">
                                             {{ genre.name }}
@@ -123,7 +123,7 @@
                 <div id="features-content">
                     <!-- Активные ключевые слова -->
                     <div id="active-keywords" class="mb-2">
-                        {% if selected_keywords %}
+                        {% if similarity_selected_keywords %}
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <div class="d-flex align-items-center gap-2">
                                     <button type="button"
@@ -133,7 +133,7 @@
                                         <i class="bi bi-x-circle me-1"></i>Clear All
                                     </button>
                                     <small class="text-muted" style="font-weight: 500;">
-                                        Selected features ({{ selected_keywords|length }})
+                                        Selected features ({{ similarity_selected_keywords|length }})
                                     </small>
                                 </div>
                             </div>
@@ -141,7 +141,7 @@
 
                         <!-- Видимые ключевые слова (первые 27) -->
                         <div id="visible-keywords-badges">
-                            {% for keyword in selected_keywords_objects|slice:":27" %}
+                            {% for keyword in similarity_selected_keywords_objects|slice:":27" %}
                                 <span class="badge bg-success me-1 mb-1 active-keyword-tag"
                                       data-keyword-id="{{ keyword.id }}"
                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
@@ -152,9 +152,9 @@
                         </div>
 
                         <!-- Скрытые ключевые слова (остальные) -->
-                        {% if selected_keywords_objects|length > 27 %}
+                        {% if similarity_selected_keywords_objects|length > 27 %}
                             <div id="hidden-keywords-badges" style="display: none;">
-                                {% for keyword in selected_keywords_objects|slice:"27:" %}
+                                {% for keyword in similarity_selected_keywords_objects|slice:"27:" %}
                                     <span class="badge bg-success me-1 mb-1 active-keyword-tag"
                                           data-keyword-id="{{ keyword.id }}"
                                           style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
@@ -170,7 +170,7 @@
                                         class="btn btn-sm btn-outline-secondary show-more-keywords"
                                         onclick="toggleMorekeywords(this)">
                                     <i class="bi bi-chevron-down"></i> Show all
-                                    ({{ selected_keywords_objects|length }})
+                                    ({{ similarity_selected_keywords_objects|length }})
                                 </button>
                                 <button type="button"
                                         class="btn btn-sm btn-outline-secondary show-less-keywords"
@@ -200,7 +200,7 @@
                                                    type="checkbox"
                                                    value="{{ keyword.id }}"
                                                    id="keyword_{{ keyword.id }}"
-                                                   {% if keyword.id in selected_keywords %}checked{% endif %}>
+                                                   {% if keyword.id in similarity_selected_keywords %}checked{% endif %}>
                                             <label class="form-check-label small"
                                                    for="keyword_{{ keyword.id }}">
                                                 {{ keyword.name }}
@@ -235,7 +235,7 @@
                 <div id="themes-content">
                     <!-- Активные темы -->
                     <div id="active-themes" class="mb-2">
-                        {% if selected_themes %}
+                        {% if similarity_selected_themes %}
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <div class="d-flex align-items-center gap-2">
                                     <button type="button"
@@ -245,7 +245,7 @@
                                         <i class="bi bi-x-circle me-1"></i>Clear All
                                     </button>
                                     <small class="text-muted" style="font-weight: 500;">
-                                        Selected themes ({{ selected_themes|length }})
+                                        Selected themes ({{ similarity_selected_themes|length }})
                                     </small>
                                 </div>
                             </div>
@@ -253,7 +253,7 @@
 
                         <!-- Видимые темы (первые 27) -->
                         <div id="visible-themes-badges">
-                            {% for theme in selected_themes_objects|slice:":27" %}
+                            {% for theme in similarity_selected_themes_objects|slice:":27" %}
                                 <span class="badge bg-warning me-1 mb-1 active-theme-tag"
                                       data-theme-id="{{ theme.id }}"
                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
@@ -264,9 +264,9 @@
                         </div>
 
                         <!-- Скрытые темы (остальные) -->
-                        {% if selected_themes_objects|length > 27 %}
+                        {% if similarity_selected_themes_objects|length > 27 %}
                             <div id="hidden-themes-badges" style="display: none;">
-                                {% for theme in selected_themes_objects|slice:"27:" %}
+                                {% for theme in similarity_selected_themes_objects|slice:"27:" %}
                                     <span class="badge bg-warning me-1 mb-1 active-theme-tag"
                                           data-theme-id="{{ theme.id }}"
                                           style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
@@ -282,7 +282,7 @@
                                         class="btn btn-sm btn-outline-secondary show-more-themes"
                                         onclick="toggleMorethemes(this)">
                                     <i class="bi bi-chevron-down"></i> Show all
-                                    ({{ selected_themes_objects|length }})
+                                    ({{ similarity_selected_themes_objects|length }})
                                 </button>
                                 <button type="button"
                                         class="btn btn-sm btn-outline-secondary show-less-themes"
@@ -309,7 +309,7 @@
                                         <input class="form-check-input theme-checkbox"
                                                type="checkbox"
                                                value="{{ theme.id }}" id="theme_{{ theme.id }}"
-                                               {% if theme.id in selected_themes %}checked{% endif %}>
+                                               {% if theme.id in similarity_selected_themes %}checked{% endif %}>
                                         <label class="form-check-label small"
                                                for="theme_{{ theme.id }}">
                                             {{ theme.name }}
@@ -341,7 +341,7 @@
                 <div id="perspectives-content">
                     <!-- Активные перспективы -->
                     <div id="active-perspectives" class="mb-2">
-                        {% if selected_perspectives %}
+                        {% if similarity_selected_perspectives %}
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <div class="d-flex align-items-center gap-2">
                                     <button type="button"
@@ -351,7 +351,7 @@
                                         <i class="bi bi-x-circle me-1"></i>Clear All
                                     </button>
                                     <small class="text-muted" style="font-weight: 500;">
-                                        Selected perspectives ({{ selected_perspectives|length }})
+                                        Selected perspectives ({{ similarity_selected_perspectives|length }})
                                     </small>
                                 </div>
                             </div>
@@ -359,7 +359,7 @@
 
                         <!-- Видимые перспективы (первые 27) -->
                         <div id="visible-perspectives-badges">
-                            {% for perspective in selected_perspectives_objects|slice:":27" %}
+                            {% for perspective in similarity_selected_perspectives_objects|slice:":27" %}
                                 <span class="badge bg-info me-1 mb-1 active-perspective-tag"
                                       data-perspective-id="{{ perspective.id }}"
                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
@@ -370,9 +370,9 @@
                         </div>
 
                         <!-- Скрытые перспективы (остальные) -->
-                        {% if selected_perspectives_objects|length > 27 %}
+                        {% if similarity_selected_perspectives_objects|length > 27 %}
                             <div id="hidden-perspectives-badges" style="display: none;">
-                                {% for perspective in selected_perspectives_objects|slice:"27:" %}
+                                {% for perspective in similarity_selected_perspectives_objects|slice:"27:" %}
                                     <span class="badge bg-info me-1 mb-1 active-perspective-tag"
                                           data-perspective-id="{{ perspective.id }}"
                                           style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
@@ -388,7 +388,7 @@
                                         class="btn btn-sm btn-outline-secondary show-more-perspectives"
                                         onclick="toggleMoreperspectives(this)">
                                     <i class="bi bi-chevron-down"></i> Show all
-                                    ({{ selected_perspectives_objects|length }})
+                                    ({{ similarity_selected_perspectives_objects|length }})
                                 </button>
                                 <button type="button"
                                         class="btn btn-sm btn-outline-secondary show-less-perspectives"
@@ -417,7 +417,7 @@
                                                type="checkbox"
                                                value="{{ perspective.id }}"
                                                id="perspective_{{ perspective.id }}"
-                                               {% if perspective.id in selected_perspectives %}checked{% endif %}>
+                                               {% if perspective.id in similarity_selected_perspectives %}checked{% endif %}>
                                         <label class="form-check-label small"
                                                for="perspective_{{ perspective.id }}">
                                             {{ perspective.name }}
@@ -449,7 +449,7 @@
                 <div id="game-modes-content">
                     <!-- Активные режимы игры -->
                     <div id="active-game-modes" class="mb-2">
-                        {% if selected_game_modes %}
+                        {% if similarity_selected_game_modes %}
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <div class="d-flex align-items-center gap-2">
                                     <button type="button"
@@ -459,7 +459,7 @@
                                         <i class="bi bi-x-circle me-1"></i>Clear All
                                     </button>
                                     <small class="text-muted" style="font-weight: 500;">
-                                        Selected game modes ({{ selected_game_modes|length }})
+                                        Selected game modes ({{ similarity_selected_game_modes|length }})
                                     </small>
                                 </div>
                             </div>
@@ -467,7 +467,7 @@
 
                         <!-- Видимые режимы игры -->
                         <div id="visible-game-modes-badges">
-                            {% for game_mode in selected_game_modes_objects|slice:":27" %}
+                            {% for game_mode in similarity_selected_game_modes_objects|slice:":27" %}
                                 <span class="badge bg-purple me-1 mb-1 active-game-mode-tag"
                                       data-game-mode-id="{{ game_mode.id }}"
                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
@@ -495,7 +495,7 @@
                                                type="checkbox"
                                                value="{{ game_mode.id }}"
                                                id="game_mode_{{ game_mode.id }}"
-                                               {% if game_mode.id in selected_game_modes %}checked{% endif %}>
+                                               {% if game_mode.id in similarity_selected_game_modes %}checked{% endif %}>
                                         <label class="form-check-label small"
                                                for="game_mode_{{ game_mode.id }}">
                                             {{ game_mode.name }}
@@ -527,7 +527,7 @@
                 <div id="engines-content">
                     <!-- Активные движки -->
                     <div id="active-engines" class="mb-2">
-                        {% if selected_engines %}
+                        {% if similarity_selected_engines %}
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <div class="d-flex align-items-center gap-2">
                                     <button type="button"
@@ -537,7 +537,7 @@
                                         <i class="bi bi-x-circle me-1"></i>Clear All
                                     </button>
                                     <small class="text-muted" style="font-weight: 500;">
-                                        Selected engines ({{ selected_engines|length }})
+                                        Selected engines ({{ similarity_selected_engines|length }})
                                     </small>
                                 </div>
                             </div>
@@ -545,7 +545,7 @@
 
                         <!-- Видимые движки (первые 27) -->
                         <div id="visible-engines-badges">
-                            {% for engine in selected_engines_objects|slice:":27" %}
+                            {% for engine in similarity_selected_engines_objects|slice:":27" %}
                                 <span class="badge bg-warning me-1 mb-1 active-engine-tag"
                                       data-engine-id="{{ engine.id }}"
                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
@@ -556,9 +556,9 @@
                         </div>
 
                         <!-- Скрытые движки (остальные) -->
-                        {% if selected_engines_objects|length > 27 %}
+                        {% if similarity_selected_engines_objects|length > 27 %}
                             <div id="hidden-engines-badges" style="display: none;">
-                                {% for engine in selected_engines_objects|slice:"27:" %}
+                                {% for engine in similarity_selected_engines_objects|slice:"27:" %}
                                     <span class="badge bg-warning me-1 mb-1 active-engine-tag"
                                           data-engine-id="{{ engine.id }}"
                                           style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
@@ -574,7 +574,7 @@
                                         class="btn btn-sm btn-outline-secondary show-more-engines"
                                         onclick="toggleMoreengines(this)">
                                     <i class="bi bi-chevron-down"></i> Show all
-                                    ({{ selected_engines_objects|length }})
+                                    ({{ similarity_selected_engines_objects|length }})
                                 </button>
                                 <button type="button"
                                         class="btn btn-sm btn-outline-secondary show-less-engines"
@@ -602,7 +602,7 @@
                                                type="checkbox"
                                                value="{{ engine.id }}"
                                                id="engine_{{ engine.id }}"
-                                               {% if engine.id in selected_engines %}checked{% endif %}>
+                                               {% if engine.id in similarity_selected_engines %}checked{% endif %}>
                                         <label class="form-check-label small"
                                                for="engine_{{ engine.id }}">
                                             {{ engine.name }}
