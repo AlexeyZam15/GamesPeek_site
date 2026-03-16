@@ -104,7 +104,6 @@ def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
                 similar_games = similarity_engine.find_similar_games(
                     source_game=virtual_game,
                     min_similarity=0,
-                    limit=1000
                 )
 
                 for game_data in similar_games:

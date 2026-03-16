@@ -520,13 +520,10 @@ def _prefetch_similar_games(similar_games: List) -> List:
     return updated_games
 
 
-def _format_similar_games_data(similar_games_data: List, limit: int = 500) -> List[Dict[str, Any]]:
+def _format_similar_games_data(similar_games_data: List) -> List[Dict[str, Any]]:
     """Format similar games data - OPTIMIZED for large datasets."""
     if not similar_games_data:
         return []
-
-    print(f"\n=== FORMAT SIMILAR GAMES DATA DEBUG ===")
-    print(f"Input similar_games_data length: {len(similar_games_data)}")
 
     game_ids = []
     similarity_map = {}
@@ -536,19 +533,13 @@ def _format_similar_games_data(similar_games_data: List, limit: int = 500) -> Li
         if isinstance(item, dict):
             game = item.get('game')
             similarity = item.get('similarity', 0)
-            print(f"  Dict item - game: {getattr(game, 'id', 'unknown')}, similarity: {similarity}")
         else:
             game = item
             similarity = 0
-            print(f"  Object item - game: {getattr(game, 'id', 'unknown')}")
 
         if hasattr(game, 'id'):
             game_ids.append(game.id)
             similarity_map[game.id] = similarity
-            print(f"    Added to map: ID {game.id} -> similarity {similarity}")
-
-    print(f"Game IDs collected: {len(game_ids)}")
-    print(f"Similarity map: {similarity_map}")
 
     games_dict = {}
     if game_ids:
@@ -564,7 +555,6 @@ def _format_similar_games_data(similar_games_data: List, limit: int = 500) -> Li
 
         for game in games_with_prefetch:
             games_dict[game.id] = game
-        print(f"Games loaded from DB: {len(games_dict)}")
 
     # Форматируем в структуру, ожидаемую шаблоном
     formatted = []
@@ -576,30 +566,18 @@ def _format_similar_games_data(similar_games_data: List, limit: int = 500) -> Li
             game = item
             similarity = similarity_map.get(getattr(game, 'id', None), 0)
 
-        original_id = getattr(game, 'id', None)
-        print(f"Processing item - original game ID: {original_id}, similarity from item: {similarity}")
-
         if hasattr(game, 'id') and game.id in games_dict:
             game = games_dict[game.id]
-            print(f"  Replaced with DB game: ID {game.id}")
 
         # ВАЖНО: добавляем similarity непосредственно к объекту игры
         if similarity:
             game.similarity = similarity
-            print(f"  SET game.similarity = {similarity} for game {game.id}")
-        else:
-            if hasattr(game, 'similarity'):
-                delattr(game, 'similarity')
-                print(f"  REMOVED game.similarity for game {game.id}")
 
         formatted.append({
             'game': game,
             'similarity': similarity,
         })
-        print(f"  Appended to formatted: game ID {game.id}, similarity in dict: {similarity}")
 
-    print(f"Formatted results: {len(formatted)}")
-    print("=== END FORMAT DEBUG ===\n")
     return formatted
 
 
