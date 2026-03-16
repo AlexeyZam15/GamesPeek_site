@@ -292,9 +292,23 @@ def _get_similar_games_mode_with_pagination(
         params: Dict[str, str],
         selected_criteria: Dict[str, List[int]],
         source_game_obj: Optional[Game],
-        page_num: int
+        page_num: int,
+        # НОВЫЕ ПАРАМЕТРЫ для search фильтров
+        search_genres_list: List[int] = None,
+        search_keywords_list: List[int] = None,
+        search_themes_list: List[int] = None,
+        search_perspectives_list: List[int] = None,
+        search_game_modes_list: List[int] = None,
+        search_engines_list: List[int] = None,
+        search_platforms_list: List[int] = None,
+        search_game_types_list: List[int] = None,
+        search_year_start_int: int = None,
+        search_year_end_int: int = None,
 ) -> Dict[str, Any]:
-    """Режим похожих игр с СЕРВЕРНОЙ пагинацией - ОПТИМИЗИРОВАН."""
+    """
+    Режим похожих игр с СЕРВЕРНОЙ пагинацией - ОПТИМИЗИРОВАН.
+    Теперь search фильтры применяются ДО пагинации, а не после.
+    """
     current_sort = params.get('sort', '-similarity')
 
     if source_game_obj:
@@ -338,10 +352,127 @@ def _get_similar_games_mode_with_pagination(
             # Устанавливаем similarity прямо на объект игры для использования в шаблоне
             item['game'].similarity = item['similarity']
 
-    _sort_similar_games(games_with_similarity, current_sort)
+    # ===== ИЗМЕНЕНО: ПРИМЕНЯЕМ SEARCH ФИЛЬТРЫ ДО СОРТИРОВКИ И ПАГИНАЦИИ =====
+    has_search_filters = any([
+        search_genres_list, search_keywords_list, search_themes_list,
+        search_perspectives_list, search_game_modes_list, search_engines_list,
+        search_platforms_list, search_game_types_list,
+        search_year_start_int, search_year_end_int
+    ])
 
-    # ВАЖНО: НЕ применяем фильтр по платформам здесь
-    # Он будет применён позже в ajax_load_games_page
+    if has_search_filters:
+        filtered_games = []
+        print(f"Applying search filters to {len(games_with_similarity)} games BEFORE pagination")
+
+        for item in games_with_similarity:
+            game = item.get('game') if isinstance(item, dict) else item
+            include_game = True
+
+            # Фильтр по жанрам (search_genres)
+            if include_game and search_genres_list:
+                if hasattr(game, '_cached_genre_ids'):
+                    game_genre_ids = game._cached_genre_ids
+                else:
+                    game_genre_ids = set(game.genres.values_list('id', flat=True))
+
+                genre_match = set(search_genres_list) & game_genre_ids
+                if not genre_match:
+                    include_game = False
+
+            # Фильтр по ключевым словам (search_keywords)
+            if include_game and search_keywords_list:
+                if hasattr(game, '_cached_keyword_ids'):
+                    game_keyword_ids = game._cached_keyword_ids
+                else:
+                    game_keyword_ids = set(game.keywords.values_list('id', flat=True))
+
+                keyword_match = set(search_keywords_list) & game_keyword_ids
+                if not keyword_match:
+                    include_game = False
+
+            # Фильтр по темам (search_themes)
+            if include_game and search_themes_list:
+                if hasattr(game, '_cached_theme_ids'):
+                    game_theme_ids = game._cached_theme_ids
+                else:
+                    game_theme_ids = set(game.themes.values_list('id', flat=True))
+
+                theme_match = set(search_themes_list) & game_theme_ids
+                if not theme_match:
+                    include_game = False
+
+            # Фильтр по перспективам (search_perspectives)
+            if include_game and search_perspectives_list:
+                if hasattr(game, '_cached_perspective_ids'):
+                    game_perspective_ids = game._cached_perspective_ids
+                else:
+                    game_perspective_ids = set(game.player_perspectives.values_list('id', flat=True))
+
+                perspective_match = set(search_perspectives_list) & game_perspective_ids
+                if not perspective_match:
+                    include_game = False
+
+            # Фильтр по режимам игры (search_game_modes)
+            if include_game and search_game_modes_list:
+                if hasattr(game, '_cached_game_mode_ids'):
+                    game_game_mode_ids = game._cached_game_mode_ids
+                else:
+                    game_game_mode_ids = set(game.game_modes.values_list('id', flat=True))
+
+                game_mode_match = set(search_game_modes_list) & game_game_mode_ids
+                if not game_mode_match:
+                    include_game = False
+
+            # Фильтр по движкам (search_engines)
+            if include_game and search_engines_list:
+                if hasattr(game, '_cached_engine_ids'):
+                    game_engine_ids = game._cached_engine_ids
+                else:
+                    game_engine_ids = set(game.engines.values_list('id', flat=True))
+
+                engine_match = set(search_engines_list) & game_engine_ids
+                if not engine_match:
+                    include_game = False
+
+            # Фильтр по платформам
+            if include_game and search_platforms_list:
+                if hasattr(game, '_cached_platform_ids'):
+                    game_platform_ids = game._cached_platform_ids
+                else:
+                    game_platform_ids = set(game.platforms.values_list('id', flat=True))
+
+                platform_match = set(search_platforms_list) & game_platform_ids
+                if not platform_match:
+                    include_game = False
+
+            # Фильтр по game types
+            if include_game and search_game_types_list:
+                if game.game_type not in search_game_types_list:
+                    include_game = False
+
+            # Фильтр по дате
+            if include_game and (search_year_start_int or search_year_end_int):
+                if game.first_release_date:
+                    game_year = game.first_release_date.year
+                    if search_year_start_int and game_year < search_year_start_int:
+                        include_game = False
+                    if include_game and search_year_end_int and game_year > search_year_end_int:
+                        include_game = False
+                else:
+                    # Игры без даты не проходят фильтр по дате, если он активен
+                    if search_year_start_int or search_year_end_int:
+                        include_game = False
+
+            if include_game:
+                filtered_games.append(item)
+
+        if filtered_games:
+            print(f"Filtered from {len(games_with_similarity)} to {len(filtered_games)} games")
+            games_with_similarity = filtered_games
+            total_count = len(games_with_similarity)
+    # ===== КОНЕЦ ИЗМЕНЕНИЙ =====
+
+    _sort_similar_games(games_with_similarity, current_sort)
 
     # Используем пагинатор Django
     paginator = Paginator(games_with_similarity, ITEMS_PER_PAGE)
@@ -360,7 +491,7 @@ def _get_similar_games_mode_with_pagination(
         'page_obj': page_obj,
         'paginator': paginator,
         'is_paginated': paginator.num_pages > 1,
-        'total_count': paginator.count,
+        'total_count': total_count,
         'current_page': page_obj.number,
         'games_with_similarity': current_games_with_similarity,
         'show_similarity': True,
@@ -660,8 +791,23 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
     ])):
         # Режим похожих игр
         print("Mode: similar games")
+        # ===== ИЗМЕНЕНО: передаем search фильтры в функцию =====
         mode_result = _get_similar_games_mode_with_pagination(
-            params, selected_criteria, source_game_obj, page_num
+            params,
+            selected_criteria,
+            source_game_obj,
+            page_num,
+            # Search фильтры
+            search_genres_list=search_genres_list,
+            search_keywords_list=search_keywords_list,
+            search_themes_list=search_themes_list,
+            search_perspectives_list=search_perspectives_list,
+            search_game_modes_list=search_game_modes_list,
+            search_engines_list=search_engines_list,
+            search_platforms_list=search_platforms_list,
+            search_game_types_list=search_game_types_list,
+            search_year_start_int=search_year_start_int,
+            search_year_end_int=search_year_end_int,
         )
 
         games_with_similarity = mode_result.get('games_with_similarity', [])
@@ -669,142 +815,6 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
         paginator = mode_result.get('paginator')
         total_pages = paginator.num_pages if paginator else 1
         total_count = mode_result.get('total_count', 0)
-
-        print(f"Initial similar games count: {len(games_with_similarity)}")
-
-        # ПРИМЕНЯЕМ search фильтры ко всем результатам
-        if (search_genres_list or search_keywords_list or search_themes_list or
-                search_perspectives_list or search_game_modes_list or search_engines_list or
-                search_platforms_list or search_game_types_list or
-                search_year_start_int or search_year_end_int):
-
-            filtered_games = []
-            print(f"Applying search filters to {len(games_with_similarity)} games")
-
-            for item in games_with_similarity:
-                game = item.get('game') if isinstance(item, dict) else item
-                include_game = True
-
-                # Фильтр по жанрам (search_genres)
-                if include_game and search_genres_list:
-                    if hasattr(game, '_cached_genre_ids'):
-                        game_genre_ids = game._cached_genre_ids
-                    else:
-                        game_genre_ids = set(game.genres.values_list('id', flat=True))
-
-                    genre_match = set(search_genres_list) & game_genre_ids
-                    if not genre_match:
-                        include_game = False
-
-                # Фильтр по ключевым словам (search_keywords)
-                if include_game and search_keywords_list:
-                    if hasattr(game, '_cached_keyword_ids'):
-                        game_keyword_ids = game._cached_keyword_ids
-                    else:
-                        game_keyword_ids = set(game.keywords.values_list('id', flat=True))
-
-                    keyword_match = set(search_keywords_list) & game_keyword_ids
-                    if not keyword_match:
-                        include_game = False
-
-                # Фильтр по темам (search_themes)
-                if include_game and search_themes_list:
-                    if hasattr(game, '_cached_theme_ids'):
-                        game_theme_ids = game._cached_theme_ids
-                    else:
-                        game_theme_ids = set(game.themes.values_list('id', flat=True))
-
-                    theme_match = set(search_themes_list) & game_theme_ids
-                    if not theme_match:
-                        include_game = False
-
-                # Фильтр по перспективам (search_perspectives)
-                if include_game and search_perspectives_list:
-                    if hasattr(game, '_cached_perspective_ids'):
-                        game_perspective_ids = game._cached_perspective_ids
-                    else:
-                        game_perspective_ids = set(game.player_perspectives.values_list('id', flat=True))
-
-                    perspective_match = set(search_perspectives_list) & game_perspective_ids
-                    if not perspective_match:
-                        include_game = False
-
-                # Фильтр по режимам игры (search_game_modes)
-                if include_game and search_game_modes_list:
-                    if hasattr(game, '_cached_game_mode_ids'):
-                        game_game_mode_ids = game._cached_game_mode_ids
-                    else:
-                        game_game_mode_ids = set(game.game_modes.values_list('id', flat=True))
-
-                    game_mode_match = set(search_game_modes_list) & game_game_mode_ids
-                    if not game_mode_match:
-                        include_game = False
-
-                # Фильтр по движкам (search_engines)
-                if include_game and search_engines_list:
-                    if hasattr(game, '_cached_engine_ids'):
-                        game_engine_ids = game._cached_engine_ids
-                    else:
-                        game_engine_ids = set(game.engines.values_list('id', flat=True))
-
-                    engine_match = set(search_engines_list) & game_engine_ids
-                    if not engine_match:
-                        include_game = False
-
-                # Фильтр по платформам
-                if include_game and search_platforms_list:
-                    if hasattr(game, '_cached_platform_ids'):
-                        game_platform_ids = game._cached_platform_ids
-                    else:
-                        game_platform_ids = set(game.platforms.values_list('id', flat=True))
-
-                    platform_match = set(search_platforms_list) & game_platform_ids
-                    if not platform_match:
-                        include_game = False
-
-                # Фильтр по game types
-                if include_game and search_game_types_list:
-                    if game.game_type not in search_game_types_list:
-                        include_game = False
-
-                # Фильтр по дате
-                if include_game and (search_year_start_int or search_year_end_int):
-                    if game.first_release_date:
-                        game_year = game.first_release_date.year
-                        if search_year_start_int and game_year < search_year_start_int:
-                            include_game = False
-                        if include_game and search_year_end_int and game_year > search_year_end_int:
-                            include_game = False
-                    else:
-                        # Игры без даты не проходят фильтр по дате, если он активен
-                        if search_year_start_int or search_year_end_int:
-                            include_game = False
-
-                if include_game:
-                    filtered_games.append(item)
-
-            if filtered_games:
-                print(f"Filtered from {len(games_with_similarity)} to {len(filtered_games)} games")
-                games_with_similarity = filtered_games
-                total_count = len(games_with_similarity)
-
-                # Пересоздаём пагинатор с отфильтрованными результатами
-                from django.core.paginator import Paginator
-                new_paginator = Paginator(games_with_similarity, ITEMS_PER_PAGE)
-                try:
-                    page_obj = new_paginator.page(page_num)
-                except:
-                    page_obj = new_paginator.page(1)
-
-                games_with_similarity = list(page_obj.object_list)
-                paginator = new_paginator
-                total_pages = new_paginator.num_pages
-
-                # Обновляем mode_result для совместимости
-                mode_result['page_obj'] = page_obj
-                mode_result['paginator'] = paginator
-                mode_result['is_paginated'] = total_pages > 1
-                mode_result['total_count'] = total_count
 
         # Добавляем кэшированные карточки
         games_with_similarity = _update_games_with_cached_cards(
