@@ -2572,9 +2572,14 @@ class AnalyzerCommand(BaseCommand):
         self.stdout.write("=" * 60)
 
     def _analyze_single_game_by_id(self, game_id: int):
-        """Анализирует одну игру по ID"""
+        """Анализирует одну игру по ID (с поддержкой батч-обновления)"""
         try:
             game = Game.objects.get(id=game_id)
+
+            # Выводим заголовок с рейтингом если есть
+            if self.verbose and game.rating:
+                self.stdout.write(f"⭐ Рейтинг: {game.rating:.1f} (оценок: {game.rating_count})")
+
             self.output_formatter.print_game_header(game, self.keywords)
 
             # Получаем текст
@@ -2582,38 +2587,110 @@ class AnalyzerCommand(BaseCommand):
 
             if not text:
                 self.stdout.write("❌ У игры нет текста для анализа")
+                self.stats['skipped_no_text'] += 1
+                self.stats['skipped_games'] += 1
+                self.state_manager.add_processed_game(game.id)
                 return
 
             # Проверяем длину текста
             if len(text) < self.min_text_length:
                 self.stdout.write(f"⏭️ Пропущено (текст слишком короткий: {len(text)} < {self.min_text_length})")
+                self.stats['skipped_short_text'] += 1
+                self.stats['skipped_games'] += 1
+                self.state_manager.add_processed_game(game.id)
                 return
 
             # Анализируем
-            result = self.api.analyze_game_text(
+            result = self.api.force_analyze_game_text(
                 text=text,
                 game_id=game_id,
                 analyze_keywords=self.keywords,
-                existing_game=game if not self.ignore_existing else None,
-                detailed_patterns=self.verbose
+                existing_game=game,
+                detailed_patterns=self.verbose,
+                exclude_existing=self.exclude_existing
             )
 
             # Отображаем результаты
             self.output_formatter.print_game_results(game, result, self.keywords)
 
+            # Обновляем статистику
+            self.stats['processed'] += 1
+            self.stats['processed_with_text'] += 1
+
+            # Обновляем статистику в зависимости от результатов
+            if result['success']:
+                if self.keywords:
+                    keywords_data = result.get('results', {}).get('keywords', {})
+                    items = keywords_data.get('items', [])
+                    if items:
+                        # Проверяем, есть ли новые ключевые слова
+                        from games.models import Keyword
+                        keyword_ids = [k['id'] for k in items]
+                        existing_game_ids = set(game.keywords.values_list('id', flat=True))
+                        new_ids = [kid for kid in keyword_ids if kid not in existing_game_ids]
+
+                        if new_ids:
+                            self.stats['keywords_found'] += 1
+                            self.stats['keywords_count'] += len(new_ids)
+                            self.stats['found_games'] += 1
+                            self.stats['found_elements'] += len(new_ids)
+                        else:
+                            self.stats['keywords_not_found'] += 1
+                            self.stats['empty_games'] += 1
+                    else:
+                        self.stats['keywords_not_found'] += 1
+                        self.stats['empty_games'] += 1
+                else:
+                    if result['has_results']:
+                        found_count = result['summary'].get('found_count', 0)
+                        self.stats['found_count'] += 1
+                        self.stats['total_criteria_found'] += found_count
+                        self.stats['found_games'] += 1
+                        self.stats['found_elements'] += found_count
+                    else:
+                        self.stats['not_found_count'] += 1
+                        self.stats['empty_games'] += 1
+
             # Обновляем базу если нужно
             if self.update_game and result['has_results']:
-                update_result = self.api.update_game_with_results(
-                    game_id=game_id,
+                # Используем batch_updater даже для одной игры
+                if not hasattr(self, 'batch_updater') or self.batch_updater is None:
+                    from .batch_updater import BatchUpdater
+                    self.batch_updater = BatchUpdater(verbose=self.verbose)
+                    self.batch_updater.command_instance = self
+
+                added = self.batch_updater.add_game_for_update(
+                    game_id=game.id,
                     results=result['results'],
                     is_keywords=self.keywords
                 )
 
-                if update_result['success'] and update_result['updated']:
-                    self.stdout.write("💾 Данные обновлены в базе")
+                if added:
+                    self.stats['in_batch'] = len(self.batch_updater.games_to_update)
+                    # Для одной игры сразу обновляем батч
+                    if len(self.batch_updater.games_to_update) > 0:
+                        remaining_updates = self.batch_updater.flush()
+                        if remaining_updates > 0:
+                            self.stats['updated'] += remaining_updates
+                            self.stats['updated_games'] += remaining_updates
+                            self.stats['in_batch'] = 0
+                            if self.verbose:
+                                self.stdout.write(f"💾 Данные обновлены в базе")
+                        else:
+                            if self.verbose:
+                                self.stdout.write(f"ℹ️ Нет новых элементов для добавления")
+
+            # Добавляем в StateManager
+            self.state_manager.add_processed_game(game.id)
 
         except Game.DoesNotExist:
             self.stderr.write(f"❌ Игра с ID {game_id} не найдена")
+        except Exception as e:
+            self.stderr.write(f"❌ Ошибка при анализе игры {game_id}: {e}")
+            import traceback
+            traceback.print_exc(file=self.stderr._out)
+            self.stats['errors'] += 1
+            self.stats['error_games'] += 1
 
     def _get_base_query(self) -> QuerySet:
         """Возвращает базовый QuerySet"""
@@ -2745,17 +2822,93 @@ class AnalyzerCommand(BaseCommand):
             self.api.clear_analysis_cache()
 
     def _analyze_games_by_name(self, game_name: str):
-        """Анализирует игры по названию"""
-        games = Game.objects.filter(name__icontains=game_name)
+        """Анализирует игры по названию (сначала точное совпадение, потом по популярности)"""
+        from django.db.models import Q
 
-        if not games.exists():
+        # Запоминаем время начала
+        self._start_time = time.time()
+
+        # Шаг 1: Ищем точное совпадение (без учета регистра)
+        exact_matches = Game.objects.filter(name__iexact=game_name).order_by('id')
+
+        if exact_matches.exists():
+            games = exact_matches
+            match_type = "точному названию"
+        else:
+            # Шаг 2: Ищем частичное совпадение и сортируем по популярности
+            # Сортировка: сначала с рейтингом, потом по количеству рейтингов, потом по ID
+            games = Game.objects.filter(
+                Q(name__icontains=game_name)
+            ).order_by(
+                '-rating',  # Сначала с высоким рейтингом
+                '-rating_count',  # Потом по количеству оценок
+                'id'  # Потом по ID
+            )
+            match_type = "частичному названию (по популярности)"
+
+        game_count = games.count()
+
+        if game_count == 0:
             self.stderr.write(f"❌ Игры с названием содержащим '{game_name}' не найдены")
             return
 
-        self.stdout.write(f"🔍 Найдено {games.count()} игр с названием содержащим '{game_name}'")
+        self.stdout.write(f"🔍 Найдено {game_count} игр по {match_type}:")
 
-        for game in games:
+        # Показываем первые несколько игр для наглядности
+        display_limit = min(5, game_count)
+        for i, game in enumerate(games[:display_limit], 1):
+            rating_info = f" (рейтинг: {game.rating:.1f}, оценок: {game.rating_count})" if game.rating else ""
+            self.stdout.write(f"  {i}. {game.name}{rating_info}")
+
+        if game_count > display_limit:
+            self.stdout.write(f"  ... и еще {game_count - display_limit} игр")
+
+        self.stdout.write("")  # Пустая строка для разделения
+
+        # Инициализируем статистику
+        self._init_stats()
+
+        # Инициализируем batch_updater если нужно обновление
+        if self.update_game:
+            from .batch_updater import BatchUpdater
+            self.batch_updater = BatchUpdater(verbose=self.verbose)
+            self.batch_updater.command_instance = self
+
+        # Инициализируем прогресс-бар если нужно
+        if not self.no_progress and game_count > 1:
+            self.progress_bar = self._init_progress_bar(game_count)
+
+        # Обрабатываем каждую игру
+        for i, game in enumerate(games, 1):
+            if self.verbose:
+                self.stdout.write(f"\n--- Игра {i}/{game_count}: {game.name} ---")
+
             self._analyze_single_game_by_id(game.id)
+
+            # Обновляем прогресс
+            if self.progress_bar:
+                self.progress_bar.update(1)
+                self._update_progress_bar_with_stats()
+
+        # Финальное обновление батча если есть
+        if self.update_game and self.batch_updater:
+            games_in_batch = len(self.batch_updater.games_to_update) if hasattr(self.batch_updater,
+                                                                                'games_to_update') else 0
+            if games_in_batch > 0:
+                remaining_updates = self.batch_updater.flush()
+                self.stats['updated'] += remaining_updates
+                self.stats['updated_games'] += remaining_updates
+
+        # Завершаем прогресс-бар
+        if self.progress_bar:
+            self.progress_bar.finish()
+
+        # Сохраняем состояние
+        self.state_manager.save_state(self.stats['processed'])
+
+        # Выводим итоговую статистику
+        self.stats['execution_time'] = time.time() - self._start_time
+        self._display_final_statistics(self.stats, 0, Game.objects.count())
 
     def _analyze_description(self, description: str):
         """Анализирует произвольный текст"""

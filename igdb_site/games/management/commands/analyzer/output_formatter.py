@@ -280,10 +280,30 @@ class OutputFormatter:
 
             # Отображаем найденные элементы
             for key, data in result['results'].items():
-                if data['count'] > 0:
+                if data.get('count', 0) > 0:
                     display_name = self._get_display_name(key)
-                    item_names = [item['name'] for item in data['items']]
-                    self.command.stdout.write(f"  📌 {display_name} ({data['count']}): {item_names}")
+                    # Для ключевых слов показываем с контекстом если есть
+                    if key == 'keywords' and 'pattern_info' in result:
+                        items_with_context = []
+                        pattern_info = result.get('pattern_info', {}).get('keywords', [])
+
+                        for item in data.get('items', []):
+                            # Ищем контекст для этого ключевого слова
+                            context = ""
+                            for match in pattern_info:
+                                if match.get('name') == item['name'] and match.get('status') == 'found':
+                                    matched_text = match.get('matched_text', '')
+                                    if matched_text:
+                                        context = f" → найдено как \"{matched_text}\""
+                                    break
+                            items_with_context.append(f"{item['name']}{context}")
+
+                        self.command.stdout.write(f"  📌 {display_name} ({data['count']}):")
+                        for item_with_context in items_with_context:
+                            self.command.stdout.write(f"    • {item_with_context}")
+                    else:
+                        item_names = [item['name'] for item in data.get('items', [])]
+                        self.command.stdout.write(f"  📌 {display_name} ({data['count']}): {', '.join(item_names)}")
 
             # Выводим паттерны если verbose
             if self.command.verbose and 'pattern_info' in result:

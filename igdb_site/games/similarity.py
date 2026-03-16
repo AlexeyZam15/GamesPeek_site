@@ -71,7 +71,7 @@ class GameSimilarity:
     """
     УНИВЕРСАЛЬНЫЙ алгоритм похожести с динамическими весами
     """
-    DEFAULT_SIMILAR_GAMES_LIMIT = 1000
+    DEFAULT_SIMILAR_GAMES_LIMIT = 500  # Если установить 0, будут возвращаться все найденные игры без ограничения
 
     # Базовые константы с распределением весов
     GENRES_WEIGHT = 50.0
@@ -1337,8 +1337,13 @@ class GameSimilarity:
         similar_games.sort(key=lambda x: x['similarity'], reverse=True)
 
         # 8. Загрузка полных объектов (применяем лимит ТОЛЬКО в конце для финальных результатов)
-        final_results = self._load_full_objects(similar_games[:limit])
-        print(f"Final results: {len(final_results)}")
+        # НОВАЯ ЛОГИКА: если limit == 0, возвращаем все игры без ограничения
+        if limit == 0:
+            final_results = self._load_full_objects(similar_games)
+            print(f"Final results (no limit): {len(final_results)}")
+        else:
+            final_results = self._load_full_objects(similar_games[:limit])
+            print(f"Final results (limited to {limit}): {len(final_results)}")
 
         # Выведем первые несколько final_results для проверки
         for i, result in enumerate(final_results[:5]):
