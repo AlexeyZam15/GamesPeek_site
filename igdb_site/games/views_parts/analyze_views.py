@@ -79,18 +79,20 @@ def analyze_game_ajax(request: HttpRequest, game_id: int):
             exclude_existing=False  # Находим все, включая существующие
         )
 
+        # ОТЛАДКА: смотрим, что вернул анализ
         print(f"\n=== РЕЗУЛЬТАТЫ АНАЛИЗА ===")
         print(f"Успех: {analysis_result['success']}")
-        print(f"Есть результаты: {analysis_result.get('has_results', False)}")
-        print(f"Найдено элементов: {analysis_result['summary'].get('found_count', 0)}")
-        print(f"Всего совпадений: {analysis_result.get('total_matches', 0)}")
+        print(f"Ключи analysis_result: {list(analysis_result.keys())}")
 
-        # Детальный вывод результатов
         if 'pattern_info' in analysis_result:
-            keywords_patterns = analysis_result['pattern_info'].get('keywords', [])
-            print(f"Pattern info keywords: {len(keywords_patterns)}")
-            for p in keywords_patterns:
-                print(f"  - '{p.get('matched_text')}' → лемма '{p.get('matched_lemma')}' (поз.{p.get('position')})")
+            print(f"Ключи pattern_info: {list(analysis_result['pattern_info'].keys())}")
+            for category in ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']:
+                matches = analysis_result['pattern_info'].get(category, [])
+                print(f"  {category}: {len(matches)} совпадений")
+                if matches and len(matches) > 0:
+                    print(f"    Первое совпадение: {matches[0]}")
+        else:
+            print("❌ pattern_info отсутствует!")
 
         if not analysis_result['success']:
             return JsonResponse({
@@ -433,6 +435,8 @@ def apply_highlights_from_pattern_info(html_text: str, original_text: str, patte
         # Словарь для хранения всех найденных совпадений
         all_matches = []
 
+        print("\n=== ОТЛАДКА: поиск совпадений в тексте ===")
+
         # Сначала собираем ВСЕ совпадения (и фразы, и отдельные слова)
         for category in categories:
             for match in pattern_info.get(category, []):
@@ -441,15 +445,32 @@ def apply_highlights_from_pattern_info(html_text: str, original_text: str, patte
                     if not matched_text or len(matched_text) < 2:
                         continue
 
+                    # ОТЛАДКА для game_modes
+                    if category == 'game_modes':
+                        print(f"\n🔍 Обработка game_modes: '{matched_text}'")
+                        print(f"  длина: {len(matched_text)}")
+                        print(f"  name: {match.get('name')}")
+                        print(f"  matched_text в raw виде: {repr(matched_text)}")
+
                     # Ищем все вхождения этого текста в чистом тексте
                     search_text = matched_text.lower()
                     pos = 0
                     while True:
                         found_pos = clean_text_lower.find(search_text, pos)
                         if found_pos == -1:
+                            if category == 'game_modes' and pos == 0:
+                                print(f"  ❌ Текст '{search_text}' не найден в clean_text")
+                                print(f"  Первые 200 символов clean_text: '{clean_text[:200]}'")
                             break
 
                         end_pos = found_pos + len(matched_text)
+
+                        if category == 'game_modes':
+                            print(f"  Найдена позиция: {found_pos}-{end_pos}")
+                            context_start = max(0, found_pos - 30)
+                            context_end = min(len(clean_text), end_pos + 30)
+                            print(
+                                f"  Контекст: '...{clean_text[context_start:found_pos]}>>>{clean_text[found_pos:end_pos]}<<<{clean_text[end_pos:context_end]}...'")
 
                         # Проверяем границы слова
                         is_valid = True
@@ -457,16 +478,41 @@ def apply_highlights_from_pattern_info(html_text: str, original_text: str, patte
                         # Проверяем начало
                         if found_pos > 0:
                             prev_char = clean_text[found_pos - 1]
-                            if prev_char.isalnum() and prev_char != '-':
+                            # Допускаем пробел, дефис, открывающую скобку, кавычку в начале
+                            if prev_char.isalnum() and prev_char not in "-'\"([{":
                                 is_valid = False
+                                if category == 'game_modes':
+                                    print(f"  ❌ Невалидное начало: prev_char='{prev_char}' (код: {ord(prev_char)})")
 
                         # Проверяем конец
                         if end_pos < len(clean_text):
                             next_char = clean_text[end_pos]
-                            if next_char.isalnum() and next_char not in "s'-":
+                            # Допускаем: пробел, дефис, апостроф, знаки препинания, закрывающие скобки
+                            if next_char.isalnum() and next_char.lower() not in "s":
                                 is_valid = False
+                                if category == 'game_modes':
+                                    print(f"  ❌ Невалидный конец: next_char='{next_char}' (код: {ord(next_char)})")
+                            # Специальная проверка для 's (притяжательный падеж)
+                            elif next_char.lower() == 's':
+                                # Проверяем, что после 's не идет буква
+                                if end_pos + 1 < len(clean_text) and clean_text[end_pos + 1].isalnum():
+                                    is_valid = False
+                                    if category == 'game_modes':
+                                        print(f"  ❌ 's' является частью большего слова")
+
+                        # Проверяем, не пересекается ли с уже найденными совпадениями
+                        if is_valid:
+                            for occ_start, occ_end in occupied_clean_positions:
+                                if not (end_pos <= occ_start or found_pos >= occ_end):
+                                    is_valid = False
+                                    if category == 'game_modes':
+                                        print(f"  ❌ Пересекается с существующим совпадением {occ_start}-{occ_end}")
+                                    break
 
                         if is_valid:
+                            if category == 'game_modes':
+                                print(f"  ✅ Валидное совпадение!")
+
                             # Добавляем в список всех совпадений
                             all_matches.append({
                                 'clean_start': found_pos,
@@ -479,9 +525,24 @@ def apply_highlights_from_pattern_info(html_text: str, original_text: str, patte
                                 'is_phrase': ' ' in matched_text or '-' in matched_text
                             })
 
+                            # Запоминаем занятую позицию
+                            occupied_clean_positions.append((found_pos, end_pos))
+                        else:
+                            if category == 'game_modes':
+                                print(f"  ❌ Совпадение отклонено")
+
                         pos = found_pos + 1
 
+        print(f"\n✅ Всего найдено совпадений для подсветки: {len(all_matches)}")
+        for category in categories:
+            cat_matches = [m for m in all_matches if m['category'] == category]
+            if cat_matches:
+                print(f"  {category}: {len(cat_matches)} совпадений")
+                for m in cat_matches[:3]:
+                    print(f"    - '{m['matched_text']}'")
+
         if not all_matches:
+            print("⚠️ Нет совпадений для подсветки")
             return html_text
 
         # Сортируем совпадения: сначала фразы (по длине), потом отдельные слова
@@ -508,6 +569,8 @@ def apply_highlights_from_pattern_info(html_text: str, original_text: str, patte
                     'clean_end': match['clean_end'],
                     'matches': [match]
                 })
+
+        print(f"\n📊 Сгруппировано в {len(grouped_matches)} групп")
 
         # Теперь для каждой группы находим позиции в HTML и создаем подсветку
         highlight_positions = []
@@ -578,6 +641,7 @@ def apply_highlights_from_pattern_info(html_text: str, original_text: str, patte
                 break  # Берем только первый (они все одной категории или мы уже обработали мульти)
 
         if not highlight_positions:
+            print("⚠️ Нет позиций для подсветки в HTML")
             return html_text
 
         # Удаляем дубликаты (одинаковые позиции)
@@ -588,6 +652,8 @@ def apply_highlights_from_pattern_info(html_text: str, original_text: str, patte
             if key not in seen:
                 seen.add(key)
                 unique_positions.append(pos)
+
+        print(f"🎯 Создано {len(unique_positions)} уникальных позиций для подсветки")
 
         # Сортируем от конца к началу для корректной замены
         unique_positions.sort(key=lambda x: x['start'], reverse=True)
@@ -728,8 +794,7 @@ def create_multi_highlight_span(text: str, matches: List[Dict], num_criteria: in
 def simple_highlight_text(html_text: str, analysis_result: Dict) -> str:
     """
     ПРОСТОЙ метод подсветки текста
-    ИСПРАВЛЕНО: подсвечивает только отдельные слова, не захватывая весь текст между ними,
-    и правильно обрабатывает кавычки
+    ИСПРАВЛЕНО: подсвечивает все категории с правильной обработкой структуры данных
     """
     if not html_text or not analysis_result.get('pattern_info'):
         return html_text
@@ -738,10 +803,14 @@ def simple_highlight_text(html_text: str, analysis_result: Dict) -> str:
         import re
         import html
 
-        # ИСПРАВЛЕНИЕ: Декодируем HTML-сущности перед обработкой
+        # Декодируем HTML-сущности перед обработкой
         html_text = html.unescape(html_text)
 
-        # Собираем все слова для подсветки
+        # ОТЛАДКА: выводим структуру pattern_info
+        print("\n=== ОТЛАДКА simple_highlight_text ===")
+        print(f"Категории в pattern_info: {list(analysis_result['pattern_info'].keys())}")
+
+        # Собираем все слова для подсветки из ВСЕХ категорий
         words_to_highlight = {}
         categories = ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']
         category_classes = {
@@ -754,21 +823,50 @@ def simple_highlight_text(html_text: str, analysis_result: Dict) -> str:
 
         for category in categories:
             category_matches = analysis_result['pattern_info'].get(category, [])
-            for match in category_matches:
+            print(f"\nКатегория {category}: {len(category_matches)} совпадений")
+
+            for i, match in enumerate(category_matches):
+                print(f"  Совпадение {i + 1}: {match.keys()}")
+
                 if match.get('status') == 'found':
-                    word = match.get('matched_text', '')
+                    # ИСПРАВЛЕНИЕ: для разных категорий поля могут называться по-разному
+                    matched_text = None
+
+                    # Пробуем разные возможные названия поля с текстом
+                    if 'matched_text' in match:
+                        matched_text = match.get('matched_text', '')
+                        print(f"    matched_text: '{matched_text}'")
+                    elif 'word' in match:
+                        matched_text = match.get('word', '')
+                        print(f"    word: '{matched_text}'")
+                    elif 'text' in match:
+                        matched_text = match.get('text', '')
+                        print(f"    text: '{matched_text}'")
+
                     name = match.get('name', '')
-                    if word and name:
-                        word_lower = word.lower()
-                        if word_lower not in words_to_highlight:
-                            words_to_highlight[word_lower] = {
-                                'word': word,
+                    print(f"    name: '{name}'")
+
+                    if matched_text and name:
+                        matched_text_lower = matched_text.lower()
+                        if matched_text_lower not in words_to_highlight:
+                            words_to_highlight[matched_text_lower] = {
+                                'word': matched_text,
                                 'name': name,
                                 'category': category,
                                 'class_name': category_classes[category]
                             }
+                            print(f"    ✅ Добавлено в подсветку: '{matched_text}' -> {category}")
+                        else:
+                            print(f"    ⚠️ Уже есть в подсветке: '{matched_text}'")
+                    else:
+                        print(f"    ❌ Нет matched_text или name")
+
+        print(f"\nВсего слов для подсветки: {len(words_to_highlight)}")
+        for word, info in words_to_highlight.items():
+            print(f"  '{word}' -> {info['category']}")
 
         if not words_to_highlight:
+            print("⚠️ Нет слов для подсветки")
             return html_text
 
         # Разбиваем HTML на части: теги и текст
@@ -814,7 +912,6 @@ def simple_highlight_text(html_text: str, analysis_result: Dict) -> str:
 def process_text_chunk(text: str, words_to_highlight: Dict) -> str:
     """
     Обрабатывает кусок текста (без HTML тегов), подсвечивая слова
-    ИСПРАВЛЕНО: Использует &quot; для кавычек в атрибутах
     """
     import re
     import html
@@ -830,25 +927,31 @@ def process_text_chunk(text: str, words_to_highlight: Dict) -> str:
     def replace_word(match):
         matched_word = match.group(1)
         word_lower = matched_word.lower()
-        word_info = words_to_highlight[word_lower]
 
-        category_display = {
-            'genres': 'Genre',
-            'themes': 'Theme',
-            'perspectives': 'Perspective',
-            'game_modes': 'Game Mode',
-            'keywords': 'Keyword'
-        }.get(word_info['category'], word_info['category'])
+        # ИСПРАВЛЕНИЕ: Проверяем, есть ли слово в словаре
+        if word_lower in words_to_highlight:
+            word_info = words_to_highlight[word_lower]
 
-        # ИСПРАВЛЕНИЕ: Экранируем и заменяем кавычки на &quot;
-        safe_name = html.escape(word_info['name']).replace('"', '&quot;')
-        safe_category_display = html.escape(category_display).replace('"', '&quot;')
+            category_display = {
+                'genres': 'Genre',
+                'themes': 'Theme',
+                'perspectives': 'Perspective',
+                'game_modes': 'Game Mode',
+                'keywords': 'Keyword'
+            }.get(word_info['category'], word_info['category'])
 
-        return (f'<span class="{word_info["class_name"]}" '
-                f'data-element-name="{safe_name}" '
-                f'data-category="{word_info["category"]}" '
-                f'title="{safe_category_display}: {safe_name}">'
-                f'{matched_word}</span>')
+            # Экранируем и заменяем кавычки на &quot;
+            safe_name = html.escape(word_info['name']).replace('"', '&quot;')
+            safe_category_display = html.escape(category_display).replace('"', '&quot;')
+
+            return (f'<span class="{word_info["class_name"]}" '
+                    f'data-element-name="{safe_name}" '
+                    f'data-category="{word_info["category"]}" '
+                    f'title="{safe_category_display}: {safe_name}">'
+                    f'{matched_word}</span>')
+        else:
+            # Если слово не найдено (редкий случай), возвращаем как есть
+            return matched_word
 
     # Заменяем все вхождения
     return pattern.sub(replace_word, text)
@@ -1959,6 +2062,14 @@ def _redirect_to_tab(game_id: int, tab: str):
 def _save_analysis_results(request: HttpRequest, game_id: int, tab: str, original_text: str, analysis_result: Dict):
     """Сохранение результатов анализа в сессии"""
     try:
+        print(f"\n=== _save_analysis_results для игры {game_id}, вкладка {tab} ===")
+        print(f"Ключи analysis_result: {list(analysis_result.keys())}")
+
+        # ПРИНУДИТЕЛЬНО вызываем simple_highlight_text
+        print("=" * 50)
+        print("ВЫЗЫВАЕМ simple_highlight_text")
+        print("=" * 50)
+
         # Фильтруем дубликаты
         if 'pattern_info' in analysis_result:
             analysis_result['pattern_info'] = filter_duplicate_patterns(analysis_result['pattern_info'])
@@ -1968,6 +2079,10 @@ def _save_analysis_results(request: HttpRequest, game_id: int, tab: str, origina
 
         # Используем ПРОСТОЙ метод подсветки
         highlighted_text = simple_highlight_text(formatted_text, analysis_result)
+
+        print("=" * 50)
+        print("simple_highlight_text ВЫПОЛНЕН")
+        print("=" * 50)
 
         # Сохраняем данные
         game = Game.objects.get(id=game_id)

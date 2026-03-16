@@ -363,8 +363,13 @@ function updateFoundItemsSidebar(analyzer, foundItemsData, hasUnsavedResults) {
         'keywords': 'bg-warning text-dark'
     };
 
-    for (const [catKey, catName] of Object.entries(categoryNames)) {
+    // Перебираем все категории в правильном порядке
+    const categoriesOrder = ['genres', 'themes', 'perspectives', 'game_modes', 'keywords'];
+
+    for (const catKey of categoriesOrder) {
         const items = foundItemsData[catKey];
+        const catName = categoryNames[catKey];
+
         if (items && items.length > 0) {
             const newCount = foundItemsData[`${catKey}_new_count`] || 0;
             html += `

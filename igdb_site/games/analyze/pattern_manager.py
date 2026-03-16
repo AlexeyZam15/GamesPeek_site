@@ -503,12 +503,12 @@ class PatternManager:
         ],
         'Bird view / Isometric': [
             r'\bbird[\s-]*view\b',
-            r'\bisometric(\s+view|\s+game|\s|$)',
-            r'\btop-down(\s+view|\s+game|\s+perspective|\s+camera|\s|$)'
+            r'\bisometric(\s+view)?\b',
+            r'\btop-down(\s+view|\s+perspective|\s+camera)?\b'
         ],
         'First person': [
-            r'\bfirst-person(\s+view|\s+shooter|\s+game|\s|$)',
-            r'\bfpp(\s+game|\s|$)'
+            r'\bfirst-person\b',
+            r'\bfpp\b'
         ],
         'Side view': [
             r'\bside\s+view\b',
@@ -520,15 +520,13 @@ class PatternManager:
             r'\btext\s+adventure\b',
         ],
         'Third person': [
-            r'\bthird-person(\s+view|\s+game|\s|$)',
-            r'\btpp(\s+game|\s|$)'
+            r'\bthird-person\b',
+            r'\btpp\b'
         ],
         'Virtual Reality': [
-            r'\bvirtual\s+reality\s+game\b',
-            r'\bvirtual\s+reality\s+experience\b',
-            r'\bvr\s+game\b',
+            r'\bvirtual\s+reality\b',
+            r'\bvr\b',
             r'\bvr\s+experience\b',
-            r'\bimmersive\s+virtual\s+reality\b',
         ],
     }
 
@@ -538,19 +536,18 @@ class PatternManager:
             r'\broyale(\s+mode)?\b',
         ],
         'Co-operative': [
-            r'\bco-operative(\s+game|\s+mode|\s|$)',
-            r'\bcooperative(\s+game|\s|$)',
-            r'\bco-op(\s+game|\s|$)'
+            r'\bco-operative(\s+game|\s+mode)?\b',
+            r'\bcooperative(\s+game)?\b',
+            r'\bco-op(\s+game)?\b'
         ],
         'Massively Multiplayer Online (MMO)': [
-            r'\bmassively\s+multiplayer(\s+game|\s|$)',
-            r'\bmmo(\s+game|\s|$)',
+            r'\bmassively\s+multiplayer(\s+game)?\b',
+            r'\bmmo(\s+game)?\b',
         ],
         'Multiplayer': [
-            r'\bmultiplayer(\s+game|\s+mode|\s|$)',
-            r'\bmulti-player(\s+game|\s|$)'
+            r'\bmultiplayer(\s+game|\s+mode)?\b',
+            r'\bmulti-player(\s+game)?\b'
         ],
-        # ДОБАВЛЯЕМ НОВУЮ КАТЕГОРИЮ
         'Player vs Player (PvP)': [
             r'\bpvp\b',
             r'\bpvp\s+mode\b',
@@ -562,8 +559,8 @@ class PatternManager:
             r'\bbattle\s+against\s+other\s+players\b',
         ],
         'Single player': [
-            r'\bsingle-player(\s+game|\s+campaign|\s|$)',
-            r'\bsingle\s+player(\s+game|\s|$)'
+            r'\bsingle-player\b',
+            r'\bsingle\s+player\b'
         ],
         'Split screen': [
             r'\bsplit\s+screen\b',
