@@ -569,7 +569,7 @@ class AnalyzerCommand(BaseCommand):
             result=result,
             stats=self.stats,
             only_found=self.only_found,
-            verbose=self.verbose,
+            verbose=self.verbose,  # <--- УБЕДИТЕСЬ, ЧТО ЭТОТ ПАРАМЕТР ПЕРЕДАЕТСЯ
             keywords=self.keywords,
             ignore_existing=self.ignore_existing,
             update_game=self.update_game,

@@ -459,12 +459,12 @@ class TextAnalyzer:
 
             return result
         else:
-            # Анализ критериев (оставляем без изменений)
+            # Анализ критериев
             patterns = self._get_patterns()
             text_lower = text.lower()
 
             results = {}
-            pattern_info = {}
+            pattern_info = {}  # СЛОВАРЬ для хранения информации о паттернах
             total_found = 0
 
             existing_items = {}
@@ -481,19 +481,13 @@ class TextAnalyzer:
                 found_items = []
                 patterns_for_type = patterns[criteria_type]
 
-                if detailed_patterns:
-                    pattern_info[criteria_type] = []
+                # Инициализируем список для этого типа критериев
+                pattern_info[criteria_type] = []
 
                 for name, pattern_list in patterns_for_type.items():
                     if exclude_existing:
                         existing_names_lower = {n.lower() for n in existing_items.get(criteria_type, set())}
                         if name.lower() in existing_names_lower:
-                            if detailed_patterns:
-                                pattern_info[criteria_type].append({
-                                    'name': name,
-                                    'status': 'skipped',
-                                    'reason': 'already_exists_in_game'
-                                })
                             continue
 
                     for pattern in pattern_list:
@@ -503,18 +497,20 @@ class TextAnalyzer:
                                 if obj and obj not in found_items:
                                     found_items.append(obj)
 
-                                    if detailed_patterns:
-                                        matches = pattern.finditer(text_lower)
-                                        for match in matches:
-                                            pattern_info[criteria_type].append({
-                                                'name': name,
-                                                'status': 'found',
-                                                'pattern': pattern.pattern,
-                                                'matched_text': text[match.start():match.end()],
-                                                'position': match.start(),
-                                                'matched_word': text_lower[match.start():match.end()],
-                                                'context': self._get_context(text, match.start(), match.end())
-                                            })
+                                    # Всегда собираем информацию о первом совпадении
+                                    match = pattern.search(text_lower)
+                                    if match:
+                                        start_pos = match.start()
+                                        end_pos = match.end()
+                                        pattern_info[criteria_type].append({
+                                            'name': name,
+                                            'status': 'found',
+                                            'pattern': pattern.pattern,
+                                            'matched_text': text[start_pos:end_pos],
+                                            'position': start_pos,
+                                            'matched_word': text_lower[start_pos:end_pos],
+                                            'context': self._get_context(text, start_pos, end_pos)
+                                        })
                                     break
                             except Exception:
                                 pass
@@ -536,7 +532,7 @@ class TextAnalyzer:
                     'has_results': total_found > 0,
                     'mode': 'criteria_only'
                 },
-                'pattern_info': pattern_info if detailed_patterns else {},
+                'pattern_info': pattern_info,  # Всегда возвращаем словарь pattern_info
                 'processing_time': processing_time,
                 'has_results': total_found > 0
             }
@@ -617,6 +613,7 @@ class TextAnalyzer:
                 pattern_info[criteria_type] = []
 
             for name, pattern_list in patterns_for_type.items():
+                # Проверяем, существует ли уже этот критерий у игры
                 if exclude_existing:
                     existing_names_lower = {n.lower() for n in existing_items.get(criteria_type, set())}
                     if name.lower() in existing_names_lower:
@@ -628,28 +625,60 @@ class TextAnalyzer:
                             })
                         continue
 
+                # Флаг, что этот элемент уже найден
+                element_found = False
+
                 for pattern in pattern_list:
+                    if element_found:
+                        break
+
                     if pattern.search(text_lower):
                         try:
                             obj = model.objects.filter(name__iexact=name).first()
                             if obj and obj not in found_items:
                                 found_items.append(obj)
+                                element_found = True  # Помечаем, что элемент найден
 
                                 if detailed_patterns:
+                                    # Находим ПЕРВОЕ совпадение для этого паттерна
                                     match = pattern.search(text_lower)
                                     if match:
+                                        start_pos = match.start()
+                                        end_pos = match.end()
+
+                                        # Добавляем информацию о строке (приблизительно)
+                                        line_number = text[:start_pos].count('\n') + 1
+
+                                        # Получаем контекст с найденным словом
+                                        context = self._get_context(text, start_pos, end_pos)
+
+                                        # Получаем сниппет для отладки
+                                        snippet_start = max(0, start_pos - 30)
+                                        snippet_end = min(len(text), end_pos + 30)
+                                        debug_snippet = text[snippet_start:snippet_end]
+                                        if snippet_start > 0:
+                                            debug_snippet = '...' + debug_snippet
+                                        if snippet_end < len(text):
+                                            debug_snippet = debug_snippet + '...'
+
                                         pattern_info[criteria_type].append({
                                             'name': name,
                                             'status': 'found',
                                             'pattern': pattern.pattern,
-                                            'matched_text': text[match.start():match.end()],
-                                            'position': match.start(),
-                                            'matched_word': text_lower[match.start():match.end()],
-                                            'context': self._get_context(text, match.start(), match.end())
+                                            'matched_text': text[start_pos:end_pos],
+                                            'position': start_pos,
+                                            'line': line_number,
+                                            'matched_word': text_lower[start_pos:end_pos],
+                                            'context': context,
+                                            'debug_text_snippet': debug_snippet
                                         })
+                                # Выходим из циклов, так как элемент уже найден
                                 break
                         except Exception:
                             pass
+                # Если элемент уже найден, переходим к следующему имени
+                if element_found:
+                    continue
 
             if found_items:
                 results[criteria_type] = {
@@ -716,16 +745,18 @@ class TextAnalyzer:
         }
         return models.get(criteria_type)
 
-    def _get_context(self, text: str, start: int, end: int, context_length: int = 50) -> str:
+    def _get_context(self, text: str, start: int, end: int, context_length: int = 30) -> str:
         """
         Получает контекст вокруг найденного совпадения
-        УЛУЧШЕНО: лучше обрабатывает дефисы и составные слова
         """
+        # Берем контекст вокруг найденной позиции
         context_start = max(0, start - context_length)
         context_end = min(len(text), end + context_length)
 
+        # Получаем контекст
         context = text[context_start:context_end]
 
+        # Добавляем многоточия если нужно
         if context_start > 0:
             context = '...' + context
         if context_end < len(text):
