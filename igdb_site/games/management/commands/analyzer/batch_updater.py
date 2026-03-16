@@ -86,19 +86,35 @@ class BatchUpdater:
 
             total_updated = 0
 
-            # ОПТИМИЗИРОВАННАЯ обработка ключевых слов (НОВЫЙ МЕТОД)
+            # ОПТИМИЗИРОВАННАЯ обработка ключевых слов
             if keyword_games:
-                keywords_updated = self._update_keywords_bulk(keyword_games)  # ← ВЫЗОВ НОВОГО МЕТОДА
-                if self.verbose:
-                    print(f"📊 Обновлено ключевых слов: {keywords_updated}")
-                total_updated += keywords_updated
+                try:
+                    keywords_updated = self._update_keywords_bulk(keyword_games)
+                    if self.verbose:
+                        print(f"📊 Обновлено ключевых слов: {keywords_updated}")
+                    total_updated += keywords_updated
+                except Exception as e:
+                    print(f"\n❌ КРИТИЧЕСКАЯ ОШИБКА при обновлении ключевых слов: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    # Прерываем программу
+                    import sys
+                    sys.exit(1)
 
-            # ОПТИМИЗИРОВАННАЯ обработка критериев (НОВЫЙ МЕТОД)
+            # ОПТИМИЗИРОВАННАЯ обработка критериев
             if criteria_games:
-                criteria_updated = self._update_criteria_bulk(criteria_games)  # ← ВЫЗОВ НОВОГО МЕТОДА
-                if self.verbose:
-                    print(f"📊 Обновлено критериев: {criteria_updated}")
-                total_updated += criteria_updated
+                try:
+                    criteria_updated = self._update_criteria_bulk(criteria_games)
+                    if self.verbose:
+                        print(f"📊 Обновлено критериев: {criteria_updated}")
+                    total_updated += criteria_updated
+                except Exception as e:
+                    print(f"\n❌ КРИТИЧЕСКАЯ ОШИБКА при обновлении критериев: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    # Прерываем программу
+                    import sys
+                    sys.exit(1)
 
             if self.verbose:
                 print(f"\n📊 Результат: реально обновлено {total_updated} игр из {games_in_batch} в батче")
@@ -109,12 +125,12 @@ class BatchUpdater:
             return total_updated
 
         except Exception as e:
-            if self.verbose:
-                print(f"❌ Ошибка обновления батча: {e}")
-                import traceback
-                traceback.print_exc()
-            self.games_to_update.clear()
-            return 0
+            print(f"\n❌ КРИТИЧЕСКАЯ ОШИБКА при обновлении батча: {e}")
+            import traceback
+            traceback.print_exc()
+            # Прерываем программу
+            import sys
+            sys.exit(1)
 
     def _update_keywords_bulk(self, keyword_games):
         """МАКСИМАЛЬНО ОПТИМИЗИРОВАННОЕ обновление ключевых слов"""
@@ -160,7 +176,6 @@ class BatchUpdater:
             return 0
 
         # 4. Получаем текущие связи всех игр с ключевыми словами одним запросом
-        # Используем through модель для прямой работы с промежуточной таблицей
         through_model = Game.keywords.through
 
         # Получаем существующие связи для всех игр сразу
@@ -204,11 +219,20 @@ class BatchUpdater:
 
         # 6. Массовое добавление всех новых связей ОДНИМ запросом
         if new_relations:
-            with transaction.atomic():
-                through_model.objects.bulk_create(new_relations, ignore_conflicts=True)
+            try:
+                with transaction.atomic():
+                    through_model.objects.bulk_create(new_relations, ignore_conflicts=True)
 
-                # Обновляем updated_at для всех измененных игр одним запросом
-                Game.objects.filter(id__in=updated_games).update(updated_at=timezone.now())
+                    # Обновляем updated_at для всех измененных игр одним запросом
+                    Game.objects.filter(id__in=updated_games).update(updated_at=timezone.now())
+            except Exception as e:
+                print(f"\n❌ КРИТИЧЕСКАЯ ОШИБКА БАЗЫ ДАННЫХ при сохранении ключевых слов: {e}")
+                print(f"   affected_games: {list(updated_games)[:10]}...")
+                import traceback
+                traceback.print_exc()
+                # Прерываем программу
+                import sys
+                sys.exit(1)
 
         elapsed = time.time() - start_time
         if self.verbose:
@@ -251,11 +275,23 @@ class BatchUpdater:
                 if not items:
                     continue
 
+                # Определяем правильное имя связанного поля для игры
+                if key == 'perspectives':
+                    related_field = 'player_perspectives'
+                elif key == 'genres':
+                    related_field = 'genres'
+                elif key == 'themes':
+                    related_field = 'themes'
+                elif key == 'game_modes':
+                    related_field = 'game_modes'
+                else:
+                    continue
+
                 # Получаем названия through модели
-                through_model = getattr(Game, key).through
+                through_model = getattr(Game, related_field).through
                 item_ids = [item['id'] for item in items]
 
-                # Получаем существующие связи для этой игры (будут закешированы)
+                # Получаем существующие связи для этой игры
                 existing_ids = set()
                 if key == 'genres':
                     existing_ids = set(game.genres.values_list('id', flat=True))
@@ -280,15 +316,24 @@ class BatchUpdater:
 
         # 2. Массовое добавление всех связей для всех типов критериев
         total_added = 0
-        with transaction.atomic():
-            for through_model, relations in all_new_relations.items():
-                if relations:
-                    through_model.objects.bulk_create(relations, ignore_conflicts=True)
-                    total_added += len(relations)
+        try:
+            with transaction.atomic():
+                for through_model, relations in all_new_relations.items():
+                    if relations:
+                        through_model.objects.bulk_create(relations, ignore_conflicts=True)
+                        total_added += len(relations)
 
-            # Обновляем updated_at для всех измененных игр одним запросом
-            if updated_games:
-                Game.objects.filter(id__in=updated_games).update(updated_at=timezone.now())
+                # Обновляем updated_at для всех измененных игр одним запросом
+                if updated_games:
+                    Game.objects.filter(id__in=updated_games).update(updated_at=timezone.now())
+        except Exception as e:
+            print(f"\n❌ КРИТИЧЕСКАЯ ОШИБКА БАЗЫ ДАННЫХ при сохранении критериев: {e}")
+            print(f"   affected_games: {list(updated_games)[:10]}...")
+            import traceback
+            traceback.print_exc()
+            # Прерываем программу
+            import sys
+            sys.exit(1)
 
         elapsed = time.time() - start_time
         if self.verbose:
