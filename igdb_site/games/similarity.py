@@ -71,6 +71,7 @@ class GameSimilarity:
     """
     УНИВЕРСАЛЬНЫЙ алгоритм похожести с динамическими весами
     """
+    DEFAULT_SIMILAR_GAMES_LIMIT = 1000
 
     # Базовые константы с распределением весов
     GENRES_WEIGHT = 50.0
@@ -1243,7 +1244,7 @@ class GameSimilarity:
             return obj._cached_engine_ids
         return set()
 
-    def find_similar_games(self, source_game, min_similarity=None, limit=1000):
+    def find_similar_games(self, source_game, min_similarity=None, limit=None):
         """ОПТИМИЗИРОВАННЫЙ расчет похожих игр - ТОЛЬКО ВЫШЕДШИЕ ИГРЫ - БЕЗ ЛИМИТОВ НА КАНДИДАТЫ"""
         import time
         from django.db import connection
@@ -1254,7 +1255,7 @@ class GameSimilarity:
         from .models import Game, GameMode
 
         if limit is None:
-            limit = 500
+            limit = self.DEFAULT_SIMILAR_GAMES_LIMIT
 
         # Используем константу, если не передан порог
         if min_similarity is None:

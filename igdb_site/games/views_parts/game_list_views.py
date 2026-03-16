@@ -330,7 +330,7 @@ def _get_similar_games_mode_with_pagination(
         )
 
     # Форматируем данные с актуальными процентами
-    games_with_similarity = _format_similar_games_data(similar_games_data, limit=total_count)
+    games_with_similarity = _format_similar_games_data(similar_games_data)
 
     # Принудительно обновляем similarity на объектах games для карточек
     for item in games_with_similarity:
@@ -932,7 +932,6 @@ def get_similar_games_for_criteria(selected_criteria: Dict[str, List[int]]) -> T
 
     similar_games = similarity_engine.find_similar_games(
         source_game=virtual_game,
-        limit=500
     )
 
     total_count = len(similar_games)
@@ -986,7 +985,6 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int]) ->
         similar_games = similarity_engine.find_similar_games(
             source_game=game_obj,
             min_similarity=0,
-            limit=500
         )
         total_count = len(similar_games)
 
