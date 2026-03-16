@@ -36,23 +36,35 @@ class OutputFormatter:
             match_name = match.get('name', '')
             matched_text = match.get('matched_text', '')
             context = match.get('context', '')
+            pattern = match.get('pattern', '')
 
             # Проверяем по имени
             if match_name and match_name.lower() == item_name_lower:
                 if context:
-                    # Очищаем контекст от лишних пробелов
                     clean_context = ' '.join(context.split())
-                    return f'(найдено как "{matched_text}" в: "{clean_context}")'
+                    if pattern:
+                        return f'("{pattern}" как "{matched_text}" в: "{clean_context}")'
+                    else:
+                        return f'(найдено как "{matched_text}" в: "{clean_context}")'
                 elif matched_text:
-                    return f'(найдено как "{matched_text}")'
+                    if pattern:
+                        return f'("{pattern}" как "{matched_text}")'
+                    else:
+                        return f'(найдено как "{matched_text}")'
 
             # Проверяем по matched_text
             if matched_text and matched_text.lower() == item_name_lower:
                 if context:
                     clean_context = ' '.join(context.split())
-                    return f'(найдено как "{matched_text}" в: "{clean_context}")'
+                    if pattern:
+                        return f'("{pattern}" как "{matched_text}" в: "{clean_context}")'
+                    else:
+                        return f'(найдено как "{matched_text}" в: "{clean_context}")'
                 else:
-                    return f'(найдено как "{matched_text}")'
+                    if pattern:
+                        return f'("{pattern}" как "{matched_text}")'
+                    else:
+                        return f'(найдено как "{matched_text}")'
 
         return ""
 

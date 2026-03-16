@@ -420,7 +420,9 @@ class PatternManager:
         'Non-fiction': [
             r'\bnon-fiction\b',
             r'\bnonfiction\b',
-            r'\breal(\s+world|\s+life)\b',
+            r'\bdocumentary\s+style\b',
+            r'\bbased on real events\b',
+            r'\bhistorical reenactment\b',
         ],
         'Party': [
             r'\bparty\s+(game|games|title|mode)\b',
@@ -507,8 +509,12 @@ class PatternManager:
             r'\btop-down(\s+view|\s+perspective|\s+camera)?\b'
         ],
         'First person': [
-            r'\bfirst-person\b',
-            r'\bfpp\b'
+            r'\bfirst-person(\s+(perspective|camera|view|shooter))?\b',
+            r'\bfpp\b',
+            r'\bplayed in first person\b',
+            r'\bfrom a first-person perspective\b',
+            r'\bfirst person experience\b',
+            r'\bview through the eyes\b',
         ],
         'Side view': [
             r'\bside\s+view\b',
@@ -524,9 +530,18 @@ class PatternManager:
             r'\btpp\b'
         ],
         'Virtual Reality': [
-            r'\bvirtual\s+reality\b',
-            r'\bvr\b',
-            r'\bvr\s+experience\b',
+            r'\bplayed in virtual reality\b',
+            r'\bvirtual reality experience\b',
+            r'\bvirtual reality game\b',
+            r'\bvirtual reality mode\b',
+            r'\bsupports virtual reality\b',
+            r'\bvirtual reality support\b',
+            r'\bvr support\b',
+            r'\bvr mode\b',
+            r'\bvr headset\b',
+            r'\bvr exclusive\b',
+            r'\bvirtual reality headset\b',
+            r'\bvirtual reality (is|as) (the|a) (primary|main) (perspective|view|camera)\b',
         ],
     }
 
