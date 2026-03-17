@@ -277,7 +277,14 @@ export function bindAnalyzeButton(analyzer) {
                 if (activePane) {
                     const textDisplayArea = activePane.querySelector('.text-display-area .text-content');
                     if (textDisplayArea) {
+                        // Устанавливаем новый HTML из ответа
                         textDisplayArea.innerHTML = data.highlighted_html;
+
+                        // Добавляем пустой блок для возможности прокрутки текста до середины
+                        const spacer = document.createElement('div');
+                        spacer.className = 'scroll-spacer';
+                        spacer.style.cssText = 'height: 50vh; min-height: 300px; width: 100%; pointer-events: none;';
+                        textDisplayArea.appendChild(spacer);
                     }
                 }
 
