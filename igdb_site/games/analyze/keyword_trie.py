@@ -106,7 +106,10 @@ class KeywordTrie:
             raise RuntimeError("WordNetAPI недоступен. Невозможно выполнить лемматизацию.")
 
         try:
-            text_lower = text.lower()
+            # Заменяем кавычки на пробелы перед обработкой
+            import re
+            text_for_search = re.sub(r'["\']', ' ', text)
+            text_lower = text_for_search.lower()
 
             # Создаем структуры для быстрого поиска - ТОЛЬКО ОРИГИНАЛЬНЫЕ ключевые слова
             exact_phrases = {}  # точные фразы с пробелами -> id
@@ -415,7 +418,12 @@ class KeywordTrie:
 
                         occupied_positions.append((start, end))
                         if self.verbose:
-                            print(f"  ✅ Найдено слово через нормализацию: '{original_text}' → '{base_form}'")
+                            # Здесь мы можем увидеть, что слово прошло через обработку приставок
+                            if base_form != word and base_form != wordnet_api.lemmatize(word):
+                                print(
+                                    f"  ✅ Найдено слово через нормализацию/удаление приставки: '{original_text}' → '{base_form}'")
+                            else:
+                                print(f"  ✅ Найдено слово через нормализацию: '{original_text}' → '{base_form}'")
 
             # Удаляем дубликаты если нужно
             if unique_only:
