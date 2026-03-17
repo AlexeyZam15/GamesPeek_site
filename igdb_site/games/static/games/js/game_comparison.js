@@ -28,81 +28,6 @@ function highlightSimilarityHeader(similarityScore) {
 }
 
 /**
- * Создание и управление кнопкой возврата к разбивке
- */
-function setupBackToBreakdownButton() {
-    // Создаем кнопку если её ещё нет
-    let backButton = document.getElementById('back-to-breakdown');
-    if (!backButton) {
-        backButton = document.createElement('button');
-        backButton.id = 'back-to-breakdown';
-        backButton.className = 'btn back-to-breakdown-btn';
-        backButton.innerHTML = '<i class="bi bi-arrow-up"></i> Back to Similarity Breakdown';
-        backButton.style.display = 'none';
-        document.body.appendChild(backButton);
-
-        // Добавляем обработчик клика
-        backButton.addEventListener('click', function() {
-            scrollToBreakdown();
-        });
-    }
-
-    return backButton;
-}
-
-/**
- * Плавный скролл к блоку с разбивкой
- */
-function scrollToBreakdown() {
-    // Ищем блок с заголовком "Similarity Breakdown"
-    const breakdownTitle = Array.from(document.querySelectorAll('.section-title')).find(
-        el => el.textContent.includes('Similarity Breakdown')
-    );
-
-    if (!breakdownTitle) return;
-
-    const breakdownSection = breakdownTitle.closest('.shared-section');
-    if (!breakdownSection) return;
-
-    breakdownSection.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start'
-    });
-
-    // Скрываем кнопку после возврата
-    const backButton = document.getElementById('back-to-breakdown');
-    if (backButton) {
-        backButton.style.display = 'none';
-    }
-}
-
-/**
- * Проверка видимости разбивки и управление кнопкой возврата
- */
-function checkBreakdownVisibility() {
-    // Ищем блок с заголовком "Similarity Breakdown"
-    const breakdownTitle = Array.from(document.querySelectorAll('.section-title')).find(
-        el => el.textContent.includes('Similarity Breakdown')
-    );
-
-    if (!breakdownTitle) return;
-
-    const breakdownSection = breakdownTitle.closest('.shared-section');
-    const backButton = document.getElementById('back-to-breakdown');
-
-    if (!breakdownSection || !backButton) return;
-
-    const rect = breakdownSection.getBoundingClientRect();
-    const isVisible = (
-        rect.top >= 0 &&
-        rect.bottom <= (window.innerHeight || document.documentElement.clientHeight)
-    );
-
-    // Показываем кнопку только если разбивка не видна
-    backButton.style.display = isVisible ? 'none' : 'flex';
-}
-
-/**
  * Плавный скролл к блоку с общими критериями (с центрированием)
  * @param {string} targetId - ID целевого блока
  */
@@ -116,12 +41,6 @@ function scrollToSharedSection(targetId) {
         block: 'center',
         inline: 'center'
     });
-
-    // Показываем кнопку возврата
-    const backButton = document.getElementById('back-to-breakdown');
-    if (backButton) {
-        backButton.style.display = 'flex';
-    }
 }
 
 /**
@@ -232,21 +151,14 @@ document.addEventListener('DOMContentLoaded', function() {
     // Получаем процент схожести из data-атрибута или переменной
     const similarityScore = parseFloat(document.body.dataset.similarityScore || '0');
 
-    // Создаем кнопку возврата
-    setupBackToBreakdownButton();
-
     // Инициализация всех функций
     initTooltips();
     highlightSimilarityHeader(similarityScore);
     initKeywordsToggle();
     centerGenresOnCards();
     setupCommonItemsClickHandlers();
-
-    // Добавляем обработчик скролла для проверки видимости разбивки
-    window.addEventListener('scroll', checkBreakdownVisibility);
 });
 
 // Экспортируем функции для глобального доступа
 window.toggleKeywords = toggleKeywords;
 window.scrollToSharedSection = scrollToSharedSection;
-window.scrollToBreakdown = scrollToBreakdown;

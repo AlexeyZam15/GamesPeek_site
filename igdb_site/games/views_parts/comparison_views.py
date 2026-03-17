@@ -18,6 +18,7 @@ from ..models import (
 
 logger = logging.getLogger(__name__)
 
+
 def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
     """Universal comparison: game-game or criteria-game."""
     try:
@@ -88,10 +89,13 @@ def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
                 game_mode_ids=selected_criteria['game_modes']
             )
 
-        if similarity_score == 0:
-            similarity_engine = GameSimilarity()
+        # Инициализируем similarity_data
+        similarity_data = None
+        similarity_engine = GameSimilarity()
 
+        if similarity_score == 0:
             if is_criteria_comparison:
+                # Для сравнения критериев с игрой
                 virtual_game = VirtualGame(
                     genre_ids=selected_criteria['genres'],
                     keyword_ids=selected_criteria['keywords'],
@@ -100,48 +104,29 @@ def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
                     developer_ids=selected_criteria['developers'],
                     game_mode_ids=selected_criteria['game_modes']
                 )
-
-                similar_games = similarity_engine.find_similar_games(
-                    source_game=virtual_game,
-                    min_similarity=0,
-                )
-
-                for game_data in similar_games:
-                    if isinstance(game_data, dict) and game_data.get('game') and game_data['game'].id == game2.id:
-                        similarity_score = game_data.get('similarity', 0)
-                        break
-                    elif hasattr(game_data, 'id') and game_data.id == game2.id:
-                        similarity_score = getattr(game_data, 'similarity', 0)
-                        break
-
-                if similarity_score == 0:
-                    similarity_score = similarity_engine.calculate_similarity(virtual_game, game2)
+                # Сначала получаем формулу (она сама вычислит similarity)
+                similarity_data = similarity_engine.get_similarity_formula(virtual_game, game2)
+                similarity_score = similarity_data['total'] if similarity_data else 0
             else:
-                similar_games = similarity_engine.find_similar_games(
-                    source_game=game1,
-                    min_similarity=0,
-                    limit=1000
-                )
-
-                for game_data in similar_games:
-                    if isinstance(game_data, dict) and game_data.get('game') and game_data['game'].id == game2.id:
-                        similarity_score = game_data.get('similarity', 0)
-                        break
-                    elif hasattr(game_data, 'id') and game_data.id == game2.id:
-                        similarity_score = getattr(game_data, 'similarity', 0)
-                        break
-
-                if similarity_score == 0:
-                    similarity_score = similarity_engine.calculate_similarity(game1, game2)
-
-        breakdown = None
-        similarity_data = None
-        if similarity_score > 0:
-            similarity_engine = GameSimilarity()
-            breakdown = similarity_engine.get_similarity_breakdown(source if is_criteria_comparison else game1, game2)
+                # Для сравнения двух реальных игр
+                # Сначала получаем формулу (она сама вычислит similarity)
+                similarity_data = similarity_engine.get_similarity_formula(game1, game2)
+                similarity_score = similarity_data['total'] if similarity_data else 0
+        else:
+            # Если similarity уже передан в URL, но нужна формула
             try:
-                similarity_data = similarity_engine.get_similarity_formula(source if is_criteria_comparison else game1,
-                                                                           game2)
+                if is_criteria_comparison:
+                    virtual_game = VirtualGame(
+                        genre_ids=selected_criteria['genres'],
+                        keyword_ids=selected_criteria['keywords'],
+                        theme_ids=selected_criteria['themes'],
+                        perspective_ids=selected_criteria['perspectives'],
+                        developer_ids=selected_criteria['developers'],
+                        game_mode_ids=selected_criteria['game_modes']
+                    )
+                    similarity_data = similarity_engine.get_similarity_formula(virtual_game, game2)
+                else:
+                    similarity_data = similarity_engine.get_similarity_formula(game1, game2)
             except Exception as e:
                 logger.error(f"Error getting similarity data: {e}")
                 similarity_data = {
@@ -151,6 +136,15 @@ def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
                     'total_from_criteria': similarity_score,
                     'error': str(e)
                 }
+
+        # Получаем breakdown для обратной совместимости (если нужно)
+        breakdown = None
+        try:
+            if similarity_score > 0:
+                breakdown = similarity_engine.get_similarity_breakdown(source if is_criteria_comparison else game1,
+                                                                       game2)
+        except Exception as e:
+            logger.error(f"Error getting breakdown: {e}")
 
         shared_items = {}
         fields_to_compare = ['genres', 'keywords', 'themes', 'perspectives', 'developers', 'game_modes']
