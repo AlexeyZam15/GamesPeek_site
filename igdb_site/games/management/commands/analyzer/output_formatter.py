@@ -364,7 +364,8 @@ class OutputFormatter:
                             item_name = item['name']
                             item_id = item.get('id')
 
-                            self.command.output_file.write(f"      • {item_name}")
+                            # Базовая строка с названием элемента
+                            line = f"      • {item_name}"
 
                             # Ищем контекст для этого конкретного элемента
                             context_info = self._find_context_for_item(
@@ -372,9 +373,27 @@ class OutputFormatter:
                             )
 
                             if context_info:
-                                self.command.output_file.write(f"\n        {context_info}")
+                                # Для ключевых слов показываем только найденную форму в той же строке
+                                if keywords:
+                                    # Извлекаем только matched_text из context_info
+                                    import re
+                                    # Ищем паттерн (найдено как "текст") или ("паттерн" как "текст")
+                                    match = re.search(r'(?:найдено как|"[^"]+" как) "([^"]+)"', context_info)
+                                    if match:
+                                        matched_text = match.group(1)
+                                        line += f" (найдено как \"{matched_text}\")"
+                                    else:
+                                        # Если не удалось извлечь, показываем как есть, но убираем контекст
+                                        simplified = re.sub(r'\s+в:.*$', '', context_info)
+                                        line += f" {simplified}"
+                                else:
+                                    # Для обычных критериев добавляем контекст с новой строки
+                                    self.command.output_file.write(line + "\n")
+                                    self.command.output_file.write(f"        {context_info}\n")
+                                    continue  # Переходим к следующему элементу, так как уже записали
 
-                            self.command.output_file.write("\n")
+                            # Записываем строку (для ключевых слов или если нет контекста)
+                            self.command.output_file.write(line + "\n")
 
                         self.command.output_file.write("\n")
 
