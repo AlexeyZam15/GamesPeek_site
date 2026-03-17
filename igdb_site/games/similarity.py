@@ -74,8 +74,8 @@ class GameSimilarity:
     DEFAULT_SIMILAR_GAMES_LIMIT = 500  # Если установить 0, будут возвращаться все найденные игры без ограничения
 
     # Базовые константы с распределением весов
-    GENRES_WEIGHT = 40.0
-    KEYWORDS_WEIGHT = 30.0
+    GENRES_WEIGHT = 30.0
+    KEYWORDS_WEIGHT = 40.0
     THEMES_WEIGHT = .0
     PERSPECTIVES_WEIGHT = 10.0
     GAME_MODES_WEIGHT = 15.0
