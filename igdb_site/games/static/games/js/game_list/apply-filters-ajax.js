@@ -29,18 +29,11 @@
         const newButton = applyButton.cloneNode(true);
         applyButton.parentNode.replaceChild(newButton, applyButton);
 
-        // Добавляем новый обработчик
+        // Добавляем новый обработчик ТОЛЬКО на клик по кнопке
         newButton.addEventListener('click', handleApplyFilters);
 
-        // Также отключаем стандартную отправку формы
-        const form = document.getElementById('main-search-form');
-        if (form) {
-            form.addEventListener('submit', function(e) {
-                e.preventDefault();
-                console.log('Form submit prevented');
-                return false;
-            });
-        }
+        // ВНИМАНИЕ: Удален блок с перехватом отправки формы!
+        // Форма теперь отправляется нормально для поиска из навигации
     }
 
     function findApplyButton() {
