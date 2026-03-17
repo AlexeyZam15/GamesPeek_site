@@ -67,7 +67,7 @@
     <!-- AJAX ПАГИНАЦИЯ -->
     <script src="{% static 'games/js/game_list/ajax-pagination.js' %}"></script>
 
-    <!-- APPLY FILTERS AJAX - ВАЖНО: должен быть после filters.js -->
+    <!-- APPLY FILTERS AJAX -->
     <script src="{% static 'games/js/game_list/apply-filters-ajax.js' %}"></script>
 
     <!-- SIMILARITY COMPARE BUTTONS -->
@@ -75,18 +75,4 @@
 
     <!-- SIMILARITY DISPLAY -->
     <script src="{% static 'games/js/game_list/similarity-display.js' %}"></script>
-
-    <script>
-        // Принудительно отключаем стандартную отправку формы
-        document.addEventListener('DOMContentLoaded', function() {
-            const form = document.getElementById('main-search-form');
-            if (form) {
-                form.addEventListener('submit', function(e) {
-                    e.preventDefault();
-                    console.log('Form submit prevented');
-                    return false;
-                });
-            }
-        });
-    </script>
 {% endblock %}
