@@ -74,18 +74,15 @@ class GameSimilarity:
     DEFAULT_SIMILAR_GAMES_LIMIT = 500  # Если установить 0, будут возвращаться все найденные игры без ограничения
 
     # Базовые константы с распределением весов
-    GENRES_WEIGHT = 50.0
+    GENRES_WEIGHT = 40.0
     KEYWORDS_WEIGHT = 30.0
     THEMES_WEIGHT = .0
     PERSPECTIVES_WEIGHT = 10.0
-    GAME_MODES_WEIGHT = 5.0
+    GAME_MODES_WEIGHT = 15.0
     DEVELOPERS_WEIGHT = 5.0
     ENGINES_WEIGHT = 0.0  # НОВАЯ КОНСТАНТА: Начинаем с 0, так как это новый критерий
 
     # Конфигурационные константы с оптимизированными весами
-    GENRES_TOTAL_WEIGHT = 50.0
-    GENRES_EXACT_MATCH_WEIGHT = 0
-    GENRES_PARTIAL_MATCH_WEIGHT = 50.0
     # НОВАЯ КОНСТАНТА: минимальное количество общих жанров для включения в результат
     MIN_COMMON_GENRES = 2
 
@@ -1859,7 +1856,7 @@ class GameSimilarity:
         if source_genre_count > 0 and target_data['common_genres'] > 0:
             # Используем коэффициент совпадения
             genre_match_ratio = target_data['common_genres'] / max(source_genre_count, target_data['total_genres'])
-            similarity += genre_match_ratio * self.GENRES_TOTAL_WEIGHT
+            similarity += genre_match_ratio * self.GENRES_WEIGHT
 
         # 2. КЛЮЧЕВЫЕ СЛОВА (30%) - упрощенный
         if target_data['common_keywords'] > 0:
@@ -1904,40 +1901,6 @@ class GameSimilarity:
         similarity = min(common_count * self.KEYWORDS_ADD_PER_MATCH, self.KEYWORDS_WEIGHT)
 
         return similarity
-
-    def _calculate_genre_similarity(self, source_genres, target_genres):
-        """
-        Расчет схожести жанров
-        """
-        if not source_genres and not target_genres:
-            return self.GENRES_TOTAL_WEIGHT
-
-        if not source_genres or not target_genres:
-            return 0.0
-
-        total_score = 0.0
-
-        # Быстрая проверка точного совпадения
-        if source_genres == target_genres:
-            total_score += self.GENRES_EXACT_MATCH_WEIGHT
-            # Если точное совпадение, сразу возвращаем полный балл
-            return total_score + self.GENRES_PARTIAL_MATCH_WEIGHT
-
-        # Частичное совпадение
-        source_len = len(source_genres)
-        target_len = len(target_genres)
-
-        # Прямое сравнение
-        common = source_genres.intersection(target_genres)
-        common_count = len(common)
-
-        total_count = source_len + target_len - common_count
-
-        if total_count > 0:
-            genre_overlap_ratio = common_count / total_count
-            total_score += genre_overlap_ratio * self.GENRES_PARTIAL_MATCH_WEIGHT
-
-        return total_score
 
     def _calculate_set_similarity(self, set1, set2, max_score):
         """
