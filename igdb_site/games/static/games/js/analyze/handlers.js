@@ -313,25 +313,85 @@ export function bindAnalyzeButton(analyzer) {
 
 function updateFoundItemsSidebar(analyzer, foundItemsData, hasUnsavedResults) {
     const sidebarContainer = document.querySelector('.col-lg-4');
-    if (!sidebarContainer) return;
-
-    let targetSidebarCard = null;
-    const sidebarCards = sidebarContainer.querySelectorAll('.sidebar-card');
-
-    sidebarCards.forEach(card => {
-        const header = card.querySelector('.sidebar-card-header');
-        if (header && header.innerText.includes('Found Elements')) {
-            targetSidebarCard = card;
-        }
-    });
-
-    if (!targetSidebarCard) {
-        console.error('Could not locate Found Elements sidebar card.');
+    if (!sidebarContainer) {
+        console.error('Sidebar container .col-lg-4 not found');
         return;
     }
 
+    // Ищем существующую карточку Found Elements или создаем новую
+    let targetSidebarCard = null;
+    const sidebarCards = sidebarContainer.querySelectorAll('.sidebar-card');
+
+    console.log('Found sidebar cards:', sidebarCards.length);
+
+    // Сначала ищем существующую карточку с Found Elements
+    sidebarCards.forEach(card => {
+        const header = card.querySelector('.sidebar-card-header');
+        if (header) {
+            console.log('Card header text:', header.innerText);
+            if (header.innerText.includes('Found Elements')) {
+                targetSidebarCard = card;
+                console.log('Found existing Found Elements card');
+            }
+        }
+    });
+
+    // Если карточка не найдена, создаем новую
+    if (!targetSidebarCard) {
+        console.log('Creating new Found Elements card');
+
+        // Проверяем, есть ли у нас данные для отображения
+        const hasAnyItems = foundItemsData && Object.keys(foundItemsData).some(key =>
+            ['genres', 'themes', 'perspectives', 'game_modes', 'keywords'].includes(key) &&
+            foundItemsData[key]?.length > 0
+        );
+
+        if (!hasAnyItems) {
+            console.log('No items to display, skipping card creation');
+            return;
+        }
+
+        // Создаем новую карточку
+        targetSidebarCard = document.createElement('div');
+        targetSidebarCard.className = 'sidebar-card';
+
+        const header = document.createElement('div');
+        header.className = 'sidebar-card-header bg-success text-white';
+        header.innerHTML = `
+            <i class="bi bi-check-circle me-2"></i>Found Elements
+            <span class="badge bg-light text-success ms-2" id="found-items-total">0 total</span>
+        `;
+
+        const body = document.createElement('div');
+        body.className = 'sidebar-card-body';
+        body.id = 'found-items-body';
+
+        targetSidebarCard.appendChild(header);
+        targetSidebarCard.appendChild(body);
+
+        // Вставляем после карточки с легендой
+        const legendCard = sidebarContainer.querySelector('.sidebar-card:first-child');
+        if (legendCard && legendCard.nextSibling) {
+            sidebarContainer.insertBefore(targetSidebarCard, legendCard.nextSibling);
+        } else {
+            sidebarContainer.appendChild(targetSidebarCard);
+        }
+
+        console.log('Created new Found Elements card');
+    }
+
     const cardBody = targetSidebarCard.querySelector('.sidebar-card-body');
-    if (!cardBody) return;
+    if (!cardBody) {
+        console.error('Card body not found');
+        return;
+    }
+
+    // Обновляем заголовок с общим количеством
+    const headerTotal = targetSidebarCard.querySelector('#found-items-total, .badge.bg-light');
+    if (headerTotal) {
+        const totalCount = foundItemsData?.total_found || 0;
+        headerTotal.textContent = `${totalCount} total`;
+    }
 
     const hasAnyItems = foundItemsData && Object.keys(foundItemsData).some(key =>
         ['genres', 'themes', 'perspectives', 'game_modes', 'keywords'].includes(key) &&
@@ -340,10 +400,22 @@ function updateFoundItemsSidebar(analyzer, foundItemsData, hasUnsavedResults) {
 
     if (!hasAnyItems) {
         cardBody.innerHTML = `
-            <div class="found-items-grid">
+            <div class="found-items-grid" id="found-items-container">
                 <p class="text-muted text-center my-3">No elements found in this text.</p>
             </div>
         `;
+
+        if (hasUnsavedResults) {
+            cardBody.innerHTML += `
+                <div class="mt-3 pt-3 border-top border-secondary">
+                    <div class="alert alert-info mb-0 py-2">
+                        <small>
+                            <i class="bi bi-info-circle me-1"></i>
+                            No elements found in this text.
+                        </small>
+                    </div>
+                </div>`;
+        }
         return;
     }
 
@@ -411,6 +483,14 @@ function updateFoundItemsSidebar(analyzer, foundItemsData, hasUnsavedResults) {
     }
 
     cardBody.innerHTML = html;
+
+    // Обновляем общее количество в заголовке
+    if (headerTotal) {
+        const totalCount = Object.keys(foundItemsData)
+            .filter(key => ['genres', 'themes', 'perspectives', 'game_modes', 'keywords'].includes(key))
+            .reduce((sum, key) => sum + (foundItemsData[key]?.length || 0), 0);
+        headerTotal.textContent = `${totalCount} total`;
+    }
 
     setTimeout(() => {
         if (typeof bindFoundItemsClicks === 'function') {

@@ -100,6 +100,7 @@ class GameAnalyzerUI {
         this.handleScroll();
         this.loadUrlParams();
         this.forceTextAlignmentFix();
+        this.setupCopyHandler();
 
         const restoredTab = restoreCurrentTab(this);
 
@@ -110,6 +111,139 @@ class GameAnalyzerUI {
         }
 
         console.log('Game Analyzer UI initialized');
+    }
+
+    /**
+     * Настройка обработчика копирования текста из описаний в поле ввода ключевых слов
+     */
+    setupCopyHandler() {
+        console.log('Setting up copy handler for text selection...');
+
+        document.addEventListener('copy', (e) => {
+            // Даем браузеру выполнить стандартное копирование
+            // После этого через небольшую задержку читаем из буфера обмена
+            setTimeout(() => {
+                this.handleClipboardText();
+            }, 100);
+        });
+    }
+
+    /**
+     * Читает текст из буфера обмена и помещает его в поле ввода ключевых слов
+     */
+    async handleClipboardText() {
+        try {
+            // Проверяем поддержку Clipboard API
+            if (!navigator.clipboard || !navigator.clipboard.readText) {
+                console.warn('Clipboard API not supported');
+                // Fallback: пробуем получить выделенный текст напрямую
+                this.handleSelectedTextFallback();
+                return;
+            }
+
+            // Читаем текст из буфера обмена
+            const clipboardText = await navigator.clipboard.readText();
+
+            if (!clipboardText || !clipboardText.trim()) {
+                return; // Пустой буфер обмена
+            }
+
+            const selectedText = clipboardText.trim();
+
+            // Проверяем, что текст действительно был выделен из описания
+            const selection = window.getSelection();
+            const selectionText = selection.toString().trim();
+
+            // Если выделенный текст совпадает с текстом из буфера, значит копировали отсюда
+            if (selectionText && selectionText === selectedText) {
+                this.processSelectedText(selectedText, selection);
+            }
+
+        } catch (error) {
+            console.error('Error reading from clipboard:', error);
+            // Если не удалось прочитать из буфера, пробуем получить выделенный текст напрямую
+            this.handleSelectedTextFallback();
+        }
+    }
+
+    /**
+     * Fallback метод для получения выделенного текста напрямую (без Clipboard API)
+     */
+    handleSelectedTextFallback() {
+        const selection = window.getSelection();
+        const selectedText = selection.toString().trim();
+
+        if (selectedText) {
+            this.processSelectedText(selectedText, selection);
+        }
+    }
+
+    /**
+     * Обрабатывает выделенный текст и помещает его в поле ввода
+     */
+    processSelectedText(selectedText, selection) {
+        try {
+            // Проверяем длину текста (не более 100 символов, как указано в maxlength)
+            if (selectedText.length > 100) {
+                this.showMessage('Selected text is too long. Maximum 100 characters allowed.', 'warning', 3000);
+                return;
+            }
+
+            // Проверяем, что выделение находится внутри области с текстом описания
+            const selectionRange = selection.getRangeAt(0);
+            const selectionContainer = selectionRange.commonAncestorContainer;
+
+            // Проверяем, находится ли выделение внутри .text-content или .text-display-area
+            let isInDescription = false;
+            let node = selectionContainer;
+
+            while (node && node !== document) {
+                if (node.nodeType === Node.ELEMENT_NODE) {
+                    const element = node;
+                    if (element.classList && (
+                        element.classList.contains('text-content') ||
+                        element.classList.contains('text-display-area') ||
+                        element.closest('.text-content') ||
+                        element.closest('.text-display-area')
+                    )) {
+                        isInDescription = true;
+                        break;
+                    }
+                }
+                node = node.parentNode;
+            }
+
+            // Проверяем, не внутри ли мы боковой панели или других элементов
+            if (!isInDescription) {
+                // Проверяем, не внутри ли мы боковой панели
+                const inSidebar = selectionContainer.closest && selectionContainer.closest('.sidebar-card');
+                const inSettings = selectionContainer.closest && selectionContainer.closest('.settings-card');
+                const inHeader = selectionContainer.closest && selectionContainer.closest('.analyze-header');
+
+                if (inSidebar || inSettings || inHeader) {
+                    return; // Не копируем из этих элементов
+                }
+            }
+
+            // Получаем поле ввода
+            const keywordInput = document.getElementById('new-keyword-input');
+            if (!keywordInput) {
+                console.warn('Keyword input not found');
+                return;
+            }
+
+            // Устанавливаем выделенный текст в поле ввода
+            keywordInput.value = selectedText;
+
+            // Фокусируемся на поле ввода
+            keywordInput.focus();
+
+            // Показываем уведомление
+            this.showMessage(`Text copied to keyword input: "${selectedText}"`, 'success', 2000);
+
+        } catch (error) {
+            console.error('Error processing selected text:', error);
+        }
     }
 
     setupTooltips() {
