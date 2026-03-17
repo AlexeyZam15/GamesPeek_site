@@ -256,11 +256,8 @@ class WordNetAPI:
     def get_best_base_form(self, word: str) -> str:
         """
         Определяет базовую форму слова используя WordNet.
-        В КОНЦЕ ОБРАБАТЫВАЕТ ПРИСТАВКИ, ЕСЛИ СЛОВО НЕ ИЗМЕНИЛОСЬ
-
-        Для глаголов: возвращает инфинитив
-        Для существительных: возвращает единственное число
-        Для прилагательных: возвращает базовую форму
+        Если после лемматизации слово осталось исходным, но оно существует в WordNet - возвращаем как есть.
+        Удаление приставок применяется ТОЛЬКО для слов, которых НЕТ в WordNet И которые не изменились после лемматизации.
 
         Args:
             word: Слово для нормализации
@@ -273,88 +270,68 @@ class WordNetAPI:
 
         word_lower = word.lower()
 
-        # Список всех кандидатов
-        candidates = []
-
         # Проверяем исключения
         is_exception, exception_base = self._check_exceptions(word)
         if is_exception:
-            candidates.append({
-                'form': exception_base,
-                'source': 'exception',
-                'debug': f'Специальное исключение'
-            })
             if self.verbose:
                 print(f"   Исключение: {word_lower} → {exception_base}")
             return exception_base
 
+        # ========== ШАГ 1: ПРОБУЕМ ЛЕММАТИЗАЦИЮ ==========
+        if self.verbose:
+            print(f"\n   🔍 Анализ слова: '{word_lower}'")
+
         # Переменная для хранения результата стандартной нормализации
         standard_result = None
+        lemmatization_source = None
 
         # Проверяем глагольную форму (приоритет)
         if self.wordnet.synsets(word_lower, pos='v'):
             verb_lemma = self.lemmatize(word_lower, pos='v')
-            candidates.append({
-                'form': verb_lemma,
-                'source': 'verb_lemma',
-                'debug': f'Глагол в WordNet'
-            })
+            if verb_lemma != word_lower:
+                standard_result = verb_lemma
+                lemmatization_source = 'verb_lemma'
+                if self.verbose:
+                    print(f"   → лемматизация как глагол: {verb_lemma}")
 
-            # Специальная обработка для окончаний -ies -> -y
-            if word_lower.endswith('ies'):
-                base_with_y = word_lower[:-3] + 'y'
-                if base_with_y != verb_lemma:
-                    candidates.append({
-                        'form': base_with_y,
-                        'source': 'ies_to_y_rule',
-                        'debug': f'Правило: -ies → -y'
-                    })
-
-            if self.verbose:
-                print(f"   Лемматизация (глагол): {word_lower} → {verb_lemma}")
-
-            standard_result = verb_lemma
-
-        # Проверяем существительное (если глагол не нашелся)
+        # Если глагол не дал результата, пробуем существительное
         if standard_result is None and self.wordnet.synsets(word_lower, pos='n'):
             noun_lemma = self.lemmatize(word_lower, pos='n')
             if noun_lemma != word_lower:
-                candidates.append({
-                    'form': noun_lemma,
-                    'source': 'noun_lemma',
-                    'debug': f'Существительное в WordNet'
-                })
-                if self.verbose:
-                    print(f"   Лемматизация (существительное): {word_lower} → {noun_lemma}")
                 standard_result = noun_lemma
+                lemmatization_source = 'noun_lemma'
+                if self.verbose:
+                    print(f"   → лемматизация как существительное: {noun_lemma}")
 
-        # Пробуем другие части речи (если еще не нашли)
-        if standard_result is None:
-            for pos, pos_name in [('a', 'прилагательное'), ('r', 'наречие')]:
-                lemma = self.lemmatize(word_lower, pos=pos)
-                if lemma != word_lower:
-                    candidates.append({
-                        'form': lemma,
-                        'source': f'{pos}_lemma',
-                        'debug': f'{pos_name} в WordNet'
-                    })
-                    if self.verbose:
-                        print(f"   Лемматизация ({pos_name}): {word_lower} → {lemma}")
-                    standard_result = lemma
-                    break
+        # Если существительное не дало результата, пробуем прилагательное
+        if standard_result is None and self.wordnet.synsets(word_lower, pos='a'):
+            adj_lemma = self.lemmatize(word_lower, pos='a')
+            if adj_lemma != word_lower:
+                standard_result = adj_lemma
+                lemmatization_source = 'adj_lemma'
+                if self.verbose:
+                    print(f"   → лемматизация как прилагательное: {adj_lemma}")
 
-        # Если стандартная нормализация дала результат, возвращаем его
+        # ========== ШАГ 2: ЕСЛИ ЛЕММАТИЗАЦИЯ ИЗМЕНИЛА СЛОВО ==========
         if standard_result is not None:
             if self.verbose:
-                print(f"\n   📋 Все кандидаты:")
-                for i, c in enumerate(candidates, 1):
-                    print(f"      {i}. {c['form']:15} (источник: {c['source']})")
-                print(f"   🎯 Выбран: {standard_result}")
+                print(f"   ✅ Лемматизация изменила слово: {word_lower} → {standard_result}")
             return standard_result
 
-        # ========== ЕСЛИ СЛОВО НЕ ИЗМЕНИЛОСЬ, ПРОБУЕМ УДАЛИТЬ ПРИСТАВКУ ==========
+        # ========== ШАГ 3: ЛЕММАТИЗАЦИЯ НЕ ИЗМЕНИЛА СЛОВО ==========
+        # Проверяем, есть ли исходное слово в WordNet
+        has_verb = len(self.wordnet.synsets(word_lower, pos='v')) > 0
+        has_noun = len(self.wordnet.synsets(word_lower, pos='n')) > 0
+        has_adj = len(self.wordnet.synsets(word_lower, pos='a')) > 0
+
+        if has_verb or has_noun or has_adj:
+            if self.verbose:
+                print(f"   ✅ Слово '{word_lower}' существует в WordNet, оставляем как есть")
+            return word_lower
+
+        # ========== ШАГ 4: СЛОВА НЕТ В WORDNET, ПРОБУЕМ УДАЛИТЬ ПРИСТАВКУ ==========
         if self.verbose:
-            print(f"   🔍 Слово не найдено в WordNet, пробуем удалить приставки...")
+            print(f"   🔍 Слова '{word_lower}' нет в WordNet, пробуем удалить приставку...")
 
         # Список распространенных приставок, которые могут быть удалены
         prefixes_to_remove = [
@@ -363,35 +340,22 @@ class WordNetAPI:
 
         # Пробуем удалить каждую приставку
         for prefix in prefixes_to_remove:
-            if word_lower.startswith(prefix) and len(word_lower) > len(
-                    prefix) + 2:  # Оставляем минимум 2 символа после удаления
+            if word_lower.startswith(prefix) and len(word_lower) > len(prefix) + 2:
                 stripped_word = word_lower[len(prefix):]
 
-                # Проверяем, существует ли слово без приставки в WordNet как глагол или существительное
-                if self.wordnet.synsets(stripped_word, pos='v') or self.wordnet.synsets(stripped_word, pos='n'):
+                # Проверяем, существует ли слово без приставки в WordNet
+                if (len(self.wordnet.synsets(stripped_word, pos='v')) > 0 or
+                        len(self.wordnet.synsets(stripped_word, pos='n')) > 0):
+
                     # Рекурсивно нормализуем полученное слово
                     normalized_stripped = self.get_best_base_form(stripped_word)
-                    candidates.append({
-                        'form': normalized_stripped,
-                        'source': f'remove_prefix_{prefix}',
-                        'debug': f'Удаление приставки "{prefix}" и нормализация'
-                    })
                     if self.verbose:
                         print(f"   ✅ Удалена приставка '{prefix}': {word_lower} → {normalized_stripped}")
                     return normalized_stripped
 
-        # Если ничего не нашли, добавляем исходное слово как кандидат
-        candidates.append({
-            'form': word_lower,
-            'source': 'original',
-            'debug': f'Исходное слово'
-        })
-
+        # ========== ШАГ 5: НИЧЕГО НЕ ПОМОГЛО ==========
         if self.verbose:
-            print(f"\n   📋 Все кандидаты:")
-            for i, c in enumerate(candidates, 1):
-                print(f"      {i}. {c['form']:15} (источник: {c['source']})")
-            print(f"   🎯 Выбран: {word_lower}")
+            print(f"   ⏺️ Слово '{word_lower}' оставляем без изменений")
 
         return word_lower
 
