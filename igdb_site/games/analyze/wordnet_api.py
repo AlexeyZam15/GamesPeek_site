@@ -279,31 +279,103 @@ class WordNetAPI:
         if original != word:
             return word_lower
 
-        # Проверяем исключения
-        is_exception, base_form = self._check_exceptions(word)
-        if is_exception:
-            if self.verbose:
-                print(f"   Исключение: {word_lower} → {base_form}")
-            return base_form
+        # Список всех кандидатов
+        candidates = []
 
-        # Сначала проверяем, есть ли слово в WordNet как существительное
-        if self.wordnet.synsets(word_lower, pos='n'):
-            noun_lemma = self.lemmatize(word_lower, pos='n')
-            if noun_lemma != word_lower:
-                if self.verbose:
-                    print(f"   Лемматизация (существительное): {word_lower} → {noun_lemma}")
-                return noun_lemma
+        # Проверяем исключения
+        is_exception, exception_base = self._check_exceptions(word)
+        if is_exception:
+            candidates.append({
+                'form': exception_base,
+                'source': 'exception',
+                'debug': f'Специальное исключение'
+            })
+            if self.verbose:
+                print(f"   Исключение: {word_lower} → {exception_base}")
+            return exception_base
+
+        # Проверяем глагольную форму (приоритет)
+        if self.wordnet.synsets(word_lower, pos='v'):
+            verb_lemma = self.lemmatize(word_lower, pos='v')
+            candidates.append({
+                'form': verb_lemma,
+                'source': 'verb_lemma',
+                'debug': f'Глагол в WordNet'
+            })
+
+            # Специальная обработка для окончаний -ies -> -y
+            if word_lower.endswith('ies'):
+                base_with_y = word_lower[:-3] + 'y'
+                if base_with_y != verb_lemma:
+                    candidates.append({
+                        'form': base_with_y,
+                        'source': 'ies_to_y_rule',
+                        'debug': f'Правило: -ies → -y'
+                    })
+
+            if self.verbose:
+                print(f"   Лемматизация (глагол): {word_lower} → {verb_lemma}")
+
+            # Показываем все кандидаты
+            if self.verbose:
+                print(f"\n   📋 Все кандидаты:")
+                for i, c in enumerate(candidates, 1):
+                    print(f"      {i}. {c['form']:15} (источник: {c['source']})")
+                print(f"   🎯 Выбран: {verb_lemma}")
+
+            return verb_lemma
+
+        # Проверяем существительное
+        noun_lemma = self.lemmatize(word_lower, pos='n')
+        if noun_lemma != word_lower:
+            candidates.append({
+                'form': noun_lemma,
+                'source': 'noun_lemma',
+                'debug': f'Существительное в WordNet'
+            })
+            if self.verbose:
+                print(f"   Лемматизация (существительное): {word_lower} → {noun_lemma}")
+
+                # Показываем все кандидаты
+                print(f"\n   📋 Все кандидаты:")
+                for i, c in enumerate(candidates, 1):
+                    print(f"      {i}. {c['form']:15} (источник: {c['source']})")
+                print(f"   🎯 Выбран: {noun_lemma}")
+
+            return noun_lemma
 
         # Пробуем другие части речи
-        for pos, pos_name in [('v', 'глагол'), ('n', 'существительное'), ('a', 'прилагательное'), ('r', 'наречие')]:
-            if pos == 'n' and self.wordnet.synsets(word_lower, pos='n'):
-                continue
-
+        for pos, pos_name in [('a', 'прилагательное'), ('r', 'наречие')]:
             lemma = self.lemmatize(word_lower, pos=pos)
             if lemma != word_lower:
+                candidates.append({
+                    'form': lemma,
+                    'source': f'{pos}_lemma',
+                    'debug': f'{pos_name} в WordNet'
+                })
                 if self.verbose:
                     print(f"   Лемматизация ({pos_name}): {word_lower} → {lemma}")
+
+                    # Показываем все кандидаты
+                    print(f"\n   📋 Все кандидаты:")
+                    for i, c in enumerate(candidates, 1):
+                        print(f"      {i}. {c['form']:15} (источник: {c['source']})")
+                    print(f"   🎯 Выбран: {lemma}")
+
                 return lemma
+
+        # Если ничего не нашли, добавляем исходное слово как кандидат
+        candidates.append({
+            'form': word_lower,
+            'source': 'original',
+            'debug': f'Исходное слово'
+        })
+
+        if self.verbose:
+            print(f"\n   📋 Все кандидаты:")
+            for i, c in enumerate(candidates, 1):
+                print(f"      {i}. {c['form']:15} (источник: {c['source']})")
+            print(f"   🎯 Выбран: {word_lower}")
 
         return word_lower
 
