@@ -242,6 +242,9 @@ class WordNetAPI:
 
             # Глаголы движения
             'riding': 'ride',  # кататься верхом / ехать
+
+            # Существа
+            'orcs': 'orc',  # орки
         }
 
         if word_lower in exceptions:
@@ -260,28 +263,15 @@ class WordNetAPI:
         Для прилагательных: возвращает базовую форму
 
         Args:
-            word: Слово для нормализации (может содержать кавычки)
+            word: Слово для нормализации
 
         Returns:
-            Базовая форма слова без кавычек
+            Базовая форма слова
         """
         if not self.is_available() or len(word) < 3:
             return word.lower()
 
-        # Сохраняем оригинал для вывода
-        original = word
-
-        # Убираем все виды кавычек из слова
-        import re
-        word = re.sub(r'["\']', '', word)
         word_lower = word.lower()
-
-        if self.verbose and original != word:
-            print(f"   Убраны кавычки: {original} → {word}")
-
-        # Если после удаления кавычек слово изменилось, возвращаем его как базовую форму
-        if original != word:
-            return word_lower
 
         # Список всех кандидатов
         candidates = []
@@ -369,27 +359,6 @@ class WordNetAPI:
         # Список распространенных приставок, которые могут быть удалены
         prefixes_to_remove = [
             're',  # reimagine -> imagine
-            'pre',  # preheat -> heat
-            'over',  # overthink -> think
-            'under',  # undercook -> cook
-            'out',  # outrun -> run
-            'up',  # update -> date (редко, но возможно)
-            'down',  # downgrade -> grade
-            'mis',  # misunderstand -> understand
-            'dis',  # disagree -> agree
-            'un',  # unlock -> lock
-            'in',  # inactive -> active
-            'im',  # imbalance -> balance
-            'ir',  # irregular -> regular
-            'il',  # illegal -> legal
-            'non',  # nonstop -> stop
-            'anti',  # antifreeze -> freeze
-            'counter',  # counteract -> act
-            'inter',  # interact -> act
-            'super',  # supervise -> vise (сложный случай, может не помочь)
-            'sub',  # submerge -> merge
-            'trans',  # transport -> port
-            'semi',  # semifinal -> final
         ]
 
         # Пробуем удалить каждую приставку
