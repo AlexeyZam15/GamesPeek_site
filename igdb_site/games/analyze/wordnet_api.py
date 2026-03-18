@@ -5,6 +5,7 @@ WordNet API для работы с лемматизацией и derivationally 
 """
 
 import time
+import threading
 from typing import Dict, List, Set, Optional, Tuple
 from functools import lru_cache
 from django.core.cache import cache
@@ -359,7 +360,6 @@ class WordNetAPI:
 
         return word_lower
 
-
     def clear_cache(self):
         """Очищает все кэши WordNet"""
         self.get_all_lemmas.cache_clear()
@@ -370,15 +370,23 @@ class WordNetAPI:
             print("✅ Кэш WordNet очищен")
 
 
-# Глобальный экземпляр для повторного использования
+# Глобальный экземпляр для повторного использования с потокобезопасностью
 _wordnet_api = None
+_wordnet_lock = threading.Lock()
 
 
 def get_wordnet_api(verbose: bool = False) -> WordNetAPI:
     """
-    Возвращает глобальный экземпляр WordNetAPI
+    Возвращает глобальный экземпляр WordNetAPI (потокобезопасно)
     """
-    global _wordnet_api
-    if _wordnet_api is None:
-        _wordnet_api = WordNetAPI(verbose=verbose)
+    global _wordnet_api, _wordnet_lock
+
+    # Быстрая проверка без блокировки
+    if _wordnet_api is not None:
+        return _wordnet_api
+
+    # Блокируем только при первой инициализации
+    with _wordnet_lock:
+        if _wordnet_api is None:
+            _wordnet_api = WordNetAPI(verbose=verbose)
     return _wordnet_api

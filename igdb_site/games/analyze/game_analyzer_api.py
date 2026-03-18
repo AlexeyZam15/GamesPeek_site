@@ -31,10 +31,12 @@ class GameAnalyzerAPI:
 
         ensure_patterns_in_db(verbose=verbose)
 
-        # Предзагрузка Trie при инициализации
-        if not verbose:
-            # В фоновом режиме предзагружаем Trie
-            self._preload_trie_async()
+        # СИНХРОННАЯ загрузка Trie при инициализации, чтобы не тормозить первую игру
+        if verbose:
+            print("=== Предзагружаем Trie ключевых слов ===")
+        self.text_analyzer._ensure_trie_loaded()
+        if verbose:
+            print("=== Trie загружен ===")
 
     def mark_new_keywords_added(self):
         """Вызывать при добавлении новых ключевых слов - очищает кэш Trie"""

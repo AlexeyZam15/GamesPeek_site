@@ -7,6 +7,7 @@
 import sys
 import os
 import time
+import threading  # <-- ДОБАВЬТЕ ЭТУ СТРОКУ
 from typing import Dict, Any, List, Set
 from django.core.management.base import BaseCommand
 from django.db.models import QuerySet
@@ -19,7 +20,7 @@ from .batch_updater import BatchUpdater
 from .output_formatter import OutputFormatter
 from .text_preparer import TextPreparer
 from games.analyze.range_cache import RangeCacheManager
-
+from .analysis_cache import AnalysisCache
 
 class AnalyzerCommand(BaseCommand):
     """Команда анализа игр с использованием API"""
@@ -40,6 +41,8 @@ class AnalyzerCommand(BaseCommand):
         self.progress_bar = None
         self.output_formatter = None
         self.text_preparer = None
+        self.stats_lock = threading.Lock()
+        self.program_start_time = None  # <-- ДОБАВИТЬ
 
         # Простые таймеры
         self.timers = {}
@@ -91,6 +94,619 @@ class AnalyzerCommand(BaseCommand):
         self.analysis_cache = {}
         self.cache_hits = 0
         self.cache_misses = 0
+        self.analysis_cache_manager = AnalysisCache()
+
+    def _handle_error(self, e):
+        """Обрабатывает ошибку (для верхнего уровня)"""
+        import traceback
+        if self.output_file:
+            self.stderr.write(f"❌ Неожиданная ошибка: {e}")
+            traceback.print_exc()
+        else:
+            if self.original_stderr:
+                self.original_stderr.write(f"❌ Неожиданная ошибка: {e}\n")
+                traceback.print_exc(file=self.original_stderr)
+
+    def _handle_analysis_error(self, game, result, stats):
+        """Обрабатывает ошибку анализа"""
+        with self.stats_lock:
+            self.stats['errors'] += 1
+            self.stats['error_games'] += 1
+            self.stats['processed'] += 1
+        stats['errors'] += 1
+        stats['processed'] += 1
+        self.state_manager.add_processed_game(game.id)
+
+    def _process_games_batch(self, games, should_process_all, new_criteria, checked_criteria, start_time):
+        """Обрабатывает батч игр - УПРОЩЕННАЯ ВЕРСИЯ"""
+        self.timer_start("Основной цикл обработки")
+
+        if self.batch_updater:
+            self.batch_updater.total_games_added = 0
+
+        self._init_stats()
+        self._initialize_progress_bar_for_batch()
+
+        # Простая последовательная обработка
+        processed = 0
+        for game in games.iterator(chunk_size=1000):
+            if self.limit and processed >= self.limit:
+                break
+
+            # Обрабатываем одну игру
+            self._process_single_game(game)
+            processed += 1
+
+            # Обновляем прогресс после КАЖДОЙ игры
+            if self.progress_bar:
+                self.progress_bar.update(1)
+                self.progress_bar.update_stats(self._get_progress_stats())
+
+        # Финальное обновление
+        if self.progress_bar:
+            self.progress_bar.update_stats(self._get_progress_stats())
+
+        self.timer_stop()
+        return {'processed_in_this_run': self.stats['processed']}
+
+    def _process_single_game(self, game):
+        """Обрабатывает одну игру"""
+        try:
+            # Получаем текст
+            text = self.text_preparer.prepare_text(game)
+
+            if not text:
+                with self.stats_lock:
+                    self.stats['skipped_no_text'] = self.stats.get('skipped_no_text', 0) + 1
+                    self.stats['processed'] = self.stats.get('processed', 0) + 1
+                self.state_manager.add_processed_game(game.id)
+                return
+
+            # Анализируем
+            exclude_existing = self.exclude_existing or (not self.ignore_existing)
+
+            # Проверяем кэш
+            cached = self.analysis_cache_manager.get(text, self.keywords, exclude_existing)
+            if cached:
+                result = cached
+                self.cache_hits += 1
+            else:
+                # Анализируем через API
+                if self.keywords:
+                    result = self.api.force_analyze_game_text(
+                        text=text, game_id=game.id, analyze_keywords=True,
+                        existing_game=game, detailed_patterns=self.verbose,
+                        exclude_existing=exclude_existing
+                    )
+                else:
+                    result = self.api.force_analyze_game_text(
+                        text=text, game_id=game.id, analyze_keywords=False,
+                        existing_game=game, detailed_patterns=self.verbose,
+                        exclude_existing=exclude_existing
+                    )
+
+                # Сохраняем в кэш
+                self.analysis_cache_manager.set(text, self.keywords, exclude_existing, result)
+                self.cache_misses += 1
+
+            # Обновляем статистику
+            if self.keywords:
+                items = result.get('results', {}).get('keywords', {}).get('items', [])
+                if items:
+                    self.stats['found_count'] = self.stats.get('found_count', 0) + 1
+                    self.stats['total_criteria_found'] = self.stats.get('total_criteria_found', 0) + len(items)
+                    result['has_results'] = True  # <-- ВАЖНО: устанавливаем флаг
+                else:
+                    self.stats['not_found_count'] = self.stats.get('not_found_count', 0) + 1
+            else:
+                if result['success'] and result['has_results']:
+                    self.stats['found_count'] = self.stats.get('found_count', 0) + 1
+                    self.stats['total_criteria_found'] = self.stats.get('total_criteria_found', 0) + result[
+                        'summary'].get('found_count', 0)
+                else:
+                    self.stats['not_found_count'] = self.stats.get('not_found_count', 0) + 1
+
+            self.stats['processed'] = self.stats.get('processed', 0) + 1
+            self.state_manager.add_processed_game(game.id)
+
+            # ВЫВОД В ФАЙЛ - ДЛЯ ВСЕХ ИГР, даже без результатов
+            if self.output_formatter and (result.get('has_results', False) or not self.only_found):
+                self.output_formatter.print_game_in_batch(
+                    game=game,
+                    index=self.stats['processed'],
+                    result=result,
+                    stats=self.stats,
+                    only_found=self.only_found,
+                    verbose=self.verbose,
+                    keywords=self.keywords,
+                    ignore_existing=self.ignore_existing,
+                    update_game=self.update_game,
+                    comprehensive_mode=False,
+                    combined_mode=False,
+                    exclude_existing=exclude_existing
+                )
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+            self.stats['errors'] = self.stats.get('errors', 0) + 1
+            self.stats['processed'] = self.stats.get('processed', 0) + 1
+
+    def _update_game_stats(self, game, result):
+        """Обновляет статистику игры"""
+        if self.keywords:
+            items = result.get('results', {}).get('keywords', {}).get('items', [])
+            if items:
+                from games.models import Keyword
+                keyword_ids = [k['id'] for k in items]
+                existing_ids = set(game.keywords.values_list('id', flat=True))
+                new_ids = [kid for kid in keyword_ids if kid not in existing_ids]
+
+                if new_ids:
+                    with self.stats_lock:
+                        self.stats['found_games'] += 1
+                        self.stats['found_elements'] += len(new_ids)
+                        self.stats['keywords_found'] += 1
+                        self.stats['keywords_count'] += len(new_ids)
+                        self.stats['found_count'] += 1
+                        self.stats['total_criteria_found'] += len(new_ids)
+
+                    if self.update_game:
+                        self.batch_updater.add_game_for_update(
+                            game_id=game.id, results=result['results'], is_keywords=True
+                        )
+                        with self.stats_lock:
+                            self.stats['updated_games'] += 1
+                else:
+                    with self.stats_lock:
+                        self.stats['keywords_not_found'] += 1
+                        self.stats['not_found_count'] += 1
+            else:
+                with self.stats_lock:
+                    self.stats['keywords_not_found'] += 1
+                    self.stats['not_found_count'] += 1
+        else:
+            if result['has_results']:
+                found_count = result['summary'].get('found_count', 0)
+                with self.stats_lock:
+                    self.stats['found_games'] += 1
+                    self.stats['found_elements'] += found_count
+                    self.stats['found_count'] += 1
+                    self.stats['total_criteria_found'] += found_count
+
+                if self.update_game:
+                    self.batch_updater.add_game_for_update(
+                        game_id=game.id, results=result['results'], is_keywords=False
+                    )
+                    with self.stats_lock:
+                        self.stats['updated_games'] += 1
+            else:
+                with self.stats_lock:
+                    self.stats['not_found_count'] += 1
+
+    def _get_progress_stats(self):
+        """Возвращает статистику для прогресс-бара"""
+        return {
+            'found_count': self.stats.get('found_count', 0),
+            'total_criteria_found': self.stats.get('total_criteria_found', 0),
+            'skipped_total': self.stats.get('skipped_no_text', 0) + self.stats.get('skipped_short_text', 0),
+            # <-- ИСПРАВЛЕНО
+            'not_found_count': self.stats.get('not_found_count', 0),
+            'errors': self.stats.get('errors', 0),
+            'updated': self.stats.get('updated', 0),
+            'in_batch': len(self.batch_updater.games_to_update) if self.batch_updater and hasattr(self.batch_updater,
+                                                                                                  'games_to_update') else 0,
+        }
+
+    def _analyze_game(self, game, text, exclude):
+        """Анализирует игру"""
+        # Проверяем кэш
+        cached = self.analysis_cache_manager.get(text, self.keywords, exclude)
+        if cached:
+            with self.stats_lock:
+                self.cache_hits += 1
+                # Помечаем, что результат из кэша
+                cached['_cached'] = True
+                # Обновляем статистику для закэшированного результата
+                self._update_game_stats_from_cache(game, cached)
+            return cached
+
+        # Анализируем через API
+        if hasattr(self, 'comprehensive_mode') and self.comprehensive_mode:
+            result = self.api.analyze_game_text_comprehensive(
+                text=text, game_id=game.id, existing_game=game,
+                detailed_patterns=self.verbose, exclude_existing=exclude
+            )
+        elif hasattr(self, 'combined_mode') and self.combined_mode:
+            result = self.api.analyze_game_text_combined(
+                text=text, game_id=game.id, existing_game=game,
+                detailed_patterns=self.verbose, exclude_existing=exclude
+            )
+        else:
+            result = self.api.force_analyze_game_text(
+                text=text, game_id=game.id, analyze_keywords=self.keywords,
+                existing_game=game, detailed_patterns=self.verbose,
+                exclude_existing=exclude
+            )
+
+        # Помечаем, что результат НЕ из кэша
+        result['_cached'] = False
+
+        # Сохраняем в кэш
+        with self.stats_lock:
+            self.cache_misses += 1
+            self.analysis_cache_manager.set(text, self.keywords, exclude, result)
+
+        return result
+
+    def _update_game_stats_from_cache(self, game, result):
+        """Обновляет статистику для закэшированного результата"""
+        with self.stats_lock:  # ОБЯЗАТЕЛЬНО блокируем
+            if self.keywords:
+                items = result.get('results', {}).get('keywords', {}).get('items', [])
+                if items:
+                    from games.models import Keyword
+                    keyword_ids = [k['id'] for k in items]
+                    existing_ids = set(game.keywords.values_list('id', flat=True))
+                    new_ids = [kid for kid in keyword_ids if kid not in existing_ids]
+
+                    if new_ids:
+                        self.stats['found_games'] = self.stats.get('found_games', 0) + 1
+                        self.stats['found_elements'] = self.stats.get('found_elements', 0) + len(new_ids)
+                        self.stats['keywords_found'] = self.stats.get('keywords_found', 0) + 1
+                        self.stats['keywords_count'] = self.stats.get('keywords_count', 0) + len(new_ids)
+                        self.stats['found_count'] = self.stats.get('found_count', 0) + 1
+                        self.stats['total_criteria_found'] = self.stats.get('total_criteria_found', 0) + len(new_ids)
+                    else:
+                        self.stats['keywords_not_found'] = self.stats.get('keywords_not_found', 0) + 1
+                        self.stats['not_found_count'] = self.stats.get('not_found_count', 0) + 1
+                else:
+                    self.stats['keywords_not_found'] = self.stats.get('keywords_not_found', 0) + 1
+                    self.stats['not_found_count'] = self.stats.get('not_found_count', 0) + 1
+            else:
+                if result['has_results']:
+                    found_count = result['summary'].get('found_count', 0)
+                    self.stats['found_games'] = self.stats.get('found_games', 0) + 1
+                    self.stats['found_elements'] = self.stats.get('found_elements', 0) + found_count
+                    self.stats['found_count'] = self.stats.get('found_count', 0) + 1
+                    self.stats['total_criteria_found'] = self.stats.get('total_criteria_found', 0) + found_count
+                else:
+                    self.stats['not_found_count'] = self.stats.get('not_found_count', 0) + 1
+
+    def _flush_batch(self):
+        """Финальное обновление батча"""
+        self.timer_start("Финальное обновление батча")
+        if self.update_game and self.batch_updater:
+            if hasattr(self.batch_updater, 'games_to_update') and self.batch_updater.games_to_update:
+                updated = self.batch_updater.flush()
+                self.stats['updated'] += updated
+                self.stats['updated_games'] += updated
+        self.timer_stop()
+
+    def _prefetch_games(self, games):
+        """Предзагружает игры"""
+        self.timer_start("Предзагрузка игр")
+        if self.keywords:
+            games_with_data = games.select_related().prefetch_related('keywords')
+        else:
+            games_with_data = games.select_related().prefetch_related(
+                'genres', 'themes', 'player_perspectives', 'game_modes'
+            )
+        self.timer_stop()
+        return games_with_data
+
+    def _get_worker_count(self):
+        """Определяет количество потоков"""
+        import multiprocessing
+        cpu_count = multiprocessing.cpu_count()
+        max_workers = min(8, cpu_count * 2)
+        if self.verbose:
+            self.stdout.write(f"🔄 Запускаем {max_workers} потоков")
+        return max_workers
+
+    def _start_progress_updater(self):
+        """Запускает поток обновления прогресс-бара"""
+        self.stop_updater = threading.Event()
+
+        def updater():
+            while not self.stop_updater.is_set():
+                time.sleep(0.5)
+                with self.stats_lock:
+                    if self.progress_bar:
+                        self.progress_bar.update_stats(self._get_stats())
+                        if hasattr(self.progress_bar, 'current'):
+                            self.progress_bar.current = self.stats.get('processed', 0)
+
+        thread = threading.Thread(target=updater)
+        thread.daemon = True
+        thread.start()
+        return thread
+
+    def _stop_progress_updater(self, thread):
+        """Останавливает поток прогресс-бара"""
+        self.stop_updater.set()
+        thread.join(timeout=1)
+        if self.progress_bar:
+            self.progress_bar.update_stats(self._get_stats())
+            if hasattr(self.progress_bar, 'current'):
+                self.progress_bar.current = self.stats.get('processed', 0)
+
+    def _get_stats(self):
+        """Возвращает статистику"""
+        return {
+            'found_count': self.stats.get('found_count', 0),
+            'total_criteria_found': self.stats.get('total_criteria_found', 0),
+            'skipped_total': self.stats.get('skipped_total', 0),
+            'not_found_count': self.stats.get('not_found_count', 0),
+            'errors': self.stats.get('errors', 0),
+            'updated': self.stats.get('updated', 0),
+            'in_batch': len(self.batch_updater.games_to_update) if self.batch_updater else 0,
+        }
+
+    def _run_parallel_processing(self, games_with_data, max_workers):
+        """Запускает параллельную обработку"""
+        self.timer_start("Параллельная обработка")
+
+        import concurrent.futures
+        from itertools import islice
+
+        def chunks(iterable, size):
+            iterator = iter(iterable)
+            while True:
+                chunk = list(islice(iterator, size))
+                if not chunk:
+                    break
+                yield chunk
+
+        self.stats_lock = threading.Lock()
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for chunk in chunks(games_with_data.iterator(chunk_size=1000), 50):
+                if self.stop_event.is_set():
+                    break
+                futures.append(executor.submit(self._process_chunk, chunk))
+
+            for future in concurrent.futures.as_completed(futures):
+                if self.stop_event.is_set():
+                    break
+                self._process_future(future)
+
+        self.timer_stop()
+
+    def _process_chunk(self, chunk):
+        """Обрабатывает чанк игр"""
+        local_stats = {k: 0 for k in ['processed', 'found_games', 'found_elements',
+                                      'skipped_games', 'errors', 'updated_games',
+                                      'keywords_found', 'keywords_count',
+                                      'keywords_not_found', 'not_found_count']}
+
+        for game in chunk:
+            if self.stop_event.is_set():
+                break
+            self._process_game(game, local_stats)
+
+        return local_stats
+
+    def _process_game(self, game, stats):
+        """Обрабатывает одну игру"""
+        try:
+            text = self.text_preparer.prepare_text(game)
+            if not text:
+                self._handle_no_text(game, stats)
+                return
+
+            exclude = self.exclude_existing or (not self.ignore_existing)
+            result = self._analyze_game(game, text, exclude)
+
+            if not result['success']:
+                self._handle_analysis_error(game, result, stats)
+                return
+
+            self._update_stats(game, result, stats)
+            self._output_result(game, result, exclude)
+
+            stats['processed'] += 1
+            self.state_manager.add_processed_game(game.id)
+
+        except Exception as e:
+            self._handle_exception(game, e, stats)
+
+    def _handle_no_text(self, game, stats):
+        """Обрабатывает игру без текста"""
+        with self.stats_lock:
+            self.stats['skipped_no_text'] += 1
+            self.stats['skipped_games'] += 1
+            self.stats['processed'] += 1
+        stats['skipped_games'] += 1
+        stats['processed'] += 1
+        self.state_manager.add_processed_game(game.id)
+
+    def _handle_exception(self, game, error, stats):
+        """Обрабатывает исключение"""
+        with self.stats_lock:
+            self.stats['errors'] += 1
+            self.stats['processed'] += 1
+        stats['errors'] += 1
+        stats['processed'] += 1
+
+    def _update_stats(self, game, result, stats):
+        """Обновляет статистику"""
+        if self.keywords:
+            items = result.get('results', {}).get('keywords', {}).get('items', [])
+            if items:
+                from games.models import Keyword
+                ids = [k['id'] for k in items]
+                existing = set(game.keywords.values_list('id', flat=True))
+                new = [i for i in ids if i not in existing]
+
+                if new:
+                    stats['found_games'] += 1
+                    stats['found_elements'] += len(new)
+                    stats['keywords_found'] += 1
+                    stats['keywords_count'] += len(new)
+
+                    if self.update_game:
+                        self.batch_updater.add_game_for_update(
+                            game_id=game.id, results=result['results'], is_keywords=True
+                        )
+                        stats['updated_games'] += 1
+                else:
+                    stats['keywords_not_found'] += 1
+            else:
+                stats['keywords_not_found'] += 1
+        else:
+            if result['has_results']:
+                count = result['summary'].get('found_count', 0)
+                stats['found_games'] += 1
+                stats['found_elements'] += count
+
+                if self.update_game:
+                    self.batch_updater.add_game_for_update(
+                        game_id=game.id, results=result['results'], is_keywords=False
+                    )
+                    stats['updated_games'] += 1
+            else:
+                stats['not_found_count'] += 1
+
+    def _output_result(self, game, result, exclude):
+        """Выводит результат"""
+        if result['has_results'] or not self.only_found:
+            self.output_formatter.print_game_in_batch(
+                game=game, index=0, result=result, stats=self.stats,
+                only_found=self.only_found, verbose=self.verbose,
+                keywords=self.keywords, ignore_existing=self.ignore_existing,
+                update_game=self.update_game, comprehensive_mode=False,
+                combined_mode=False, exclude_existing=exclude
+            )
+
+    def _process_future(self, future):
+        """Обрабатывает результат задачи"""
+        try:
+            stats = future.result()
+            with self.stats_lock:
+                for k, v in stats.items():
+                    if k in self.stats:
+                        self.stats[k] += v
+                    elif k == 'keywords_found':
+                        self.stats['keywords_found'] += v
+                    elif k == 'keywords_count':
+                        self.stats['keywords_count'] += v
+                    elif k == 'keywords_not_found':
+                        self.stats['keywords_not_found'] += v
+                    elif k == 'not_found_count':
+                        self.stats['not_found_count'] += v
+        except Exception as e:
+            if self.verbose:
+                self.stderr.write(f"❌ Ошибка: {e}")
+
+    def _display_final_statistics(self, stats: Dict[str, Any], already_processed: int, total_games: int):
+        """Выводит финальную статистику в терминал и файл"""
+        checked_criteria_count = len(self.state_manager.get_checked_criteria()) if self.state_manager else 0
+
+        if self.output_file and not self.output_file.closed:
+            try:
+                self.output_file.write("\n" + "=" * 60 + "\n")
+                if self.keywords:
+                    self.output_file.write("📊 ФИНАЛЬНАЯ СТАТИСТИКА АНАЛИЗА (КЛЮЧЕВЫЕ СЛОВА)\n")
+                else:
+                    self.output_file.write("📊 ФИНАЛЬНАЯ СТАТИСТИКА АНАЛИЗА (КРИТЕРИИ)\n")
+                self.output_file.write("=" * 60 + "\n")
+
+                if already_processed > 0:
+                    self.output_file.write(f"⏭️ Пропущено ранее обработанных игр: {already_processed}\n")
+
+                if self.keywords:
+                    processed_count = stats.get('keywords_processed', stats.get('processed', 0))
+                    self.output_file.write(f"🔄 Обработано новых игр: {processed_count}\n")
+                    self.output_file.write(f"🎯 Игр с найденными ключ. словами: {stats.get('keywords_found', 0)}\n")
+                    self.output_file.write(f"📈 Всего ключевых слов найдено: {stats.get('keywords_count', 0)}\n")
+                    self.output_file.write(f"❌ Ошибок: {stats.get('errors', 0)}\n")
+                    self.output_file.write(f"💾 Обновлено игр в БД: {stats.get('updated', 0)}\n")
+
+                    if stats.get('keywords_not_found', 0) > 0:
+                        self.output_file.write(f"⚡ Игр без ключевых слов: {stats['keywords_not_found']}\n")
+                else:
+                    self.output_file.write(f"🔄 Обработано новых игр: {stats.get('processed', 0)}\n")
+                    self.output_file.write(f"🎯 Игр с найденными критериями: {stats.get('found_count', 0)}\n")
+                    self.output_file.write(f"📈 Всего критериев найдено: {stats.get('total_criteria_found', 0)}\n")
+                    self.output_file.write(f"❌ Ошибок: {stats.get('errors', 0)}\n")
+                    self.output_file.write(f"💾 Обновлено игр в БД: {stats.get('updated', 0)}\n")
+
+                    if stats.get('not_found_count', 0) > 0:
+                        self.output_file.write(f"⚡ Игр без критериев: {stats['not_found_count']}\n")
+
+                total_skipped = stats['skipped_no_text'] + stats.get('skipped_short_text', 0) + (
+                    stats['keywords_not_found'] if self.keywords else stats['not_found_count']
+                )
+
+                self.output_file.write(f"⏭️ Всего пропущено игр: {total_skipped}\n")
+                self.output_file.write(f"⏭️ Игр без текста: {stats['skipped_no_text']}\n")
+
+                if 'skipped_short_text' in stats and stats['skipped_short_text'] > 0:
+                    self.output_file.write(f"⏭️ Игр с коротким текстом: {stats['skipped_short_text']}\n")
+
+                if self.keywords and stats.get('keywords_not_found', 0) > 0:
+                    self.output_file.write(f"⏭️ Игр без ключевых слов: {stats['keywords_not_found']}\n")
+                elif not self.keywords and stats.get('not_found_count', 0) > 0:
+                    self.output_file.write(f"⏭️ Игр без критериев: {stats['not_found_count']}\n")
+
+                if stats['execution_time'] > 0:
+                    self.output_file.write(f"⏱️ Время выполнения: {stats['execution_time']:.1f} секунд\n")
+
+                self.output_file.write("=" * 60 + "\n")
+                self.output_file.write("✅ Анализ успешно завершен\n")
+                self.output_file.write("=" * 60 + "\n")
+                self.output_file.flush()
+
+            except Exception:
+                pass
+
+        if self.original_stdout:
+            try:
+                self.original_stdout.write("\n")
+                self.original_stdout.write("=" * 60 + "\n")
+                self.original_stdout.write("📊 ИТОГОВАЯ СТАТИСТИКА\n")
+                self.original_stdout.write("=" * 60 + "\n")
+
+                if stats.get('processed', 0) > 0:
+                    if self.keywords:
+                        processed_count = stats.get('keywords_processed', stats.get('processed', 0))
+                        self.original_stdout.write(f"🔄 Обработано игр: {processed_count}\n")
+                        self.original_stdout.write(f"🎯 Игр с ключевыми словами: {stats.get('keywords_found', 0)}\n")
+                        self.original_stdout.write(f"📈 Всего ключевых слов: {stats.get('keywords_count', 0)}\n")
+                    else:
+                        self.original_stdout.write(f"🔄 Обработано игр: {stats.get('processed', 0)}\n")
+                        self.original_stdout.write(f"🎯 Игр с критериями: {stats.get('found_count', 0)}\n")
+                        self.original_stdout.write(f"📈 Всего критериев: {stats.get('total_criteria_found', 0)}\n")
+
+                    self.original_stdout.write(f"❌ Ошибок: {stats.get('errors', 0)}\n")
+                    self.original_stdout.write(f"💾 Обновлено игр в БД: {stats.get('updated', 0)}\n")
+
+                    # Статистика кэша
+                    cache_stats = self.analysis_cache_manager.get_stats()
+                    if cache_stats['total_requests'] > 0:
+                        self.original_stdout.write(
+                            f"📊 Кэш анализа: {cache_stats['hit_rate']} попаданий ({cache_stats['hits']}/{cache_stats['total_requests']})\n")
+                        self.original_stdout.write(
+                            f"   Память: {cache_stats['memory_entries']} записей, Диск: {cache_stats['disk_entries']} файлов ({cache_stats['disk_size_mb']:.1f} МБ)\n")
+
+                    if stats.get('execution_time', 0) > 0:
+                        games_per_second = stats.get('processed', 0) / stats['execution_time'] if stats[
+                                                                                                      'execution_time'] > 0 else 0
+                        self.original_stdout.write(f"⏱️ Время: {stats['execution_time']:.1f} секунд\n")
+                        self.original_stdout.write(f"⚡ Скорость: {games_per_second:.1f} игр/сек\n")
+
+                if self.output_path:
+                    self.original_stdout.write(f"✅ Результаты сохранены в: {self.output_path}\n")
+                else:
+                    self.original_stdout.write("✅ Анализ завершен\n")
+
+                self.original_stdout.write("=" * 60 + "\n")
+                self.original_stdout.flush()
+
+            except Exception:
+                pass
 
     def _analyze_all_games_execute(self, prepared_data):
         """Выполнение массового анализа с подготовленными данными"""
@@ -122,99 +738,71 @@ class AnalyzerCommand(BaseCommand):
             raise
 
     def timer_start(self, name):
-        """Начинает замер времени"""
+        """Начинает замер времени - ИСПРАВЛЕНО (без дублирования)"""
+        # Проверяем, не запущен ли уже такой же таймер на вершине стека
+        if self.timer_stack and self.timer_stack[-1] == name:
+            return
+
         self.timer_stack.append(name)
-        full_name = ' -> '.join(self.timer_stack)
-        self.timers[full_name] = time.time()
+        self.timers[name] = time.monotonic()
 
     def timer_stop(self):
-        """Останавливает последний замер времени"""
-        if self.timer_stack:
-            name = self.timer_stack.pop()
-            full_name = ' -> '.join(self.timer_stack + [name]) if self.timer_stack else name
-            if full_name in self.timers:
-                elapsed = time.time() - self.timers[full_name]
-                self.timer_results.append({
-                    'name': full_name,
-                    'elapsed': elapsed,
-                    'level': len(self.timer_stack)
-                })
-                del self.timers[full_name]
+        """Останавливает последний замер времени - ИСПРАВЛЕНО (правильный level)"""
+        if not self.timer_stack:
+            return
+
+        name = self.timer_stack.pop()
+        if name in self.timers:
+            elapsed = time.monotonic() - self.timers[name]
+            # level = глубина стека ПОСЛЕ извлечения (это правильный уровень для текущего замера)
+            level = len(self.timer_stack)
+
+            # Сохраняем результат с полным путем
+            full_path = ' -> '.join(self.timer_stack + [name]) if self.timer_stack else name
+            self.timer_results.append({
+                'name': full_path,
+                'elapsed': elapsed,
+                'level': level  # Используем правильный level
+            })
+            del self.timers[name]
 
     def print_timers(self):
-        """Выводит результаты замеров времени с агрегацией"""
+        """Выводит результаты замеров времени"""
         if not self.timer_results:
             return
 
+        total_program_time = time.monotonic() - self.program_start_time
+
         print("\n" + "=" * 70, file=self.original_stdout)
-        print("⏱️ СТАТИСТИКА ВРЕМЕНИ ВЫПОЛНЕНИЯ (секунды) - АГРЕГИРОВАННАЯ", file=self.original_stdout)
+        print("⏱️ СТАТИСТИКА ВРЕМЕНИ ВЫПОЛНЕНИЯ (секунды)", file=self.original_stdout)
         print("=" * 70, file=self.original_stdout)
 
-        # Агрегируем результаты
+        # Группируем по имени операции (без пути)
         aggregated = {}
-
         for result in self.timer_results:
-            full_name = result['name']
-            # Разбиваем на части
-            parts = full_name.split(' -> ')
-
-            # Берем последнюю часть как имя
-            name = parts[-1]
-
-            # Агрегируем повторяющиеся операции
-            if 'Обработка игры' in name and name != 'Обработка игры (среднее)':
-                name = 'Обработка игры (всего)'
-            elif 'API-анализ' in name:
-                name = 'API-анализ (всего)'
-            elif 'Получение текста' in name:
-                name = 'Получение текста (всего)'
-            elif 'Обработка результатов' in name:
-                name = 'Обработка результатов (всего)'
-            elif 'Вывод результатов в файл' in name:
-                name = 'Вывод результатов в файл (всего)'
-            elif 'Добавление в батч' in name:
-                name = 'Добавление в батч (всего)'
-
-            # Определяем уровень (количество частей - 1)
-            level = len(parts) - 1
-
+            # Берем только последнюю часть имени
+            name = result['name'].split(' -> ')[-1]
             if name not in aggregated:
                 aggregated[name] = {
                     'total': 0,
                     'count': 0,
-                    'level': level
+                    'level': result['level']
                 }
             aggregated[name]['total'] += result['elapsed']
             aggregated[name]['count'] += 1
 
-        # Сортируем по уровню
-        total_time = sum(r['total'] for r in aggregated.values())
-
-        # Группируем по уровням
-        by_level = {}
-        for name, data in aggregated.items():
-            level = data['level']
-            if level not in by_level:
-                by_level[level] = []
-            by_level[level].append((name, data))
-
-        # Выводим по уровням (от меньшего к большему)
-        for level in sorted(by_level.keys()):
-            items = sorted(by_level[level], key=lambda x: x[1]['total'], reverse=True)
-            for name, data in items:
-                indent = "  " * level
-                percentage = (data['total'] / total_time * 100) if total_time > 0 else 0
-
-                if data['count'] > 1:
-                    avg = data['total'] / data['count']
-                    print(
-                        f"{indent}{name:<40} {data['total']:>8.2f}s ({percentage:5.1f}%) [x{data['count']}, avg: {avg:.2f}s]",
-                        file=self.original_stdout)
-                else:
-                    print(f"{indent}{name:<40} {data['total']:>8.2f}s ({percentage:5.1f}%)", file=self.original_stdout)
+        # Сортируем по убыванию времени
+        for name, data in sorted(aggregated.items(), key=lambda x: x[1]['total'], reverse=True):
+            indent = "  " * data['level']
+            if data['count'] > 1:
+                avg = data['total'] / data['count']
+                print(f"{indent}{name:<40} {data['total']:>8.2f}s [x{data['count']}, avg: {avg:.2f}s]",
+                      file=self.original_stdout)
+            else:
+                print(f"{indent}{name:<40} {data['total']:>8.2f}s", file=self.original_stdout)
 
         print("-" * 70, file=self.original_stdout)
-        print(f"{'ВСЕГО':<40} {total_time:>8.2f}s (100.0%)", file=self.original_stdout)
+        print(f"{'ВСЕГО ВРЕМЯ РАБОТЫ':<40} {total_program_time:>8.2f}s", file=self.original_stdout)
         print("=" * 70, file=self.original_stdout)
         print("", file=self.original_stdout)
         self.original_stdout.flush()
@@ -508,8 +1096,7 @@ class AnalyzerCommand(BaseCommand):
                 self.batch_updater.games_to_update.clear()
 
     def _process_single_game_in_batch_with_criteria(self, game, checked_criteria, force_process=False):
-        """Обрабатывает одну игру с учетом проверенных критериев - анализируем любой текст, даже короткий"""
-
+        """Обрабатывает одну игру с учетом проверенных критериев - С ЛОГИРОВАНИЕМ"""
         if not game.summary and not game.storyline and not game.rawg_description and not game.wiki_description:
             self._handle_game_without_text(game)
             return
@@ -525,8 +1112,22 @@ class AnalyzerCommand(BaseCommand):
                 f"\nDEBUG _process_single_game_in_batch_with_criteria: начинаем обработку игры {game.id}: {game.name}\n")
             self.original_stdout.flush()
 
-        # Получение текста уже замеряется в _process_games_batch
+        # Получение текста
+        self.timer_start(f"Получение текста")
         text = self.text_preparer.prepare_text(game)
+        self.timer_stop()
+
+        # Логируем длину текста для аномальных игр
+        if game.id == 802 or len(text) > 10000:
+            print(f"\n🔍 Игра {game.id} ({game.name}) - длина текста: {len(text)} символов", file=sys.stderr)
+            if hasattr(game, 'summary') and game.summary:
+                print(f"   summary: {len(game.summary)} символов", file=sys.stderr)
+            if hasattr(game, 'storyline') and game.storyline:
+                print(f"   storyline: {len(game.storyline)} символов", file=sys.stderr)
+            if hasattr(game, 'rawg_description') and game.rawg_description:
+                print(f"   rawg: {len(game.rawg_description)} символов", file=sys.stderr)
+            if hasattr(game, 'wiki_description') and game.wiki_description:
+                print(f"   wiki: {len(game.wiki_description)} символов", file=sys.stderr)
 
         if not text:
             if has_progress_bar and sys.stderr:
@@ -540,7 +1141,6 @@ class AnalyzerCommand(BaseCommand):
             sys.stderr.write("\033[u")
             sys.stderr.flush()
 
-        # API-анализ уже замеряется в _process_games_batch
         self._process_game_with_text(game, text, checked_criteria, force_process)
 
     def _handle_game_without_text(self, game):
@@ -608,22 +1208,6 @@ class AnalyzerCommand(BaseCommand):
 
         self.timer_stop()
         return result
-
-    def _handle_analysis_error(self, game, result):
-        """Обрабатывает ошибку анализа"""
-        self.stats['errors'] += 1
-        self.stats['error_games'] += 1
-        self.stats['processed'] += 1
-
-        self.state_manager.add_processed_game(game.id)
-
-        if self.verbose and self.original_stdout:
-            self.original_stdout.write(f"❌ Ошибка API: {result.get('error_message', 'Неизвестная ошибка')}\n")
-            self.original_stdout.flush()
-
-        if self.progress_bar:
-            self.progress_bar.update(1)
-            self._update_progress_bar_with_stats()
 
     def _handle_analysis_results(self, game, result, force_process, exclude_existing):
         """Обрабатывает результаты анализа игры"""
@@ -941,35 +1525,47 @@ class AnalyzerCommand(BaseCommand):
             self._update_progress_bar()
 
     def _initialize_criteria_tracking(self):
-        """Инициализирует отслеживание проверенных критериев"""
+        """Инициализирует отслеживание проверенных критериев - ОПТИМИЗИРОВАНО"""
         self.timer_start("Инициализация отслеживания критериев (общее)")
 
         if not self.state_manager:
             self.timer_stop()
             return set(), set()
 
+        # ПРИНУДИТЕЛЬНАЯ ОЧИСТКА ПЕРЕД ЗАГРУЗКОЙ
+        if self.force_restart:
+            print(f"♻️ ПРИНУДИТЕЛЬНЫЙ ПЕРЕЗАПУСК: очищаем всё состояние", file=sys.stderr)
+            # Очищаем файлы состояния через state_manager
+            self.state_manager.reset_state()
+            # Также очищаем кэш анализа если нужно
+            if hasattr(self, 'analysis_cache_manager'):
+                self.analysis_cache_manager.clear()
+            # Сбрасываем checked_criteria
+            checked_criteria = set()
+            # Сбрасываем processed_games в state_manager
+            self.state_manager.processed_games.clear()
+            self.timer_stop()
+            return checked_criteria, set()
+
         self.timer_start("Загрузка из StateManager")
         checked_criteria = self.state_manager.get_checked_criteria()
         self.timer_stop()
+        print(f"⏱️ Загрузка из StateManager: {self._get_last_timer():.3f}с", file=sys.stderr)
 
         if self.debug and self.original_stdout:
             self.original_stdout.write(f"\nDEBUG: Загружено {len(checked_criteria)} проверенных критериев\n")
             self.original_stdout.flush()
 
-        if self.force_restart:
-            self.timer_start("Очистка при force-restart")
-            self.state_manager.clear_checked_criteria()
-            checked_criteria = set()
-            self.state_manager.processed_games.clear()
-            self.state_manager.reset_state()
-            print(f"♻️ Принудительный перезапуск: очищены проверенные критерии и обработанные игры", file=sys.stderr)
-            self.timer_stop()
+        self.timer_start("Очистка при force-restart")
+        # Этот блок теперь не нужен, т.к. обработали выше
+        self.timer_stop()
 
         self.timer_start("Получение всех критериев из БД")
         if self.keywords:
             from games.models import Keyword
             try:
-                all_criteria = set(str(k.id) for k in Keyword.objects.all())
+                # Получаем только ID, не загружаем все объекты
+                all_criteria = set(str(id) for id in Keyword.objects.values_list('id', flat=True))
                 if self.debug and self.original_stdout:
                     self.original_stdout.write(f"DEBUG: В базе {len(all_criteria)} ключевых слов\n")
                     self.original_stdout.flush()
@@ -977,24 +1573,26 @@ class AnalyzerCommand(BaseCommand):
                 print(f"⚠️ Ошибка получения ключевых слов: {e}", file=sys.stderr)
                 all_criteria = set()
         else:
+            from games.models import Genre, Theme, PlayerPerspective, GameMode
             all_criteria = set()
             try:
-                from games.models import Genre, Theme, PlayerPerspective, GameMode
-                self.timer_start("Получение жанров")
-                all_criteria.update(str(g.id) for g in Genre.objects.all())
-                self.timer_stop()
-
-                self.timer_start("Получение тем")
-                all_criteria.update(str(t.id) for t in Theme.objects.all())
-                self.timer_stop()
-
-                self.timer_start("Получение перспектив")
-                all_criteria.update(str(p.id) for p in PlayerPerspective.objects.all())
-                self.timer_stop()
-
-                self.timer_start("Получение режимов")
-                all_criteria.update(str(m.id) for m in GameMode.objects.all())
-                self.timer_stop()
+                # Получаем все ID из всех таблиц ОДНИМ SQL запросом через UNION
+                from django.db import connection
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                                   SELECT id
+                                   FROM games_genre
+                                   UNION ALL
+                                   SELECT id
+                                   FROM games_theme
+                                   UNION ALL
+                                   SELECT id
+                                   FROM games_playerperspective
+                                   UNION ALL
+                                   SELECT id
+                                   FROM games_gamemode
+                                   """)
+                    all_criteria = set(str(row[0]) for row in cursor.fetchall())
 
                 if self.debug and self.original_stdout:
                     self.original_stdout.write(f"DEBUG: В базе {len(all_criteria)} критериев\n")
@@ -1002,10 +1600,13 @@ class AnalyzerCommand(BaseCommand):
             except Exception as e:
                 print(f"⚠️ Ошибка получения критериев: {e}", file=sys.stderr)
         self.timer_stop()
+        print(f"⏱️ Получение всех критериев из БД: {self._get_last_timer():.3f}с", file=sys.stderr)
 
         self.timer_start("Вычисление новых критериев")
         new_criteria = all_criteria - checked_criteria
         self.timer_stop()
+        print(f"⏱️ Вычисление новых критериев: {self._get_last_timer():.3f}с (новых: {len(new_criteria)})",
+              file=sys.stderr)
 
         if self.debug and self.original_stdout:
             self.original_stdout.write(f"DEBUG: Найдено {len(new_criteria)} новых критериев\n")
@@ -1014,52 +1615,47 @@ class AnalyzerCommand(BaseCommand):
         self.timer_start("Проверка игр для обработки")
         from games.models import Game
         games_count = Game.objects.count()
+        print(f"⏱️ Всего игр в БД: {games_count}", file=sys.stderr)
 
         games_after_offset = max(0, games_count - self.offset) if games_count else 0
         limit_remaining = self.limit if self.limit else games_after_offset
         self.timer_stop()
+        print(f"⏱️ Проверка игр для обработки: {self._get_last_timer():.3f}с", file=sys.stderr)
 
         if new_criteria and len(new_criteria) > 0:
+            print(f"🎯 Найдено {len(new_criteria)} новых критериев", file=sys.stderr)
+
             if limit_remaining == 0:
-                if self.verbose and self.original_stdout:
-                    self.original_stdout.write(
-                        f"ℹ️ Обнаружено {len(new_criteria)} новых критериев, но нет игр для обработки\n")
-                    self.original_stdout.write(f"ℹ️ Критерии добавлены в проверенные\n")
-                    self.original_stdout.flush()
+                print(f"ℹ️ Новых критериев: {len(new_criteria)}, но нет игр для обработки", file=sys.stderr)
 
                 self.timer_start("Добавление критериев в проверенные")
                 self.state_manager.add_checked_criteria(list(new_criteria))
                 self.timer_stop()
+                print(f"⏱️ Добавление критериев в проверенные: {self._get_last_timer():.3f}с", file=sys.stderr)
 
                 try:
                     self.timer_start("Сохранение состояния")
                     processed_count = self.state_manager.get_processed_count()
                     self.state_manager.save_state(processed_count)
                     self.timer_stop()
-                except Exception:
-                    pass
+                    print(f"⏱️ Сохранение состояния: {self._get_last_timer():.3f}с", file=sys.stderr)
+                except Exception as e:
+                    print(f"⚠️ Ошибка сохранения: {e}", file=sys.stderr)
 
                 self._new_criteria_detected = False
 
                 updated_checked_criteria = self.state_manager.get_checked_criteria()
                 self.timer_stop()  # Инициализация отслеживания критериев (общее)
+                print(f"⏱️ Инициализация отслеживания критериев (общее) ВСЕГО: {self._get_total_timer():.3f}с",
+                      file=sys.stderr)
                 return updated_checked_criteria, set()
             else:
-                if self.original_stdout:
-                    self.original_stdout.write(f"\n🎯 ОБНАРУЖЕНО {len(new_criteria)} НОВЫХ КРИТЕРИЕВ ДЛЯ ПРОВЕРКИ!\n")
-                    self.original_stdout.write("ℹ️ Новые критерии будут добавлены к проверенным\n")
-                    if self.offset > 0:
-                        self.original_stdout.write(
-                            f"ℹ️ Игры после оффсета {self.offset} будут проверены на новые критерии\n")
-                    self.original_stdout.flush()
-
-                if self.output_file:
-                    self.stdout.write(f"\n🎯 ОБНАРУЖЕНО {len(new_criteria)} НОВЫХ КРИТЕРИЕВ ДЛЯ ПРОВЕРКИ!")
-                    self.stdout.write("ℹ️ Новые критерии будут добавлены к проверенным")
+                print(f"🎯 Будем обрабатывать {limit_remaining} игр с новыми критериями", file=sys.stderr)
 
                 self.timer_start("Добавление новых критериев")
                 self.state_manager.add_checked_criteria(list(new_criteria))
                 self.timer_stop()
+                print(f"⏱️ Добавление новых критериев: {self._get_last_timer():.3f}с", file=sys.stderr)
 
                 self._new_criteria_detected = True
 
@@ -1068,19 +1664,36 @@ class AnalyzerCommand(BaseCommand):
                     processed_count = self.state_manager.get_processed_count()
                     self.state_manager.save_state(processed_count)
                     self.timer_stop()
+                    print(f"⏱️ Сохранение состояния с новыми критериями: {self._get_last_timer():.3f}с",
+                          file=sys.stderr)
                 except Exception:
                     pass
 
                 updated_checked_criteria = self.state_manager.get_checked_criteria()
                 self.timer_stop()  # Инициализация отслеживания критериев (общее)
+                print(f"⏱️ Инициализация отслеживания критериев (общее) ВСЕГО: {self._get_total_timer():.3f}с",
+                      file=sys.stderr)
                 return updated_checked_criteria, set()
 
         self._new_criteria_detected = False
         self.timer_stop()  # Инициализация отслеживания критериев (общее)
+        print(f"⏱️ Инициализация отслеживания критериев (общее) ВСЕГО: {self._get_total_timer():.3f}с", file=sys.stderr)
         return checked_criteria, new_criteria
 
+    def _get_last_timer(self):
+        """Возвращает время последнего замера"""
+        if self.timer_results:
+            return self.timer_results[-1]['elapsed']
+        return 0
+
+    def _get_total_timer(self):
+        """Возвращает общее время текущего замера"""
+        if self.timer_stack and self.timer_stack[-1] in self.timers:
+            return time.monotonic() - self.timers[self.timer_stack[-1]]
+        return 0
+
     def _update_checked_criteria_after_analysis(self, result: Dict[str, Any]):
-        """Обновляет список проверенных критериев после анализа игры"""
+        """Обновляет список проверенных критериев после анализа игры - БЕЗ СОХРАНЕНИЯ"""
         if not self.state_manager or not result.get('has_results'):
             return
 
@@ -1095,9 +1708,7 @@ class AnalyzerCommand(BaseCommand):
 
             if found_criteria_ids:
                 self.state_manager.add_checked_criteria(found_criteria_ids)
-
-                if self.stats.get('processed', 0) % 100 == 0:
-                    self.state_manager.save_state(self.stats['processed'])
+                # УБРАЛИ СОХРАНЕНИЕ - теперь сохраняется только в конце
 
         except Exception as e:
             if self.verbose:
@@ -1243,7 +1854,8 @@ class AnalyzerCommand(BaseCommand):
             })
 
     def handle(self, *args, **options):
-        """Основной обработчик команды с поддержкой очистки кэша при force-restart"""
+        """Основной обработчик команды"""
+        self.program_start_time = time.monotonic()  # <-- ДОБАВИТЬ В САМОЕ НАЧАЛО
         try:
             self.timer_start("Обработка команды")
 
@@ -1252,11 +1864,14 @@ class AnalyzerCommand(BaseCommand):
             self._init_components()
 
             if self.clear_cache:
+                self.analysis_cache_manager.clear()
+                if self.state_manager:
+                    self.state_manager.clear_all_state()
                 self.analysis_cache = {}
                 self.cache_hits = 0
                 self.cache_misses = 0
                 if self.original_stdout:
-                    self.original_stdout.write("🧹 Кэш анализа очищен\n")
+                    self.original_stdout.write("🧹 Весь кэш и состояние очищены\n")
                     self.original_stdout.flush()
 
             if not self.no_progress and not self.game_id and not self.game_name and not self.description:
@@ -1618,6 +2233,16 @@ class AnalyzerCommand(BaseCommand):
         """Выполняет анализ игр с инициализацией прогресс-бара и обработкой"""
         self.timer_start("Выполнение анализа")
 
+        # ПРЕДЗАГРУЗКА TRIE ДО НАЧАЛА ОБРАБОТКИ
+        if self.keywords:
+            self.timer_start("Предзагрузка Trie ключевых слов")
+            if self.verbose:
+                self.stdout.write("🔄 Предзагружаем Trie ключевых слов...")
+            self.api.text_analyzer._ensure_trie_loaded()
+            if self.verbose:
+                self.stdout.write("✅ Trie загружен")
+            self.timer_stop()
+
         # Вывод информации о начале
         self.timer_start("Вывод информации о начале")
         self._print_analysis_start_info(
@@ -1681,10 +2306,11 @@ class AnalyzerCommand(BaseCommand):
             )
             self.timer_stop()
 
-            # Финальное сохранение состояния
+            # Финальное сохранение состояния - ИСПОЛЬЗУЕМ force_save
             self.timer_start("Финальное сохранение состояния")
             total_processed_now = already_processed + self.stats['processed']
-            self.state_manager.save_state(total_processed_now)
+            # Принудительно сохраняем в конце, игнорируя буферизацию
+            self.state_manager.force_save(total_processed_now)
             self.timer_stop()
 
             # Финальное обновление батча
@@ -1736,105 +2362,6 @@ class AnalyzerCommand(BaseCommand):
         except KeyboardInterrupt:
             self.timer_stop()  # Выполнение анализа
             self._handle_batch_interrupt(start_time, already_processed)
-
-    def _process_games_batch(self, games, should_process_all, new_criteria, checked_criteria, start_time):
-        """Обрабатывает батч игр"""
-        self.timer_start("Основной цикл обработки")
-
-        processed_in_this_run = 0
-        skipped_because_already_processed = 0
-
-        if self.batch_updater:
-            self.batch_updater.total_games_added = 0
-
-        self._init_stats()
-
-        if self.debug and self.original_stdout:
-            self.original_stdout.write(f"\nDEBUG: Начинаем обработку батча. Инициализирована статистика\n")
-            self.original_stdout.flush()
-
-        self._initialize_progress_bar_for_batch()
-
-        batch_counter = 0
-        game_count = 0
-
-        for game in games.iterator(chunk_size=self.batch_size):
-            game_count += 1
-            if self.limit and processed_in_this_run >= self.limit:
-                break
-
-            game_start_time = time.time()
-
-            self.timer_start(f"Обработка игры {game.id}")
-
-            if self.debug and self.original_stdout:
-                self.original_stdout.write(
-                    f"\nDEBUG: Обрабатываем игру {game.id} (режим: {'ключевые слова' if self.keywords else 'критерии'})\n")
-                self.original_stdout.flush()
-
-            # Получение текста
-            self.timer_start(f"Получение текста")
-            text = self.text_preparer.prepare_text(game)
-            self.timer_stop()
-
-            if text:
-                # API-анализ
-                self.timer_start(f"API-анализ")
-                self._process_single_game_in_batch_with_criteria(game, checked_criteria, True)
-                self.timer_stop()
-            else:
-                self._handle_game_without_text(game)
-
-            self.timer_stop()  # Обработка игры {game.id}
-
-            game_time = time.time() - game_start_time
-            if self.debug and self.original_stdout and game_time > 0.1:
-                self.original_stdout.write(f"  ⏱️ Игра {game.id} обработана за {game_time:.2f}с\n")
-                self.original_stdout.flush()
-
-            processed_in_this_run += 1
-
-            batch_counter += 1
-
-            if self.update_game and self.batch_updater:
-                games_in_batch = len(self.batch_updater.games_to_update) if hasattr(self.batch_updater,
-                                                                                    'games_to_update') else 0
-                update_threshold = min(max(self.batch_size // 2, 10), 500)
-
-                if games_in_batch >= update_threshold:
-                    if self.debug and self.original_stdout:
-                        self.original_stdout.write(
-                            f"\nDEBUG: Достигнут порог {update_threshold} игр в батче, вызываем _check_and_update_batch\n")
-                        self.original_stdout.flush()
-
-                    self.timer_start("Обновление батча")
-                    self._check_and_update_batch()
-                    self.timer_stop()
-
-            if processed_in_this_run % 1000 == 0 and processed_in_this_run > 0:
-                self.timer_start("Сохранение состояния")
-                try:
-                    self.state_manager.save_state(self.stats['processed'])
-                except Exception:
-                    pass
-                self.timer_stop()
-
-        self.timer_start("Финальное обновление батча")
-        self._flush_remaining_batch()
-        self.timer_stop()
-
-        self._print_batch_processing_stats(processed_in_this_run, skipped_because_already_processed)
-
-        if self.debug and self.original_stdout:
-            self.original_stdout.write(f"\n📊 Обработано игр в основном цикле: {processed_in_this_run}\n")
-            self.original_stdout.flush()
-
-        self.timer_stop()  # Основной цикл обработки
-
-        return {
-            'processed_in_this_run': processed_in_this_run,
-            'skipped_because_already_processed': skipped_because_already_processed,
-        }
 
     def _print_analysis_start_info(self, total_games, already_processed, checked_criteria,
                                    new_criteria, should_process_all, estimated_new_games):
@@ -2168,106 +2695,6 @@ class AnalyzerCommand(BaseCommand):
             self.output_file.write("=" * 60 + "\n")
             self.output_file.write("\n")
             self.output_file.flush()
-
-    def _display_final_statistics(self, stats: Dict[str, Any], already_processed: int, total_games: int):
-        """Выводит финальную статистику в терминал и файл"""
-        checked_criteria_count = len(self.state_manager.get_checked_criteria()) if self.state_manager else 0
-
-        if self.output_file and not self.output_file.closed:
-            try:
-                self.output_file.write("\n" + "=" * 60 + "\n")
-                if self.keywords:
-                    self.output_file.write("📊 ФИНАЛЬНАЯ СТАТИСТИКА АНАЛИЗА (КЛЮЧЕВЫЕ СЛОВА)\n")
-                else:
-                    self.output_file.write("📊 ФИНАЛЬНАЯ СТАТИСТИКА АНАЛИЗА (КРИТЕРИИ)\n")
-                self.output_file.write("=" * 60 + "\n")
-
-                if already_processed > 0:
-                    self.output_file.write(f"⏭️ Пропущено ранее обработанных игр: {already_processed}\n")
-
-                if self.keywords:
-                    processed_count = stats.get('keywords_processed', stats.get('processed', 0))
-                    self.output_file.write(f"🔄 Обработано новых игр: {processed_count}\n")
-                    self.output_file.write(f"🎯 Игр с найденными ключ. словами: {stats.get('keywords_found', 0)}\n")
-                    self.output_file.write(f"📈 Всего ключевых слов найдено: {stats.get('keywords_count', 0)}\n")
-                    self.output_file.write(f"❌ Ошибок: {stats.get('errors', 0)}\n")
-                    self.output_file.write(f"💾 Обновлено игр в БД: {stats.get('updated', 0)}\n")
-
-                    if stats.get('keywords_not_found', 0) > 0:
-                        self.output_file.write(f"⚡ Игр без ключевых слов: {stats['keywords_not_found']}\n")
-                else:
-                    self.output_file.write(f"🔄 Обработано новых игр: {stats.get('processed', 0)}\n")
-                    self.output_file.write(f"🎯 Игр с найденными критериями: {stats.get('found_count', 0)}\n")
-                    self.output_file.write(f"📈 Всего критериев найдено: {stats.get('total_criteria_found', 0)}\n")
-                    self.output_file.write(f"❌ Ошибок: {stats.get('errors', 0)}\n")
-                    self.output_file.write(f"💾 Обновлено игр в БД: {stats.get('updated', 0)}\n")
-
-                    if stats.get('not_found_count', 0) > 0:
-                        self.output_file.write(f"⚡ Игр без критериев: {stats['not_found_count']}\n")
-
-                total_skipped = stats['skipped_no_text'] + stats.get('skipped_short_text', 0) + (
-                    stats['keywords_not_found'] if self.keywords else stats['not_found_count']
-                )
-
-                self.output_file.write(f"⏭️ Всего пропущено игр: {total_skipped}\n")
-                self.output_file.write(f"⏭️ Игр без текста: {stats['skipped_no_text']}\n")
-
-                if 'skipped_short_text' in stats and stats['skipped_short_text'] > 0:
-                    self.output_file.write(f"⏭️ Игр с коротким текстом: {stats['skipped_short_text']}\n")
-
-                if self.keywords and stats.get('keywords_not_found', 0) > 0:
-                    self.output_file.write(f"⏭️ Игр без ключевых слов: {stats['keywords_not_found']}\n")
-                elif not self.keywords and stats.get('not_found_count', 0) > 0:
-                    self.output_file.write(f"⏭️ Игр без критериев: {stats['not_found_count']}\n")
-
-                if stats['execution_time'] > 0:
-                    self.output_file.write(f"⏱️ Время выполнения: {stats['execution_time']:.1f} секунд\n")
-
-                self.output_file.write("=" * 60 + "\n")
-                self.output_file.write("✅ Анализ успешно завершен\n")
-                self.output_file.write("=" * 60 + "\n")
-                self.output_file.flush()
-
-            except Exception:
-                pass
-
-        if self.original_stdout:
-            try:
-                self.original_stdout.write("\n")
-                self.original_stdout.write("=" * 60 + "\n")
-                self.original_stdout.write("📊 ИТОГОВАЯ СТАТИСТИКА\n")
-                self.original_stdout.write("=" * 60 + "\n")
-
-                if stats.get('processed', 0) > 0:
-                    if self.keywords:
-                        processed_count = stats.get('keywords_processed', stats.get('processed', 0))
-                        self.original_stdout.write(f"🔄 Обработано игр: {processed_count}\n")
-                        self.original_stdout.write(f"🎯 Игр с ключевыми словами: {stats.get('keywords_found', 0)}\n")
-                        self.original_stdout.write(f"📈 Всего ключевых слов: {stats.get('keywords_count', 0)}\n")
-                    else:
-                        self.original_stdout.write(f"🔄 Обработано игр: {stats.get('processed', 0)}\n")
-                        self.original_stdout.write(f"🎯 Игр с критериями: {stats.get('found_count', 0)}\n")
-                        self.original_stdout.write(f"📈 Всего критериев: {stats.get('total_criteria_found', 0)}\n")
-
-                    self.original_stdout.write(f"❌ Ошибок: {stats.get('errors', 0)}\n")
-                    self.original_stdout.write(f"💾 Обновлено игр в БД: {stats.get('updated', 0)}\n")
-
-                    if stats.get('execution_time', 0) > 0:
-                        games_per_second = stats.get('processed', 0) / stats['execution_time'] if stats[
-                                                                                                      'execution_time'] > 0 else 0
-                        self.original_stdout.write(f"⏱️ Время: {stats['execution_time']:.1f} секунд\n")
-                        self.original_stdout.write(f"⚡ Скорость: {games_per_second:.1f} игр/сек\n")
-
-                if self.output_path:
-                    self.original_stdout.write(f"✅ Результаты сохранены в: {self.output_path}\n")
-                else:
-                    self.original_stdout.write("✅ Анализ завершен\n")
-
-                self.original_stdout.write("=" * 60 + "\n")
-                self.original_stdout.flush()
-
-            except Exception:
-                pass
 
     def _print_to_terminal(self, message: str, end: str = "\n"):
         """Печатает только в терминал (не используется при прогресс-баре)"""
@@ -2713,17 +3140,6 @@ class AnalyzerCommand(BaseCommand):
             self.original_stdout.write("\n")
             self.original_stdout.write("⏹️ Обработка прервана пользователем\n")
             self.original_stdout.flush()
-
-    def _handle_error(self, e):
-        """Обрабатывает ошибку"""
-        import traceback
-        if self.output_file:
-            self.stderr.write(f"❌ Неожиданная ошибка: {e}")
-            traceback.print_exc()
-        else:
-            if self.original_stderr:
-                self.original_stderr.write(f"❌ Неожиданная ошибка: {e}\n")
-                traceback.print_exc(file=self.original_stderr)
 
     def _restore_output_streams(self):
         """Восстанавливает потоки вывода"""

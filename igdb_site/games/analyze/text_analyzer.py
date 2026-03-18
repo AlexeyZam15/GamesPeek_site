@@ -24,18 +24,25 @@ class TextAnalyzer:
     # ============== ОПТИМИЗИРОВАННЫЕ МЕТОДЫ КЛЮЧЕВЫХ СЛОВ ==============
 
     def _ensure_trie_loaded(self):
-        """Гарантирует, что Trie ключевых слов загружен"""
+        """Гарантирует, что Trie ключевых слов загружен - С ИНДИКАТОРОМ ПРОГРЕССА"""
         if self._trie is None:
+            if self.verbose:
+                print("🔄 Загружаем Trie ключевых слов...")
+            start_time = time.time()
             self._trie = self._trie_manager.get_trie(verbose=self.verbose)
             self._keywords_count = Keyword.objects.count()
+            if self.verbose:
+                print(f"✅ Trie загружен за {time.time() - start_time:.2f}с ({self._keywords_count} ключевых слов)")
         else:
             # Проверяем, не изменилось ли количество ключевых слов
             current_count = Keyword.objects.count()
             if current_count != self._keywords_count:
                 print(f"⚠️ Количество ключевых слов изменилось: было {self._keywords_count}, стало {current_count}")
                 print("⚠️ Перезагружаем Trie...")
+                start_time = time.time()
                 self._trie = self._trie_manager.get_trie(verbose=self.verbose, force_rebuild=True)
                 self._keywords_count = current_count
+                print(f"✅ Trie перезагружен за {time.time() - start_time:.2f}с")
 
     def _analyze_keywords_for_game(
             self,
