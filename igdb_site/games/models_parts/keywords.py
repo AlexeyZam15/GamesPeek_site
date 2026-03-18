@@ -64,9 +64,12 @@ class Keyword(models.Model):
     def update_cached_count(self, force: bool = False, async_update: bool = False) -> None:
         """
         Обновляет кэшированное значение с оптимизацией.
+
+        Args:
+            force: Принудительное обновление
+            async_update: Асинхронное обновление (не используется в текущей реализации)
         """
         from django.conf import settings
-        from games.analyze.keyword_trie import KeywordTrieManager
 
         # Отключаем автоматическое обновление в DEBUG режиме
         if settings.DEBUG and not force:
@@ -96,15 +99,23 @@ class Keyword(models.Model):
                 # Обновляем локальный объект
                 self.refresh_from_db(fields=['cached_usage_count', 'last_count_update'])
 
-                # ВАЖНОЕ ИСПРАВЛЕНИЕ: Очищаем кэш Trie при изменении ключевого слова
-                KeywordTrieManager().clear_cache()
-                print(f"✅ Кэш Trie очищен после обновления ключевого слова {self.name} (ID: {self.id})")
+                # УДАЛЕНО: автоматическая очистка кэша Trie при каждом обновлении
 
         except Exception as e:
             # Логируем ошибку, но не падаем
             import logging
             logger = logging.getLogger(__name__)
             logger.error(f"Error updating keyword cache for {self.id}: {str(e)}")
+
+    @classmethod
+    def clear_trie_cache(cls):
+        """
+        Очищает кэш Trie вручную после массовых операций.
+        Вызывать только один раз в конце обработки.
+        """
+        from games.analyze.keyword_trie import KeywordTrieManager
+        KeywordTrieManager().clear_cache()
+        print("✅ Кэш Trie очищен после массовой операции")
 
     @classmethod
     def bulk_update_cache_counts(cls, keyword_ids: List[int] = None, batch_size: int = 100) -> int:
