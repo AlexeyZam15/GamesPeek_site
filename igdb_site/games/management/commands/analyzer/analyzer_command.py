@@ -190,19 +190,39 @@ class AnalyzerCommand(BaseCommand):
                 self.cache_misses += 1
 
             # Обновляем статистику
+            has_new_elements = False
+            new_elements_count = 0
+
             if self.keywords:
                 items = result.get('results', {}).get('keywords', {}).get('items', [])
                 if items:
-                    self.stats['found_count'] = self.stats.get('found_count', 0) + 1
-                    self.stats['total_criteria_found'] = self.stats.get('total_criteria_found', 0) + len(items)
-                    result['has_results'] = True  # <-- ВАЖНО: устанавливаем флаг
+                    # Проверяем, есть ли новые ключевые слова
+                    from games.models import Keyword
+                    keyword_ids = [k['id'] for k in items]
+                    existing_ids = set(game.keywords.values_list('id', flat=True))
+                    new_ids = [kid for kid in keyword_ids if kid not in existing_ids]
+
+                    if new_ids:
+                        has_new_elements = True
+                        new_elements_count = len(new_ids)
+                        self.stats['found_count'] = self.stats.get('found_count', 0) + 1
+                        self.stats['total_criteria_found'] = self.stats.get('total_criteria_found', 0) + len(new_ids)
+                        result['has_results'] = True
+                    else:
+                        self.stats['not_found_count'] = self.stats.get('not_found_count', 0) + 1
                 else:
                     self.stats['not_found_count'] = self.stats.get('not_found_count', 0) + 1
             else:
                 if result['success'] and result['has_results']:
+                    found_count = result['summary'].get('found_count', 0)
+                    # Здесь нужно проверить, есть ли новые элементы
+                    # Для простоты считаем, что если есть результаты и не ignore_existing, то есть новые
+                    if not self.ignore_existing:
+                        has_new_elements = True
+                        new_elements_count = found_count
+
                     self.stats['found_count'] = self.stats.get('found_count', 0) + 1
-                    self.stats['total_criteria_found'] = self.stats.get('total_criteria_found', 0) + result[
-                        'summary'].get('found_count', 0)
+                    self.stats['total_criteria_found'] = self.stats.get('total_criteria_found', 0) + found_count
                 else:
                     self.stats['not_found_count'] = self.stats.get('not_found_count', 0) + 1
 
@@ -225,6 +245,12 @@ class AnalyzerCommand(BaseCommand):
                     combined_mode=False,
                     exclude_existing=exclude_existing
                 )
+
+            # ===== ВАЖНО: ДОБАВЛЯЕМ В БАТЧ ЕСЛИ НУЖНО =====
+            if self.update_game and has_new_elements:
+                added = self._add_to_batch_if_needed(game, result, has_new_elements)
+                # После добавления проверяем, не пора ли обновить батч
+                self._check_batch_update()
 
         except Exception as e:
             import traceback
@@ -1444,6 +1470,9 @@ class AnalyzerCommand(BaseCommand):
 
                     self._update_progress_bar_with_stats()
 
+                    # ===== ВАЖНО: ПРОВЕРЯЕМ ПОРОГ И ОБНОВЛЯЕМ =====
+                    self._check_batch_update()
+
                 return added
 
             else:
@@ -1463,6 +1492,9 @@ class AnalyzerCommand(BaseCommand):
                         self.stats['in_batch'] = 0
 
                     self._update_progress_bar_with_stats()
+
+                    # ===== ВАЖНО: ПРОВЕРЯЕМ ПОРОГ И ОБНОВЛЯЕМ =====
+                    self._check_batch_update()
 
                 return added
 
