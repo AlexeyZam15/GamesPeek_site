@@ -15,6 +15,9 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS('СУПЕР-БЫСТРОЕ ОБНОВЛЕНИЕ ВЕКТОРОВ'))
         self.stdout.write(self.style.SUCCESS(f'{"=" * 60}\n'))
 
+        # Проверяем и снимаем блокировки перед началом
+        self._check_and_clear_locks()
+
         # Получаем статистику ДО обновления
         with connection.cursor() as cursor:
             cursor.execute("SELECT COUNT(*) FROM games_game")
@@ -185,3 +188,56 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f'\n{"=" * 60}'))
         self.stdout.write(self.style.SUCCESS('ОБНОВЛЕНИЕ ЗАВЕРШЕНО'))
         self.stdout.write(self.style.SUCCESS(f'{"=" * 60}\n'))
+
+    def _check_and_clear_locks(self):
+        """Проверяет наличие блокировок и автоматически снимает их"""
+        self.stdout.write(self.style.WARNING('🔍 Проверка блокировок базы данных...'))
+
+        with connection.cursor() as cursor:
+            # Проверяем активные блокировки
+            cursor.execute("""
+                           SELECT a.pid,
+                                  l.mode,
+                                  l.relation::regclass as table_name, age(now(), a.query_start) as lock_age
+                           FROM pg_locks l
+                                    JOIN pg_stat_activity a ON l.pid = a.pid
+                           WHERE NOT l.granted
+                              OR (l.locktype = 'relation' AND l.mode LIKE '%ExclusiveLock%')
+                           ORDER BY lock_age DESC NULLS LAST
+                           """)
+
+            locks = cursor.fetchall()
+
+            if locks:
+                self.stdout.write(self.style.WARNING(f'   ⚠️ Найдено {len(locks)} активных блокировок:'))
+                for lock in locks[:5]:
+                    pid, mode, table_name, lock_age = lock
+                    self.stdout.write(f'      PID: {pid}, {mode}, Таблица: {table_name}, Возраст: {lock_age}')
+
+                self.stdout.write(self.style.WARNING('   🔓 Автоматически снимаю блокировки...'))
+
+                # Получаем список PID для завершения
+                cursor.execute("""
+                               SELECT a.pid
+                               FROM pg_stat_activity a
+                               WHERE a.state = 'active'
+                                 AND a.pid != pg_backend_pid()
+                      AND (a.query_start < now() - interval '30 seconds' OR
+                           a.pid IN (SELECT l.pid FROM pg_locks l WHERE NOT l.granted))
+                               """)
+
+                pids = [row[0] for row in cursor.fetchall()]
+
+                if pids:
+                    for pid in pids:
+                        cursor.execute("SELECT pg_terminate_backend(%s)", [pid])
+                        self.stdout.write(f'      Завершен процесс PID: {pid}')
+
+                    self.stdout.write(self.style.SUCCESS(f'   ✅ Завершено {len(pids)} заблокированных процессов'))
+                    time.sleep(1)  # Даем время на освобождение ресурсов
+                else:
+                    self.stdout.write(self.style.WARNING('   ⚠️ Не найдено процессов для завершения'))
+            else:
+                self.stdout.write(self.style.SUCCESS('   ✅ Активных блокировок не найдено'))
+
+            self.stdout.write('')

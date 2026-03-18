@@ -5,11 +5,12 @@ Exports keywords to file first, then asks for confirmation before deletion.
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db.models import Count, Q
-from django.db import transaction
+from django.db import transaction, connection
 from django.conf import settings
 from django.utils import timezone
 import logging
 import os
+import time
 from typing import List, Dict, Any
 
 from games.models_parts.keywords import Keyword
@@ -241,27 +242,49 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING(f"Файл {outpath} обновлён (отметка об отмене)"))
                 return
 
-            # Шаг 7: Удаляем ключевые слова
+            # Шаг 7: Удаляем ключевые слова с правильным управлением транзакциями
             self.stdout.write(f"\n🗑️ Удаляю {total_count} ключевых слов...")
             delete_start = timezone.now()
 
             # Получаем ID для удаления
             keyword_ids = list(low_usage_keywords.values_list('id', flat=True))
 
-            # Удаляем батчами для минимизации блокировок
+            # Удаляем батчами для минимизации блокировок, каждая пачка в отдельной транзакции
             batch_size = 500
             deleted_count = 0
 
-            with transaction.atomic():
-                for i in range(0, len(keyword_ids), batch_size):
-                    batch_ids = keyword_ids[i:i + batch_size]
+            for i in range(0, len(keyword_ids), batch_size):
+                batch_ids = keyword_ids[i:i + batch_size]
+
+                # Каждая пачка в своей транзакции, которая сразу коммитится
+                with transaction.atomic():
+                    # Сначала получаем ID игр, у которых будут удалены ключевые слова
+                    with connection.cursor() as cursor:
+                        cursor.execute("""
+                                       SELECT DISTINCT game_id
+                                       FROM games_game_keywords
+                                       WHERE keyword_id = ANY (%s)
+                                       """, [batch_ids])
+                        affected_game_ids = [row[0] for row in cursor.fetchall()]
 
                     # Удаляем ключевые слова (связи ManyToMany удалятся автоматически)
                     deleted_batch, _ = Keyword.objects.filter(id__in=batch_ids).delete()
-                    deleted_count += len(batch_ids)
+                    deleted_count += deleted_batch
 
-                    self.stdout.write(f"  Удалено {min(i + batch_size, len(keyword_ids))}/{len(keyword_ids)}",
-                                      ending='\r')
+                    # Очищаем keyword_ids для затронутых игр (если есть)
+                    if affected_game_ids:
+                        # Разбиваем на подпакеты для избежания слишком длинного запроса
+                        for j in range(0, len(affected_game_ids), 1000):
+                            sub_ids = affected_game_ids[j:j + 1000]
+                            with connection.cursor() as cursor:
+                                cursor.execute("""
+                                               UPDATE games_game
+                                               SET keyword_ids = ARRAY[]::integer[]
+                                               WHERE id = ANY (%s)
+                                               """, [sub_ids])
+
+                self.stdout.write(f"  Удалено {min(i + batch_size, len(keyword_ids))}/{len(keyword_ids)}",
+                                  ending='\r')
 
             delete_time = (timezone.now() - delete_start).total_seconds()
 
@@ -295,6 +318,9 @@ class Command(BaseCommand):
                 )
             )
 
+            # Проверяем, нет ли оставшихся блокировок
+            self._check_remaining_locks()
+
         except KeyboardInterrupt:
             self.stdout.write(self.style.WARNING("\n❌ Операция отменена пользователем."))
             return
@@ -302,3 +328,30 @@ class Command(BaseCommand):
         except Exception as e:
             logger.error(f"Ошибка в delete_low_usage_keywords: {str(e)}", exc_info=True)
             raise CommandError(f"Не удалось обработать ключевые слова: {str(e)}")
+
+    def _check_remaining_locks(self):
+        """Проверяет, не осталось ли блокировок после удаления"""
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                           SELECT COUNT(*)
+                           FROM pg_locks l
+                                    JOIN pg_stat_activity a ON l.pid = a.pid
+                           WHERE NOT granted
+                             AND a.state = 'active'
+                           """)
+            remaining = cursor.fetchone()[0]
+
+            if remaining > 0:
+                self.stdout.write(self.style.WARNING(f"⚠️ Обнаружено {remaining} остаточных блокировок, очищаю..."))
+
+                cursor.execute("""
+                               SELECT pg_terminate_backend(pid)
+                               FROM pg_stat_activity
+                               WHERE state = 'active'
+                                 AND pid != pg_backend_pid()
+                      AND pid IN (SELECT pid FROM pg_locks WHERE NOT granted)
+                               """)
+
+                self.stdout.write(self.style.SUCCESS("✅ Остаточные блокировки очищены"))
+            else:
+                self.stdout.write(self.style.SUCCESS("✅ Остаточных блокировок не обнаружено"))
