@@ -40,6 +40,7 @@ class PatternManager:
             r'\blife\s+simulator\b',
         ],
         'Squad Management': [
+            # Базовые паттерны
             r'\bsquad[-\s]?based\b',
             r'\bsquad\s+management\b',
             r'\bparty\s+management\b',
@@ -48,6 +49,18 @@ class PatternManager:
             r'\bmanaging\s+(?:a|your|the)\s+(?:squad|party|team)\b',
             r'\bbuild\s+(?:a|your|the)\s+(?:squad|party|team)\b',
             r'\bbuilding\s+(?:a|your|the)\s+(?:squad|party|team)\b',
+
+            # Формирование и рекрутинг (исправлено для "gathering teammates")
+            r'\b(?:recruit|assemble|gather|form|build)\s+(?:team(?:mates)?|companions?|followers?|members?|allies?|squad|party|group|company|band|crew)\b',
+            r'\b(?:recruiting|assembling|gathering|forming|building)\s+(?:team(?:mates)?|companions?|followers?|members?|allies?|squad|party|group|company|band|crew)\b',
+
+            # Командование и контроль
+            r'\b(?:command|lead|control)\s+(?:a|the|your)\s+(?:squad|party|team|group|company)\b',
+            r'\b(?:commanding|leading|controlling)\s+(?:a|the|your)\s+(?:squad|party|team|group|company)\b',
+
+            # Тактическое управление
+            r'\btactical\s+(?:squad|party|team)\s+(?:control|management|commands?)\b',
+            r'\b(?:issue|give)\s+orders?\s+to\s+(?:your|the)\s+(?:squad|party|team)\b',
         ],
         'Base Building': [
             r'\bbase[-\s]?building\b',
