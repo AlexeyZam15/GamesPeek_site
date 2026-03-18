@@ -31,15 +31,19 @@ class KeywordTrie:
         # Это решает проблему с pickle
 
     def __getstate__(self):
-        """Подготовка объекта для pickle - исключаем wordnet_api"""
+        """Подготовка объекта для pickle - исключаем thread lock"""
         state = self.__dict__.copy()
         # Удаляем всё, что может содержать _thread.RLock
-        # wordnet_api не сохраняем - будем создавать заново при поиске
+        if '_wordnet_lock' in state:
+            del state['_wordnet_lock']
+        if '_wordnet_api' in state:
+            del state['_wordnet_api']
         return state
 
     def __setstate__(self, state):
         """Восстановление объекта из pickle"""
         self.__dict__.update(state)
+        # Блокировка создастся заново при необходимости
 
     def insert(self, word: str, keyword_id: int, keyword_name: str):
         """Вставляет ключевое слово в дерево"""
@@ -90,9 +94,15 @@ class KeywordTrie:
         return self.keywords_cache.get(keyword_id)
 
     def _ensure_wordnet(self):
-        """Получает WordNetAPI (создает при первом обращении)"""
-        # Не сохраняем как атрибут, чтобы избежать проблем с pickle
-        return get_wordnet_api(verbose=self.verbose)
+        """Получает WordNetAPI (создает при первом обращении) с блокировкой"""
+        import threading
+        if not hasattr(self, '_wordnet_lock'):
+            self._wordnet_lock = threading.RLock()
+
+        with self._wordnet_lock:
+            if not hasattr(self, '_wordnet_api') or self._wordnet_api is None:
+                self._wordnet_api = get_wordnet_api(verbose=self.verbose)
+            return self._wordnet_api
 
     def find_all_in_text(self, text: str, unique_only: bool = True) -> List[dict]:
         """
