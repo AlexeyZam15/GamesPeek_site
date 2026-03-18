@@ -7,7 +7,7 @@
 
 from django.core.management.base import BaseCommand
 from django.db.models import Q
-from django.db import transaction, IntegrityError
+from django.db import transaction, IntegrityError, models
 from games.models import Game, Keyword
 from games.analyze import GameAnalyzerAPI
 from games.analyze.wordnet_api import get_wordnet_api
@@ -141,23 +141,499 @@ class Command(BaseCommand):
             'games_with_new_keywords': 0,
             'games_skipped_no_text': 0,
             'games_skipped_short_text': 0,
-            'total_words_found': 0,
-            'unique_words_found': 0,
-            'new_keywords_created': 0,
-            'existing_keywords_found': 0,
-            'words_not_in_wordnet': 0,
-            'words_stop_words': 0,
+            'new_keywords_created': 0,  # Теперь это уникальные новые ключевые слова
+            'existing_keywords_found': 0,  # Уникальные существующие ключевые слова
+            'words_not_in_wordnet': 0,  # Уникальные слова не из WordNet
+            'words_stop_words': 0,  # Уникальные стоп-слова
             'errors': 0,
             'start_time': None,
             'end_time': None
         }
-        self.found_words_global: Set[str] = set()
-        self.words_not_in_wordnet: Set[str] = set()
-        self.stop_words_found: Set[str] = set()
+        self.found_words_global: Set[str] = set()  # Все найденные уникальные слова
+        self.new_keywords_global: Set[str] = set()  # Уникальные новые ключевые слова
+        self.words_not_in_wordnet: Set[str] = set()  # Уникальные слова не из WordNet
+        self.stop_words_found: Set[str] = set()  # Уникальные стоп-слова
         self.created_keywords_global: Set[int] = set()
-        self.games_results: List[Dict[str, Any]] = []
         # По умолчанию используем комбинированный текст
         self.combine_all_texts = True
+
+        # Кэши для оптимизации
+        self.wordnet_cache = {}  # Кэш для результатов проверки WordNet
+        self.keyword_cache = {}  # Кэш для существующих ключевых слов
+        self.keyword_id_cache = {}  # Кэш {название: id} для быстрого доступа
+        self.stop_words = self._get_stop_words()  # Кэшируем стоп-слова
+
+        # Компилируем регулярное выражение для скорости
+        self.word_regex = None
+
+    def _get_or_create_keywords_batch(self, words_with_norm: Dict[str, str], game_unique_existing: Set[str]) -> Dict[
+        str, Optional[Keyword]]:
+        """
+        Пакетное получение или создание ключевых слов с использованием кэша.
+        Возвращает словарь {нормализованное_слово: объект Keyword}
+        """
+        result = {}
+        normalized_to_original = {}
+
+        # Группируем слова по нормализованной форме
+        for original, normalized in words_with_norm.items():
+            normalized_lower = normalized.lower()
+            if normalized_lower not in normalized_to_original:
+                normalized_to_original[normalized_lower] = original
+
+        normalized_words = list(normalized_to_original.keys())
+
+        # Фильтруем стоп-слова (используем кэшированный set для скорости)
+        valid_normalized = []
+        for norm in normalized_words:
+            if norm in self.stop_words:
+                # Уникальные стоп-слова
+                if norm not in self.stop_words_found:
+                    self.stop_words_found.add(norm)
+                    self.stats['words_stop_words'] += 1
+                result[norm] = None
+            else:
+                valid_normalized.append(norm)
+
+        if not valid_normalized:
+            return result
+
+        # Проверяем наличие в WordNet (пакетно)
+        wordnet_check = self._check_word_in_wordnet_batch(valid_normalized)
+
+        # Фильтруем слова не из WordNet
+        wordnet_valid = []
+        for norm in valid_normalized:
+            if not wordnet_check.get(norm, True):
+                # Уникальные слова не из WordNet
+                if norm not in self.words_not_in_wordnet:
+                    self.words_not_in_wordnet.add(norm)
+                    self.stats['words_not_in_wordnet'] += 1
+                result[norm] = None
+            else:
+                wordnet_valid.append(norm)
+
+        if not wordnet_valid:
+            return result
+
+        # Используем предзагруженный кэш для существующих ключевых слов
+        existing_keywords = {}
+        keywords_to_create = []
+
+        for norm in wordnet_valid:
+            if norm in self.keyword_cache:
+                existing_keywords[norm] = self.keyword_cache[norm]
+                result[norm] = self.keyword_cache[norm]
+                # Добавляем в множество уникальных существующих ключевых слов
+                game_unique_existing.add(norm)
+            else:
+                keywords_to_create.append(norm)
+
+        # Обрабатываем новые ключевые слова (для создания или dry-run)
+        if keywords_to_create:
+            # Уникальные новые ключевые слова
+            for norm in keywords_to_create:
+                if norm not in self.new_keywords_global:
+                    self.new_keywords_global.add(norm)
+                    self.stats['new_keywords_created'] += 1
+
+            if self.dry_run:
+                # В dry-run режиме создаём фиктивные объекты для статистики
+                for norm in keywords_to_create:
+                    dummy_id = -(len(self.found_words_global) + len(keywords_to_create) + 1)
+                    dummy = Keyword(id=dummy_id, name=norm)
+                    result[norm] = dummy
+                    self.found_words_global.add(norm)
+                    self.created_keywords_global.add(dummy_id)
+            else:
+                # Реальное создание ключевых слов
+                try:
+                    # Получаем минимальный отрицательный igdb_id
+                    min_igdb = Keyword.objects.filter(igdb_id__lt=0).aggregate(models.Min('igdb_id'))['igdb_id__min']
+                    next_igdb_id = (min_igdb or 0) - 1
+
+                    # Создаём все ключевые слова одним запросом
+                    created_kws = []
+                    for norm in keywords_to_create:
+                        kw = Keyword(
+                            igdb_id=next_igdb_id,
+                            name=norm,
+                            category=None
+                        )
+                        created_kws.append(kw)
+                        next_igdb_id -= 1
+
+                    # Bulk create
+                    Keyword.objects.bulk_create(created_kws)
+
+                    # Получаем созданные ключевые слова и обновляем кэш
+                    for kw in Keyword.objects.filter(name__iexact__in=keywords_to_create):
+                        kw_name_lower = kw.name.lower()
+                        self.keyword_cache[kw_name_lower] = kw
+                        self.keyword_id_cache[kw_name_lower] = kw.id
+                        self.created_keywords_global.add(kw.id)
+                        result[kw_name_lower] = kw
+                        self.found_words_global.add(kw_name_lower)
+
+                except Exception as e:
+                    self.stats['errors'] += 1
+                    if self.verbose:
+                        self.stderr.write(f"      ❌ Ошибка при пакетном создании ключевых слов: {e}")
+
+        return result
+
+    def _analyze_games(self, games_queryset, total_games):
+        """Анализирует игры и добавляет ключевые слова"""
+        # Применяем offset и limit
+        if self.offset:
+            games_queryset = games_queryset[self.offset:]
+        if self.limit:
+            games_queryset = games_queryset[:self.limit]
+
+        games_list = list(games_queryset)
+        games_to_process = len(games_list)
+
+        if self.verbose:
+            self.stdout.write(f"\n🔍 Начинаем анализ {games_to_process} игр...")
+            if not self.no_progress:
+                self.stdout.write("")
+
+        # Компилируем регулярное выражение для извлечения слов
+        self.word_regex = re.compile(r'\b[a-zA-Z]{%d,}\b' % self.min_word_length)
+
+        # Предзагружаем все существующие ключевые слова в кэш (огромная оптимизация)
+        self.stdout.write("📚 Предзагрузка всех существующих ключевых слов в кэш...")
+        all_keywords = Keyword.objects.all().only('id', 'name')
+        for kw in all_keywords:
+            kw_name_lower = kw.name.lower()
+            self.keyword_cache[kw_name_lower] = kw
+            self.keyword_id_cache[kw_name_lower] = kw.id
+        self.stdout.write(f"✅ Загружено {len(self.keyword_cache)} ключевых слов")
+        self.stdout.write("")
+
+        # Создаём прогресс-бар если нужно
+        if not self.no_progress and games_to_process > 1:
+            from tqdm import tqdm
+
+            # Выводим легенду значков перед прогресс-баром
+            self.stdout.write("📊 Легенда статистики (уникальные слова):")
+            self.stdout.write("  ✅ = игры с новыми ключевыми словами")
+            self.stdout.write("  ✨ = новые уникальные ключевые слова (созданы)")
+            self.stdout.write("  📚 = существующие ключевые слова (уникальные)")
+            self.stdout.write("  ⚪ = уникальные слова пропущено (не в WordNet или стоп-слова)")
+            self.stdout.write("")
+
+            # Функция для форматирования статистики в прогресс-баре
+            def format_stats(stats):
+                return (f"✅:{stats['games_with_new_keywords']} "
+                        f"✨:{stats['new_keywords_created']} "
+                        f"📚:{stats['existing_keywords_found']} "
+                        f"⚪:{stats['words_not_in_wordnet'] + stats['words_stop_words']}")
+
+            pbar = tqdm(
+                total=games_to_process,
+                desc="Анализ игр",
+                unit="game",
+                bar_format='{l_bar}{bar:20}{r_bar}',
+                postfix=format_stats(self.stats)
+            )
+        else:
+            pbar = None
+
+        # Кэш для существующих ключевых слов игр (оптимизация)
+        games_keywords_cache = {}
+
+        # Множество для отслеживания уникальных существующих ключевых слов
+        unique_existing_keywords = set()
+
+        # Обрабатываем игры батчами для оптимизации
+        for i in range(0, games_to_process, self.batch_size):
+            batch = games_list[i:i + self.batch_size]
+
+            # Предзагружаем ключевые слова для всех игр в текущем батче одной выборкой
+            if not self.dry_run:
+                game_ids = [game.id for game in batch]
+                # Используем prefetch_related для оптимизации
+                games_with_keywords = Game.objects.filter(id__in=game_ids).prefetch_related('keywords')
+                for game in games_with_keywords:
+                    # Используем кэш ID для быстрого доступа
+                    games_keywords_cache[game.id] = set(kw.name.lower() for kw in game.keywords.all())
+            else:
+                # В dry-run режиме просто заполняем пустыми множествами
+                for game in batch:
+                    games_keywords_cache[game.id] = set()
+
+            # Собираем все ключевые слова для пакетного создания связей
+            all_game_keywords_to_add = []  # Список кортежей (game_id, keyword_id)
+
+            for game in batch:
+                try:
+                    # Передаём кэшированные ключевые слова в метод анализа
+                    keywords_to_add, game_existing_keywords = self._analyze_single_game_with_cache(
+                        game, games_keywords_cache.get(game.id, set())
+                    )
+
+                    # Обновляем статистику уникальных существующих ключевых слов
+                    unique_existing_keywords.update(game_existing_keywords)
+
+                    # Собираем для пакетного добавления
+                    if keywords_to_add and not self.dry_run:
+                        for keyword in keywords_to_add:
+                            if keyword.id > 0:  # Только реальные ключевые слова
+                                all_game_keywords_to_add.append((game.id, keyword.id))
+
+                except Exception as e:
+                    self.stats['errors'] += 1
+                    if self.verbose:
+                        self.stderr.write(f"\n❌ Ошибка при анализе игры {game.id} ({game.name}): {e}")
+
+                if pbar:
+                    pbar.update(1)
+                    # Обновляем статистику существующих ключевых слов (уникальные)
+                    self.stats['existing_keywords_found'] = len(unique_existing_keywords)
+                    # Обновляем статистику в постфиксе прогресс-бара
+                    pbar.set_postfix_str(format_stats(self.stats))
+
+            # Пакетное добавление связей many-to-many
+            if all_game_keywords_to_add and not self.dry_run:
+                try:
+                    self._bulk_add_game_keywords(all_game_keywords_to_add)
+                except Exception as e:
+                    self.stats['errors'] += 1
+                    if self.verbose:
+                        self.stderr.write(f"❌ Ошибка при пакетном добавлении связей: {e}")
+
+            # Обновляем прогресс в stats
+            self.stats['games_processed'] = min(i + self.batch_size, games_to_process)
+
+        if pbar:
+            pbar.close()
+
+        # Финальное обновление статистики существующих ключевых слов
+        self.stats['existing_keywords_found'] = len(unique_existing_keywords)
+
+    def _print_final_stats(self):
+        """Выводит итоговую статистику"""
+        elapsed = 0
+        if self.stats['start_time'] and self.stats['end_time']:
+            elapsed = self.stats['end_time'] - self.stats['start_time']
+
+        self.stdout.write("\n" + "=" * 70)
+        self.stdout.write("📊 ИТОГОВАЯ СТАТИСТИКА")
+        self.stdout.write("=" * 70)
+        self.stdout.write(f"🔄 Обработано игр: {self.stats['games_processed']}")
+        self.stdout.write(f"📝 Игр с текстом: {self.stats['games_with_text']}")
+        self.stdout.write(f"🎯 Игр с новыми ключевыми словами: {self.stats['games_with_new_keywords']}")
+        self.stdout.write(f"⏭️ Пропущено (нет текста): {self.stats['games_skipped_no_text']}")
+        self.stdout.write(f"⏭️ Пропущено (короткий текст): {self.stats['games_skipped_short_text']}")
+        self.stdout.write(f"🔑 Уникальных ключевых слов найдено: {len(self.found_words_global)}")
+        self.stdout.write(f"✨ Новых уникальных ключевых слов создано: {self.stats['new_keywords_created']}")
+        self.stdout.write(f"📚 Уникальных существующих ключевых слов найдено: {self.stats['existing_keywords_found']}")
+        self.stdout.write(f"⚪ Уникальных слов не из WordNet (пропущено): {self.stats['words_not_in_wordnet']}")
+        self.stdout.write(f"⏹️ Уникальных стоп-слов (пропущено): {self.stats['words_stop_words']}")
+        self.stdout.write(f"❌ Ошибок: {self.stats['errors']}")
+
+        if elapsed > 0:
+            games_per_second = self.stats['games_processed'] / elapsed
+            self.stdout.write(f"⏱️ Время выполнения: {elapsed:.1f} секунд")
+            self.stdout.write(f"⚡ Скорость: {games_per_second:.1f} игр/сек")
+
+        if self.dry_run:
+            self.stdout.write(self.style.WARNING("\n🔧 РЕЖИМ ПРОСМОТРА - изменения не сохранены в БД"))
+        else:
+            self.stdout.write(f"\n✅ Изменения сохранены в БД и в файл: {self.output_path}")
+
+        self.stdout.write("=" * 70)
+
+    def _analyze_single_game_with_cache(self, game: Game, existing_game_keywords: Set[str]) -> tuple:
+        """
+        Анализирует одну игру и возвращает:
+        - список ключевых слов для добавления
+        - множество уникальных существующих ключевых слов, найденных в этой игре
+        """
+        # Получаем текст для анализа
+        text = self.text_preparer.prepare_text(game)
+
+        if not text:
+            self.stats['games_skipped_no_text'] += 1
+            if self.verbose:
+                self.stdout.write(f"  ⏭️ {game.name}: нет текста")
+            return [], set()
+
+        if len(text) < self.min_text_length:
+            self.stats['games_skipped_short_text'] += 1
+            if self.verbose:
+                self.stdout.write(f"  ⏭️ {game.name}: текст слишком короткий ({len(text)} < {self.min_text_length})")
+            return [], set()
+
+        self.stats['games_with_text'] += 1
+
+        # Быстрое извлечение слов из текста
+        raw_words = self._extract_words_from_text_fast(text)
+
+        if not raw_words:
+            if self.verbose:
+                self.stdout.write(f"  ⚪ {game.name}: нет слов для анализа")
+            return [], set()
+
+        # Пакетная нормализация слов
+        normalized_dict = self._normalize_word_batch(raw_words)
+
+        # Множество для уникальных существующих ключевых слов в этой игре
+        game_unique_existing = set()
+
+        # Фильтруем по длине и уникальности
+        words_to_process = {}
+        for original, normalized in normalized_dict.items():
+            if normalized and len(normalized) >= self.min_word_length:
+                normalized_lower = normalized.lower()
+                # Проверяем, нет ли уже такого слова у игры
+                if normalized_lower not in existing_game_keywords:
+                    words_to_process[original] = normalized
+                else:
+                    # Это существующее ключевое слово игры - добавляем в статистику
+                    if normalized_lower in self.keyword_cache:
+                        game_unique_existing.add(normalized_lower)
+
+        if not words_to_process and not game_unique_existing:
+            if self.verbose:
+                self.stdout.write(f"  ⚪ {game.name}: нет новых слов для анализа")
+            return [], game_unique_existing
+
+        # Пакетное получение/создание ключевых слов
+        keyword_results = self._get_or_create_keywords_batch(words_to_process, game_unique_existing)
+
+        # Собираем ключевые слова для добавления
+        keywords_to_add = []
+
+        for normalized, keyword in keyword_results.items():
+            if keyword:
+                keywords_to_add.append(keyword)
+                # В dry-run режиме тоже добавляем в found_words_global (уже добавлено в _get_or_create_keywords_batch)
+                if not self.dry_run:
+                    self.found_words_global.add(normalized)
+
+        if keywords_to_add:
+            self.stats['games_with_new_keywords'] += 1
+
+            if self.verbose:
+                new_count = sum(1 for k in keywords_to_add if k.id in self.created_keywords_global or k.id < 0)
+                existing_count = len(keywords_to_add) - new_count
+                self.stdout.write(f"  ✅ {game.name}: +{len(keywords_to_add)} ключевых слов "
+                                  f"(новых: {new_count}, существовали в БД: {existing_count})")
+        else:
+            if self.verbose and game_unique_existing:
+                self.stdout.write(f"  📚 {game.name}: найдено {len(game_unique_existing)} существующих ключевых слов")
+            elif self.verbose:
+                self.stdout.write(f"  ⚪ {game.name}: нет новых ключевых слов для добавления")
+
+        return keywords_to_add, game_unique_existing
+
+    def _save_results_to_file(self):
+        """Сохраняет результаты анализа в файл (только уникальные ключевые слова)"""
+        try:
+            # Создаём директорию если нужно
+            os.makedirs(os.path.dirname(os.path.abspath(self.output_path)), exist_ok=True)
+
+            with open(self.output_path, 'w', encoding='utf-8') as f:
+                # Заголовок
+                f.write("=" * 80 + "\n")
+                f.write("РЕЗУЛЬТАТЫ АНАЛИЗА КЛЮЧЕВЫХ СЛОВ\n")
+                f.write(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"Режим: {'ПРОСМОТР (dry-run)' if self.dry_run else 'ОБЫЧНЫЙ'}\n")
+                f.write(f"Источник текста: {self._get_source_description()}\n")
+                f.write(f"Минимальная длина текста: {self.min_text_length}\n")
+                f.write(f"Минимальная длина слова: {self.min_word_length}\n")
+                f.write("=" * 80 + "\n\n")
+
+                # Статистика (только уникальные ключевые слова)
+                f.write("📊 СТАТИСТИКА\n")
+                f.write("-" * 40 + "\n")
+                f.write(f"🔄 Обработано игр: {self.stats['games_processed']}\n")
+                f.write(f"📝 Игр с текстом: {self.stats['games_with_text']}\n")
+                f.write(f"✅ Игр с новыми ключевыми словами: {self.stats['games_with_new_keywords']}\n")
+                f.write(f"⏭️ Пропущено (нет текста): {self.stats['games_skipped_no_text']}\n")
+                f.write(f"⏭️ Пропущено (короткий текст): {self.stats['games_skipped_short_text']}\n")
+                f.write(f"🔑 Уникальных ключевых слов найдено: {len(self.found_words_global)}\n")
+                f.write(f"✨ Новых уникальных ключевых слов создано: {self.stats['new_keywords_created']}\n")
+                f.write(f"📚 Уникальных существующих ключевых слов найдено: {self.stats['existing_keywords_found']}\n")
+                f.write(f"⚪ Уникальных слов не из WordNet (пропущено): {self.stats['words_not_in_wordnet']}\n")
+                f.write(f"⏹️ Уникальных стоп-слов (пропущено): {self.stats['words_stop_words']}\n")
+                f.write(f"❌ Ошибок: {self.stats['errors']}\n\n")
+
+                # Стоп-слова (пропущенные)
+                if self.stop_words_found:
+                    f.write("⏹️ СТОП-СЛОВА (ПРОПУЩЕНЫ)\n")
+                    f.write("-" * 40 + "\n")
+                    f.write(f"Всего: {len(self.stop_words_found)}\n")
+                    for word in sorted(self.stop_words_found):
+                        f.write(f"  ⚪ {word}\n")
+                    f.write("\n")
+
+                # Слова не из WordNet (пропущенные)
+                if self.words_not_in_wordnet:
+                    f.write("⚪ СЛОВА НЕ ИЗ WORDNET (ПРОПУЩЕНЫ)\n")
+                    f.write("-" * 40 + "\n")
+                    f.write(f"Всего: {len(self.words_not_in_wordnet)}\n")
+                    for word in sorted(self.words_not_in_wordnet):
+                        f.write(f"  ⚪ {word}\n")
+                    f.write("\n")
+
+                # Все найденные уникальные ключевые слова
+                if self.found_words_global:
+                    f.write("🔑 ВСЕ НАЙДЕННЫЕ УНИКАЛЬНЫЕ КЛЮЧЕВЫЕ СЛОВА\n")
+                    f.write("-" * 40 + "\n")
+                    f.write(f"Всего: {len(self.found_words_global)}\n")
+
+                    # Разделяем на существующие и новые
+                    existing_words = []
+                    new_words = []
+
+                    for word in self.found_words_global:
+                        if word in self.keyword_cache:
+                            existing_words.append(word)
+                        else:
+                            new_words.append(word)
+
+                    # Сортируем оба списка
+                    existing_words.sort()
+                    new_words.sort()
+
+                    # Сначала новые ключевые слова (✨)
+                    if new_words:
+                        f.write("\n  ✨ НОВЫЕ КЛЮЧЕВЫЕ СЛОВА:\n")
+                        for word in new_words:
+                            f.write(f"    ✨ {word}\n")
+
+                    # Потом существующие ключевые слова (📚)
+                    if existing_words:
+                        f.write("\n  📚 СУЩЕСТВУЮЩИЕ КЛЮЧЕВЫЕ СЛОВА:\n")
+                        for word in existing_words:
+                            f.write(f"    📚 {word}\n")
+
+                    f.write("\n")
+
+                # Дополнительная статистика по уникальности
+                f.write("📊 ДЕТАЛЬНАЯ СТАТИСТИКА УНИКАЛЬНОСТИ\n")
+                f.write("-" * 40 + "\n")
+                f.write(f"✨ Новые уникальные ключевые слова: {len(new_words) if 'new_words' in locals() else 0}\n")
+                f.write(
+                    f"📚 Существующие уникальные ключевые слова: {len(existing_words) if 'existing_words' in locals() else 0}\n")
+                f.write(f"⚪ Уникальные слова не из WordNet: {len(self.words_not_in_wordnet)}\n")
+                f.write(f"⏹️ Уникальные стоп-слова: {len(self.stop_words_found)}\n")
+                f.write(
+                    f"🔑 Всего уникальных слов обработано: {len(self.found_words_global) + len(self.words_not_in_wordnet) + len(self.stop_words_found)}\n\n")
+
+                f.write("=" * 80 + "\n")
+
+            if self.verbose:
+                self.stdout.write(self.style.SUCCESS(f"\n✅ Файл успешно сохранён: {self.output_path}"))
+
+        except Exception as e:
+            self.stderr.write(self.style.ERROR(f"\n❌ Ошибка при сохранении файла: {e}"))
+            if self.verbose:
+                import traceback
+                traceback.print_exc()
 
     def _get_stop_words(self) -> Set[str]:
         """
@@ -215,6 +691,7 @@ class Command(BaseCommand):
 
     def _create_text_preparer(self):
         """Создаёт объект TextPreparer с нашими настройками"""
+
         # Создаём класс-обёртку с нужными атрибутами
         class CommandWrapper:
             def __init__(self, cmd):
@@ -256,7 +733,7 @@ class Command(BaseCommand):
         self.game_name = options.get('game_name')
         self.limit = options.get('limit')
         self.offset = options.get('offset', 0)
-        self.batch_size = options.get('batch_size', 100)
+        self.batch_size = options.get('batch_size', 10000)
         self.min_text_length = options.get('min_text_length', 50)
         self.min_word_length = options.get('min_word_length', 3)
         self.verbose = options.get('verbose', False)
@@ -400,49 +877,130 @@ class Command(BaseCommand):
         # Все игры с сортировкой по ID
         return Game.objects.all().order_by('id')
 
-    def _analyze_games(self, games_queryset, total_games):
-        """Анализирует игры и добавляет ключевые слова"""
-        # Применяем offset и limit
-        if self.offset:
-            games_queryset = games_queryset[self.offset:]
-        if self.limit:
-            games_queryset = games_queryset[:self.limit]
+    def _bulk_add_game_keywords(self, game_keyword_pairs: List[tuple]):
+        """
+        Пакетное добавление связей many-to-many между играми и ключевыми словами.
+        Использует сырой SQL для максимальной производительности.
+        """
+        from django.db import connection
 
-        games_list = list(games_queryset)
-        games_to_process = len(games_list)
+        if not game_keyword_pairs:
+            return
 
-        if self.verbose:
-            self.stdout.write(f"\n🔍 Начинаем анализ {games_to_process} игр...")
-            if not self.no_progress:
-                self.stdout.write("")
+        # Группируем по game_id для обновления кэшей
+        game_to_keywords = defaultdict(list)
+        for game_id, keyword_id in game_keyword_pairs:
+            game_to_keywords[game_id].append(keyword_id)
 
-        # Создаём прогресс-бар если нужно
-        if not self.no_progress and games_to_process > 1:
-            from tqdm import tqdm
-            pbar = tqdm(total=games_to_process, desc="Анализ игр", unit="game")
+        # Используем сырой SQL для массовой вставки (гораздо быстрее чем add())
+        with connection.cursor() as cursor:
+            # PostgreSQL синтаксис
+            values = []
+            for game_id, keyword_id in game_keyword_pairs:
+                values.append(f"({game_id}, {keyword_id})")
+
+            # Вставляем пачкой, игнорируя дубликаты
+            sql = f"""
+                INSERT INTO games_game_keywords (game_id, keyword_id)
+                VALUES {', '.join(values)}
+                ON CONFLICT (game_id, keyword_id) DO NOTHING
+            """
+            cursor.execute(sql)
+
+        # Обновляем только кэши игр, поле count у Keyword не обновляем
+        for game_id, keyword_ids in game_to_keywords.items():
+            try:
+                game = Game.objects.get(id=game_id)
+                game.update_cached_counts()
+            except Game.DoesNotExist:
+                pass
+
+    def _extract_words_from_text_fast(self, text: str) -> List[str]:
+        """
+        Быстрое извлечение слов из текста с использованием скомпилированного regex.
+        """
+        # Используем скомпилированное регулярное выражение
+        words = self.word_regex.findall(text.lower())
+
+        # Используем dict.fromkeys для быстрого удаления дубликатов с сохранением порядка
+        return list(dict.fromkeys(words))
+
+    def _normalize_word_batch(self, words: List[str]) -> Dict[str, str]:
+        """
+        Пакетная нормализация слов через WordNetAPI с максимальным кэшированием.
+        Возвращает словарь {исходное_слово: нормализованное_слово}
+        """
+        if not self.wordnet_api or not self.wordnet_api.is_available():
+            return {word: word.lower() for word in words}
+
+        result = {}
+        words_to_process = []
+
+        # Сначала проверяем кэш
+        for word in words:
+            if word in self.wordnet_cache:
+                result[word] = self.wordnet_cache[word]
+            else:
+                words_to_process.append(word)
+
+        # Пакетная обработка через WordNet (если поддерживается)
+        if words_to_process and hasattr(self.wordnet_api, 'get_best_base_form_batch'):
+            # Если есть пакетный метод, используем его
+            normalized_batch = self.wordnet_api.get_best_base_form_batch(words_to_process)
+            for word, normalized in zip(words_to_process, normalized_batch):
+                self.wordnet_cache[word] = normalized
+                result[word] = normalized
         else:
-            pbar = None
+            # По одному с кэшированием
+            for word in words_to_process:
+                normalized = self.wordnet_api.get_best_base_form(word)
+                self.wordnet_cache[word] = normalized
+                result[word] = normalized
 
-        # Обрабатываем игры батчами для оптимизации
-        for i in range(0, games_to_process, self.batch_size):
-            batch = games_list[i:i + self.batch_size]
+        return result
 
-            for game in batch:
-                try:
-                    self._analyze_single_game(game)
-                except Exception as e:
-                    self.stats['errors'] += 1
-                    if self.verbose:
-                        self.stderr.write(f"\n❌ Ошибка при анализе игры {game.id} ({game.name}): {e}")
+    def _check_word_in_wordnet_batch(self, words: List[str]) -> Dict[str, bool]:
+        """
+        Пакетная проверка наличия слов в WordNet с максимальным кэшированием.
+        Возвращает словарь {слово: есть_в_wordnet}
+        """
+        if not self.wordnet_api or not self.wordnet_api.is_available():
+            return {word: True for word in words}
 
-                if pbar:
-                    pbar.update(1)
+        result = {}
+        words_to_process = []
 
-            # Обновляем прогресс в stats
-            self.stats['games_processed'] = min(i + self.batch_size, games_to_process)
+        # Проверяем кэш
+        for word in words:
+            cache_key = f"wordnet_exists_{word}"
+            if cache_key in self.wordnet_cache:
+                result[word] = self.wordnet_cache[cache_key]
+            else:
+                words_to_process.append(word)
 
-        if pbar:
-            pbar.close()
+        if not words_to_process:
+            return result
+
+        # Пакетная проверка
+        for word in words_to_process:
+            cache_key = f"wordnet_exists_{word}"
+            # Проверяем наличие synsets для разных частей речи
+            has_verb = len(self.wordnet_api.wordnet.synsets(word, pos='v')) > 0
+            has_noun = len(self.wordnet_api.wordnet.synsets(word, pos='n')) > 0
+            has_adj = len(self.wordnet_api.wordnet.synsets(word, pos='a')) > 0
+            has_adv = len(self.wordnet_api.wordnet.synsets(word, pos='r')) > 0
+
+            exists = has_verb or has_noun or has_adj or has_adv
+            self.wordnet_cache[cache_key] = exists
+            result[word] = exists
+
+        return result
+
+    def _analyze_single_game(self, game: Game):
+        """Анализирует одну игру (обёртка для совместимости)"""
+        # Получаем существующие ключевые слова игры
+        existing_game_keywords = set(kw.name.lower() for kw in game.keywords.all())
+        return self._analyze_single_game_with_cache(game, existing_game_keywords)
 
     def _extract_words_from_text(self, text: str) -> List[str]:
         """
@@ -524,7 +1082,6 @@ class Command(BaseCommand):
         try:
             with transaction.atomic():
                 # Генерируем временный igdb_id (отрицательный, чтобы не конфликтовать с реальными)
-                from django.db import models
                 min_igdb = Keyword.objects.filter(igdb_id__lt=0).aggregate(models.Min('igdb_id'))['igdb_id__min']
                 new_igdb_id = (min_igdb or 0) - 1
 
@@ -559,233 +1116,3 @@ class Command(BaseCommand):
             if self.verbose:
                 self.stderr.write(f"      ❌ Ошибка при создании ключевого слова '{normalized}': {e}")
             return None
-
-    def _analyze_single_game(self, game: Game):
-        """Анализирует одну игру и добавляет найденные ключевые слова"""
-        # Получаем текст для анализа
-        text = self.text_preparer.prepare_text(game)
-
-        if not text:
-            self.stats['games_skipped_no_text'] += 1
-            if self.verbose:
-                self.stdout.write(f"  ⏭️ {game.name}: нет текста")
-            return
-
-        if len(text) < self.min_text_length:
-            self.stats['games_skipped_short_text'] += 1
-            if self.verbose:
-                self.stdout.write(f"  ⏭️ {game.name}: текст слишком короткий ({len(text)} < {self.min_text_length})")
-            return
-
-        self.stats['games_with_text'] += 1
-
-        # Извлекаем слова из текста
-        raw_words = self._extract_words_from_text(text)
-
-        if not raw_words:
-            if self.verbose:
-                self.stdout.write(f"  ⚪ {game.name}: нет слов для анализа")
-            return
-
-        # Нормализуем слова и собираем уникальные
-        normalized_words = {}
-        for word in raw_words:
-            normalized = self._normalize_word(word)
-            if normalized and len(normalized) >= self.min_word_length:
-                normalized_words[normalized] = word
-
-        if not normalized_words:
-            if self.verbose:
-                self.stdout.write(f"  ⚪ {game.name}: нет слов после нормализации")
-            return
-
-        self.stats['total_words_found'] += len(normalized_words)
-
-        # Получаем существующие ключевые слова игры
-        existing_game_keywords = set()
-        for kw in game.keywords.all():
-            existing_game_keywords.add(kw.name.lower())
-
-        # Для каждого нормализованного слова
-        keywords_to_add = []
-        game_keywords_info = []
-
-        for normalized, original in normalized_words.items():
-            # Пропускаем если слово уже есть у игры
-            if normalized.lower() in existing_game_keywords:
-                continue
-
-            # Получаем или создаём ключевое слово
-            keyword = self._get_or_create_keyword(original, normalized)
-            if keyword:
-                keywords_to_add.append(keyword)
-                game_keywords_info.append({
-                    'id': keyword.id,
-                    'name': keyword.name,
-                    'original': original,
-                    'normalized': normalized,
-                    'is_new': keyword.id in self.created_keywords_global or keyword.id < 0
-                })
-                self.found_words_global.add(normalized)
-
-        if keywords_to_add:
-            self.stats['games_with_new_keywords'] += 1
-
-            # Добавляем ключевые слова к игре (если не dry-run)
-            if not self.dry_run:
-                try:
-                    with transaction.atomic():
-                        game.keywords.add(*keywords_to_add)
-                        game.update_cached_counts()
-
-                        # Обновляем счётчики использования для ключевых слов
-                        for kw in keywords_to_add:
-                            if kw.id > 0:  # Только для реальных (не dry-run фиктивных)
-                                kw.update_cached_count()
-                except Exception as e:
-                    self.stats['errors'] += 1
-                    if self.verbose:
-                        self.stderr.write(f"    ❌ Ошибка при добавлении ключевых слов к игре {game.id}: {e}")
-
-            if self.verbose:
-                new_count = sum(1 for k in game_keywords_info if k['is_new'])
-                existing_count = len(game_keywords_info) - new_count
-                self.stdout.write(f"  ✅ {game.name}: +{len(keywords_to_add)} ключевых слов "
-                                  f"(новых: {new_count}, существовали в БД: {existing_count})")
-        else:
-            if self.verbose:
-                self.stdout.write(f"  ⚪ {game.name}: нет новых ключевых слов для добавления")
-
-        # Сохраняем результат для отчёта
-        game_result = {
-            'game_id': game.id,
-            'game_name': game.name,
-            'text_length': len(text),
-            'unique_words_found': len(normalized_words),
-            'keywords_added': len(keywords_to_add),
-            'keywords': game_keywords_info
-        }
-        self.games_results.append(game_result)
-
-    def _print_final_stats(self):
-        """Выводит итоговую статистику"""
-        elapsed = 0
-        if self.stats['start_time'] and self.stats['end_time']:
-            elapsed = self.stats['end_time'] - self.stats['start_time']
-
-        self.stdout.write("\n" + "=" * 70)
-        self.stdout.write("📊 ИТОГОВАЯ СТАТИСТИКА")
-        self.stdout.write("=" * 70)
-        self.stdout.write(f"🔄 Обработано игр: {self.stats['games_processed']}")
-        self.stdout.write(f"📝 Игр с текстом: {self.stats['games_with_text']}")
-        self.stdout.write(f"🎯 Игр с новыми ключевыми словами: {self.stats['games_with_new_keywords']}")
-        self.stdout.write(f"⏭️ Пропущено (нет текста): {self.stats['games_skipped_no_text']}")
-        self.stdout.write(f"⏭️ Пропущено (короткий текст): {self.stats['games_skipped_short_text']}")
-        self.stdout.write(f"📊 Всего уникальных слов найдено в текстах: {self.stats['total_words_found']}")
-        self.stdout.write(f"🔑 Уникальных нормализованных слов: {len(self.found_words_global)}")
-        self.stdout.write(f"✨ Новых ключевых слов создано: {self.stats['new_keywords_created']}")
-        self.stdout.write(f"📚 Существующих ключевых слов найдено: {self.stats['existing_keywords_found']}")
-        self.stdout.write(f"⚪ Слов не из WordNet (пропущено): {self.stats['words_not_in_wordnet']}")
-        self.stdout.write(f"⏹️ Стоп-слов (пропущено): {self.stats['words_stop_words']}")
-        self.stdout.write(f"❌ Ошибок: {self.stats['errors']}")
-
-        if elapsed > 0:
-            games_per_second = self.stats['games_processed'] / elapsed
-            self.stdout.write(f"⏱️ Время выполнения: {elapsed:.1f} секунд")
-            self.stdout.write(f"⚡ Скорость: {games_per_second:.1f} игр/сек")
-
-        if self.dry_run:
-            self.stdout.write(self.style.WARNING("\n🔧 РЕЖИМ ПРОСМОТРА - изменения не сохранены в БД"))
-        else:
-            self.stdout.write(f"\n✅ Изменения сохранены в БД и в файл: {self.output_path}")
-
-        self.stdout.write("=" * 70)
-
-    def _save_results_to_file(self):
-        """Сохраняет результаты анализа в файл"""
-        try:
-            # Создаём директорию если нужно
-            os.makedirs(os.path.dirname(os.path.abspath(self.output_path)), exist_ok=True)
-
-            with open(self.output_path, 'w', encoding='utf-8') as f:
-                # Заголовок
-                f.write("=" * 80 + "\n")
-                f.write("РЕЗУЛЬТАТЫ АНАЛИЗА КЛЮЧЕВЫХ СЛОВ\n")
-                f.write(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"Режим: {'ПРОСМОТР (dry-run)' if self.dry_run else 'ОБЫЧНЫЙ'}\n")
-                f.write(f"Источник текста: {self._get_source_description()}\n")
-                f.write(f"Минимальная длина текста: {self.min_text_length}\n")
-                f.write(f"Минимальная длина слова: {self.min_word_length}\n")
-                f.write("=" * 80 + "\n\n")
-
-                # Статистика
-                f.write("📊 СТАТИСТИКА\n")
-                f.write("-" * 40 + "\n")
-                f.write(f"Обработано игр: {self.stats['games_processed']}\n")
-                f.write(f"Игр с текстом: {self.stats['games_with_text']}\n")
-                f.write(f"Игр с новыми ключевыми словами: {self.stats['games_with_new_keywords']}\n")
-                f.write(f"Всего уникальных слов найдено: {self.stats['total_words_found']}\n")
-                f.write(f"Уникальных нормализованных слов: {len(self.found_words_global)}\n")
-                f.write(f"Новых ключевых слов создано: {self.stats['new_keywords_created']}\n")
-                f.write(f"Существующих ключевых слов найдено: {self.stats['existing_keywords_found']}\n")
-                f.write(f"Слов не из WordNet (пропущено): {self.stats['words_not_in_wordnet']}\n")
-                f.write(f"Стоп-слов (пропущено): {self.stats['words_stop_words']}\n")
-                f.write(f"Ошибок: {self.stats['errors']}\n\n")
-
-                # Стоп-слова (пропущенные)
-                if self.stop_words_found:
-                    f.write("⏹️ СТОП-СЛОВА (ПРОПУЩЕНЫ)\n")
-                    f.write("-" * 40 + "\n")
-                    for word in sorted(self.stop_words_found):
-                        f.write(f"  • {word}\n")
-                    f.write("\n")
-
-                # Слова не из WordNet (пропущенные)
-                if self.words_not_in_wordnet:
-                    f.write("⚪ СЛОВА НЕ ИЗ WORDNET (ПРОПУЩЕНЫ)\n")
-                    f.write("-" * 40 + "\n")
-                    for word in sorted(self.words_not_in_wordnet):
-                        f.write(f"  • {word}\n")
-                    f.write("\n")
-
-                # Все найденные уникальные слова
-                if self.found_words_global:
-                    f.write("🔑 ВСЕ НАЙДЕННЫЕ УНИКАЛЬНЫЕ СЛОВА\n")
-                    f.write("-" * 40 + "\n")
-                    for word in sorted(self.found_words_global):
-                        # Проверяем, было ли слово создано как новое или уже существовало
-                        exists = Keyword.objects.filter(name__iexact=word).exists()
-                        status = "✅" if exists else "⚪"
-                        f.write(f"  {status} {word}\n")
-                    f.write("\n")
-
-                # Результаты по играм
-                if self.games_results:
-                    f.write("🎮 РЕЗУЛЬТАТЫ ПО ИГРАМ\n")
-                    f.write("-" * 40 + "\n")
-
-                    for game_result in sorted(self.games_results, key=lambda x: x['game_name']):
-                        f.write(f"\n📌 {game_result['game_name']} (ID: {game_result['game_id']})\n")
-                        f.write(f"   Длина текста: {game_result['text_length']} символов\n")
-                        f.write(f"   Уникальных слов найдено: {game_result['unique_words_found']}\n")
-                        f.write(f"   Ключевых слов добавлено: {game_result['keywords_added']}\n")
-
-                        if game_result['keywords']:
-                            f.write("   Ключевые слова:\n")
-                            for kw in sorted(game_result['keywords'], key=lambda x: x['name']):
-                                status = "✅" if kw['is_new'] else "📚"
-                                f.write(f"      {status} {kw['name']} (ID: {kw['id']}) "
-                                        f"[{kw['original']} → {kw['normalized']}]\n")
-
-                        f.write("\n")
-
-                f.write("=" * 80 + "\n")
-
-            if self.verbose:
-                self.stdout.write(self.style.SUCCESS(f"\n✅ Файл успешно сохранён: {self.output_path}"))
-
-        except Exception as e:
-            self.stderr.write(self.style.ERROR(f"\n❌ Ошибка при сохранении файла: {e}"))
-            if self.verbose:
-                import traceback
-                traceback.print_exc()
