@@ -273,33 +273,15 @@ class GameSimilarity:
     def _get_candidate_ids_new(self, source_data, single_player_info, min_similarity, search_filters=None):
         """
         ИСПРАВЛЕННЫЙ поиск кандидатов через ArrayField + GIN - БЕЗ ЛИМИТОВ.
-        Теперь поддерживает поисковые фильтры (search_filters) для предварительной фильтрации.
-
-        Args:
-            source_data: Данные исходной игры
-            single_player_info: Информация о single player режиме
-            min_similarity: Минимальный порог схожести
-            search_filters: Словарь с поисковыми фильтрами
-                {
-                    'genres': [id1, id2],
-                    'keywords': [id1, id2],
-                    'platforms': [id1, id2],
-                    'themes': [id1, id2],
-                    'perspectives': [id1, id2],
-                    'game_modes': [id1, id2],
-                    'game_types': [id1, id2],
-                    'engines': [id1, id2],
-                    'release_year_start': year,
-                    'release_year_end': year
-                }
+        Теперь поддерживает поисковые фильтры (search_filters) с OR/AND логикой.
         """
         import time
         from django.utils import timezone
-        from .models import Game
         from django.db.models import Q
-        from django.contrib.postgres.fields import ArrayField
+        from games.views_parts.base_views import _apply_search_filters
 
         print("БЫСТРЫЙ поиск кандидатов через ArrayField + GIN (БЕЗ ЛИМИТОВ)...")
+        print(f"DEBUG: search_filters received = {search_filters}")
         start_time = time.time()
 
         current_time = timezone.now()
@@ -320,119 +302,92 @@ class GameSimilarity:
             f"Критерии: жанры={len(source_genre_ids)}, темы={len(source_theme_ids)}, движки={len(source_engine_ids)}, "
             f"мин. общих жанров={dynamic_min_common_genres}")
 
-        # Базовый QuerySet: только вышедшие игры
+        from games.models import Game
+
         base_qs = Game.objects.filter(
             first_release_date__isnull=False,
             first_release_date__lte=current_time
         )
 
-        # === ПРИМЕНЯЕМ ПОИСКОВЫЕ ФИЛЬТРЫ (AND логика) ===
+        print(f"DEBUG: Всего вышедших игр: {base_qs.count()}")
+
+        # === ПРИМЕНЯЕМ ПОИСКОВЫЕ ФИЛЬТРЫ С OR/AND ЛОГИКОЙ ===
         if search_filters:
-            print("Применяем поисковые фильтры к базовому запросу...")
+            print("Применяем поисковые фильтры...")
+            print(f"DEBUG: search_filters = {search_filters}")
 
-            search_filter_condition = Q()
-            has_search_filters = False
-
-            # Фильтр по платформам (OR логика - любая из выбранных)
-            if search_filters.get('platforms'):
-                search_filter_condition &= Q(platforms__id__in=search_filters['platforms'])
-                has_search_filters = True
-                print(f"  - Фильтр по платформам: {search_filters['platforms']}")
-
-            # Фильтр по режимам игры (OR логика)
-            if search_filters.get('game_modes'):
-                search_filter_condition &= Q(game_modes__id__in=search_filters['game_modes'])
-                has_search_filters = True
-                print(f"  - Фильтр по режимам игры: {search_filters['game_modes']}")
-
-            # Фильтр по жанрам (AND логика - должны быть все)
-            if search_filters.get('genres'):
-                for genre_id in search_filters['genres']:
-                    search_filter_condition &= Q(genres__id=genre_id)
-                has_search_filters = True
-                print(f"  - Фильтр по жанрам: {search_filters['genres']}")
-
-            # Фильтр по ключевым словам (AND логика)
-            if search_filters.get('keywords'):
-                for keyword_id in search_filters['keywords']:
-                    search_filter_condition &= Q(keywords__id=keyword_id)
-                has_search_filters = True
-                print(f"  - Фильтр по ключевым словам: {search_filters['keywords']}")
-
-            # Фильтр по темам (AND логика)
-            if search_filters.get('themes'):
-                for theme_id in search_filters['themes']:
-                    search_filter_condition &= Q(themes__id=theme_id)
-                has_search_filters = True
-                print(f"  - Фильтр по темам: {search_filters['themes']}")
-
-            # Фильтр по перспективам (AND логика)
-            if search_filters.get('perspectives'):
-                for perspective_id in search_filters['perspectives']:
-                    search_filter_condition &= Q(player_perspectives__id=perspective_id)
-                has_search_filters = True
-                print(f"  - Фильтр по перспективам: {search_filters['perspectives']}")
-
-            # Фильтр по типам игр
-            if search_filters.get('game_types'):
-                search_filter_condition &= Q(game_type__in=search_filters['game_types'])
-                has_search_filters = True
-                print(f"  - Фильтр по типам игр: {search_filters['game_types']}")
-
-            # Фильтр по движкам (AND логика)
+            # ПРОВЕРКА: сколько игр с выбранным движком вообще есть
             if search_filters.get('engines'):
-                for engine_id in search_filters['engines']:
-                    search_filter_condition &= Q(engines__id=engine_id)
-                has_search_filters = True
-                print(f"  - Фильтр по движкам: {search_filters['engines']}")
+                engine_ids = search_filters['engines']
+                games_with_engine = Game.objects.filter(engines__id__in=engine_ids)
+                print(f"DEBUG: Всего игр с выбранными движками {engine_ids}: {games_with_engine.count()}")
+                if games_with_engine.count() > 0:
+                    sample_engine = list(games_with_engine.values_list('id', flat=True)[:10])
+                    print(f"DEBUG: Примеры ID игр с выбранными движками: {sample_engine}")
 
-            # Фильтр по диапазону дат
-            year_start = search_filters.get('release_year_start')
-            year_end = search_filters.get('release_year_end')
+            filtered_qs = _apply_search_filters(base_qs, search_filters)
+            filtered_count = filtered_qs.count()
+            print(f"После применения всех поисковых фильтров: {filtered_count} игр")
 
-            if year_start or year_end:
-                date_filter = Q()
-                if year_start:
-                    start_date = f"{year_start}-01-01"
-                    date_filter &= Q(first_release_date__gte=start_date)
-                if year_end:
-                    end_date = f"{year_end}-12-31"
-                    date_filter &= Q(first_release_date__lte=end_date)
-                search_filter_condition &= date_filter
-                has_search_filters = True
-                print(f"  - Фильтр по датам: {year_start}-{year_end}")
-
-            if has_search_filters:
-                base_qs = base_qs.filter(search_filter_condition).distinct()
-                print(f"После применения поисковых фильтров: {base_qs.count()} игр")
+            # ПРОВЕРКА: сколько из прошедших фильтры имеют выбранный движок
+            if search_filters.get('engines'):
+                engine_ids = search_filters['engines']
+                filtered_with_engine = filtered_qs.filter(engines__id__in=engine_ids)
+                print(f"DEBUG: Из прошедших фильтры, с выбранным движком: {filtered_with_engine.count()}")
+                if filtered_with_engine.count() > 0:
+                    sample_filtered_with_engine = list(filtered_with_engine.values_list('id', flat=True)[:10])
+                    print(f"DEBUG: Примеры ID с движком после всех фильтров: {sample_filtered_with_engine}")
+        else:
+            print("DEBUG: Нет поисковых фильтров")
+            filtered_qs = base_qs
 
         candidate_ids = []
 
-        # ВСЕГДА добавляем исходную игру в кандидаты
+        # Исходная игра
         if source_game_id and source_game_id > 0:
-            # Проверяем, проходит ли исходная игра поисковые фильтры
             if search_filters:
                 source_game_obj = Game.objects.filter(id=source_game_id).first()
                 if source_game_obj and self._game_passes_search_filters(source_game_obj, search_filters):
                     candidate_ids.append(source_game_id)
-                    print(f"Добавлена исходная игра ID {source_game_id} в кандидаты (прошла фильтры)")
+                    print(f"Добавлена исходная игра ID {source_game_id} (прошла фильтры)")
                 else:
                     print(f"Исходная игра ID {source_game_id} НЕ прошла поисковые фильтры")
             else:
                 candidate_ids.append(source_game_id)
-                print(f"Добавлена исходная игра ID {source_game_id} в кандидаты")
 
         # ===== СЛУЧАЙ 1: Есть жанры =====
         if source_genre_ids:
-            # 1. Сначала находим ВСЕ игры с любым общим жанром через GIN индекс (БЕЗ ЛИМИТА)
-            games_with_overlap = base_qs.filter(
+            print(f"\nDEBUG: Ищем игры с общими жанрами")
+
+            # Ищем игры с общими жанрами ТОЛЬКО среди прошедших поисковые фильтры
+            games_with_overlap = filtered_qs.filter(
                 genre_ids__overlap=source_genre_ids
             ).exclude(id=source_game_id).distinct()
 
-            # 2. Загружаем их genre_ids в память (только ID и genre_ids)
+            overlap_count = games_with_overlap.count()
+            print(f"DEBUG: Игр с общими жанрами (после поисковых фильтров): {overlap_count}")
+
+            if overlap_count > 0:
+                sample_overlap = list(games_with_overlap.values_list('id', flat=True)[:10])
+                print(f"DEBUG: Примеры ID с общими жанрами: {sample_overlap}")
+
+                # ПРОВЕРКА: есть ли среди них игры с выбранным движком
+                if search_filters and search_filters.get('engines'):
+                    engine_ids = search_filters['engines']
+                    overlap_with_engine = games_with_overlap.filter(engines__id__in=engine_ids)
+                    print(f"DEBUG: Из них с выбранным движком: {overlap_with_engine.count()}")
+                    if overlap_with_engine.count() > 0:
+                        sample_overlap_engine = list(overlap_with_engine.values_list('id', flat=True)[:10])
+                        print(f"DEBUG: Примеры ID с общими жанрами И выбранным движком: {sample_overlap_engine}")
+
+            if overlap_count == 0:
+                print("DEBUG: НЕТ игр с общими жанрами, прошедших поисковые фильтры")
+                return candidate_ids
+
+            # Загружаем genre_ids
             candidates_data = list(games_with_overlap.values('id', 'genre_ids'))
 
-            # 3. Фильтруем по количеству общих жанров в Python
+            # Фильтруем по количеству общих жанров
             source_set = set(source_genre_ids)
             filtered_ids = []
 
@@ -442,18 +397,15 @@ class GameSimilarity:
                 if common_count >= dynamic_min_common_genres:
                     filtered_ids.append(item['id'])
 
-            # 4. Сортируем по популярности (rating_count) - БЕЗ ЛИМИТА
+            print(f"DEBUG: После фильтрации по min_common_genres={dynamic_min_common_genres}: {len(filtered_ids)} игр")
+
             if filtered_ids:
                 popular_games = Game.objects.filter(
                     id__in=filtered_ids
                 ).order_by('-rating_count').values_list('id', flat=True)
                 candidate_ids.extend(list(popular_games))
 
-            print(
-                f"Найдено кандидатов по жанрам: {len(candidate_ids) - (1 if source_game_id and source_game_id in candidate_ids else 0)} "
-                f"(всего с пересечением: {len(candidates_data)})")
-
-        # ===== СЛУЧАЙ 2: Нет жанров, но есть темы или движки =====
+        # ===== СЛУЧАЙ 2: Нет жанров =====
         elif (source_theme_ids or source_engine_ids) and not source_genre_ids:
             filter_condition = Q()
             if source_theme_ids:
@@ -461,18 +413,12 @@ class GameSimilarity:
             if source_engine_ids:
                 filter_condition |= Q(engine_ids__overlap=source_engine_ids)
 
-            candidates = base_qs.filter(filter_condition).exclude(
-                id=source_game_id
-            ).distinct()
-
-            other_candidates = list(
-                candidates.order_by('-rating_count')
-                .values_list('id', flat=True)
-            )
+            candidates = filtered_qs.filter(filter_condition).exclude(id=source_game_id).distinct()
+            other_candidates = list(candidates.order_by('-rating_count').values_list('id', flat=True))
             candidate_ids.extend(other_candidates)
             print(f"Найдено кандидатов по темам/движкам: {len(other_candidates)}")
 
-        # ===== СЛУЧАЙ 3: Нет жанров/тем/движков, но есть другие критерии =====
+        # ===== СЛУЧАЙ 3: Другие критерии =====
         elif source_keyword_ids or source_perspective_ids or source_game_mode_ids:
             filter_condition = Q()
             if source_keyword_ids:
@@ -482,31 +428,22 @@ class GameSimilarity:
             if source_game_mode_ids:
                 filter_condition |= Q(game_mode_ids__overlap=source_game_mode_ids)
 
-            candidates = base_qs.filter(filter_condition).exclude(
-                id=source_game_id
-            ).distinct()
-
+            candidates = filtered_qs.filter(filter_condition).exclude(id=source_game_id).distinct()
             if has_single_player and single_player_mode_id:
                 candidates = candidates.filter(game_mode_ids__contains=[single_player_mode_id])
-
-            other_candidates = list(
-                candidates.order_by('-rating_count')
-                .values_list('id', flat=True)
-            )
+            other_candidates = list(candidates.order_by('-rating_count').values_list('id', flat=True))
             candidate_ids.extend(other_candidates)
-            print(f"Найдено кандидатов по др. критериям: {len(other_candidates)}")
 
-        # ===== СЛУЧАЙ 4: Нет критериев вообще =====
+        # ===== СЛУЧАЙ 4: Нет критериев =====
         else:
             other_candidates = list(
-                base_qs.exclude(id=source_game_id)
+                filtered_qs.exclude(id=source_game_id)
                 .order_by('-rating_count')
                 .values_list('id', flat=True)
             )
             candidate_ids.extend(other_candidates)
-            print(f"Найдено кандидатов (популярные игры): {len(other_candidates)}")
 
-        # Убираем дубликаты, сохраняя порядок
+        # Убираем дубликаты
         seen = set()
         unique_candidates = []
         for game_id in candidate_ids:
@@ -514,76 +451,72 @@ class GameSimilarity:
                 seen.add(game_id)
                 unique_candidates.append(game_id)
 
-        print(f"Всего найдено {len(unique_candidates)} уникальных кандидатов за {time.time() - start_time:.2f} сек")
+        print(f"\nИТОГО найдено {len(unique_candidates)} уникальных кандидатов за {time.time() - start_time:.2f} сек")
+        if unique_candidates:
+            print(f"Первые 10 ID: {unique_candidates[:10]}")
+
         return unique_candidates
 
     def _game_passes_search_filters(self, game, search_filters):
         """
         Проверяет, проходит ли игра поисковые фильтры.
-
-        Args:
-            game: Объект игры
-            search_filters: Словарь с поисковыми фильтрами
-
-        Returns:
-            True если игра проходит все фильтры, иначе False
+        Использует ту же логику: AND между группами, OR внутри группы.
         """
         if not search_filters:
             return True
 
-        # Проверка платформ (OR логика - хотя бы одна)
+        # Проверка каждой группы фильтров
+        # Платформы (OR)
         if search_filters.get('platforms'):
             game_platform_ids = set(game.platforms.values_list('id', flat=True))
             if not (set(search_filters['platforms']) & game_platform_ids):
                 return False
 
-        # Проверка режимов игры (OR логика - хотя бы один)
+        # Игровые типы (OR)
+        if search_filters.get('game_types'):
+            if game.game_type not in search_filters['game_types']:
+                return False
+
+        # Перспективы (OR)
+        if search_filters.get('perspectives'):
+            game_perspective_ids = set(game.player_perspectives.values_list('id', flat=True))
+            if not (set(search_filters['perspectives']) & game_perspective_ids):
+                return False
+
+        # Режимы игры (OR)
         if search_filters.get('game_modes'):
             game_mode_ids = set(game.game_modes.values_list('id', flat=True))
             if not (set(search_filters['game_modes']) & game_mode_ids):
                 return False
 
-        # Проверка жанров (AND логика - все должны быть)
+        # Движки (OR)
+        if search_filters.get('engines'):
+            game_engine_ids = set(game.engines.values_list('id', flat=True))
+            if not (set(search_filters['engines']) & game_engine_ids):
+                return False
+
+        # Жанры (AND)
         if search_filters.get('genres'):
             game_genre_ids = set(game.genres.values_list('id', flat=True))
             for genre_id in search_filters['genres']:
                 if genre_id not in game_genre_ids:
                     return False
 
-        # Проверка ключевых слов (AND логика - все должны быть)
+        # Ключевые слова (AND)
         if search_filters.get('keywords'):
             game_keyword_ids = set(game.keywords.values_list('id', flat=True))
             for keyword_id in search_filters['keywords']:
                 if keyword_id not in game_keyword_ids:
                     return False
 
-        # Проверка тем (AND логика - все должны быть)
+        # Темы (AND)
         if search_filters.get('themes'):
             game_theme_ids = set(game.themes.values_list('id', flat=True))
             for theme_id in search_filters['themes']:
                 if theme_id not in game_theme_ids:
                     return False
 
-        # Проверка перспектив (AND логика - все должны быть)
-        if search_filters.get('perspectives'):
-            game_perspective_ids = set(game.player_perspectives.values_list('id', flat=True))
-            for perspective_id in search_filters['perspectives']:
-                if perspective_id not in game_perspective_ids:
-                    return False
-
-        # Проверка типов игр
-        if search_filters.get('game_types'):
-            if game.game_type not in search_filters['game_types']:
-                return False
-
-        # Проверка движков (AND логика - все должны быть)
-        if search_filters.get('engines'):
-            game_engine_ids = set(game.engines.values_list('id', flat=True))
-            for engine_id in search_filters['engines']:
-                if engine_id not in game_engine_ids:
-                    return False
-
-        # Проверка диапазона дат
+        # Дата (AND)
         year_start = search_filters.get('release_year_start')
         year_end = search_filters.get('release_year_end')
 

@@ -350,7 +350,9 @@ def convert_params_to_lists(params_dict: Dict[str, str]) -> Dict[str, List[int]]
 
 
 def _apply_filters(queryset: models.QuerySet, selected_criteria: Dict[str, List[int]]) -> models.QuerySet:
-    """Apply filters to queryset with OR logic for platforms."""
+    """
+    Apply filters to queryset with OR logic for platforms.
+    """
     # Основной фильтр для всех полей кроме платформ
     main_filters = Q()
     has_main_filters = False
@@ -373,7 +375,7 @@ def _apply_filters(queryset: models.QuerySet, selected_criteria: Dict[str, List[
         ('developers', 'developers__id__in'),
         ('game_modes', 'game_modes__id__in'),
         ('game_types', 'game_type__in'),
-        ('engines', 'engines__id__in'),  # ДОБАВЛЕНО
+        ('engines', 'engines__id__in'),
     ]
 
     for field, model_field in other_fields:
@@ -388,35 +390,125 @@ def _apply_filters(queryset: models.QuerySet, selected_criteria: Dict[str, List[
     year_end = selected_criteria.get('release_year_end')
 
     if year_start or year_end:
-        # Создаем фильтр по дате
         date_filter = Q()
-
         if year_start:
-            # Начало года (1 января year_start)
             start_date = f"{year_start}-01-01"
             date_filter &= Q(first_release_date__gte=start_date)
-
         if year_end:
-            # Конец года (31 декабря year_end)
             end_date = f"{year_end}-12-31"
             date_filter &= Q(first_release_date__lte=end_date)
-
         main_filters &= date_filter
         has_main_filters = True
 
     # Применяем фильтры
     if has_platform_filter and has_main_filters:
-        # Платформы OR + остальные AND
         queryset = queryset.filter(platform_filter & main_filters).distinct()
     elif has_platform_filter:
-        # Только платформы (OR)
         queryset = queryset.filter(platform_filter).distinct()
     elif has_main_filters:
-        # Только остальные фильтры (AND)
         queryset = queryset.filter(main_filters).distinct()
 
     return queryset
 
+
+def _apply_search_filters(queryset: models.QuerySet, search_filters: Dict[str, List[int]]) -> models.QuerySet:
+    """
+    Apply search filters with logic:
+    - BETWEEN different filter groups: AND (must satisfy ALL groups)
+    - WITHIN a single group with multiple values: OR (any of selected)
+
+    Example: platforms OR, engines AND, genres AND
+    Result: (platforms) AND (engines) AND (genres)
+    """
+    # Собираем Q объекты для каждой группы фильтров
+    filter_groups = []
+
+    # ========== ГРУППА: Платформы (OR внутри группы) ==========
+    if search_filters.get('platforms'):
+        platforms_filter = Q(platforms__id__in=search_filters['platforms'])
+        filter_groups.append(platforms_filter)
+        print(f"DEBUG _apply_search_filters: platforms OR filter: {search_filters['platforms']}")
+
+    # ========== ГРУППА: Игровые типы (OR внутри группы) ==========
+    if search_filters.get('game_types'):
+        game_types_filter = Q(game_type__in=search_filters['game_types'])
+        filter_groups.append(game_types_filter)
+        print(f"DEBUG _apply_search_filters: game_types OR filter: {search_filters['game_types']}")
+
+    # ========== ГРУППА: Перспективы (OR внутри группы) ==========
+    if search_filters.get('perspectives'):
+        perspectives_filter = Q(player_perspectives__id__in=search_filters['perspectives'])
+        filter_groups.append(perspectives_filter)
+        print(f"DEBUG _apply_search_filters: perspectives OR filter: {search_filters['perspectives']}")
+
+    # ========== ГРУППА: Режимы игры (OR внутри группы) ==========
+    if search_filters.get('game_modes'):
+        game_modes_filter = Q(game_modes__id__in=search_filters['game_modes'])
+        filter_groups.append(game_modes_filter)
+        print(f"DEBUG _apply_search_filters: game_modes OR filter: {search_filters['game_modes']}")
+
+    # ========== ГРУППА: Движки (OR внутри группы) ==========
+    # ВАЖНО: движки - это тоже OR внутри группы
+    if search_filters.get('engines'):
+        engines_filter = Q(engines__id__in=search_filters['engines'])
+        filter_groups.append(engines_filter)
+        print(f"DEBUG _apply_search_filters: engines OR filter: {search_filters['engines']}")
+
+    # ========== ГРУППА: Жанры (AND внутри группы) ==========
+    # Для жанров нужно, чтобы были ВСЕ выбранные жанры
+    if search_filters.get('genres'):
+        genres_filter = Q()
+        for genre_id in search_filters['genres']:
+            genres_filter &= Q(genres__id=genre_id)
+        filter_groups.append(genres_filter)
+        print(f"DEBUG _apply_search_filters: genres AND filter: {search_filters['genres']}")
+
+    # ========== ГРУППА: Ключевые слова (AND внутри группы) ==========
+    if search_filters.get('keywords'):
+        keywords_filter = Q()
+        for keyword_id in search_filters['keywords']:
+            keywords_filter &= Q(keywords__id=keyword_id)
+        filter_groups.append(keywords_filter)
+        print(f"DEBUG _apply_search_filters: keywords AND filter: {search_filters['keywords']}")
+
+    # ========== ГРУППА: Темы (AND внутри группы) ==========
+    if search_filters.get('themes'):
+        themes_filter = Q()
+        for theme_id in search_filters['themes']:
+            themes_filter &= Q(themes__id=theme_id)
+        filter_groups.append(themes_filter)
+        print(f"DEBUG _apply_search_filters: themes AND filter: {search_filters['themes']}")
+
+    # ========== ГРУППА: Дата (AND) ==========
+    year_start = search_filters.get('release_year_start')
+    year_end = search_filters.get('release_year_end')
+
+    if year_start or year_end:
+        date_filter = Q()
+        if year_start:
+            start_date = f"{year_start}-01-01"
+            date_filter &= Q(first_release_date__gte=start_date)
+        if year_end:
+            end_date = f"{year_end}-12-31"
+            date_filter &= Q(first_release_date__lte=end_date)
+        filter_groups.append(date_filter)
+        print(f"DEBUG _apply_search_filters: date filter: {year_start}-{year_end}")
+
+    # ========== ПРИМЕНЯЕМ ВСЕ ГРУППЫ С ЛОГИКОЙ AND ==========
+    if filter_groups:
+        # Объединяем все группы через AND
+        combined_filter = Q()
+        for group_filter in filter_groups:
+            combined_filter &= group_filter
+
+        queryset = queryset.filter(combined_filter).distinct()
+        print(f"DEBUG _apply_search_filters: applied {len(filter_groups)} filter groups with AND logic")
+    else:
+        print(f"DEBUG _apply_search_filters: no filters to apply")
+
+    print(f"DEBUG _apply_search_filters: final count = {queryset.count()}")
+
+    return queryset
 
 def get_objects_by_ids(model_class, ids: List[int], only_fields: List[str] = None) -> List:
     """Get model objects by their IDs efficiently."""
