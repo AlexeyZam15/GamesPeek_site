@@ -508,6 +508,9 @@ class PatternManager:
             r'\btactical\s+warfare\b',
             r'\ba\s+world\s+of\s+conflict\b',
         ],
+        'Fire Emblem': [
+            r'\bfire\s+emblem\b',
+        ],
     }
 
     PERSPECTIVE_PATTERNS = {
