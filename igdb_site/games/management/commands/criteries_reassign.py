@@ -189,14 +189,6 @@ class Command(BaseCommand):
             if not theme:
                 continue
 
-            # УДАЛЯЕМ ключевые слова, даже если нет связанных игр
-            if not keep_old and not dry_run:
-                # Удаляем ключевое слово из базы данных
-                deleted_count, _ = Keyword.objects.filter(id=keyword.id).delete()
-                if deleted_count > 0:
-                    total_removed_keywords += 1
-                    self.stdout.write(f'Ключ.слово "{keyword.name}" удалено (нет связанных игр)')
-
             # Получаем ID игр с этим ключевым словом
             game_ids = list(Game.objects.filter(keywords=keyword).values_list('id', flat=True))
 
@@ -235,34 +227,26 @@ class Command(BaseCommand):
                         )
                         added_themes += len(new_relations)
 
-                    # Bulk удаление ключевых слов (если не keep-old)
-                    if not keep_old:
-                        deleted_count, _ = Game.keywords.through.objects.filter(
-                            game_id__in=batch_ids,
-                            keyword_id=keyword.id
-                        ).delete()
-                        removed_keywords += deleted_count
+                    # Ключевые слова НЕ УДАЛЯЕМ, даже если keep_old = False
+                    # Удаление убрано по требованию
                 else:
                     # Для dry-run просто считаем
                     added_themes += len(batch_ids)
-                    if not keep_old:
-                        removed_keywords += len(batch_ids)
 
                 # Обновляем прогресс-бар
                 current = min(i + batch_size, total_games)
                 self.print_progress_bar(
                     current, total_games,
                     prefix=f'Обработка "{keyword.name}"',
-                    suffix=f'Добавлено: {added_themes}, Удалено: {removed_keywords}'
+                    suffix=f'Добавлено: {added_themes}'
                 )
 
             print()
             self.stdout.write(self.style.SUCCESS(
-                f'  Добавлено тем: {added_themes}, Удалено ключ.слов: {removed_keywords}'
+                f'  Добавлено тем: {added_themes}, Ключ.слова сохранены'
             ))
 
             total_added_themes += added_themes
-            total_removed_keywords += removed_keywords
 
         return total_added_themes, total_removed_keywords
 
@@ -402,12 +386,13 @@ class Command(BaseCommand):
         return {
             'gothic': 'Gothic',
             'medieval': 'Medieval',
+            'fire emblem': 'Fire Emblem',
         }
 
     def get_theme_to_keyword_mapping(self):
         """Возвращает маппинг тем в ключевые слова (регистронезависимый)"""
         return {
-            'fire emblem': 'Fire Emblem',
+            # 'fire emblem': 'Fire Emblem',  # Удалено - теперь переносится из ключевых слов в темы
         }
 
     def create_genre_with_igdb_id(self, name):
