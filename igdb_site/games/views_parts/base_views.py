@@ -1207,7 +1207,7 @@ def _get_cached_filter_data() -> Dict[str, List]:
             ).filter(developed_game_count__gt=0).only('id', 'name').order_by('name')),
 
             'engines': list(GameEngine.objects.annotate(
-                game_count=Count('games', distinct=True)  # ДОБАВЛЕНО
+                game_count=Count('games', distinct=True)
             ).filter(game_count__gt=0).only('id', 'name').order_by('-game_count', 'name')),
         }
         cache.set('optimized_filter_data_v6', filter_data, 7200)
