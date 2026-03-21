@@ -1557,137 +1557,344 @@ class AnalyzerCommand(BaseCommand):
             self._update_progress_bar()
 
     def _initialize_criteria_tracking(self):
-        """Инициализирует отслеживание проверенных критериев - ОПТИМИЗИРОВАНО"""
+        """Инициализирует отслеживание проверенных критериев - С ПОЛНОЙ ОБРАБОТКОЙ ОШИБОК И ПРОГРЕССОМ"""
+        import sys
+        import time
+
+        # ПРИНУДИТЕЛЬНЫЙ ВЫВОД В stderr СРАЗУ
+        sys.stderr.write("\n=== НАЧАЛО _initialize_criteria_tracking ===\n")
+        sys.stderr.flush()
+
         self.timer_start("Инициализация отслеживания критериев (общее)")
 
         if not self.state_manager:
+            sys.stderr.write("⚠️ state_manager отсутствует\n")
+            sys.stderr.flush()
             self.timer_stop()
             return set(), set()
 
         # ПРИНУДИТЕЛЬНАЯ ОЧИСТКА ПЕРЕД ЗАГРУЗКОЙ
         if self.force_restart:
-            print(f"♻️ ПРИНУДИТЕЛЬНЫЙ ПЕРЕЗАПУСК: очищаем всё состояние", file=sys.stderr)
+            sys.stderr.write(f"♻️ ПРИНУДИТЕЛЬНЫЙ ПЕРЕЗАПУСК: очищаем всё состояние\n")
+            sys.stderr.flush()
+
+            sys.stderr.write("   Вызываем state_manager.reset_state()...\n")
+            sys.stderr.flush()
+
             # Очищаем файлы состояния через state_manager
             self.state_manager.reset_state()
+
+            sys.stderr.write("   state_manager.reset_state() завершен\n")
+            sys.stderr.flush()
+
             # Также очищаем кэш анализа если нужно
             if hasattr(self, 'analysis_cache_manager'):
-                self.analysis_cache_manager.clear()
+                sys.stderr.write("   Очищаем analysis_cache_manager...\n")
+                sys.stderr.flush()
+                try:
+                    self.analysis_cache_manager.clear()
+                    sys.stderr.write("   ✅ analysis_cache_manager очищен\n")
+                    sys.stderr.flush()
+                except Exception as e:
+                    sys.stderr.write(f"   ⚠️ Ошибка при очистке analysis_cache_manager: {e}\n")
+                    sys.stderr.flush()
+                    import traceback
+                    traceback.print_exc(file=sys.stderr)
+                    # Создаем новый экземпляр вместо очистки
+                    from .analysis_cache import AnalysisCache
+                    self.analysis_cache_manager = AnalysisCache()
+                    sys.stderr.write("   ✅ Создан новый analysis_cache_manager\n")
+                    sys.stderr.flush()
+
             # Сбрасываем checked_criteria
             checked_criteria = set()
+
             # Сбрасываем processed_games в state_manager
+            sys.stderr.write("   Очищаем processed_games...\n")
+            sys.stderr.flush()
             self.state_manager.processed_games.clear()
+            sys.stderr.write("   ✅ processed_games очищены\n")
+            sys.stderr.flush()
+
             self.timer_stop()
+            sys.stderr.write("=== ВОЗВРАТ ИЗ _initialize_criteria_tracking (force_restart) ===\n")
+            sys.stderr.flush()
             return checked_criteria, set()
+
+        # Весь остальной код выполняется ТОЛЬКО если force_restart == False
+        sys.stderr.write("ШАГ 1: Загрузка из StateManager...\n")
+        sys.stderr.flush()
 
         self.timer_start("Загрузка из StateManager")
         checked_criteria = self.state_manager.get_checked_criteria()
         self.timer_stop()
-        print(f"⏱️ Загрузка из StateManager: {self._get_last_timer():.3f}с", file=sys.stderr)
+        sys.stderr.write(
+            f"⏱️ Загрузка из StateManager: {self._get_last_timer():.3f}с, найдено {len(checked_criteria)} критериев\n")
+        sys.stderr.flush()
 
-        if self.debug and self.original_stdout:
-            self.original_stdout.write(f"\nDEBUG: Загружено {len(checked_criteria)} проверенных критериев\n")
-            self.original_stdout.flush()
-
-        self.timer_start("Очистка при force-restart")
-        # Этот блок теперь не нужен, т.к. обработали выше
-        self.timer_stop()
+        sys.stderr.write("ШАГ 2: Получение всех критериев из БД (ЭТО МОЖЕТ ЗАНЯТЬ МНОГО ВРЕМЕНИ)...\n")
+        sys.stderr.flush()
 
         self.timer_start("Получение всех критериев из БД")
+
+        # ПРИНУДИТЕЛЬНЫЙ ВЫВОД ПРОГРЕССА
+        sys.stderr.write("\n🔍 Загружаем информацию о критериях из базы данных...\n")
+        sys.stderr.write("   ⚠️ ЭТО МОЖЕТ ЗАНЯТЬ НЕСКОЛЬКО МИНУТ ПРИ БОЛЬШОЙ БАЗЕ ДАННЫХ\n")
+        sys.stderr.flush()
+
         if self.keywords:
             from games.models import Keyword
             try:
-                # Получаем только ID, не загружаем все объекты
-                all_criteria = set(str(id) for id in Keyword.objects.values_list('id', flat=True))
-                if self.debug and self.original_stdout:
-                    self.original_stdout.write(f"DEBUG: В базе {len(all_criteria)} ключевых слов\n")
-                    self.original_stdout.flush()
+                sys.stderr.write("   📊 Загрузка ключевых слов из базы данных...\n")
+                sys.stderr.flush()
+
+                # Сначала узнаем общее количество
+                total_count = Keyword.objects.count()
+                sys.stderr.write(f"   📊 Всего ключевых слов в базе: {total_count}\n")
+                sys.stderr.flush()
+
+                start_time = time.time()
+                all_criteria = set()
+                count = 0
+                last_percent = -1
+
+                for kw_id in Keyword.objects.values_list('id', flat=True).iterator():
+                    all_criteria.add(str(kw_id))
+                    count += 1
+
+                    # Показываем прогресс каждые 1%
+                    percent = int((count / total_count) * 100) if total_count > 0 else 0
+                    if percent > last_percent:
+                        last_percent = percent
+                        bar_length = 30
+                        filled = int(bar_length * count / total_count) if total_count > 0 else 0
+                        bar = '█' * filled + '░' * (bar_length - filled)
+                        sys.stderr.write(f"\r      Загрузка ключевых слов: [{bar}] {percent}% ({count}/{total_count})")
+                        sys.stderr.flush()
+
+                sys.stderr.write(f"\n")
+                elapsed = time.time() - start_time
+                sys.stderr.write(f"   ✅ Загружено {len(all_criteria)} ключевых слов за {elapsed:.2f}с\n")
+                sys.stderr.flush()
             except Exception as e:
-                print(f"⚠️ Ошибка получения ключевых слов: {e}", file=sys.stderr)
+                sys.stderr.write(f"⚠️ Ошибка получения ключевых слов: {e}\n")
+                sys.stderr.flush()
+                import traceback
+                traceback.print_exc(file=sys.stderr)
                 all_criteria = set()
         else:
             from games.models import Genre, Theme, PlayerPerspective, GameMode
             all_criteria = set()
             try:
-                # Получаем все ID из всех таблиц ОДНИМ SQL запросом через UNION
-                from django.db import connection
-                with connection.cursor() as cursor:
-                    cursor.execute("""
-                                   SELECT id
-                                   FROM games_genre
-                                   UNION ALL
-                                   SELECT id
-                                   FROM games_theme
-                                   UNION ALL
-                                   SELECT id
-                                   FROM games_playerperspective
-                                   UNION ALL
-                                   SELECT id
-                                   FROM games_gamemode
-                                   """)
-                    all_criteria = set(str(row[0]) for row in cursor.fetchall())
+                # Жанры
+                sys.stderr.write("   📊 Загрузка жанров...\n")
+                sys.stderr.flush()
+                total_genres = Genre.objects.count()
+                sys.stderr.write(f"      Всего жанров: {total_genres}\n")
+                sys.stderr.flush()
 
-                if self.debug and self.original_stdout:
-                    self.original_stdout.write(f"DEBUG: В базе {len(all_criteria)} критериев\n")
-                    self.original_stdout.flush()
+                start_time = time.time()
+                genre_ids = set()
+                count = 0
+                last_percent = -1
+
+                for gid in Genre.objects.values_list('id', flat=True).iterator():
+                    genre_ids.add(str(gid))
+                    count += 1
+
+                    percent = int((count / total_genres) * 100) if total_genres > 0 else 0
+                    if percent > last_percent:
+                        last_percent = percent
+                        bar_length = 20
+                        filled = int(bar_length * count / total_genres) if total_genres > 0 else 0
+                        bar = '█' * filled + '░' * (bar_length - filled)
+                        sys.stderr.write(f"\r         Жанры: [{bar}] {percent}% ({count}/{total_genres})")
+                        sys.stderr.flush()
+
+                sys.stderr.write(f"\n")
+                elapsed = time.time() - start_time
+                sys.stderr.write(f"   ✅ Загружено {len(genre_ids)} жанров за {elapsed:.2f}с\n")
+                sys.stderr.flush()
+
+                # Темы
+                sys.stderr.write("   📊 Загрузка тем...\n")
+                sys.stderr.flush()
+                total_themes = Theme.objects.count()
+                sys.stderr.write(f"      Всего тем: {total_themes}\n")
+                sys.stderr.flush()
+
+                start_time = time.time()
+                theme_ids = set()
+                count = 0
+                last_percent = -1
+
+                for tid in Theme.objects.values_list('id', flat=True).iterator():
+                    theme_ids.add(str(tid))
+                    count += 1
+
+                    percent = int((count / total_themes) * 100) if total_themes > 0 else 0
+                    if percent > last_percent:
+                        last_percent = percent
+                        bar_length = 20
+                        filled = int(bar_length * count / total_themes) if total_themes > 0 else 0
+                        bar = '█' * filled + '░' * (bar_length - filled)
+                        sys.stderr.write(f"\r         Темы: [{bar}] {percent}% ({count}/{total_themes})")
+                        sys.stderr.flush()
+
+                sys.stderr.write(f"\n")
+                elapsed = time.time() - start_time
+                sys.stderr.write(f"   ✅ Загружено {len(theme_ids)} тем за {elapsed:.2f}с\n")
+                sys.stderr.flush()
+
+                # Перспективы
+                sys.stderr.write("   📊 Загрузка перспектив...\n")
+                sys.stderr.flush()
+                total_perspectives = PlayerPerspective.objects.count()
+                sys.stderr.write(f"      Всего перспектив: {total_perspectives}\n")
+                sys.stderr.flush()
+
+                start_time = time.time()
+                perspective_ids = set()
+                count = 0
+                last_percent = -1
+
+                for pid in PlayerPerspective.objects.values_list('id', flat=True).iterator():
+                    perspective_ids.add(str(pid))
+                    count += 1
+
+                    percent = int((count / total_perspectives) * 100) if total_perspectives > 0 else 0
+                    if percent > last_percent:
+                        last_percent = percent
+                        bar_length = 20
+                        filled = int(bar_length * count / total_perspectives) if total_perspectives > 0 else 0
+                        bar = '█' * filled + '░' * (bar_length - filled)
+                        sys.stderr.write(f"\r         Перспективы: [{bar}] {percent}% ({count}/{total_perspectives})")
+                        sys.stderr.flush()
+
+                sys.stderr.write(f"\n")
+                elapsed = time.time() - start_time
+                sys.stderr.write(f"   ✅ Загружено {len(perspective_ids)} перспектив за {elapsed:.2f}с\n")
+                sys.stderr.flush()
+
+                # Режимы игры
+                sys.stderr.write("   📊 Загрузка режимов игры...\n")
+                sys.stderr.flush()
+                total_modes = GameMode.objects.count()
+                sys.stderr.write(f"      Всего режимов: {total_modes}\n")
+                sys.stderr.flush()
+
+                start_time = time.time()
+                mode_ids = set()
+                count = 0
+                last_percent = -1
+
+                for mid in GameMode.objects.values_list('id', flat=True).iterator():
+                    mode_ids.add(str(mid))
+                    count += 1
+
+                    percent = int((count / total_modes) * 100) if total_modes > 0 else 0
+                    if percent > last_percent:
+                        last_percent = percent
+                        bar_length = 20
+                        filled = int(bar_length * count / total_modes) if total_modes > 0 else 0
+                        bar = '█' * filled + '░' * (bar_length - filled)
+                        sys.stderr.write(f"\r         Режимы: [{bar}] {percent}% ({count}/{total_modes})")
+                        sys.stderr.flush()
+
+                sys.stderr.write(f"\n")
+                elapsed = time.time() - start_time
+                sys.stderr.write(f"   ✅ Загружено {len(mode_ids)} режимов игры за {elapsed:.2f}с\n")
+                sys.stderr.flush()
+
+                sys.stderr.write("   📊 Объединение всех критериев...\n")
+                sys.stderr.flush()
+                start_time = time.time()
+                all_criteria = genre_ids | theme_ids | perspective_ids | mode_ids
+                elapsed = time.time() - start_time
+                sys.stderr.write(f"   ✅ Объединено {len(all_criteria)} критериев за {elapsed:.2f}с\n")
+                sys.stderr.flush()
             except Exception as e:
-                print(f"⚠️ Ошибка получения критериев: {e}", file=sys.stderr)
+                sys.stderr.write(f"⚠️ ОШИБКА получения критериев: {e}\n")
+                sys.stderr.flush()
+                import traceback
+                traceback.print_exc(file=sys.stderr)
+
         self.timer_stop()
-        print(f"⏱️ Получение всех критериев из БД: {self._get_last_timer():.3f}с", file=sys.stderr)
+        sys.stderr.write(f"⏱️ Получение всех критериев из БД: {self._get_last_timer():.3f}с\n")
+        sys.stderr.flush()
+
+        sys.stderr.write("ШАГ 3: Вычисление новых критериев...\n")
+        sys.stderr.flush()
 
         self.timer_start("Вычисление новых критериев")
+        start_time = time.time()
         new_criteria = all_criteria - checked_criteria
+        elapsed = time.time() - start_time
+        sys.stderr.write(f"   ✅ Вычислено {len(new_criteria)} новых критериев за {elapsed:.2f}с\n")
+        sys.stderr.flush()
         self.timer_stop()
-        print(f"⏱️ Вычисление новых критериев: {self._get_last_timer():.3f}с (новых: {len(new_criteria)})",
-              file=sys.stderr)
+        sys.stderr.write(f"⏱️ Вычисление новых критериев: {self._get_last_timer():.3f}с (новых: {len(new_criteria)})\n")
+        sys.stderr.flush()
 
-        if self.debug and self.original_stdout:
-            self.original_stdout.write(f"DEBUG: Найдено {len(new_criteria)} новых критериев\n")
-            self.original_stdout.flush()
+        sys.stderr.write("ШАГ 4: Проверка игр для обработки...\n")
+        sys.stderr.flush()
 
         self.timer_start("Проверка игр для обработки")
         from games.models import Game
         games_count = Game.objects.count()
-        print(f"⏱️ Всего игр в БД: {games_count}", file=sys.stderr)
+        sys.stderr.write(f"⏱️ Всего игр в БД: {games_count}\n")
+        sys.stderr.flush()
 
         games_after_offset = max(0, games_count - self.offset) if games_count else 0
         limit_remaining = self.limit if self.limit else games_after_offset
         self.timer_stop()
-        print(f"⏱️ Проверка игр для обработки: {self._get_last_timer():.3f}с", file=sys.stderr)
+        sys.stderr.write(f"⏱️ Проверка игр для обработки: {self._get_last_timer():.3f}с\n")
+        sys.stderr.flush()
 
         if new_criteria and len(new_criteria) > 0:
-            print(f"🎯 Найдено {len(new_criteria)} новых критериев", file=sys.stderr)
+            sys.stderr.write(f"🎯 Найдено {len(new_criteria)} новых критериев\n")
+            sys.stderr.flush()
 
             if limit_remaining == 0:
-                print(f"ℹ️ Новых критериев: {len(new_criteria)}, но нет игр для обработки", file=sys.stderr)
+                sys.stderr.write(f"ℹ️ Новых критериев: {len(new_criteria)}, но нет игр для обработки\n")
+                sys.stderr.flush()
 
                 self.timer_start("Добавление критериев в проверенные")
                 self.state_manager.add_checked_criteria(list(new_criteria))
                 self.timer_stop()
-                print(f"⏱️ Добавление критериев в проверенные: {self._get_last_timer():.3f}с", file=sys.stderr)
+                sys.stderr.write(f"⏱️ Добавление критериев в проверенные: {self._get_last_timer():.3f}с\n")
+                sys.stderr.flush()
 
                 try:
                     self.timer_start("Сохранение состояния")
                     processed_count = self.state_manager.get_processed_count()
                     self.state_manager.save_state(processed_count)
                     self.timer_stop()
-                    print(f"⏱️ Сохранение состояния: {self._get_last_timer():.3f}с", file=sys.stderr)
+                    sys.stderr.write(f"⏱️ Сохранение состояния: {self._get_last_timer():.3f}с\n")
+                    sys.stderr.flush()
                 except Exception as e:
-                    print(f"⚠️ Ошибка сохранения: {e}", file=sys.stderr)
+                    sys.stderr.write(f"⚠️ Ошибка сохранения: {e}\n")
+                    sys.stderr.flush()
 
                 self._new_criteria_detected = False
 
                 updated_checked_criteria = self.state_manager.get_checked_criteria()
-                self.timer_stop()  # Инициализация отслеживания критериев (общее)
-                print(f"⏱️ Инициализация отслеживания критериев (общее) ВСЕГО: {self._get_total_timer():.3f}с",
-                      file=sys.stderr)
+                self.timer_stop()
+                sys.stderr.write(
+                    f"⏱️ Инициализация отслеживания критериев (общее) ВСЕГО: {self._get_total_timer():.3f}с\n")
+                sys.stderr.flush()
+                sys.stderr.write("=== ВОЗВРАТ ИЗ _initialize_criteria_tracking (новые критерии, нет игр) ===\n")
+                sys.stderr.flush()
                 return updated_checked_criteria, set()
             else:
-                print(f"🎯 Будем обрабатывать {limit_remaining} игр с новыми критериями", file=sys.stderr)
+                sys.stderr.write(f"🎯 Будем обрабатывать {limit_remaining} игр с новыми критериями\n")
+                sys.stderr.flush()
 
                 self.timer_start("Добавление новых критериев")
                 self.state_manager.add_checked_criteria(list(new_criteria))
                 self.timer_stop()
-                print(f"⏱️ Добавление новых критериев: {self._get_last_timer():.3f}с", file=sys.stderr)
+                sys.stderr.write(f"⏱️ Добавление новых критериев: {self._get_last_timer():.3f}с\n")
+                sys.stderr.flush()
 
                 self._new_criteria_detected = True
 
@@ -1696,20 +1903,26 @@ class AnalyzerCommand(BaseCommand):
                     processed_count = self.state_manager.get_processed_count()
                     self.state_manager.save_state(processed_count)
                     self.timer_stop()
-                    print(f"⏱️ Сохранение состояния с новыми критериями: {self._get_last_timer():.3f}с",
-                          file=sys.stderr)
+                    sys.stderr.write(f"⏱️ Сохранение состояния с новыми критериями: {self._get_last_timer():.3f}с\n")
+                    sys.stderr.flush()
                 except Exception:
                     pass
 
                 updated_checked_criteria = self.state_manager.get_checked_criteria()
-                self.timer_stop()  # Инициализация отслеживания критериев (общее)
-                print(f"⏱️ Инициализация отслеживания критериев (общее) ВСЕГО: {self._get_total_timer():.3f}с",
-                      file=sys.stderr)
+                self.timer_stop()
+                sys.stderr.write(
+                    f"⏱️ Инициализация отслеживания критериев (общее) ВСЕГО: {self._get_total_timer():.3f}с\n")
+                sys.stderr.flush()
+                sys.stderr.write("=== ВОЗВРАТ ИЗ _initialize_criteria_tracking (есть новые критерии) ===\n")
+                sys.stderr.flush()
                 return updated_checked_criteria, set()
 
         self._new_criteria_detected = False
-        self.timer_stop()  # Инициализация отслеживания критериев (общее)
-        print(f"⏱️ Инициализация отслеживания критериев (общее) ВСЕГО: {self._get_total_timer():.3f}с", file=sys.stderr)
+        self.timer_stop()
+        sys.stderr.write(f"⏱️ Инициализация отслеживания критериев (общее) ВСЕГО: {self._get_total_timer():.3f}с\n")
+        sys.stderr.flush()
+        sys.stderr.write("=== ВОЗВРАТ ИЗ _initialize_criteria_tracking (нет новых критериев) ===\n")
+        sys.stderr.flush()
         return checked_criteria, new_criteria
 
     def _get_last_timer(self):

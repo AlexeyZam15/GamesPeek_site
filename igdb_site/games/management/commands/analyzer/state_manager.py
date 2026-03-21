@@ -35,7 +35,12 @@ class StateManager:
         self._init_state_files()
 
     def clear_all_state(self):
-        """Полностью очищает всё состояние и кэш"""
+        """Полностью очищает всё состояние и кэш - С ПРИНУДИТЕЛЬНЫМ ВЫВОДОМ"""
+        import sys
+
+        sys.stderr.write("   🔄 StateManager.clear_all_state() начат\n")
+        sys.stderr.flush()
+
         self.processed_games.clear()
         self.checked_criteria.clear()
         self._games_since_last_save = 0
@@ -45,20 +50,34 @@ class StateManager:
         if self.state_file and os.path.exists(self.state_file):
             try:
                 os.remove(self.state_file)
-                print(f"🗑️ Удален файл состояния: {self.state_file}", file=sys.stderr)
-            except:
-                pass
+                sys.stderr.write(f"   🗑️ Удален файл состояния: {self.state_file}\n")
+                sys.stderr.flush()
+            except Exception as e:
+                sys.stderr.write(f"   ⚠️ Ошибка удаления {self.state_file}: {e}\n")
+                sys.stderr.flush()
 
         if self.criteria_state_file and os.path.exists(self.criteria_state_file):
             try:
                 os.remove(self.criteria_state_file)
-                print(f"🗑️ Удален файл критериев: {self.criteria_state_file}", file=sys.stderr)
-            except:
-                pass
+                sys.stderr.write(f"   🗑️ Удален файл критериев: {self.criteria_state_file}\n")
+                sys.stderr.flush()
+            except Exception as e:
+                sys.stderr.write(f"   ⚠️ Ошибка удаления {self.criteria_state_file}: {e}\n")
+                sys.stderr.flush()
+
+        sys.stderr.write("   ✅ StateManager.clear_all_state() завершен\n")
+        sys.stderr.flush()
 
     def _init_state_files(self):
-        """Инициализирует файлы состояния"""
+        """Инициализирует файлы состояния - С ПРИНУДИТЕЛЬНЫМ ВЫВОДОМ"""
+        import sys
+
+        sys.stderr.write("   🔧 StateManager._init_state_files() начат\n")
+        sys.stderr.flush()
+
         if not self.output_path:
+            sys.stderr.write("   ⚠️ output_path отсутствует\n")
+            sys.stderr.flush()
             return
 
         try:
@@ -81,14 +100,22 @@ class StateManager:
             directory = os.path.dirname(self.state_file)
             if directory:
                 os.makedirs(directory, exist_ok=True)
+                sys.stderr.write(f"   📁 Создана директория: {directory}\n")
+                sys.stderr.flush()
 
-            print(f"📝 Файл состояния: {self.state_file}", file=sys.stderr)
-            print(f"📝 Файл состояния критериев: {self.criteria_state_file}", file=sys.stderr)
+            sys.stderr.write(f"   📝 Файл состояния: {self.state_file}\n")
+            sys.stderr.flush()
+            sys.stderr.write(f"   📝 Файл состояния критериев: {self.criteria_state_file}\n")
+            sys.stderr.flush()
 
         except Exception as e:
-            print(f"⚠️ Ошибка инициализации файлов состояния: {e}", file=sys.stderr)
+            sys.stderr.write(f"   ⚠️ Ошибка инициализации файлов состояния: {e}\n")
+            sys.stderr.flush()
             self.state_file = None
             self.criteria_state_file = None
+
+        sys.stderr.write("   ✅ StateManager._init_state_files() завершен\n")
+        sys.stderr.flush()
 
     def load_state(self) -> int:
         """Загружает состояние из файлов"""
@@ -288,23 +315,41 @@ class StateManager:
         return len(self.processed_games)
 
     def reset_state(self):
-        """Полностью сбрасывает состояние"""
+        """Полностью сбрасывает состояние - С ПРИНУДИТЕЛЬНЫМ ВЫВОДОМ"""
+        import sys
+
+        sys.stderr.write("   🔄 StateManager.reset_state() начат\n")
+        sys.stderr.flush()
+
         self.processed_games.clear()
         self.checked_criteria.clear()
         self._games_since_last_save = 0
         self._save_pending = False
 
         # Удаляем файлы состояния
+        sys.stderr.write(f"   📁 Проверяем файл состояния: {self.state_file}\n")
+        sys.stderr.flush()
+
         if self.state_file and os.path.exists(self.state_file):
             try:
                 os.remove(self.state_file)
-                print(f"🗑️ Удален файл состояния: {self.state_file}", file=sys.stderr)
-            except:
-                pass
+                sys.stderr.write(f"   🗑️ Удален файл состояния: {self.state_file}\n")
+                sys.stderr.flush()
+            except Exception as e:
+                sys.stderr.write(f"   ⚠️ Ошибка удаления {self.state_file}: {e}\n")
+                sys.stderr.flush()
+
+        sys.stderr.write(f"   📁 Проверяем файл критериев: {self.criteria_state_file}\n")
+        sys.stderr.flush()
 
         if self.criteria_state_file and os.path.exists(self.criteria_state_file):
             try:
                 os.remove(self.criteria_state_file)
-                print(f"🗑️ Удален файл критериев: {self.criteria_state_file}", file=sys.stderr)
-            except:
-                pass
+                sys.stderr.write(f"   🗑️ Удален файл критериев: {self.criteria_state_file}\n")
+                sys.stderr.flush()
+            except Exception as e:
+                sys.stderr.write(f"   ⚠️ Ошибка удаления {self.criteria_state_file}: {e}\n")
+                sys.stderr.flush()
+
+        sys.stderr.write("   ✅ StateManager.reset_state() завершен\n")
+        sys.stderr.flush()
