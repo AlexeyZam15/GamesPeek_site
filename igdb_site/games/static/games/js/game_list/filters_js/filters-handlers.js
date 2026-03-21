@@ -897,12 +897,13 @@ const FilterHandlers = {
 
             // НЕТ БЛОКА С APPLY FILTERS!
 
+            // Задержка для сортировки, чтобы чекбоксы успели восстановиться
             setTimeout(() => {
                 if (window.FilterManager && window.FilterManager.sort) {
                     console.log('Initial sort after page load');
                     window.FilterManager.sort.sortFilterLists();
                 }
-            }, 500);
+            }, 300);
 
             console.log('All filter handlers initialized successfully');
         } catch (error) {
