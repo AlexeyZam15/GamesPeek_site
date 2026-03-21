@@ -306,8 +306,7 @@ def _get_similar_games_mode_with_pagination(
         search_year_end_int: int = None,
 ) -> Dict[str, Any]:
     """
-    Режим похожих игр с СЕРВЕРНОЙ пагинацией - ОПТИМИЗИРОВАН.
-    Теперь поисковые фильтры применяются НА ЭТАПЕ ПОИСКА КАНДИДАТОВ, а не после расчета процента.
+    Режим похожих игр с СЕРВЕРНОЙ пагинацией.
     """
     timers = {
         'source_game_creation': 0,
@@ -326,33 +325,45 @@ def _get_similar_games_mode_with_pagination(
 
     if search_platforms_list:
         search_filters['platforms'] = search_platforms_list
+        print(f"DEBUG: search_filters platforms = {search_platforms_list}")
 
     if search_game_modes_list:
         search_filters['game_modes'] = search_game_modes_list
+        print(f"DEBUG: search_filters game_modes = {search_game_modes_list}")
 
     if search_genres_list:
         search_filters['genres'] = search_genres_list
+        print(f"DEBUG: search_filters genres = {search_genres_list}")
 
     if search_keywords_list:
         search_filters['keywords'] = search_keywords_list
+        print(f"DEBUG: search_filters keywords = {search_keywords_list}")
 
     if search_themes_list:
         search_filters['themes'] = search_themes_list
+        print(f"DEBUG: search_filters themes = {search_themes_list}")
 
     if search_perspectives_list:
         search_filters['perspectives'] = search_perspectives_list
+        print(f"DEBUG: search_filters perspectives = {search_perspectives_list}")
 
     if search_game_types_list:
         search_filters['game_types'] = search_game_types_list
+        print(f"DEBUG: search_filters game_types = {search_game_types_list}")
 
     if search_engines_list:
         search_filters['engines'] = search_engines_list
+        print(f"DEBUG: search_filters engines = {search_engines_list}")
 
     if search_year_start_int:
         search_filters['release_year_start'] = search_year_start_int
+        print(f"DEBUG: search_filters release_year_start = {search_year_start_int}")
 
     if search_year_end_int:
         search_filters['release_year_end'] = search_year_end_int
+        print(f"DEBUG: search_filters release_year_end = {search_year_end_int}")
+
+    print(f"DEBUG: Final search_filters = {search_filters}")
 
     stage_start = time.time()
     if source_game_obj:
@@ -360,6 +371,7 @@ def _get_similar_games_mode_with_pagination(
             source_game_obj, [], search_filters  # Передаем поисковые фильтры
         )
         print(f"get_similar_games_for_game took: {time.time() - stage_start:.3f}s")
+        print(f"Found {total_count} games with search_filters")
 
         source_display = source_game_obj.name
 
@@ -399,8 +411,6 @@ def _get_similar_games_mode_with_pagination(
             item['game'].similarity = item['similarity']
     timers['formatting'] = round(time.time() - stage_start, 3)
 
-    # Убираем пост-фильтрацию, так как фильтры уже применены на этапе поиска
-    # Оставляем только для совместимости, но она больше не нужна
     timers['search_filters'] = 0
 
     stage_start = time.time()
@@ -705,6 +715,7 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
     params = extract_request_params(request)
     selected_criteria = convert_params_to_lists(params)
 
+    # Извлекаем поисковые фильтры
     search_genres = request.GET.get('search_g', '')
     search_keywords = request.GET.get('search_k', '')
     search_themes = request.GET.get('search_t', '')
@@ -726,6 +737,10 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
     search_platforms_list = [int(x) for x in search_platforms.split(',') if x.isdigit()] if search_platforms else []
     search_game_types_list = [int(x) for x in search_game_types.split(',') if x.isdigit()] if search_game_types else []
 
+    print(f"DEBUG: search_engines_list = {search_engines_list}")
+    print(f"DEBUG: search_platforms_list = {search_platforms_list}")
+    print(f"DEBUG: search_game_modes_list = {search_game_modes_list}")
+
     try:
         search_year_start_int = int(search_year_start) if search_year_start else None
     except ValueError:
@@ -738,6 +753,7 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
 
     print(f"Search genres: {search_genres_list}")
     print(f"Search platforms: {search_platforms_list}")
+    print(f"Search engines: {search_engines_list}")
     print(f"Search years: {search_year_start_int}-{search_year_end_int}")
 
     sort_field = params.get('sort', '-rating_count')

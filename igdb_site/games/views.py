@@ -120,4 +120,6 @@ __all__ = [
 
     # Year range
     'get_release_years_range',
+
+    '_apply_search_filters',
 ]
