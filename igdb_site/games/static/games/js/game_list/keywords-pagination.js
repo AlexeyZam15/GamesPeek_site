@@ -11,10 +11,10 @@ const KeywordsPaginationDebugTimer = {
         const startTime = this.marks[label];
         if (startTime) {
             const duration = (endTime - startTime).toFixed(2);
-            console.warn(`[TIMER] ${label} took ${duration} ms`);
+            console.warn(`[TIMER] KeywordsPagination: ${label} took ${duration} ms`);
             delete this.marks[label];
         } else {
-            console.warn(`[TIMER] No start mark found for: ${label}`);
+            console.warn(`[TIMER] KeywordsPagination: No start mark found for: ${label}`);
         }
     }
 };
@@ -43,31 +43,41 @@ const KeywordsPagination = {
 
     // Инициализация
     init() {
-        KeywordsPaginationDebugTimer.start('KeywordsPagination.init');
+        KeywordsPaginationDebugTimer.start('init');
         console.log('🚀 KeywordsPagination: Initializing...');
 
         // Находим контейнер с ключевыми словами
         const keywordContainer = document.querySelector('.keyword-list');
         if (!keywordContainer) {
             console.log('KeywordsPagination: Keyword container not found');
-            KeywordsPaginationDebugTimer.end('KeywordsPagination.init');
+            KeywordsPaginationDebugTimer.end('init');
             return;
         }
 
         // Присваиваем ID для идентификации
-        keywordContainer.id = this.config.containerId;
+        if (!keywordContainer.id) {
+            keywordContainer.id = this.config.containerId;
+        }
 
         // Получаем все элементы ключевых слов
         const keywordItems = keywordContainer.querySelectorAll('.keyword-item');
         this.state.totalItems = keywordItems.length;
 
+        console.log(`KeywordsPagination: Found ${this.state.totalItems} keyword items`);
+
         if (this.state.totalItems <= this.config.itemsPerPage) {
             console.log(`KeywordsPagination: Only ${this.state.totalItems} keywords, pagination not needed`);
-            KeywordsPaginationDebugTimer.end('KeywordsPagination.init');
+            // Удаляем существующую пагинацию если есть
+            this.removeExistingPagination();
+            // Показываем все элементы
+            keywordItems.forEach(item => {
+                item.style.display = 'block';
+            });
+            KeywordsPaginationDebugTimer.end('init');
             return;
         }
 
-        console.log(`KeywordsPagination: Found ${this.state.totalItems} keywords, setting up pagination...`);
+        console.log(`KeywordsPagination: ${this.state.totalItems} keywords, setting up pagination...`);
 
         // Сохраняем оригинальные элементы
         this.state.originalItems = Array.from(keywordItems);
@@ -76,7 +86,10 @@ const KeywordsPagination = {
         this.state.totalPages = Math.ceil(this.state.totalItems / this.config.itemsPerPage);
         this.config.currentPage = 1;
 
-        // Создаем пагинацию если ее нет
+        // Удаляем старую пагинацию если есть
+        this.removeExistingPagination();
+
+        // Создаем пагинацию
         this.createPaginationElements();
 
         // Находим кнопку "Show all features"
@@ -93,18 +106,19 @@ const KeywordsPagination = {
 
         this.state.isInitialized = true;
         console.log(`KeywordsPagination: Initialized successfully with ${this.state.totalPages} pages`);
-        KeywordsPaginationDebugTimer.end('KeywordsPagination.init');
+        KeywordsPaginationDebugTimer.end('init');
     },
 
     // Создание элементов пагинации
     createPaginationElements() {
+        KeywordsPaginationDebugTimer.start('createPaginationElements');
         console.log('KeywordsPagination: Creating pagination elements...');
 
-        // Удаляем старую пагинацию если она есть
-        this.removeExistingPagination();
-
         const keywordContainer = document.getElementById(this.config.containerId);
-        if (!keywordContainer) return;
+        if (!keywordContainer) {
+            KeywordsPaginationDebugTimer.end('createPaginationElements');
+            return;
+        }
 
         // Создаем контейнер для пагинации
         const paginationContainer = document.createElement('div');
@@ -136,6 +150,7 @@ const KeywordsPagination = {
 
         this.state.paginationElement = paginationContainer;
         console.log('KeywordsPagination: Pagination elements created');
+        KeywordsPaginationDebugTimer.end('createPaginationElements');
     },
 
     // Удаление существующей пагинации
@@ -374,7 +389,7 @@ const KeywordsPagination = {
         }
     },
 
-    // Создать кнопку страницы (с оранжевыми рамками)
+    // Создать кнопку страницы
     createPageButton(pageNumber) {
         const button = document.createElement('button');
         button.type = 'button';
@@ -382,7 +397,7 @@ const KeywordsPagination = {
         button.textContent = pageNumber;
         button.title = `Page ${pageNumber}`;
 
-        // Добавляем оранжевую рамку
+        // Добавляем стили
         button.style.border = '1px solid var(--border, rgba(255, 107, 53, 0.2))';
         button.style.borderRadius = '6px';
         button.style.padding = '0.5rem 1rem';
@@ -436,7 +451,7 @@ const KeywordsPagination = {
         return button;
     },
 
-    // Обновить кнопки навигации (с оранжевыми рамками)
+    // Обновить кнопки навигации
     updateNavigationButtons() {
         const prevBtn = document.querySelector('.keyword-prev-btn');
         const nextBtn = document.querySelector('.keyword-next-btn');
@@ -446,7 +461,6 @@ const KeywordsPagination = {
             prevBtn.disabled = isDisabled;
             prevBtn.classList.toggle('disabled', isDisabled);
 
-            // Оранжевые рамки для кнопок навигации
             prevBtn.style.border = '1px solid var(--border, rgba(255, 107, 53, 0.2))';
             prevBtn.style.borderRadius = '6px';
             prevBtn.style.fontWeight = '600';
@@ -456,9 +470,6 @@ const KeywordsPagination = {
             if (isDisabled) {
                 prevBtn.style.opacity = '0.5';
                 prevBtn.style.cursor = 'not-allowed';
-                prevBtn.style.borderColor = 'var(--border-dark, #666)';
-                prevBtn.style.color = 'var(--text-muted, #666)';
-                prevBtn.style.backgroundColor = 'var(--surface-dark, rgba(18, 18, 18, 0.6))';
             } else {
                 prevBtn.style.opacity = '1';
                 prevBtn.style.cursor = 'pointer';
@@ -466,7 +477,6 @@ const KeywordsPagination = {
                 prevBtn.style.color = 'var(--secondary-color, #ff6b35)';
                 prevBtn.style.backgroundColor = 'var(--surface, rgba(26, 26, 26, 0.4))';
 
-                // Hover эффект для активной кнопки Prev
                 prevBtn.addEventListener('mouseenter', function() {
                     this.style.backgroundColor = 'rgba(255, 107, 53, 0.1)';
                     this.style.color = 'var(--secondary-color, #ff6b35)';
@@ -488,7 +498,6 @@ const KeywordsPagination = {
             nextBtn.disabled = isDisabled;
             nextBtn.classList.toggle('disabled', isDisabled);
 
-            // Оранжевые рамки для кнопок навигации
             nextBtn.style.border = '1px solid var(--border, rgba(255, 107, 53, 0.2))';
             nextBtn.style.borderRadius = '6px';
             nextBtn.style.fontWeight = '600';
@@ -498,9 +507,6 @@ const KeywordsPagination = {
             if (isDisabled) {
                 nextBtn.style.opacity = '0.5';
                 nextBtn.style.cursor = 'not-allowed';
-                nextBtn.style.borderColor = 'var(--border-dark, #666)';
-                nextBtn.style.color = 'var(--text-muted, #666)';
-                nextBtn.style.backgroundColor = 'var(--surface-dark, rgba(18, 18, 18, 0.6))';
             } else {
                 nextBtn.style.opacity = '1';
                 nextBtn.style.cursor = 'pointer';
@@ -508,7 +514,6 @@ const KeywordsPagination = {
                 nextBtn.style.color = 'var(--secondary-color, #ff6b35)';
                 nextBtn.style.backgroundColor = 'var(--surface, rgba(26, 26, 26, 0.4))';
 
-                // Hover эффект для активной кнопки Next
                 nextBtn.addEventListener('mouseenter', function() {
                     this.style.backgroundColor = 'rgba(255, 107, 53, 0.1)';
                     this.style.color = 'var(--secondary-color, #ff6b35)';
@@ -553,18 +558,20 @@ const KeywordsPagination = {
 
     // Обновить после поиска
     updateAfterSearch() {
-        KeywordsPaginationDebugTimer.start('KeywordsPagination.updateAfterSearch');
+        KeywordsPaginationDebugTimer.start('updateAfterSearch');
         console.log('KeywordsPagination: Updating after search...');
 
         if (!this.state.isInitialized) {
             console.log('KeywordsPagination: Not initialized yet, skipping update');
-            KeywordsPaginationDebugTimer.end('KeywordsPagination.updateAfterSearch');
+            KeywordsPaginationDebugTimer.end('updateAfterSearch');
             return;
         }
 
-        // Находим видимые элементы после фильтрации поиска
         const keywordContainer = document.getElementById(this.config.containerId);
-        if (!keywordContainer) return;
+        if (!keywordContainer) {
+            KeywordsPaginationDebugTimer.end('updateAfterSearch');
+            return;
+        }
 
         const visibleItems = keywordContainer.querySelectorAll('.keyword-item[style*="block"]');
         const totalVisible = visibleItems.length;
@@ -592,23 +599,19 @@ const KeywordsPagination = {
             this.updatePageNumbers();
             this.updateNavigationButtons();
         }
-        KeywordsPaginationDebugTimer.end('KeywordsPagination.updateAfterSearch');
+        KeywordsPaginationDebugTimer.end('updateAfterSearch');
     },
 
     // Принудительное обновление (после очистки поиска)
     forceUpdate() {
-        KeywordsPaginationDebugTimer.start('KeywordsPagination.forceUpdate');
+        KeywordsPaginationDebugTimer.start('forceUpdate');
         console.log('KeywordsPagination: Force updating...');
 
-        if (!this.state.isInitialized) {
-            this.init();
-            KeywordsPaginationDebugTimer.end('KeywordsPagination.forceUpdate');
+        const keywordContainer = document.getElementById(this.config.containerId);
+        if (!keywordContainer) {
+            KeywordsPaginationDebugTimer.end('forceUpdate');
             return;
         }
-
-        // Пересчитываем общее количество
-        const keywordContainer = document.getElementById(this.config.containerId);
-        if (!keywordContainer) return;
 
         const keywordItems = keywordContainer.querySelectorAll('.keyword-item');
         this.state.totalItems = keywordItems.length;
@@ -635,13 +638,29 @@ const KeywordsPagination = {
                 item.style.display = 'block';
             });
         }
-        KeywordsPaginationDebugTimer.end('KeywordsPagination.forceUpdate');
+        KeywordsPaginationDebugTimer.end('forceUpdate');
+    },
+
+    // Полное обновление (после AJAX загрузки)
+    refresh() {
+        KeywordsPaginationDebugTimer.start('refresh');
+        console.log('KeywordsPagination: Refreshing after AJAX load...');
+
+        // Сбрасываем состояние
+        this.state.isInitialized = false;
+
+        // Удаляем существующую пагинацию
+        this.removeExistingPagination();
+
+        // Заново инициализируем
+        this.init();
+
+        KeywordsPaginationDebugTimer.end('refresh');
     },
 
     // Деструктор (очистка)
     destroy() {
         console.log('KeywordsPagination: Destroying...');
-
         this.removeExistingPagination();
         this.state.isInitialized = false;
         this.state.originalItems = [];
@@ -660,18 +679,38 @@ if (typeof module !== 'undefined' && module.exports) {
 
 // Автоматическая инициализация
 document.addEventListener('DOMContentLoaded', function() {
+    KeywordsPaginationDebugTimer.start('DOMContentLoaded');
     console.log('KeywordsPagination: DOM loaded, checking for initialization...');
 
     // Ждем немного для загрузки всех элементов
     setTimeout(() => {
         const keywordContainer = document.querySelector('.keyword-list');
-        if (keywordContainer && keywordContainer.querySelectorAll('.keyword-item').length > 30) {
-            console.log('KeywordsPagination: Auto-initializing...');
-            KeywordsPagination.init();
+        if (keywordContainer) {
+            const keywordItems = keywordContainer.querySelectorAll('.keyword-item');
+            const totalKeywords = keywordItems.length;
+            console.log(`KeywordsPagination: Found ${totalKeywords} keywords in container`);
+
+            if (totalKeywords > 30) {
+                console.log('KeywordsPagination: Auto-initializing...');
+                KeywordsPagination.init();
+            } else {
+                console.log('KeywordsPagination: Not enough keywords for pagination (need >30)');
+            }
         } else {
-            console.log('KeywordsPagination: Not enough keywords for pagination');
+            console.log('KeywordsPagination: Keyword container not found');
         }
     }, 500);
+    KeywordsPaginationDebugTimer.end('DOMContentLoaded');
+});
+
+// Слушаем событие обновления AJAX контента
+document.addEventListener('ajax-content-loaded', function() {
+    KeywordsPaginationDebugTimer.start('ajax-content-loaded');
+    console.log('KeywordsPagination: AJAX content loaded, refreshing...');
+    setTimeout(() => {
+        KeywordsPagination.refresh();
+    }, 200);
+    KeywordsPaginationDebugTimer.end('ajax-content-loaded');
 });
 
 export default KeywordsPagination;
