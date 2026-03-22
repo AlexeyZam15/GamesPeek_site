@@ -32,6 +32,24 @@ class PatternManager:
 
     # Паттерны вынесены в константы для легкого редактирования
     GENRE_PATTERNS = {
+        'Grid-Based': [
+            r'\bgrid[-\s]?based\b',
+            r'\bon\s+a\s+grid\b',
+            r'\bgrid\s+system\b',
+            r'\btile[-\s]?based\b',
+            r'\btile\s+grid\b',
+            r'\bgrid\s+movement\b',
+            r'\bgrid\s+combat\b',
+            r'\bmove\s+on\s+a\s+grid\b',
+            r'\bhex[-\s]?based\b',
+            r'\bhex\s+grid\b',
+            r'\bsquare\s+grid\b',
+            r'\bisometric\s+grid\b',
+            r'\btactical\s+grid\b',
+            r'\bgridded\s+map\b',
+            r'\bgridded\s+battlefield\b',
+            r'\bgrid[-\s]?like\s+battlefield\b',
+        ],
         'Simulator': [
             r'\bsimulator\b',
             r'\bsimulation\b',
@@ -39,7 +57,7 @@ class PatternManager:
             r'\brealistic\s+simulation\b',
             r'\blife\s+simulator\b',
         ],
-        'Squad Management': [
+        'Squad-based': [
             # Базовые паттерны
             r'\bsquad[-\s]?based\b',
             r'\bsquad\s+management\b',
