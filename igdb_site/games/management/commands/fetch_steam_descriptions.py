@@ -638,174 +638,7 @@ class Command(BaseCommand):
         self.force = False
         self.dry_run = False
         self.create_backup = True
-        self.batch_times = []  # Для расчета ETA
-        self.json_descriptions = {}  # Словарь для хранения описаний из JSON-файла
-
-    def load_descriptions_from_games_json(self) -> Dict[str, str]:
-        """
-        Загрузка описаний из JSON-файла games.json.
-        Возвращает словарь {название_игры: описание}.
-        """
-        descriptions = {}
-        json_file_path = Path.cwd() / 'games.json'
-
-        if not json_file_path.exists():
-            self.stdout.write(self.style.WARNING(f'📂 JSON-файл не найден: {json_file_path}'))
-            return descriptions
-
-        self.stdout.write(self.style.WARNING(f'📂 Загрузка описаний из JSON: {json_file_path}'))
-
-        try:
-            with open(json_file_path, 'r', encoding='utf-8') as f:
-                games_data = json.load(f)
-
-            loaded_count = 0
-            for app_id, game_info in games_data.items():
-                game_name = game_info.get('name', '').strip()
-
-                description = None
-                for field in ['detailed_description', 'about_the_game', 'short_description']:
-                    desc = game_info.get(field, '')
-                    if desc and isinstance(desc, str) and desc.strip():
-                        description = desc
-                        break
-
-                if game_name and description:
-                    cleaned_description = self.clean_html(description)
-                    if cleaned_description and cleaned_description.strip():
-                        descriptions[game_name.lower()] = cleaned_description
-                        loaded_count += 1
-
-            self.stdout.write(self.style.SUCCESS(f'✅ Загружено {loaded_count} описаний из JSON'))
-
-        except json.JSONDecodeError as e:
-            self.log_debug("Ошибка парсинга JSON-файла", error=e)
-            self.stdout.write(self.style.ERROR(f'❌ Ошибка парсинга JSON: {e}'))
-        except Exception as e:
-            self.log_debug("Ошибка при загрузке JSON-файла", error=e)
-            self.stdout.write(self.style.ERROR(f'❌ Ошибка загрузки JSON: {e}'))
-
-        return descriptions
-
-    def load_descriptions_from_json_to_db(self, json_descriptions: Dict[str, str]) -> int:
-        """
-        Загрузка описаний из JSON в базу данных.
-        Загружает только игры без описания.
-        Использует массовые запросы для оптимизации скорости.
-        Поддерживает прерывание (Ctrl+C).
-        """
-        if not json_descriptions:
-            self.stdout.write(self.style.WARNING('📂 JSON-словарь пуст'))
-            return 0
-
-        self.stdout.write(self.style.WARNING('📂 Загрузка описаний из JSON в базу данных...'))
-
-        game_names_list = list(json_descriptions.keys())
-
-        self.stdout.write(f'   🔍 Массовый поиск игр для обновления...')
-
-        games_to_update = []
-
-        batch_size = 1000
-        total_batches = (len(game_names_list) + batch_size - 1) // batch_size
-        processed_batches = 0
-
-        for i in range(0, len(game_names_list), batch_size):
-            if self.interrupted:
-                self.stdout.write(self.style.WARNING('\n   ⚠️ Прерывание загрузки JSON...'))
-                break
-
-            batch_names = game_names_list[i:i + batch_size]
-
-            games = Game.objects.filter(
-                name__in=batch_names,
-                rawg_description__isnull=True
-            ).exclude(rawg_description='')
-
-            name_to_game = {game.name.lower(): game for game in games}
-
-            not_found_names = [name for name in batch_names if name not in name_to_game]
-
-            if not_found_names:
-                import django.db.models.functions as func
-                case_insensitive_games = Game.objects.annotate(
-                    lower_name=func.Lower('name')
-                ).filter(
-                    lower_name__in=not_found_names,
-                    rawg_description__isnull=True
-                ).exclude(rawg_description='')
-
-                for game in case_insensitive_games:
-                    name_to_game[game.name.lower()] = game
-
-            for name_lower, description in json_descriptions.items():
-                if self.interrupted:
-                    break
-
-                if name_lower in name_to_game:
-                    game = name_to_game[name_lower]
-                    game.rawg_description = description
-                    games_to_update.append(game)
-
-            if self.interrupted:
-                break
-
-            processed_batches += 1
-            if processed_batches % 10 == 0 or processed_batches == total_batches:
-                self.stdout.write(
-                    f'   📥 Обработано {min(i + batch_size, len(game_names_list))}/{len(game_names_list)} названий, найдено {len(games_to_update)} игр')
-
-        if self.interrupted:
-            self.stdout.write(self.style.WARNING(
-                f'\n   ⚠️ Загрузка JSON прервана. Найдено {len(games_to_update)} игр для обновления.'))
-            if not games_to_update:
-                self.stdout.write(self.style.WARNING('   📂 Не было найдено игр для обновления до прерывания'))
-                return 0
-
-        if not games_to_update:
-            self.stdout.write(self.style.WARNING('📂 Нет игр для обновления из JSON'))
-            return 0
-
-        self.stdout.write(f'   💾 Сохранение {len(games_to_update)} описаний в базу данных...')
-
-        try:
-            with transaction.atomic():
-                save_batch_size = 500
-                saved_count = 0
-                total_to_save = len(games_to_update)
-
-                for i in range(0, total_to_save, save_batch_size):
-                    if self.interrupted:
-                        self.stdout.write(self.style.WARNING(
-                            f'\n   ⚠️ Прерывание сохранения. Сохранено {saved_count}/{total_to_save}'))
-                        break
-
-                    batch = games_to_update[i:i + save_batch_size]
-                    Game.objects.bulk_update(batch, ['rawg_description'])
-                    saved_count += len(batch)
-
-                    percent = (saved_count / total_to_save) * 100
-                    bar_width = 40
-                    filled = int(bar_width * saved_count / total_to_save)
-                    bar = '█' * filled + '░' * (bar_width - filled)
-
-                    self.stdout.write(f'\r      [{bar}] {percent:>5.1f}% | {saved_count:>6}/{total_to_save:<6}',
-                                      ending='')
-                    self.stdout.flush()
-
-                self.stdout.write('')
-
-            if saved_count > 0:
-                self.stdout.write(self.style.SUCCESS(f'✅ Загружено {saved_count} описаний из JSON в БД'))
-            else:
-                self.stdout.write(self.style.WARNING('⚠️ Не сохранено ни одного описания'))
-
-            return saved_count
-
-        except Exception as e:
-            self.log_debug("Ошибка при сохранении описаний из JSON", error=e)
-            self.stdout.write(self.style.ERROR(f'❌ Ошибка сохранения: {e}'))
-            return 0
+        self.batch_times = []
 
     def save_steam_cache(self, cache_file_path: Path):
         """Сохранение общего кэша Steam в файл."""
@@ -974,11 +807,11 @@ class Command(BaseCommand):
 
     def load_descriptions_from_csv(self) -> Dict[str, str]:
         """
-        Загрузка описаний из CSV-файла games_march2025_cleaned.csv.
+        Загрузка описаний из CSV-файла steam_games_data.csv.
         Возвращает словарь {название_игры: описание}.
         """
         descriptions = {}
-        csv_file_path = Path.cwd() / 'games_march2025_cleaned.csv'
+        csv_file_path = Path.cwd() / 'steam_games_data.csv'
 
         if not csv_file_path.exists():
             self.stdout.write(self.style.WARNING(f'📂 CSV-файл не найден: {csv_file_path}'))
@@ -987,6 +820,9 @@ class Command(BaseCommand):
         self.stdout.write(self.style.WARNING(f'📂 Загрузка описаний из CSV: {csv_file_path}'))
 
         try:
+            import sys
+            csv.field_size_limit(sys.maxsize)
+
             with open(csv_file_path, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
 
@@ -3001,7 +2837,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS('🚀 STEAM DESCRIPTIONS FETCHER'))
         self.stdout.write(self.style.SUCCESS('=' * 60))
 
-        self.stdout.write(self.style.WARNING('📋 Шаг 1/9: Поиск платформы PC...'))
+        self.stdout.write(self.style.WARNING('📋 Шаг 1/8: Поиск платформы PC...'))
         pc = self.get_pc_platform()
         if not pc:
             self.stdout.write(self.style.ERROR('❌ Платформа PC не найдена'))
@@ -3011,11 +2847,11 @@ class Command(BaseCommand):
         self.output_dir = Path(options['output_dir'])
 
         if options['clear_logs']:
-            self.stdout.write(self.style.WARNING('📋 Шаг 2/9: Очистка логов...'))
+            self.stdout.write(self.style.WARNING('📋 Шаг 2/8: Очистка логов...'))
             self._clear_logs()
             return
 
-        self.stdout.write(self.style.WARNING('📋 Шаг 2/9: Инициализация параметров...'))
+        self.stdout.write(self.style.WARNING('📋 Шаг 2/8: Инициализация параметров...'))
         params = self._initialize_parameters(options, pc)
         if not params:
             return
@@ -3028,36 +2864,15 @@ class Command(BaseCommand):
          only_found) = params
 
         if processed_total == 0:
-            self.stdout.write(self.style.WARNING('📋 Шаг 3/9: Создание статистики...'))
+            self.stdout.write(self.style.WARNING('📋 Шаг 3/8: Создание статистики...'))
             self._init_stats_file()
 
-            self.stdout.write(self.style.WARNING('📋 Шаг 4/9: Загрузка описаний из кэш-файла...'))
+            self.stdout.write(self.style.WARNING('📋 Шаг 4/8: Загрузка описаний из кэш-файла...'))
             loaded_from_cache = self.load_descriptions_from_cache()
             if loaded_from_cache > 0:
                 self.stdout.write(self.style.SUCCESS(f'✅ Загружено {loaded_from_cache} описаний из кэша'))
 
-            self.stdout.write(self.style.WARNING('📋 Шаг 5/9: Загрузка описаний из JSON-файла...'))
-            json_descriptions = self.load_descriptions_from_games_json()
-
-            if json_descriptions:
-                if only_found and self.found_games:
-                    self.stdout.write(self.style.WARNING(
-                        f'📊 Загрузка JSON-описаний только для {len(self.found_games)} найденных игр...'))
-                    filtered_json = {}
-                    for game_id in self.found_games:
-                        game = Game.objects.filter(id=game_id).first()
-                        if game and game.name.lower() in json_descriptions:
-                            filtered_json[game.name.lower()] = json_descriptions[game.name.lower()]
-                    loaded_from_json = self.load_descriptions_from_json_to_db(filtered_json)
-                else:
-                    loaded_from_json = self.load_descriptions_from_json_to_db(json_descriptions)
-
-                if loaded_from_json > 0:
-                    self.stdout.write(self.style.SUCCESS(f'✅ Загружено {loaded_from_json} описаний из JSON'))
-
-                self.json_descriptions = json_descriptions
-
-            self.stdout.write(self.style.WARNING('📋 Шаг 6/9: Загрузка описаний из CSV-файла...'))
+            self.stdout.write(self.style.WARNING('📋 Шаг 5/8: Загрузка описаний из CSV-файла...'))
             csv_descriptions = self.load_descriptions_from_csv()
 
             if csv_descriptions:
@@ -3081,7 +2896,7 @@ class Command(BaseCommand):
                 self.csv_descriptions = {}
 
             # ========== ДОПОЛНИТЕЛЬНОЕ ОТСЕИВАНИЕ ПОСЛЕ ЗАГРУЗКИ ==========
-            self.stdout.write(self.style.WARNING('📋 Шаг 6.1/9: Повторная проверка и отсеивание игр с описаниями...'))
+            self.stdout.write(self.style.WARNING('📋 Шаг 5.1/8: Повторная проверка и отсеивание игр с описаниями...'))
 
             if self.found_games:
                 games_with_description = set(
@@ -3148,7 +2963,7 @@ class Command(BaseCommand):
             # ===========================================================
 
         if options['clear_descriptions']:
-            self.stdout.write(self.style.WARNING('📋 Шаг 7/9: Очистка описаний...'))
+            self.stdout.write(self.style.WARNING('📋 Шаг 6/8: Очистка описаний...'))
             self._clear_descriptions(pc)
             if not force and not only_found:
                 return
@@ -3156,13 +2971,13 @@ class Command(BaseCommand):
         if processed_total == 0:
             self.log_timeline("START")
 
-        self.stdout.write(self.style.WARNING('📋 Шаг 8/9: Подготовка...'))
+        self.stdout.write(self.style.WARNING('📋 Шаг 7/8: Подготовка...'))
         self._print_startup_info(limit, total_to_process, processed_total,
                                  batch_size, iteration_pause, options,
                                  process_not_found, skip_not_found,
                                  process_no_description, skip_no_description)
 
-        self.stdout.write(self.style.WARNING('📋 Шаг 9/9: Запуск обработки...'))
+        self.stdout.write(self.style.WARNING('📋 Шаг 8/8: Запуск обработки...'))
         self.stdout.write(self.style.SUCCESS('=' * 60))
 
         processed_total, games_per_second = self._main_processing_loop(
