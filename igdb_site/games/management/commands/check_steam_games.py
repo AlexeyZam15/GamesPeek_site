@@ -237,10 +237,11 @@ class Command(BaseCommand):
         self.stdout.write(progress_line, ending='')
         self.stdout.flush()
 
-    def load_not_found_games_for_recheck(self, not_found_file_path: Path) -> List[Tuple[int, str]]:
+    def load_not_found_games_for_recheck(self, not_found_file_path: Path) -> List[Tuple[int, str, int]]:
         """
         Загрузка игр из файла not_found для повторной проверки.
-        Возвращает список кортежей (game_id, game_name).
+        Единый формат: Game ID: 12345 - Название игры (Steam App ID: 67890) - не найдено в Steam
+        Возвращает список кортежей (game_id, game_name, app_id)
         """
         games_to_recheck = []
 
@@ -251,20 +252,51 @@ class Command(BaseCommand):
         try:
             with open(not_found_file_path, 'r', encoding='utf-8') as f:
                 for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if line.startswith('=') or line.startswith('STEAM NOT FOUND GAMES') or line.startswith('Created:'):
+                        continue
+
                     if 'Game ID:' in line:
                         try:
-                            game_id_part = line.split('Game ID:')[1].split('-')[0].strip()
-                            game_id = int(game_id_part)
+                            # Парсим формат: Game ID: 12345 - Название игры (Steam App ID: 67890) - не найдено в Steam
+                            game_part = line.split('Game ID:')[1].strip()
 
-                            # Получаем название игры из базы данных
-                            try:
-                                game = Game.objects.get(id=game_id)
-                                games_to_recheck.append((game_id, game.name))
-                            except Game.DoesNotExist:
+                            # Извлекаем game_id
+                            if '-' in game_part:
+                                game_id_str = game_part.split('-')[0].strip()
+                                game_id = int(game_id_str)
+
+                                # Извлекаем название игры
+                                rest_after_id = game_part.split('-', 1)[1].strip()
+
+                                # Извлекаем app_id из скобок
+                                app_id = None
+                                game_name = rest_after_id
+
+                                if '(' in rest_after_id and ')' in rest_after_id:
+                                    app_id_part = rest_after_id.split('(')[1].split(')')[0]
+                                    if 'Steam App ID:' in app_id_part:
+                                        app_id_str = app_id_part.split('Steam App ID:')[1].strip()
+                                        if app_id_str != 'None':
+                                            try:
+                                                app_id = int(app_id_str)
+                                            except ValueError:
+                                                app_id = None
+
+                                    # Извлекаем название (часть до скобки)
+                                    game_name = rest_after_id.split('(')[0].strip()
+
+                                games_to_recheck.append((game_id, game_name, app_id))
+                            else:
                                 self.stdout.write(
-                                    self.style.WARNING(f'  ⚠️ Игра ID {game_id} не найдена в БД, пропускаем'))
+                                    self.style.WARNING(f'  ⚠️ Пропущена строка в неправильном формате: {line[:50]}'))
+                                continue
+
                         except (ValueError, IndexError) as e:
                             self.stdout.write(self.style.WARNING(f'  ⚠️ Ошибка парсинга строки: {line[:50]}'))
+                            continue
 
             self.stdout.write(self.style.SUCCESS(
                 f'📂 Загружено {len(games_to_recheck)} игр из not_found файла для повторной проверки'))
@@ -332,44 +364,70 @@ class Command(BaseCommand):
 
         return found, not_found
 
-    def check_games_batch(self, games: List[Tuple[int, str]]) -> Dict[int, Tuple[bool, int]]:
+    def check_games_batch(self, games: List[Tuple[int, str, int]]) -> Dict[int, Tuple[bool, int, str]]:
         """
-        Проверка одной партии игр в Steam.
-        Возвращает словарь {game_id: (найдена, app_id)}.
+        Проверка одной партии игр в Steam с параллельными запросами.
+        games: список кортежей (game_id, game_name, app_id)
+        Возвращает словарь {game_id: (найдена, app_id, game_name)}.
         """
         results = {}
 
         if not games:
             return results
 
-        # Формируем список названий для поиска
-        # Steam API позволяет искать только по одному названию за раз,
-        # поэтому для массовой проверки используем параллельные запросы
-        # или делаем по одному запросу на игру, но с паузами
+        # 12 параллельных запросов
+        max_workers = min(12, len(games))
 
-        # Более эффективный способ: используем параллельные запросы
-        with ThreadPoolExecutor(max_workers=10) as executor:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {}
-            for game_id, game_name in games:
-                future = executor.submit(self.search_single_game, game_id, game_name)
-                futures[future] = game_id
+            for game_id, game_name, app_id in games:
+                future = executor.submit(self.search_single_game, game_id, game_name, app_id)
+                futures[future] = (game_id, game_name)
 
             for future in as_completed(futures):
-                game_id = futures[future]
+                game_id, game_name = futures[future]
+
                 try:
-                    found, app_id = future.result(timeout=10)
-                    results[game_id] = (found, app_id)
+                    found, new_app_id = future.result(timeout=5)
+                    results[game_id] = (found, new_app_id, game_name)
                 except Exception as e:
-                    self.stdout.write(self.style.ERROR(f'  Ошибка проверки ID {game_id}: {e}'))
-                    results[game_id] = (False, None)
+                    results[game_id] = (False, None, game_name)
 
         return results
 
-    def search_single_game(self, game_id: int, game_name: str) -> Tuple[bool, int]:
-        """Поиск одной игры в Steam."""
+    def search_single_game(self, game_id: int, game_name: str, app_id: int = None) -> Tuple[bool, int]:
+        """Поиск одной игры в Steam с максимальной скоростью."""
+        try:
+            # Если у нас уже есть app_id из предыдущей проверки, используем его для быстрой проверки
+            if app_id and app_id > 0:
+                # Используем короткий таймаут для быстрой проверки
+                url = "https://store.steampowered.com/api/appdetails"
+                params = {
+                    'appids': app_id,
+                    'l': 'english',
+                    'cc': 'us'
+                }
+                try:
+                    response = self.session.get(url, params=params, timeout=2.0)
+                    if response.status_code == 200:
+                        data = response.json()
+                        str_app_id = str(app_id)
+                        if str_app_id in data and data[str_app_id].get('success'):
+                            return True, app_id
+                except:
+                    pass
+
+            # Если не сработало или app_id нет, пробуем поиск по названию
+            return self.search_by_name(game_name)
+
+        except Exception as e:
+            return False, None
+
+    def search_by_name(self, game_name: str) -> Tuple[bool, int]:
+        """Быстрый поиск игры по названию с коротким таймаутом."""
         try:
             # Очищаем название для поиска
-            search_name = game_name[:100]
+            search_name = game_name[:100].strip()
 
             url = "https://store.steampowered.com/api/storesearch"
             params = {
@@ -378,7 +436,8 @@ class Command(BaseCommand):
                 'cc': 'us'
             }
 
-            response = self.session.get(url, params=params, timeout=5.0)
+            # Используем короткий таймаут для скорости
+            response = self.session.get(url, params=params, timeout=2.0)
 
             if response.status_code != 200:
                 return False, None
@@ -395,20 +454,22 @@ class Command(BaseCommand):
         except Exception as e:
             return False, None
 
-    def save_results(self, results: Dict[int, Tuple[bool, int]], found_file: Path, not_found_file: Path):
-        """Сохранение результатов проверки в файлы."""
+    def save_results(self, results: Dict[int, Tuple[bool, int, str]], found_file: Path, not_found_file: Path):
+        """Сохранение результатов проверки в файлы с единым форматом."""
         found_count = 0
         not_found_count = 0
 
         with open(found_file, 'a', encoding='utf-8') as f_found, \
                 open(not_found_file, 'a', encoding='utf-8') as f_not_found:
 
-            for game_id, (found, app_id) in results.items():
+            for game_id, (found, app_id, game_name) in results.items():
                 if found:
-                    f_found.write(f"Game ID: {game_id} (Steam App ID: {app_id})\n")
+                    # Формат: Game ID: 12345 - Название игры (Steam App ID: 67890)
+                    f_found.write(f"Game ID: {game_id} - {game_name} (Steam App ID: {app_id})\n")
                     found_count += 1
                 else:
-                    f_not_found.write(f"Game ID: {game_id}\n")
+                    # Формат: Game ID: 12345 - Название игры (Steam App ID: None) - не найдено в Steam
+                    f_not_found.write(f"Game ID: {game_id} - {game_name} (Steam App ID: None) - не найдено в Steam\n")
                     not_found_count += 1
 
         return found_count, not_found_count
@@ -514,12 +575,14 @@ class Command(BaseCommand):
                 shutil.copy2(not_found_file, backup_file)
                 self.stdout.write(self.style.WARNING(f'📋 Создана резервная копия: {backup_file}'))
 
-            # Очищаем текущий not_found файл для новых результатов
+            # Очищаем файл not_found перед записью новых результатов
             with open(not_found_file, 'w', encoding='utf-8') as f:
                 f.write(f"{'=' * 80}\n")
-                f.write(f"STEAM NOT FOUND GAMES (RE-CHECKED)\n")
+                f.write(f"STEAM NOT FOUND GAMES (после повторной проверки)\n")
                 f.write(f"Created: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write(f"{'=' * 80}\n\n")
+
+            self.stdout.write(self.style.WARNING(f'📝 Файл not_found очищен, будут записаны только новые результаты'))
 
         else:
             # Стандартный режим проверки
@@ -587,15 +650,13 @@ class Command(BaseCommand):
         self.stdout.write(f'\n📊 Всего игр для проверки: {total_games}')
         self.stdout.write(f'📊 Размер батча: {batch_size}')
         self.stdout.write(f'📊 Задержка: {delay}с')
+        self.stdout.write(f'📊 Параллельных запросов: 12')
         self.stdout.write('=' * 60)
 
         # Обрабатываем игры батчами
         total_found = 0
         total_not_found = 0
         processed = 0
-
-        # Выводим пустую строку для прогресс-бара
-        self.stdout.write('')
 
         # Открываем файлы для прямой записи
         found_file_handle = open(found_file, 'a', encoding='utf-8')
@@ -610,47 +671,90 @@ class Command(BaseCommand):
 
                 batch = games_to_check[i:i + batch_size]
 
-                # Проверяем батч
-                results = self.check_games_batch(batch)
+                # Преобразуем batch в формат (game_id, game_name, app_id) для единообразия
+                batch_with_app_id = []
+                for item in batch:
+                    if len(item) == 3:
+                        batch_with_app_id.append(item)
+                    else:
+                        game_id, game_name = item
+                        # Пытаемся получить app_id из кэша
+                        app_id = None
+                        if str(game_id) in self.cache_data:
+                            app_id = self.cache_data[str(game_id)].get('app_id')
+                        batch_with_app_id.append((game_id, game_name, app_id))
 
-                # Сохраняем результаты напрямую в файлы
+                # Проверяем батч с параллельными запросами
+                results = self.check_games_batch(batch_with_app_id)
+
+                # Сохраняем результаты
                 batch_found = 0
                 batch_not_found = 0
 
-                for game_id, (found, app_id) in results.items():
+                for game_id, (found, app_id, game_name) in results.items():
                     if found:
-                        found_file_handle.write(f"Game ID: {game_id} (Steam App ID: {app_id})\n")
+                        found_file_handle.write(f"Game ID: {game_id} - {game_name} (Steam App ID: {app_id})\n")
                         found_file_handle.flush()
                         batch_found += 1
-                        # Обновляем кэш
-                        self.cache_data[game_id] = {
+                        self.cache_data[str(game_id)] = {
                             'found': True,
                             'app_id': app_id,
                             'checked_at': datetime.now().isoformat(),
-                            'game_name': dict(batch).get(game_id, 'Unknown')
+                            'game_name': game_name
                         }
                     else:
-                        not_found_file_handle.write(f"Game ID: {game_id}\n")
+                        not_found_file_handle.write(
+                            f"Game ID: {game_id} - {game_name} (Steam App ID: None) - не найдено в Steam\n")
                         not_found_file_handle.flush()
                         batch_not_found += 1
-                        # Обновляем кэш
-                        self.cache_data[game_id] = {
+                        self.cache_data[str(game_id)] = {
                             'found': False,
                             'app_id': None,
                             'checked_at': datetime.now().isoformat(),
-                            'game_name': dict(batch).get(game_id, 'Unknown')
+                            'game_name': game_name
                         }
 
                 total_found += batch_found
                 total_not_found += batch_not_found
                 processed += len(batch)
 
-                # Периодически сохраняем кэш (каждые 20 батчей)
-                if (i // batch_size) % 20 == 0 and processed > 0:
-                    self.save_cache_data(cache_file, self.cache_data)
+                # Сохраняем кэш после каждого батча
+                self.save_cache_data(cache_file, self.cache_data)
 
                 # Обновляем прогресс-бар
-                self.display_progress_bar(processed, total_games, start_time, total_found, total_not_found)
+                percent = processed / total_games
+                bar_width = 50
+                filled_length = int(bar_width * percent)
+                bar = '█' * filled_length + '░' * (bar_width - filled_length)
+
+                elapsed = (datetime.now() - start_time).total_seconds()
+                if processed > 0:
+                    eta_seconds = (elapsed / processed) * (total_games - processed)
+                    if eta_seconds > 3600:
+                        eta_hours = int(eta_seconds // 3600)
+                        eta_minutes = int((eta_seconds % 3600) // 60)
+                        eta_str = f"{eta_hours}h {eta_minutes}m"
+                    elif eta_seconds > 60:
+                        eta_minutes = int(eta_seconds // 60)
+                        eta_seconds_remain = int(eta_seconds % 60)
+                        eta_str = f"{eta_minutes}m {eta_seconds_remain}s"
+                    else:
+                        eta_str = f"{int(eta_seconds)}s"
+                else:
+                    eta_str = "calculating..."
+
+                speed = processed / elapsed if elapsed > 0 else 0
+
+                progress_line = (
+                    f"\r[{bar}] {percent:>6.1%} | "
+                    f"{processed:>6}/{total_games:<6} | "
+                    f"✅{total_found:>5} ❌{total_not_found:>5} | "
+                    f"⏱️{elapsed:>5.0f}s | "
+                    f"🚀{speed:>5.1f}g/s | "
+                    f"⌛ETA:{eta_str:>10}"
+                )
+                self.stdout.write(progress_line, ending='')
+                self.stdout.flush()
 
                 # Пауза между батчами
                 if i + batch_size < total_games and delay > 0 and not self.interrupted:
@@ -661,6 +765,9 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR('\n\n⚠️ Получено прерывание (Ctrl+C)'))
 
         finally:
+            # Переходим на новую строку после прогресс-бара
+            self.stdout.write('')
+
             # Закрываем файловые дескрипторы
             found_file_handle.close()
             not_found_file_handle.close()
@@ -682,9 +789,6 @@ class Command(BaseCommand):
             # Если не было прерывания, удаляем файл прогресса
             if not self.interrupted and progress_file.exists():
                 progress_file.unlink(missing_ok=True)
-
-        # Переходим на новую строку после прогресс-бара
-        self.stdout.write('')
 
         # Финальная статистика
         elapsed = (datetime.now() - start_time).total_seconds()
