@@ -307,7 +307,94 @@ def get_request(url: str, parameters: Dict = None, timeout: float = 10, retries:
 class Command(BaseCommand):
     """Steam descriptions fetcher с пакетной обработкой и сохранением прогресса."""
 
+    # Константа лимита запросов в минуту
+    REQUESTS_PER_MINUTE = 50
+
     help = 'Получение описаний из Steam с пакетной обработкой и сохранением прогресса'
+
+    def __init__(self, *args, **kwargs):
+        """Инициализация команды."""
+        super().__init__(*args, **kwargs)
+        self.stats_lock = Lock()
+        self.output_lock = Lock()
+        self.descriptions_buffer = []
+        self.not_found_buffer = []
+        self.found_buffer = []
+        self.buffer_size = 50
+        self.session = self._create_session()
+        self.pc_platform = None
+        self.debug = False
+        self.verbose = False
+        self.interrupted = False
+        self.no_description_file = 'steam_no_description.txt'
+        self.found_file = 'steam_found.txt'
+        self.not_found_file = 'steam_not_found.txt'
+        self.log_file = 'steam_fetcher_timeline.log'
+        self.cache_file = 'steam_cache.json'
+        self.stats_file = 'steam_stats.json'
+        self.progress_file = 'steam_progress.txt'
+        self.no_description_file_path = None
+        self.found_file_path = None
+        self.not_found_file_path = None
+        self.log_file_path = None
+        self.cache_file_path = None
+        self.stats_file_path = None
+        self.progress_file_path = None
+        self.no_description_buffer = []
+        self.no_description_games = set()
+        self.found_games = set()
+        self.app_id_dict = {}
+        self.cache_data = {}
+        self.total_stats = {
+            'success': 0,
+            'not_found': 0,
+            'no_description': 0,
+            'error': 0,
+            'error_403': 0,
+            'error_429': 0,
+            'error_timeout': 0,
+            'error_other': 0,
+            'iterations': 0,
+            'backoff_pauses': 0,
+            'skipped_not_found': 0,
+            'skipped_no_description': 0
+        }
+        self.output_dir = None
+        self.full_output_path = None
+        self.not_found_games = set()
+        self.current_offset = 0
+        self.error_log = []
+        self.rate_limiter = None
+        self.batch_failure_threshold = 0.3
+        self.batch_size = 30
+        self.workers = 3
+        self.delay = 0.5
+        self.timeout = 10
+        self.output_file = 'steam_descriptions_all.txt'
+        self.start_time = None
+        self.processed_before_pause = 0
+        self._pause_active = False
+        self.processed_total = 0
+        self.limit = 0
+        self.only_found = False
+        self.force = False
+        self.dry_run = False
+        self.create_backup = True
+        self.batch_times = []
+        self.loop_start_time = None
+
+        # Инициализация ограничителя запросов
+        self._init_rate_limiter()
+
+    def _init_rate_limiter(self):
+        """Инициализация потокобезопасного ограничителя запросов."""
+        import threading
+        self._request_counter = 0
+        self._request_counter_lock = threading.Lock()
+        self._minute_start = int(time.time() / 60)
+        self._max_requests_per_minute = self.REQUESTS_PER_MINUTE
+        self._pause_active = False
+        self._pause_shown = False
 
     def add_arguments(self, parser: CommandParser) -> None:
         """Добавление аргументов команды."""
@@ -570,75 +657,218 @@ class Command(BaseCommand):
             help='Внутренний аргумент: количество итераций из предыдущего процесса'
         )
 
-    def __init__(self, *args, **kwargs):
-        """Инициализация команды."""
-        super().__init__(*args, **kwargs)
-        self.stats_lock = Lock()
-        self.output_lock = Lock()
-        self.descriptions_buffer = []
-        self.not_found_buffer = []
-        self.found_buffer = []
-        self.buffer_size = 50
-        self.session = self._create_session()
-        self.pc_platform = None
-        self.debug = False
-        self.verbose = False
-        self.interrupted = False
-        self.no_description_file = 'steam_no_description.txt'
-        self.found_file = 'steam_found.txt'
-        self.not_found_file = 'steam_not_found.txt'
-        self.log_file = 'steam_fetcher_timeline.log'
-        self.cache_file = 'steam_cache.json'
-        self.stats_file = 'steam_stats.json'
-        self.progress_file = 'steam_progress.txt'
-        self.no_description_file_path = None
-        self.found_file_path = None
-        self.not_found_file_path = None
-        self.log_file_path = None
-        self.cache_file_path = None
-        self.stats_file_path = None
-        self.progress_file_path = None
-        self.no_description_buffer = []
-        self.no_description_games = set()
-        self.found_games = set()
-        self.app_id_dict = {}
-        self.cache_data = {}
-        self.total_stats = {
-            'success': 0,
-            'not_found': 0,
-            'no_description': 0,
-            'error': 0,
-            'error_403': 0,
-            'error_429': 0,
-            'error_timeout': 0,
-            'error_other': 0,
-            'iterations': 0,
-            'backoff_pauses': 0,
-            'skipped_not_found': 0,
-            'skipped_no_description': 0
-        }
-        self.output_dir = None
-        self.full_output_path = None
-        self.not_found_games = set()
-        self.current_offset = 0
-        self.error_log = []
-        self.rate_limiter = None
-        self.batch_failure_threshold = 0.3
-        self.batch_size = 30
-        self.workers = 3
-        self.delay = 0.5
-        self.timeout = 10
-        self.output_file = 'steam_descriptions_all.txt'
-        self.start_time = None
-        self.processed_before_pause = 0
-        self._pause_active = False
-        self.processed_total = 0
-        self.limit = 0
-        self.only_found = False
-        self.force = False
-        self.dry_run = False
-        self.create_backup = True
-        self.batch_times = []
+    def _display_progress_during_pause(self, remaining_seconds: float):
+        """
+        Отображает прогресс обработки во время паузы.
+        Использует сохраненные данные о прогрессе.
+        """
+        if not hasattr(self, '_last_progress_display'):
+            self._last_progress_display = {}
+
+        total_limit = getattr(self, 'limit', 0)
+        processed_total = getattr(self, 'processed_total', 0)
+
+        if total_limit <= 0:
+            return
+
+        # Расчет прогресса
+        progress = (processed_total / total_limit * 100) if total_limit > 0 else 0
+
+        # Создаем прогресс-бар
+        bar_length = 40
+        filled = int(bar_length * progress / 100)
+        bar = '█' * filled + '░' * (bar_length - filled)
+
+        # Расчет ETA
+        if hasattr(self, '_load_times') and self._load_times and len(self._load_times) > 0:
+            avg_time = sum(self._load_times[-100:]) / min(len(self._load_times), 100)
+            remaining_games = total_limit - processed_total
+            eta_seconds = remaining_games * avg_time + remaining_seconds
+        else:
+            eta_seconds = 0
+
+        # Форматирование времени
+        if eta_seconds > 0:
+            hours = int(eta_seconds // 3600)
+            minutes = int((eta_seconds % 3600) // 60)
+            secs = int(eta_seconds % 60)
+            if hours > 0:
+                eta_str = f"{hours}ч {minutes}м {secs}с"
+            elif minutes > 0:
+                eta_str = f"{minutes}м {secs}с"
+            else:
+                eta_str = f"{secs}с"
+        else:
+            eta_str = "расчет..."
+
+        # Расчет скорости
+        if hasattr(self, '_load_times') and self._load_times and len(self._load_times) > 0:
+            avg_time = sum(self._load_times[-100:]) / min(len(self._load_times), 100)
+            games_per_second = 1 / avg_time if avg_time > 0 else 0
+        else:
+            games_per_second = 0
+
+        # Вывод прогресса
+        self.stdout.write(
+            self.style.NOTICE(
+                f'\r📊 ПРОГРЕСС: [{bar}] {progress:.1f}%\n'
+                f'📊 Обработано: {processed_total}/{total_limit} игр\n'
+                f'⏱️ Пауза: {remaining_seconds:.1f}с | ⏳ Осталось: {eta_str} | ⚡ Скорость: {games_per_second:.1f} игр/с   '
+            ),
+            ending=''
+        )
+        self.stdout.flush()
+
+    def _wait_for_rate_limit(self):
+        """
+        Ожидает, соблюдая лимит REQUESTS_PER_MINUTE запросов в минуту.
+        Делает ровно REQUESTS_PER_MINUTE запросов максимально быстро, затем пауза до конца минуты.
+        Использует блокировку для корректного подсчета параллельных запросов.
+        """
+        max_requests = self._max_requests_per_minute
+
+        with self._request_counter_lock:
+            current_minute = int(time.time() / 60)
+
+            # Если минута изменилась, сбрасываем счетчик
+            if current_minute != self._minute_start:
+                self._request_counter = 0
+                self._minute_start = current_minute
+                self._pause_active = False
+                self._pause_shown = False
+
+            # Если пауза уже активна, ждем
+            if self._pause_active:
+                end_of_minute = (self._minute_start + 1) * 60
+                wait_seconds = end_of_minute - time.time()
+
+                if wait_seconds > 0:
+                    self._request_counter_lock.release()
+
+                    wait_start = time.time()
+                    remaining = wait_seconds
+                    last_display = 0
+
+                    try:
+                        while remaining > 0:
+                            if self.interrupted:
+                                raise KeyboardInterrupt()
+
+                            # Обновляем прогресс каждые 0.5 секунды
+                            if time.time() - last_display >= 0.5:
+                                # Выводим информацию о паузе с обратным отсчетом
+                                self.stdout.write(
+                                    self.style.WARNING(
+                                        f'\r  🚫 Пауза {remaining:.1f}с | Лимит {max_requests} запросов/мин   '
+                                    ),
+                                    ending=''
+                                )
+                                self.stdout.flush()
+                                last_display = time.time()
+
+                            time.sleep(0.1)
+                            remaining = wait_seconds - (time.time() - wait_start)
+
+                        self.stdout.write('', ending='')
+
+                    finally:
+                        self._request_counter_lock.acquire()
+
+                    # Сбрасываем для новой минуты
+                    self._request_counter = 0
+                    self._minute_start = int(time.time() / 60)
+                    self._pause_active = False
+                    self._pause_shown = False
+
+            # Если достигли лимита, включаем паузу
+            if self._request_counter >= max_requests:
+                self._pause_active = True
+                end_of_minute = (self._minute_start + 1) * 60
+                wait_seconds = end_of_minute - time.time()
+
+                if wait_seconds > 0:
+                    if not self._pause_shown:
+                        self._pause_shown = True
+                        self.stdout.write('', ending='')
+                        self.stdout.write(
+                            self.style.WARNING(
+                                f'\n  🚫 Достигнут лимит {max_requests} запросов/мин, пауза {wait_seconds:.1f}с...'
+                            )
+                        )
+
+                    self._request_counter_lock.release()
+
+                    wait_start = time.time()
+                    remaining = wait_seconds
+                    last_display = 0
+
+                    try:
+                        while remaining > 0:
+                            if self.interrupted:
+                                raise KeyboardInterrupt()
+
+                            # Обновляем прогресс каждые 0.5 секунды
+                            if time.time() - last_display >= 0.5:
+                                self.stdout.write(
+                                    self.style.WARNING(
+                                        f'\r  🚫 Пауза {remaining:.1f}с | Лимит {max_requests} запросов/мин   '
+                                    ),
+                                    ending=''
+                                )
+                                self.stdout.flush()
+                                last_display = time.time()
+
+                            time.sleep(0.1)
+                            remaining = wait_seconds - (time.time() - wait_start)
+
+                        self.stdout.write('', ending='')
+
+                    finally:
+                        self._request_counter_lock.acquire()
+
+                    # Сбрасываем для новой минуты
+                    self._request_counter = 0
+                    self._minute_start = int(time.time() / 60)
+                    self._pause_active = False
+                    self._pause_shown = False
+
+            # Увеличиваем счетчик
+            self._request_counter += 1
+
+    def _print_load_time_statistics(self) -> None:
+        """
+        Выводит статистику времени загрузки игр.
+        """
+        if not hasattr(self, '_load_times') or not self._load_times:
+            return
+
+        load_times = self._load_times
+
+        self.stdout.write(self.style.SUCCESS(f'\n⏱️ СТАТИСТИКА ВРЕМЕНИ ЗАГРУЗКИ:'))
+        self.stdout.write(f'  📊 Всего загружено: {len(load_times)} игр')
+        self.stdout.write(f'  ⚡ Среднее время: {sum(load_times) / len(load_times):.2f}с')
+        self.stdout.write(f'  🚀 Минимальное: {min(load_times):.2f}с')
+        self.stdout.write(f'  🐢 Максимальное: {max(load_times):.2f}с')
+
+        # Медианное время
+        sorted_times = sorted(load_times)
+        median = sorted_times[len(sorted_times) // 2]
+        self.stdout.write(f'  📈 Медианное: {median:.2f}с')
+
+        # Процентили
+        p95 = sorted_times[int(len(sorted_times) * 0.95)]
+        p99 = sorted_times[int(len(sorted_times) * 0.99)]
+        self.stdout.write(f'  📊 95-й перцентиль: {p95:.2f}с')
+        self.stdout.write(f'  📊 99-й перцентиль: {p99:.2f}с')
+
+        # Распределение по источникам
+        if hasattr(self, '_load_sources'):
+            csv_count = self._load_sources.get('csv', 0)
+            api_count = self._load_sources.get('steam_api', 0)
+            if csv_count > 0 or api_count > 0:
+                self.stdout.write(f'\n📂 Источники:')
+                self.stdout.write(f'  📁 CSV: {csv_count} ({csv_count / len(load_times) * 100:.1f}%)')
+                self.stdout.write(f'  🌐 Steam API: {api_count} ({api_count / len(load_times) * 100:.1f}%)')
 
     def save_steam_cache(self, cache_file_path: Path):
         """Сохранение общего кэша Steam в файл."""
@@ -995,7 +1225,9 @@ class Command(BaseCommand):
                      delay: float, output_file: str, dry_run: bool, stats: Dict,
                      csv_descriptions: Dict[str, str] = None) -> Dict:
         """
-        Обработка одной игры с возможностью загрузки описания из CSV.
+        Обработка одной игры.
+        ВНИМАНИЕ: Проверка rate limit выполняется на уровне пачки (process_batch).
+        Внутри этого метода проверка НЕ производится для максимальной скорости.
         """
         result = {
             'success': False,
@@ -1005,13 +1237,13 @@ class Command(BaseCommand):
             'error_type': None,
             'error_message': None,
             'error_details': None,
-            'should_retry': False
+            'should_retry': False,
+            'load_time': None,
+            'source': None
         }
 
         try:
-            if delay > 0:
-                time.sleep(delay)
-
+            # Проверка rate limiting (backoff) - только для блокировок, не для лимита REQUESTS_PER_MINUTE
             if self.rate_limiter and self.rate_limiter.should_backoff():
                 if not self.check_rate_limit():
                     result['skipped'] = True
@@ -1019,6 +1251,12 @@ class Command(BaseCommand):
                     result['error_message'] = 'Пауза из-за ошибок'
                     result['should_retry'] = True
                     return result
+
+            # Засекаем время начала обработки игры
+            game_start_time = time.time()
+
+            if delay > 0:
+                time.sleep(delay)
 
             description_from_csv = None
             if csv_descriptions:
@@ -1028,6 +1266,8 @@ class Command(BaseCommand):
                 result['success'] = True
                 result['description'] = description_from_csv
                 result['app_id'] = None
+                result['source'] = 'csv'
+                result['load_time'] = time.time() - game_start_time
 
                 if not dry_run:
                     game_info = f"Game ID: {game.id} - {game.name} (Source: CSV file)"
@@ -1049,6 +1289,7 @@ class Command(BaseCommand):
 
                 return result
 
+            # Поиск в Steam
             app_id = None
             search_error = None
 
@@ -1062,6 +1303,7 @@ class Command(BaseCommand):
                 search_error = 'no_app_id'
 
             if not app_id:
+                result['load_time'] = time.time() - game_start_time
                 with self.stats_lock:
                     if search_error in ['not_found', 'invalid_name', 'app_id_not_found', 'app_not_success',
                                         'no_app_id']:
@@ -1091,7 +1333,12 @@ class Command(BaseCommand):
                 result['skipped'] = True
                 return result
 
+            # Получение описания
             description, desc_error = self.fetch_description(app_id, timeout, game.name)
+
+            # Записываем время загрузки
+            load_time = time.time() - game_start_time
+            result['load_time'] = load_time
 
             if not description:
                 with self.stats_lock:
@@ -1140,6 +1387,7 @@ class Command(BaseCommand):
             result['success'] = True
             result['description'] = description
             result['app_id'] = app_id
+            result['source'] = 'steam_api'
 
             if not dry_run:
                 self.add_to_found(game, app_id)
@@ -1155,6 +1403,22 @@ class Command(BaseCommand):
                 stats['success'] += 1
                 self.total_stats['success'] += 1
 
+                # Сохраняем статистику времени загрузки
+                if not hasattr(self, '_load_times'):
+                    self._load_times = []
+                    self._load_sources = {'csv': 0, 'steam_api': 0}
+
+                self._load_times.append(load_time)
+                self._load_sources[result['source']] = self._load_sources.get(result['source'], 0) + 1
+
+            return result
+
+        except KeyboardInterrupt:
+            self.interrupted = True
+            result['skipped'] = True
+            result['error_type'] = 'interrupted'
+            result['error_message'] = 'Прервано пользователем'
+            result['should_retry'] = False
             return result
 
         except Exception as e:
@@ -1170,6 +1434,7 @@ class Command(BaseCommand):
             result['error_message'] = str(e)[:50]
             result['error_details'] = traceback.format_exc()
             result['should_retry'] = True
+            result['load_time'] = time.time() - game_start_time if 'game_start_time' in locals() else None
             return result
 
     def process_batch(self, games: List[Game], skip_search: bool, timeout: float,
@@ -1187,10 +1452,116 @@ class Command(BaseCommand):
         try:
             with ThreadPoolExecutor(max_workers=self.workers) as executor:
                 futures = {}
+
+                # ПЕРЕД КАЖДЫМ БАТЧЕМ ПРОВЕРЯЕМ ЛИМИТ ЗАПРОСОВ В МИНУТУ
+                with self._request_counter_lock:
+                    # Используем self.loop_start_time из цикла
+                    if hasattr(self, 'loop_start_time') and self.loop_start_time:
+                        elapsed_seconds = time.time() - self.loop_start_time
+                    else:
+                        elapsed_seconds = 1
+
+                    # Общее количество сделанных запросов
+                    total_requests_made = (self.total_stats['success'] +
+                                           self.total_stats['not_found'] +
+                                           self.total_stats['no_description'] +
+                                           self.total_stats['error'])
+
+                    # Если это не первая итерация И есть запросы, проверяем лимит
+                    if total_requests_made > 0:
+                        # Прогнозируемое количество запросов после добавления текущей пачки
+                        predicted_total = total_requests_made + len(games)
+
+                        # Рассчитываем, сколько нужно ждать, чтобы прогнозируемое количество запросов
+                        # уложилось в лимит REQUESTS_PER_MINUTE в минуту
+                        wait_needed = (predicted_total * 60 / self.REQUESTS_PER_MINUTE) - elapsed_seconds
+
+                        if wait_needed > 0:
+                            self._request_counter_lock.release()
+
+                            try:
+                                self.stdout.write(
+                                    self.style.WARNING(
+                                        f'\n  ⏱️ Сделано {total_requests_made} запросов, +{len(games)} = {predicted_total} | '
+                                        f'лимит {self.REQUESTS_PER_MINUTE}/мин | нужно ждать {wait_needed:.1f}с...'
+                                    )
+                                )
+
+                                while True:
+                                    if self.interrupted:
+                                        raise KeyboardInterrupt()
+
+                                    # Пересчитываем оставшееся время
+                                    if hasattr(self, 'loop_start_time') and self.loop_start_time:
+                                        current_elapsed = time.time() - self.loop_start_time
+                                    else:
+                                        current_elapsed = 1
+
+                                    current_total = (self.total_stats['success'] +
+                                                     self.total_stats['not_found'] +
+                                                     self.total_stats['no_description'] +
+                                                     self.total_stats['error'])
+                                    current_predicted = current_total + len(games)
+                                    current_wait = (current_predicted * 60 / self.REQUESTS_PER_MINUTE) - current_elapsed
+
+                                    if current_wait <= 0:
+                                        break
+
+                                    # Обновляем прогресс во время паузы
+                                    total_processed = getattr(self, 'processed_total', 0)
+                                    total_limit = getattr(self, 'limit', 0)
+
+                                    if total_limit > 0:
+                                        progress = (total_processed / total_limit * 100)
+                                        bar_length = 40
+                                        filled = int(bar_length * progress / 100)
+                                        bar = '█' * filled + '░' * (bar_length - filled)
+
+                                        self.stdout.write(
+                                            self.style.NOTICE(
+                                                f'\r📊 ПРОГРЕСС: [{bar}] {progress:.1f}%\n'
+                                                f'📊 Обработано: {total_processed}/{total_limit} игр\n'
+                                                f'⏱️ Пауза {current_wait:.1f}с | Будет {current_predicted} запросов   '
+                                            ),
+                                            ending=''
+                                        )
+                                    else:
+                                        self.stdout.write(
+                                            self.style.WARNING(
+                                                f'\r  ⏱️ Пауза {current_wait:.1f}с | Будет {current_predicted} запросов   '
+                                            ),
+                                            ending=''
+                                        )
+                                    self.stdout.flush()
+
+                                    time.sleep(0.2)
+
+                                self.stdout.write('\n')
+
+                            finally:
+                                self._request_counter_lock.acquire()
+
+                    # Текущая статистика после паузы
+                    if hasattr(self, 'loop_start_time') and self.loop_start_time:
+                        elapsed_seconds = time.time() - self.loop_start_time
+                    else:
+                        elapsed_seconds = 1
+
+                    total_requests_made = (self.total_stats['success'] +
+                                           self.total_stats['not_found'] +
+                                           self.total_stats['no_description'] +
+                                           self.total_stats['error'])
+                    current_rate = total_requests_made / elapsed_seconds if elapsed_seconds > 0 else 0
+                    target_rate = self.REQUESTS_PER_MINUTE / 60
+
+                    self.stdout.write(f'  📊 Скорость: {current_rate:.2f} зап/с (лимит {target_rate:.2f}) | '
+                                      f'сделано {total_requests_made} за {elapsed_seconds:.0f}с')
+
+                # Отправляем задачи для текущего батча
                 for game in games:
                     if self.interrupted:
-                        self.stdout.write(self.style.WARNING('  ⚠️ Прерывание обнаружено, отмена отправки задач...'))
                         break
+
                     future = executor.submit(
                         self.process_game,
                         game, skip_search, timeout, delay,
@@ -1233,7 +1604,6 @@ class Command(BaseCommand):
                                 result = future.result(timeout=1)
 
                                 if result['success']:
-                                    # Проверяем, из какого источника получено описание
                                     if result.get('app_id') is None:
                                         self.stdout.write(
                                             f'  [{completed}/{batch_total}] 📄 {game.name[:40]:40} (Из CSV)'
@@ -1835,6 +2205,7 @@ class Command(BaseCommand):
                 total_processed = self.processed_total if hasattr(self, 'processed_total') else 0
                 self.log_timeline("STOP", total_processed)
 
+                self.stdout.write('', ending='')
                 self.stdout.write(self.style.ERROR(f'\n🚫 Пауза на {remaining:.1f}с для снятия блокировки...'))
 
                 try:
@@ -1843,19 +2214,52 @@ class Command(BaseCommand):
                     pass
 
                 pause_start_time = time.time()
+                last_display = 0
 
                 while remaining > 0 and not self.interrupted:
                     try:
                         current_remaining = self.rate_limiter.get_wait_time_remaining()
-                        if int(current_remaining) != int(remaining) or current_remaining <= 5:
-                            print(f'\r   Осталось {int(current_remaining)}с...   ', end='', flush=True)
-                            remaining = current_remaining
+                        if current_remaining <= 0:
+                            break
+
+                        # Обновляем прогресс каждые 2 секунды
+                        if time.time() - last_display >= 2.0:
+                            total_processed = getattr(self, 'processed_total', 0)
+                            total_limit = getattr(self, 'limit', 0)
+
+                            if total_limit > 0:
+                                progress = (total_processed / total_limit * 100)
+                                bar_length = 40
+                                filled = int(bar_length * progress / 100)
+                                bar = '█' * filled + '░' * (bar_length - filled)
+
+                                self.stdout.write(
+                                    self.style.NOTICE(
+                                        f'\r📊 ПРОГРЕСС: [{bar}] {progress:.1f}% | '
+                                        f'Обработано: {total_processed}/{total_limit} | '
+                                        f'🚫 Пауза {current_remaining:.1f}с   '
+                                    ),
+                                    ending=''
+                                )
+                            else:
+                                self.stdout.write(
+                                    self.style.WARNING(
+                                        f'\r  🚫 Пауза {current_remaining:.1f}с   '
+                                    ),
+                                    ending=''
+                                )
+                            self.stdout.flush()
+                            last_display = time.time()
+
+                        remaining = current_remaining
                         time.sleep(0.5)
+
                     except KeyboardInterrupt:
                         self.interrupted = True
                         break
 
-                print()
+                self.stdout.write('', ending='')
+                self.stdout.write('\n')
 
                 if self.interrupted:
                     self._pause_active = False
@@ -2345,6 +2749,9 @@ class Command(BaseCommand):
             avg_time = statistics.mean(self.batch_times)
             self.stdout.write(f'  ⚡ Среднее время пакета: {self._format_time(avg_time)}')
 
+        # Добавляем статистику времени загрузки
+        self._print_load_time_statistics()
+
         self.stdout.write('=' * 60)
 
     def _format_time(self, seconds: float) -> str:
@@ -2635,7 +3042,7 @@ class Command(BaseCommand):
         """Основной цикл обработки игр."""
         iteration = 0
         games_per_second = 0
-        loop_start_time = time.time()
+        self.loop_start_time = time.time()
 
         self.processed_total = processed_total
         self.only_found = only_found
@@ -2735,7 +3142,7 @@ class Command(BaseCommand):
                 current_processed = games_processed_this_session
                 progress = min(current_processed / total_limit * 100, 100) if total_limit > 0 else 0
 
-                elapsed = time.time() - loop_start_time
+                elapsed = time.time() - self.loop_start_time
                 elapsed_str = self._format_time(elapsed)
 
                 if self.batch_times:
@@ -2895,7 +3302,7 @@ class Command(BaseCommand):
             else:
                 self.csv_descriptions = {}
 
-            # ========== ДОПОЛНИТЕЛЬНОЕ ОТСЕИВАНИЕ ПОСЛЕ ЗАГРУЗКИ ==========
+            # Дополнительное отсеивание после загрузки
             self.stdout.write(self.style.WARNING('📋 Шаг 5.1/8: Повторная проверка и отсеивание игр с описаниями...'))
 
             if self.found_games:
@@ -2907,7 +3314,6 @@ class Command(BaseCommand):
                 )
 
                 if games_with_description:
-                    original_count = len(self.found_games)
                     self.found_games = self.found_games - games_with_description
 
                     for game_id in games_with_description:
@@ -2915,7 +3321,7 @@ class Command(BaseCommand):
                             del self.app_id_dict[game_id]
 
                     self.stdout.write(self.style.SUCCESS(
-                        f'✅ После загрузки из файлов отсеяно еще {len(games_with_description)} игр с описаниями. '
+                        f'✅ Отсеяно {len(games_with_description)} игр с описаниями. '
                         f'Осталось {len(self.found_games)} игр для обработки'
                     ))
 
@@ -2928,12 +3334,9 @@ class Command(BaseCommand):
                 )
 
                 if games_with_description:
-                    original_count = len(self.not_found_games)
                     self.not_found_games = self.not_found_games - games_with_description
-
                     self.stdout.write(self.style.SUCCESS(
-                        f'✅ После загрузки из файлов отсеяно {len(games_with_description)} не найденных игр с описаниями. '
-                        f'Осталось {len(self.not_found_games)} не найденных игр'
+                        f'✅ Отсеяно {len(games_with_description)} не найденных игр с описаниями'
                     ))
 
             if self.no_description_games:
@@ -2945,12 +3348,9 @@ class Command(BaseCommand):
                 )
 
                 if games_with_description:
-                    original_count = len(self.no_description_games)
                     self.no_description_games = self.no_description_games - games_with_description
-
                     self.stdout.write(self.style.SUCCESS(
-                        f'✅ После загрузки из файлов отсеяно {len(games_with_description)} игр без описания, которые теперь имеют описание. '
-                        f'Осталось {len(self.no_description_games)} игр без описания'
+                        f'✅ Отсеяно {len(games_with_description)} игр без описания, которые теперь имеют описание'
                     ))
 
             # Пересчитываем total_to_process для only_found режима
@@ -2960,7 +3360,6 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.SUCCESS(
                     f'📊 Пересчитано количество игр для обработки: {total_to_process}'
                 ))
-            # ===========================================================
 
         if options['clear_descriptions']:
             self.stdout.write(self.style.WARNING('📋 Шаг 6/8: Очистка описаний...'))
