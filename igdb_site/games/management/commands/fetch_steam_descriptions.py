@@ -29,12 +29,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 from threading import Lock
 from games.models_parts.game import Game
 from games.models_parts.simple_models import Platform
+import json
 
 logger = logging.getLogger(__name__)
 
 
 class SteamRateLimiter:
-    """Класс для управления rate limiting и ошибками."""
+    """Класс для управления rate limiting и ошибками с адаптивной задержкой."""
 
     def __init__(self, max_consecutive_failures=10, base_wait_time=60, max_wait_time=300):
         self.consecutive_failures = 0
@@ -53,6 +54,8 @@ class SteamRateLimiter:
         self.backoff_until = None
         self.pause_start_time = None
         self.last_429_time = None
+        self.successful_requests = 0
+        self.last_success_time = None
 
     def record_failure(self, error_type: str = "unknown") -> float:
         """Запись любой неудачной попытки. Возвращает время ожидания если нужно."""
@@ -65,6 +68,7 @@ class SteamRateLimiter:
                 self.consecutive_failures += 1
                 self.total_failures += 1
                 self.last_failure_time = datetime.now()
+                self.successful_requests = 0
 
                 if error_type == "403":
                     self.consecutive_403 += 1
@@ -101,19 +105,26 @@ class SteamRateLimiter:
         return 0
 
     def record_success(self):
-        """Сброс счетчика при успешном запросе."""
+        """Сброс счетчика при успешном запросе с адаптивным уменьшением задержки."""
         try:
             acquired = self.lock.acquire(timeout=2)
             if not acquired:
                 return
 
             try:
+                self.successful_requests += 1
+                self.last_success_time = datetime.now()
+
                 if self.consecutive_failures > 0:
                     self.consecutive_failures = 0
                     self.consecutive_403 = 0
                     self.in_backoff = False
                     self.backoff_until = None
                     self.pause_start_time = None
+
+                if self.consecutive_429 > 0:
+                    self.consecutive_429 = max(0, self.consecutive_429 - 1)
+
             finally:
                 self.lock.release()
         except Exception:
@@ -196,7 +207,9 @@ class SteamRateLimiter:
                 return {
                     'consecutive_failures': self.consecutive_failures,
                     'in_backoff': self.in_backoff,
-                    'pause_start': self.pause_start_time.isoformat() if self.pause_start_time else None
+                    'pause_start': self.pause_start_time.isoformat() if self.pause_start_time else None,
+                    'successful_requests': self.successful_requests,
+                    'last_success': self.last_success_time.isoformat() if self.last_success_time else None
                 }
             finally:
                 self.lock.release()
@@ -212,40 +225,55 @@ def get_request(url: str, parameters: Dict = None, timeout: float = 10, retries:
     """
     Универсальная функция для выполнения GET запросов с обработкой ошибок.
     При ошибке SSL или отсутствии ответа выполняет повторные попытки.
-
-    Parameters
-    ----------
-    url : str
-        URL для запроса
-    parameters : dict
-        Параметры запроса
-    timeout : float
-        Таймаут в секундах
-    retries : int
-        Количество повторных попыток
-
-    Returns
-    -------
-    dict or None
-        JSON-ответ или None при ошибке
+    Использует глобальную сессию для пула соединений.
     """
+    global _session
+    if '_session' not in globals():
+        import requests
+        _session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=50,
+            pool_maxsize=50,
+            max_retries=0
+        )
+        _session.mount('http://', adapter)
+        _session.mount('https://', adapter)
+        _session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive'
+        })
+
     for attempt in range(retries):
         try:
-            response = requests.get(url=url, params=parameters, timeout=timeout)
+            response = _session.get(url=url, params=parameters, timeout=timeout)
 
             if response:
                 if response.status_code == 200:
-                    return response.json()
+                    try:
+                        return response.json()
+                    except Exception as e:
+                        print(f'\n⚠️ Ошибка парсинга JSON: {e}')
+                        if attempt < retries - 1:
+                            time.sleep(2 ** attempt)
+                        continue
                 elif response.status_code == 429:
-                    # Rate limit, ждем дольше
-                    wait_time = 30 * (attempt + 1)
-                    print(f'\n🚫 Rate limit (429), ждем {wait_time}с...')
+                    wait_time = 30 * (attempt + 1) + random.uniform(0, 5)
+                    print(f'\n🚫 Rate limit (429), ждем {wait_time:.1f}с...')
+                    time.sleep(wait_time)
+                    continue
+                elif response.status_code == 403:
+                    wait_time = 60 * (attempt + 1)
+                    print(f'\n🚫 Forbidden (403), ждем {wait_time:.1f}с...')
                     time.sleep(wait_time)
                     continue
                 else:
                     print(f'\n⚠️ HTTP {response.status_code} для {url}')
                     if attempt < retries - 1:
-                        time.sleep(2 ** attempt)
+                        wait_time = 2 ** attempt + random.uniform(0, 1)
+                        time.sleep(wait_time)
                     continue
             else:
                 print(f'\n⚠️ Нет ответа от {url}, попытка {attempt + 1}/{retries}')
@@ -260,7 +288,7 @@ def get_request(url: str, parameters: Dict = None, timeout: float = 10, retries:
 
         except requests.exceptions.Timeout:
             print(f'\n⏰ Таймаут для {url}, попытка {attempt + 1}/{retries}')
-            time.sleep(2 ** attempt)
+            time.sleep(2 ** attempt + random.uniform(0, 1))
 
         except requests.exceptions.ConnectionError:
             print(f'\n🔌 Ошибка соединения, попытка {attempt + 1}/{retries}')
@@ -989,19 +1017,16 @@ class Command(BaseCommand):
                     result['should_retry'] = True
                     return result
 
-            # Сначала пытаемся получить описание из CSV
             description_from_csv = None
             if csv_descriptions:
                 description_from_csv = self.get_description_from_csv(game.name, csv_descriptions)
 
             if description_from_csv:
-                # Нашли описание в CSV
                 result['success'] = True
                 result['description'] = description_from_csv
-                result['app_id'] = None  # App ID не известен из CSV
+                result['app_id'] = None
 
                 if not dry_run:
-                    # Добавляем в found с пометкой, что из CSV
                     game_info = f"Game ID: {game.id} - {game.name} (Source: CSV file)"
                     with self.output_lock:
                         self.found_buffer.append(game_info)
@@ -1021,7 +1046,6 @@ class Command(BaseCommand):
 
                 return result
 
-            # Если в CSV нет, продолжаем с поиском в Steam
             app_id = None
             search_error = None
 
@@ -2485,12 +2509,14 @@ class Command(BaseCommand):
         self.not_found_games = self.load_not_found_games()
         self.no_description_games = self.load_no_description_games()
 
+        # Инициализируем пустой словарь для App ID (больше не загружаем из API)
+        self.steam_app_dict = {}
+
         # ========== ОПТИМИЗАЦИЯ: отсеиваем игры с уже существующими описаниями ==========
         if self.found_games:
             self.stdout.write(
                 self.style.WARNING(f'📊 Проверка наличия описаний у {len(self.found_games)} найденных игр...'))
 
-            # Массовый запрос: находим игры из found_games, у которых уже есть описание
             games_with_description = set(
                 Game.objects.filter(
                     id__in=self.found_games,
@@ -2499,11 +2525,9 @@ class Command(BaseCommand):
             )
 
             if games_with_description:
-                # Удаляем из found_games игры, у которых уже есть описание
                 original_count = len(self.found_games)
                 self.found_games = self.found_games - games_with_description
 
-                # Также удаляем из app_id_dict
                 for game_id in games_with_description:
                     if game_id in self.app_id_dict:
                         del self.app_id_dict[game_id]
@@ -2840,188 +2864,15 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING('📋 Шаг 3/9: Создание статистики...'))
             self._init_stats_file()
 
-            # Шаг 1: Загрузка из кэш-файла steam_descriptions_all.txt
-            self.stdout.write(self.style.WARNING('📋 Шаг 4/9: Загрузка описаний из кэш-файла...'))
-
-            # Проверяем прерывание перед загрузкой кэша
-            if self.interrupted:
-                self.stdout.write(self.style.WARNING('\n⚠️ Прерывание перед загрузкой кэша. Выход...'))
-                return
-
-            loaded_from_cache = self.load_descriptions_from_cache()
-            if loaded_from_cache > 0:
-                self.stdout.write(self.style.SUCCESS(f'✅ Загружено {loaded_from_cache} описаний из кэша'))
-
-            # Проверяем прерывание после загрузки кэша
-            if self.interrupted:
-                self.stdout.write(self.style.WARNING('\n⚠️ Прерывание после загрузки кэша. Выход...'))
-                return
-
-            # Шаг 2: Загрузка из CSV-файла games_march2025_cleaned.csv
-            self.stdout.write(self.style.WARNING('📋 Шаг 5/9: Загрузка описаний из CSV-файла...'))
-
-            # Проверяем прерывание перед загрузкой CSV
-            if self.interrupted:
-                self.stdout.write(self.style.WARNING('\n⚠️ Прерывание перед загрузкой CSV. Выход...'))
-                return
-
-            csv_descriptions = self.load_descriptions_from_csv()
-
-            # Проверяем прерывание после загрузки CSV словаря
-            if self.interrupted:
-                self.stdout.write(self.style.WARNING('\n⚠️ Прерывание после загрузки CSV словаря. Выход...'))
-                return
-
-            if csv_descriptions:
-                # Загружаем CSV-описания ТОЛЬКО для игр из found_games (если используется --only-found)
-                if only_found and self.found_games:
-                    self.stdout.write(self.style.WARNING(
-                        f'📊 Загрузка CSV-описаний только для {len(self.found_games)} найденных игр...'))
-
-                    # Проверяем прерывание перед фильтрацией
-                    if self.interrupted:
-                        self.stdout.write(self.style.WARNING('\n⚠️ Прерывание перед фильтрацией CSV. Выход...'))
-                        return
-
-                    filtered_csv = {}
-                    for game_id in self.found_games:
-                        # Проверяем прерывание внутри цикла фильтрации
-                        if self.interrupted:
-                            self.stdout.write(self.style.WARNING('\n⚠️ Прерывание при фильтрации CSV. Выход...'))
-                            break
-
-                        game = Game.objects.filter(id=game_id).first()
-                        if game and game.name.lower() in csv_descriptions:
-                            filtered_csv[game.name.lower()] = csv_descriptions[game.name.lower()]
-
-                    # Проверяем прерывание после фильтрации
-                    if self.interrupted:
-                        self.stdout.write(self.style.WARNING('\n⚠️ Прерывание после фильтрации CSV. Выход...'))
-                        return
-
-                    if filtered_csv:
-                        loaded_from_csv = self.load_descriptions_from_csv_to_db(filtered_csv)
-                        if loaded_from_csv > 0:
-                            self.stdout.write(self.style.SUCCESS(f'✅ Загружено {loaded_from_csv} описаний из CSV'))
-                else:
-                    loaded_from_csv = self.load_descriptions_from_csv_to_db(csv_descriptions)
-                    if loaded_from_csv > 0:
-                        self.stdout.write(self.style.SUCCESS(f'✅ Загружено {loaded_from_csv} описаний из CSV'))
-
-                # Проверяем прерывание после загрузки CSV в БД
-                if self.interrupted:
-                    self.stdout.write(self.style.WARNING('\n⚠️ Прерывание после загрузки CSV в БД. Выход...'))
-                    return
-
-                # Сохраняем CSV-описания для использования в process_game (как fallback)
-                self.csv_descriptions = csv_descriptions
-            else:
-                self.csv_descriptions = {}
-
-        if options['clear_descriptions']:
-            self.stdout.write(self.style.WARNING('📋 Шаг 6/9: Очистка описаний...'))
-
-            # Проверяем прерывание перед очисткой
-            if self.interrupted:
-                self.stdout.write(self.style.WARNING('\n⚠️ Прерывание перед очисткой описаний. Выход...'))
-                return
-
-            self._clear_descriptions(pc)
-            if not force and not only_found:
-                return
-
-            # Проверяем прерывание после очистки
-            if self.interrupted:
-                self.stdout.write(self.style.WARNING('\n⚠️ Прерывание после очистки описаний. Выход...'))
-                return
-
-        if processed_total == 0:
-            self.log_timeline("START")
-
-        self.stdout.write(self.style.WARNING('📋 Шаг 7/9: Подготовка...'))
-        self._print_startup_info(limit, total_to_process, processed_total,
-                                 batch_size, iteration_pause, options,
-                                 process_not_found, skip_not_found,
-                                 process_no_description, skip_no_description)
-
-        self.stdout.write(self.style.WARNING('📋 Шаг 8/9: Запуск обработки...'))
-        self.stdout.write(self.style.SUCCESS('=' * 60))
-
-        processed_total, games_per_second = self._main_processing_loop(
-            target_game, limit, batch_size, iteration_pause,
-            skip_search, output_file, dry_run,
-            force, no_restart, processed_total, options,
-            process_not_found, skip_not_found,
-            process_no_description, skip_no_description,
-            only_found,
-            getattr(self, 'csv_descriptions', {})
-        )
-
-        self.stdout.write(self.style.WARNING('💾 Сохранение финальных данных...'))
-        if self.cache_file_path:
-            self.save_steam_cache(self.cache_file_path)
-
-        self._save_stats_to_file()
-
-        self._print_final_stats()
-        """Основной метод выполнения."""
-        self.start_time = datetime.now()
-
-        signal.signal(signal.SIGINT, self.signal_handler)
-
-        self.rate_limiter = SteamRateLimiter(
-            max_consecutive_failures=options['max_consecutive_failures'],
-            base_wait_time=options['base_wait'],
-            max_wait_time=options['max_wait']
-        )
-        self.batch_failure_threshold = options['batch_failure_threshold']
-
-        self.stdout.write(self.style.SUCCESS('=' * 60))
-        self.stdout.write(self.style.SUCCESS('🚀 STEAM DESCRIPTIONS FETCHER'))
-        self.stdout.write(self.style.SUCCESS('=' * 60))
-
-        self.stdout.write(self.style.WARNING('📋 Шаг 1/9: Поиск платформы PC...'))
-        pc = self.get_pc_platform()
-        if not pc:
-            self.stdout.write(self.style.ERROR('❌ Платформа PC не найдена'))
-            return
-        self.stdout.write(self.style.SUCCESS(f'✅ Платформа: {pc.name} (ID: {pc.id})'))
-
-        self.output_dir = Path(options['output_dir'])
-
-        if options['clear_logs']:
-            self.stdout.write(self.style.WARNING('📋 Шаг 2/9: Очистка логов...'))
-            self._clear_logs()
-            return
-
-        self.stdout.write(self.style.WARNING('📋 Шаг 2/9: Инициализация параметров...'))
-        params = self._initialize_parameters(options, pc)
-        if not params:
-            return
-
-        (limit, total_to_process, target_game, processed_total,
-         batch_size, iteration_pause, output_file, output_dir,
-         dry_run, force, skip_search, no_restart,
-         process_not_found, skip_not_found,
-         process_no_description, skip_no_description,
-         only_found) = params
-
-        if processed_total == 0:
-            self.stdout.write(self.style.WARNING('📋 Шаг 3/9: Создание статистики...'))
-            self._init_stats_file()
-
-            # Шаг 1: Загрузка из кэш-файла steam_descriptions_all.txt
             self.stdout.write(self.style.WARNING('📋 Шаг 4/9: Загрузка описаний из кэш-файла...'))
             loaded_from_cache = self.load_descriptions_from_cache()
             if loaded_from_cache > 0:
                 self.stdout.write(self.style.SUCCESS(f'✅ Загружено {loaded_from_cache} описаний из кэша'))
 
-            # Шаг 2: Загрузка из CSV-файла games_march2025_cleaned.csv
             self.stdout.write(self.style.WARNING('📋 Шаг 5/9: Загрузка описаний из CSV-файла...'))
             csv_descriptions = self.load_descriptions_from_csv()
 
             if csv_descriptions:
-                # Загружаем CSV-описания ТОЛЬКО для игр из found_games (если используется --only-found)
                 if only_found and self.found_games:
                     self.stdout.write(self.style.WARNING(
                         f'📊 Загрузка CSV-описаний только для {len(self.found_games)} найденных игр...'))
@@ -3037,7 +2888,6 @@ class Command(BaseCommand):
                 if loaded_from_csv > 0:
                     self.stdout.write(self.style.SUCCESS(f'✅ Загружено {loaded_from_csv} описаний из CSV'))
 
-                # Сохраняем CSV-описания для использования в process_game (как fallback)
                 self.csv_descriptions = csv_descriptions
             else:
                 self.csv_descriptions = {}
@@ -3077,3 +2927,69 @@ class Command(BaseCommand):
         self._save_stats_to_file()
 
         self._print_final_stats()
+
+        # Добавляем проверку на прерывание перед перезапуском
+        if self.interrupted:
+            self.stdout.write(self.style.WARNING('\n⚠️ Работа прервана пользователем. Завершение.'))
+            return
+
+        # Перезапуск для следующих оффсетов только если не было прерывания и не указан no_restart
+        if not no_restart and not self.interrupted and limit is not None and processed_total < limit:
+            self.stdout.write(self.style.WARNING(f'\n🔄 Перезапуск для следующего оффсета...'))
+            new_offset = self.current_offset
+            self.stdout.write(self.style.WARNING(f'📊 Новый оффсет: {new_offset}'))
+
+            import sys
+            import subprocess
+
+            script_path = sys.argv[0]
+            new_args = []
+
+            for arg in sys.argv[1:]:
+                if arg.startswith('--offset'):
+                    continue
+                if arg.startswith('--processed'):
+                    continue
+                if arg.startswith('--stat-success'):
+                    continue
+                if arg.startswith('--stat-not-found'):
+                    continue
+                if arg.startswith('--stat-no-description'):
+                    continue
+                if arg.startswith('--stat-error'):
+                    continue
+                if arg.startswith('--stat-error-403'):
+                    continue
+                if arg.startswith('--stat-error-429'):
+                    continue
+                if arg.startswith('--stat-error-timeout'):
+                    continue
+                if arg.startswith('--stat-error-other'):
+                    continue
+                if arg.startswith('--stat-backoff-pauses'):
+                    continue
+                if arg.startswith('--stat-iterations'):
+                    continue
+                new_args.append(arg)
+
+            new_args.append(f'--offset={new_offset}')
+            new_args.append(f'--processed={processed_total}')
+            new_args.append(f'--stat-success={self.total_stats["success"]}')
+            new_args.append(f'--stat-not-found={self.total_stats["not_found"]}')
+            new_args.append(f'--stat-no-description={self.total_stats["no_description"]}')
+            new_args.append(f'--stat-error={self.total_stats["error"]}')
+            new_args.append(f'--stat-error-403={self.total_stats["error_403"]}')
+            new_args.append(f'--stat-error-429={self.total_stats["error_429"]}')
+            new_args.append(f'--stat-error-timeout={self.total_stats["error_timeout"]}')
+            new_args.append(f'--stat-error-other={self.total_stats["error_other"]}')
+            new_args.append(f'--stat-backoff-pauses={self.total_stats["backoff_pauses"]}')
+            new_args.append(f'--stat-iterations={self.total_stats["iterations"]}')
+
+            if '--no-restart' not in new_args:
+                new_args.append('--no-restart')
+
+            self.stdout.write(self.style.WARNING(f'🔄 Выполняется перезапуск...'))
+            try:
+                subprocess.run([sys.executable, script_path] + new_args)
+            except Exception as e:
+                self.stdout.write(self.style.ERROR(f'❌ Ошибка перезапуска: {e}'))
