@@ -20,6 +20,77 @@ from games.models import Game, Genre, Theme
 logger = logging.getLogger(__name__)
 
 
+class ProgressBar:
+    """
+    Простой прогресс-бар с расчетом времени.
+    """
+
+    def __init__(self, total, width=50, stdout=None):
+        self.total = total
+        self.width = width
+        self.current = 0
+        self.start_time = time.time()
+        self.stdout = stdout or sys.stdout
+        self.last_update = 0
+
+    def update(self, current=None, suffix=""):
+        """Обновляет прогресс-бар."""
+        if current is not None:
+            self.current = current
+
+        # Не позволяем current превышать total
+        if self.current > self.total:
+            self.current = self.total
+
+        # Расчет времени
+        elapsed = time.time() - self.start_time
+        if self.current > 0:
+            rate = self.current / elapsed
+            eta = (self.total - self.current) / rate if rate > 0 else 0
+        else:
+            eta = 0
+
+        # Форматирование времени
+        elapsed_str = self._format_time(elapsed)
+        eta_str = self._format_time(eta) if eta > 0 else "?"
+
+        # Расчет процентов и заполнения
+        if self.total > 0:
+            percent = self.current / self.total * 100
+            filled = int(self.width * self.current / self.total)
+        else:
+            percent = 0
+            filled = 0
+
+        bar = '█' * filled + '░' * (self.width - filled)
+
+        # Формирование строки прогресс-бара
+        progress_line = f'\r[{bar}] {percent:.1f}% | {self.current}/{self.total} | ⏱️ {elapsed_str} | ⏳ ETA: {eta_str}'
+        if suffix:
+            progress_line += f' | {suffix}'
+
+        # Запись в stdout без перевода строки
+        self.stdout.write(progress_line, ending='')
+        self.stdout.flush()
+        self.last_update = time.time()
+
+    def finish(self, suffix=""):
+        """Завершает прогресс-бар."""
+        self.update(self.total, suffix)
+        self.stdout.write('\n')
+
+    def _format_time(self, seconds):
+        """Форматирует время в ЧЧ:ММ:СС."""
+        if seconds < 60:
+            return f"{seconds:.0f}s"
+        elif seconds < 3600:
+            return f"{seconds / 60:.0f}m {seconds % 60:.0f}s"
+        else:
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            return f"{hours}h {minutes}m"
+
+
 class Command(BaseCommand):
     """
     Команда Django для автоматического определения жанров и тем через GigaChat API
@@ -51,6 +122,9 @@ class Command(BaseCommand):
         self.current_game_index = 0
         self.total_games = 0
 
+        # Прогресс-бар
+        self.progress_bar = None
+
         # Настройка обработчиков сигналов
         signal.signal(signal.SIGINT, self.signal_handler)
         signal.signal(signal.SIGTERM, self.signal_handler)
@@ -59,10 +133,21 @@ class Command(BaseCommand):
         """
         Обработчик сигналов прерывания (Ctrl+C, SIGTERM).
         """
-        self.stdout.write('\n')
-        self.stdout.write(self.style.WARNING('⚠ Получен сигнал прерывания...'))
-        self.stdout.write(self.style.WARNING('⚠ Завершение работы после сохранения текущего состояния...'))
+        # Если уже был сигнал, не выводим повторно
+        if self.interrupted:
+            return
+
+        # Устанавливаем флаг прерывания
         self.interrupted = True
+
+        # Очищаем текущую строку прогресс-бара
+        self.stdout.write('\n', ending='')
+        self.stdout.flush()
+
+        # Выводим сообщение
+        self.stdout.write(self.style.WARNING('⚠ Получен сигнал прерывания...'))
+        self.stdout.write(self.style.WARNING('⚠ Дожидаемся завершения текущей игры...'))
+        self.stdout.flush()
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -119,9 +204,41 @@ class Command(BaseCommand):
             help='Файл для сохранения состояния возобновления.',
             default='genres_themes_resume.txt'
         )
+        parser.add_argument(
+            '--verbose',
+            action='store_true',
+            help='Показывать подробную информацию по каждой игре.',
+            default=False
+        )
+
+    def log_message(self, message, style='INFO', verbose_only=False):
+        """
+        Выводит сообщение, учитывая режим verbose.
+        Если verbose_only=True, сообщение выводится только при --verbose.
+        """
+        if verbose_only and not self.verbose:
+            return
+
+        # Если есть активный прогресс-бар, переводим строку перед выводом
+        if self.progress_bar and self.progress_bar.current > 0:
+            self.stdout.write('\n', ending='')
+
+        if style == 'SUCCESS':
+            self.stdout.write(self.style.SUCCESS(message))
+        elif style == 'ERROR':
+            self.stdout.write(self.style.ERROR(message))
+        elif style == 'WARNING':
+            self.stdout.write(self.style.WARNING(message))
+        else:
+            self.stdout.write(message)
+
+        # После вывода сообщения обновляем прогресс-бар
+        if self.progress_bar and self.progress_bar.current > 0:
+            self.progress_bar.update()
 
     def handle(self, *args, **options):
         self.start_time = time.time()
+        self.verbose = options.get('verbose', False)
 
         if not self.setup_api():
             return
@@ -142,31 +259,39 @@ class Command(BaseCommand):
         processed_games = set()
         if resume:
             processed_games = self.load_resume_state(resume_file_path)
-            self.stdout.write(
-                self.style.SUCCESS(f'📋 Режим возобновления: пропускаем {len(processed_games)} уже обработанных игр'))
+            self.log_message(f'📋 Режим возобновления: пропускаем {len(processed_games)} уже обработанных игр')
 
         if not games.exists():
-            self.stdout.write(self.style.WARNING('Нет игр для обработки.'))
+            self.log_message('Нет игр для обработки.', 'WARNING')
             return
 
         total = games.count()
         self.total_games = total
-        self.stdout.write(f'📊 Игр к обработке: {total}')
-        self.stdout.write(f'📁 Выходной файл: {output_file_path}')
-        self.stdout.write(f'📁 Файл ошибок: {error_file_path}')
-        self.stdout.write(f'📁 Краткий файл: {summary_file_path}')
-        self.stdout.write(f'📁 Файл состояния: {resume_file_path}')
+
+        # Инициализация прогресс-бара
+        self.progress_bar = ProgressBar(total, width=40, stdout=self.stdout)
+
+        self.log_message(f'📊 Игр к обработке: {total}')
+        self.log_message(f'📁 Выходной файл: {output_file_path}')
+        self.log_message(f'📁 Файл ошибок: {error_file_path}')
+        self.log_message(f'📁 Краткий файл: {summary_file_path}')
+        self.log_message(f'📁 Файл состояния: {resume_file_path}')
 
         if dry_run:
-            self.stdout.write(self.style.WARNING('🔍 РЕЖИМ DRY RUN - изменения в БД НЕ будут применены\n'))
-        else:
-            self.stdout.write('\n')
+            self.log_message('🔍 РЕЖИМ DRY RUN - изменения в БД НЕ будут применены\n', 'WARNING')
 
         if resume and processed_games:
-            self.stdout.write(self.style.WARNING(f'📋 Продолжаем с {len(processed_games) + 1} игры\n'))
+            self.log_message(f'📋 Продолжаем с {len(processed_games) + 1} игры\n')
 
         self.process_games(games, options, output_file_path, error_file_path,
                            summary_file_path, resume_file_path, processed_games, dry_run)
+
+        # Завершаем прогресс-бар ТОЛЬКО если не было прерывания
+        if not self.interrupted and self.progress_bar:
+            # Получаем финальный суффикс
+            suffix = f"✅ {self.games_processed} успешно | ❌ {self.games_failed} ошибок"
+            self.progress_bar.finish(suffix)
+
         self.show_summary()
 
     def load_resume_state(self, resume_file_path: str) -> set:
@@ -186,7 +311,7 @@ class Command(BaseCommand):
                             except ValueError:
                                 continue
         except Exception as e:
-            self.stdout.write(self.style.WARNING(f'⚠ Не удалось загрузить состояние: {e}'))
+            self.log_message(f'⚠ Не удалось загрузить состояние: {e}', 'WARNING', verbose_only=True)
         return processed
 
     def save_resume_state(self, resume_file_path: str, game_id: int):
@@ -198,19 +323,17 @@ class Command(BaseCommand):
                 f.write(f'{game_id}\n')
                 f.flush()
         except Exception as e:
-            self.stdout.write(self.style.WARNING(f'⚠ Не удалось сохранить состояние: {e}'))
+            self.log_message(f'⚠ Не удалось сохранить состояние: {e}', 'WARNING', verbose_only=True)
 
     def setup_api(self) -> bool:
         """Настройка API GigaChat"""
         self.auth_key = getattr(settings, 'GIGACHAT_AUTH_KEY', None)
 
         if not self.auth_key:
-            self.stdout.write(self.style.ERROR(
-                'GIGACHAT_AUTH_KEY должен быть указан в settings.py'
-            ))
+            self.log_message('GIGACHAT_AUTH_KEY должен быть указан в settings.py', 'ERROR')
             return False
 
-        self.stdout.write(self.style.SUCCESS(f'✅ GigaChat настроен\n'))
+        self.log_message('✅ GigaChat настроен\n', 'SUCCESS')
         return self.get_access_token()
 
     def get_access_token(self) -> bool:
@@ -234,7 +357,7 @@ class Command(BaseCommand):
                 'scope': 'GIGACHAT_API_PERS',
             }
 
-            self.stdout.write('   Получение токена GigaChat...')
+            self.log_message('   Получение токена GigaChat...', verbose_only=True)
             response = requests.post(
                 self.auth_url,
                 headers=headers,
@@ -249,20 +372,20 @@ class Command(BaseCommand):
                 expires_in = result.get('expires_in', 3600)
                 self.token_expires_at = time.time() + expires_in - 60
 
-                self.stdout.write(self.style.SUCCESS(f'   ✅ Токен получен, истекает через {expires_in} секунд'))
+                self.log_message('   ✅ Токен получен', 'SUCCESS', verbose_only=True)
                 return True
             else:
-                self.stdout.write(self.style.ERROR(f'   ❌ Ошибка получения токена: {response.status_code}'))
+                self.log_message(f'   ❌ Ошибка получения токена: {response.status_code}', 'ERROR')
                 return False
 
         except Exception as e:
-            self.stdout.write(self.style.ERROR(f'   ❌ Ошибка: {str(e)}'))
+            self.log_message(f'   ❌ Ошибка: {str(e)}', 'ERROR')
             return False
 
     def ensure_valid_token(self) -> bool:
         """Проверка и обновление токена при необходимости"""
         if not self.access_token or time.time() >= self.token_expires_at:
-            self.stdout.write('   Токен истек, обновление...')
+            self.log_message('   Токен истек, обновление...', verbose_only=True)
             return self.get_access_token()
         return True
 
@@ -279,21 +402,21 @@ class Command(BaseCommand):
             if isinstance(data, dict):
                 self.genres_data = data.get('genres', [])
                 self.themes_data = data.get('themes', [])
-                self.stdout.write(
-                    self.style.SUCCESS(f'✅ Загружено жанров: {len(self.genres_data)}, тем: {len(self.themes_data)}'))
+                self.log_message(f'✅ Загружено жанров: {len(self.genres_data)}, тем: {len(self.themes_data)}',
+                                 'SUCCESS')
             else:
-                self.stdout.write(self.style.ERROR(f'❌ Файл должен содержать объект с полями genres и themes'))
+                self.log_message('❌ Файл должен содержать объект с полями genres и themes', 'ERROR')
 
         except FileNotFoundError:
-            self.stdout.write(self.style.ERROR(f'❌ Файл {file_path} не найден'))
+            self.log_message(f'❌ Файл {file_path} не найден', 'ERROR')
             self.genres_data = []
             self.themes_data = []
         except json.JSONDecodeError as e:
-            self.stdout.write(self.style.ERROR(f'❌ Ошибка парсинга JSON: {e}'))
+            self.log_message(f'❌ Ошибка парсинга JSON: {e}', 'ERROR')
             self.genres_data = []
             self.themes_data = []
         except Exception as e:
-            self.stdout.write(self.style.ERROR(f'❌ Ошибка: {str(e)}'))
+            self.log_message(f'❌ Ошибка: {str(e)}', 'ERROR')
             self.genres_data = []
             self.themes_data = []
 
@@ -305,8 +428,7 @@ class Command(BaseCommand):
         for theme in Theme.objects.all():
             self.theme_cache[theme.name.lower()] = theme
 
-        self.stdout.write(
-            self.style.SUCCESS(f'✅ Загружено из БД: {len(self.genre_cache)} жанров, {len(self.theme_cache)} тем'))
+        self.log_message(f'✅ Загружено из БД: {len(self.genre_cache)} жанров, {len(self.theme_cache)} тем', 'SUCCESS')
 
     def get_games_to_process(self, options: Dict[str, Any]) -> models.QuerySet:
         """Получение списка игр для обработки"""
@@ -334,22 +456,20 @@ class Command(BaseCommand):
         exact_match = Game.objects.filter(name__iexact=game_name)
 
         if exact_match.exists():
-            self.stdout.write(self.style.SUCCESS(f'✓ Найдено точное совпадение: {exact_match.first().name}'))
+            self.log_message(f'✓ Найдено точное совпадение: {exact_match.first().name}', 'SUCCESS')
             return exact_match
 
         name_match = Game.objects.filter(name__icontains=game_name).order_by('-rating_count')
 
         if name_match.exists():
             best_match = name_match.first()
-            self.stdout.write(
-                self.style.WARNING(
-                    f'⚠ Нет точного совпадения для "{game_name}". '
-                    f'Использую: "{best_match.name}"'
-                )
+            self.log_message(
+                f'⚠ Нет точного совпадения для "{game_name}". Использую: "{best_match.name}"',
+                'WARNING'
             )
             return Game.objects.filter(id=best_match.id)
 
-        self.stdout.write(self.style.ERROR(f'✗ Игры не найдены'))
+        self.log_message(f'✗ Игры не найдены', 'ERROR')
         return Game.objects.none()
 
     def build_compact_game_context(self, game: Game) -> str:
@@ -383,38 +503,38 @@ class Command(BaseCommand):
 
         return f"""Analyze the game "{game_name}" and determine which genres and themes from the provided lists apply.
 
-    Game Information:
-    {context}
+Game Information:
+{context}
 
-    AVAILABLE GENRES (you MUST ONLY choose from this exact list, no others):
-    {', '.join(genre_names)}
+AVAILABLE GENRES (you MUST ONLY choose from this exact list, no others):
+{', '.join(genre_names)}
 
-    AVAILABLE THEMES (you MUST ONLY choose from this exact list, no others):
-    {', '.join(theme_names)}
+AVAILABLE THEMES (you MUST ONLY choose from this exact list, no others):
+{', '.join(theme_names)}
 
-    For reference, here are the definitions:
-    {json.dumps({"genres": self.genres_data, "themes": self.themes_data}, ensure_ascii=False, indent=2)}
+For reference, here are the definitions:
+{json.dumps({"genres": self.genres_data, "themes": self.themes_data}, ensure_ascii=False, indent=2)}
 
-    CRITICAL RULES:
-    1. You MUST ONLY use genres from the AVAILABLE GENRES list above
-    2. You MUST ONLY use themes from the AVAILABLE THEMES list above
-    3. DO NOT invent new genres or themes like "Other Genres" or "Other Themes"
-    4. EVERY genre and theme from the available lists MUST appear in your output
-    5. Output ONLY valid JSON, no other text
+CRITICAL RULES:
+1. You MUST ONLY use genres from the AVAILABLE GENRES list above
+2. You MUST ONLY use themes from the AVAILABLE THEMES list above
+3. DO NOT invent new genres or themes like "Other Genres" or "Other Themes"
+4. EVERY genre and theme from the available lists MUST appear in your output
+5. Output ONLY valid JSON, no other text
 
-    Output format:
-    {{
-      "genres": [
-        {{"name": "Action", "decision": "YES/NO/MAYBE", "explanation": "2-3 detailed sentences explaining WHY"}},
-        {{"name": "Adventure", "decision": "YES/NO/MAYBE", "explanation": "2-3 detailed sentences explaining WHY"}},
-        ... (continue for ALL available genres)
-      ],
-      "themes": [
-        {{"name": "Drama", "decision": "YES/NO/MAYBE", "explanation": "2-3 detailed sentences explaining WHY"}},
-        {{"name": "Fantasy", "decision": "YES/NO/MAYBE", "explanation": "2-3 detailed sentences explaining WHY"}},
-        ... (continue for ALL available themes)
-      ]
-    }}"""
+Output format:
+{{
+  "genres": [
+    {{"name": "Action", "decision": "YES/NO/MAYBE", "explanation": "2-3 detailed sentences explaining WHY"}},
+    {{"name": "Adventure", "decision": "YES/NO/MAYBE", "explanation": "2-3 detailed sentences explaining WHY"}},
+    ... (continue for ALL available genres)
+  ],
+  "themes": [
+    {{"name": "Drama", "decision": "YES/NO/MAYBE", "explanation": "2-3 detailed sentences explaining WHY"}},
+    {{"name": "Fantasy", "decision": "YES/NO/MAYBE", "explanation": "2-3 detailed sentences explaining WHY"}},
+    ... (continue for ALL available themes)
+  ]
+}}"""
 
     def analyze_game_genres_themes(self, game: Game) -> Tuple[Optional[Dict], Optional[str], Optional[str]]:
         """
@@ -467,7 +587,7 @@ class Command(BaseCommand):
 
                     # Парсим JSON ответ с восстановлением некорректного JSON
                     try:
-                        # Извлекаем JSON из ответа (на случай если есть лишний текст)
+                        # Извлекаем JSON из ответа
                         json_start = analysis_text.find('{')
                         json_end = analysis_text.rfind('}') + 1
                         if json_start != -1 and json_end > json_start:
@@ -479,9 +599,7 @@ class Command(BaseCommand):
                         try:
                             data = json.loads(json_text)
                         except json.JSONDecodeError as e:
-                            self.stdout.write(self.style.WARNING(f'  ⚠ Попытка восстановить некорректный JSON...'))
-
-                            # Восстанавливаем JSON: исправляем незакрытые объекты
+                            # Восстанавливаем JSON
                             lines = json_text.split('\n')
                             bracket_count = 0
 
@@ -491,41 +609,34 @@ class Command(BaseCommand):
 
                             fixed_json = json_text
 
-                            # Проверяем, не пропущена ли закрывающая скобка в конце
                             if bracket_count > 0:
                                 fixed_json += '}' * bracket_count
 
-                            # Проверяем, не пропущена ли запятая перед закрывающей скобкой
                             fixed_json = re.sub(r',\s*}', '}', fixed_json)
                             fixed_json = re.sub(r',\s*]', ']', fixed_json)
 
                             try:
                                 data = json.loads(fixed_json)
-                                self.stdout.write(self.style.SUCCESS(f'  ✅ JSON успешно восстановлен'))
-                            except json.JSONDecodeError as e2:
-                                self.stdout.write(
-                                    self.style.WARNING(f'  ⚠ Извлечение данных через регулярные выражения...'))
+                            except json.JSONDecodeError:
                                 data = self.extract_genres_themes_with_regex(json_text)
 
                                 if not data:
-                                    self.stdout.write(self.style.ERROR(f'  ✗ Не удалось восстановить JSON: {e2}'))
                                     return None, prompt, raw_response
 
                         return data, prompt, raw_response
 
                     except Exception as e:
-                        self.stdout.write(self.style.ERROR(f'  ✗ Ошибка парсинга JSON: {e}'))
+                        self.log_message(f'  ✗ Ошибка парсинга JSON: {e}', 'ERROR', verbose_only=True)
                         return None, prompt, raw_response
                 else:
                     return None, prompt, raw_response
             else:
                 if response.status_code == 401:
                     self.access_token = None
-                self.stdout.write(self.style.ERROR(f'  ✗ Ошибка API: {response.status_code}'))
                 return None, None, raw_response
 
         except Exception as e:
-            self.stdout.write(self.style.ERROR(f'  ✗ Ошибка при анализе: {str(e)}'))
+            self.log_message(f'  ✗ Ошибка при анализе: {str(e)}', 'ERROR', verbose_only=True)
             return None, None, None
 
     def extract_genres_themes_with_regex(self, json_text: str) -> Optional[Dict]:
@@ -539,7 +650,9 @@ class Command(BaseCommand):
             "themes": []
         }
 
-        # Паттерн для извлечения информации о жанре
+        valid_genre_names = set(g.get('name', '').lower() for g in self.genres_data if g.get('name'))
+        valid_theme_names = set(t.get('name', '').lower() for t in self.themes_data if t.get('name'))
+
         genre_pattern = r'"name":\s*"([^"]+)",\s*"decision":\s*"([^"]+)",\s*"explanation":\s*"([^"]+(?:\\"[^"]*|[^"]+)*)"'
 
         # Извлекаем секцию genres
@@ -548,14 +661,14 @@ class Command(BaseCommand):
             genres_text = genres_section.group(1)
             for match in re.finditer(genre_pattern, genres_text, re.DOTALL):
                 name = match.group(1)
-                decision = match.group(2)
-                explanation = match.group(3)
-                explanation = explanation.replace('\\"', '"').replace('\\n', ' ')
-                result["genres"].append({
-                    "name": name,
-                    "decision": decision,
-                    "explanation": explanation
-                })
+                if name.lower() in valid_genre_names:
+                    decision = match.group(2)
+                    explanation = match.group(3).replace('\\"', '"').replace('\\n', ' ')
+                    result["genres"].append({
+                        "name": name,
+                        "decision": decision,
+                        "explanation": explanation
+                    })
 
         # Извлекаем секцию themes
         themes_section = re.search(r'"themes"\s*:\s*\[(.*?)\]\s*}', json_text, re.DOTALL)
@@ -563,185 +676,115 @@ class Command(BaseCommand):
             themes_text = themes_section.group(1)
             for match in re.finditer(genre_pattern, themes_text, re.DOTALL):
                 name = match.group(1)
-                decision = match.group(2)
-                explanation = match.group(3)
-                explanation = explanation.replace('\\"', '"').replace('\\n', ' ')
-                result["themes"].append({
-                    "name": name,
-                    "decision": decision,
-                    "explanation": explanation
-                })
-
-        # Если ничего не нашли через регулярки, пробуем другой подход
-        if not result["genres"] and not result["themes"]:
-            for section_name in ["genres", "themes"]:
-                items = []
-                section_pattern = rf'"{section_name}"\s*:\s*\[(.*?)\]'
-                section_match = re.search(section_pattern, json_text, re.DOTALL)
-
-                if section_match:
-                    section_text = section_match.group(1)
-                    # Разделяем на отдельные объекты
-                    objects = re.split(r'}\s*,?\s*{', section_text)
-
-                    for obj in objects:
-                        if not obj.startswith('{'):
-                            obj = '{' + obj
-                        if not obj.endswith('}'):
-                            obj = obj + '}'
-
-                        name_match = re.search(r'"name":\s*"([^"]+)"', obj)
-                        decision_match = re.search(r'"decision":\s*"([^"]+)"', obj)
-                        explanation_match = re.search(r'"explanation":\s*"([^"]+(?:\\"[^"]*|[^"]+)*)"', obj, re.DOTALL)
-
-                        if name_match and decision_match:
-                            item = {
-                                "name": name_match.group(1),
-                                "decision": decision_match.group(1).upper()
-                            }
-                            if explanation_match:
-                                explanation = explanation_match.group(1).replace('\\"', '"').replace('\\n', ' ')
-                                item["explanation"] = explanation
-                            else:
-                                item["explanation"] = "No explanation provided"
-                            items.append(item)
-
-                    if section_name == "genres":
-                        result["genres"] = items
-                    else:
-                        result["themes"] = items
-
-        if not result["genres"]:
-            result["genres"] = []
-
-        if not result["themes"]:
-            result["themes"] = []
+                if name.lower() in valid_theme_names:
+                    decision = match.group(2)
+                    explanation = match.group(3).replace('\\"', '"').replace('\\n', ' ')
+                    result["themes"].append({
+                        "name": name,
+                        "decision": decision,
+                        "explanation": explanation
+                    })
 
         return result
 
     def extract_matching_genres_themes(self, analysis: Dict) -> Tuple[List[str], List[str]]:
         """
         Извлекает из анализа список жанров и тем с решением YES.
-        Возвращает tuple (список_жанров, список_тем)
         """
-        # Получаем допустимые имена жанров и тем из исходных данных
         valid_genre_names = set(g.get('name', '').lower() for g in self.genres_data if g.get('name'))
         valid_theme_names = set(t.get('name', '').lower() for t in self.themes_data if t.get('name'))
 
         matching_genres = []
         matching_themes = []
 
-        # Обрабатываем жанры
         for genre in analysis.get('genres', []):
             name = genre.get('name', '')
             decision = genre.get('decision', '').upper()
 
-            # Проверяем, что жанр есть в допустимом списке
             if name.lower() in valid_genre_names:
                 if decision == 'YES':
                     matching_genres.append(name)
             else:
-                self.stdout.write(self.style.WARNING(f'      ⚠ Пропущен неизвестный жанр: {name}'))
+                self.log_message(f'      ⚠ Пропущен неизвестный жанр: {name}', 'WARNING', verbose_only=True)
 
-        # Обрабатываем темы
         for theme in analysis.get('themes', []):
             name = theme.get('name', '')
             decision = theme.get('decision', '').upper()
 
-            # Проверяем, что тема есть в допустимом списке
             if name.lower() in valid_theme_names:
                 if decision == 'YES':
                     matching_themes.append(name)
             else:
-                self.stdout.write(self.style.WARNING(f'      ⚠ Пропущена неизвестная тема: {name}'))
+                self.log_message(f'      ⚠ Пропущена неизвестная тема: {name}', 'WARNING', verbose_only=True)
 
         return matching_genres, matching_themes
 
     def assign_genres_to_game(self, game: Game, genre_names: List[str]) -> int:
-        """
-        Присваивает жанры игре через ManyToMany поле. Создает новые жанры при необходимости.
-        Возвращает количество присвоенных жанров.
-        """
+        """Присваивает жанры игре."""
         assigned_count = 0
         genres_to_add = []
 
         for genre_name in genre_names:
             genre_lower = genre_name.lower()
 
-            # Проверяем, существует ли жанр в кэше
             if genre_lower in self.genre_cache:
                 genre = self.genre_cache[genre_lower]
             else:
-                # Создаем новый жанр
                 genre = Genre.objects.create(name=genre_name)
                 self.genre_cache[genre_lower] = genre
-                self.stdout.write(f'      📁 Создан новый жанр: {genre_name}')
+                self.log_message(f'      📁 Создан новый жанр: {genre_name}', verbose_only=True)
 
-            # Проверяем, не присвоен ли уже этот жанр игре
             if not game.genres.filter(id=genre.id).exists():
                 genres_to_add.append(genre)
                 assigned_count += 1
 
-        # Массовое добавление жанров
         if genres_to_add:
             game.genres.add(*genres_to_add)
 
         return assigned_count
 
     def assign_themes_to_game(self, game: Game, theme_names: List[str]) -> int:
-        """
-        Присваивает темы игре через ManyToMany поле. Создает новые темы при необходимости.
-        Возвращает количество присвоенных тем.
-        """
+        """Присваивает темы игре."""
         assigned_count = 0
         themes_to_add = []
 
         for theme_name in theme_names:
             theme_lower = theme_name.lower()
 
-            # Проверяем, существует ли тема в кэше
             if theme_lower in self.theme_cache:
                 theme = self.theme_cache[theme_lower]
             else:
-                # Создаем новую тему
                 theme = Theme.objects.create(name=theme_name)
                 self.theme_cache[theme_lower] = theme
-                self.stdout.write(f'      📁 Создана новая тема: {theme_name}')
+                self.log_message(f'      📁 Создана новая тема: {theme_name}', verbose_only=True)
 
-            # Проверяем, не присвоена ли уже эта тема игре
             if not game.themes.filter(id=theme.id).exists():
                 themes_to_add.append(theme)
                 assigned_count += 1
 
-        # Массовое добавление тем
         if themes_to_add:
             game.themes.add(*themes_to_add)
 
         return assigned_count
 
     def generate_report_entry(self, game: Game, analysis: Dict, genres: List[str], themes: List[str]) -> str:
-        """
-        Генерирует запись для отчета по игре.
-        """
+        """Генерирует запись для отчета."""
         report = []
         report.append(f'GAME: {game.name}')
         report.append(f'ID: {game.id}')
         report.append(f'IGDB ID: {game.igdb_id}')
         report.append('-' * 80)
 
-        # Жанры с подробными объяснениями
         report.append('GENRES ANALYSIS:')
         for genre in analysis.get('genres', []):
             report.append(f'  • {genre["name"]}: {genre["decision"]}')
             report.append(f'    Explanation: {genre["explanation"]}')
 
-        # Темы с подробными объяснениями
         report.append('\nTHEMES ANALYSIS:')
         for theme in analysis.get('themes', []):
             report.append(f'  • {theme["name"]}: {theme["decision"]}')
             report.append(f'    Explanation: {theme["explanation"]}')
 
-        # Краткое резюме
         report.append('\n=== SUMMARY ===')
         report.append(f'Matching genres ({len(genres)}): {", ".join(genres) if genres else "None"}')
         report.append(f'Matching themes ({len(themes)}): {", ".join(themes) if themes else "None"}')
@@ -750,9 +793,7 @@ class Command(BaseCommand):
         return '\n'.join(report)
 
     def generate_summary_entry(self, game: Game, genres: List[str], themes: List[str]) -> str:
-        """
-        Генерирует краткую запись для файла-резюме.
-        """
+        """Генерирует краткую запись для файла-резюме."""
         summary = []
         summary.append(f'GAME: {game.name}')
         summary.append(f'Matching genres ({len(genres)}): {", ".join(genres) if genres else "None"}')
@@ -764,9 +805,7 @@ class Command(BaseCommand):
     def log_error(self, error_file, game: Game, error_type: str, error_message: str,
                   prompt: Optional[str] = None, raw_response: Optional[str] = None,
                   exception: Optional[Exception] = None):
-        """
-        Записывает ошибку в файл с полной информацией.
-        """
+        """Записывает ошибку в файл."""
         error_file.write('=' * 80 + '\n')
         error_file.write(f'ERROR ENTRY\n')
         error_file.write(f'Timestamp: {time.strftime("%Y-%m-%d %H:%M:%S")}\n')
@@ -802,29 +841,13 @@ class Command(BaseCommand):
         """
         Обработка игр: анализ и присвоение жанров/тем.
         """
-        # Подготовка файла для отчета
-        if not options.get('resume') and os.path.exists(output_file_path):
-            os.remove(output_file_path)
-            self.stdout.write(f'🗑️  Удален существующий файл: {output_file_path}')
-
-        # Подготовка файла для ошибок
-        if not options.get('resume') and os.path.exists(error_file_path):
-            os.remove(error_file_path)
-            self.stdout.write(f'🗑️  Удален существующий файл: {error_file_path}')
-
-        # Подготовка файла для краткого резюме
-        if not options.get('resume') and os.path.exists(summary_file_path):
-            os.remove(summary_file_path)
-            self.stdout.write(f'🗑️  Удален существующий файл: {summary_file_path}')
-
-        # Определяем режим открытия файлов
+        # Подготовка файлов
         write_mode = 'a' if options.get('resume') else 'w'
 
         with open(output_file_path, write_mode, encoding='utf-8') as report_file:
             with open(error_file_path, write_mode, encoding='utf-8') as error_file:
                 with open(summary_file_path, write_mode, encoding='utf-8') as summary_file:
 
-                    # Если это новый запуск, пишем заголовки
                     if not options.get('resume'):
                         error_file.write('=' * 80 + '\n')
                         error_file.write('ERROR LOG - GENRES AND THEMES ASSIGNMENT\n')
@@ -841,113 +864,156 @@ class Command(BaseCommand):
                         summary_file.write(f'Generated: {time.strftime("%Y-%m-%d %H:%M:%S")}\n')
                         summary_file.write('=' * 80 + '\n\n')
 
+                    processed_count = 0
+                    interrupted_after_current = False
+
                     for idx, game in enumerate(games, 1):
                         self.current_game = game
                         self.current_game_index = idx
 
-                        # Проверяем, была ли игра уже обработана (для режима возобновления)
-                        if game.id in processed_games:
-                            self.stdout.write(f'\n[{idx}/{self.total_games}] Пропускаем (уже обработана): {game.name}')
-                            continue
-
-                        # Проверяем сигнал прерывания
-                        if self.interrupted:
-                            self.stdout.write(self.style.WARNING('\n⚠ Прерывание работы...'))
-                            self.stdout.write(
-                                self.style.WARNING(f'⚠ Обработано {self.games_processed} игр, сохранение состояния...'))
+                        # Проверка прерывания перед началом новой игры
+                        if interrupted_after_current:
                             break
 
-                        self.stdout.write(f'\n[{idx}/{self.total_games}] Обработка: {game.name}')
+                        # Проверка на уже обработанные
+                        if game.id in processed_games:
+                            processed_count += 1
+                            self.progress_bar.update(processed_count, f"⏭️ Пропуск (уже обработана)")
+                            continue
+
+                        # Обновляем прогресс-бар с текущей игрой
+                        self.progress_bar.update(processed_count, f"🔄 {game.name[:40]}...")
 
                         # Проверка токена
                         if not self.ensure_valid_token():
                             error_msg = "Не удалось обновить токен"
-                            self.stdout.write(self.style.ERROR(f'  ✗ {error_msg}'))
                             self.games_failed += 1
                             self.log_error(error_file, game, "Token Error", error_msg)
+                            processed_count += 1
+                            self.progress_bar.update(processed_count, f"❌ Ошибка: {game.name[:30]}...")
                             continue
 
                         try:
-                            # Анализ игры через GigaChat
+                            # Анализ игры
                             analysis, prompt, raw_response = self.analyze_game_genres_themes(game)
 
                             if not analysis:
                                 error_msg = "Не удалось выполнить анализ"
-                                self.stdout.write(self.style.ERROR(f'  ✗ {error_msg}'))
                                 self.games_failed += 1
                                 self.log_error(error_file, game, "Analysis Error", error_msg, prompt, raw_response)
+                                processed_count += 1
+                                self.progress_bar.update(processed_count, f"❌ Ошибка: {game.name[:30]}...")
                                 continue
 
-                            # Извлекаем подходящие жанры и темы
+                            # Извлекаем жанры и темы
                             matching_genres, matching_themes = self.extract_matching_genres_themes(analysis)
 
-                            # Генерируем запись для отчета
+                            # Записываем отчеты
                             report_entry = self.generate_report_entry(game, analysis, matching_genres, matching_themes)
                             report_file.write(report_entry)
                             report_file.flush()
 
-                            # Генерируем краткую запись для резюме
                             summary_entry = self.generate_summary_entry(game, matching_genres, matching_themes)
                             summary_file.write(summary_entry)
                             summary_file.flush()
 
-                            # Показываем найденные жанры и темы
-                            self.stdout.write(f'  🎭 Найдено жанров: {len(matching_genres)}')
-                            for genre in matching_genres:
-                                self.stdout.write(f'     - {genre}')
+                            # Выводим подробности если verbose
+                            if self.verbose:
+                                # Временно убираем прогресс-бар для вывода
+                                self.stdout.write('\n', ending='')
+                                self.stdout.write(f'  🎭 Найдено жанров: {len(matching_genres)}')
+                                for genre in matching_genres:
+                                    self.stdout.write(f'     - {genre}')
+                                self.stdout.write(f'  🎨 Найдено тем: {len(matching_themes)}')
+                                for theme in matching_themes:
+                                    self.stdout.write(f'     - {theme}')
 
-                            self.stdout.write(f'  🎨 Найдено тем: {len(matching_themes)}')
-                            for theme in matching_themes:
-                                self.stdout.write(f'     - {theme}')
-
-                            # Если не dry-run, сохраняем в БД
+                            # Сохраняем в БД
                             if not dry_run:
                                 try:
                                     genres_assigned = self.assign_genres_to_game(game, matching_genres)
                                     themes_assigned = self.assign_themes_to_game(game, matching_themes)
 
-                                    # Обновляем материализованные векторы после добавления жанров и тем
                                     game.update_materialized_vectors(force=True)
                                     game.update_cached_counts(force=True)
 
-                                    self.stdout.write(self.style.SUCCESS(
-                                        f'  ✓ Сохранено в БД: {genres_assigned} жанров, {themes_assigned} тем'
-                                    ))
                                     self.games_processed += 1
 
-                                    # Сохраняем состояние для возобновления
+                                    # Сохраняем состояние ТОЛЬКО после успешного сохранения
                                     self.save_resume_state(resume_file_path, game.id)
+
+                                    if self.verbose:
+                                        self.stdout.write(
+                                            f'  ✓ Сохранено: {genres_assigned} жанров, {themes_assigned} тем')
 
                                 except Exception as db_error:
                                     error_msg = f"Ошибка при сохранении в БД: {str(db_error)}"
-                                    self.stdout.write(self.style.ERROR(f'  ✗ {error_msg}'))
                                     self.games_failed += 1
                                     self.log_error(error_file, game, "Database Error", error_msg, prompt, raw_response,
                                                    db_error)
                             else:
-                                self.stdout.write(self.style.WARNING(f'  🔍 Dry run: изменения не применены'))
                                 self.games_processed += 1
+                                if self.verbose:
+                                    self.stdout.write(f'  🔍 Dry run: изменения не применены')
+
+                            # Увеличиваем счетчик обработанных и обновляем прогресс-бар
+                            processed_count += 1
+                            self.progress_bar.update(processed_count, f"✅ {game.name[:30]}...")
 
                         except Exception as e:
                             error_msg = f"Необработанная ошибка: {str(e)}"
-                            self.stdout.write(self.style.ERROR(f'  ✗ {error_msg}'))
                             self.games_failed += 1
                             self.log_error(error_file, game, "Unexpected Error", error_msg, exception=e)
+                            processed_count += 1
+                            self.progress_bar.update(processed_count, f"❌ Ошибка: {game.name[:30]}...")
 
-                        # Задержка между запросами для соблюдения лимитов API
-                        if not self.interrupted:
-                            time.sleep(2)
+                        # После завершения обработки игры проверяем флаг прерывания
+                        if self.interrupted:
+                            # Устанавливаем флаг, что прерывание произошло после текущей игры
+                            interrupted_after_current = True
+                            # Выводим сообщение
+                            self.stdout.write('\n', ending='')
+                            self.stdout.flush()
+                            self.stdout.write(self.style.WARNING('✓ Текущая игра завершена, прерывание...'))
+                            self.stdout.flush()
+                            # Обновляем прогресс-бар с реальным количеством
+                            self.progress_bar.update(processed_count,
+                                                     f"⏸️ Остановлено на {processed_count}/{self.total_games}")
+                            # Выходим из цикла (не вызываем finish)
+                            break
+
+                        # Задержка между запросами
+                        time.sleep(2)
+
+                    # НЕ вызываем finish здесь - это будет сделано в handle
+                    # Просто обновляем прогресс-бар до финального состояния если не было прерывания
+                    if not interrupted_after_current and not self.interrupted and processed_count == self.total_games:
+                        self.progress_bar.update(processed_count,
+                                                 f"✅ {self.games_processed} успешно | ❌ {self.games_failed} ошибок")
 
     def show_summary(self) -> None:
         """Вывод статистики выполнения"""
         elapsed_time = time.time() - self.start_time
 
+        # Форматируем время
+        if elapsed_time < 60:
+            elapsed_str = f"{elapsed_time:.1f}s"
+        elif elapsed_time < 3600:
+            minutes = int(elapsed_time // 60)
+            seconds = int(elapsed_time % 60)
+            elapsed_str = f"{minutes}m {seconds}s"
+        else:
+            hours = int(elapsed_time // 3600)
+            minutes = int((elapsed_time % 3600) // 60)
+            elapsed_str = f"{hours}h {minutes}m"
+
+        # Выводим статистику
         self.stdout.write('\n' + '=' * 60)
         self.stdout.write('📊 СТАТИСТИКА')
         self.stdout.write('=' * 60)
         self.stdout.write(f'✅ Успешно обработано: {self.games_processed}')
         self.stdout.write(f'❌ Не удалось: {self.games_failed}')
-        self.stdout.write(f'⏱️  Время: {elapsed_time:.2f} секунд')
+        self.stdout.write(f'⏱️  Время: {elapsed_str}')
         if self.interrupted:
             self.stdout.write(self.style.WARNING('⚠ Работа прервана пользователем'))
         self.stdout.write('=' * 60)
