@@ -36,12 +36,20 @@ class Command(BaseCommand):
         # Приводим маппинг к нижнему регистру для регистронезависимого сравнения
         mapping_lower = {k.lower(): v for k, v in theme_to_genre_mapping.items()}
 
+        # Выводим информацию о том, какие темы ищем
+        self.stdout.write(f'Ищем темы для переноса: {list(theme_to_genre_mapping.keys())}')
+
         # Получаем все темы и фильтруем по нижнему регистру
         all_themes = Theme.objects.all()
         themes_to_process = []
         for theme in all_themes:
             if theme.name.lower() in mapping_lower:
                 themes_to_process.append(theme)
+                self.stdout.write(f'Найдена тема для переноса: "{theme.name}" (ID: {theme.id})')
+
+        if not themes_to_process:
+            self.stdout.write(self.style.WARNING('Не найдено ни одной темы для переноса'))
+            return 0, 0
 
         # Кешируем все жанры заранее
         genres_cache = {}
@@ -52,7 +60,9 @@ class Command(BaseCommand):
             )
             genres_cache[theme_name] = genre
             if created:
-                self.stdout.write(f'Создан новый жанр: "{genre_name}"')
+                self.stdout.write(f'Создан новый жанр: "{genre_name}" (ID: {genre.id})')
+            else:
+                self.stdout.write(f'Используется существующий жанр: "{genre_name}" (ID: {genre.id})')
 
         total_added_genres = 0
         total_removed_themes = 0
@@ -67,25 +77,32 @@ class Command(BaseCommand):
                     break
 
             if not original_key:
+                self.stdout.write(self.style.WARNING(f'Не найден оригинальный ключ для темы "{theme.name}"'))
                 continue
 
             genre = genres_cache.get(original_key)
 
             if not genre:
+                self.stdout.write(self.style.WARNING(f'Не найден жанр для ключа "{original_key}"'))
                 continue
 
             # Получаем ID игр с этой темой
             game_ids = list(Game.objects.filter(themes=theme).values_list('id', flat=True))
 
             if not game_ids:
-                self.stdout.write(f'Для темы "{theme.name}" нет игр')
+                self.stdout.write(self.style.WARNING(f'Для темы "{theme.name}" нет игр'))
+                # Если нет игр и keep_old=False, удаляем тему
+                if not keep_old and not dry_run:
+                    theme.delete()
+                    self.stdout.write(f'Тема "{theme.name}" удалена (нет связанных игр)')
+                    total_removed_themes += 1
                 continue
 
             total_games = len(game_ids)
             added_genres = 0
             removed_themes = 0
 
-            self.stdout.write(f'Тема "{theme.name}" -> жанр "{genre.name}": {total_games} игр')
+            self.stdout.write(self.style.NOTICE(f'Тема "{theme.name}" -> жанр "{genre.name}": {total_games} игр'))
 
             # Обрабатываем батчами с bulk операциями
             for i in range(0, total_games, batch_size):
@@ -112,14 +129,26 @@ class Command(BaseCommand):
                             ignore_conflicts=True
                         )
                         added_genres += len(new_relations)
+                        self.stdout.write(f'  Добавлено {len(new_relations)} связей с жанром "{genre.name}"')
 
                     # Bulk удаление тем (если не keep-old)
                     if not keep_old:
+                        # Сначала получаем количество связей до удаления
+                        before_count = Game.themes.through.objects.filter(
+                            game_id__in=batch_ids,
+                            theme_id=theme.id
+                        ).count()
+
                         deleted_count, _ = Game.themes.through.objects.filter(
                             game_id__in=batch_ids,
                             theme_id=theme.id
                         ).delete()
+
                         removed_themes += deleted_count
+
+                        if deleted_count > 0:
+                            self.stdout.write(
+                                f'  Удалено {deleted_count} связей с темой "{theme.name}" (было {before_count})')
                 else:
                     # Для dry-run просто считаем
                     added_genres += len(batch_ids)
@@ -135,8 +164,19 @@ class Command(BaseCommand):
                 )
 
             print()
+
+            # После обработки всех батчей, если тема больше не используется, удаляем её
+            if not keep_old and not dry_run:
+                remaining_games = Game.objects.filter(themes=theme).count()
+                if remaining_games == 0:
+                    theme.delete()
+                    self.stdout.write(self.style.SUCCESS(f'  Тема "{theme.name}" полностью удалена'))
+                else:
+                    self.stdout.write(
+                        self.style.WARNING(f'  Тема "{theme.name}" всё ещё используется в {remaining_games} играх'))
+
             self.stdout.write(self.style.SUCCESS(
-                f'  Добавлено жанров: {added_genres}, Удалено тем: {removed_themes}'
+                f'  Добавлено жанров: {added_genres}, Удалено связей с темой: {removed_themes}'
             ))
 
             total_added_genres += added_genres
