@@ -58,7 +58,6 @@ class PatternManager:
             r'\blife\s+simulator\b',
         ],
         'Squad-based': [
-            # Базовые паттерны
             r'\bsquad[-\s]?based\b',
             r'\bsquad\s+management\b',
             r'\bparty\s+management\b',
@@ -67,16 +66,10 @@ class PatternManager:
             r'\bmanaging\s+(?:a|your|the)\s+(?:squad|party|team)\b',
             r'\bbuild\s+(?:a|your|the)\s+(?:squad|party|team)\b',
             r'\bbuilding\s+(?:a|your|the)\s+(?:squad|party|team)\b',
-
-            # Формирование и рекрутинг (исправлено для "gathering teammates")
             r'\b(?:recruit|assemble|gather|form|build)\s+(?:team(?:mates)?|companions?|followers?|members?|allies?|squad|party|group|company|band|crew)\b',
             r'\b(?:recruiting|assembling|gathering|forming|building)\s+(?:team(?:mates)?|companions?|followers?|members?|allies?|squad|party|group|company|band|crew)\b',
-
-            # Командование и контроль
             r'\b(?:command|lead|control)\s+(?:a|the|your)\s+(?:squad|party|team|group|company)\b',
             r'\b(?:commanding|leading|controlling)\s+(?:a|the|your)\s+(?:squad|party|team|group|company)\b',
-
-            # Тактическое управление
             r'\btactical\s+(?:squad|party|team)\s+(?:control|management|commands?)\b',
             r'\b(?:issue|give)\s+orders?\s+to\s+(?:your|the)\s+(?:squad|party|team)\b',
         ],
@@ -171,10 +164,6 @@ class PatternManager:
             r'\bhack\s+and\s+slash\b',
             r'\bbeat\s+\'?em\s+up\b',
         ],
-        'Indie': [
-            r'\bindie(\s+game|\s+title|\s+developer)\b',
-            r'\bindependent(\s+developer|\s+studio)\b',
-        ],
         'MOBA': [
             r'\bmoba\b',
             r'\bmultiplayer\s+online\s+battle\s+arena\b',
@@ -215,21 +204,6 @@ class PatternManager:
         'Real Time Strategy (RTS)': [
             r'\breal\s+time\s+strategy\b',
             r'\brts(\s+game|\s+title)?\b',
-        ],
-        'Real-time Combat': [
-            r'\breal[-\s]?time\s+combat\b',
-            r'\breal\s+time\s+combat\s+system\b',
-            r'\breal[-\s]?time\s+battles?\b',
-            r'\baction\s+rpg\s+with\s+real[-\s]?time\s+combat\b',
-            r'\breal[-\s]?time\s+tactical\s+combat\b',
-            r'\bdynamic\s+real[-\s]?time\s+combat\b',
-            r'\bfast[-\s]?paced\s+real[-\s]?time\s+combat\b',
-            r'\breal[-\s]?time\s+combat\s+mechanics?\b',
-            r'\bcombat\s+occurs?\s+in\s+real[-\s]?time\b',
-            r'\bbattles?\s+happen\s+in\s+real[-\s]?time\b',
-            r'\bfighting\s+in\s+real[-\s]?time\b',
-            r'\breal[-\s]?time\s+combat\s+and\s+exploration\b',
-            r'\bengaging\s+real[-\s]?time\s+combat\b',
         ],
         'Role-playing (RPG)': [
             r'\brole-playing(\s+game|\s+title)\b',
@@ -277,7 +251,22 @@ class PatternManager:
         'Visual Novel': [
             r'\bvisual\s+novel\b',
             r'\bvn(\s+game)?\b',
-        ]
+        ],
+        'Precision Combat': [
+            r'\baim\s+skill[\s-]?shots?\b',
+            r'\bdodge\s+projectiles?\b',
+            r'\bprecise\s+WASD\s+controls\b',
+            r'\bcursor[\s-]?based\s+aiming\b',
+            r'\bno\s+click\s+to\s+move\b',
+            r'\bmanual\s+aiming\b',
+            r'\bdirect\s+control\s+combat\b',
+            r'\bprecision\s+movement\b',
+            r'\bskill[\s-]?based\s+aiming\b',
+            r'\bprojectile\s+dodging\b',
+            r'\breal[\s-]?time\s+aiming\b',
+            r'\btwin[\s-]?stick\s+controls?\b',
+            r'\bmanual\s+targeting\b',
+        ],
     }
 
     THEME_PATTERNS = {
@@ -454,6 +443,14 @@ class PatternManager:
             r'\bdocumentary\s+style\b',
             r'\bbased on real events\b',
             r'\bhistorical reenactment\b',
+            r'\bcontemporary setting\b',
+            r'\bmodern world\b',
+            r'\burban environment\b',
+            r'\bmodern city\b',
+            r'\brealistic contemporary\b',
+            r'\bpresent[-\s]?day\b',
+            r'\bmodern[-\s]?day\b',
+            r'\bpresent\s+day\s+setting\b',
         ],
         'Party': [
             r'\bparty\s+(game|games|title|mode)\b',
@@ -461,21 +458,6 @@ class PatternManager:
             r'\bmultiplayer\s+party\b',
             r'\bcasual\s+party\b',
             r'\bfun\s+party\b',
-        ],
-        'Precision Combat': [
-            r'\baim\s+skill[\s-]?shots?\b',
-            r'\bdodge\s+projectiles?\b',
-            r'\bprecise\s+WASD\s+controls\b',
-            r'\bcursor[\s-]?based\s+aiming\b',
-            r'\bno\s+click\s+to\s+move\b',
-            r'\bmanual\s+aiming\b',
-            r'\bdirect\s+control\s+combat\b',
-            r'\bprecision\s+movement\b',
-            r'\bskill[\s-]?based\s+aiming\b',
-            r'\bprojectile\s+dodging\b',
-            r'\breal[\s-]?time\s+aiming\b',
-            r'\btwin[\s-]?stick\s+controls?\b',
-            r'\bmanual\s+targeting\b',
         ],
         'Romance': [
             r'\bromance(\s+game)?\b',
@@ -528,6 +510,10 @@ class PatternManager:
         ],
         'Fire Emblem': [
             r'\bfire\s+emblem\b',
+        ],
+        'Indie': [
+            r'\bindie(\s+game|\s+title|\s+developer)\b',
+            r'\bindependent(\s+developer|\s+studio)\b',
         ],
     }
 

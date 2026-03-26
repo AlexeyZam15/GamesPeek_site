@@ -408,6 +408,102 @@ class Command(BaseCommand):
 
         return total_added_keywords, total_removed_themes
 
+    def _process_genres_to_themes(self, genre_to_theme_mapping, dry_run, batch_size, keep_old):
+        """Перенос жанров в темы (добавляет тему на основе жанра, жанр не удаляет)"""
+        self.stdout.write('\n=== ПЕРЕНОС ЖАНРОВ В ТЕМЫ ===')
+
+        mapping_lower = {k.lower(): v for k, v in genre_to_theme_mapping.items()}
+
+        all_genres = Genre.objects.all()
+        genres_to_process = []
+        for genre in all_genres:
+            if genre.name.lower() in mapping_lower:
+                genres_to_process.append(genre)
+
+        themes_cache = {}
+        for genre_name, theme_name in genre_to_theme_mapping.items():
+            theme, created = Theme.objects.get_or_create(
+                name=theme_name,
+                defaults={'igdb_id': -abs(hash(theme_name)) % 1000000}
+            )
+            themes_cache[genre_name] = theme
+            if created:
+                self.stdout.write(f'Создана новая тема: "{theme_name}"')
+
+        total_added_themes = 0
+
+        for genre in genres_to_process:
+            genre_name_lower = genre.name.lower()
+            original_key = None
+            for key in genre_to_theme_mapping.keys():
+                if key.lower() == genre_name_lower:
+                    original_key = key
+                    break
+            if not original_key:
+                continue
+
+            theme = themes_cache.get(original_key)
+            if not theme:
+                continue
+
+            game_ids = list(Game.objects.filter(genres=genre).values_list('id', flat=True))
+
+            if not game_ids:
+                self.stdout.write(f'Для жанра "{genre.name}" нет игр')
+                continue
+
+            total_games = len(game_ids)
+            added_themes = 0
+
+            self.stdout.write(f'Жанр "{genre.name}" -> тема "{theme.name}": {total_games} игр')
+
+            for i in range(0, total_games, batch_size):
+                batch_ids = game_ids[i:i + batch_size]
+
+                if not dry_run:
+                    existing_theme_ids = set(
+                        Game.themes.through.objects.filter(
+                            game_id__in=batch_ids,
+                            theme_id=theme.id
+                        ).values_list('game_id', flat=True)
+                    )
+
+                    new_relations = [
+                        Game.themes.through(game_id=game_id, theme_id=theme.id)
+                        for game_id in batch_ids
+                        if game_id not in existing_theme_ids
+                    ]
+
+                    if new_relations:
+                        Game.themes.through.objects.bulk_create(
+                            new_relations,
+                            ignore_conflicts=True
+                        )
+                        added_themes += len(new_relations)
+                else:
+                    added_themes += len(batch_ids)
+
+                current = min(i + batch_size, total_games)
+                self.print_progress_bar(
+                    current, total_games,
+                    prefix=f'Обработка "{genre.name}"',
+                    suffix=f'Добавлено тем: {added_themes}'
+                )
+
+            print()
+            self.stdout.write(self.style.SUCCESS(
+                f'  Добавлено тем: {added_themes} (жанр "{genre.name}" сохранён)'
+            ))
+            total_added_themes += added_themes
+
+        return total_added_themes
+
+    def get_genre_to_theme_mapping(self):
+        """Возвращает маппинг жанров в темы (регистронезависимый)"""
+        return {
+            'indie': 'Indie',
+        }
+
     def get_theme_to_genre_mapping(self):
         """Возвращает маппинг тем в жанры (регистронезависимый)"""
         return {
@@ -415,10 +511,11 @@ class Command(BaseCommand):
             'open world': 'Open World',
             'sandbox': 'Sandbox',
             'survival': 'Survival',
-            'real-time combat': 'Real-time Combat',
             'base building': 'Base Building',
             'simulator': 'Simulator',
             'squad management': 'Squad Management',
+            'precision combat': 'Precision Combat',  # добавлено
+            # 'real-time combat' убрано
         }
 
     def get_keyword_to_theme_mapping(self):
@@ -475,6 +572,7 @@ class Command(BaseCommand):
         theme_to_genre_mapping = self.get_theme_to_genre_mapping()
         keyword_to_theme_mapping = self.get_keyword_to_theme_mapping()
         theme_to_keyword_mapping = self.get_theme_to_keyword_mapping()
+        genre_to_theme_mapping = self.get_genre_to_theme_mapping()
 
         total_removed_themes = 0
         total_added_genres = 0
@@ -482,6 +580,7 @@ class Command(BaseCommand):
         total_added_themes = 0
         total_removed_themes_to_keywords = 0
         total_added_keywords = 0
+        total_added_themes_from_genres = 0
 
         with transaction.atomic():
             if dry_run:
@@ -502,12 +601,18 @@ class Command(BaseCommand):
                 total_added_themes += added_themes
                 total_removed_keywords += removed_keywords
 
-                # 3. Перенос тем в ключевые слова (НОВЫЙ ФУНКЦИОНАЛ)
+                # 3. Перенос тем в ключевые слова
                 added_keywords, removed_themes_to_keywords = self._process_themes_to_keywords(
                     theme_to_keyword_mapping, dry_run, batch_size, keep_old
                 )
                 total_added_keywords += added_keywords
                 total_removed_themes_to_keywords += removed_themes_to_keywords
+
+                # 4. Перенос жанров в темы
+                added_themes_from_genres = self._process_genres_to_themes(
+                    genre_to_theme_mapping, dry_run, batch_size, keep_old
+                )
+                total_added_themes_from_genres += added_themes_from_genres
 
                 if dry_run:
                     transaction.savepoint_rollback(savepoint)
@@ -531,6 +636,8 @@ class Command(BaseCommand):
             f'  • Ключ.слова -> темы: добавлено {total_added_themes}, удалено {total_removed_keywords}'))
         self.stdout.write(self.style.SUCCESS(
             f'  • Темы -> ключ.слова: добавлено {total_added_keywords}, удалено {total_removed_themes_to_keywords}'))
+        self.stdout.write(self.style.SUCCESS(
+            f'  • Жанры -> темы: добавлено {total_added_themes_from_genres}'))
 
         if keep_old:
             self.stdout.write(self.style.WARNING('СТАРЫЕ КРИТЕРИИ СОХРАНЕНЫ (опция --keep-old)'))
