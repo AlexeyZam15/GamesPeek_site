@@ -1,6 +1,7 @@
 """
 Команда для добавления жанров и тем к играм из JSONL-файлов.
-Поддерживает dry-run режим, отслеживание обработанных файлов и логирование изменений.
+Поддерживает dry-run режим, отслеживание обработанных файлов, логирование изменений
+и параллельную обработку с несколькими воркерами.
 """
 
 import json
@@ -12,6 +13,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Set, Tuple, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 
 from django.core.management.base import BaseCommand, CommandError
 
@@ -43,12 +46,19 @@ class Command(BaseCommand):
             default=200,
             help='Размер пакета для обработки (по умолчанию 200)'
         )
+        parser.add_argument(
+            '--workers',
+            type=int,
+            default=4,
+            help='Количество параллельных воркеров для обработки (по умолчанию 4, максимум 12)'
+        )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.dry_run = False
         self.force_restart = False
-        self.batch_size = 100
+        self.batch_size = 200
+        self.workers = 4
         self.base_dir = None
         self.data_dir = None
         self.log_dir = None
@@ -58,6 +68,8 @@ class Command(BaseCommand):
         self.errors_log_path = None
         self.processed_state = {}
         self.interrupted = False
+        self.start_time = None
+        self.stats_lock = Lock()
         self.stats = {
             'total_games': 0,
             'updated_games': 0,
@@ -70,14 +82,24 @@ class Command(BaseCommand):
             'errors': []
         }
 
-    def _write_note(self, game_id: int, game_name: str, note: str):
-        """Записывает информационное сообщение в лог (не ошибку)."""
-        try:
-            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            with open(self.additions_current_path, 'a', encoding='utf-8') as f:
-                f.write(f"{timestamp} | Game {game_id} | {game_name} | NOTE: {note}\n")
-        except Exception as e:
-            self.stderr.write(self.style.ERROR(f"Ошибка записи в лог: {e}"))
+        # Множества для быстрой проверки категорий
+        self.genres_set = set([
+            'Action', 'Adventure', 'Arcade', 'Base Building', 'Card & Board Game',
+            'Fighting', 'Hack and slash/Beat \'em up', 'MOBA', 'Music', 'Open World',
+            'Pinball', 'Platform', 'Point-and-click', 'Precision Combat', 'Puzzle',
+            'Quiz/Trivia', 'Racing', 'Real Time Strategy (RTS)', 'Role-playing (RPG)',
+            'Sandbox', 'Shooter', 'Simulator', 'Sport', 'Squad Management', 'Strategy',
+            'Survival', 'Tactical', 'Turn-based', 'Turn-based strategy (TBS)',
+            'Visual Novel'
+        ])
+
+        self.themes_set = set([
+            '4X (explore, expand, exploit, and exterminate)', 'Business', 'Comedy',
+            'Crafting & Gathering', 'Drama', 'Educational', 'Erotic', 'Fantasy',
+            'Fire Emblem', 'Gothic', 'Historical', 'Horror', 'Indie', 'Kids',
+            'Medieval', 'Mystery', 'Non-fiction', 'Party', 'Post-apocalyptic',
+            'Romance', 'Science fiction', 'Stealth', 'Thriller', 'Warfare'
+        ])
 
     def _signal_handler(self, signum, frame):
         """Обработчик сигнала прерывания."""
@@ -151,6 +173,15 @@ class Command(BaseCommand):
                 f.write(f"{timestamp} | Game {game_id} | {game_name} | ERROR: {error}\n")
         except Exception as e:
             self.stderr.write(self.style.ERROR(f"Ошибка записи в errors.log: {e}"))
+
+    def _write_note(self, game_id: int, game_name: str, note: str):
+        """Записывает информационное сообщение в лог (не ошибку)."""
+        try:
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            with open(self.additions_current_path, 'a', encoding='utf-8') as f:
+                f.write(f"{timestamp} | Game {game_id} | {game_name} | NOTE: {note}\n")
+        except Exception as e:
+            self.stderr.write(self.style.ERROR(f"Ошибка записи в лог: {e}"))
 
     def _load_processed_state(self):
         """Загружает состояние обработанных файлов."""
@@ -236,64 +267,8 @@ class Command(BaseCommand):
                     pass
             self._save_processed_state()
 
-    def _get_genres_by_names(self, genre_names: List[str]) -> List[Genre]:
-        """
-        Получает существующие жанры по именам с регистронезависимым поиском.
-        Использует нормализацию названий для соответствия формату в БД.
-        """
-        genres = []
-        for name in genre_names:
-            if not name:
-                continue
-
-            # Нормализация названия: приводим к нижнему регистру и убираем лишние пробелы
-            normalized_name = name.strip()
-
-            try:
-                # Сначала пытаемся найти точное совпадение
-                genre = Genre.objects.get(name=normalized_name)
-                genres.append(genre)
-                continue
-            except Genre.DoesNotExist:
-                pass
-
-            try:
-                # Если точное совпадение не найдено, ищем регистронезависимо
-                genre = Genre.objects.get(name__iexact=normalized_name)
-                genres.append(genre)
-                continue
-            except Genre.DoesNotExist:
-                pass
-
-            # Если не нашли по точному совпадению, пробуем нормализовать распространенные варианты
-            # Приводим к формату, который используется в БД: "Turn-based strategy (TBS)"
-            normalized_for_db = self._normalize_genre_name(normalized_name)
-
-            if normalized_for_db != normalized_name:
-                try:
-                    genre = Genre.objects.get(name=normalized_for_db)
-                    genres.append(genre)
-                    self._write_note(0, 'System', f"Жанр '{name}' нормализован в '{normalized_for_db}'")
-                    continue
-                except Genre.DoesNotExist:
-                    pass
-
-            # Если все попытки не удались, логируем ошибку
-            self._write_error(0, 'System', f"Жанр '{name}' не найден в БД")
-            self.stats['error_games'] += 1
-
-        return genres
-
     def _normalize_genre_name(self, name: str) -> str:
-        """
-        Нормализует название жанра к формату, принятому в базе данных.
-
-        Примеры:
-        - "Turn-based Strategy (TBS)" -> "Turn-based strategy (TBS)"
-        - "Real Time Strategy (RTS)" -> "Real Time Strategy (RTS)"
-        - "Hack and slash/Beat 'em up" -> "Hack and slash/Beat 'em up"
-        """
-        # Словарь специальных нормализаций для жанров
+        """Нормализует название жанра к формату, принятому в базе данных."""
         genre_normalizations = {
             'turn-based strategy (tbs)': 'Turn-based strategy (TBS)',
             'turn-based strategy': 'Turn-based strategy (TBS)',
@@ -311,15 +286,11 @@ class Command(BaseCommand):
             'rpg': 'Role-playing (RPG)',
         }
 
-        # Приводим к нижнему регистру для сравнения
         lower_name = name.lower().strip()
 
-        # Проверяем, есть ли нормализация для этого названия
         if lower_name in genre_normalizations:
             return genre_normalizations[lower_name]
 
-        # Для остальных жанров: первая буква каждого слова заглавная, остальные строчные
-        # Но сохраняем скобки и их содержимое как есть
         words = name.split()
         normalized_words = []
         in_parentheses = False
@@ -328,79 +299,21 @@ class Command(BaseCommand):
         for word in words:
             if '(' in word:
                 in_parentheses = True
-                # Начинаем собирать содержимое скобок
                 parentheses_content.append(word)
             elif ')' in word:
                 in_parentheses = False
                 parentheses_content.append(word)
-                # Добавляем все содержимое скобок как есть
                 normalized_words.append(' '.join(parentheses_content))
                 parentheses_content = []
             elif in_parentheses:
                 parentheses_content.append(word)
             else:
-                # Капитализируем первую букву каждого слова
                 normalized_words.append(word.capitalize())
 
         return ' '.join(normalized_words)
 
-    def _get_themes_by_names(self, theme_names: List[str]) -> List[Theme]:
-        """
-        Получает существующие темы по именам с регистронезависимым поиском.
-        Использует нормализацию названий для соответствия формату в БД.
-        """
-        themes = []
-        for name in theme_names:
-            if not name:
-                continue
-
-            # Нормализация названия: приводим к нижнему регистру и убираем лишние пробелы
-            normalized_name = name.strip()
-
-            try:
-                # Сначала пытаемся найти точное совпадение
-                theme = Theme.objects.get(name=normalized_name)
-                themes.append(theme)
-                continue
-            except Theme.DoesNotExist:
-                pass
-
-            try:
-                # Если точное совпадение не найдено, ищем регистронезависимо
-                theme = Theme.objects.get(name__iexact=normalized_name)
-                themes.append(theme)
-                continue
-            except Theme.DoesNotExist:
-                pass
-
-            # Если не нашли по точному совпадению, пробуем нормализовать распространенные варианты
-            normalized_for_db = self._normalize_theme_name(normalized_name)
-
-            if normalized_for_db != normalized_name:
-                try:
-                    theme = Theme.objects.get(name=normalized_for_db)
-                    themes.append(theme)
-                    self._write_note(0, 'System', f"Тема '{name}' нормализована в '{normalized_for_db}'")
-                    continue
-                except Theme.DoesNotExist:
-                    pass
-
-            # Если все попытки не удались, логируем ошибку
-            self._write_error(0, 'System', f"Тема '{name}' не найдена в БД")
-            self.stats['error_games'] += 1
-
-        return themes
-
     def _normalize_theme_name(self, name: str) -> str:
-        """
-        Нормализует название темы к формату, принятому в базе данных.
-
-        Примеры:
-        - "4x" -> "4X (explore, expand, exploit, and exterminate)"
-        - "stealth" -> "Stealth"
-        - "science fiction" -> "Science fiction"
-        """
-        # Словарь специальных нормализаций для тем
+        """Нормализует название темы к формату, принятому в базе данных."""
         theme_normalizations = {
             '4x': '4X (explore, expand, exploit, and exterminate)',
             '4x (explore, expand, exploit, and exterminate)': '4X (explore, expand, exploit, and exterminate)',
@@ -435,19 +348,95 @@ class Command(BaseCommand):
             'fire emblem-like': 'Fire Emblem',
         }
 
-        # Приводим к нижнему регистру для сравнения
         lower_name = name.lower().strip()
 
-        # Проверяем, есть ли нормализация для этого названия
         if lower_name in theme_normalizations:
             return theme_normalizations[lower_name]
 
-        # Для остальных тем: первая буква заглавная, остальные строчные
-        # При этом сохраняем специальные символы и скобки
         if name.isupper():
             return name.capitalize()
 
         return name.capitalize()
+
+    def _get_genres_by_names(self, genre_names: List[str]) -> List[Genre]:
+        """Получает существующие жанры по именам с регистронезависимым поиском."""
+        genres = []
+        for name in genre_names:
+            if not name:
+                continue
+
+            normalized_name = name.strip()
+
+            try:
+                genre = Genre.objects.get(name=normalized_name)
+                genres.append(genre)
+                continue
+            except Genre.DoesNotExist:
+                pass
+
+            try:
+                genre = Genre.objects.get(name__iexact=normalized_name)
+                genres.append(genre)
+                continue
+            except Genre.DoesNotExist:
+                pass
+
+            normalized_for_db = self._normalize_genre_name(normalized_name)
+
+            if normalized_for_db != normalized_name:
+                try:
+                    genre = Genre.objects.get(name=normalized_for_db)
+                    genres.append(genre)
+                    self._write_note(0, 'System', f"Жанр '{name}' нормализован в '{normalized_for_db}'")
+                    continue
+                except Genre.DoesNotExist:
+                    pass
+
+            with self.stats_lock:
+                self._write_error(0, 'System', f"Жанр '{name}' не найден в БД")
+                self.stats['error_games'] += 1
+
+        return genres
+
+    def _get_themes_by_names(self, theme_names: List[str]) -> List[Theme]:
+        """Получает существующие темы по именам с регистронезависимым поиском."""
+        themes = []
+        for name in theme_names:
+            if not name:
+                continue
+
+            normalized_name = name.strip()
+
+            try:
+                theme = Theme.objects.get(name=normalized_name)
+                themes.append(theme)
+                continue
+            except Theme.DoesNotExist:
+                pass
+
+            try:
+                theme = Theme.objects.get(name__iexact=normalized_name)
+                themes.append(theme)
+                continue
+            except Theme.DoesNotExist:
+                pass
+
+            normalized_for_db = self._normalize_theme_name(normalized_name)
+
+            if normalized_for_db != normalized_name:
+                try:
+                    theme = Theme.objects.get(name=normalized_for_db)
+                    themes.append(theme)
+                    self._write_note(0, 'System', f"Тема '{name}' нормализована в '{normalized_for_db}'")
+                    continue
+                except Theme.DoesNotExist:
+                    pass
+
+            with self.stats_lock:
+                self._write_error(0, 'System', f"Тема '{name}' не найдена в БД")
+                self.stats['error_games'] += 1
+
+        return themes
 
     def _update_game_genres_themes(self, game: Game, new_genres: List[Genre],
                                    new_themes: List[Theme], dry_run: bool) -> Tuple[bool, List[str], List[str]]:
@@ -477,8 +466,8 @@ class Command(BaseCommand):
 
         return True, added_genre_names, added_theme_names
 
-    def _process_game_data(self, game_data: Dict, dry_run: bool) -> Dict:
-        """Обрабатывает данные одной игры."""
+    def _process_single_game(self, game_data: Dict, dry_run: bool) -> Dict:
+        """Обрабатывает данные одной игры (для параллельного выполнения)."""
         result = {
             'success': False,
             'game_id': game_data.get('id'),
@@ -487,91 +476,60 @@ class Command(BaseCommand):
             'themes': game_data.get('themes', []),
             'added_genres': [],
             'added_themes': [],
-            'error': None
+            'error': None,
+            'has_changes': False
         }
 
         try:
             game_id = result['game_id']
             if not game_id:
                 result['error'] = "Отсутствует поле id"
-                self._write_error(0, 'Unknown', result['error'])
-                self.stats['error_games'] += 1
+                with self.stats_lock:
+                    self._write_error(0, 'Unknown', result['error'])
+                    self.stats['error_games'] += 1
                 return result
 
             try:
                 game = Game.objects.get(igdb_id=game_id)
             except Game.DoesNotExist:
                 result['error'] = f"Игра не найдена"
-                self._write_error(game_id, result['game_name'], result['error'])
-                self.stats['error_games'] += 1
+                with self.stats_lock:
+                    self._write_error(game_id, result['game_name'], result['error'])
+                    self.stats['error_games'] += 1
                 return result
 
             result['game_name'] = game.name
 
-            # Сохраняем текущее количество ошибок до обработки жанров/тем
-            errors_before = self.stats['error_games']
-
-            # Разделяем жанры и темы по их реальному назначению
-            # Создаем множества для быстрого поиска
-            genres_set = set([
-                'Action', 'Adventure', 'Arcade', 'Base Building', 'Card & Board Game',
-                'Fighting', 'Hack and slash/Beat \'em up', 'MOBA', 'Music', 'Open World',
-                'Pinball', 'Platform', 'Point-and-click', 'Precision Combat', 'Puzzle',
-                'Quiz/Trivia', 'Racing', 'Real Time Strategy (RTS)', 'Role-playing (RPG)',
-                'Sandbox', 'Shooter', 'Simulator', 'Sport', 'Squad Management', 'Strategy',
-                'Survival', 'Tactical', 'Turn-based', 'Turn-based strategy (TBS)',
-                'Visual Novel'
-            ])
-
-            themes_set = set([
-                '4X (explore, expand, exploit, and exterminate)', 'Business', 'Comedy',
-                'Crafting & Gathering', 'Drama', 'Educational', 'Erotic', 'Fantasy',
-                'Fire Emblem', 'Gothic', 'Historical', 'Horror', 'Indie', 'Kids',
-                'Medieval', 'Mystery', 'Non-fiction', 'Party', 'Post-apocalyptic',
-                'Romance', 'Science fiction', 'Stealth', 'Thriller', 'Warfare'
-            ])
-
-            # Разделяем полученные названия
+            # Разделяем жанры и темы
             actual_genres = []
             actual_themes = []
 
-            # Обрабатываем все названия из поля 'genres' в JSONL
             for name in result['genres']:
-                if name in genres_set:
+                if name in self.genres_set:
                     actual_genres.append(name)
-                elif name in themes_set:
+                elif name in self.themes_set:
                     actual_themes.append(name)
                 else:
-                    # Если название не найдено ни в одном списке, пробуем определить по контексту
-                    # Например, 'Stealth' точно тема, а не жанр
                     if name.lower() == 'stealth':
                         actual_themes.append(name)
                     elif name.lower() in ['turn-based strategy (tbs)', 'real time strategy (rts)']:
                         actual_genres.append(name)
                     else:
-                        self._write_note(0, 'System', f"Неопределенная категория '{name}' - добавляется как жанр")
                         actual_genres.append(name)
 
-            # Обрабатываем все названия из поля 'themes' в JSONL
             for name in result['themes']:
-                if name in themes_set:
+                if name in self.themes_set:
                     actual_themes.append(name)
-                elif name in genres_set:
+                elif name in self.genres_set:
                     actual_genres.append(name)
                 else:
-                    # Если название не найдено ни в одном списке
                     if name.lower() == 'stealth':
                         actual_themes.append(name)
                     else:
-                        self._write_note(0, 'System', f"Неопределенная категория '{name}' - добавляется как тема")
                         actual_themes.append(name)
 
-            # Получаем объекты жанров и тем
             genres = self._get_genres_by_names(actual_genres)
             themes = self._get_themes_by_names(actual_themes)
-
-            # Вычисляем количество новых ошибок от ненайденных жанров/тем
-            new_errors = self.stats['error_games'] - errors_before
 
             has_changes, added_genres, added_themes = self._update_game_genres_themes(
                 game, genres, themes, dry_run
@@ -579,39 +537,89 @@ class Command(BaseCommand):
 
             result['added_genres'] = added_genres
             result['added_themes'] = added_themes
+            result['has_changes'] = has_changes
 
             if has_changes:
                 result['success'] = True
-                self.stats['total_genres_added'] += len(added_genres)
-                self.stats['total_themes_added'] += len(added_themes)
+                with self.stats_lock:
+                    self.stats['total_genres_added'] += len(added_genres)
+                    self.stats['total_themes_added'] += len(added_themes)
 
                 if dry_run:
                     self._write_addition_dry_run(game_id, game.name, added_genres, added_themes)
                 else:
                     self._write_addition(game_id, game.name, added_genres, added_themes)
-            else:
-                self.stats['skipped_games'] += 1
-
-            # Если были ошибки с жанрами/темами, считаем игру как с ошибкой
-            if new_errors > 0:
-                self.stats['error_games'] += 1
-                result['error'] = f"Пропущены ненайденные жанры/темы ({new_errors} шт.)"
 
             return result
 
         except Exception as e:
             result['error'] = str(e)
-            self._write_error(result['game_id'], result['game_name'], str(e))
-            self.stats['errors'].append({
-                'game_id': result['game_id'],
-                'game_name': result['game_name'],
-                'error': str(e)
-            })
-            self.stats['error_games'] += 1
+            with self.stats_lock:
+                self._write_error(result['game_id'], result['game_name'], str(e))
+                self.stats['errors'].append({
+                    'game_id': result['game_id'],
+                    'game_name': result['game_name'],
+                    'error': str(e)
+                })
+                self.stats['error_games'] += 1
             return result
 
+    def _process_batch(self, batch: List[str], dry_run: bool) -> Dict:
+        """Обрабатывает пакет игр параллельно."""
+        batch_stats = {
+            'total': 0,
+            'updated': 0,
+            'skipped': 0,
+            'errors': 0
+        }
+
+        results = []
+
+        with ThreadPoolExecutor(max_workers=self.workers) as executor:
+            futures = []
+            for line in batch:
+                try:
+                    game_data = json.loads(line)
+                    futures.append(executor.submit(self._process_single_game, game_data, dry_run))
+                except json.JSONDecodeError as e:
+                    with self.stats_lock:
+                        self._write_error(0, 'JSON', f"Ошибка парсинга строки: {e}")
+                        self.stats['error_games'] += 1
+                    batch_stats['errors'] += 1
+
+            for future in as_completed(futures):
+                if self.interrupted:
+                    executor.shutdown(wait=False)
+                    break
+
+                result = future.result()
+                results.append(result)
+                batch_stats['total'] += 1
+
+                if result.get('error'):
+                    batch_stats['errors'] += 1
+                elif result.get('has_changes'):
+                    batch_stats['updated'] += 1
+                else:
+                    batch_stats['skipped'] += 1
+
+        return batch_stats
+
+    def _format_time(self, seconds: float) -> str:
+        """Форматирует время в читаемый формат."""
+        if seconds < 60:
+            return f"{seconds:.1f} сек"
+        elif seconds < 3600:
+            minutes = int(seconds // 60)
+            secs = int(seconds % 60)
+            return f"{minutes} мин {secs} сек"
+        else:
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            return f"{hours} ч {minutes} мин"
+
     def _process_file(self, file_path: Path, dry_run: bool) -> Dict:
-        """Обрабатывает один файл пакетами."""
+        """Обрабатывает один файл пакетами с параллельной обработкой и отображением прогресса."""
         file_start_time = time.time()
 
         file_stats = {
@@ -637,57 +645,63 @@ class Command(BaseCommand):
             batches = [lines[i:i + self.batch_size] for i in range(0, len(lines), self.batch_size)]
             total_batches = len(batches)
 
-            # Сбрасываем локальные счетчики для этого файла
-            file_updated = 0
-            file_skipped = 0
-            file_errors = 0
-
             # Сохраняем глобальные счетчики для вычисления разницы
-            global_updated_before = self.stats['updated_games']
-            global_skipped_before = self.stats['skipped_games']
-            global_errors_before = self.stats['error_games']
+            with self.stats_lock:
+                global_updated_before = self.stats['updated_games']
+                global_skipped_before = self.stats['skipped_games']
+                global_errors_before = self.stats['error_games']
+                global_genres_before = self.stats['total_genres_added']
+                global_themes_before = self.stats['total_themes_added']
+
+            # Переменные для расчета оставшегося времени
+            batch_times = []
 
             for batch_num, batch in enumerate(batches, 1):
                 if self.interrupted:
                     break
 
-                for line in batch:
-                    try:
-                        game_data = json.loads(line)
-                        file_stats['valid_lines'] += 1
+                batch_start = time.time()
+                batch_stats = self._process_batch(batch, dry_run)
+                batch_end = time.time()
+                batch_duration = batch_end - batch_start
+                batch_times.append(batch_duration)
 
-                        result = self._process_game_data(game_data, dry_run)
-
-                    except json.JSONDecodeError as e:
-                        self._write_error(0, file_path.name, f"Строка: {e}")
-                        self.stats['error_games'] += 1
+                with self.stats_lock:
+                    self.stats['total_games'] += batch_stats['total']
+                    self.stats['updated_games'] += batch_stats['updated']
+                    self.stats['skipped_games'] += batch_stats['skipped']
+                    self.stats['error_games'] += batch_stats['errors']
 
                 # Обновляем локальные счетчики
-                file_updated = self.stats['updated_games'] - global_updated_before
-                file_skipped = self.stats['skipped_games'] - global_skipped_before
-                file_errors = self.stats['error_games'] - global_errors_before
-
-                # Обновляем file_stats
-                file_stats['updated_games'] = file_updated
-                file_stats['skipped_games'] = file_skipped
-                file_stats['error_lines'] = file_errors
+                with self.stats_lock:
+                    file_stats['updated_games'] = self.stats['updated_games'] - global_updated_before
+                    file_stats['skipped_games'] = self.stats['skipped_games'] - global_skipped_before
+                    file_stats['error_lines'] = self.stats['error_games'] - global_errors_before
+                    file_stats['genres_added'] = self.stats['total_genres_added'] - global_genres_before
+                    file_stats['themes_added'] = self.stats['total_themes_added'] - global_themes_before
 
                 # Вычисляем прошедшее время
                 elapsed = time.time() - file_start_time
-                elapsed_str = f"{int(elapsed // 60)}:{int(elapsed % 60):02d}"
+                elapsed_str = self._format_time(elapsed)
+
+                # Вычисляем оставшееся время
+                remaining_batches = total_batches - batch_num
+                avg_batch_time = sum(batch_times[-min(10, len(batch_times)):]) / min(10, len(batch_times))
+                remaining_seconds = avg_batch_time * remaining_batches
+                remaining_str = self._format_time(remaining_seconds) if remaining_batches > 0 else "0 сек"
 
                 # Выводим прогресс
                 progress = int(batch_num / total_batches * 20)
                 bar = "█" * progress + "░" * (20 - progress)
                 self.stdout.write(
-                    f"\r{batch_num}/{total_batches} {bar} ✅ {file_updated} ⏭️ {file_skipped} ❌ {file_errors} [{elapsed_str}]",
+                    f"\r{batch_num}/{total_batches} {bar} ✅ {file_stats['updated_games']} ⏭️ {file_stats['skipped_games']} ❌ {file_stats['error_lines']} | Прошло: {elapsed_str} | Осталось: {remaining_str}",
                     ending='')
 
             self.stdout.write("")
 
             # Итоговое время для файла
             total_elapsed = time.time() - file_start_time
-            self.stdout.write(f"Время обработки файла: {int(total_elapsed // 60)}:{int(total_elapsed % 60):02d}")
+            self.stdout.write(f"Время обработки файла: {self._format_time(total_elapsed)}")
 
         except Exception as e:
             self.stderr.write(self.style.ERROR(f"Ошибка: {e}"))
@@ -728,10 +742,14 @@ class Command(BaseCommand):
         return files_to_process
 
     def _print_summary(self):
-        """Выводит итоговую статистику."""
+        """Выводит итоговую статистику с временем выполнения."""
         self.stdout.write(self.style.SUCCESS("\n" + "=" * 50))
         self.stdout.write(self.style.SUCCESS("ИТОГОВАЯ СТАТИСТИКА"))
         self.stdout.write(self.style.SUCCESS("=" * 50))
+
+        if self.start_time:
+            total_time = time.time() - self.start_time
+            self.stdout.write(self.style.SUCCESS(f"Общее время выполнения: {self._format_time(total_time)}"))
 
         self.stdout.write(f"Обработано игр: {self.stats['total_games']}")
         self.stdout.write(f"Обновлено игр: {self.stats['updated_games']}")
@@ -739,6 +757,11 @@ class Command(BaseCommand):
         self.stdout.write(f"Ошибок: {self.stats['error_games']}")
         self.stdout.write(f"Добавлено жанров: {self.stats['total_genres_added']}")
         self.stdout.write(f"Добавлено тем: {self.stats['total_themes_added']}")
+
+        # Расчет производительности
+        if self.stats['total_games'] > 0 and self.start_time:
+            games_per_second = self.stats['total_games'] / (time.time() - self.start_time)
+            self.stdout.write(f"Скорость обработки: {games_per_second:.1f} игр/сек")
 
         if self.stats['skipped_files']:
             self.stdout.write(self.style.WARNING(f"\nПропущено файлов: {len(self.stats['skipped_files'])}"))
@@ -762,9 +785,12 @@ class Command(BaseCommand):
         """Основной метод."""
         signal.signal(signal.SIGINT, self._signal_handler)
 
+        self.start_time = time.time()
+
         self.dry_run = options['dry_run']
         self.force_restart = options['force_restart']
         self.batch_size = options['batch_size']
+        self.workers = min(options['workers'], 12)
         specific_file = options.get('file')
 
         self._setup_paths()
@@ -786,6 +812,7 @@ class Command(BaseCommand):
         self.stdout.write("=" * 50)
         self.stdout.write(f"Режим: {'DRY-RUN' if self.dry_run else 'REAL'}")
         self.stdout.write(f"Размер пакета: {self.batch_size}")
+        self.stdout.write(f"Количество воркеров: {self.workers}")
 
         try:
             files_to_process = self._get_files_to_process(specific_file)
@@ -806,18 +833,19 @@ class Command(BaseCommand):
 
             file_stats = self._process_file(file_path, self.dry_run)
 
-            self.stats['total_games'] += file_stats['valid_lines']
-            self.stats['updated_games'] += file_stats['updated_games']
-            self.stats['skipped_games'] += file_stats['skipped_games']
-            self.stats['error_games'] += file_stats['error_lines']
-            self.stats['total_genres_added'] += file_stats['genres_added']
-            self.stats['total_themes_added'] += file_stats['themes_added']
+            with self.stats_lock:
+                self.stats['total_games'] += file_stats['valid_lines']
+                self.stats['updated_games'] += file_stats['updated_games']
+                self.stats['skipped_games'] += file_stats['skipped_games']
+                self.stats['error_games'] += file_stats['error_lines']
+                self.stats['total_genres_added'] += file_stats['genres_added']
+                self.stats['total_themes_added'] += file_stats['themes_added']
 
-            self.stats['processed_files'].append({
-                'name': file_path.name,
-                'games_updated': file_stats['updated_games'],
-                'games_total': file_stats['valid_lines']
-            })
+                self.stats['processed_files'].append({
+                    'name': file_path.name,
+                    'games_updated': file_stats['updated_games'],
+                    'games_total': file_stats['valid_lines']
+                })
 
             self.stdout.write(self.style.SUCCESS(
                 f"\nФайл {file_path.name}: ✅ {file_stats['updated_games']} ⏭️ {file_stats['skipped_games']} ❌ {file_stats['error_lines']}"
