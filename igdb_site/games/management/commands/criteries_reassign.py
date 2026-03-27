@@ -29,6 +29,128 @@ class Command(BaseCommand):
             help='Не удалять старые критерии'
         )
 
+    def _rename_genre(self, old_name, new_name, dry_run, batch_size):
+        """
+        Переименовывает жанр, обновляя все связи с играми.
+
+        Аргументы:
+            old_name: текущее название жанра
+            new_name: новое название жанра
+            dry_run: если True, только показывает что будет сделано
+            batch_size: размер батча для обработки
+
+        Возвращает:
+            tuple: (был ли жанр переименован, количество обновленных игр)
+        """
+        self.stdout.write(f'\n=== ПЕРЕИМЕНОВАНИЕ ЖАНРА "{old_name}" -> "{new_name}" ===')
+
+        try:
+            old_genre = Genre.objects.filter(name__iexact=old_name).first()
+
+            if not old_genre:
+                self.stdout.write(self.style.WARNING(f'Жанр "{old_name}" не найден в базе данных'))
+                return False, 0
+
+            # Проверяем, существует ли уже жанр с новым названием
+            existing_genre = Genre.objects.filter(name__iexact=new_name).first()
+
+            if existing_genre:
+                self.stdout.write(self.style.WARNING(f'Жанр "{new_name}" уже существует (ID: {existing_genre.id})'))
+                self.stdout.write(f'Будет выполнено объединение жанров: "{old_name}" -> "{new_name}"')
+
+                # Получаем игры со старым жанром
+                games_with_old_genre = Game.objects.filter(genres=old_genre)
+                games_count = games_with_old_genre.count()
+
+                if games_count == 0:
+                    self.stdout.write(f'Старый жанр "{old_name}" не используется')
+                    if not dry_run:
+                        old_genre.delete()
+                        self.stdout.write(self.style.SUCCESS(f'Жанр "{old_name}" удален'))
+                    return True, 0
+
+                self.stdout.write(f'Найдено {games_count} игр со старым жанром "{old_name}"')
+
+                if not dry_run:
+                    # Получаем ID всех игр со старым жанром
+                    game_ids = list(games_with_old_genre.values_list('id', flat=True))
+                    games_updated = 0
+
+                    # Добавляем новый жанр к этим играм (батчами)
+                    for i in range(0, len(game_ids), batch_size):
+                        batch_ids = game_ids[i:i + batch_size]
+
+                        # Получаем игры, у которых еще нет нового жанра
+                        existing_relations = set(
+                            Game.genres.through.objects.filter(
+                                game_id__in=batch_ids,
+                                genre_id=existing_genre.id
+                            ).values_list('game_id', flat=True)
+                        )
+
+                        new_relations = [
+                            Game.genres.through(game_id=game_id, genre_id=existing_genre.id)
+                            for game_id in batch_ids
+                            if game_id not in existing_relations
+                        ]
+
+                        if new_relations:
+                            Game.genres.through.objects.bulk_create(
+                                new_relations,
+                                ignore_conflicts=True
+                            )
+
+                        # Удаляем старый жанр у этих игр
+                        deleted_count, _ = Game.genres.through.objects.filter(
+                            game_id__in=batch_ids,
+                            genre_id=old_genre.id
+                        ).delete()
+                        games_updated += deleted_count
+
+                        current = min(i + batch_size, len(game_ids))
+                        self.print_progress_bar(
+                            current, len(game_ids),
+                            prefix=f'Объединение жанров "{old_name}" -> "{new_name}"',
+                            suffix=f'Обработано игр: {games_updated}'
+                        )
+
+                    print()
+
+                    # Удаляем старый жанр
+                    old_genre.delete()
+                    self.stdout.write(self.style.SUCCESS(
+                        f'Жанр "{old_name}" объединен с "{new_name}". Обновлено игр: {games_updated}'
+                    ))
+                    return True, games_updated
+                else:
+                    self.stdout.write(self.style.WARNING(
+                        f'[DRY-RUN] Будет объединен жанр "{old_name}" с "{new_name}" для {games_count} игр'
+                    ))
+                    return True, games_count
+
+            else:
+                # Нового жанра не существует - просто переименовываем
+                self.stdout.write(f'Переименование жанра "{old_name}" в "{new_name}"')
+
+                games_count = Game.objects.filter(genres=old_genre).count()
+
+                if not dry_run:
+                    old_genre.name = new_name
+                    old_genre.save()
+                    self.stdout.write(self.style.SUCCESS(
+                        f'Жанр "{old_name}" переименован в "{new_name}". Затронуто игр: {games_count}'
+                    ))
+                    return True, games_count
+                else:
+                    self.stdout.write(self.style.WARNING(
+                        f'[DRY-RUN] Будет переименован жанр "{old_name}" -> "{new_name}" для {games_count} игр'
+                    ))
+                    return True, games_count
+
+        except Exception as e:
+            self.stdout.write(self.style.ERROR(f'Ошибка при переименовании жанра: {e}'))
+            return False, 0
+
     def _process_themes_to_genres(self, theme_to_genre_mapping, dry_run, batch_size, keep_old):
         """
         Перенос тем в жанры.
@@ -782,6 +904,10 @@ class Command(BaseCommand):
         total_added_themes_from_genres = 0
         total_removed_genres = 0
 
+        # Переменные для отслеживания переименования жанра
+        genre_renamed = False
+        games_updated = 0
+
         # Переменные для отслеживания удаления жанра Real-time Combat
         genre_to_remove = 'Real-time Combat'
         relations_removed = 0
@@ -793,6 +919,11 @@ class Command(BaseCommand):
                 savepoint = transaction.savepoint()
 
             try:
+                # 0. Переименование жанра Squad-based в Squad Management
+                genre_renamed, games_updated = self._rename_genre(
+                    'Squad-based', 'Squad Management', dry_run, batch_size
+                )
+
                 # 1. Перенос тем в жанры
                 added_genres, removed_themes = self._process_themes_to_genres(
                     theme_to_genre_mapping, dry_run, batch_size, keep_old
@@ -846,6 +977,13 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS('ИЗМЕНЕНИЯ ВНЕСЕНЫ В БД'))
 
         self.stdout.write(self.style.SUCCESS(f'ИТОГО обработано:'))
+
+        # Вывод информации о переименовании
+        if genre_renamed:
+            self.stdout.write(self.style.SUCCESS(
+                f'  • Переименование жанра: "Squad-based" -> "Squad Management", обновлено игр: {games_updated}'
+            ))
+
         self.stdout.write(
             self.style.SUCCESS(
                 f'  • Темы -> жанры: добавлено {total_added_genres}, удалено тем {total_removed_themes}'))
