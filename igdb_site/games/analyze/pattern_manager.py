@@ -57,7 +57,7 @@ class PatternManager:
             r'\brealistic\s+simulation\b',
             r'\blife\s+simulator\b',
         ],
-        'Squad-based': [
+        'Squad Management': [
             r'\bsquad[-\s]?based\b',
             r'\bsquad\s+management\b',
             r'\bparty\s+management\b',

@@ -189,7 +189,20 @@ class AnalyzerCommand(BaseCommand):
                 self.analysis_cache_manager.set(text, self.keywords, exclude_existing, result)
                 self.cache_misses += 1
 
-            # Обновляем статистику
+            # ГАРАНТИРУЕМ, ЧТО has_results УСТАНОВЛЕН
+            if 'has_results' not in result:
+                has_results = False
+                if self.keywords:
+                    items = result.get('results', {}).get('keywords', {}).get('items', [])
+                    has_results = len(items) > 0
+                else:
+                    for key in ['genres', 'themes', 'perspectives', 'game_modes']:
+                        if result.get('results', {}).get(key, {}).get('count', 0) > 0:
+                            has_results = True
+                            break
+                result['has_results'] = has_results
+
+            # Обновляем статистику и определяем НОВЫЕ элементы
             has_new_elements = False
             new_elements_count = 0
 
@@ -213,23 +226,58 @@ class AnalyzerCommand(BaseCommand):
                 else:
                     self.stats['not_found_count'] = self.stats.get('not_found_count', 0) + 1
             else:
+                # ДЛЯ ОБЫЧНЫХ КРИТЕРИЕВ: ПРОВЕРЯЕМ КАЖДЫЙ ТИП
                 if result['success'] and result['has_results']:
-                    found_count = result['summary'].get('found_count', 0)
-                    # Здесь нужно проверить, есть ли новые элементы
-                    # Для простоты считаем, что если есть результаты и не ignore_existing, то есть новые
-                    if not self.ignore_existing:
-                        has_new_elements = True
-                        new_elements_count = found_count
+                    total_new_elements = 0
 
-                    self.stats['found_count'] = self.stats.get('found_count', 0) + 1
-                    self.stats['total_criteria_found'] = self.stats.get('total_criteria_found', 0) + found_count
+                    # Проверяем жанры
+                    genres_data = result.get('results', {}).get('genres', {})
+                    if genres_data.get('count', 0) > 0:
+                        genre_ids = [g['id'] for g in genres_data.get('items', [])]
+                        existing_genre_ids = set(game.genres.values_list('id', flat=True))
+                        new_genre_ids = [gid for gid in genre_ids if gid not in existing_genre_ids]
+                        total_new_elements += len(new_genre_ids)
+
+                    # Проверяем темы
+                    themes_data = result.get('results', {}).get('themes', {})
+                    if themes_data.get('count', 0) > 0:
+                        theme_ids = [t['id'] for t in themes_data.get('items', [])]
+                        existing_theme_ids = set(game.themes.values_list('id', flat=True))
+                        new_theme_ids = [tid for tid in theme_ids if tid not in existing_theme_ids]
+                        total_new_elements += len(new_theme_ids)
+
+                    # Проверяем перспективы
+                    perspectives_data = result.get('results', {}).get('perspectives', {})
+                    if perspectives_data.get('count', 0) > 0:
+                        perspective_ids = [p['id'] for p in perspectives_data.get('items', [])]
+                        existing_perspective_ids = set(game.player_perspectives.values_list('id', flat=True))
+                        new_perspective_ids = [pid for pid in perspective_ids if pid not in existing_perspective_ids]
+                        total_new_elements += len(new_perspective_ids)
+
+                    # Проверяем режимы игры
+                    game_modes_data = result.get('results', {}).get('game_modes', {})
+                    if game_modes_data.get('count', 0) > 0:
+                        mode_ids = [m['id'] for m in game_modes_data.get('items', [])]
+                        existing_mode_ids = set(game.game_modes.values_list('id', flat=True))
+                        new_mode_ids = [mid for mid in mode_ids if mid not in existing_mode_ids]
+                        total_new_elements += len(new_mode_ids)
+
+                    # Если есть новые элементы
+                    if total_new_elements > 0:
+                        has_new_elements = True
+                        new_elements_count = total_new_elements
+                        self.stats['found_count'] = self.stats.get('found_count', 0) + 1
+                        self.stats['total_criteria_found'] = self.stats.get('total_criteria_found',
+                                                                            0) + total_new_elements
+                    else:
+                        self.stats['not_found_count'] = self.stats.get('not_found_count', 0) + 1
                 else:
                     self.stats['not_found_count'] = self.stats.get('not_found_count', 0) + 1
 
             self.stats['processed'] = self.stats.get('processed', 0) + 1
             self.state_manager.add_processed_game(game.id)
 
-            # ВЫВОД В ФАЙЛ - ДЛЯ ВСЕХ ИГР, даже без результатов
+            # ВЫВОД В ФАЙЛ
             if self.output_formatter and (result.get('has_results', False) or not self.only_found):
                 self.output_formatter.print_game_in_batch(
                     game=game,
@@ -246,10 +294,9 @@ class AnalyzerCommand(BaseCommand):
                     exclude_existing=exclude_existing
                 )
 
-            # ===== ВАЖНО: ДОБАВЛЯЕМ В БАТЧ ЕСЛИ НУЖНО =====
+            # ДОБАВЛЯЕМ В БАТЧ ТОЛЬКО ЕСЛИ ЕСТЬ НОВЫЕ ЭЛЕМЕНТЫ
             if self.update_game and has_new_elements:
                 added = self._add_to_batch_if_needed(game, result, has_new_elements)
-                # После добавления проверяем, не пора ли обновить батч
                 self._check_batch_update()
 
         except Exception as e:
