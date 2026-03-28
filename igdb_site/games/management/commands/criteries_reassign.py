@@ -810,6 +810,96 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f'Ошибка при удалении жанра "{genre_name}": {e}'))
             return 0, 0, False
 
+    def _ensure_all_genres_exist(self, pattern_manager, dry_run):
+        """
+        Создает все жанры, которые определены в PatternManager.GENRE_PATTERNS,
+        если они еще не существуют в базе данных.
+
+        Аргументы:
+            pattern_manager: экземпляр PatternManager
+            dry_run: если True, только показывает что будет создано
+
+        Возвращает:
+            int: количество созданных жанров
+        """
+        self.stdout.write('\n=== СОЗДАНИЕ НЕДОСТАЮЩИХ ЖАНРОВ ИЗ PATTERN_MANAGER ===')
+
+        genre_patterns = getattr(pattern_manager, 'GENRE_PATTERNS', {})
+        if not genre_patterns:
+            self.stdout.write(self.style.WARNING('Не найдены паттерны жанров в PatternManager'))
+            return 0
+
+        created_count = 0
+        existing_count = 0
+
+        for genre_name in genre_patterns.keys():
+            # Проверяем, существует ли уже жанр
+            existing_genre = Genre.objects.filter(name__iexact=genre_name).first()
+
+            if existing_genre:
+                existing_count += 1
+                self.stdout.write(f'Жанр "{genre_name}" уже существует (ID: {existing_genre.id})')
+            else:
+                self.stdout.write(f'Создание жанра: "{genre_name}"')
+                if not dry_run:
+                    self.create_genre_with_igdb_id(genre_name)
+                    created_count += 1
+                else:
+                    created_count += 1
+
+        self.stdout.write(self.style.SUCCESS(
+            f'Жанров в PatternManager: {len(genre_patterns)}, '
+            f'существующих: {existing_count}, '
+            f'{"создано" if not dry_run else "будет создано"}: {created_count}'
+        ))
+
+        return created_count
+
+    def _ensure_all_themes_exist(self, pattern_manager, dry_run):
+        """
+        Создает все темы, которые определены в PatternManager.THEME_PATTERNS,
+        если они еще не существуют в базе данных.
+
+        Аргументы:
+            pattern_manager: экземпляр PatternManager
+            dry_run: если True, только показывает что будет создано
+
+        Возвращает:
+            int: количество созданных тем
+        """
+        self.stdout.write('\n=== СОЗДАНИЕ НЕДОСТАЮЩИХ ТЕМ ИЗ PATTERN_MANAGER ===')
+
+        theme_patterns = getattr(pattern_manager, 'THEME_PATTERNS', {})
+        if not theme_patterns:
+            self.stdout.write(self.style.WARNING('Не найдены паттерны тем в PatternManager'))
+            return 0
+
+        created_count = 0
+        existing_count = 0
+
+        for theme_name in theme_patterns.keys():
+            # Проверяем, существует ли уже тема
+            existing_theme = Theme.objects.filter(name__iexact=theme_name).first()
+
+            if existing_theme:
+                existing_count += 1
+                self.stdout.write(f'Тема "{theme_name}" уже существует (ID: {existing_theme.id})')
+            else:
+                self.stdout.write(f'Создание темы: "{theme_name}"')
+                if not dry_run:
+                    self.create_theme_with_igdb_id(theme_name)
+                    created_count += 1
+                else:
+                    created_count += 1
+
+        self.stdout.write(self.style.SUCCESS(
+            f'Тем в PatternManager: {len(theme_patterns)}, '
+            f'существующих: {existing_count}, '
+            f'{"создано" if not dry_run else "будет создано"}: {created_count}'
+        ))
+
+        return created_count
+
     def get_themes_to_remove(self):
         """
         Возвращает список тем, которые нужно полностью удалить из базы данных.
@@ -842,8 +932,6 @@ class Command(BaseCommand):
     def get_keyword_to_theme_mapping(self):
         """Возвращает маппинг ключевых слов в темы (регистронезависимый)"""
         return {
-            'gothic': 'Gothic',
-            'medieval': 'Medieval',
             'fire emblem': 'Fire Emblem',
         }
 
@@ -890,6 +978,14 @@ class Command(BaseCommand):
         batch_size = options['batch_size']
         keep_old = options['keep_old']
 
+        # Импортируем PatternManager для получения списков жанров и тем
+        try:
+            from games.analyze.pattern_manager import PatternManager
+            pattern_manager = PatternManager()
+        except ImportError:
+            self.stdout.write(self.style.ERROR('Не удалось импортировать PatternManager'))
+            return
+
         theme_to_genre_mapping = self.get_theme_to_genre_mapping()
         keyword_to_theme_mapping = self.get_keyword_to_theme_mapping()
         theme_to_keyword_mapping = self.get_theme_to_keyword_mapping()
@@ -904,9 +1000,9 @@ class Command(BaseCommand):
         total_added_themes_from_genres = 0
         total_removed_genres = 0
 
-        # Переменные для отслеживания переименования жанра
-        genre_renamed = False
-        games_updated = 0
+        # Переменные для отслеживания создания жанров и тем из PatternManager
+        created_genres_count = 0
+        created_themes_count = 0
 
         # Переменные для отслеживания удаления жанра Real-time Combat
         genre_to_remove = 'Real-time Combat'
@@ -914,45 +1010,52 @@ class Command(BaseCommand):
         games_affected = 0
         genre_removed = False
 
+        # Переменные для отслеживания удаления жанра Hack and slash/Beat 'em up
+        genre_hack_and_slash_to_remove = 'Hack and slash/Beat \'em up'
+        hack_and_slash_relations_removed = 0
+        hack_and_slash_games_affected = 0
+        hack_and_slash_genre_removed = False
+
         with transaction.atomic():
             if dry_run:
                 savepoint = transaction.savepoint()
 
             try:
-                # 0. Переименование жанра Squad-based в Squad Management
-                genre_renamed, games_updated = self._rename_genre(
-                    'Squad-based', 'Squad Management', dry_run, batch_size
-                )
+                # 0. Создание всех недостающих жанров из PatternManager
+                created_genres_count = self._ensure_all_genres_exist(pattern_manager, dry_run)
 
-                # 1. Перенос тем в жанры
+                # 1. Создание всех недостающих тем из PatternManager
+                created_themes_count = self._ensure_all_themes_exist(pattern_manager, dry_run)
+
+                # 2. Перенос тем в жанры
                 added_genres, removed_themes = self._process_themes_to_genres(
                     theme_to_genre_mapping, dry_run, batch_size, keep_old
                 )
                 total_added_genres += added_genres
                 total_removed_themes += removed_themes
 
-                # 2. Перенос ключевых слов в темы
+                # 3. Перенос ключевых слов в темы
                 added_themes, removed_keywords = self._process_keywords_to_themes(
                     keyword_to_theme_mapping, dry_run, batch_size, keep_old
                 )
                 total_added_themes += added_themes
                 total_removed_keywords += removed_keywords
 
-                # 3. Перенос тем в ключевые слова
+                # 4. Перенос тем в ключевые слова
                 added_keywords, removed_themes_to_keywords = self._process_themes_to_keywords(
                     theme_to_keyword_mapping, dry_run, batch_size, keep_old
                 )
                 total_added_keywords += added_keywords
                 total_removed_themes_to_keywords += removed_themes_to_keywords
 
-                # 4. Перенос жанров в темы (с удалением жанров при keep_old=False)
+                # 5. Перенос жанров в темы (с удалением жанров при keep_old=False)
                 added_themes_from_genres, removed_genres = self._process_genres_to_themes(
                     genre_to_theme_mapping, dry_run, batch_size, keep_old
                 )
                 total_added_themes_from_genres += added_themes_from_genres
                 total_removed_genres += removed_genres
 
-                # 5. Удаление жанра "Real-time Combat" (только если keep_old=False)
+                # 6. Удаление жанра "Real-time Combat" (только если keep_old=False)
                 if not keep_old:
                     relations_removed, games_affected, genre_removed = self._delete_genre_by_name(
                         genre_to_remove, dry_run, batch_size, keep_old
@@ -960,6 +1063,16 @@ class Command(BaseCommand):
                 else:
                     self.stdout.write(
                         self.style.WARNING(f'\n=== ЖАНР "{genre_to_remove}" НЕ УДАЛЯЕТСЯ (опция --keep-old) ==='))
+
+                # 7. Удаление жанра "Hack and slash/Beat 'em up" (только если keep_old=False)
+                if not keep_old:
+                    hack_and_slash_relations_removed, hack_and_slash_games_affected, hack_and_slash_genre_removed = self._delete_genre_by_name(
+                        genre_hack_and_slash_to_remove, dry_run, batch_size, keep_old
+                    )
+                else:
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f'\n=== ЖАНР "{genre_hack_and_slash_to_remove}" НЕ УДАЛЯЕТСЯ (опция --keep-old) ==='))
 
                 if dry_run:
                     transaction.savepoint_rollback(savepoint)
@@ -978,11 +1091,10 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f'ИТОГО обработано:'))
 
-        # Вывод информации о переименовании
-        if genre_renamed:
-            self.stdout.write(self.style.SUCCESS(
-                f'  • Переименование жанра: "Squad-based" -> "Squad Management", обновлено игр: {games_updated}'
-            ))
+        self.stdout.write(self.style.SUCCESS(
+            f'  • Создание жанров из PatternManager: {"создано" if not dry_run else "будет создано"} {created_genres_count} жанров'))
+        self.stdout.write(self.style.SUCCESS(
+            f'  • Создание тем из PatternManager: {"создано" if not dry_run else "будет создано"} {created_themes_count} тем'))
 
         self.stdout.write(
             self.style.SUCCESS(
@@ -1007,6 +1119,20 @@ class Command(BaseCommand):
             elif not dry_run:
                 self.stdout.write(self.style.WARNING(
                     f'  • Жанр "{genre_to_remove}" не был удален (возможно, не найден)'))
+
+        # Вывод информации об удалении жанра Hack and slash/Beat 'em up (только если keep_old=False)
+        if not keep_old:
+            if hack_and_slash_genre_removed:
+                if hack_and_slash_games_affected > 0:
+                    self.stdout.write(self.style.SUCCESS(
+                        f'  • Удаление жанра "{genre_hack_and_slash_to_remove}": удалено связей {hack_and_slash_relations_removed}, '
+                        f'затронуто игр {hack_and_slash_games_affected}'))
+                else:
+                    self.stdout.write(self.style.SUCCESS(
+                        f'  • Удаление жанра "{genre_hack_and_slash_to_remove}": жанр удален (не использовался)'))
+            elif not dry_run:
+                self.stdout.write(self.style.WARNING(
+                    f'  • Жанр "{genre_hack_and_slash_to_remove}" не был удален (возможно, не найден)'))
 
         if keep_old:
             self.stdout.write(self.style.WARNING('СТАРЫЕ КРИТЕРИИ СОХРАНЕНЫ (опция --keep-old)'))
