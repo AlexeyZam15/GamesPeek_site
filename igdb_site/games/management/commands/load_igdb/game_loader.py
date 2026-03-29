@@ -117,7 +117,7 @@ class GameLoader(BaseGamesCommand):
         self._db_lock = threading.RLock()  # Блокировка для потокобезопасного доступа к БД
 
     def restore_genres_and_themes(self, options, debug=False, start_offset=0):
-        """Восстанавливает жанры и темы для всех игр в базе"""
+        """Восстанавливает жанры и темы для всех игр в базе с параллельными запросами"""
         from games.models import Game, Genre, Theme
         from games.igdb_api import OPTIMAL_CONFIG, make_igdb_request
         import time
@@ -125,6 +125,7 @@ class GameLoader(BaseGamesCommand):
         import sys
         import queue
         import threading
+        from concurrent.futures import ThreadPoolExecutor, as_completed
         from django.db import transaction
         from collections import defaultdict
 
@@ -149,6 +150,9 @@ class GameLoader(BaseGamesCommand):
                     offset = saved_offset
                     sys.stdout.write(f'📍 Загружен сохраненный offset: {offset}\n')
                     sys.stdout.flush()
+
+            # ЗАПОМИНАЕМ НАЧАЛЬНЫЙ OFFSET ДЛЯ ПРАВИЛЬНОГО СОХРАНЕНИЯ
+            initial_offset = offset
 
             sys.stdout.write(f'\n🎯 ВОССТАНОВЛЕНИЕ ЖАНРОВ И ТЕМ ДЛЯ ВСЕХ ИГР\n')
             sys.stdout.write('=' * 60 + '\n')
@@ -190,6 +194,8 @@ class GameLoader(BaseGamesCommand):
             sys.stdout.flush()
 
             BATCH_SIZE = OPTIMAL_CONFIG["BATCH_SIZE"]
+            MAX_WORKERS = OPTIMAL_CONFIG["MAX_WORKERS"]
+            DELAY_BETWEEN_REQUESTS = OPTIMAL_CONFIG["DELAY_BETWEEN_REQUESTS"]
 
             all_genre_ids = set()
             all_theme_ids = set()
@@ -228,20 +234,25 @@ class GameLoader(BaseGamesCommand):
             processed_count = 0
 
             game_ids_list = list(all_games.values_list('igdb_id', flat=True))
-            total_batches = (len(game_ids_list) + BATCH_SIZE - 1) // BATCH_SIZE
 
-            for batch_num in range(total_batches):
-                if self.interrupted.is_set():
-                    break
+            batches = []
+            for i in range(0, len(game_ids_list), BATCH_SIZE):
+                batch_ids = game_ids_list[i:i + BATCH_SIZE]
+                if batch_ids:
+                    batches.append(batch_ids)
 
-                start_idx = batch_num * BATCH_SIZE
-                end_idx = min(start_idx + BATCH_SIZE, len(game_ids_list))
-                batch_ids = game_ids_list[start_idx:end_idx]
+            total_batches = len(batches)
+
+            stats_lock = threading.Lock()
+
+            def process_batch(batch_ids, batch_num):
+                nonlocal all_genre_ids, all_theme_ids, games_without_data, games_with_nothing_to_update
+                nonlocal games_with_new_data_to_add, api_errors, processed_count
 
                 id_list = ','.join(map(str, batch_ids))
                 query = f'fields id,genres,themes; where id = ({id_list}); limit 500;'
 
-                time.sleep(OPTIMAL_CONFIG["DELAY_BETWEEN_REQUESTS"])
+                time.sleep(DELAY_BETWEEN_REQUESTS)
 
                 games_data = None
                 for attempt in range(OPTIMAL_CONFIG["MAX_RETRIES"] + 1):
@@ -254,28 +265,33 @@ class GameLoader(BaseGamesCommand):
                                 OPTIMAL_CONFIG["RETRY_DELAYS"]) else 5.0
                             time.sleep(delay)
                         else:
-                            api_errors += len(batch_ids)
+                            with stats_lock:
+                                api_errors += len(batch_ids)
                             if debug:
-                                sys.stderr.write(f'\n      ❌ Ошибка пачки {batch_num + 1}: {e}\n')
+                                sys.stderr.write(f'\n      ❌ Ошибка пачки {batch_num}: {e}\n')
                                 sys.stderr.flush()
-                            break
+                            return None
 
                 current_batch_games = []
                 games_in_batch = len(batch_ids)
 
+                local_all_genre_ids = set()
+                local_all_theme_ids = set()
+                local_games_without_data = 0
+                local_games_with_nothing_to_update = 0
+                local_games_with_new_data_to_add = 0
+
                 if games_data:
                     games_found = len(games_data)
                     games_missing = games_in_batch - games_found
-                    games_without_data += games_missing
+                    local_games_without_data = games_missing
 
-                    # ЗАГРУЖАЕМ СУЩЕСТВУЮЩИЕ СВЯЗИ ДЛЯ ВСЕХ ИГР В ПАЧКЕ
                     existing_genres_by_game = {}
                     existing_themes_by_game = {}
 
                     for game in games_data:
                         game_id = game.get('id')
                         if game_id:
-                            # Получаем существующие жанры и темы для этой игры из БД
                             try:
                                 game_obj = Game.objects.filter(igdb_id=game_id).first()
                                 if game_obj:
@@ -286,7 +302,7 @@ class GameLoader(BaseGamesCommand):
                                 else:
                                     existing_genres_by_game[game_id] = set()
                                     existing_themes_by_game[game_id] = set()
-                            except Exception as e:
+                            except Exception:
                                 existing_genres_by_game[game_id] = set()
                                 existing_themes_by_game[game_id] = set()
 
@@ -299,72 +315,106 @@ class GameLoader(BaseGamesCommand):
                             existing_genres = existing_genres_by_game.get(game_id, set())
                             existing_themes = existing_themes_by_game.get(game_id, set())
 
-                            # Находим НОВЫЕ жанры и темы, которых нет в БД
                             new_genres = genres_from_igdb - existing_genres
                             new_themes = themes_from_igdb - existing_themes
 
                             if new_genres:
-                                all_genre_ids.update(new_genres)
+                                local_all_genre_ids.update(new_genres)
                             if new_themes:
-                                all_theme_ids.update(new_themes)
+                                local_all_theme_ids.update(new_themes)
 
-                            # ПРАВИЛЬНАЯ ЛОГИКА: ✅ только если есть реально новые данные для добавления
                             if new_genres or new_themes:
                                 current_batch_games.append({
                                     'igdb_id': game_id,
                                     'genres': list(new_genres),
                                     'themes': list(new_themes)
                                 })
-                                games_with_new_data_to_add += 1  # ✅ ЕСТЬ новые данные для добавления
+                                local_games_with_new_data_to_add += 1
                             else:
-                                # ⚪ НЕТ новых данных (либо нет в IGDB, либо уже есть в БД)
-                                games_with_nothing_to_update += 1
+                                local_games_with_nothing_to_update += 1
                 else:
-                    games_without_data += games_in_batch
-                    games_with_nothing_to_update += games_in_batch  # ⚪ Нет данных от IGDB
+                    local_games_without_data += games_in_batch
+                    local_games_with_nothing_to_update += games_in_batch
 
-                if current_batch_games:
-                    save_queue.put(current_batch_games)
+                with stats_lock:
+                    all_genre_ids.update(local_all_genre_ids)
+                    all_theme_ids.update(local_all_theme_ids)
+                    games_without_data += local_games_without_data
+                    games_with_nothing_to_update += local_games_with_nothing_to_update
+                    games_with_new_data_to_add += local_games_with_new_data_to_add
+                    processed_count += games_in_batch
 
-                processed_count += len(batch_ids)
+                return current_batch_games
 
-                elapsed_time = time.time() - start_time
-                percentage = (processed_count / total_games_to_process * 100) if total_games_to_process > 0 else 0
+            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                futures = {}
+                for batch_num, batch_ids in enumerate(batches, 1):
+                    if self.interrupted.is_set():
+                        break
+                    future = executor.submit(process_batch, batch_ids, batch_num)
+                    futures[future] = batch_num
 
-                if processed_count > 0:
-                    avg_time_per_game = elapsed_time / processed_count
-                    remaining_games = total_games_to_process - processed_count
-                    eta_seconds = avg_time_per_game * remaining_games
+                completed_batches = 0
+                for future in as_completed(futures):
+                    if self.interrupted.is_set():
+                        for f in futures:
+                            if not f.done():
+                                f.cancel()
+                        break
 
-                    if eta_seconds < 60:
-                        eta_str = f"{eta_seconds:.0f}с"
-                    elif eta_seconds < 3600:
-                        eta_str = f"{eta_seconds / 60:.1f}мин"
+                    batch_num = futures[future]
+                    completed_batches += 1
+
+                    try:
+                        current_batch_games = future.result(timeout=60)
+                        if current_batch_games:
+                            save_queue.put(current_batch_games)
+                    except Exception as e:
+                        with stats_lock:
+                            api_errors += 1
+                        if debug:
+                            sys.stderr.write(f'\n      ❌ Ошибка обработки пачки {batch_num}: {e}\n')
+                            sys.stderr.flush()
+
+                    elapsed_time = time.time() - start_time
+                    percentage = (processed_count / total_games_to_process * 100) if total_games_to_process > 0 else 0
+
+                    if processed_count > 0:
+                        avg_time_per_game = elapsed_time / processed_count
+                        remaining_games = total_games_to_process - processed_count
+                        eta_seconds = avg_time_per_game * remaining_games
+
+                        if eta_seconds < 60:
+                            eta_str = f"{eta_seconds:.0f}с"
+                        elif eta_seconds < 3600:
+                            eta_str = f"{eta_seconds / 60:.1f}мин"
+                        else:
+                            eta_str = f"{eta_seconds / 3600:.1f}ч"
+
+                        if elapsed_time < 60:
+                            elapsed_str = f"{elapsed_time:.0f}с"
+                        elif elapsed_time < 3600:
+                            elapsed_str = f"{elapsed_time / 60:.1f}мин"
+                        else:
+                            elapsed_str = f"{elapsed_time / 3600:.1f}ч"
                     else:
-                        eta_str = f"{eta_seconds / 3600:.1f}ч"
+                        eta_str = "---"
+                        elapsed_str = "0с"
 
-                    if elapsed_time < 60:
-                        elapsed_str = f"{elapsed_time:.0f}с"
-                    elif elapsed_time < 3600:
-                        elapsed_str = f"{elapsed_time / 60:.1f}мин"
-                    else:
-                        elapsed_str = f"{elapsed_time / 3600:.1f}ч"
-                else:
-                    eta_str = "---"
-                    elapsed_str = "0с"
+                    bar_length = 30
+                    filled_length = int(bar_length * processed_count // total_games_to_process)
+                    bar = '█' * filled_length + '░' * (bar_length - filled_length)
 
-                bar_length = 30
-                filled_length = int(bar_length * processed_count // total_games_to_process)
-                bar = '█' * filled_length + '░' * (bar_length - filled_length)
+                    with stats_lock:
+                        message = (
+                            f"\rСбор данных: {percentage:.1f}% [{processed_count}/{total_games_to_process}] [{bar}]  "
+                            f"✅ {games_with_new_data_to_add}  💾 {games_saved}  ❌ {api_errors}  "
+                            f"⚪ {games_with_nothing_to_update}  ⏭️ {games_without_data}  "
+                            f"({elapsed_str} < {eta_str})")
 
-                message = (f"\rСбор данных: {percentage:.1f}% [{processed_count}/{total_games_to_process}] [{bar}]  "
-                           f"✅ {games_with_new_data_to_add}  💾 {games_saved}  ❌ {api_errors}  "
-                           f"⚪ {games_with_nothing_to_update}  ⏭️ {games_without_data}  "
-                           f"({elapsed_str} < {eta_str})")
-
-                sys.stdout.write('\r' + ' ' * 150 + '\r')
-                sys.stdout.write(message)
-                sys.stdout.flush()
+                    sys.stdout.write('\r' + ' ' * 150 + '\r')
+                    sys.stdout.write(message)
+                    sys.stdout.flush()
 
             save_completed.set()
             save_queue.put(None)
@@ -393,6 +443,13 @@ class GameLoader(BaseGamesCommand):
                 sys.stdout.write('\n🛑 СБОР ДАННЫХ ПРЕРВАН\n')
                 sys.stdout.flush()
                 signal.signal(signal.SIGINT, original_sigint)
+
+                # ПРАВИЛЬНОЕ СОХРАНЕНИЕ OFFSET ПРИ ПРЕРЫВАНИИ
+                next_offset = initial_offset + processed_count
+                self.save_offset_for_continuation(options, next_offset)
+                sys.stdout.write(f'📍 Сохранён offset для продолжения: {next_offset}\n')
+                sys.stdout.flush()
+
                 return 0
 
             sys.stdout.write('\n' + '=' * 60 + '\n')
@@ -419,14 +476,15 @@ class GameLoader(BaseGamesCommand):
             sys.stdout.flush()
 
             total_time = time.time() - total_start_time
-            next_offset = offset + processed_count
 
+            # ПРАВИЛЬНОЕ СОХРАНЕНИЕ OFFSET ПОСЛЕ УСПЕШНОГО ЗАВЕРШЕНИЯ
+            next_offset = initial_offset + processed_count
             self.save_offset_for_continuation(options, next_offset)
 
             sys.stdout.write(f'\n' + '=' * 60 + '\n')
             sys.stdout.write(f'📊 ИТОГОВАЯ СТАТИСТИКА\n')
             sys.stdout.write('=' * 60 + '\n')
-            sys.stdout.write(f'📍 Начальный offset: {offset}\n')
+            sys.stdout.write(f'📍 Начальный offset: {initial_offset}\n')
             sys.stdout.write(f'📍 Обработано игр: {processed_count}/{total_games_to_process}\n')
             sys.stdout.write(f'✅ Игр с НОВЫМИ данными: {games_with_new_data_to_add}\n')
             sys.stdout.write(f'💾 Реально обновлено игр: {games_saved}\n')
@@ -448,7 +506,15 @@ class GameLoader(BaseGamesCommand):
 
         except KeyboardInterrupt:
             self.interrupted.set()
-            next_offset = offset + processed_count if 'processed_count' in locals() else offset
+
+            # ПРАВИЛЬНОЕ СОХРАНЕНИЕ OFFSET ПРИ ПРЕРЫВАНИИ
+            if 'processed_count' in locals() and 'initial_offset' in locals():
+                next_offset = initial_offset + processed_count
+            elif 'processed_count' in locals():
+                next_offset = offset + processed_count
+            else:
+                next_offset = offset
+
             self.save_offset_for_continuation(options, next_offset)
 
             sys.stdout.write(f'\n🛑 КОМАНДА ПРЕРВАНА ПОЛЬЗОВАТЕЛЕМ (Ctrl+C)\n')
