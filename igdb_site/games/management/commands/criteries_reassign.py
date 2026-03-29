@@ -903,11 +903,26 @@ class Command(BaseCommand):
     def get_themes_to_remove(self):
         """
         Возвращает список тем, которые нужно полностью удалить из базы данных.
-        Эти темы не участвуют в переносе, но должны быть удалены вместе со всеми связями.
+        Удаляются темы, которые НЕ присутствуют в pattern_manager.THEME_PATTERNS.
         """
-        return [
-            'Real-time Combat',
-        ]
+        try:
+            from games.analyze.pattern_manager import PatternManager
+            pattern_manager = PatternManager()
+            valid_themes = set(pattern_manager.THEME_PATTERNS.keys())
+        except (ImportError, AttributeError):
+            self.stdout.write(
+                self.style.WARNING('Не удалось получить валидные темы из PatternManager, удаление отменено'))
+            return []
+
+        # Получаем все темы из базы данных
+        all_themes = Theme.objects.values_list('name', flat=True)
+
+        # Возвращаем темы, которых нет в валидном списке
+        themes_to_remove = [theme for theme in all_themes if theme not in valid_themes]
+
+        self.stdout.write(f'Найдено {len(themes_to_remove)} тем для удаления (из {len(all_themes)} всего)')
+
+        return themes_to_remove
 
     def get_genre_to_theme_mapping(self):
         """Возвращает маппинг жанров в темы (регистронезависимый)"""
