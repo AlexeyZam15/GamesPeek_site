@@ -246,6 +246,7 @@ class PatternManager:
             r'\b(?:commanding|leading|controlling)\s+(?:a|the|your)\s+(?:squad|party|team|group|company)\b',
             r'\btactical\s+(?:squad|party|team)\s+(?:control|management|commands?)\b',
             r'\b(?:issue|give)\s+orders?\s+to\s+(?:your|the)\s+(?:squad|party|team)\b',
+            r'\b(?:switch|swap|assign|allocate)\s+allocations?\s+of\s+(?:fighters?|characters?|units?)\b'
         ],
         'Stealth': [
             r'\bstealth(\s+game)?\b',
