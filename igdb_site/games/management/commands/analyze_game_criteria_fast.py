@@ -83,6 +83,38 @@ class Command(BaseCommand):
         parser.add_argument('--no-combine-texts', action='store_true',
                             help='НЕ объединять все источники текста (использовать только summary)')
 
+    def _find_pattern_and_context_for_criteria(self, pattern_info: Dict, criteria_type: str, criteria_id: int,
+                                               criteria_name: str) -> Optional[Dict]:
+        """Находит паттерн и контекст для критерия"""
+        if criteria_type not in pattern_info:
+            return None
+
+        matches_for_category = pattern_info.get(criteria_type, [])
+        if not matches_for_category:
+            return None
+
+        criteria_name_lower = criteria_name.lower()
+
+        for match in matches_for_category:
+            if match.get('status') != 'found':
+                continue
+
+            match_name = match.get('name', '').lower()
+            matched_text = match.get('matched_text', '').lower()
+            pattern = match.get('pattern', '')
+            context = match.get('context', '')
+            original_matched_text = match.get('matched_text', '')
+
+            # Сравниваем по имени или по совпавшему тексту
+            if match_name == criteria_name_lower or matched_text == criteria_name_lower:
+                return {
+                    'pattern': pattern,
+                    'matched_text': original_matched_text,
+                    'context': context
+                }
+
+        return None
+
     def _load_existing_relations(self) -> Dict[str, set]:
         """Загружает все существующие связи из БД для быстрой проверки"""
         from django.db import connection
@@ -172,10 +204,14 @@ class Command(BaseCommand):
         return False
 
     def _preload_all_data(self):
-        """Предзагрузка ВСЕХ данных в память"""
+        """Предзагрузка ВСЕХ данных в память с максимальной оптимизацией"""
+        import re
+        from collections import defaultdict
+
         self.patterns = PatternManager.get_all_patterns()
 
-        self.criteria_cache = {
+        # Используем list/dict вместо вложенных структур для скорости
+        self.criteria_by_id = {
             'genres': {},
             'themes': {},
             'perspectives': {},
@@ -189,41 +225,49 @@ class Command(BaseCommand):
             'game_modes': {}
         }
 
-        # Жанры
+        # Загружаем все данные одним запросом на модель (уже оптимизировано)
         for g in Genre.objects.all().only('id', 'name'):
-            self.criteria_cache['genres'][g.id] = g.name
+            self.criteria_by_id['genres'][g.id] = g.name
             self.criteria_by_name['genres'][g.name.lower()] = g.id
 
-        # Темы
         for t in Theme.objects.all().only('id', 'name'):
-            self.criteria_cache['themes'][t.id] = t.name
+            self.criteria_by_id['themes'][t.id] = t.name
             self.criteria_by_name['themes'][t.name.lower()] = t.id
 
-        # Перспективы
         for p in PlayerPerspective.objects.all().only('id', 'name'):
-            self.criteria_cache['perspectives'][p.id] = p.name
+            self.criteria_by_id['perspectives'][p.id] = p.name
             self.criteria_by_name['perspectives'][p.name.lower()] = p.id
 
-        # Режимы игры
         for m in GameMode.objects.all().only('id', 'name'):
-            self.criteria_cache['game_modes'][m.id] = m.name
+            self.criteria_by_id['game_modes'][m.id] = m.name
             self.criteria_by_name['game_modes'][m.name.lower()] = m.id
 
-        # Компилируем паттерны
-        self.compiled_patterns = {}
+        # Компилируем паттерны в плоский список для быстрого доступа
+        self.compiled_patterns = []
         for criteria_type in ['genres', 'themes', 'perspectives', 'game_modes']:
-            self.compiled_patterns[criteria_type] = []
             for name, patterns in self.patterns[criteria_type].items():
                 name_lower = name.lower()
-                if name_lower in self.criteria_by_name[criteria_type]:
-                    criteria_id = self.criteria_by_name[criteria_type][name_lower]
-                    for pattern in patterns:
-                        self.compiled_patterns[criteria_type].append({
-                            'name': name,
-                            'name_lower': name_lower,
-                            'id': criteria_id,
-                            'pattern': pattern
-                        })
+                criteria_id = self.criteria_by_name[criteria_type].get(name_lower)
+                if criteria_id:
+                    for pattern_str in patterns:
+                        # Компилируем паттерн без флагов (уже регистронезависимый)
+                        try:
+                            # Проверяем, не является ли pattern_str уже скомпилированным
+                            if hasattr(pattern_str, 'search'):
+                                compiled = pattern_str
+                            else:
+                                compiled = re.compile(pattern_str, re.IGNORECASE)
+
+                            self.compiled_patterns.append({
+                                'type': criteria_type,
+                                'id': criteria_id,
+                                'name': name,
+                                'pattern': compiled,
+                                'pattern_str': pattern_str if isinstance(pattern_str, str) else pattern_str.pattern
+                            })
+                        except Exception as e:
+                            # Пропускаем проблемные паттерны
+                            continue
 
     def _get_games_to_analyze(self) -> List[Dict]:
         """Максимально быстрая загрузка игр через сырой SQL или по имени"""
@@ -368,60 +412,50 @@ class Command(BaseCommand):
         return game.summary or game.storyline or game.rawg_description or game.wiki_description or ''
 
     def _analyze_game_fast(self, game_dict: Dict, existing_relations: Dict[str, set] = None) -> Dict[str, Any]:
-        """Анализ одной игры с диагностикой времени (работает со словарем)"""
-        import time
-        import re
-        import sys
+        """Максимально быстрый анализ одной игры - оптимизированная версия"""
 
-        # Диагностика
-        if hasattr(self, '_analyze_times'):
-            self._analyze_times.append(time.time())
-            if len(self._analyze_times) > 100:
-                self._analyze_times.pop(0)
-
-        # Получаем текст из словаря
+        # Оптимизация: получаем текст без создания списков
         if self.combine_all_texts:
-            parts = []
-            for key in ['summary', 'storyline', 'rawg_description', 'wiki_description']:
-                value = game_dict.get(key)
-                if value and isinstance(value, str) and value.strip():
-                    parts.append(value)
-            text = ' '.join(parts) if parts else ''
-        else:
-            text = (game_dict.get('summary') or
-                    game_dict.get('storyline') or
-                    game_dict.get('rawg_description') or
-                    game_dict.get('wiki_description') or
-                    '')
+            summary = game_dict.get('summary', '') or ''
+            storyline = game_dict.get('storyline', '') or ''
+            rawg = game_dict.get('rawg_description', '') or ''
+            wiki = game_dict.get('wiki_description', '') or ''
 
-        # Проверка наличия текста
+            # Собираем строку только если есть текст
+            if summary or storyline or rawg or wiki:
+                text = f"{summary} {storyline} {rawg} {wiki}"
+            else:
+                text = ''
+        else:
+            text = game_dict.get('summary', '') or game_dict.get('storyline', '') or \
+                   game_dict.get('rawg_description', '') or game_dict.get('wiki_description', '') or ''
+
         if not text or len(text.strip()) < 10:
             return {
                 'id': game_dict['id'],
                 'name': game_dict['name'],
                 'has_results': False,
                 'skipped': True,
-                'reason': 'no_text' if not text else 'short',
+                'reason': 'no_text',
                 'count': 0,
                 'found': {'genres': [], 'themes': [], 'perspectives': [], 'game_modes': []},
                 'pattern_info': {},
-                'summary': {'found_count': 0},
-                'success': True,
-                'results': {'genres': [], 'themes': [], 'perspectives': [], 'game_modes': []},
                 'has_new': False
             }
 
-        # Нормализация текста
-        text_normalized = re.sub(r'\s+', ' ', text)
-        text_lower = text_normalized.lower()
+        # Нормализация текста один раз
+        text_lower = text.lower()
+        game_id = game_dict['id']
 
-        found = {
-            'genres': [],
-            'themes': [],
-            'perspectives': [],
-            'game_modes': []
+        # Используем словари для быстрого поиска вместо списков
+        found_ids = {
+            'genres': set(),
+            'themes': set(),
+            'perspectives': set(),
+            'game_modes': set()
         }
 
+        # ВСЕГДА сохраняем информацию о паттернах для новых критериев
         pattern_info = {
             'genres': [],
             'themes': [],
@@ -430,134 +464,119 @@ class Command(BaseCommand):
         }
 
         total_found = 0
-        game_id = game_dict['id']
 
-        # Основной поиск
-        for criteria_type, patterns in self.compiled_patterns.items():
-            found_ids = set()
-            for p in patterns:
-                match = p['pattern'].search(text_lower)
-                if match:
-                    found_ids.add(p['id'])
+        # Оптимизация: один проход по всем паттернам
+        for p in self.compiled_patterns:
+            try:
+                # Используем скомпилированный паттерн напрямую
+                if p['pattern'].search(text_lower):
+                    crit_type = p['type']
+                    crit_id = p['id']
 
-                    match_start = match.start()
-                    match_end = match.end()
-                    matched_text = text_normalized[match_start:match_end]
+                    if crit_id not in found_ids[crit_type]:
+                        found_ids[crit_type].add(crit_id)
+                        total_found += 1
 
-                    context_start = max(0, match_start - 40)
-                    context_end = min(len(text_normalized), match_end + 40)
-                    context = text_normalized[context_start:context_end]
-                    if context_start > 0:
-                        context = "..." + context
-                    if context_end < len(text_normalized):
-                        context = context + "..."
+                        # ВСЕГДА сохраняем информацию о паттерне (нужно для вывода)
+                        match = p['pattern'].search(text)
+                        if match:
+                            match_start = match.start()
+                            match_end = match.end()
+                            matched_text = text[match_start:match_end]
 
-                    pattern_info[criteria_type].append({
-                        'name': p['name'],
-                        'id': p['id'],
-                        'matched_text': matched_text,
-                        'context': context,
-                        'pattern': p['pattern'].pattern,
-                        'status': 'found'
-                    })
+                            context_start = max(0, match_start - 40)
+                            context_end = min(len(text), match_end + 40)
+                            context = text[context_start:context_end]
+                            if context_start > 0:
+                                context = "..." + context
+                            if context_end < len(text):
+                                context = context + "..."
 
-                    if len(pattern_info[criteria_type]) >= 50:
-                        break
+                            pattern_info[crit_type].append({
+                                'name': p['name'],
+                                'id': crit_id,
+                                'matched_text': matched_text[:100],
+                                'context': context[:200],
+                                'pattern': p['pattern_str'],
+                                'status': 'found'
+                            })
+            except Exception:
+                # Пропускаем проблемные паттерны
+                continue
 
-            if found_ids:
-                for fid in found_ids:
-                    # Проверяем, является ли этот критерий новым для игры
-                    is_new = True
-                    if existing_relations:
-                        if (game_id, fid) in existing_relations.get(criteria_type, set()):
-                            is_new = False
+        # Формируем результат
+        found = {'genres': [], 'themes': [], 'perspectives': [], 'game_modes': []}
+        has_new = False
 
-                    found[criteria_type].append({
-                        'id': fid,
-                        'name': self.criteria_cache[criteria_type][fid],
-                        'is_new': is_new
-                    })
-                total_found += len(found_ids)
+        for crit_type in ['genres', 'themes', 'perspectives', 'game_modes']:
+            for crit_id in found_ids[crit_type]:
+                is_new = False
+                if existing_relations:
+                    if (game_id, crit_id) not in existing_relations.get(crit_type, set()):
+                        is_new = True
+                        has_new = True
 
-        # ВЫВОД НАЙДЕННЫХ КРИТЕРИЕВ С ПОМЕТКОЙ НОВЫХ
-        # Показываем для любой игры, если:
-        # 1. Запущено с --game-name (анализ конкретной игры)
-        # 2. Или включен --verbose
-        if (self.game_name or self.verbose) and total_found > 0:
-            sys.stderr.write(f"\n=== ИТОГОВЫЕ НАЙДЕННЫЕ КРИТЕРИИ для {game_dict['name']} ===\n")
-            for criteria_type in ['genres', 'themes', 'perspectives', 'game_modes']:
-                if found[criteria_type]:
-                    type_name = {
-                        'genres': 'Жанры',
-                        'themes': 'Темы',
-                        'perspectives': 'Перспективы',
-                        'game_modes': 'Режимы игры'
-                    }.get(criteria_type, criteria_type)
-                    sys.stderr.write(f"\n{type_name}:\n")
-                    for item in found[criteria_type]:
-                        if item.get('is_new', False):
-                            sys.stderr.write(f"  - {item['name']} (ID: {item['id']}) [НОВЫЙ]\n")
-                        else:
-                            sys.stderr.write(f"  - {item['name']} (ID: {item['id']})\n")
-            sys.stderr.write(f"\nВсего найдено уникальных критериев: {total_found}\n")
-            sys.stderr.write("=" * 70 + "\n")
-            sys.stderr.flush()
+                found[crit_type].append({
+                    'id': crit_id,
+                    'name': self.criteria_by_id[crit_type].get(crit_id, 'Unknown'),
+                    'is_new': is_new
+                })
 
         return {
-            'id': game_dict['id'],
+            'id': game_id,
             'name': game_dict['name'],
             'has_results': total_found > 0,
             'skipped': False,
             'count': total_found,
             'found': found,
-            'pattern_info': pattern_info,
-            'summary': {'found_count': total_found},
-            'success': True,
-            'results': found,
-            'has_new': any(item.get('is_new', False) for items in found.values() for item in items)
+            'pattern_info': pattern_info,  # Всегда сохраняем, не только при verbose
+            'has_new': has_new
         }
 
     def _parallel_analysis(self, games: List[Dict], existing_relations: Dict[str, set] = None) -> Dict[str, Any]:
-        """Максимально быстрый многопоточный анализ с предварительной проверкой существующих связей"""
+        """Максимально быстрый многопоточный анализ - с полной статистикой и прерыванием"""
         import sys
         from queue import Queue, Empty
+        import threading
+        import time
         import signal
 
+        total_games = len(games)
         stats = {
-            'total': len(games),
+            'total': total_games,
             'processed': 0,
             'with_results': 0,
             'with_new_results': 0,
             'total_found': 0,
             'total_new_found': 0,
             'skipped': 0,
-            'skipped_no_text': 0,
-            'skipped_short': 0,
-            'skipped_error': 0,
-            'no_results': 0,
             'errors': 0,
             'to_save': [],
             'all_results': []
         }
 
         task_queue = Queue()
-        for game_dict in games:
-            task_queue.put(game_dict)
+        for game in games:
+            task_queue.put(game)
 
         result_queue = Queue()
-
         stats_lock = threading.Lock()
         stop_flag = threading.Event()
         active_workers = 0
         workers_lock = threading.Lock()
+        interrupted = False
+
+        existing_sets = existing_relations if existing_relations else {
+            'genres': set(), 'themes': set(), 'perspectives': set(), 'game_modes': set()
+        }
 
         def signal_handler(signum, frame):
-            """Обработчик сигнала для корректного завершения"""
-            sys.stderr.write("\n⏹️ Получен сигнал прерывания, останавливаем потоки...\n")
-            sys.stderr.flush()
-            stop_flag.set()
+            """Обработчик сигнала для прерывания"""
+            nonlocal interrupted
+            if not interrupted:
+                interrupted = True
+                stop_flag.set()
 
-        # Устанавливаем обработчик сигнала
         original_handler = signal.signal(signal.SIGINT, signal_handler)
 
         def worker():
@@ -572,41 +591,8 @@ class Command(BaseCommand):
                     break
 
                 try:
-                    # Передаем existing_relations в _analyze_game_fast
-                    result = self._analyze_game_fast(game_dict, existing_relations)
-
-                    # Гарантируем наличие всех полей
-                    result['skipped'] = result.get('skipped', False)
-                    result['has_results'] = result.get('has_results', False)
-                    result['count'] = result.get('count', 0)
-                    result['has_new'] = False
-
-                    # Проверяем, есть ли реально новые связи
-                    if result['has_results'] and existing_relations:
-                        game_id = result['id']
-                        new_criteria = {'genres': [], 'themes': [], 'perspectives': [], 'game_modes': []}
-                        has_new = False
-                        new_count = 0
-
-                        for criteria_type in ['genres', 'themes', 'perspectives', 'game_modes']:
-                            for crit in result.get('found', {}).get(criteria_type, []):
-                                crit_id = crit.get('id')
-                                if crit_id and (game_id, crit_id) not in existing_relations[criteria_type]:
-                                    crit['is_new'] = True
-                                    new_criteria[criteria_type].append(crit)
-                                    has_new = True
-                                    new_count += 1
-                                else:
-                                    crit['is_new'] = False
-                                    new_criteria[criteria_type].append(crit)
-
-                        if has_new:
-                            result['found'] = new_criteria
-                            result['count'] = new_count
-                            result['has_new'] = True
-
+                    result = self._analyze_game_fast(game_dict, existing_sets)
                     result_queue.put(result)
-
                 except Exception as e:
                     result_queue.put({
                         'id': game_dict['id'],
@@ -614,77 +600,53 @@ class Command(BaseCommand):
                         'has_results': False,
                         'skipped': True,
                         'reason': 'error',
-                        'error': str(e),
                         'count': 0,
                         'found': {'genres': [], 'themes': [], 'perspectives': [], 'game_modes': []},
                         'has_new': False
                     })
-                finally:
-                    task_queue.task_done()
 
             with workers_lock:
                 active_workers -= 1
 
-        # Запускаем все рабочие потоки
+        # Запускаем потоки
         threads = []
-        for _ in range(self.threads):
+        num_threads = min(self.threads, total_games)
+        for _ in range(num_threads):
             t = threading.Thread(target=worker)
             t.daemon = True
             t.start()
             threads.append(t)
 
-        analysis_start = time.time()
-        processed_count = 0
-        last_progress_time = time.time()
-        # Для расчета средней скорости
-        speed_window = []
-        last_speed_update = time.time()
-        last_processed_for_speed = 0
+        # Сбор результатов с прогрессом
+        processed = 0
+        start_time = time.time()
+        last_report = time.time()
 
         def format_time(seconds):
-            """Форматирует время в читаемый вид"""
             if seconds < 60:
-                return f"{seconds:.0f} сек"
+                return f"{seconds:.0f}сек"
             elif seconds < 3600:
-                minutes = seconds / 60
-                return f"{minutes:.1f} мин"
+                return f"{seconds / 60:.1f}мин"
             else:
-                hours = seconds / 3600
-                return f"{hours:.1f} ч"
+                return f"{seconds / 3600:.1f}ч"
 
         try:
-            # Основной цикл обработки результатов
-            while processed_count < len(games) and not stop_flag.is_set():
+            while processed < total_games and not stop_flag.is_set():
                 try:
                     result = result_queue.get(timeout=0.5)
-                    processed_count += 1
+                    processed += 1
 
-                    # Обновляем статистику
                     with stats_lock:
-                        stats['processed'] += 1
+                        stats['processed'] = processed
                         stats['all_results'].append(result)
 
-                        is_skipped = result.get('skipped', False)
-                        has_results = result.get('has_results', False)
-                        reason = result.get('reason', '')
-
-                        # Категоризация
-                        if is_skipped:
+                        if result.get('skipped'):
                             stats['skipped'] += 1
-                            if reason == 'no_text':
-                                stats['skipped_no_text'] += 1
-                            elif reason == 'short':
-                                stats['skipped_short'] += 1
-                            elif reason == 'error':
-                                stats['skipped_error'] += 1
-                                stats['errors'] += 1
-                            else:
-                                stats['skipped_error'] += 1
-                        elif has_results:
+                        elif result.get('has_results'):
                             stats['with_results'] += 1
                             stats['total_found'] += result.get('count', 0)
 
-                            if result.get('has_new', False):
+                            if result.get('has_new'):
                                 stats['with_new_results'] += 1
                                 stats['total_new_found'] += result.get('count', 0)
                                 if self.update_game:
@@ -692,90 +654,50 @@ class Command(BaseCommand):
                                         'id': result['id'],
                                         'found': result.get('found', {})
                                     })
-                        else:
-                            stats['no_results'] += 1
 
-                    # Расчет скорости и времени каждую секунду
+                    # Обновляем прогресс каждую секунду
                     now = time.time()
-                    if now - last_progress_time >= 1.0:
-                        elapsed = now - analysis_start
-                        remaining_games = len(games) - processed_count
+                    if now - last_report >= 1.0:
+                        elapsed = now - start_time
+                        percent = (processed / total_games) * 100
+                        speed = processed / elapsed if elapsed > 0 else 0
 
-                        # Рассчитываем скорость обработки (игр в секунду)
-                        if processed_count > 0 and elapsed > 0:
-                            current_speed = processed_count / elapsed
-
-                            # Используем скользящее окно для более стабильной скорости
-                            speed_window.append((now, processed_count))
-                            # Оставляем только последние 10 секунд
-                            speed_window = [(t, c) for t, c in speed_window if now - t <= 10]
-
-                            if len(speed_window) >= 2:
-                                oldest_time, oldest_count = speed_window[0]
-                                time_diff = now - oldest_time
-                                count_diff = processed_count - oldest_count
-                                if time_diff > 0:
-                                    avg_speed = count_diff / time_diff
-                                else:
-                                    avg_speed = current_speed
-                            else:
-                                avg_speed = current_speed
-
-                            # Рассчитываем оставшееся время
-                            if avg_speed > 0:
-                                remaining_seconds = remaining_games / avg_speed
-                                eta_str = format_time(remaining_seconds)
-                            else:
-                                eta_str = "неизвестно"
+                        if speed > 0:
+                            remaining = (total_games - processed) / speed
+                            eta = format_time(remaining)
                         else:
-                            avg_speed = 0
-                            eta_str = "расчет..."
+                            eta = "расчет..."
 
-                        percent = (processed_count / len(games)) * 100 if len(games) > 0 else 0
+                        progress_line = (f"\r📊 {processed}/{total_games} ({percent:.1f}%) | "
+                                         f"Скорость: {speed:.1f} игр/сек | "
+                                         f"Осталось: {eta} | "
+                                         f"Найдено: {stats['total_found']} | "
+                                         f"Новых: {stats['total_new_found']}    ")
 
-                        # Формируем строку прогресса
-                        progress_line = f"\r📊 Обработано: {processed_count}/{len(games)} игр ({percent:.1f}%) | Скорость: {avg_speed:.1f} игр/сек | Осталось: {eta_str}    "
                         sys.stderr.write(progress_line)
                         sys.stderr.flush()
-                        last_progress_time = now
+                        last_report = now
 
                 except Empty:
-                    # Проверяем состояние потоков
+                    # Проверяем, живы ли потоки
                     with workers_lock:
                         workers_alive = active_workers > 0
 
-                    # Если нет активных потоков и очередь задач пуста
                     if not workers_alive and task_queue.empty():
-                        # Забираем все оставшиеся результаты
+                        # Добираем оставшиеся результаты
                         try:
                             while True:
                                 result = result_queue.get_nowait()
-                                processed_count += 1
-
+                                processed += 1
                                 with stats_lock:
-                                    stats['processed'] += 1
+                                    stats['processed'] = processed
                                     stats['all_results'].append(result)
-
-                                    is_skipped = result.get('skipped', False)
-                                    has_results = result.get('has_results', False)
-                                    reason = result.get('reason', '')
-
-                                    if is_skipped:
+                                    if result.get('skipped'):
                                         stats['skipped'] += 1
-                                        if reason == 'no_text':
-                                            stats['skipped_no_text'] += 1
-                                        elif reason == 'short':
-                                            stats['skipped_short'] += 1
-                                        elif reason == 'error':
-                                            stats['skipped_error'] += 1
-                                            stats['errors'] += 1
-                                        else:
-                                            stats['skipped_error'] += 1
-                                    elif has_results:
+                                    elif result.get('has_results'):
                                         stats['with_results'] += 1
                                         stats['total_found'] += result.get('count', 0)
-
-                                        if result.get('has_new', False):
+                                        if result.get('has_new'):
                                             stats['with_new_results'] += 1
                                             stats['total_new_found'] += result.get('count', 0)
                                             if self.update_game:
@@ -783,61 +705,39 @@ class Command(BaseCommand):
                                                     'id': result['id'],
                                                     'found': result.get('found', {})
                                                 })
-                                    else:
-                                        stats['no_results'] += 1
                         except Empty:
                             pass
                         break
-
                     continue
 
         except KeyboardInterrupt:
-            stop_flag.set()
-            sys.stderr.write("\n⏹️ Прерывание... Останавливаем потоки...\n")
+            if not interrupted:
+                interrupted = True
+                stop_flag.set()
+            sys.stderr.write("\n⏹️ Прерывание... Ожидание завершения потоков\n")
             sys.stderr.flush()
 
-            # Даем потокам время на завершение
-            timeout = 5
-            start_wait = time.time()
+        finally:
+            # Восстанавливаем обработчик сигнала
+            signal.signal(signal.SIGINT, original_handler)
 
-            # Ждем завершения всех потоков
+            # Дожидаемся завершения всех потоков
             for t in threads:
-                remaining = timeout - (time.time() - start_wait)
-                if remaining > 0:
-                    t.join(timeout=remaining)
-                else:
-                    break
+                t.join(timeout=2)
 
-            # Принудительно собираем оставшиеся результаты
+            # Финальный сбор всех результатов
             try:
                 while True:
                     result = result_queue.get_nowait()
-                    processed_count += 1
-
                     with stats_lock:
                         stats['processed'] += 1
                         stats['all_results'].append(result)
-
-                        is_skipped = result.get('skipped', False)
-                        has_results = result.get('has_results', False)
-                        reason = result.get('reason', '')
-
-                        if is_skipped:
+                        if result.get('skipped'):
                             stats['skipped'] += 1
-                            if reason == 'no_text':
-                                stats['skipped_no_text'] += 1
-                            elif reason == 'short':
-                                stats['skipped_short'] += 1
-                            elif reason == 'error':
-                                stats['skipped_error'] += 1
-                                stats['errors'] += 1
-                            else:
-                                stats['skipped_error'] += 1
-                        elif has_results:
+                        elif result.get('has_results'):
                             stats['with_results'] += 1
                             stats['total_found'] += result.get('count', 0)
-
-                            if result.get('has_new', False):
+                            if result.get('has_new'):
                                 stats['with_new_results'] += 1
                                 stats['total_new_found'] += result.get('count', 0)
                                 if self.update_game:
@@ -845,67 +745,19 @@ class Command(BaseCommand):
                                         'id': result['id'],
                                         'found': result.get('found', {})
                                     })
-                        else:
-                            stats['no_results'] += 1
             except Empty:
                 pass
 
-        # Восстанавливаем оригинальный обработчик сигнала
-        signal.signal(signal.SIGINT, original_handler)
+            # Финальная статистика
+            elapsed = time.time() - start_time
+            sys.stderr.write(f"\n✅ Обработано: {stats['processed']}/{total_games} игр за {format_time(elapsed)}\n")
+            sys.stderr.flush()
 
-        # Финальный сбор всех оставшихся результатов
-        try:
-            while True:
-                result = result_queue.get_nowait()
-                processed_count += 1
+            stats['analysis_time'] = elapsed
+            stats['games_per_second'] = stats['processed'] / elapsed if elapsed > 0 else 0
+            stats['interrupted'] = interrupted
 
-                with stats_lock:
-                    stats['processed'] += 1
-                    stats['all_results'].append(result)
-
-                    is_skipped = result.get('skipped', False)
-                    has_results = result.get('has_results', False)
-                    reason = result.get('reason', '')
-
-                    if is_skipped:
-                        stats['skipped'] += 1
-                        if reason == 'no_text':
-                            stats['skipped_no_text'] += 1
-                        elif reason == 'short':
-                            stats['skipped_short'] += 1
-                        elif reason == 'error':
-                            stats['skipped_error'] += 1
-                            stats['errors'] += 1
-                        else:
-                            stats['skipped_error'] += 1
-                    elif has_results:
-                        stats['with_results'] += 1
-                        stats['total_found'] += result.get('count', 0)
-
-                        if result.get('has_new', False):
-                            stats['with_new_results'] += 1
-                            stats['total_new_found'] += result.get('count', 0)
-                            if self.update_game:
-                                stats['to_save'].append({
-                                    'id': result['id'],
-                                    'found': result.get('found', {})
-                                })
-                    else:
-                        stats['no_results'] += 1
-        except Empty:
-            pass
-
-        # Финальный вывод
-        elapsed_total = time.time() - analysis_start
-        sys.stderr.write(f"\n✅ Обработано: {stats['processed']}/{len(games)} игр за {format_time(elapsed_total)}\n")
-        sys.stderr.flush()
-
-        analysis_time = time.time() - analysis_start
-        stats['analysis_time'] = analysis_time
-        stats['games_per_second'] = stats['processed'] / analysis_time if analysis_time > 0 else 0
-        stats['interrupted'] = stop_flag.is_set()
-
-        return stats
+            return stats
 
     def _init_progress_bar(self, total_games: int):
         """Инициализирует прогресс-бар без немедленного отображения"""
@@ -1090,103 +942,97 @@ class Command(BaseCommand):
         sys.stderr.flush()
 
     def _output_results(self, results: List[Dict]):
-        """Вывод результатов в файл (только игры с новыми критериями)"""
+        """Вывод результатов в файл (только игры с новыми критериями, паттерны и контекст)"""
         if not self.output_file:
             return
 
         # Фильтруем только игры с новыми критериями
         games_with_new = [r for r in results if r.get('has_new', False)]
 
+        # Принудительно очищаем буфер файла перед записью
+        self.output_file.flush()
+
         if not games_with_new:
-            self.stdout.write("=" * 60)
-            self.stdout.write("📊 РЕЗУЛЬТАТЫ АНАЛИЗА")
-            self.stdout.write("=" * 60)
-            self.stdout.write("\n✅ Нет игр с новыми критериями для сохранения")
-            self.stdout.write("=" * 60)
+            self.output_file.write("=" * 60 + "\n")
+            self.output_file.write("📊 РЕЗУЛЬТАТЫ АНАЛИЗА\n")
+            self.output_file.write("=" * 60 + "\n")
+            self.output_file.write("\n✅ Нет игр с новыми критериями для сохранения\n")
+            self.output_file.write("=" * 60 + "\n")
+            self.output_file.flush()
             return
 
-        self.stdout.write("=" * 60)
-        self.stdout.write("📊 РЕЗУЛЬТАТЫ АНАЛИЗА (только игры с НОВЫМИ критериями)")
-        self.stdout.write("=" * 60)
-        self.stdout.write(f"\n📈 Всего игр с новыми критериями: {len(games_with_new)}\n")
-        self.stdout.write("=" * 60)
+        self.output_file.write("=" * 60 + "\n")
+        self.output_file.write("📊 РЕЗУЛЬТАТЫ АНАЛИЗА (только НОВЫЕ критерии)\n")
+        self.output_file.write("=" * 60 + "\n")
+        self.output_file.write(f"\n📈 Всего игр с новыми критериями: {len(games_with_new)}\n")
+        self.output_file.write("=" * 60 + "\n")
+        self.output_file.flush()
 
         index = 1
         for r in games_with_new:
-            self.stdout.write(f"\n{index}. 🎮 {r['name']} (ID: {r['id']})")
+            self.output_file.write(f"\n{index}. 🎮 {r['name']} (ID: {r['id']})\n")
 
             if r.get('skipped'):
                 if r.get('reason') == 'no_text':
-                    self.stdout.write("   ⏭️ Пропущено: нет текста для анализа")
+                    self.output_file.write("   ⏭️ Пропущено: нет текста для анализа\n")
                 elif r.get('reason') == 'short':
-                    self.stdout.write("   ⏭️ Пропущено: текст слишком короткий")
+                    self.output_file.write("   ⏭️ Пропущено: текст слишком короткий\n")
                 elif r.get('reason') == 'error':
-                    self.stdout.write(f"   ❌ Ошибка: {r.get('error', 'неизвестная ошибка')}")
+                    self.output_file.write(f"   ❌ Ошибка: {r.get('error', 'неизвестная ошибка')}\n")
                 index += 1
                 continue
 
             if not r['has_results']:
-                self.stdout.write("   ℹ️ Критерии не найдены")
+                self.output_file.write("   ℹ️ Критерии не найдены\n")
                 index += 1
                 continue
 
             pattern_info = r.get('pattern_info', {})
 
+            # Выводим только НОВЫЕ критерии
+            has_any_new = False
+
             for criteria_type in ['genres', 'themes', 'perspectives', 'game_modes']:
                 items = r['found'].get(criteria_type, [])
-                if not items:
+                # Фильтруем только новые элементы
+                new_items = [item for item in items if item.get('is_new', False)]
+
+                if not new_items:
                     continue
 
+                has_any_new = True
                 display_name = self._get_display_name(criteria_type)
-                self.stdout.write(f"   📌 {display_name}:")
+                self.output_file.write(f"   📌 {display_name}:\n")
 
-                for item in items:
+                for item in new_items:
                     item_name = item['name']
                     item_id = item['id']
 
-                    context_info = self._find_match_context(pattern_info, criteria_type, item_id, item_name)
+                    # Ищем паттерн и контекст для этого критерия
+                    pattern_context = self._find_pattern_and_context_for_criteria(pattern_info, criteria_type, item_id,
+                                                                                  item_name)
 
-                    if context_info:
-                        self.stdout.write(f"      • {item_name}")
-                        self.stdout.write(f"        {context_info}")
+                    self.output_file.write(f"      • {item_name} (ID: {item_id})\n")
+                    if pattern_context:
+                        self.output_file.write(f"        🔍 Паттерн: {pattern_context['pattern']}\n")
+                        self.output_file.write(f"        📖 Совпавший текст: \"{pattern_context['matched_text']}\"\n")
+                        self.output_file.write(f"        📝 Контекст: {pattern_context['context']}\n")
                     else:
-                        self.stdout.write(f"      • {item_name}")
+                        self.output_file.write(f"        ⚠️ Информация о паттерне не найдена\n")
+                    self.output_file.write("\n")
 
-                self.stdout.write("")
+                self.output_file.write("\n")
 
-            if self.verbose and pattern_info:
-                self.stdout.write("   🔍 ДЕТАЛЬНАЯ ИНФОРМАЦИЯ О СОВПАДЕНИЯХ:")
-                for criteria_type, matches in pattern_info.items():
-                    if not matches:
-                        continue
-
-                    display_name = self._get_display_name(criteria_type)
-                    self.stdout.write(f"      📌 {display_name}:")
-
-                    for match in matches:
-                        if match.get('status') == 'found':
-                            name = match.get('name', 'N/A')
-                            matched_text = match.get('matched_text', '')
-                            context = match.get('context', '')
-
-                            output = f"         • {name}"
-                            if matched_text:
-                                output += f" → найдено как \"{matched_text}\""
-                            if context:
-                                clean_context = ' '.join(context.split())
-                                if len(clean_context) > 60:
-                                    clean_context = clean_context[:57] + "..."
-                                output += f" в контексте: \"{clean_context}\""
-
-                            self.stdout.write(output)
-
-                self.stdout.write("")
+            if not has_any_new:
+                self.output_file.write("   ℹ️ Нет новых критериев (только существующие)\n\n")
 
             index += 1
+            self.output_file.flush()
 
-        self.stdout.write("=" * 60)
-        self.stdout.write(f"✅ Вывод завершен. Показано игр с новыми критериями: {len(games_with_new)}")
-        self.stdout.write("=" * 60)
+        self.output_file.write("=" * 60 + "\n")
+        self.output_file.write(f"✅ Вывод завершен. Показано игр с новыми критериями: {len(games_with_new)}\n")
+        self.output_file.write("=" * 60 + "\n")
+        self.output_file.flush()
 
     def _find_match_context(self, pattern_info: Dict, criteria_type: str, item_id: int, item_name: str) -> str:
         """Находит контекст для конкретного элемента"""
@@ -1300,17 +1146,26 @@ class Command(BaseCommand):
             self.stderr.write(f"❌ Ошибка открытия файла: {e}")
 
     def _cleanup(self):
+        """Закрытие файла вывода и восстановление stdout"""
         if self.output_file:
             try:
+                self.output_file.flush()
                 self.output_file.close()
-                if self.original_stdout:
+                if self.original_stdout and hasattr(self.stdout, '_out'):
                     self.stdout._out = self.original_stdout
             except:
                 pass
+            finally:
+                self.output_file = None
+                self.original_stdout = None
 
     def handle(self, *args, **options):
         """Основной обработчик команды"""
         import signal
+        import threading
+
+        # Создаем stop_flag для обработчика сигнала
+        stop_flag = threading.Event()
 
         start_time = time.time()
         results = None
@@ -1319,11 +1174,12 @@ class Command(BaseCommand):
         def signal_handler(signum, frame):
             """Обработчик сигнала для корректного завершения"""
             nonlocal interrupted
-            interrupted = True
-            sys.stderr.write("\n⏹️ Получен сигнал прерывания, завершаем работу...\n")
-            sys.stderr.flush()
+            if not interrupted:
+                interrupted = True
+                stop_flag.set()
+                import os
+                os.write(2, b"\n[INTERRUPTED] Stopping...\n")
 
-        # Устанавливаем обработчик сигнала
         original_handler = signal.signal(signal.SIGINT, signal_handler)
 
         try:
@@ -1351,20 +1207,7 @@ class Command(BaseCommand):
             if self.output_path:
                 self._setup_output_file()
 
-            sys.stderr.write("=" * 70 + "\n")
-            sys.stderr.write("🚀 МАКСИМАЛЬНО УСКОРЕННЫЙ АНАЛИЗ КРИТЕРИЕВ\n")
-            sys.stderr.write("=" * 70 + "\n")
-            sys.stderr.write(f"🔧 Потоков: {self.threads}\n")
-            sys.stderr.write(f"🔄 Обновление БД: {'✅' if self.update_game else '❌'}\n")
-            if self.update_game:
-                sys.stderr.write(
-                    f"💾 Режим сохранения: {'Авто' if self.auto_save else 'С подтверждением после анализа'}\n")
-            sys.stderr.write(f"📄 Вывод в файл: {'✅' if self.output_path else '❌'}\n")
-            sys.stderr.write(f"📚 Объединять все тексты: {'✅' if self.combine_all_texts else '❌'}\n")
-            if self.game_name:
-                sys.stderr.write(f"🎮 Поиск по имени: '{self.game_name}'\n")
-            sys.stderr.write("=" * 70 + "\n")
-            sys.stderr.flush()
+            self._print_startup_info()
 
             if self.force_restart:
                 sys.stderr.write("\n🧹 Очищаем кэш...\n")
@@ -1389,7 +1232,7 @@ class Command(BaseCommand):
                 self._cleanup()
                 return
 
-            # Загружаем существующие связи (всегда, так как update_game всегда True)
+            # Загружаем существующие связи
             sys.stderr.write("\n📚 Загрузка существующих связей для проверки...\n")
             sys.stderr.flush()
             existing_relations = self._load_existing_relations()
@@ -1404,107 +1247,11 @@ class Command(BaseCommand):
             results = self._parallel_analysis(games_to_analyze, existing_relations)
 
             if results:
-                # Вывод в файл (только игры с новыми критериями)
-                if self.output_path and results.get('all_results'):
-                    sys.stderr.write(f"\n📝 Запись в файл (только игры с НОВЫМИ критериями)...\n")
-                    sys.stderr.flush()
-                    self._output_results(results['all_results'])
-                    sys.stderr.write(f"   ✅ {self.output_path}\n")
-                    sys.stderr.flush()
-
-                # Статистика после анализа
-                total_time = time.time() - start_time
-                not_found = results['processed'] - results['with_results'] - results['skipped']
-                if not_found < 0:
-                    not_found = 0
-
-                sys.stderr.write("\n" + "=" * 70 + "\n")
-                if results.get('interrupted'):
-                    sys.stderr.write("📊 ЧАСТИЧНАЯ СТАТИСТИКА (ПРЕРВАНО)\n")
-                else:
-                    sys.stderr.write("📊 ИТОГОВАЯ СТАТИСТИКА\n")
-                sys.stderr.write("=" * 70 + "\n")
-                sys.stderr.write(f"🔄 Обработано: {results['processed']} игр\n")
-                sys.stderr.write(f"🎯 Игр с найденными критериями: {results['with_results']}\n")
-                sys.stderr.write(f"✨ Игр с НОВЫМИ критериями: {results['with_new_results']}\n")
-                sys.stderr.write(f"📈 Всего критериев: {results['total_found']} (новых: {results['total_new_found']})\n")
-                sys.stderr.write(f"⏭️ Пропущено: {results['skipped']}\n")
-                sys.stderr.write(f"⚪ Без элементов: {not_found}\n")
-                sys.stderr.write(f"❌ Ошибок: {results['errors']}\n")
-                sys.stderr.write(f"⏱️ Время: {total_time:.1f}с\n")
-                if results.get('games_per_second', 0) > 0:
-                    sys.stderr.write(f"⚡ Скорость: {results['games_per_second']:.0f} игр/сек\n")
-                sys.stderr.write("=" * 70 + "\n")
-                sys.stderr.flush()
-
-                # ЗАПРАШИВАЕМ ПОДТВЕРЖДЕНИЕ ПОСЛЕ АНАЛИЗА (если не auto_save)
-                if not self.auto_save and results.get('to_save') and not results.get('interrupted'):
-                    sys.stderr.write(
-                        f"\n💾 Найдено {len(results['to_save'])} игр с новыми критериями ({results['total_new_found']} новых элементов).\n")
-                    sys.stderr.write("Сохранить результаты в БД? (y/N): ")
-                    sys.stderr.flush()
-
-                    try:
-                        answer = sys.stdin.readline().strip().lower()
-                    except (EOFError, KeyboardInterrupt):
-                        answer = 'n'
-
-                    if answer in ['y', 'yes', 'да', 'д', '1']:
-                        sys.stderr.write("\n✅ Сохраняем...\n")
-                        sys.stderr.flush()
-                        self._bulk_save_results(results['to_save'])
-                        sys.stderr.write("   ✅ Сохранение завершено\n")
-                        sys.stderr.flush()
-                    else:
-                        sys.stderr.write("\n⏭️ Сохранение отменено\n")
-                        sys.stderr.flush()
-                elif self.auto_save and results.get('to_save') and not results.get('interrupted'):
-                    sys.stderr.write(f"\n💾 Авто-сохранение {len(results['to_save'])} игр в БД...\n")
-                    sys.stderr.flush()
-                    self._bulk_save_results(results['to_save'])
-                    sys.stderr.write("   ✅ Сохранение завершено\n")
-                    sys.stderr.flush()
-                elif results.get('interrupted') and results.get('to_save'):
-                    if self.auto_save:
-                        sys.stderr.write(f"\n💾 Авто-сохранение {len(results['to_save'])} игр в БД (прервано)...\n")
-                        sys.stderr.flush()
-                        self._bulk_save_results(results['to_save'])
-                        sys.stderr.write("   ✅ Сохранение завершено\n")
-                        sys.stderr.flush()
-                    else:
-                        sys.stderr.write(
-                            f"\n💾 Найдено {len(results['to_save'])} игр с новыми критериями ({results['total_new_found']} новых элементов).\n")
-                        sys.stderr.write("Сохранить результаты в БД? (y/N): ")
-                        sys.stderr.flush()
-
-                        try:
-                            answer = sys.stdin.readline().strip().lower()
-                        except (EOFError, KeyboardInterrupt):
-                            answer = 'n'
-
-                        if answer in ['y', 'yes', 'да', 'д', '1']:
-                            sys.stderr.write("\n✅ Сохраняем...\n")
-                            sys.stderr.flush()
-                            self._bulk_save_results(results['to_save'])
-                            sys.stderr.write("   ✅ Сохранение завершено\n")
-                            sys.stderr.flush()
-                        else:
-                            sys.stderr.write("\n⏭️ Сохранение отменено\n")
-                            sys.stderr.flush()
+                # Обрабатываем результаты
+                self._process_results(results, start_time)
 
         except KeyboardInterrupt:
-            sys.stderr.write("\n⏹️ Прервано\n")
-            sys.stderr.flush()
-            if results and results.get('to_save'):
-                sys.stderr.write(f"\n💾 Сохранение {len(results['to_save'])} игр в БД...\n")
-                sys.stderr.flush()
-                try:
-                    self._bulk_save_results(results['to_save'])
-                    sys.stderr.write("   ✅ Сохранено\n")
-                    sys.stderr.flush()
-                except Exception as e:
-                    sys.stderr.write(f"   ⚠️ Ошибка: {e}\n")
-                    sys.stderr.flush()
+            self._handle_interrupt(results)
         except Exception as e:
             sys.stderr.write(f"\n❌ Ошибка: {e}\n")
             sys.stderr.flush()
@@ -1517,3 +1264,170 @@ class Command(BaseCommand):
             sys.stderr.write("\n✨ Завершено\n")
             sys.stderr.flush()
             sys.exit(0)
+
+    def _print_startup_info(self):
+        """Выводит информацию о запуске"""
+        sys.stderr.write("=" * 70 + "\n")
+        sys.stderr.write("🚀 МАКСИМАЛЬНО УСКОРЕННЫЙ АНАЛИЗ КРИТЕРИЕВ\n")
+        sys.stderr.write("=" * 70 + "\n")
+        sys.stderr.write(f"🔧 Потоков: {self.threads}\n")
+        sys.stderr.write(f"🔄 Обновление БД: {'✅' if self.update_game else '❌'}\n")
+        if self.update_game:
+            sys.stderr.write(
+                f"💾 Режим сохранения: {'Авто' if self.auto_save else 'С подтверждением после анализа'}\n")
+        sys.stderr.write(f"📄 Вывод в файл: {'✅' if self.output_path else '❌'}\n")
+        sys.stderr.write(f"📚 Объединять все тексты: {'✅' if self.combine_all_texts else '❌'}\n")
+        if self.game_name:
+            sys.stderr.write(f"🎮 Поиск по имени: '{self.game_name}'\n")
+        sys.stderr.write("=" * 70 + "\n")
+        sys.stderr.flush()
+
+    def _process_results(self, results: Dict[str, Any], start_time: float):
+        """Обрабатывает результаты анализа: сохраняет файл, выводит статистику, спрашивает про БД"""
+
+        # СОХРАНЯЕМ В ФАЙЛ СРАЗУ ПОСЛЕ АНАЛИЗА
+        if self.output_path and results.get('all_results'):
+            sys.stderr.write(f"\n📝 Запись результатов в файл...\n")
+            sys.stderr.flush()
+            self._output_results(results['all_results'])
+            sys.stderr.write(f"   ✅ Результаты сохранены в: {self.output_path}\n")
+            sys.stderr.flush()
+
+            # ЗАКРЫВАЕМ ФАЙЛ, ЧТОБЫ ДАННЫЕ ЗАПИСАЛИСЬ
+            self._cleanup()
+            sys.stderr.write(f"   ✅ Файл закрыт и сохранен на диск\n")
+            sys.stderr.flush()
+
+        # Статистика после анализа
+        total_time = time.time() - start_time
+        not_found = results['processed'] - results['with_results'] - results['skipped']
+        if not_found < 0:
+            not_found = 0
+
+        def format_time(seconds):
+            if seconds < 60:
+                return f"{seconds:.0f} сек"
+            elif seconds < 3600:
+                minutes = seconds / 60
+                return f"{minutes:.1f} мин"
+            else:
+                hours = seconds / 3600
+                return f"{hours:.1f} ч"
+
+        sys.stderr.write("\n" + "=" * 70 + "\n")
+        if results.get('interrupted'):
+            sys.stderr.write("📊 ЧАСТИЧНАЯ СТАТИСТИКА (ПРЕРВАНО)\n")
+        else:
+            sys.stderr.write("📊 ИТОГОВАЯ СТАТИСТИКА\n")
+        sys.stderr.write("=" * 70 + "\n")
+        sys.stderr.write(f"🔄 Обработано: {results['processed']} игр\n")
+        sys.stderr.write(f"🎯 Игр с найденными критериями: {results['with_results']}\n")
+        sys.stderr.write(f"✨ Игр с НОВЫМИ критериями: {results['with_new_results']}\n")
+        sys.stderr.write(f"📈 Всего критериев: {results['total_found']} (новых: {results['total_new_found']})\n")
+        sys.stderr.write(f"⏭️ Пропущено: {results['skipped']}\n")
+        sys.stderr.write(f"⚪ Без элементов: {not_found}\n")
+        sys.stderr.write(f"❌ Ошибок: {results['errors']}\n")
+        sys.stderr.write(f"⏱️ Время: {format_time(total_time)}\n")
+        if results.get('games_per_second', 0) > 0:
+            sys.stderr.write(f"⚡ Скорость: {results['games_per_second']:.0f} игр/сек\n")
+        sys.stderr.write("=" * 70 + "\n")
+        sys.stderr.flush()
+
+        # ЗАПРАШИВАЕМ ПОДТВЕРЖДЕНИЕ ДЛЯ БД
+        if not self.auto_save and results.get('to_save') and not results.get('interrupted'):
+            sys.stderr.write(
+                f"\n💾 Найдено {len(results['to_save'])} игр с новыми критериями ({results['total_new_found']} новых элементов).\n")
+            sys.stderr.write("Сохранить результаты в БД? (y/N): ")
+            sys.stderr.flush()
+
+            try:
+                answer = sys.stdin.readline().strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                answer = 'n'
+
+            if answer in ['y', 'yes', 'да', 'д', '1']:
+                sys.stderr.write("\n✅ Сохраняем в БД...\n")
+                sys.stderr.flush()
+                self._bulk_save_results(results['to_save'])
+                sys.stderr.write("   ✅ Сохранение в БД завершено\n")
+                sys.stderr.flush()
+            else:
+                sys.stderr.write("\n⏭️ Сохранение в БД отменено\n")
+                sys.stderr.flush()
+        elif self.auto_save and results.get('to_save') and not results.get('interrupted'):
+            sys.stderr.write(f"\n💾 Авто-сохранение {len(results['to_save'])} игр в БД...\n")
+            sys.stderr.flush()
+            self._bulk_save_results(results['to_save'])
+            sys.stderr.write("   ✅ Сохранение в БД завершено\n")
+            sys.stderr.flush()
+        elif results.get('interrupted') and results.get('to_save'):
+            if self.auto_save:
+                sys.stderr.write(f"\n💾 Авто-сохранение {len(results['to_save'])} игр в БД (прервано)...\n")
+                sys.stderr.flush()
+                self._bulk_save_results(results['to_save'])
+                sys.stderr.write("   ✅ Сохранение в БД завершено\n")
+                sys.stderr.flush()
+            else:
+                sys.stderr.write(
+                    f"\n💾 Найдено {len(results['to_save'])} игр с новыми критериями ({results['total_new_found']} новых элементов).\n")
+                sys.stderr.write("Сохранить результаты в БД? (y/N): ")
+                sys.stderr.flush()
+
+                try:
+                    answer = sys.stdin.readline().strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    answer = 'n'
+
+                if answer in ['y', 'yes', 'да', 'д', '1']:
+                    sys.stderr.write("\n✅ Сохраняем в БД...\n")
+                    sys.stderr.flush()
+                    self._bulk_save_results(results['to_save'])
+                    sys.stderr.write("   ✅ Сохранение в БД завершено\n")
+                    sys.stderr.flush()
+                else:
+                    sys.stderr.write("\n⏭️ Сохранение в БД отменено\n")
+                    sys.stderr.flush()
+
+    def _handle_interrupt(self, results: Dict[str, Any]):
+        """Обрабатывает прерывание пользователя"""
+        sys.stderr.write("\n⏹️ Прервано пользователем\n")
+        sys.stderr.flush()
+
+        # При прерывании сначала сохраняем файл
+        if results and results.get('all_results') and self.output_path:
+            sys.stderr.write(f"\n📝 Сохранение результатов в файл (прервано)...\n")
+            sys.stderr.flush()
+            try:
+                self._output_results(results['all_results'])
+                # Закрываем файл сразу
+                self._cleanup()
+                sys.stderr.write(f"   ✅ Результаты сохранены в: {self.output_path}\n")
+                sys.stderr.flush()
+            except Exception as e:
+                sys.stderr.write(f"   ⚠️ Ошибка сохранения файла: {e}\n")
+                sys.stderr.flush()
+
+        # Затем спрашиваем про БД
+        if results and results.get('to_save'):
+            sys.stderr.write(f"\n💾 Найдено {len(results['to_save'])} игр с новыми критериями.\n")
+            sys.stderr.write("Сохранить результаты в БД? (y/N): ")
+            sys.stderr.flush()
+
+            try:
+                answer = sys.stdin.readline().strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                answer = 'n'
+
+            if answer in ['y', 'yes', 'да', 'д', '1']:
+                sys.stderr.write("\n✅ Сохраняем в БД...\n")
+                sys.stderr.flush()
+                try:
+                    self._bulk_save_results(results['to_save'])
+                    sys.stderr.write("   ✅ Сохранение в БД завершено\n")
+                    sys.stderr.flush()
+                except Exception as e:
+                    sys.stderr.write(f"   ⚠️ Ошибка: {e}\n")
+                    sys.stderr.flush()
+            else:
+                sys.stderr.write("\n⏭️ Сохранение в БД отменено\n")
+                sys.stderr.flush()
