@@ -44,7 +44,7 @@ class Command(BaseCommand):
         self.original_stdout = None
         self.limit = None
         self.offset = 0
-        self.update_game = False
+        self.game_name = None
         self.verbose = False
         self.threads = 16
         self.batch_save = 10000
@@ -64,24 +64,24 @@ class Command(BaseCommand):
                             help='Максимальное количество игр для анализа')
         parser.add_argument('--offset', type=int, default=0,
                             help='Пропустить первые N игр')
-        parser.add_argument('--update-game', action='store_true',
-                            help='Автоматически обновить найденные критерии в базе данных')
+        parser.add_argument('--game-name', type=str, default=None,
+                            help='Название игры для анализа (поиск по частичному совпадению)')
         parser.add_argument('--verbose', action='store_true',
                             help='Подробный вывод')
-        parser.add_argument('--threads', type=int, default=16,
-                            help='Количество потоков для обработки (по умолчанию 16)')
+        parser.add_argument('--threads', type=int, default=24,
+                            help='Количество потоков для обработки (по умолчанию 24)')
         parser.add_argument('--force-restart', action='store_true',
                             help='Начать обработку заново, игнорируя кэш')
         parser.add_argument('--output', type=str,
                             help='Путь к файлу для экспорта результатов')
         parser.add_argument('--only-found', action='store_true',
                             help='Показывать только игры где были найдены критерии')
-        parser.add_argument('--combine-all-texts', action='store_true',
-                            help='Объединить ВСЕ доступные источники текста')
         parser.add_argument('--no-progress', action='store_true',
                             help='Отключить отображение прогресс-бара')
         parser.add_argument('--auto-save', action='store_true',
                             help='Автоматически сохранять в БД без подтверждения')
+        parser.add_argument('--no-combine-texts', action='store_true',
+                            help='НЕ объединять все источники текста (использовать только summary)')
 
     def _load_existing_relations(self) -> Dict[str, set]:
         """Загружает все существующие связи из БД для быстрой проверки"""
@@ -120,8 +120,9 @@ class Command(BaseCommand):
         return existing_relations
 
     def _confirm_save(self, count: int, results_count: int, elements_count: int) -> bool:
-        """Запрашивает подтверждение сохранения"""
+        """Запрашивает подтверждение сохранения с принудительной синхронизацией"""
         import sys
+        import os
 
         # Показываем информацию
         sys.stderr.write(f"\n💾 Готово к сохранению в БД: {count} игр\n")
@@ -139,13 +140,23 @@ class Command(BaseCommand):
             sys.stderr.flush()
             return True
 
-        # Запрашиваем подтверждение только если не auto_save
+        # Принудительно отключаем буферизацию для stdin
         sys.stderr.write("\n⚠️ Сохранить результаты в БД? (y/N): ")
         sys.stderr.flush()
 
+        # Очищаем буфер stdin перед чтением
         try:
-            answer = input().strip().lower()
-        except (EOFError, KeyboardInterrupt):
+            # Пробуем прочитать все ожидающие данные из stdin
+            import select
+            if select.select([sys.stdin], [], [], 0)[0]:
+                sys.stdin.read()
+        except:
+            pass
+
+        try:
+            # Читаем ответ с таймаутом
+            answer = sys.stdin.readline().strip().lower()
+        except (EOFError, KeyboardInterrupt, OSError):
             sys.stderr.write("\n")
             sys.stderr.flush()
             return False
@@ -215,10 +226,59 @@ class Command(BaseCommand):
                         })
 
     def _get_games_to_analyze(self) -> List[Dict]:
-        """Максимально быстрая загрузка игр через сырой SQL и генератор"""
+        """Максимально быстрая загрузка игр через сырой SQL или по имени"""
         import sys
         from django.db import connection
 
+        # ПРОВЕРКА: если указано имя игры, используем поиск по имени
+        if self.game_name:
+            sys.stderr.write(f"\n   🔍 Поиск игр по имени: '{self.game_name}'\n")
+            sys.stderr.flush()
+
+            # Экранируем имя для безопасного поиска
+            search_term = f"%{self.game_name}%"
+
+            # Строим SQL запрос с поиском по имени
+            fields = ['id', 'name', 'summary', 'storyline', 'rawg_description', 'wiki_description']
+            fields_str = ', '.join(fields)
+
+            sql = f"""
+                SELECT {fields_str}
+                FROM games_game
+                WHERE name ILIKE %s
+                ORDER BY 
+                    CASE WHEN name ILIKE %s THEN 1 ELSE 2 END,
+                    rating DESC NULLS LAST,
+                    id
+                LIMIT %s
+                OFFSET %s
+            """
+
+            # Определяем лимит и offset для поиска по имени
+            actual_limit = self.limit if self.limit else 50  # По умолчанию не более 50 игр
+            actual_offset = self.offset if self.offset else 0
+
+            games = []
+            with connection.cursor() as cursor:
+                # Ищем точное совпадение в первую очередь
+                exact_term = self.game_name
+                cursor.execute(sql, [search_term, exact_term, actual_limit, actual_offset])
+
+                for row in cursor.fetchall():
+                    games.append({
+                        'id': row[0],
+                        'name': row[1],
+                        'summary': row[2],
+                        'storyline': row[3],
+                        'rawg_description': row[4],
+                        'wiki_description': row[5]
+                    })
+
+            sys.stderr.write(f"   ✅ Найдено игр по имени: {len(games)}\n")
+            sys.stderr.flush()
+            return games
+
+        # ОРИГИНАЛЬНЫЙ КОД: массовая загрузка всех игр (если game_name не указан)
         sys.stderr.write(f"\n   📊 Подсчет количества игр... ")
         sys.stderr.flush()
 
@@ -307,9 +367,11 @@ class Command(BaseCommand):
 
         return game.summary or game.storyline or game.rawg_description or game.wiki_description or ''
 
-    def _analyze_game_fast(self, game_dict: Dict) -> Dict[str, Any]:
+    def _analyze_game_fast(self, game_dict: Dict, existing_relations: Dict[str, set] = None) -> Dict[str, Any]:
         """Анализ одной игры с диагностикой времени (работает со словарем)"""
         import time
+        import re
+        import sys
 
         # Диагностика
         if hasattr(self, '_analyze_times'):
@@ -320,18 +382,17 @@ class Command(BaseCommand):
         # Получаем текст из словаря
         if self.combine_all_texts:
             parts = []
-            if game_dict.get('summary'):
-                parts.append(game_dict['summary'])
-            if game_dict.get('storyline'):
-                parts.append(game_dict['storyline'])
-            if game_dict.get('rawg_description'):
-                parts.append(game_dict['rawg_description'])
-            if game_dict.get('wiki_description'):
-                parts.append(game_dict['wiki_description'])
-            text = ' '.join(parts)
+            for key in ['summary', 'storyline', 'rawg_description', 'wiki_description']:
+                value = game_dict.get(key)
+                if value and isinstance(value, str) and value.strip():
+                    parts.append(value)
+            text = ' '.join(parts) if parts else ''
         else:
-            text = (game_dict.get('summary') or game_dict.get('storyline') or
-                    game_dict.get('rawg_description') or game_dict.get('wiki_description') or '')
+            text = (game_dict.get('summary') or
+                    game_dict.get('storyline') or
+                    game_dict.get('rawg_description') or
+                    game_dict.get('wiki_description') or
+                    '')
 
         # Проверка наличия текста
         if not text or len(text.strip()) < 10:
@@ -350,7 +411,10 @@ class Command(BaseCommand):
                 'has_new': False
             }
 
-        text_lower = text.lower()
+        # Нормализация текста
+        text_normalized = re.sub(r'\s+', ' ', text)
+        text_lower = text_normalized.lower()
+
         found = {
             'genres': [],
             'themes': [],
@@ -366,6 +430,7 @@ class Command(BaseCommand):
         }
 
         total_found = 0
+        game_id = game_dict['id']
 
         # Основной поиск
         for criteria_type, patterns in self.compiled_patterns.items():
@@ -377,14 +442,14 @@ class Command(BaseCommand):
 
                     match_start = match.start()
                     match_end = match.end()
-                    matched_text = text[match_start:match_end]
+                    matched_text = text_normalized[match_start:match_end]
 
                     context_start = max(0, match_start - 40)
-                    context_end = min(len(text), match_end + 40)
-                    context = text[context_start:context_end]
+                    context_end = min(len(text_normalized), match_end + 40)
+                    context = text_normalized[context_start:context_end]
                     if context_start > 0:
                         context = "..." + context
-                    if context_end < len(text):
+                    if context_end < len(text_normalized):
                         context = context + "..."
 
                     pattern_info[criteria_type].append({
@@ -396,20 +461,47 @@ class Command(BaseCommand):
                         'status': 'found'
                     })
 
-                    if len(pattern_info[criteria_type]) >= 10:
+                    if len(pattern_info[criteria_type]) >= 50:
                         break
-
-                # Ранний выход если нашли достаточно
-                if len(found_ids) >= 20:
-                    break
 
             if found_ids:
                 for fid in found_ids:
+                    # Проверяем, является ли этот критерий новым для игры
+                    is_new = True
+                    if existing_relations:
+                        if (game_id, fid) in existing_relations.get(criteria_type, set()):
+                            is_new = False
+
                     found[criteria_type].append({
                         'id': fid,
-                        'name': self.criteria_cache[criteria_type][fid]
+                        'name': self.criteria_cache[criteria_type][fid],
+                        'is_new': is_new
                     })
                 total_found += len(found_ids)
+
+        # ВЫВОД НАЙДЕННЫХ КРИТЕРИЕВ С ПОМЕТКОЙ НОВЫХ
+        # Показываем для любой игры, если:
+        # 1. Запущено с --game-name (анализ конкретной игры)
+        # 2. Или включен --verbose
+        if (self.game_name or self.verbose) and total_found > 0:
+            sys.stderr.write(f"\n=== ИТОГОВЫЕ НАЙДЕННЫЕ КРИТЕРИИ для {game_dict['name']} ===\n")
+            for criteria_type in ['genres', 'themes', 'perspectives', 'game_modes']:
+                if found[criteria_type]:
+                    type_name = {
+                        'genres': 'Жанры',
+                        'themes': 'Темы',
+                        'perspectives': 'Перспективы',
+                        'game_modes': 'Режимы игры'
+                    }.get(criteria_type, criteria_type)
+                    sys.stderr.write(f"\n{type_name}:\n")
+                    for item in found[criteria_type]:
+                        if item.get('is_new', False):
+                            sys.stderr.write(f"  - {item['name']} (ID: {item['id']}) [НОВЫЙ]\n")
+                        else:
+                            sys.stderr.write(f"  - {item['name']} (ID: {item['id']})\n")
+            sys.stderr.write(f"\nВсего найдено уникальных критериев: {total_found}\n")
+            sys.stderr.write("=" * 70 + "\n")
+            sys.stderr.flush()
 
         return {
             'id': game_dict['id'],
@@ -422,7 +514,7 @@ class Command(BaseCommand):
             'summary': {'found_count': total_found},
             'success': True,
             'results': found,
-            'has_new': False
+            'has_new': any(item.get('is_new', False) for items in found.values() for item in items)
         }
 
     def _parallel_analysis(self, games: List[Dict], existing_relations: Dict[str, set] = None) -> Dict[str, Any]:
@@ -480,7 +572,8 @@ class Command(BaseCommand):
                     break
 
                 try:
-                    result = self._analyze_game_fast(game_dict)
+                    # Передаем existing_relations в _analyze_game_fast
+                    result = self._analyze_game_fast(game_dict, existing_relations)
 
                     # Гарантируем наличие всех полей
                     result['skipped'] = result.get('skipped', False)
@@ -489,21 +582,27 @@ class Command(BaseCommand):
                     result['has_new'] = False
 
                     # Проверяем, есть ли реально новые связи
-                    if result['has_results'] and self.update_game and existing_relations:
+                    if result['has_results'] and existing_relations:
                         game_id = result['id']
                         new_criteria = {'genres': [], 'themes': [], 'perspectives': [], 'game_modes': []}
                         has_new = False
+                        new_count = 0
 
                         for criteria_type in ['genres', 'themes', 'perspectives', 'game_modes']:
                             for crit in result.get('found', {}).get(criteria_type, []):
                                 crit_id = crit.get('id')
                                 if crit_id and (game_id, crit_id) not in existing_relations[criteria_type]:
+                                    crit['is_new'] = True
                                     new_criteria[criteria_type].append(crit)
                                     has_new = True
+                                    new_count += 1
+                                else:
+                                    crit['is_new'] = False
+                                    new_criteria[criteria_type].append(crit)
 
                         if has_new:
                             result['found'] = new_criteria
-                            result['count'] = sum(len(v) for v in new_criteria.values())
+                            result['count'] = new_count
                             result['has_new'] = True
 
                     result_queue.put(result)
@@ -1231,15 +1330,20 @@ class Command(BaseCommand):
             # Сохраняем параметры
             self.limit = options.get('limit')
             self.offset = options.get('offset', 0)
-            self.update_game = options.get('update_game', False)
+            self.game_name = options.get('game_name')
             self.verbose = options.get('verbose', False)
             self.threads = min(options.get('threads', 16), 32)
             self.force_restart = options.get('force_restart', False)
             self.output_path = options.get('output')
             self.only_found = options.get('only_found', False)
-            self.combine_all_texts = options.get('combine_all_texts', False)
             self.no_progress = options.get('no_progress', False)
             self.auto_save = options.get('auto_save', False)
+
+            # update_game ВСЕГДА True (по умолчанию обновляем БД)
+            self.update_game = True
+
+            # combine_all_texts теперь True по умолчанию, отключается через --no-combine-texts
+            self.combine_all_texts = not options.get('no_combine_texts', False)
 
             # Настройка вывода
             self.output_file = None
@@ -1253,8 +1357,12 @@ class Command(BaseCommand):
             sys.stderr.write(f"🔧 Потоков: {self.threads}\n")
             sys.stderr.write(f"🔄 Обновление БД: {'✅' if self.update_game else '❌'}\n")
             if self.update_game:
-                sys.stderr.write(f"💾 Режим сохранения: {'Авто' if self.auto_save else 'С подтверждением'}\n")
+                sys.stderr.write(
+                    f"💾 Режим сохранения: {'Авто' if self.auto_save else 'С подтверждением после анализа'}\n")
             sys.stderr.write(f"📄 Вывод в файл: {'✅' if self.output_path else '❌'}\n")
+            sys.stderr.write(f"📚 Объединять все тексты: {'✅' if self.combine_all_texts else '❌'}\n")
+            if self.game_name:
+                sys.stderr.write(f"🎮 Поиск по имени: '{self.game_name}'\n")
             sys.stderr.write("=" * 70 + "\n")
             sys.stderr.flush()
 
@@ -1281,20 +1389,17 @@ class Command(BaseCommand):
                 self._cleanup()
                 return
 
-            # Загружаем существующие связи
-            if self.update_game:
-                sys.stderr.write("\n📚 Загрузка существующих связей для проверки...\n")
-                sys.stderr.flush()
-                existing_relations = self._load_existing_relations()
-                sys.stderr.write(f"   ✅ Загружено связей: жанры={len(existing_relations['genres'])}, "
-                                 f"темы={len(existing_relations['themes'])}, "
-                                 f"перспективы={len(existing_relations['perspectives'])}, "
-                                 f"режимы={len(existing_relations['game_modes'])}\n")
-                sys.stderr.flush()
-            else:
-                existing_relations = None
+            # Загружаем существующие связи (всегда, так как update_game всегда True)
+            sys.stderr.write("\n📚 Загрузка существующих связей для проверки...\n")
+            sys.stderr.flush()
+            existing_relations = self._load_existing_relations()
+            sys.stderr.write(f"   ✅ Загружено связей: жанры={len(existing_relations['genres'])}, "
+                             f"темы={len(existing_relations['themes'])}, "
+                             f"перспективы={len(existing_relations['perspectives'])}, "
+                             f"режимы={len(existing_relations['game_modes'])}\n")
+            sys.stderr.flush()
 
-            # Запускаем анализ (без прогресс-бара)
+            # Запускаем анализ
             self.progress_bar = None
             results = self._parallel_analysis(games_to_analyze, existing_relations)
 
@@ -1307,40 +1412,7 @@ class Command(BaseCommand):
                     sys.stderr.write(f"   ✅ {self.output_path}\n")
                     sys.stderr.flush()
 
-                # Сохранение в БД
-                if self.update_game and results.get('to_save') and not results.get('interrupted'):
-                    if self.auto_save:
-                        sys.stderr.write(f"\n💾 Авто-сохранение {len(results['to_save'])} игр в БД...\n")
-                        sys.stderr.flush()
-                        self._bulk_save_results(results['to_save'])
-                        sys.stderr.write("   ✅ Сохранение завершено\n")
-                        sys.stderr.flush()
-                    else:
-                        if self._confirm_save(
-                                len(results['to_save']),
-                                results['with_new_results'],
-                                results['total_new_found']
-                        ):
-                            self._bulk_save_results(results['to_save'])
-                            sys.stderr.write("   ✅ Сохранение завершено\n")
-                            sys.stderr.flush()
-                        else:
-                            sys.stderr.write("   ⏭️ Сохранение отменено\n")
-                            sys.stderr.flush()
-                elif results.get('interrupted') and results.get('to_save'):
-                    if self._confirm_save(
-                            len(results['to_save']),
-                            results.get('with_new_results', 0),
-                            results.get('total_new_found', 0)
-                    ):
-                        self._bulk_save_results(results['to_save'])
-                        sys.stderr.write("   ✅ Сохранение завершено\n")
-                        sys.stderr.flush()
-                    else:
-                        sys.stderr.write("   ⏭️ Сохранение отменено\n")
-                        sys.stderr.flush()
-
-                # Статистика
+                # Статистика после анализа
                 total_time = time.time() - start_time
                 not_found = results['processed'] - results['with_results'] - results['skipped']
                 if not_found < 0:
@@ -1365,22 +1437,74 @@ class Command(BaseCommand):
                 sys.stderr.write("=" * 70 + "\n")
                 sys.stderr.flush()
 
+                # ЗАПРАШИВАЕМ ПОДТВЕРЖДЕНИЕ ПОСЛЕ АНАЛИЗА (если не auto_save)
+                if not self.auto_save and results.get('to_save') and not results.get('interrupted'):
+                    sys.stderr.write(
+                        f"\n💾 Найдено {len(results['to_save'])} игр с новыми критериями ({results['total_new_found']} новых элементов).\n")
+                    sys.stderr.write("Сохранить результаты в БД? (y/N): ")
+                    sys.stderr.flush()
+
+                    try:
+                        answer = sys.stdin.readline().strip().lower()
+                    except (EOFError, KeyboardInterrupt):
+                        answer = 'n'
+
+                    if answer in ['y', 'yes', 'да', 'д', '1']:
+                        sys.stderr.write("\n✅ Сохраняем...\n")
+                        sys.stderr.flush()
+                        self._bulk_save_results(results['to_save'])
+                        sys.stderr.write("   ✅ Сохранение завершено\n")
+                        sys.stderr.flush()
+                    else:
+                        sys.stderr.write("\n⏭️ Сохранение отменено\n")
+                        sys.stderr.flush()
+                elif self.auto_save and results.get('to_save') and not results.get('interrupted'):
+                    sys.stderr.write(f"\n💾 Авто-сохранение {len(results['to_save'])} игр в БД...\n")
+                    sys.stderr.flush()
+                    self._bulk_save_results(results['to_save'])
+                    sys.stderr.write("   ✅ Сохранение завершено\n")
+                    sys.stderr.flush()
+                elif results.get('interrupted') and results.get('to_save'):
+                    if self.auto_save:
+                        sys.stderr.write(f"\n💾 Авто-сохранение {len(results['to_save'])} игр в БД (прервано)...\n")
+                        sys.stderr.flush()
+                        self._bulk_save_results(results['to_save'])
+                        sys.stderr.write("   ✅ Сохранение завершено\n")
+                        sys.stderr.flush()
+                    else:
+                        sys.stderr.write(
+                            f"\n💾 Найдено {len(results['to_save'])} игр с новыми критериями ({results['total_new_found']} новых элементов).\n")
+                        sys.stderr.write("Сохранить результаты в БД? (y/N): ")
+                        sys.stderr.flush()
+
+                        try:
+                            answer = sys.stdin.readline().strip().lower()
+                        except (EOFError, KeyboardInterrupt):
+                            answer = 'n'
+
+                        if answer in ['y', 'yes', 'да', 'д', '1']:
+                            sys.stderr.write("\n✅ Сохраняем...\n")
+                            sys.stderr.flush()
+                            self._bulk_save_results(results['to_save'])
+                            sys.stderr.write("   ✅ Сохранение завершено\n")
+                            sys.stderr.flush()
+                        else:
+                            sys.stderr.write("\n⏭️ Сохранение отменено\n")
+                            sys.stderr.flush()
+
         except KeyboardInterrupt:
             sys.stderr.write("\n⏹️ Прервано\n")
             sys.stderr.flush()
             if results and results.get('to_save'):
-                if self._confirm_save(
-                        len(results['to_save']),
-                        results.get('with_new_results', 0),
-                        results.get('total_new_found', 0)
-                ):
-                    try:
-                        self._bulk_save_results(results['to_save'])
-                        sys.stderr.write("   ✅ Сохранено\n")
-                        sys.stderr.flush()
-                    except Exception as e:
-                        sys.stderr.write(f"   ⚠️ Ошибка: {e}\n")
-                        sys.stderr.flush()
+                sys.stderr.write(f"\n💾 Сохранение {len(results['to_save'])} игр в БД...\n")
+                sys.stderr.flush()
+                try:
+                    self._bulk_save_results(results['to_save'])
+                    sys.stderr.write("   ✅ Сохранено\n")
+                    sys.stderr.flush()
+                except Exception as e:
+                    sys.stderr.write(f"   ⚠️ Ошибка: {e}\n")
+                    sys.stderr.flush()
         except Exception as e:
             sys.stderr.write(f"\n❌ Ошибка: {e}\n")
             sys.stderr.flush()

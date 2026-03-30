@@ -2147,7 +2147,9 @@ class AnalyzerCommand(BaseCommand):
 
     def handle(self, *args, **options):
         """Основной обработчик команды"""
-        self.program_start_time = time.monotonic()  # <-- ДОБАВИТЬ В САМОЕ НАЧАЛО
+        import sys  # ДОБАВЛЕН ИМПОРТ
+
+        self.program_start_time = time.monotonic()
         try:
             self.timer_start("Обработка команды")
 
