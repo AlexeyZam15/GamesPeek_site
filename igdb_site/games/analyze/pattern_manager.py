@@ -430,12 +430,6 @@ class PatternManager:
             r'\bfantasy(\s+world|\s+setting|\s+game|\s|$)',
             r'\bmagical(\s+world|\s|$)',
         ],
-        'Feudal Japan': [
-            r'\bfeudal\s+japan\b',
-            r'\bsamurai\s+era\b',
-            r'\bsengoku\s+period\b',
-            r'\be do period\b',
-        ],
         'Fire Emblem': [
             r'\bfire\s+emblem\b',
         ],
