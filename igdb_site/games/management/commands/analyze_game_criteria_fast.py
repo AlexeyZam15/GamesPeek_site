@@ -412,7 +412,7 @@ class Command(BaseCommand):
         return game.summary or game.storyline or game.rawg_description or game.wiki_description or ''
 
     def _analyze_game_fast(self, game_dict: Dict, existing_relations: Dict[str, set] = None) -> Dict[str, Any]:
-        """Максимально быстрый анализ одной игры - оптимизированная версия"""
+        """Максимально быстрый анализ одной игры - оптимизированная версия с EXISTS"""
 
         # Оптимизация: получаем текст без создания списков
         if self.combine_all_texts:
@@ -504,23 +504,68 @@ class Command(BaseCommand):
                 # Пропускаем проблемные паттерны
                 continue
 
-        # Формируем результат
+        # Формируем результат с проверкой существования через БД (один запрос)
         found = {'genres': [], 'themes': [], 'perspectives': [], 'game_modes': []}
         has_new = False
 
-        for crit_type in ['genres', 'themes', 'perspectives', 'game_modes']:
-            for crit_id in found_ids[crit_type]:
-                is_new = False
-                if existing_relations:
-                    if (game_id, crit_id) not in existing_relations.get(crit_type, set()):
-                        is_new = True
+        # Если есть найденные критерии, проверяем существование через EXISTS
+        if total_found > 0 and self.update_game:
+            from django.db import connection
+
+            for crit_type in ['genres', 'themes', 'perspectives', 'game_modes']:
+                if not found_ids[crit_type]:
+                    continue
+
+                # Определяем таблицу и поле для типа критерия
+                if crit_type == 'genres':
+                    table = 'games_game_genres'
+                    field = 'genre_id'
+                elif crit_type == 'themes':
+                    table = 'games_game_themes'
+                    field = 'theme_id'
+                elif crit_type == 'perspectives':
+                    table = 'games_game_player_perspectives'
+                    field = 'playerperspective_id'
+                elif crit_type == 'game_modes':
+                    table = 'games_game_game_modes'
+                    field = 'gamemode_id'
+                else:
+                    continue
+
+                # Строим запрос EXISTS для всех crit_id за раз
+                crit_ids_list = list(found_ids[crit_type])
+                placeholders = ','.join(['%s'] * len(crit_ids_list))
+
+                with connection.cursor() as cursor:
+                    cursor.execute(f"""
+                        SELECT DISTINCT {field}
+                        FROM {table}
+                        WHERE game_id = %s AND {field} IN ({placeholders})
+                    """, [game_id] + crit_ids_list)
+
+                    existing_ids = {row[0] for row in cursor.fetchall()}
+
+                # Добавляем в результат, помечая новые
+                for crit_id in found_ids[crit_type]:
+                    is_new = crit_id not in existing_ids
+                    if is_new:
                         has_new = True
 
-                found[crit_type].append({
-                    'id': crit_id,
-                    'name': self.criteria_by_id[crit_type].get(crit_id, 'Unknown'),
-                    'is_new': is_new
-                })
+                    found[crit_type].append({
+                        'id': crit_id,
+                        'name': self.criteria_by_id[crit_type].get(crit_id, 'Unknown'),
+                        'is_new': is_new
+                    })
+        else:
+            # Если не нужно обновлять БД, все найденные считаем новыми для вывода
+            for crit_type in ['genres', 'themes', 'perspectives', 'game_modes']:
+                for crit_id in found_ids[crit_type]:
+                    found[crit_type].append({
+                        'id': crit_id,
+                        'name': self.criteria_by_id[crit_type].get(crit_id, 'Unknown'),
+                        'is_new': True
+                    })
+            has_new = total_found > 0
 
         return {
             'id': game_id,
@@ -529,7 +574,7 @@ class Command(BaseCommand):
             'skipped': False,
             'count': total_found,
             'found': found,
-            'pattern_info': pattern_info,  # Всегда сохраняем, не только при verbose
+            'pattern_info': pattern_info,
             'has_new': has_new
         }
 
