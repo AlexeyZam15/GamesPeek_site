@@ -15,10 +15,8 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS('СУПЕР-БЫСТРОЕ ОБНОВЛЕНИЕ ВЕКТОРОВ'))
         self.stdout.write(self.style.SUCCESS(f'{"=" * 60}\n'))
 
-        # Проверяем и снимаем блокировки перед началом
         self._check_and_clear_locks()
 
-        # Получаем статистику ДО обновления
         with connection.cursor() as cursor:
             cursor.execute("SELECT COUNT(*) FROM games_game")
             total_games = cursor.fetchone()[0]
@@ -45,12 +43,12 @@ class Command(BaseCommand):
                                   COUNT(engine_ids)      as non_empty_engines
                            FROM games_game
                            WHERE genre_ids != '{}' OR 
-                    keyword_ids != '{}' OR 
-                    theme_ids != '{}' OR 
-                    perspective_ids != '{}' OR 
-                    developer_ids != '{}' OR 
-                    game_mode_ids != '{}' OR 
-                    engine_ids != '{}'
+                      keyword_ids != '{}' OR 
+                      theme_ids != '{}' OR 
+                      perspective_ids != '{}' OR 
+                      developer_ids != '{}' OR 
+                      game_mode_ids != '{}' OR 
+                      engine_ids != '{}'
                            """)
             non_empty_stats = cursor.fetchone()
 
@@ -68,79 +66,50 @@ class Command(BaseCommand):
         self.stdout.write(self.style.WARNING(f'\n🔄 Начинаю обновление векторов...'))
 
         with connection.cursor() as cursor:
-            # Создаем временные таблицы для агрегации
-            self.stdout.write('   📦 Создаю временные таблицы...')
+            self.stdout.write('   📦 Оптимизированное обновление через CTE...')
 
-            # 1. Создаем таблицу с агрегированными данными для всех связей
             cursor.execute("""
-                           CREATE
-                           TEMP TABLE temp_all_aggregates AS
-                           SELECT COALESCE(g.game_id, k.game_id, t.game_id, p.game_id, d.game_id, gm.game_id,
-                                           e.game_id)                             as game_id,
-                                  COALESCE(g.genre_ids, ARRAY[]::integer[])       as genre_ids,
-                                  COALESCE(k.keyword_ids, ARRAY[]::integer[])     as keyword_ids,
-                                  COALESCE(t.theme_ids, ARRAY[]::integer[])       as theme_ids,
-                                  COALESCE(p.perspective_ids, ARRAY[]::integer[]) as perspective_ids,
-                                  COALESCE(d.developer_ids, ARRAY[]::integer[])   as developer_ids,
-                                  COALESCE(gm.game_mode_ids, ARRAY[]::integer[])  as game_mode_ids,
-                                  COALESCE(e.engine_ids, ARRAY[]::integer[])      as engine_ids
-                           FROM (SELECT game_id, array_agg(genre_id ORDER BY genre_id) as genre_ids
-                                 FROM games_game_genres
-                                 GROUP BY game_id) g
-                                    FULL OUTER JOIN (SELECT game_id, array_agg(keyword_id ORDER BY keyword_id) as keyword_ids
-                                                     FROM games_game_keywords
-                                                     GROUP BY game_id) k ON g.game_id = k.game_id
-                                    FULL OUTER JOIN (SELECT game_id, array_agg(theme_id ORDER BY theme_id) as theme_ids
-                                                     FROM games_game_themes
-                                                     GROUP BY game_id) t ON COALESCE(g.game_id, k.game_id) = t.game_id
-                                    FULL OUTER JOIN (SELECT game_id, array_agg(playerperspective_id ORDER BY playerperspective_id) as perspective_ids
-                                                     FROM games_game_player_perspectives
-                                                     GROUP BY game_id) p
-                                                    ON COALESCE(g.game_id, k.game_id, t.game_id) = p.game_id
-                                    FULL OUTER JOIN (SELECT game_id, array_agg(company_id ORDER BY company_id) as developer_ids
-                                                     FROM games_game_developers
-                                                     GROUP BY game_id) d
-                                                    ON COALESCE(g.game_id, k.game_id, t.game_id, p.game_id) = d.game_id
-                                    FULL OUTER JOIN (SELECT game_id, array_agg(gamemode_id ORDER BY gamemode_id) as game_mode_ids
-                                                     FROM games_game_game_modes
-                                                     GROUP BY game_id) gm
-                                                    ON COALESCE(g.game_id, k.game_id, t.game_id, p.game_id, d.game_id) =
-                                                       gm.game_id
-                                    FULL OUTER JOIN (SELECT game_id, array_agg(gameengine_id ORDER BY gameengine_id) as engine_ids
-                                                     FROM games_game_engines
-                                                     GROUP BY game_id) e
-                                                    ON COALESCE(g.game_id, k.game_id, t.game_id, p.game_id, d.game_id,
-                                                                gm.game_id) = e.game_id
-                           """)
-
-            self.stdout.write('   🔄 Создаю индексы на временной таблице...')
-
-            # Создаем индекс на game_id для быстрого обновления
-            cursor.execute("CREATE INDEX idx_temp_all_game_id ON temp_all_aggregates(game_id)")
-
-            # Получаем количество записей во временной таблице
-            cursor.execute("SELECT COUNT(*) FROM temp_all_aggregates")
-            temp_count = cursor.fetchone()[0]
-            self.stdout.write(f'   📊 Временная таблица содержит {temp_count:,} записей')
-
-            self.stdout.write('   ⚡ Выполняю массовое обновление...')
-
-            # Массовое обновление всех полей за один проход
-            cursor.execute("""
+                           WITH
+                               -- Собираем все связи в одной CTE для минимизации сканирований
+                               all_relations AS (SELECT game_id, 'genre' as rel_type, genre_id as rel_id
+                                                 FROM games_game_genres
+                                                 UNION ALL
+                                                 SELECT game_id, 'keyword', keyword_id
+                                                 FROM games_game_keywords
+                                                 UNION ALL
+                                                 SELECT game_id, 'theme', theme_id
+                                                 FROM games_game_themes
+                                                 UNION ALL
+                                                 SELECT game_id, 'perspective', playerperspective_id
+                                                 FROM games_game_player_perspectives
+                                                 UNION ALL
+                                                 SELECT game_id, 'developer', company_id
+                                                 FROM games_game_developers
+                                                 UNION ALL
+                                                 SELECT game_id, 'gamemode', gamemode_id
+                                                 FROM games_game_game_modes
+                                                 UNION ALL
+                                                 SELECT game_id, 'engine', gameengine_id
+                                                 FROM games_game_engines),
+                               -- Агрегируем данные за один проход
+                               aggregated AS (SELECT game_id,
+                                                     array_agg(DISTINCT CASE WHEN rel_type = 'genre' THEN rel_id END) FILTER (WHERE rel_type = 'genre') as genre_ids, array_agg(DISTINCT CASE WHEN rel_type = 'keyword' THEN rel_id END) FILTER (WHERE rel_type = 'keyword') as keyword_ids, array_agg(DISTINCT CASE WHEN rel_type = 'theme' THEN rel_id END) FILTER (WHERE rel_type = 'theme') as theme_ids, array_agg(DISTINCT CASE WHEN rel_type = 'perspective' THEN rel_id END) FILTER (WHERE rel_type = 'perspective') as perspective_ids, array_agg(DISTINCT CASE WHEN rel_type = 'developer' THEN rel_id END) FILTER (WHERE rel_type = 'developer') as developer_ids, array_agg(DISTINCT CASE WHEN rel_type = 'gamemode' THEN rel_id END) FILTER (WHERE rel_type = 'gamemode') as game_mode_ids, array_agg(DISTINCT CASE WHEN rel_type = 'engine' THEN rel_id END) FILTER (WHERE rel_type = 'engine') as engine_ids
+                                              FROM all_relations
+                                              GROUP BY game_id)
+                           -- Единое обновление для всех игр
                            UPDATE games_game g
-                           SET genre_ids       = COALESCE(t.genre_ids, ARRAY[]::integer[]),
-                               keyword_ids     = COALESCE(t.keyword_ids, ARRAY[]::integer[]),
-                               theme_ids       = COALESCE(t.theme_ids, ARRAY[]::integer[]),
-                               perspective_ids = COALESCE(t.perspective_ids, ARRAY[]::integer[]),
-                               developer_ids   = COALESCE(t.developer_ids, ARRAY[]::integer[]),
-                               game_mode_ids   = COALESCE(t.game_mode_ids, ARRAY[]::integer[]),
-                               engine_ids      = COALESCE(t.engine_ids, ARRAY[]::integer[]) FROM temp_all_aggregates t
-                           WHERE g.id = t.game_id
+                           SET genre_ids       = COALESCE(a.genre_ids, ARRAY[]::integer[]),
+                               keyword_ids     = COALESCE(a.keyword_ids, ARRAY[]::integer[]),
+                               theme_ids       = COALESCE(a.theme_ids, ARRAY[]::integer[]),
+                               perspective_ids = COALESCE(a.perspective_ids, ARRAY[]::integer[]),
+                               developer_ids   = COALESCE(a.developer_ids, ARRAY[]::integer[]),
+                               game_mode_ids   = COALESCE(a.game_mode_ids, ARRAY[]::integer[]),
+                               engine_ids      = COALESCE(a.engine_ids, ARRAY[]::integer[]) FROM aggregated a
+                           WHERE g.id = a.game_id
                            """)
 
-            updated = cursor.rowcount
+            updated_with_relations = cursor.rowcount
 
-            # Обновляем игры без связей (устанавливаем пустые массивы)
             cursor.execute("""
                            UPDATE games_game
                            SET genre_ids = ARRAY[]::integer[],
@@ -150,20 +119,24 @@ class Command(BaseCommand):
                     developer_ids = ARRAY[]::integer[],
                     game_mode_ids = ARRAY[]::integer[],
                     engine_ids = ARRAY[]::integer[]
-                           WHERE id NOT IN (SELECT game_id FROM temp_all_aggregates WHERE game_id IS NOT NULL)
+                           WHERE id NOT IN (SELECT DISTINCT game_id FROM (
+                               SELECT game_id FROM games_game_genres UNION
+                               SELECT game_id FROM games_game_keywords UNION
+                               SELECT game_id FROM games_game_themes UNION
+                               SELECT game_id FROM games_game_player_perspectives UNION
+                               SELECT game_id FROM games_game_developers UNION
+                               SELECT game_id FROM games_game_game_modes UNION
+                               SELECT game_id FROM games_game_engines
+                               ) t)
                            """)
 
-            updated_empty = cursor.rowcount
-            self.stdout.write(f'   ✅ Обновлено игр со связями: {updated:,}')
-            self.stdout.write(f'   ✅ Очищено игр без связей: {updated_empty:,}')
+            updated_without_relations = cursor.rowcount
 
-            # Удаляем временную таблицу
-            cursor.execute("DROP TABLE temp_all_aggregates")
+            self.stdout.write(f'   ✅ Обновлено игр со связями: {updated_with_relations:,}')
+            self.stdout.write(f'   ✅ Очищено игр без связей: {updated_without_relations:,}')
 
-        # Очищаем кэш
         cache.clear()
 
-        # Получаем статистику ПОСЛЕ обновления
         with connection.cursor() as cursor:
             cursor.execute("""
                            SELECT COUNT(CASE WHEN genre_ids != '{}' THEN 1 END)       as non_empty_genres,
@@ -179,7 +152,8 @@ class Command(BaseCommand):
 
         total_time = time.time() - start_time
 
-        self.stdout.write(self.style.SUCCESS(f'\n✅ Обновлено записей: {updated + updated_empty}'))
+        self.stdout.write(
+            self.style.SUCCESS(f'\n✅ Обновлено записей: {updated_with_relations + updated_without_relations}'))
         self.stdout.write(self.style.SUCCESS(f'✅ Кэш очищен'))
         self.stdout.write(self.style.SUCCESS(f'⏱️  Время выполнения: {total_time:.2f} сек'))
 
@@ -192,7 +166,6 @@ class Command(BaseCommand):
         self.stdout.write(f'   Непустые game_mode_ids: {after_stats[5]:,}')
         self.stdout.write(f'   Непустые engine_ids: {after_stats[6]:,}')
 
-        # Проверка консистентности
         with connection.cursor() as cursor:
             cursor.execute("""
                            SELECT COUNT(*)                                              as games_with_genres,
@@ -211,12 +184,12 @@ class Command(BaseCommand):
                                   (SELECT COUNT(*) FROM games_game_engines)             as total_engine_relations
                            FROM games_game
                            WHERE genre_ids != '{}' OR 
-                    keyword_ids != '{}' OR 
-                    theme_ids != '{}' OR 
-                    perspective_ids != '{}' OR 
-                    developer_ids != '{}' OR 
-                    game_mode_ids != '{}' OR 
-                    engine_ids != '{}'
+                      keyword_ids != '{}' OR 
+                      theme_ids != '{}' OR 
+                      perspective_ids != '{}' OR 
+                      developer_ids != '{}' OR 
+                      game_mode_ids != '{}' OR 
+                      engine_ids != '{}'
                            """)
             consistency = cursor.fetchone()
 
@@ -238,7 +211,6 @@ class Command(BaseCommand):
         self.stdout.write(self.style.WARNING('🔍 Проверка блокировок базы данных...'))
 
         with connection.cursor() as cursor:
-            # Проверяем активные блокировки
             cursor.execute("""
                            SELECT a.pid,
                                   l.mode,
@@ -260,7 +232,6 @@ class Command(BaseCommand):
 
                 self.stdout.write(self.style.WARNING('   🔓 Автоматически снимаю блокировки...'))
 
-                # Получаем список PID для завершения
                 cursor.execute("""
                                SELECT a.pid
                                FROM pg_stat_activity a
@@ -278,7 +249,7 @@ class Command(BaseCommand):
                         self.stdout.write(f'      Завершен процесс PID: {pid}')
 
                     self.stdout.write(self.style.SUCCESS(f'   ✅ Завершено {len(pids)} заблокированных процессов'))
-                    time.sleep(1)  # Даем время на освобождение ресурсов
+                    time.sleep(1)
                 else:
                     self.stdout.write(self.style.WARNING('   ⚠️ Не найдено процессов для завершения'))
             else:
