@@ -26,6 +26,10 @@ urlpatterns = [
     path('games/<int:game_id>/analyze/add-keyword-ajax/', views.add_keyword_ajax, name='add_keyword_ajax'),
     path('games/<int:game_id>/analyze/delete-keyword-ajax/', views.delete_keyword_ajax, name='delete_keyword_ajax'),
     path('games/<int:game_id>/analyze/ajax/', views.analyze_game_ajax, name='analyze_game_ajax'),
+
+    # НОВЫЙ URL ДЛЯ УДАЛЕНИЯ ТЕМЫ ИЗ ИГРЫ
+    path('games/<int:game_id>/remove-theme/<int:theme_id>/', views.remove_theme_from_game,
+         name='remove_theme_from_game'),
 ]
 
 # ОБЯЗАТЕЛЬНО: добавляем статические и медиа файлы ТОЛЬКО в режиме DEBUG

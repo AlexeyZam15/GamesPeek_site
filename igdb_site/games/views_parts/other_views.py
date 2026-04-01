@@ -1,15 +1,20 @@
 """Other views (home, search, platforms, etc.)."""
 
+"""Other views (home, search, platforms, etc.)."""
+
 import time
 from datetime import timedelta
 from typing import Dict, List
-from django.shortcuts import render, get_object_or_404
+from django.shortcuts import render, get_object_or_404, redirect
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.db.models import Count, Prefetch
 from django.utils import timezone
 from django.contrib.auth import login
 from django.contrib.auth.models import User
 from django.conf import settings
+from django.contrib import messages
+from django.urls import reverse
+from django.contrib.admin.views.decorators import staff_member_required
 
 from ..models import (
     Game, Genre, Platform, Keyword, KeywordCategory,
@@ -19,6 +24,31 @@ from ..models_parts.game_card import GameCardCache
 from ..utils.game_card_utils import GameCardCreator
 from .base_views import cache_get_or_set, get_cache_key, CACHE_TIMES
 
+
+@staff_member_required
+def remove_theme_from_game(request, game_id, theme_id):
+    """
+    Удаляет тему из игры и возвращает обратно в админку.
+
+    Args:
+        request: HTTP request object
+        game_id: ID игры, из которой удаляем тему
+        theme_id: ID темы, которую удаляем
+
+    Returns:
+        Redirect to admin game list
+    """
+    game = get_object_or_404(Game, id=game_id)
+    theme = get_object_or_404(Theme, id=theme_id)
+
+    game.themes.remove(theme)
+
+    messages.success(
+        request,
+        f'Тема "{theme.name}" успешно удалена из игры "{game.name}"'
+    )
+
+    return redirect(reverse('admin:games_game_changelist'))
 
 def home(request: HttpRequest) -> HttpResponse:
     """Optimized home page with cached game cards."""
