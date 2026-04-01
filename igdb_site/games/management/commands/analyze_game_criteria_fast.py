@@ -35,6 +35,9 @@ class Command(BaseCommand):
     Примеры:
         python manage.py analyze_game_criteria_fast --update-game --threads 16
         python manage.py analyze_game_criteria_fast --limit 100000 --threads 12 --batch-save 10000
+        python manage.py analyze_game_criteria_fast --genre "Grid-Based" --auto-save
+        python manage.py analyze_game_criteria_fast --theme "Fantasy" --auto-save
+        python manage.py analyze_game_criteria_fast --genre "Grid-Based" --theme "Fantasy" --auto-save
     """
 
     def __init__(self, *args, **kwargs):
@@ -45,6 +48,8 @@ class Command(BaseCommand):
         self.limit = None
         self.offset = 0
         self.game_name = None
+        self.genre = None
+        self.theme = None
         self.verbose = False
         self.threads = 16
         self.batch_save = 10000
@@ -66,6 +71,10 @@ class Command(BaseCommand):
                             help='Пропустить первые N игр')
         parser.add_argument('--game-name', type=str, default=None,
                             help='Название игры для анализа (поиск по частичному совпадению)')
+        parser.add_argument('--genre', type=str, default=None,
+                            help='Анализировать ТОЛЬКО этот жанр (искать паттерны только для указанного жанра)')
+        parser.add_argument('--theme', type=str, default=None,
+                            help='Анализировать ТОЛЬКО эту тему (искать паттерны только для указанной темы)')
         parser.add_argument('--verbose', action='store_true',
                             help='Подробный вывод')
         parser.add_argument('--threads', type=int, default=24,
@@ -204,7 +213,7 @@ class Command(BaseCommand):
         return False
 
     def _preload_all_data(self):
-        """Предзагрузка ВСЕХ данных в память с максимальной оптимизацией"""
+        """Предзагрузка ВСЕХ данных в память с максимальной оптимизацией и фильтрацией по жанру/теме"""
         import re
         from collections import defaultdict
 
@@ -225,15 +234,39 @@ class Command(BaseCommand):
             'game_modes': {}
         }
 
-        # Загружаем все данные одним запросом на модель (уже оптимизировано)
-        for g in Genre.objects.all().only('id', 'name'):
-            self.criteria_by_id['genres'][g.id] = g.name
-            self.criteria_by_name['genres'][g.name.lower()] = g.id
+        # Загружаем данные с фильтрацией по жанру (если указан)
+        if self.genre:
+            sys.stderr.write(f"   🎭 Фильтрация: загружаем ТОЛЬКО жанр '{self.genre}'\n")
+            sys.stderr.flush()
+            genres = Genre.objects.filter(name__iexact=self.genre).only('id', 'name')
+            for g in genres:
+                self.criteria_by_id['genres'][g.id] = g.name
+                self.criteria_by_name['genres'][g.name.lower()] = g.id
+            if not self.criteria_by_id['genres']:
+                sys.stderr.write(f"   ⚠️ Жанр '{self.genre}' не найден в БД\n")
+                sys.stderr.flush()
+        else:
+            for g in Genre.objects.all().only('id', 'name'):
+                self.criteria_by_id['genres'][g.id] = g.name
+                self.criteria_by_name['genres'][g.name.lower()] = g.id
 
-        for t in Theme.objects.all().only('id', 'name'):
-            self.criteria_by_id['themes'][t.id] = t.name
-            self.criteria_by_name['themes'][t.name.lower()] = t.id
+        # Загружаем данные с фильтрацией по теме (если указана)
+        if self.theme:
+            sys.stderr.write(f"   📚 Фильтрация: загружаем ТОЛЬКО тему '{self.theme}'\n")
+            sys.stderr.flush()
+            themes = Theme.objects.filter(name__iexact=self.theme).only('id', 'name')
+            for t in themes:
+                self.criteria_by_id['themes'][t.id] = t.name
+                self.criteria_by_name['themes'][t.name.lower()] = t.id
+            if not self.criteria_by_id['themes']:
+                sys.stderr.write(f"   ⚠️ Тема '{self.theme}' не найдена в БД\n")
+                sys.stderr.flush()
+        else:
+            for t in Theme.objects.all().only('id', 'name'):
+                self.criteria_by_id['themes'][t.id] = t.name
+                self.criteria_by_name['themes'][t.name.lower()] = t.id
 
+        # Перспективы и режимы всегда загружаем полностью
         for p in PlayerPerspective.objects.all().only('id', 'name'):
             self.criteria_by_id['perspectives'][p.id] = p.name
             self.criteria_by_name['perspectives'][p.name.lower()] = p.id
@@ -243,16 +276,54 @@ class Command(BaseCommand):
             self.criteria_by_name['game_modes'][m.name.lower()] = m.id
 
         # Компилируем паттерны в плоский список для быстрого доступа
+        # ВАЖНО: если указан --genre или --theme, берем паттерны ТОЛЬКО для них
         self.compiled_patterns = []
-        for criteria_type in ['genres', 'themes', 'perspectives', 'game_modes']:
-            for name, patterns in self.patterns[criteria_type].items():
+
+        # Определяем, какие типы критериев нужно обрабатывать
+        criteria_types_to_process = []
+        if self.genre:
+            criteria_types_to_process.append(('genres', self.genre))
+        if self.theme:
+            criteria_types_to_process.append(('themes', self.theme))
+
+        # Если не указаны фильтры, обрабатываем все типы
+        if not criteria_types_to_process:
+            criteria_types_to_process = [('genres', None), ('themes', None), ('perspectives', None),
+                                         ('game_modes', None)]
+
+        for criteria_type, filter_name in criteria_types_to_process:
+            # Получаем паттерны для этого типа
+            type_patterns = self.patterns.get(criteria_type, {})
+
+            # Если есть фильтр по имени, берем только паттерны для конкретного имени
+            if filter_name:
+                filter_name_lower = filter_name.lower()
+                # Ищем точное совпадение имени в паттернах
+                matched_name = None
+                for name in type_patterns.keys():
+                    if name.lower() == filter_name_lower:
+                        matched_name = name
+                        break
+
+                if matched_name:
+                    patterns_dict = {matched_name: type_patterns[matched_name]}
+                    sys.stderr.write(
+                        f"   🔍 Найдены паттерны для '{matched_name}': {len(type_patterns[matched_name])} шт.\n")
+                    sys.stderr.flush()
+                else:
+                    patterns_dict = {}
+                    sys.stderr.write(f"   ⚠️ Паттерны для '{filter_name}' не найдены\n")
+                    sys.stderr.flush()
+            else:
+                patterns_dict = type_patterns
+
+            # Компилируем паттерны
+            for name, patterns in patterns_dict.items():
                 name_lower = name.lower()
-                criteria_id = self.criteria_by_name[criteria_type].get(name_lower)
+                criteria_id = self.criteria_by_name.get(criteria_type, {}).get(name_lower)
                 if criteria_id:
                     for pattern_str in patterns:
-                        # Компилируем паттерн без флагов (уже регистронезависимый)
                         try:
-                            # Проверяем, не является ли pattern_str уже скомпилированным
                             if hasattr(pattern_str, 'search'):
                                 compiled = pattern_str
                             else:
@@ -266,8 +337,10 @@ class Command(BaseCommand):
                                 'pattern_str': pattern_str if isinstance(pattern_str, str) else pattern_str.pattern
                             })
                         except Exception as e:
-                            # Пропускаем проблемные паттерны
                             continue
+
+        sys.stderr.write(f"   ✅ Скомпилировано паттернов: {len(self.compiled_patterns)}\n")
+        sys.stderr.flush()
 
     def _get_games_to_analyze(self) -> List[Dict]:
         """Максимально быстрая загрузка игр через сырой SQL или по имени"""
@@ -279,10 +352,7 @@ class Command(BaseCommand):
             sys.stderr.write(f"\n   🔍 Поиск игр по имени: '{self.game_name}'\n")
             sys.stderr.flush()
 
-            # Экранируем имя для безопасного поиска
             search_term = f"%{self.game_name}%"
-
-            # Строим SQL запрос с поиском по имени
             fields = ['id', 'name', 'summary', 'storyline', 'rawg_description', 'wiki_description']
             fields_str = ', '.join(fields)
 
@@ -298,13 +368,11 @@ class Command(BaseCommand):
                 OFFSET %s
             """
 
-            # Определяем лимит и offset для поиска по имени
-            actual_limit = self.limit if self.limit else 50  # По умолчанию не более 50 игр
+            actual_limit = self.limit if self.limit else 50
             actual_offset = self.offset if self.offset else 0
 
             games = []
             with connection.cursor() as cursor:
-                # Ищем точное совпадение в первую очередь
                 exact_term = self.game_name
                 cursor.execute(sql, [search_term, exact_term, actual_limit, actual_offset])
 
@@ -322,11 +390,10 @@ class Command(BaseCommand):
             sys.stderr.flush()
             return games
 
-        # ОРИГИНАЛЬНЫЙ КОД: массовая загрузка всех игр (если game_name не указан)
+        # Массовая загрузка всех игр
         sys.stderr.write(f"\n   📊 Подсчет количества игр... ")
         sys.stderr.flush()
 
-        # Получаем общее количество через сырой SQL (быстрее чем ORM)
         with connection.cursor() as cursor:
             cursor.execute("SELECT COUNT(*) FROM games_game")
             total_count = cursor.fetchone()[0]
@@ -334,7 +401,6 @@ class Command(BaseCommand):
         sys.stderr.write(f"{total_count} игр\n")
         sys.stderr.flush()
 
-        # Определяем лимит и offset
         if self.limit:
             actual_limit = self.limit
         else:
@@ -343,11 +409,9 @@ class Command(BaseCommand):
         sys.stderr.write(f"   🎯 Будет загружено: {actual_limit} игр\n")
         sys.stderr.flush()
 
-        # Строим SQL запрос с нужными полями
         fields = ['id', 'name', 'summary', 'storyline', 'rawg_description', 'wiki_description']
         fields_str = ', '.join(fields)
 
-        # Используем сырой SQL для максимальной скорости
         sql = f"""
             SELECT {fields_str}
             FROM games_game
@@ -357,12 +421,11 @@ class Command(BaseCommand):
         """
 
         games = []
-        batch_size = 20000  # Увеличенный размер батча
+        batch_size = 20000
 
         sys.stderr.write(f"\n   ⬇️ Загрузка батчами по {batch_size} записей (сырой SQL)...\n")
         sys.stderr.flush()
 
-        # Загружаем батчами через сырой SQL
         for offset in range(0, actual_limit, batch_size):
             current_limit = min(batch_size, actual_limit - offset)
             current_offset = self.offset + offset
@@ -370,7 +433,6 @@ class Command(BaseCommand):
             with connection.cursor() as cursor:
                 cursor.execute(sql, [current_offset, current_limit])
 
-                # Преобразуем в словари максимально быстро
                 batch = []
                 for row in cursor.fetchall():
                     batch.append({
@@ -414,14 +476,12 @@ class Command(BaseCommand):
     def _analyze_game_fast(self, game_dict: Dict, existing_relations: Dict[str, set] = None) -> Dict[str, Any]:
         """Максимально быстрый анализ одной игры - оптимизированная версия с EXISTS"""
 
-        # Оптимизация: получаем текст без создания списков
         if self.combine_all_texts:
             summary = game_dict.get('summary', '') or ''
             storyline = game_dict.get('storyline', '') or ''
             rawg = game_dict.get('rawg_description', '') or ''
             wiki = game_dict.get('wiki_description', '') or ''
 
-            # Собираем строку только если есть текст
             if summary or storyline or rawg or wiki:
                 text = f"{summary} {storyline} {rawg} {wiki}"
             else:
@@ -443,11 +503,9 @@ class Command(BaseCommand):
                 'has_new': False
             }
 
-        # Нормализация текста один раз
         text_lower = text.lower()
         game_id = game_dict['id']
 
-        # Используем словари для быстрого поиска вместо списков
         found_ids = {
             'genres': set(),
             'themes': set(),
@@ -455,7 +513,6 @@ class Command(BaseCommand):
             'game_modes': set()
         }
 
-        # ВСЕГДА сохраняем информацию о паттернах для новых критериев
         pattern_info = {
             'genres': [],
             'themes': [],
@@ -465,11 +522,26 @@ class Command(BaseCommand):
 
         total_found = 0
 
-        # Оптимизация: один проход по всем паттернам
+        def extract_full_word(text, position):
+            """Извлекает полное слово по позиции, включая дефисы и подчеркивания"""
+            start = position
+            end = position
+
+            # Идем влево пока буквы, цифры, дефис или подчеркивание
+            while start > 0 and (text[start - 1].isalnum() or text[start - 1] in '-_'):
+                start -= 1
+
+            # Идем вправо пока буквы, цифры, дефис или подчеркивание
+            while end < len(text) and (text[end].isalnum() or text[end] in '-_'):
+                end += 1
+
+            return text[start:end]
+
         for p in self.compiled_patterns:
             try:
-                # Используем скомпилированный паттерн напрямую
-                if p['pattern'].search(text_lower):
+                # Ищем в lower тексте
+                match = p['pattern'].search(text_lower)
+                if match:
                     crit_type = p['type']
                     crit_id = p['id']
 
@@ -477,38 +549,46 @@ class Command(BaseCommand):
                         found_ids[crit_type].add(crit_id)
                         total_found += 1
 
-                        # ВСЕГДА сохраняем информацию о паттерне (нужно для вывода)
-                        match = p['pattern'].search(text)
-                        if match:
-                            match_start = match.start()
-                            match_end = match.end()
-                            matched_text = text[match_start:match_end]
+                        # Получаем позицию совпадения в оригинальном тексте
+                        match_start_lower = match.start()
+                        match_end_lower = match.end()
 
-                            context_start = max(0, match_start - 40)
-                            context_end = min(len(text), match_end + 40)
-                            context = text[context_start:context_end]
-                            if context_start > 0:
-                                context = "..." + context
-                            if context_end < len(text):
-                                context = context + "..."
+                        # Находим соответствующую позицию в оригинальном тексте
+                        # (текст в lower может быть короче из-за юникода, но в нашем случае ASCII)
+                        original_match_start = match_start_lower
+                        original_match_end = match_end_lower
 
-                            pattern_info[crit_type].append({
-                                'name': p['name'],
-                                'id': crit_id,
-                                'matched_text': matched_text[:100],
-                                'context': context[:200],
-                                'pattern': p['pattern_str'],
-                                'status': 'found'
-                            })
+                        # Извлекаем полное слово из оригинального текста
+                        full_word = extract_full_word(text, original_match_start)
+
+                        # Контекст: 40 символов до и после ПОЛНОГО слова
+                        word_start = text.find(full_word, max(0, original_match_start - len(full_word)))
+                        if word_start == -1:
+                            word_start = original_match_start
+                        word_end = word_start + len(full_word)
+
+                        context_start = max(0, word_start - 40)
+                        context_end = min(len(text), word_end + 40)
+                        context = text[context_start:context_end]
+                        if context_start > 0:
+                            context = "..." + context
+                        if context_end < len(text):
+                            context = context + "..."
+
+                        pattern_info[crit_type].append({
+                            'name': p['name'],
+                            'id': crit_id,
+                            'matched_text': full_word[:100],  # Полное слово целиком
+                            'context': context[:200],
+                            'pattern': p['pattern_str'],
+                            'status': 'found'
+                        })
             except Exception:
-                # Пропускаем проблемные паттерны
                 continue
 
-        # Формируем результат с проверкой существования через БД (один запрос)
         found = {'genres': [], 'themes': [], 'perspectives': [], 'game_modes': []}
         has_new = False
 
-        # Если есть найденные критерии, проверяем существование через EXISTS
         if total_found > 0 and self.update_game:
             from django.db import connection
 
@@ -516,7 +596,6 @@ class Command(BaseCommand):
                 if not found_ids[crit_type]:
                     continue
 
-                # Определяем таблицу и поле для типа критерия
                 if crit_type == 'genres':
                     table = 'games_game_genres'
                     field = 'genre_id'
@@ -532,7 +611,6 @@ class Command(BaseCommand):
                 else:
                     continue
 
-                # Строим запрос EXISTS для всех crit_id за раз
                 crit_ids_list = list(found_ids[crit_type])
                 placeholders = ','.join(['%s'] * len(crit_ids_list))
 
@@ -545,7 +623,6 @@ class Command(BaseCommand):
 
                     existing_ids = {row[0] for row in cursor.fetchall()}
 
-                # Добавляем в результат, помечая новые
                 for crit_id in found_ids[crit_type]:
                     is_new = crit_id not in existing_ids
                     if is_new:
@@ -557,7 +634,6 @@ class Command(BaseCommand):
                         'is_new': is_new
                     })
         else:
-            # Если не нужно обновлять БД, все найденные считаем новыми для вывода
             for crit_type in ['genres', 'themes', 'perspectives', 'game_modes']:
                 for crit_id in found_ids[crit_type]:
                     found[crit_type].append({
@@ -616,7 +692,6 @@ class Command(BaseCommand):
         }
 
         def signal_handler(signum, frame):
-            """Обработчик сигнала для прерывания"""
             nonlocal interrupted
             if not interrupted:
                 interrupted = True
@@ -653,7 +728,6 @@ class Command(BaseCommand):
             with workers_lock:
                 active_workers -= 1
 
-        # Запускаем потоки
         threads = []
         num_threads = min(self.threads, total_games)
         for _ in range(num_threads):
@@ -662,7 +736,6 @@ class Command(BaseCommand):
             t.start()
             threads.append(t)
 
-        # Сбор результатов с прогрессом
         processed = 0
         start_time = time.time()
         last_report = time.time()
@@ -700,7 +773,6 @@ class Command(BaseCommand):
                                         'found': result.get('found', {})
                                     })
 
-                    # Обновляем прогресс каждую секунду
                     now = time.time()
                     if now - last_report >= 1.0:
                         elapsed = now - start_time
@@ -724,12 +796,10 @@ class Command(BaseCommand):
                         last_report = now
 
                 except Empty:
-                    # Проверяем, живы ли потоки
                     with workers_lock:
                         workers_alive = active_workers > 0
 
                     if not workers_alive and task_queue.empty():
-                        # Добираем оставшиеся результаты
                         try:
                             while True:
                                 result = result_queue.get_nowait()
@@ -763,14 +833,11 @@ class Command(BaseCommand):
             sys.stderr.flush()
 
         finally:
-            # Восстанавливаем обработчик сигнала
             signal.signal(signal.SIGINT, original_handler)
 
-            # Дожидаемся завершения всех потоков
             for t in threads:
                 t.join(timeout=2)
 
-            # Финальный сбор всех результатов
             try:
                 while True:
                     result = result_queue.get_nowait()
@@ -793,7 +860,6 @@ class Command(BaseCommand):
             except Empty:
                 pass
 
-            # Финальная статистика
             elapsed = time.time() - start_time
             sys.stderr.write(f"\n✅ Обработано: {stats['processed']}/{total_games} игр за {format_time(elapsed)}\n")
             sys.stderr.flush()
@@ -823,13 +889,11 @@ class Command(BaseCommand):
                 emoji_spacing=1
             )
 
-            # Сбрасываем счетчик прогресса
             if hasattr(self.progress_bar, 'current'):
                 self.progress_bar.current = 0
             if hasattr(self.progress_bar, '_progress_bar'):
                 self.progress_bar._progress_bar.current = 0
 
-            # ОБНУЛЯЕМ СТАТИСТИКУ ПЕРЕД СТАРТОМ
             self.progress_bar.update_stats({
                 'found_count': 0,
                 'total_criteria_found': 0,
@@ -840,14 +904,10 @@ class Command(BaseCommand):
                 'in_batch': 0
             })
 
-            # Принудительно отключаем немедленное отображение
-            # Устанавливаем флаг, что прогресс-бар еще не должен отображаться
             if hasattr(self.progress_bar, '_progress_bar'):
                 self.progress_bar._progress_bar._force_update = lambda: None
 
-            # Отключаем автоматический вывод при инициализации
             if hasattr(self.progress_bar, '_progress_bar') and hasattr(self.progress_bar._progress_bar, 'display'):
-                original_display = self.progress_bar._progress_bar.display
                 self.progress_bar._progress_bar.display = lambda: None
 
         except Exception:
@@ -868,16 +928,13 @@ class Command(BaseCommand):
 
         save_start = time.time()
 
-        # Получаем названия таблиц через Django ORM
         from games.models import Game, Genre, Theme, PlayerPerspective, GameMode
 
-        # Названия связующих таблиц (many-to-many)
         games_genres_table = Game.genres.through._meta.db_table
         games_themes_table = Game.themes.through._meta.db_table
         games_perspectives_table = Game.player_perspectives.through._meta.db_table
         games_modes_table = Game.game_modes.through._meta.db_table
 
-        # Собираем все связи
         genre_relations = []
         theme_relations = []
         perspective_relations = []
@@ -904,13 +961,11 @@ class Command(BaseCommand):
         sys.stderr.write(f"   📊 Связей для сохранения: {total_relations}\n")
         sys.stderr.flush()
 
-        # Функция для массовой вставки с динамическими названиями таблиц
         def bulk_insert(relations, table_name, id_field, type_name):
             if not relations:
                 return 0
 
             with connection.cursor() as cursor:
-                # Получаем существующие связи
                 game_ids = list(set(r[0] for r in relations))
                 crit_ids = list(set(r[1] for r in relations))
 
@@ -920,13 +975,11 @@ class Command(BaseCommand):
                 """, [game_ids, crit_ids])
                 existing = set(cursor.fetchall())
 
-                # Новые связи
                 new_relations = [(g, c) for g, c in relations if (g, c) not in existing]
 
                 if not new_relations:
                     return 0
 
-                # COPY вставка
                 import io
                 data_buffer = io.StringIO()
                 for game_id, crit_id in new_relations:
@@ -938,9 +991,7 @@ class Command(BaseCommand):
 
                 return len(new_relations)
 
-        # Сохраняем с индикацией прогресса
         with transaction.atomic():
-            # Жанры
             sys.stderr.write(f"   📖 Сохранение жанров... ")
             sys.stderr.flush()
             start = time.time()
@@ -948,7 +999,6 @@ class Command(BaseCommand):
             sys.stderr.write(f"{genres_added} связей за {time.time() - start:.1f}с\n")
             sys.stderr.flush()
 
-            # Темы
             sys.stderr.write(f"   📖 Сохранение тем... ")
             sys.stderr.flush()
             start = time.time()
@@ -956,7 +1006,6 @@ class Command(BaseCommand):
             sys.stderr.write(f"{themes_added} связей за {time.time() - start:.1f}с\n")
             sys.stderr.flush()
 
-            # Перспективы
             sys.stderr.write(f"   📖 Сохранение перспектив... ")
             sys.stderr.flush()
             start = time.time()
@@ -965,7 +1014,6 @@ class Command(BaseCommand):
             sys.stderr.write(f"{perspectives_added} связей за {time.time() - start:.1f}с\n")
             sys.stderr.flush()
 
-            # Режимы
             sys.stderr.write(f"   📖 Сохранение режимов... ")
             sys.stderr.flush()
             start = time.time()
@@ -991,10 +1039,8 @@ class Command(BaseCommand):
         if not self.output_file:
             return
 
-        # Фильтруем только игры с новыми критериями
         games_with_new = [r for r in results if r.get('has_new', False)]
 
-        # Принудительно очищаем буфер файла перед записью
         self.output_file.flush()
 
         if not games_with_new:
@@ -1033,13 +1079,10 @@ class Command(BaseCommand):
                 continue
 
             pattern_info = r.get('pattern_info', {})
-
-            # Выводим только НОВЫЕ критерии
             has_any_new = False
 
             for criteria_type in ['genres', 'themes', 'perspectives', 'game_modes']:
                 items = r['found'].get(criteria_type, [])
-                # Фильтруем только новые элементы
                 new_items = [item for item in items if item.get('is_new', False)]
 
                 if not new_items:
@@ -1053,7 +1096,6 @@ class Command(BaseCommand):
                     item_name = item['name']
                     item_id = item['id']
 
-                    # Ищем паттерн и контекст для этого критерия
                     pattern_context = self._find_pattern_and_context_for_criteria(pattern_info, criteria_type, item_id,
                                                                                   item_name)
 
@@ -1209,7 +1251,6 @@ class Command(BaseCommand):
         import signal
         import threading
 
-        # Создаем stop_flag для обработчика сигнала
         stop_flag = threading.Event()
 
         start_time = time.time()
@@ -1217,7 +1258,6 @@ class Command(BaseCommand):
         interrupted = False
 
         def signal_handler(signum, frame):
-            """Обработчик сигнала для корректного завершения"""
             nonlocal interrupted
             if not interrupted:
                 interrupted = True
@@ -1228,10 +1268,11 @@ class Command(BaseCommand):
         original_handler = signal.signal(signal.SIGINT, signal_handler)
 
         try:
-            # Сохраняем параметры
             self.limit = options.get('limit')
             self.offset = options.get('offset', 0)
             self.game_name = options.get('game_name')
+            self.genre = options.get('genre')
+            self.theme = options.get('theme')
             self.verbose = options.get('verbose', False)
             self.threads = min(options.get('threads', 16), 32)
             self.force_restart = options.get('force_restart', False)
@@ -1240,13 +1281,9 @@ class Command(BaseCommand):
             self.no_progress = options.get('no_progress', False)
             self.auto_save = options.get('auto_save', False)
 
-            # update_game ВСЕГДА True (по умолчанию обновляем БД)
             self.update_game = True
-
-            # combine_all_texts теперь True по умолчанию, отключается через --no-combine-texts
             self.combine_all_texts = not options.get('no_combine_texts', False)
 
-            # Настройка вывода
             self.output_file = None
             self.original_stdout = None
             if self.output_path:
@@ -1277,7 +1314,6 @@ class Command(BaseCommand):
                 self._cleanup()
                 return
 
-            # Загружаем существующие связи
             sys.stderr.write("\n📚 Загрузка существующих связей для проверки...\n")
             sys.stderr.flush()
             existing_relations = self._load_existing_relations()
@@ -1287,12 +1323,10 @@ class Command(BaseCommand):
                              f"режимы={len(existing_relations['game_modes'])}\n")
             sys.stderr.flush()
 
-            # Запускаем анализ
             self.progress_bar = None
             results = self._parallel_analysis(games_to_analyze, existing_relations)
 
             if results:
-                # Обрабатываем результаты
                 self._process_results(results, start_time)
 
         except KeyboardInterrupt:
@@ -1303,7 +1337,6 @@ class Command(BaseCommand):
             import traceback
             traceback.print_exc(file=sys.stderr)
         finally:
-            # Восстанавливаем оригинальный обработчик сигнала
             signal.signal(signal.SIGINT, original_handler)
             self._cleanup()
             sys.stderr.write("\n✨ Завершено\n")
@@ -1324,13 +1357,16 @@ class Command(BaseCommand):
         sys.stderr.write(f"📚 Объединять все тексты: {'✅' if self.combine_all_texts else '❌'}\n")
         if self.game_name:
             sys.stderr.write(f"🎮 Поиск по имени: '{self.game_name}'\n")
+        if self.genre:
+            sys.stderr.write(f"🎭 Анализировать ТОЛЬКО жанр: '{self.genre}'\n")
+        if self.theme:
+            sys.stderr.write(f"📚 Анализировать ТОЛЬКО тему: '{self.theme}'\n")
         sys.stderr.write("=" * 70 + "\n")
         sys.stderr.flush()
 
     def _process_results(self, results: Dict[str, Any], start_time: float):
         """Обрабатывает результаты анализа: сохраняет файл, выводит статистику, спрашивает про БД"""
 
-        # СОХРАНЯЕМ В ФАЙЛ СРАЗУ ПОСЛЕ АНАЛИЗА
         if self.output_path and results.get('all_results'):
             sys.stderr.write(f"\n📝 Запись результатов в файл...\n")
             sys.stderr.flush()
@@ -1338,12 +1374,10 @@ class Command(BaseCommand):
             sys.stderr.write(f"   ✅ Результаты сохранены в: {self.output_path}\n")
             sys.stderr.flush()
 
-            # ЗАКРЫВАЕМ ФАЙЛ, ЧТОБЫ ДАННЫЕ ЗАПИСАЛИСЬ
             self._cleanup()
             sys.stderr.write(f"   ✅ Файл закрыт и сохранен на диск\n")
             sys.stderr.flush()
 
-        # Статистика после анализа
         total_time = time.time() - start_time
         not_found = results['processed'] - results['with_results'] - results['skipped']
         if not_found < 0:
@@ -1378,7 +1412,6 @@ class Command(BaseCommand):
         sys.stderr.write("=" * 70 + "\n")
         sys.stderr.flush()
 
-        # ЗАПРАШИВАЕМ ПОДТВЕРЖДЕНИЕ ДЛЯ БД
         if not self.auto_save and results.get('to_save') and not results.get('interrupted'):
             sys.stderr.write(
                 f"\n💾 Найдено {len(results['to_save'])} игр с новыми критериями ({results['total_new_found']} новых элементов).\n")
@@ -1438,13 +1471,11 @@ class Command(BaseCommand):
         sys.stderr.write("\n⏹️ Прервано пользователем\n")
         sys.stderr.flush()
 
-        # При прерывании сначала сохраняем файл
         if results and results.get('all_results') and self.output_path:
             sys.stderr.write(f"\n📝 Сохранение результатов в файл (прервано)...\n")
             sys.stderr.flush()
             try:
                 self._output_results(results['all_results'])
-                # Закрываем файл сразу
                 self._cleanup()
                 sys.stderr.write(f"   ✅ Результаты сохранены в: {self.output_path}\n")
                 sys.stderr.flush()
@@ -1452,7 +1483,6 @@ class Command(BaseCommand):
                 sys.stderr.write(f"   ⚠️ Ошибка сохранения файла: {e}\n")
                 sys.stderr.flush()
 
-        # Затем спрашиваем про БД
         if results and results.get('to_save'):
             sys.stderr.write(f"\n💾 Найдено {len(results['to_save'])} игр с новыми критериями.\n")
             sys.stderr.write("Сохранить результаты в БД? (y/N): ")
