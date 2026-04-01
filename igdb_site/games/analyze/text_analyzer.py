@@ -567,21 +567,16 @@ class TextAnalyzer:
                 'has_results': False
             }
 
-        # Ограничиваем текст
         if len(text) > 10000:
             text = text[:10000]
 
-        # Отладка только если включен debug
         if self.debug:
             import sys
             sys.stderr.write(f"\n=== ОТЛАДКА analyze_comprehensive ===\n")
             sys.stderr.write(f"Игра ID: {existing_game.id if existing_game else 'unknown'}\n")
             sys.stderr.write(f"Длина текста: {len(text)}\n")
-            sys.stderr.write(f"detailed_patterns: {detailed_patterns}\n")
-            sys.stderr.write(f"exclude_existing: {exclude_existing}\n")
             sys.stderr.flush()
 
-        # БЫСТРЫЙ анализ ключевых слов через Trie с поддержкой exclude_existing
         keywords_results, keywords_patterns = self._analyze_keywords_fast(
             text=text,
             existing_game=existing_game,
@@ -589,15 +584,18 @@ class TextAnalyzer:
             exclude_existing=exclude_existing
         )
 
-        if self.debug:
-            import sys
-            sys.stderr.write(f"keywords_results: {keywords_results}\n")
-            sys.stderr.write(f"keywords_patterns: {len(keywords_patterns.get('keywords', []))} паттернов\n")
-            sys.stderr.flush()
-
-        # Анализ критериев
         patterns = self._get_patterns()
         text_lower = text.lower()
+
+        # Определяем, какие паттерны регистрочувствительные
+        case_sensitive_patterns = {}
+        for criteria_type in ['genres', 'themes', 'perspectives', 'game_modes']:
+            case_sensitive_patterns[criteria_type] = set()
+            for name, pattern_list in patterns[criteria_type].items():
+                for pattern in pattern_list:
+                    # Проверяем, есть ли флаг IGNORECASE у паттерна
+                    if pattern.flags & re.IGNORECASE == 0:
+                        case_sensitive_patterns[criteria_type].add(pattern)
 
         results = {}
         pattern_info = {}
@@ -620,7 +618,6 @@ class TextAnalyzer:
                 pattern_info[criteria_type] = []
 
             for name, pattern_list in patterns_for_type.items():
-                # Проверяем, существует ли уже этот критерий у игры
                 if exclude_existing:
                     existing_names_lower = {n.lower() for n in existing_items.get(criteria_type, set())}
                     if name.lower() in existing_names_lower:
@@ -632,41 +629,38 @@ class TextAnalyzer:
                             })
                         continue
 
-                # Флаг, что этот элемент уже найден
                 element_found = False
 
                 for pattern in pattern_list:
                     if element_found:
                         break
 
-                    if pattern.search(text_lower):
+                    # Определяем, в каком тексте искать
+                    search_text = text if pattern.flags & re.IGNORECASE == 0 else text_lower
+
+                    if pattern.search(search_text):
                         try:
                             obj = model.objects.filter(name__iexact=name).first()
                             if obj and obj not in found_items:
                                 found_items.append(obj)
-                                element_found = True  # Помечаем, что элемент найден
+                                element_found = True
 
                                 if detailed_patterns:
-                                    # Находим ПЕРВОЕ совпадение для этого паттерна
-                                    match = pattern.search(text_lower)
+                                    match = pattern.search(search_text)
                                     if match:
                                         start_pos = match.start()
                                         end_pos = match.end()
 
-                                        # Добавляем информацию о строке (приблизительно)
-                                        line_number = text[:start_pos].count('\n') + 1
-
-                                        # Получаем контекст с найденным словом
-                                        context = self._get_context(text, start_pos, end_pos)
-
-                                        # Получаем сниппет для отладки
-                                        snippet_start = max(0, start_pos - 30)
-                                        snippet_end = min(len(text), end_pos + 30)
-                                        debug_snippet = text[snippet_start:snippet_end]
-                                        if snippet_start > 0:
-                                            debug_snippet = '...' + debug_snippet
-                                        if snippet_end < len(text):
-                                            debug_snippet = debug_snippet + '...'
+                                        # Для регистрочувствительных паттернов позиция из оригинального текста
+                                        if pattern.flags & re.IGNORECASE == 0:
+                                            # Нужно найти ту же позицию в оригинальном тексте
+                                            # Ищем совпавший текст в оригинале
+                                            matched_text = search_text[start_pos:end_pos]
+                                            # Ищем это слово в оригинальном тексте с учётом регистра
+                                            orig_pos = text.find(matched_text)
+                                            if orig_pos != -1:
+                                                start_pos = orig_pos
+                                                end_pos = orig_pos + len(matched_text)
 
                                         pattern_info[criteria_type].append({
                                             'name': name,
@@ -674,18 +668,12 @@ class TextAnalyzer:
                                             'pattern': pattern.pattern,
                                             'matched_text': text[start_pos:end_pos],
                                             'position': start_pos,
-                                            'line': line_number,
                                             'matched_word': text_lower[start_pos:end_pos],
-                                            'context': context,
-                                            'debug_text_snippet': debug_snippet
+                                            'context': self._get_context(text, start_pos, end_pos)
                                         })
-                                # Выходим из циклов, так как элемент уже найден
                                 break
                         except Exception:
                             pass
-                # Если элемент уже найден, переходим к следующему имени
-                if element_found:
-                    continue
 
             if found_items:
                 results[criteria_type] = {
@@ -715,13 +703,6 @@ class TextAnalyzer:
         }
 
         processing_time = time.time() - start_time
-
-        if self.verbose:
-            print(f"⚡ Комплексный анализ завершен за {processing_time:.2f}s")
-            print(f"📊 Найдено элементов: {total_found}, совпадений: {total_matches}")
-            print(f"📊 Pattern info keywords: {len(pattern_info.get('keywords', []))}")
-            if exclude_existing:
-                print(f"🚫 Режим: исключать существующие критерии")
 
         return {
             'success': True,
