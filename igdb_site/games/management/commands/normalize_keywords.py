@@ -1,29 +1,27 @@
 # games/management/commands/normalize_keywords.py
 """
-Django команда для нормализации ключевых слов:
-- Использует NLTK для определения исходных форм слов
-- Объединяет формы слов (drawing → draw, cooking → cook и т.д.)
-- Игнорирует специальные игровые термины и аббревиатуры
+Команда для нормализации ключевых слов с использованием WordNetAPI и объединения дубликатов.
+Использует только методы из wordnet_api.py, не добавляя своей логики.
 """
 
 from django.core.management.base import BaseCommand
-from django.db import transaction
+from django.db import transaction, connection
 from games.models import Keyword
-import time
-import nltk
-from nltk.stem import WordNetLemmatizer
-from nltk.corpus import wordnet
+from games.analyze.wordnet_api import get_wordnet_api
+from tqdm import tqdm
 from collections import defaultdict
+import time
+import sys
 
 
 class Command(BaseCommand):
-    help = 'Нормализует ключевые слова используя NLTK лемматизатор'
+    help = 'Нормализует ключевые слова, объединяет дубликаты и показывает формы через WordNetAPI'
 
     def add_arguments(self, parser):
         parser.add_argument(
             '--dry-run',
             action='store_true',
-            help='Показать что будет сделано без фактических изменений',
+            help='Показать что будет изменено без реальных изменений',
         )
         parser.add_argument(
             '--verbose',
@@ -31,597 +29,655 @@ class Command(BaseCommand):
             help='Подробный вывод',
         )
         parser.add_argument(
-            '--fix-specific',
+            '--debug',
+            action='store_true',
+            help='Режим отладки: показывает детальную информацию о каждой операции',
+        )
+        parser.add_argument(
+            '--limit',
+            type=int,
+            help='Ограничить количество обрабатываемых ключевых слов',
+        )
+        parser.add_argument(
+            '--words',
             type=str,
-            help='Исправить конкретное слово (например, "drawing")',
+            nargs='+',
+            help='Список слов для показа форм (режим тестирования)',
+        )
+        parser.add_argument(
+            '--check-db',
+            action='store_true',
+            help='Проверить наличие слов в базе данных (только с --words)',
+        )
+        parser.add_argument(
+            '--skip-merge',
+            action='store_true',
+            help='Пропустить объединение дубликатов (по умолчанию дубликаты объединяются)',
+        )
+        parser.add_argument(
+            '--merge-only',
+            action='store_true',
+            help='Только объединить дубликаты без нормализации',
+        )
+        parser.add_argument(
+            '--delete-duplicates',
+            action='store_true',
+            help='УДАЛИТЬ дубликаты без переноса связей (ВНИМАНИЕ: игры потеряют связи!)',
         )
 
-    def _init_nltk(self):
-        """Инициализирует NLTK и скачивает необходимые данные"""
-        try:
-            # Проверяем доступность wordnet
-            wordnet.synsets('test')
-        except LookupError:
-            self.stdout.write("📥 Загружаем WordNet...")
-            nltk.download('wordnet', quiet=False)
-            nltk.download('omw-1.4', quiet=False)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.wordnet_api = None
 
-        self.lemmatizer = WordNetLemmatizer()
+    def _init_wordnet(self):
+        """Инициализирует WordNetAPI"""
+        if not self.wordnet_api:
+            self.wordnet_api = get_wordnet_api(verbose=self.verbose)
+        return self.wordnet_api.is_available()
 
-    def _is_gaming_term(self, word: str) -> bool:
+    def _get_all_forms_from_wordnet(self, word: str) -> dict:
         """
-        Проверяет, является ли слово специальным игровым термином,
-        который не нужно нормализовать
+        Получает все формы слова через WordNetAPI
+        Просто показывает то, что возвращает wordnet_api
         """
-        word_lower = word.lower()
-
-        # Игровые аббревиатуры и сокращения (только точные совпадения)
-        gaming_abbr = {
-            'cod', 'fps', 'rpg', 'mmo', 'rts', 'moba', 'pvp', 'pve',
-            'hp', 'mp', 'xp', 'ap', 'dp', 'dps', 'hps', 'gcd', 'cd',
-            'boss', 'mob', 'npc', 'pc', 'ai', 'ui', 'gui', 'hud',
-            'diy', 'dlc', 'gacha', 'rogue', 'roguelike', 'roguelite'
+        results = {
+            'word': word,
+            'best_base': None,
+            'synsets_count': 0
         }
 
-        # Точное совпадение с аббревиатурами
-        if word_lower in gaming_abbr:
-            return True
+        word_lower = word.lower()
 
-        # Игровые термины (только указанные)
-        gaming_terms = {
-            'wanted',  # "Most Wanted" - название игры, термин
-            'stamina',  # Игровая характеристика
-            'leveling',
+        if not self.wordnet_api or not self.wordnet_api.is_available():
+            return results
+
+        try:
+            # Получаем все synsets для слова
+            synsets = self.wordnet_api.wordnet.synsets(word_lower)
+            results['synsets_count'] = len(synsets)
+
+            # Получаем лучшую базовую форму
+            results['best_base'] = self.wordnet_api.get_best_base_form(word_lower)
+
+        except Exception as e:
+            if self.verbose:
+                self.stdout.write(f"   ❌ Ошибка при получении форм: {e}")
+
+        return results
+
+    def _show_word_forms(self, words, check_db=False):
+        """Показывает результаты нормализации для указанных слов"""
+        self.stdout.write("\n" + "=" * 70)
+        self.stdout.write(self.style.SUCCESS("ПОКАЗ РЕЗУЛЬТАТОВ НОРМАЛИЗАЦИИ"))
+        self.stdout.write("=" * 70)
+
+        # Инициализируем WordNetAPI
+        self.stdout.write("\n🔧 Инициализация WordNetAPI...")
+        if not self._init_wordnet():
+            self.stdout.write(self.style.ERROR("❌ WordNetAPI недоступен"))
+            return
+        self.stdout.write("✅ WordNetAPI готов")
+
+        # Проверяем наличие в базе если нужно
+        if check_db:
+            self.stdout.write("\n🔍 ПРОВЕРКА НАЛИЧИЯ В БАЗЕ:")
+            self.stdout.write("-" * 50)
+
+            for word in words:
+                exists = Keyword.objects.filter(name__iexact=word).exists()
+                if exists:
+                    duplicates = Keyword.objects.filter(name__iexact=word)
+                    count = duplicates.count()
+                    if count > 1:
+                        kw = duplicates.first()
+                        games_count = kw.game_set.count()
+                        self.stdout.write(
+                            f"📌 '{word}': ✅ ЕСТЬ в базе (ID: {kw.id}, дубликатов: {count}, игр: {games_count})")
+                    else:
+                        kw = Keyword.objects.get(name__iexact=word)
+                        games_count = kw.game_set.count()
+                        self.stdout.write(f"📌 '{word}': ✅ ЕСТЬ в базе (ID: {kw.id}, игр: {games_count})")
+                else:
+                    self.stdout.write(f"📌 '{word}': ❌ НЕТ в базе")
+
+        for word in words:
+            self.stdout.write(f"\n📌 СЛОВО: '{word}'")
+            self.stdout.write("=" * 50)
+
+            # Получаем базовую форму через WordNetAPI
+            best_base = self.wordnet_api.get_best_base_form(word)
+
+            # Выводим только результат
+            self.stdout.write(f"\n📊 РЕЗУЛЬТАТ НОРМАЛИЗАЦИИ:")
+            self.stdout.write("-" * 40)
+
+            if best_base:
+                self.stdout.write(f"\n   🎯 БАЗОВАЯ ФОРМА: '{best_base}'")
+
+                # Сравниваем с оригиналом
+                if best_base != word.lower():
+                    self.stdout.write(f"\n   🔄 Изменение: {word.lower()} → {best_base}")
+                else:
+                    self.stdout.write(f"\n   ⏺️ Без изменений")
+            else:
+                self.stdout.write(f"\n   ❌ Не удалось получить базовую форму")
+
+        self.stdout.write("\n" + "=" * 70)
+
+    def _find_duplicate_groups(self):
+        """
+        Находит все группы дубликатов через SQL.
+        Returns: (duplicate_rows, total_groups, total_keywords) или (None, 0, 0) при ошибке
+        """
+        self.stdout.write("🔍 Поиск дубликатов в базе данных...")
+        start_time = time.time()
+
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                               SELECT LOWER(name)               as name_lower,
+                                      array_agg(id ORDER BY id) as ids,
+                                      COUNT(*) as count
+                               FROM games_keyword
+                               GROUP BY LOWER (name)
+                               HAVING COUNT (*) > 1
+                               ORDER BY COUNT (*) DESC
+                               """)
+                duplicate_rows = cursor.fetchall()
+        except KeyboardInterrupt:
+            self.stdout.write(self.style.WARNING("\n\n⚠️ Поиск прерван пользователем"))
+            return None, 0, 0
+        except Exception as e:
+            self.stdout.write(self.style.ERROR(f"❌ Ошибка при поиске дубликатов: {e}"))
+            return None, 0, 0
+
+        total_groups = len(duplicate_rows)
+        total_keywords = sum(row[2] for row in duplicate_rows)
+
+        search_time = time.time() - start_time
+        self.stdout.write(f"   ✅ Поиск завершен за {search_time:.2f} сек")
+        self.stdout.write(f"📊 Найдено групп с дубликатами: {total_groups}")
+        self.stdout.write(f"📊 Всего ключевых слов-дубликатов: {total_keywords}")
+
+        return duplicate_rows, total_groups, total_keywords
+
+    def _merge_duplicate_keywords(self, dry_run=False):
+        """
+        Объединяет дубликаты ключевых слов с одинаковым именем (регистронезависимо)
+        """
+        self.stdout.write("\n" + "=" * 70)
+        self.stdout.write(self.style.SUCCESS("ОБЪЕДИНЕНИЕ ДУБЛИКАТОВ КЛЮЧЕВЫХ СЛОВ"))
+        self.stdout.write("=" * 70)
+
+        if dry_run:
+            self.stdout.write(self.style.WARNING("🔧 РЕЖИМ ПРОСМОТРА (без изменений)"))
+        self.stdout.write("")
+
+        # ПОИСК ДУБЛИКАТОВ
+        duplicate_rows, total_groups, total_keywords = self._find_duplicate_groups()
+
+        if duplicate_rows is None:
+            return {'merged_groups': 0, 'merged_keywords': 0, 'deleted_keywords': 0}
+
+        if total_groups == 0:
+            self.stdout.write(self.style.SUCCESS("✅ Дубликаты не найдены"))
+            return {'merged_groups': 0, 'merged_keywords': 0, 'deleted_keywords': 0}
+
+        # ОБЪЕДИНЕНИЕ ДУБЛИКАТОВ
+        stats = self._process_merge_groups(duplicate_rows, total_groups, dry_run)
+
+        # ПРОВЕРКА РЕЗУЛЬТАТА
+        self._check_remaining_duplicates(stats, "объединения")
+
+        return stats
+
+    def _delete_duplicate_keywords(self, dry_run=False):
+        """
+        УДАЛЯЕТ дубликаты ключевых слов, оставляя по одному из каждой группы.
+        ВНИМАНИЕ: игры потеряют связи с удаленными ключевыми словами!
+        """
+        self.stdout.write("\n" + "=" * 70)
+        self.stdout.write(self.style.WARNING("УДАЛЕНИЕ ДУБЛИКАТОВ КЛЮЧЕВЫХ СЛОВ (БЕЗ ПЕРЕНОСА)"))
+        self.stdout.write("=" * 70)
+
+        if dry_run:
+            self.stdout.write(self.style.WARNING("🔧 РЕЖИМ ПРОСМОТРА (без изменений)"))
+        self.stdout.write("")
+
+        # ПОИСК ДУБЛИКАТОВ
+        duplicate_rows, total_groups, total_keywords = self._find_duplicate_groups()
+
+        if duplicate_rows is None:
+            return {'merged_groups': 0, 'merged_keywords': 0, 'deleted_keywords': 0}
+
+        if total_groups == 0:
+            self.stdout.write(self.style.SUCCESS("✅ Дубликаты не найдены"))
+            return {'merged_groups': 0, 'merged_keywords': 0, 'deleted_keywords': 0}
+
+        self.stdout.write("")
+
+        # Запрашиваем подтверждение
+        if not dry_run:
+            self.stdout.write(self.style.WARNING(
+                "⚠️  ВНИМАНИЕ: Игры ПОТЕРЯЮТ связи с удаленными ключевыми словами!"
+            ))
+            response = input("   Продолжить? (yes/no): ")
+            if response.lower() != 'yes':
+                self.stdout.write(self.style.WARNING("   Операция отменена"))
+                return {'merged_groups': 0, 'merged_keywords': 0, 'deleted_keywords': 0}
+
+        # УДАЛЕНИЕ ДУБЛИКАТОВ
+        stats = self._process_delete_groups(duplicate_rows, total_groups, dry_run)
+
+        # ПРОВЕРКА РЕЗУЛЬТАТА
+        self._check_remaining_duplicates(stats, "удаления")
+
+        return stats
+
+    def _process_merge_groups(self, duplicate_rows, total_groups, dry_run):
+        """
+        МАКСИМАЛЬНО БЫСТРОЕ объединение групп дубликатов с переносом связей.
+        """
+        stats = {
+            'merged_groups': 0,
+            'merged_keywords': 0,
+            'deleted_keywords': 0,
+            'start_time': time.time()
         }
 
-        # Точное совпадение с игровыми терминами
-        if word_lower in gaming_terms:
-            return True
+        # БАТЧИ ПО 500 ГРУПП (оптимально для объединения)
+        BATCH_SIZE = 500
+        current_batch = []  # (main_id, [duplicate_ids])
 
-        return False
+        # Прогресс каждые 1000 групп
+        next_progress = 1000
 
-    def _is_short_word(self, word: str) -> bool:
-        """
-        Проверяет, является ли слово коротким (3 буквы или меньше)
-        Такие слова обычно не нормализуем
-        """
-        word_lower = word.lower()
-
-        # Слова из 3 букв и меньше оставляем как есть
-        if len(word_lower) <= 3:
-            return True
-
-        # Но есть исключения - короткие слова, которые могут быть формами
-        short_forms = {'run', 'ran', 'set', 'sit', 'sat', 'eat', 'ate', 'fly', 'flew'}
-        if word_lower in short_forms:
-            return False
-
-        return False
-
-    def _get_base_form(self, word: str) -> str:
-        """
-        Определяет исходную форму слова используя NLTK
-        ИСПРАВЛЕНО: ПРАВИЛЬНАЯ ОБРАБОТКА СОСТАВНЫХ СЛОВ
-        """
-        word_lower = word.lower()
-
-        # Фразы с пробелами не нормализуем
-        if ' ' in word_lower:
-            return word_lower
-
-        # ========== ОБРАБОТКА СОСТАВНЫХ СЛОВ С ДЕФИСАМИ ==========
-        if '-' in word_lower:
-            parts = word_lower.split('-')
-
-            # Если больше 2 частей, оставляем как есть
-            if len(parts) != 2:
-                return word_lower
-
-            first, second = parts
-
-            try:
-                from nltk.corpus import wordnet as wn
-
-                # Нормализуем вторую часть как обычное слово
-                normalized_second = self._normalize_single_word(second)
-
-                # Если вторая часть изменилась
-                if normalized_second != second:
-                    # Собираем новое слово
-                    candidate = f"{first}-{normalized_second}"
-
-                    # Проверяем, существует ли кандидат в WordNet
-                    if wn.synsets(candidate):
-                        return candidate
-
-                    # Если не существует, возвращаем оригинал
-                    return word_lower
-
-                return word_lower
-
-            except Exception:
-                return word_lower
-
-        # ========== ДЛЯ ОБЫЧНЫХ СЛОВ ==========
         try:
-            from nltk.corpus import wordnet as wn
+            for i, (name_lower, ids, count) in enumerate(duplicate_rows):
+                main_id = ids[0]
+                duplicate_ids = ids[1:]
 
-            # Если слово уже есть в WordNet, оставляем
-            if wn.synsets(word_lower):
-                return word_lower
+                if not dry_run and duplicate_ids:
+                    current_batch.append((main_id, duplicate_ids))
+                    stats['deleted_keywords'] += len(duplicate_ids)
 
-            # Пробуем разные варианты нормализации
-            candidates = []
+                stats['merged_groups'] += 1
+                stats['merged_keywords'] += len(duplicate_ids)
 
-            # -ness
-            if word_lower.endswith('ness') and len(word_lower) > 6:
-                base = word_lower[:-4]
-                if len(base) >= 4:
-                    candidates.append(base)
+                # Обрабатываем батч
+                if len(current_batch) >= BATCH_SIZE:
+                    self._execute_batch_merge(current_batch)
+                    current_batch = []
 
-            # -ty
-            if word_lower.endswith('ty') and len(word_lower) > 5:
-                base = word_lower[:-2]
-                if len(base) >= 4:
-                    candidates.append(base)
-                    candidates.append(base + 'e')
+                # Прогресс
+                if stats['merged_groups'] >= next_progress:
+                    elapsed = time.time() - stats['start_time']
+                    rate = stats['merged_groups'] / elapsed
+                    self.stdout.write(
+                        f"   ✅ {stats['merged_groups']}/{total_groups} "
+                        f"({rate:.0f}/сек)"
+                    )
+                    next_progress += 1000
 
-            # -ing
-            if word_lower.endswith('ing') and len(word_lower) > 5:
-                base = word_lower[:-3]
-                if len(base) >= 4:
-                    candidates.append(base)
-                    if base.endswith('e'):
-                        candidates.append(base[:-1])
+            # Финальный батч
+            if current_batch and not dry_run:
+                self._execute_batch_merge(current_batch)
 
-            # -ed
-            if word_lower.endswith('ed') and len(word_lower) > 5:
-                base = word_lower[:-2]
-                if len(base) >= 4:
-                    candidates.append(base)
-                    candidates.append(base + 'e')
+        except KeyboardInterrupt:
+            self.stdout.write(self.style.WARNING(
+                f"\n⚠️ Прервано на группе {stats['merged_groups']}/{total_groups}"
+            ))
+            return stats
 
-            # -er
-            if word_lower.endswith('er') and len(word_lower) > 5:
-                base = word_lower[:-2]
-                if len(base) >= 4:
-                    candidates.append(base)
+        return stats
 
-            # Множественное число
-            if word_lower.endswith('ies') and len(word_lower) > 5:
-                candidates.append(word_lower[:-3] + 'y')
-
-            if word_lower.endswith('es') and len(word_lower) > 4:
-                candidates.append(word_lower[:-2])
-
-            if word_lower.endswith('s') and len(word_lower) > 4:
-                candidates.append(word_lower[:-1])
-
-            # Проверяем кандидатов
-            for candidate in candidates:
-                if wn.synsets(candidate):
-                    return candidate
-
-            return word_lower
-
-        except Exception:
-            return word_lower
-
-    def _is_grammatical_form(self, word: str, base: str) -> bool:
+    def _execute_batch_merge(self, batch):
         """
-        Проверяет, является ли слово грамматической формой базового слова
+        Выполняет массовое объединение для батча групп одним транзакционным блоком.
+        batch: список кортежей (main_id, [duplicate_ids])
         """
-        # Множественное число
-        if word == base + 's' or word == base + 'es':
-            return True
-        if base.endswith('y') and word == base[:-1] + 'ies':
-            return True
+        from django.db import connection, transaction
 
-        # -ing формы
-        if word == base + 'ing':
-            return True
-        if base.endswith('e') and word == base[:-1] + 'ing':
-            return True
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                for main_id, duplicate_ids in batch:
+                    if not duplicate_ids:
+                        continue
 
-        # -ed формы
-        if word == base + 'ed' or word == base + 'd':
-            return True
-        if base.endswith('y') and word == base[:-1] + 'ied':
-            return True
+                    # 1. Переносим все связи одним запросом
+                    cursor.execute("""
+                                   INSERT INTO games_game_keywords (game_id, keyword_id)
+                                   SELECT DISTINCT game_id, %s
+                                   FROM games_game_keywords
+                                   WHERE keyword_id = ANY (%s)
+                                     AND NOT EXISTS (SELECT 1
+                                                     FROM games_game_keywords
+                                                     WHERE game_id = games_game_keywords.game_id
+                                                       AND keyword_id = %s)
+                                   """, [main_id, duplicate_ids, main_id])
 
-        # -er/-est формы
-        if word == base + 'er' or word == base + 'est':
-            return True
-        if base.endswith('y') and (word == base[:-1] + 'ier' or word == base[:-1] + 'iest'):
-            return True
+                # 2. После переноса всех связей в батче, удаляем все дубликаты одним запросом
+                all_duplicate_ids = []
+                for _, duplicate_ids in batch:
+                    all_duplicate_ids.extend(duplicate_ids)
 
-        # -ly формы
-        if word == base + 'ly':
-            return True
-        if base.endswith('y') and word == base[:-1] + 'ily':
-            return True
+                if all_duplicate_ids:
+                    cursor.execute("""
+                                   DELETE
+                                   FROM games_keyword
+                                   WHERE id = ANY (%s)
+                                   """, [all_duplicate_ids])
 
-        return False
-
-    def _normalize_by_rules(self, word: str) -> str:
+    def _process_delete_groups(self, duplicate_rows, total_groups, dry_run):
         """
-        Нормализует слово по лингвистическим правилам (без WordNet)
-        ИСПРАВЛЕНО: ПРАВИЛЬНАЯ ОБРАБОТКА -ness СУФФИКСА
+        МАКСИМАЛЬНО БЫСТРОЕ удаление групп дубликатов.
+        Оставляет по одному ключевому слову из каждой группы.
         """
-        word_lower = word.lower()
+        stats = {
+            'merged_groups': 0,
+            'merged_keywords': 0,
+            'deleted_keywords': 0,
+            'start_time': time.time()
+        }
 
-        # ========== СУФФИКС -ness (weightlessness → weightless) ==========
-        # Существительные на -ness образуются от прилагательных
-        if word_lower.endswith('ness') and len(word_lower) > 5:
-            # Убираем "ness"
-            base = word_lower[:-4]
+        # БАТЧИ ПО 1000 ГРУПП (максимальная скорость)
+        BATCH_SIZE = 1000
+        current_batch = []
 
-            # Проверяем, что основа существует (должна быть длиной не менее 3)
-            if len(base) >= 3:
-                # Для слов типа weightless → weightless (уже прилагательное)
-                # Не нужно дальше нормализовать
-                return base
+        # Прогресс каждые 5000 групп
+        next_progress = 5000
 
-            return word_lower
-
-        # ========== ОШИБОЧНЫЕ ФОРМЫ ==========
-        # Если слово заканчивается на "nes" (возможно опечатка от "ness")
-        if word_lower.endswith('nes') and len(word_lower) > 4:
-            # Может быть опечатка: weightlessnes → weightlessness
-            # Но лучше проверить через WordNet
-            pass
-
-        # ========== СУФФИКС -ty (safety → safe) ==========
-        if word_lower.endswith('ty') and len(word_lower) > 4:
-            base = word_lower[:-2]
-            if len(base) >= 3:
-                # Проверяем, не заканчивается ли основа на 'e'
-                if base.endswith('t') and len(base) > 3:
-                    # safety → safe (t → te)
-                    return base + 'e'
-                return base
-
-        # ========== СУФФИКС -ings (buildings → build) ==========
-        if word_lower.endswith('ings') and len(word_lower) > 5:
-            base = word_lower[:-4]
-            if len(base) >= 3:
-                return base
-
-        # ========== СУФФИКС -ing ==========
-        if word_lower.endswith('ing') and len(word_lower) > 4:
-            base = word_lower[:-3]
-            # Удвоение согласной (running → run)
-            if len(base) >= 2 and base[-1] == base[-2]:
-                base = base[:-1]
-            if len(base) >= 3:
-                return base
-
-        # ========== СУФФИКС -ed ==========
-        if word_lower.endswith('ed') and len(word_lower) > 4:
-            base = word_lower[:-2]
-            # Удвоение согласной (planned → plan)
-            if len(base) >= 2 and base[-1] == base[-2]:
-                base = base[:-1]
-            if len(base) >= 3:
-                return base
-
-        # ========== СУФФИКС -er ==========
-        if word_lower.endswith('er') and len(word_lower) > 4:
-            base = word_lower[:-2]
-            if len(base) >= 3:
-                return base
-
-        # ========== МНОЖЕСТВЕННОЕ ЧИСЛО ==========
-        # -ies (cities → city)
-        if word_lower.endswith('ies') and len(word_lower) > 4:
-            return word_lower[:-3] + 'y'
-
-        # -es (boxes → box)
-        if word_lower.endswith('es') and len(word_lower) > 4:
-            base = word_lower[:-2]
-            if len(base) >= 3:
-                return base
-
-        # -s (cats → cat)
-        if word_lower.endswith('s') and len(word_lower) > 3:
-            base = word_lower[:-1]
-            if len(base) >= 3:
-                return base
-
-        return word_lower
-
-    def _normalize_single_word(self, word: str) -> str:
-        """
-        Нормализует одно слово (без дефисов) используя существующие правила
-        """
-        original = word
-
-        # Проверяем -ty
-        if word.endswith('ty') and len(word) > 4:
-            base = word[:-2]
-            try:
-                from nltk.corpus import wordnet as wn
-                if wn.synsets(base):
-                    return base
-                if wn.synsets(base + 'e'):
-                    return base + 'e'
-            except:
-                pass
-
-        # Проверяем -ings
-        if word.endswith('ings') and len(word) > 5:
-            base = word[:-4]
-            try:
-                from nltk.corpus import wordnet as wn
-                if wn.synsets(base):
-                    return base
-            except:
-                pass
-
-        # Проверяем -ing
-        if word.endswith('ing') and len(word) > 4:
-            base = word[:-3]
-            if len(base) >= 2 and base[-1] == base[-2]:
-                base = base[:-1]
-            try:
-                from nltk.corpus import wordnet as wn
-                if wn.synsets(base):
-                    return base
-                if wn.synsets(base + 'e'):
-                    return base + 'e'
-            except:
-                pass
-
-        # Проверяем -er
-        if word.endswith('er') and len(word) > 4:
-            base = word[:-2]
-            try:
-                from nltk.corpus import wordnet as wn
-                if wn.synsets(base):
-                    return base
-                if wn.synsets(base + 'e'):
-                    return base + 'e'
-            except:
-                pass
-
-        # Проверяем -ed
-        if word.endswith('ed') and len(word) > 4:
-            base = word[:-2]
-            if len(base) >= 2 and base[-1] == base[-2]:
-                base = base[:-1]
-            try:
-                from nltk.corpus import wordnet as wn
-                if wn.synsets(base):
-                    return base
-            except:
-                pass
-
-        # Проверяем -ly
-        if word.endswith('ly') and len(word) > 3:
-            base = word[:-2]
-            try:
-                from nltk.corpus import wordnet as wn
-                if wn.synsets(base):
-                    return base
-            except:
-                pass
-
-        # Проверяем множественное число
-        if word.endswith('s') and len(word) > 3:
-            base = word[:-1]
-            try:
-                from nltk.corpus import wordnet as wn
-                if wn.synsets(base):
-                    return base
-            except:
-                pass
-
-        # Пробуем лемматизатор
         try:
-            verb_form = self.lemmatizer.lemmatize(word, 'v')
-            if verb_form != word:
-                return verb_form
+            for i, (name_lower, ids, count) in enumerate(duplicate_rows):
+                # Оставляем первый (наименьший ID), удаляем остальные
+                delete_ids = ids[1:]
 
-            noun_form = self.lemmatizer.lemmatize(word, 'n')
-            if noun_form != word:
-                return noun_form
-        except:
-            pass
+                if not dry_run and delete_ids:
+                    current_batch.extend(delete_ids)
+                    stats['deleted_keywords'] += len(delete_ids)
 
-        return original
+                stats['merged_groups'] += 1
+                stats['merged_keywords'] += len(delete_ids)
+
+                # Обрабатываем батч
+                if len(current_batch) >= BATCH_SIZE:
+                    self._execute_batch_delete(current_batch)
+                    current_batch = []
+
+                # Прогресс
+                if stats['merged_groups'] >= next_progress:
+                    elapsed = time.time() - stats['start_time']
+                    rate = stats['merged_groups'] / elapsed
+                    self.stdout.write(
+                        f"   ✅ {stats['merged_groups']}/{total_groups} "
+                        f"({rate:.0f}/сек)"
+                    )
+                    next_progress += 5000
+
+            # Финальный батч
+            if current_batch and not dry_run:
+                self._execute_batch_delete(current_batch)
+
+        except KeyboardInterrupt:
+            self.stdout.write(self.style.WARNING(
+                f"\n⚠️ Прервано на группе {stats['merged_groups']}/{total_groups}"
+            ))
+            return stats
+
+        return stats
+
+    def _execute_batch_delete(self, keyword_ids):
+        """
+        Выполняет массовое удаление ключевых слов одним запросом.
+        """
+        from django.db import connection
+
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                           DELETE
+                           FROM games_keyword
+                           WHERE id = ANY (%s)
+                           """, [keyword_ids])
+
+    def _check_remaining_duplicates(self, stats, operation_name):
+        """
+        Проверяет, остались ли дубликаты после операции.
+        """
+        self.stdout.write("\n" + "=" * 70)
+        self.stdout.write(self.style.SUCCESS(f"СТАТИСТИКА {operation_name.upper()}"))
+        self.stdout.write("=" * 70)
+        self.stdout.write(f"📊 Обработано групп: {stats['merged_groups']}")
+        self.stdout.write(f"🗑️ Удалено ключевых слов: {stats['deleted_keywords']}")
+
+        # ПРОВЕРКА РЕЗУЛЬТАТА
+        self.stdout.write("\n🔍 Проверка результатов...")
+
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                           SELECT COUNT(*)
+                           FROM (SELECT LOWER(name)
+                                 FROM games_keyword
+                                 GROUP BY LOWER(name)
+                                 HAVING COUNT(*) > 1) t
+                           """)
+            remaining = cursor.fetchone()[0]
+
+        if remaining == 0:
+            self.stdout.write(self.style.SUCCESS("✅ Все дубликаты успешно обработаны"))
+        else:
+            self.stdout.write(self.style.WARNING(f"⚠️ Осталось групп с дубликатами: {remaining}"))
+
+        elapsed = time.time() - stats['start_time']
+        self.stdout.write(f"\n⏱️ Общее время: {elapsed / 60:.1f} минут")
 
     def handle(self, *args, **options):
         dry_run = options['dry_run']
-        verbose = options['verbose']
-        fix_specific = options['fix_specific']
+        self.verbose = options['verbose']
+        self.debug = options.get('debug', False)
+        limit = options['limit']
+        words = options.get('words')
+        check_db = options.get('check_db', False)
+        skip_merge = options.get('skip_merge', False)
+        merge_only = options.get('merge_only', False)
+        delete_duplicates = options.get('delete_duplicates', False)
 
-        start_time = time.time()
+        # Если указан debug, автоматически включаем verbose
+        if self.debug:
+            self.verbose = True
+            self.stdout.write(self.style.SUCCESS("🔍 РЕЖИМ ОТЛАДКИ ВКЛЮЧЕН"))
 
-        self.stdout.write("=" * 70)
-        self.stdout.write(self.style.SUCCESS("НОРМАЛИЗАЦИЯ КЛЮЧЕВЫХ СЛОВ (NLTK)"))
-        self.stdout.write("=" * 70)
-
-        # Инициализируем NLTK
-        self._init_nltk()
-
-        if dry_run:
-            self.stdout.write(self.style.WARNING("🏃 РЕЖИМ DRY RUN - изменения не будут сохранены"))
-
-        # Получаем все ключевые слова
-        if fix_specific:
-            keywords = list(Keyword.objects.filter(name__iexact=fix_specific))
-            if not keywords:
-                keywords = list(Keyword.objects.filter(name__icontains=fix_specific))
-            self.stdout.write(f"🔍 Ищем слова, содержащие '{fix_specific}': найдено {len(keywords)}")
-        else:
-            keywords = list(Keyword.objects.all().order_by('name'))
-            self.stdout.write(f"📊 Всего ключевых слов в базе: {len(keywords)}")
-
-        # Создаем словарь для быстрого поиска
-        keyword_by_name = {kw.name.lower(): kw for kw in keywords}
-
-        # Группируем слова по их исходной форме
-        base_groups = defaultdict(list)
-        gaming_terms_found = []
-        short_words_found = []
-
-        for kw in keywords:
-            word_lower = kw.name.lower()
-
-            # Проверяем короткие слова
-            if self._is_short_word(word_lower):
-                short_words_found.append(kw.name)
-                continue
-
-            # Проверяем, не игровой ли это термин
-            if self._is_gaming_term(word_lower):
-                gaming_terms_found.append(kw.name)
-                continue
-
-            base_form = self._get_base_form(word_lower)
-
-            if base_form != word_lower:
-                base_groups[base_form].append(kw)
-
-        # Показываем найденные группы
-        self.stdout.write("\n" + "=" * 70)
-        self.stdout.write(self.style.SUCCESS("НАЙДЕННЫЕ ГРУППЫ СЛОВ"))
-        self.stdout.write("=" * 70)
-
-        # Сортируем группы по размеру
-        sorted_groups = sorted(base_groups.items(), key=lambda x: len(x[1]), reverse=True)
-
-        for base_form, words in sorted_groups:
-            self.stdout.write(f"\n📌 {base_form.upper()} (группа из {len(words)} слов):")
-
-            # Проверяем, есть ли исходная форма в базе
-            base_exists = base_form in keyword_by_name
-
-            if base_exists:
-                base_word = keyword_by_name[base_form]
-                self.stdout.write(
-                    f"   ✅ Исходная форма есть: {base_word.name} (ID: {base_word.id}) - игр: {base_word.game_set.count()}")
-            else:
-                self.stdout.write(f"   ⚠️ Исходной формы '{base_form}' НЕТ в базе")
-
-            # Показываем все слова в группе
-            for w in sorted(words, key=lambda x: x.game_set.count(), reverse=True):
-                if base_exists and w.name.lower() == base_form:
-                    continue
-                self.stdout.write(f"   • {w.name} (ID: {w.id}) - игр: {w.game_set.count()}")
-
-        # Если dry-run, показываем только статистику
-        if dry_run:
-            elapsed_time = time.time() - start_time
-            self.stdout.write("\n" + "=" * 70)
-            self.stdout.write(self.style.SUCCESS("СТАТИСТИКА"))
-            self.stdout.write("=" * 70)
-            self.stdout.write(f"⏱️  Время выполнения: {elapsed_time:.2f} сек")
-            self.stdout.write(f"📊 Найдено групп: {len(base_groups)}")
-
-            total_forms = sum(len(words) for words in base_groups.values())
-            self.stdout.write(f"📊 Всего слов-форм: {total_forms}")
-
-            self.stdout.write("\n" + self.style.WARNING("🏃 DRY RUN - запустите без --dry-run для применения"))
+        # Если указаны слова - показываем формы
+        if words:
+            self._show_word_forms(words, check_db)
             return
 
-        # Если fix_specific и не dry_run, показываем только группы и завершаем
-        if fix_specific and not dry_run:
-            self.stdout.write(
-                "\n" + self.style.WARNING(f"🔍 Режим --fix-specific: группы для '{fix_specific}' показаны выше"))
-            self.stdout.write(self.style.WARNING("Для применения изменений запустите без --fix-specific"))
+        # Если delete_duplicates - удаляем дубликаты без переноса
+        if delete_duplicates:
+            merge_stats = self._delete_duplicate_keywords(dry_run=dry_run)
+
+            # Очищаем кэш Trie после удаления дубликатов
+            if not dry_run and merge_stats['merged_groups'] > 0:
+                try:
+                    from games.analyze.keyword_trie import KeywordTrieManager
+                    KeywordTrieManager().clear_cache()
+                    self.stdout.write(self.style.SUCCESS("\n✅ Кэш Trie очищен после удаления дубликатов"))
+                except ImportError:
+                    self.stdout.write(self.style.WARNING("\n⚠️ Не удалось очистить кэш Trie: модуль не найден"))
             return
 
-        # Применяем изменения (только если не dry_run и не fix_specific)
-        if not dry_run and not fix_specific:
-            self.stdout.write("\n" + "=" * 70)
-            self.stdout.write(self.style.SUCCESS("ПРИМЕНЕНИЕ ИЗМЕНЕНИЙ"))
-            self.stdout.write("=" * 70)
+        # Если merge_only - только объединяем дубликаты без нормализации
+        if merge_only:
+            merge_stats = self._merge_duplicate_keywords(dry_run=dry_run)
 
-            stats = {
-                'renamed': 0,
-                'merged': 0,
-                'moved_relations': 0
-            }
+            # Очищаем кэш Trie после объединения дубликатов
+            if not dry_run and merge_stats['merged_groups'] > 0:
+                try:
+                    from games.analyze.keyword_trie import KeywordTrieManager
+                    KeywordTrieManager().clear_cache()
+                    self.stdout.write(self.style.SUCCESS("\n✅ Кэш Trie очищен после объединения дубликатов"))
+                except ImportError:
+                    self.stdout.write(self.style.WARNING("\n⚠️ Не удалось очистить кэш Trie: модуль не найден"))
+            return
 
-            with transaction.atomic():
-                for base_form, words in base_groups.items():
-                    base_exists = base_form in keyword_by_name
+        self.stdout.write("=" * 70)
+        self.stdout.write(self.style.SUCCESS("НОРМАЛИЗАЦИЯ КЛЮЧЕВЫХ СЛОВ"))
+        self.stdout.write("=" * 70)
 
-                    if base_exists:
-                        # Исходная форма есть - переносим все связи
-                        base_word = keyword_by_name[base_form]
-                        forms = [w for w in words if w.name.lower() != base_form]
+        if dry_run:
+            self.stdout.write(self.style.WARNING("🔧 РЕЖИМ ПРОСМОТРА (без изменений)"))
+        self.stdout.write("")
 
-                        if not forms:
-                            continue
+        # Получаем WordNetAPI
+        self.stdout.write("🔧 Инициализация WordNetAPI...")
+        if not self._init_wordnet():
+            self.stdout.write(self.style.ERROR("❌ WordNetAPI недоступен"))
+            return
 
-                        self.stdout.write(f"\n📌 Группа: {base_form}")
-                        self.stdout.write(f"   ✅ Исходная форма: {base_word.name} (ID: {base_word.id})")
+        self.stdout.write("✅ WordNetAPI готов")
+        self.stdout.write("")
 
-                        for form in forms:
-                            games = list(form.game_set.all())
-                            if games:
-                                self.stdout.write(f"   🔄 Переносим {len(games)} игр с '{form.name}'")
-                                for game in games:
-                                    if not game.keywords.filter(id=base_word.id).exists():
-                                        game.keywords.add(base_word)
-                                        stats['moved_relations'] += 1
+        # Получаем ключевые слова
+        keywords = Keyword.objects.all().order_by('name')
+        if limit:
+            keywords = keywords[:limit]
 
-                            form.delete()
-                            stats['merged'] += 1
-                            self.stdout.write(f"   ✅ Удалена форма '{form.name}'")
+        total = keywords.count()
+        self.stdout.write(f"📊 Найдено ключевых слов: {total}")
+        self.stdout.write("")
 
+        stats = {
+            'processed': 0,
+            'normalized': 0,
+            'errors': 0
+        }
+
+        changes = []
+
+        # Обрабатываем ключевые слова
+        with tqdm(total=total, desc="Обработка", disable=not self.verbose) as pbar:
+            for keyword in keywords:
+                try:
+                    original_name = keyword.name
+                    original_lower = original_name.lower()
+
+                    # Пропускаем короткие слова (меньше 3 символов)
+                    if len(original_lower) <= 3:
+                        if self.debug:
+                            self.stdout.write(f"   ⏭️ Пропуск короткого слова: '{original_name}'")
+                        stats['processed'] += 1
+                        pbar.update(1)
+                        continue
+
+                    # Получаем базовую форму через WordNetAPI
+                    if self.debug:
+                        self.stdout.write(f"\n   🔍 Анализ слова: '{original_name}'")
+
+                    base_form = self.wordnet_api.get_best_base_form(original_name)
+
+                    # Проверяем, нужно ли обновить
+                    if base_form and base_form != original_lower:
+                        stats['normalized'] += 1
+                        changes.append({
+                            'id': keyword.id,
+                            'old': original_name,
+                            'new': base_form
+                        })
+
+                        if not dry_run:
+                            keyword.name = base_form
+                            keyword.save()
+                            if self.debug:
+                                self.stdout.write(f"   ✅ ИЗМЕНЕНО: {original_name} -> {base_form}")
+                        elif self.debug:
+                            self.stdout.write(f"   🔄 БУДЕТ ИЗМЕНЕНО: {original_name} -> {base_form}")
                     else:
-                        # Исходной формы нет - выбираем самое популярное слово
-                        words.sort(key=lambda w: w.game_set.count(), reverse=True)
-                        base_word = words[0]
-                        other_forms = words[1:]
+                        if self.debug:
+                            self.stdout.write(f"   ⏺️ Без изменений: '{original_name}'")
 
-                        self.stdout.write(f"\n📌 Группа: {base_form}")
-                        self.stdout.write(f"   🔄 Выбираем базовым: {base_word.name} (ID: {base_word.id})")
+                    stats['processed'] += 1
+                    pbar.update(1)
 
-                        # Переименовываем
-                        if base_word.name.lower() != base_form:
-                            old_name = base_word.name
-                            base_word.name = base_form
-                            base_word.save()
-                            stats['renamed'] += 1
-                            self.stdout.write(f"   🔄 Переименовано: '{old_name}' -> '{base_form}'")
+                except Exception as e:
+                    stats['errors'] += 1
+                    if self.debug:
+                        self.stdout.write(self.style.ERROR(f"   ❌ Ошибка: {keyword.name} - {e}"))
+                    elif self.verbose:
+                        self.stdout.write(self.style.ERROR(f"❌ Ошибка: {keyword.name} - {e}"))
 
-                        # Переносим связи с других форм
-                        for form in other_forms:
-                            games = list(form.game_set.all())
-                            if games:
-                                self.stdout.write(f"   🔄 Переносим {len(games)} игр с '{form.name}'")
-                                for game in games:
-                                    if not game.keywords.filter(id=base_word.id).exists():
-                                        game.keywords.add(base_word)
-                                        stats['moved_relations'] += 1
+        # Выводим статистику нормализации
+        self.stdout.write("\n" + "=" * 70)
+        self.stdout.write(self.style.SUCCESS("СТАТИСТИКА НОРМАЛИЗАЦИИ"))
+        self.stdout.write("=" * 70)
+        self.stdout.write(f"📊 Всего обработано: {stats['processed']}")
+        self.stdout.write(f"✅ Нормализовано: {stats['normalized']}")
+        self.stdout.write(f"❌ Ошибок: {stats['errors']}")
 
-                            form.delete()
-                            stats['merged'] += 1
-                            self.stdout.write(f"   ✅ Удалена форма '{form.name}'")
-
-            # Итоговая статистика
-            elapsed_time = time.time() - start_time
-
+        if changes and (self.verbose or self.debug):
             self.stdout.write("\n" + "=" * 70)
-            self.stdout.write(self.style.SUCCESS("ИТОГОВАЯ СТАТИСТИКА"))
+            self.stdout.write(self.style.SUCCESS("ИЗМЕНЕНИЯ"))
             self.stdout.write("=" * 70)
-            self.stdout.write(f"⏱️  Время выполнения: {elapsed_time:.2f} сек")
-            self.stdout.write(f"📊 Найдено групп: {len(base_groups)}")
-            self.stdout.write(f"📊 Переименовано слов: {stats['renamed']}")
-            self.stdout.write(f"📊 Объединено слов: {stats['merged']}")
-            self.stdout.write(f"📊 Перенесено связей: {stats['moved_relations']}")
+            for change in changes[:20]:
+                self.stdout.write(f"  {change['old']} -> {change['new']}")
+            if len(changes) > 20:
+                self.stdout.write(f"  ... и еще {len(changes) - 20} изменений")
+            if self.debug and changes:
+                self.stdout.write(f"\n📝 Всего изменений: {len(changes)}")
 
-            # Сбрасываем кэш Trie
-            self.stdout.write("\n" + self.style.SUCCESS("🔄 Сбрасываем кэш Trie..."))
+        # После нормализации показываем информацию о дубликатах
+        merge_stats = None
+        if not skip_merge:
+            self.stdout.write("\n" + "=" * 70)
+            self.stdout.write(self.style.SUCCESS("ПРОВЕРКА ДУБЛИКАТОВ"))
+            self.stdout.write("=" * 70)
+
+            # Находим все дубликаты по имени (регистронезависимо)
+            all_keywords = Keyword.objects.all()
+
+            # Группируем по нижнему регистру
+            groups = defaultdict(list)
+            for kw in all_keywords:
+                groups[kw.name.lower()].append(kw)
+
+            # Фильтруем только группы с дубликатами
+            duplicate_groups = {name: kws for name, kws in groups.items() if len(kws) > 1}
+
+            total_duplicate_groups = len(duplicate_groups)
+            total_duplicate_keywords = sum(len(kws) for kws in duplicate_groups.values())
+
+            if total_duplicate_groups > 0:
+                self.stdout.write(f"\n📊 Найдено групп с дубликатами: {total_duplicate_groups}")
+                self.stdout.write(f"📊 Всего ключевых слов-дубликатов: {total_duplicate_keywords}")
+
+                if self.verbose or self.debug:
+                    self.stdout.write("\n📌 ГРУППЫ ДУБЛИКАТОВ:")
+                    self.stdout.write("-" * 50)
+                    for name_lower, kws in list(duplicate_groups.items())[:10 if not self.debug else None]:
+                        names = [f"'{kw.name}' (ID:{kw.id})" for kw in kws]
+                        self.stdout.write(f"  {name_lower}: {', '.join(names)}")
+                        # Показываем количество игр для каждого
+                        for kw in kws:
+                            games_count = kw.game_set.count()
+                            self.stdout.write(f"    ↳ игр: {games_count}")
+                    if len(duplicate_groups) > 10 and not self.debug:
+                        self.stdout.write(f"  ... и еще {len(duplicate_groups) - 10} групп")
+
+                if dry_run:
+                    self.stdout.write(self.style.WARNING("\n🔧 РЕЖИМ ПРОСМОТРА - дубликаты НЕ будут объединены"))
+                    self.stdout.write("   Чтобы объединить дубликаты, запустите без --dry-run")
+                else:
+                    self.stdout.write("\n🔄 Автоматическое объединение дубликатов...")
+                    merge_stats = self._merge_duplicate_keywords(dry_run=False)
+            else:
+                self.stdout.write(self.style.SUCCESS("✅ Дубликаты не найдены"))
+
+        if dry_run:
+            self.stdout.write("\n" + self.style.WARNING("🔧 РЕЖИМ ПРОСМОТРА - изменения не сохранены"))
+
+        # Очищаем кэш Trie в конце, если были изменения
+        if not dry_run and (stats['normalized'] > 0 or (merge_stats and merge_stats['merged_groups'] > 0)):
             try:
                 from games.analyze.keyword_trie import KeywordTrieManager
                 KeywordTrieManager().clear_cache()
-                self.stdout.write(self.style.SUCCESS("✅ Кэш Trie очищен"))
-            except Exception as e:
-                self.stdout.write(self.style.WARNING(f"⚠️ Не удалось очистить кэш: {e}"))
-
-            self.stdout.write("=" * 70)
+                self.stdout.write(self.style.SUCCESS("\n✅ Кэш Trie очищен после всех операций"))
+            except ImportError:
+                self.stdout.write(self.style.WARNING("\n⚠️ Не удалось очистить кэш Trie: модуль не найден"))

@@ -3,7 +3,7 @@
 Форматировщик вывода (полная совместимость со старой версией)
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, List
 from games.models import Game
 
 
@@ -14,54 +14,244 @@ class OutputFormatter:
         self.command = command_instance
         # text_preparer будет получаться из command_instance
 
-    def _print_pattern_details_to_file(self, pattern_info: Dict[str, Any]):
-        """Выводит детальную информацию о совпадениях паттернов в файл"""
+    def _find_context_for_item(self, pattern_info: Dict, category: str, item_id: int, item_name: str) -> str:
+        """
+        Находит контекст для конкретного элемента по ID или имени.
+        Возвращает строку с информацией о том, где был найден элемент.
+        """
+        if category not in pattern_info:
+            return ""
+
+        matches_for_category = pattern_info[category]
+        if not matches_for_category:
+            return ""
+
+        item_name_lower = item_name.lower()
+
+        # Ищем совпадение для этого элемента
+        for match in matches_for_category:
+            if match.get('status') != 'found':
+                continue
+
+            match_name = match.get('name', '')
+            matched_text = match.get('matched_text', '')
+            context = match.get('context', '')
+            pattern = match.get('pattern', '')
+
+            # Проверяем по имени
+            if match_name and match_name.lower() == item_name_lower:
+                if context:
+                    clean_context = ' '.join(context.split())
+                    if pattern:
+                        return f'("{pattern}" как "{matched_text}" в: "{clean_context}")'
+                    else:
+                        return f'(найдено как "{matched_text}" в: "{clean_context}")'
+                elif matched_text:
+                    if pattern:
+                        return f'("{pattern}" как "{matched_text}")'
+                    else:
+                        return f'(найдено как "{matched_text}")'
+
+            # Проверяем по matched_text
+            if matched_text and matched_text.lower() == item_name_lower:
+                if context:
+                    clean_context = ' '.join(context.split())
+                    if pattern:
+                        return f'("{pattern}" как "{matched_text}" в: "{clean_context}")'
+                    else:
+                        return f'(найдено как "{matched_text}" в: "{clean_context}")'
+                else:
+                    if pattern:
+                        return f'("{pattern}" как "{matched_text}")'
+                    else:
+                        return f'(найдено как "{matched_text}")'
+
+        return ""
+
+    def _format_match_context(self, match: Dict) -> str:
+        """
+        Форматирует информацию о совпадении в читаемую строку.
+        """
+        matched_text = match.get('matched_text', '')
+        context = match.get('context', '')
+        matched_lemma = match.get('matched_lemma', '')
+
+        if matched_text and context:
+            # Очищаем контекст от лишних пробелов и переносов
+            clean_context = ' '.join(context.split())
+            if len(clean_context) > 60:
+                clean_context = clean_context[:57] + "..."
+
+            if matched_lemma and matched_lemma != matched_text:
+                return f"(найдено как \"{matched_text}\" → лемма \"{matched_lemma}\" в: \"{clean_context}\")"
+            else:
+                return f"(найдено как \"{matched_text}\" в: \"{clean_context}\")"
+
+        elif matched_text:
+            if matched_lemma and matched_lemma != matched_text:
+                return f"(найдено как \"{matched_text}\" → лемма \"{matched_lemma}\")"
+            else:
+                return f"(найдено как \"{matched_text}\")"
+
+        elif context:
+            clean_context = ' '.join(context.split())
+            if len(clean_context) > 60:
+                clean_context = clean_context[:57] + "..."
+            return f"(найдено в: \"{clean_context}\")"
+
+        return ""
+
+    def _print_detailed_matches(self, pattern_info: Dict):
+        """
+        Выводит детальную информацию о ВСЕХ совпадениях (для --verbose)
+        """
         if not pattern_info:
             return
 
         if not hasattr(self.command, 'output_file') or self.command.output_file.closed:
             return
 
-        has_found_matches = False
-        has_skipped_matches = False
+        self.command.output_file.write("   🔍 ДЕТАЛЬНАЯ ИНФОРМАЦИЯ О СОВПАДЕНИЯХ:\n")
 
-        for criteria_type, matches in pattern_info.items():
+        has_any = False
+        for category, matches in pattern_info.items():
+            if not matches:
+                continue
+
+            display_name = self._get_display_name(category)
+            self.command.output_file.write(f"      📌 {display_name}:\n")
+
             for match in matches:
-                if match.get('status') == 'found':
-                    has_found_matches = True
-                elif match.get('status') == 'skipped':
-                    has_skipped_matches = True
+                status = match.get('status', 'unknown')
 
-        if not (has_found_matches or has_skipped_matches):
+                if status == 'found':
+                    has_any = True
+                    name = match.get('name', 'N/A')
+                    matched_text = match.get('matched_text', '')
+                    context = match.get('context', '')
+                    matched_lemma = match.get('matched_lemma', '')
+
+                    # Формируем строку вывода
+                    output = f"         • {name}"
+
+                    if matched_text:
+                        output += f" → найдено как \"{matched_text}\""
+
+                    if matched_lemma and matched_lemma != matched_text:
+                        output += f" (лемма: \"{matched_lemma}\")"
+
+                    if context:
+                        output += f"\n            в контексте: \"{context}\""
+
+                    self.command.output_file.write(output + "\n")
+
+                elif status == 'skipped' and not getattr(self.command, 'hide_skipped', False):
+                    name = match.get('name', 'N/A')
+                    reason = match.get('reason', 'already_exists')
+                    self.command.output_file.write(f"         ⏭️ {name} (пропущено: {reason})\n")
+
+        if not has_any:
+            self.command.output_file.write("         Нет найденных совпадений\n")
+
+        self.command.output_file.write("\n")
+        self.command.output_file.flush()
+
+    def _find_match_context(self, pattern_info: Dict, category: str, item_id: int, item_name: str,
+                            full_text: str) -> str:
+        """
+        Находит контекст, в котором было найдено совпадение для элемента.
+        Возвращает строку с информацией о найденном тексте.
+        """
+        if category not in pattern_info:
+            return ""
+
+        for match in pattern_info[category]:
+            # Проверяем, относится ли это совпадение к нашему элементу
+            match_item_id = None
+            match_item_name = None
+
+            if category == 'keywords':
+                match_item_id = match.get('keyword_id')
+                match_item_name = match.get('name')
+            else:
+                match_item_name = match.get('name')
+
+            # Сравниваем по ID (для ключевых слов) или по имени
+            if (match_item_id and match_item_id == item_id) or (match_item_name and match_item_name == item_name):
+                # Нашли совпадение
+                matched_text = match.get('matched_text', '')
+                context = match.get('context', '')
+
+                if matched_text:
+                    if context:
+                        # Очищаем контекст от лишних пробелов
+                        clean_context = ' '.join(context.split())
+                        if len(clean_context) > 50:
+                            clean_context = clean_context[:47] + "..."
+                        return f"(найдено как \"{matched_text}\" в: \"{clean_context}\")"
+                    else:
+                        return f"(найдено как \"{matched_text}\")"
+                elif context:
+                    clean_context = ' '.join(context.split())
+                    if len(clean_context) > 50:
+                        clean_context = clean_context[:47] + "..."
+                    return f"(найдено в: \"{clean_context}\")"
+                break
+
+        return ""
+
+    def _print_all_pattern_matches(self, pattern_info: Dict, full_text: str):
+        """
+        Выводит все найденные паттерны с контекстом (для --verbose)
+        """
+        if not pattern_info:
             return
 
-        if has_found_matches:
-            self.command.output_file.write("      🔍 Совпадения паттернов:\n")
-            seen_matches = set()
+        if not hasattr(self.command, 'output_file') or self.command.output_file.closed:
+            return
 
-            for criteria_type, matches in pattern_info.items():
-                for match in matches:
-                    if match.get('status') == 'found':
-                        match_key = (match['pattern'], match.get('matched_text', ''), criteria_type)
-                        if match_key not in seen_matches:
-                            seen_matches.add(match_key)
-                            pattern_display = match['pattern']
-                            if len(pattern_display) > 80:
-                                pattern_display = pattern_display[:77] + "..."
-                            self.command.output_file.write(
-                                f"         • '{match.get('matched_text', '')}' ← {self._get_display_name(criteria_type)}: {pattern_display}\n")
+        self.command.output_file.write("   🔍 ДЕТАЛЬНАЯ ИНФОРМАЦИЯ О СОВПАДЕНИЯХ:\n")
 
-        if has_skipped_matches and not getattr(self.command, 'hide_skipped', False):
-            self.command.output_file.write("      ⏭️ Пропущенные критерии (уже существуют):\n")
-            seen_skipped = set()
+        for category, matches in pattern_info.items():
+            if not matches:
+                continue
 
-            for criteria_type, matches in pattern_info.items():
-                for match in matches:
-                    if match.get('status') == 'skipped':
-                        if match['name'] not in seen_skipped:
-                            seen_skipped.add(match['name'])
-                            self.command.output_file.write(
-                                f"         • {match['name']} ({self._get_display_name(criteria_type)})\n")
+            display_name = self._get_display_name(category)
+            self.command.output_file.write(f"      📌 {display_name}:\n")
+
+            for match in matches:
+                status = match.get('status', 'unknown')
+
+                if status == 'found':
+                    name = match.get('name', 'N/A')
+                    matched_text = match.get('matched_text', '')
+                    context = match.get('context', '')
+
+                    # Формируем строку вывода
+                    output = f"         • {name}"
+
+                    if matched_text:
+                        output += f" → найдено как \"{matched_text}\""
+
+                    if context:
+                        clean_context = ' '.join(context.split())
+                        if len(clean_context) > 60:
+                            clean_context = clean_context[:57] + "..."
+                        output += f" в контексте: \"{clean_context}\""
+
+                    # Добавляем паттерн если он есть (для очень подробного вывода)
+                    if 'pattern' in match and len(match['pattern']) < 50:
+                        output += f" (паттерн: {match['pattern']})"
+
+                    self.command.output_file.write(output + "\n")
+
+                elif status == 'skipped' and not getattr(self.command, 'hide_skipped', False):
+                    name = match.get('name', 'N/A')
+                    reason = match.get('reason', 'already_exists')
+                    self.command.output_file.write(f"         ⏭️ {name} (пропущено: {reason})\n")
+
+        self.command.output_file.write("\n")
+        self.command.output_file.flush()
 
     def print_game_header(self, game: Game, keywords_mode: bool):
         """Выводит заголовок для игры"""
@@ -90,10 +280,30 @@ class OutputFormatter:
 
             # Отображаем найденные элементы
             for key, data in result['results'].items():
-                if data['count'] > 0:
+                if data.get('count', 0) > 0:
                     display_name = self._get_display_name(key)
-                    item_names = [item['name'] for item in data['items']]
-                    self.command.stdout.write(f"  📌 {display_name} ({data['count']}): {item_names}")
+                    # Для ключевых слов показываем с контекстом если есть
+                    if key == 'keywords' and 'pattern_info' in result:
+                        items_with_context = []
+                        pattern_info = result.get('pattern_info', {}).get('keywords', [])
+
+                        for item in data.get('items', []):
+                            # Ищем контекст для этого ключевого слова
+                            context = ""
+                            for match in pattern_info:
+                                if match.get('name') == item['name'] and match.get('status') == 'found':
+                                    matched_text = match.get('matched_text', '')
+                                    if matched_text:
+                                        context = f" → найдено как \"{matched_text}\""
+                                    break
+                            items_with_context.append(f"{item['name']}{context}")
+
+                        self.command.stdout.write(f"  📌 {display_name} ({data['count']}):")
+                        for item_with_context in items_with_context:
+                            self.command.stdout.write(f"    • {item_with_context}")
+                    else:
+                        item_names = [item['name'] for item in data.get('items', [])]
+                        self.command.stdout.write(f"  📌 {display_name} ({data['count']}): {', '.join(item_names)}")
 
             # Выводим паттерны если verbose
             if self.command.verbose and 'pattern_info' in result:
@@ -140,86 +350,54 @@ class OutputFormatter:
                 # Заголовок игры
                 self.command.output_file.write(f"{index}. 🎮 {game.name} (ID: {game.id})\n")
 
-                # Получаем текст игры для поиска
-                game_text = self.command.text_preparer.prepare_text(game)
-                game_text_lower = game_text.lower() if game_text else ""
+                # Получаем информацию о совпадениях из результата
+                pattern_info = result.get('pattern_info', {})
 
-                # Выводим найденные элементы
+                # Для каждого типа критериев
                 for key, data in result['results'].items():
                     if data.get('count', 0) > 0:
                         display_name = self._get_display_name(key)
                         self.command.output_file.write(f"   📌 {display_name}:\n")
 
+                        # Для каждого найденного элемента в этой категории
                         for item in data.get('items', []):
                             item_name = item['name']
-                            item_id = item['id']
-                            self.command.output_file.write(f"      • {item_name}")
+                            item_id = item.get('id')
 
-                            # Для ключевых слов показываем где найдено
-                            if key == 'keywords' and game_text:
-                                item_lower = item_name.lower()
+                            # Базовая строка с названием элемента
+                            line = f"      • {item_name}"
 
-                                # Получаем информацию о паттернах из result, если она есть
-                                found_text = None
-                                pattern_info = result.get('pattern_info', {})
+                            # Ищем контекст для этого конкретного элемента
+                            context_info = self._find_context_for_item(
+                                pattern_info, key, item_id, item_name
+                            )
 
-                                # Проверяем есть ли информация о совпадениях для этого ключевого слова
-                                if 'keywords' in pattern_info:
-                                    for match in pattern_info['keywords']:
-                                        if match.get('keyword_id') == item_id and match.get('matched_text'):
-                                            found_text = match.get('matched_text')
-                                            break
-
-                                if found_text:
-                                    # Если есть точная информация из pattern_info, используем её
-                                    self.command.output_file.write(f" (в слове: \"{found_text}\")")
-                                else:
-                                    # Fallback: ищем в тексте любое вхождение
+                            if context_info:
+                                # Для ключевых слов показываем только найденную форму в той же строке
+                                if keywords:
+                                    # Извлекаем только matched_text из context_info
                                     import re
-
-                                    # Ищем точное вхождение слова как отдельного слова
-                                    pattern = r'\b' + re.escape(item_lower) + r'\b'
-                                    match = re.search(pattern, game_text_lower)
-
+                                    # Ищем паттерн (найдено как "текст") или ("паттерн" как "текст")
+                                    match = re.search(r'(?:найдено как|"[^"]+" как) "([^"]+)"', context_info)
                                     if match:
-                                        # Точное совпадение слова
-                                        start = max(0, match.start() - 20)
-                                        end = min(len(game_text), match.end() + 20)
-                                        context = game_text[start:end]
-                                        if start > 0:
-                                            context = "..." + context
-                                        if end < len(game_text):
-                                            context = context + "..."
-                                        self.command.output_file.write(f" (в слове: \"{context}\")")
+                                        matched_text = match.group(1)
+                                        line += f" (найдено как \"{matched_text}\")"
                                     else:
-                                        # Ищем как часть другого слова
-                                        pattern = r'\b\w*' + re.escape(item_lower) + r'\w*\b'
-                                        match = re.search(pattern, game_text_lower)
+                                        # Если не удалось извлечь, показываем как есть, но убираем контекст
+                                        simplified = re.sub(r'\s+в:.*$', '', context_info)
+                                        line += f" {simplified}"
+                                else:
+                                    # Для обычных критериев добавляем контекст с новой строки
+                                    self.command.output_file.write(line + "\n")
+                                    self.command.output_file.write(f"        {context_info}\n")
+                                    continue  # Переходим к следующему элементу, так как уже записали
 
-                                        if match:
-                                            start_pos = match.start()
-                                            end_pos = match.end()
-                                            matched_text = game_text[start_pos:end_pos]
+                            # Записываем строку (для ключевых слов или если нет контекста)
+                            self.command.output_file.write(line + "\n")
 
-                                            start = max(0, start_pos - 20)
-                                            end = min(len(game_text), end_pos + 20)
-                                            context = game_text[start:end]
+                        self.command.output_file.write("\n")
 
-                                            if start > 0:
-                                                context = "..." + context
-                                            if end < len(game_text):
-                                                context = context + "..."
-
-                                            self.command.output_file.write(
-                                                f" (в слове: \"{context}\" → найдено как \"{matched_text}\")")
-                                        else:
-                                            # Если совсем не нашли, просто показываем что слово есть в результатах
-                                            self.command.output_file.write(f" (найдено в тексте)")
-
-                            self.command.output_file.write("\n")
-
-                    self.command.output_file.write("\n")
-                    self.command.output_file.flush()
+                self.command.output_file.flush()
 
             except Exception as e:
                 # В случае ошибки выводим базовую информацию
@@ -255,6 +433,131 @@ class OutputFormatter:
                     display_name = self._get_display_name(key)
                     item_names = [item['name'] for item in data.get('items', [])]
                     self.command.stdout.write(f"  📌 {display_name} ({data['count']}): {item_names}\n")
+
+    def _find_match_info_for_item(self, pattern_info: Dict, category: str, item_id: int, item_name: str,
+                                  text_lower: str, original_text: str) -> str:
+        """
+        Ищет информацию о том, где и как было найдено совпадение для элемента.
+        Возвращает строку для добавления к выводу элемента.
+        """
+        # Проверяем, есть ли информация о паттернах для этой категории
+        if category in pattern_info:
+            for match in pattern_info[category]:
+                # Проверяем, относится ли это совпадение к нашему элементу
+                match_item_id = match.get('keyword_id' if category == 'keywords' else 'id')
+                match_item_name = match.get('name')
+
+                if (match_item_id and match_item_id == item_id) or (match_item_name and match_item_name == item_name):
+                    # Нашли совпадение для этого элемента
+                    matched_text = match.get('matched_text', '')
+                    matched_lemma = match.get('matched_lemma', '')
+                    context = match.get('context', '')
+
+                    if matched_text:
+                        # Если есть контекст, используем его для более информативного вывода
+                        if context:
+                            return f"(найдено в: \"{context}\" → как \"{matched_text}\")"
+                        else:
+                            return f"(найдено как: \"{matched_text}\")"
+                    elif context:
+                        return f"(найдено в: \"{context}\")"
+                    else:
+                        # Если ничего нет, но это ключевое слово, попробуем найти в тексте (fallback)
+                        if category == 'keywords' and original_text:
+                            return self._fallback_keyword_search(item_name, text_lower, original_text)
+                    break  # Нашли первое совпадение для этого элемента
+
+        # Fallback для ключевых слов, если нет pattern_info
+        if category == 'keywords' and original_text:
+            return self._fallback_keyword_search(item_name, text_lower, original_text)
+
+        return ""
+
+    def _fallback_keyword_search(self, item_name: str, text_lower: str, original_text: str) -> str:
+        """Запасной метод поиска ключевого слова в тексте, если нет pattern_info."""
+        import re
+        item_lower = item_name.lower()
+
+        # Ищем точное вхождение слова как отдельного слова
+        pattern = r'\b' + re.escape(item_lower) + r'\b'
+        match = re.search(pattern, text_lower)
+
+        if match:
+            start = max(0, match.start() - 20)
+            end = min(len(original_text), match.end() + 20)
+            context = original_text[start:end]
+            if start > 0:
+                context = "..." + context
+            if end < len(original_text):
+                context = context + "..."
+            return f"(найдено в слове: \"{context}\")"
+        else:
+            # Ищем как часть другого слова
+            pattern = r'\b\w*' + re.escape(item_lower) + r'\w*\b'
+            match = re.search(pattern, text_lower)
+            if match:
+                start_pos = match.start()
+                end_pos = match.end()
+                matched_text = original_text[start_pos:end_pos]
+                start = max(0, start_pos - 20)
+                end = min(len(original_text), end_pos + 20)
+                context = original_text[start:end]
+                if start > 0:
+                    context = "..." + context
+                if end < len(original_text):
+                    context = context + "..."
+                return f"(найдено как часть слова: \"{context}\" → как \"{matched_text}\")"
+        return ""
+
+    def _print_detailed_pattern_matches_to_file(self, pattern_info: Dict[str, Any]):
+        """Выводит детальную информацию о ВСЕХ совпадениях паттернов в файл (для --verbose)."""
+        if not pattern_info:
+            return
+
+        if not hasattr(self.command, 'output_file') or self.command.output_file.closed:
+            return
+
+        self.command.output_file.write("   🔍 ДЕТАЛЬНАЯ ИНФОРМАЦИЯ О СОВПАДЕНИЯХ:\n")
+
+        for criteria_type, matches in pattern_info.items():
+            if not matches:
+                continue
+
+            display_name = self._get_display_name(criteria_type)
+            self.command.output_file.write(f"      📌 {display_name}:\n")
+
+            for match in matches:
+                status = match.get('status', 'unknown')
+                if status == 'found':
+                    name = match.get('name', 'N/A')
+                    matched_text = match.get('matched_text', '')
+                    context = match.get('context', '')
+                    pattern = match.get('pattern', '')
+
+                    # Формируем строку вывода
+                    output_line = f"         • {name}"
+                    if matched_text:
+                        output_line += f" → найдено как \"{matched_text}\""
+                    if context:
+                        # Убираем лишние пробелы и переносы для компактности
+                        clean_context = ' '.join(context.split())
+                        if len(clean_context) > 60:
+                            clean_context = clean_context[:57] + "..."
+                        output_line += f" в контексте: \"{clean_context}\""
+                    if pattern and self.command.verbose:  # Показываем паттерн только при очень подробном выводе
+                        # Паттерны могут быть длинными, показываем их не всегда
+                        if len(pattern) < 50:
+                            output_line += f" (паттерн: {pattern})"
+
+                    self.command.output_file.write(output_line + "\n")
+
+                elif status == 'skipped' and not getattr(self.command, 'hide_skipped', False):
+                    name = match.get('name', 'N/A')
+                    reason = match.get('reason', 'already_exists')
+                    self.command.output_file.write(f"         ⏭️ {name} (пропущено: {reason})\n")
+
+        self.command.output_file.write("\n")
+        self.command.output_file.flush()
 
     def print_final_statistics(self, stats: Dict[str, Any], already_processed: int, total_games: int):
         """Выводит финальную статистику"""

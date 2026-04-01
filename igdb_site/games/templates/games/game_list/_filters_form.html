@@ -6,20 +6,21 @@
 <div class="card mb-4" id="real-filters-container" style="display: none;">
     <div class="card-body">
         <form method="get" id="main-search-form">
-            <!-- Скрытые параметры -->
+            <!-- Скрытые параметры - читаем НАПРЯМУЮ ИЗ REQUEST.GET -->
             <input type="hidden" name="find_similar" id="find_similar_field"
                    value="{% if find_similar %}1{% else %}0{% endif %}">
-            <input type="hidden" name="g" id="genres-field" value="{{ selected_genres|join:',' }}">
-            <input type="hidden" name="k" id="keywords-field" value="{{ selected_keywords|join:',' }}">
-            <input type="hidden" name="p" id="platforms-field" value="{{ selected_platforms|join:',' }}">
-            <input type="hidden" name="t" id="themes-field" value="{{ selected_themes|join:',' }}">
-            <input type="hidden" name="pp" id="perspectives-field" value="{{ selected_perspectives|join:',' }}">
-            <input type="hidden" name="gm" id="game-modes-field" value="{{ selected_game_modes|join:',' }}">
-            <input type="hidden" name="gt" id="game-types-field" value="{{ selected_game_types|join:',' }}">
-            <input type="hidden" name="e" id="engines-field" value="{{ selected_engines|join:',' }}">
-            <input type="hidden" name="yr" id="year-range-field" value="">
-            <input type="hidden" name="ys" id="year-start-field" value="{{ selected_release_year_start|default:'' }}">
-            <input type="hidden" name="ye" id="year-end-field" value="{{ selected_release_year_end|default:'' }}">
+            <input type="hidden" name="source_game" value="{{ request.GET.source_game|default:'' }}">
+            <input type="hidden" name="g" value="{{ request.GET.g|default:'' }}">
+            <input type="hidden" name="k" value="{{ request.GET.k|default:'' }}">
+            <input type="hidden" name="p" value="{{ request.GET.p|default:'' }}">
+            <input type="hidden" name="t" value="{{ request.GET.t|default:'' }}">
+            <input type="hidden" name="pp" value="{{ request.GET.pp|default:'' }}">
+            <input type="hidden" name="gm" value="{{ request.GET.gm|default:'' }}">
+            <input type="hidden" name="gt" value="{{ request.GET.gt|default:'' }}">
+            <input type="hidden" name="e" value="{{ request.GET.e|default:'' }}">
+            <input type="hidden" name="yr" id="year-range-field" value="{{ request.GET.yr|default:'' }}">
+            <input type="hidden" name="ys" id="year-start-field" value="{{ request.GET.ys|default:'' }}">
+            <input type="hidden" name="ye" id="year-end-field" value="{{ request.GET.ye|default:'' }}">
 
             <div class="row g-3">
                 <!-- Встроенная сортировка -->
@@ -57,7 +58,7 @@
                 <!-- Основные кнопки -->
                 <div class="col-12">
                     <div class="d-flex gap-2 flex-wrap">
-                        <button type="submit" class="btn btn-primary apply-filters-main">
+                        <button type="button" class="btn btn-primary apply-filters-main">
                             <i class="bi bi-funnel me-1"></i> Apply Filters
                         </button>
                         <a href="{% url 'game_list' %}" class="btn btn-secondary">

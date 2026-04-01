@@ -53,6 +53,8 @@ class Command(BaseCommand):
                             help='Время жизни кэша в секундах (по умолчанию 3600 - 1 час)')
         parser.add_argument('--clear-db-cache', action='store_true',
                             help='Очистить кэш данных из БД перед запуском')
+        parser.add_argument('--restore-genres-themes', action='store_true',
+                            help='Восстановить удаленные жанры и темы для всех игр в базе')
 
     def handle(self, *args, **options):
         """Основной метод выполнения команды"""
@@ -116,6 +118,17 @@ class Command(BaseCommand):
                 if response.lower() != 'y':
                     self.stdout.write('⏹️ Команда отменена')
                     return
+
+        # Режим восстановления жанров и тем
+        if options.get('restore_genres_themes', False):
+            self.stdout.write('🎭 РЕЖИМ: ВОССТАНОВЛЕНИЕ ЖАНРОВ И ТЕМ')
+            self.stdout.write('=' * 60)
+
+            loader = GameLoader(self.stdout, self.stderr)
+            updated_count = loader.restore_genres_and_themes(options, options.get('debug', False))
+
+            self.stdout.write(f'\n✅ Восстановлено {updated_count} игр')
+            return
 
         if options['update_covers']:
             self.stdout.write('🖼️  РЕЖИМ: ОБНОВЛЕНИЕ ОБЛОЖЕК')

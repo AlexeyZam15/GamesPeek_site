@@ -17,7 +17,7 @@
                 <div id="search-platforms-content">
                     <!-- Активные платформы -->
                     <div id="search-active-platforms" class="mb-2">
-                        {% if selected_platforms %}
+                        {% if search_selected_platforms %}
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <div class="d-flex align-items-center gap-2">
                                     <button type="button"
@@ -27,7 +27,7 @@
                                         <i class="bi bi-x-circle me-1"></i>Clear All
                                     </button>
                                     <small class="text-muted" style="font-weight: 500;">
-                                        Selected platforms ({{ selected_platforms|length }})
+                                        Selected platforms ({{ search_selected_platforms|length }})
                                     </small>
                                 </div>
                             </div>
@@ -35,7 +35,7 @@
 
                         <!-- Видимые платформы (первые 27) -->
                         <div id="search-visible-platforms-badges">
-                            {% for platform in selected_platforms_objects|slice:":27" %}
+                            {% for platform in search_selected_platforms_objects|slice:":27" %}
                                 <span class="badge bg-info me-1 mb-1 search-active-platform-tag"
                                       data-platform-id="{{ platform.id }}"
                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
@@ -46,9 +46,9 @@
                         </div>
 
                         <!-- Скрытые платформы (остальные) -->
-                        {% if selected_platforms_objects|length > 27 %}
+                        {% if search_selected_platforms_objects|length > 27 %}
                             <div id="search-hidden-platforms-badges" style="display: none;">
-                                {% for platform in selected_platforms_objects|slice:"27:" %}
+                                {% for platform in search_selected_platforms_objects|slice:"27:" %}
                                     <span class="badge bg-info me-1 mb-1 search-active-platform-tag"
                                           data-platform-id="{{ platform.id }}"
                                           style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
@@ -64,7 +64,7 @@
                                         class="btn btn-sm btn-outline-secondary search-show-more-platforms"
                                         onclick="toggleSearchMorePlatforms(this)">
                                     <i class="bi bi-chevron-down"></i> Show all
-                                    ({{ selected_platforms_objects|length }})
+                                    ({{ search_selected_platforms_objects|length }})
                                 </button>
                                 <button type="button"
                                         class="btn btn-sm btn-outline-secondary search-show-less-platforms"
@@ -76,7 +76,7 @@
                         {% endif %}
                     </div>
 
-                    <!-- Поле поиска для платформ (ДОБАВЛЕНО) -->
+                    <!-- Поле поиска для платформ -->
                     <input type="text" class="form-control mb-2" id="platform-search"
                            placeholder="Search platforms..." autocomplete="off">
 
@@ -93,7 +93,7 @@
                                         <input class="form-check-input search-platform-checkbox"
                                                type="checkbox"
                                                value="{{ platform.id }}" id="search_platform_{{ platform.id }}"
-                                               {% if platform.id in selected_platforms %}checked{% endif %}>
+                                               {% if platform.id in search_selected_platforms %}checked{% endif %}>
                                         <label class="form-check-label small"
                                                for="search_platform_{{ platform.id }}">
                                             {{ platform.name }}
@@ -126,7 +126,7 @@
                 <div id="search-game-types-content">
                     <!-- Активные типы игр -->
                     <div id="search-active-game-types" class="mb-2">
-                        {% if selected_game_types %}
+                        {% if search_selected_game_types %}
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <div class="d-flex align-items-center gap-2">
                                     <button type="button"
@@ -136,7 +136,7 @@
                                         <i class="bi bi-x-circle me-1"></i>Clear All
                                     </button>
                                     <small class="text-muted" style="font-weight: 500;">
-                                        Selected game types ({{ selected_game_types|length }})
+                                        Selected game types ({{ search_selected_game_types|length }})
                                     </small>
                                 </div>
                             </div>
@@ -144,18 +144,22 @@
 
                         <!-- Видимые типы игр -->
                         <div id="search-visible-game-types-badges">
-                            {% for game_type_id, game_type_name in selected_game_types_objects %}
-                                <span class="badge bg-secondary me-1 mb-1 search-active-game-type-tag"
-                                      data-game-type-id="{{ game_type_id }}"
-                                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
-                        {{ game_type_name }}
-                        <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
-                    </span>
+                            {% for game_type_id in search_selected_game_types %}
+                                {% for type_id, type_name in game_types %}
+                                    {% if type_id == game_type_id %}
+                                        <span class="badge bg-secondary me-1 mb-1 search-active-game-type-tag"
+                                              data-game-type-id="{{ game_type_id }}"
+                                              style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                                        {{ type_name }}
+                                        <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                                    </span>
+                                    {% endif %}
+                                {% endfor %}
                             {% endfor %}
                         </div>
                     </div>
 
-                    <!-- Поле поиска для типов игр (ДОБАВЛЕНО) -->
+                    <!-- Поле поиска для типов игр -->
                     <input type="text" class="form-control mb-2" id="game-type-search"
                            placeholder="Search game types..." autocomplete="off">
 
@@ -172,7 +176,7 @@
                                                type="checkbox"
                                                value="{{ game_type_id }}"
                                                id="search_game_type_{{ game_type_id }}"
-                                               {% if game_type_id in selected_game_types %}checked{% endif %}>
+                                               {% if game_type_id in search_selected_game_types %}checked{% endif %}>
                                         <label class="form-check-label small"
                                                for="search_game_type_{{ game_type_id }}">
                                             {{ game_type_name }}
@@ -204,7 +208,7 @@
                 <div id="search-genres-content">
                     <!-- Активные жанры -->
                     <div id="search-active-genres" class="mb-2">
-                        {% if selected_genres %}
+                        {% if search_selected_genres %}
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <div class="d-flex align-items-center gap-2">
                                     <button type="button"
@@ -214,7 +218,7 @@
                                         <i class="bi bi-x-circle me-1"></i>Clear All
                                     </button>
                                     <small class="text-muted" style="font-weight: 500;">
-                                        Selected genres ({{ selected_genres|length }})
+                                        Selected genres ({{ search_selected_genres|length }})
                                     </small>
                                 </div>
                             </div>
@@ -222,7 +226,7 @@
 
                         <!-- Видимые жанры (первые 27) -->
                         <div id="search-visible-genres-badges">
-                            {% for genre in selected_genres_objects|slice:":27" %}
+                            {% for genre in search_selected_genres_objects|slice:":27" %}
                                 <span class="badge bg-primary me-1 mb-1 search-active-genre-tag"
                                       data-genre-id="{{ genre.id }}"
                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
@@ -233,9 +237,9 @@
                         </div>
 
                         <!-- Скрытые жанры (остальные) -->
-                        {% if selected_genres_objects|length > 27 %}
+                        {% if search_selected_genres_objects|length > 27 %}
                             <div id="search-hidden-genres-badges" style="display: none;">
-                                {% for genre in selected_genres_objects|slice:"27:" %}
+                                {% for genre in search_selected_genres_objects|slice:"27:" %}
                                     <span class="badge bg-primary me-1 mb-1 search-active-genre-tag"
                                           data-genre-id="{{ genre.id }}"
                                           style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
@@ -251,7 +255,7 @@
                                         class="btn btn-sm btn-outline-secondary search-show-more-genres"
                                         onclick="toggleSearchMoreGenres(this)">
                                     <i class="bi bi-chevron-down"></i> Show all
-                                    ({{ selected_genres_objects|length }})
+                                    ({{ search_selected_genres_objects|length }})
                                 </button>
                                 <button type="button"
                                         class="btn btn-sm btn-outline-secondary search-show-less-genres"
@@ -279,7 +283,7 @@
                                         <input class="form-check-input search-genre-checkbox"
                                                type="checkbox"
                                                value="{{ genre.id }}" id="search_genre_{{ genre.id }}"
-                                               {% if genre.id in selected_genres %}checked{% endif %}>
+                                               {% if genre.id in search_selected_genres %}checked{% endif %}>
                                         <label class="form-check-label small"
                                                for="search_genre_{{ genre.id }}">
                                             {{ genre.name }}
@@ -311,7 +315,7 @@
                 <div id="search-features-content">
                     <!-- Активные ключевые слова -->
                     <div id="search-active-keywords" class="mb-2">
-                        {% if selected_keywords %}
+                        {% if search_selected_keywords %}
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <div class="d-flex align-items-center gap-2">
                                     <button type="button"
@@ -321,7 +325,7 @@
                                         <i class="bi bi-x-circle me-1"></i>Clear All
                                     </button>
                                     <small class="text-muted" style="font-weight: 500;">
-                                        Selected features ({{ selected_keywords|length }})
+                                        Selected features ({{ search_selected_keywords|length }})
                                     </small>
                                 </div>
                             </div>
@@ -329,7 +333,7 @@
 
                         <!-- Видимые ключевые слова (первые 27) -->
                         <div id="search-visible-keywords-badges">
-                            {% for keyword in selected_keywords_objects|slice:":27" %}
+                            {% for keyword in search_selected_keywords_objects|slice:":27" %}
                                 <span class="badge bg-success me-1 mb-1 search-active-keyword-tag"
                                       data-keyword-id="{{ keyword.id }}"
                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
@@ -340,9 +344,9 @@
                         </div>
 
                         <!-- Скрытые ключевые слова (остальные) -->
-                        {% if selected_keywords_objects|length > 27 %}
+                        {% if search_selected_keywords_objects|length > 27 %}
                             <div id="search-hidden-keywords-badges" style="display: none;">
-                                {% for keyword in selected_keywords_objects|slice:"27:" %}
+                                {% for keyword in search_selected_keywords_objects|slice:"27:" %}
                                     <span class="badge bg-success me-1 mb-1 search-active-keyword-tag"
                                           data-keyword-id="{{ keyword.id }}"
                                           style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
@@ -358,7 +362,7 @@
                                         class="btn btn-sm btn-outline-secondary search-show-more-keywords"
                                         onclick="toggleSearchMoreKeywords(this)">
                                     <i class="bi bi-chevron-down"></i> Show all
-                                    ({{ selected_keywords_objects|length }})
+                                    ({{ search_selected_keywords_objects|length }})
                                 </button>
                                 <button type="button"
                                         class="btn btn-sm btn-outline-secondary search-show-less-keywords"
@@ -374,28 +378,32 @@
                     <input type="text" class="form-control mb-2" id="search-keyword-search"
                            placeholder="Search features..." autocomplete="off">
 
-                    <!-- Список ключевых слов -->
-                    <div class="search-keyword-list border rounded p-2"
-                         style="max-height: 200px; overflow-y: auto;">
-                        <div class="search-keyword-grid"
-                             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
-                            {% for keyword in keywords %}
-                                <div class="search-keyword-item"
-                                     data-keyword-name="{{ keyword.name|lower }}">
-                                    <div class="form-check">
-                                        <input class="form-check-input search-keyword-checkbox"
-                                               type="checkbox"
-                                               value="{{ keyword.id }}"
-                                               id="search_keyword_{{ keyword.id }}"
-                                               {% if keyword.id in selected_keywords %}checked{% endif %}>
-                                        <label class="form-check-label small"
-                                               for="search_keyword_{{ keyword.id }}">
-                                            {{ keyword.name }}
-                                        </label>
+                    <!-- Список ключевых слов с пагинацией (ТОЧНО ТАКАЯ ЖЕ СТРУКТУРА КАК В SIMILARITY) -->
+                    <div class="search-keyword-section">
+                        <div class="search-keyword-list border rounded p-2"
+                             style="height: 400px; overflow-y: auto; min-height: 400px;">
+                            <div class="search-keyword-grid"
+                                 style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+                                {% for keyword in keywords %}
+                                    <div class="search-keyword-item"
+                                         data-keyword-name="{{ keyword.name|lower }}">
+                                        <div class="form-check">
+                                            <input class="form-check-input search-keyword-checkbox"
+                                                   type="checkbox"
+                                                   value="{{ keyword.id }}"
+                                                   id="search_keyword_{{ keyword.id }}"
+                                                   {% if keyword.id in search_selected_keywords %}checked{% endif %}>
+                                            <label class="form-check-label small"
+                                                   for="search_keyword_{{ keyword.id }}">
+                                                {{ keyword.name }}
+                                            </label>
+                                        </div>
                                     </div>
-                                </div>
-                            {% endfor %}
+                                {% endfor %}
+                            </div>
                         </div>
+
+                        <!-- Пагинация для ключевых слов будет добавлена JavaScript -->
                     </div>
 
                     <!-- Кнопка "Show all features" -->
@@ -419,7 +427,7 @@
                 <div id="search-themes-content">
                     <!-- Активные темы -->
                     <div id="search-active-themes" class="mb-2">
-                        {% if selected_themes %}
+                        {% if search_selected_themes %}
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <div class="d-flex align-items-center gap-2">
                                     <button type="button"
@@ -429,7 +437,7 @@
                                         <i class="bi bi-x-circle me-1"></i>Clear All
                                     </button>
                                     <small class="text-muted" style="font-weight: 500;">
-                                        Selected themes ({{ selected_themes|length }})
+                                        Selected themes ({{ search_selected_themes|length }})
                                     </small>
                                 </div>
                             </div>
@@ -437,7 +445,7 @@
 
                         <!-- Видимые темы (первые 27) -->
                         <div id="search-visible-themes-badges">
-                            {% for theme in selected_themes_objects|slice:":27" %}
+                            {% for theme in search_selected_themes_objects|slice:":27" %}
                                 <span class="badge bg-warning me-1 mb-1 search-active-theme-tag"
                                       data-theme-id="{{ theme.id }}"
                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
@@ -448,9 +456,9 @@
                         </div>
 
                         <!-- Скрытые темы (остальные) -->
-                        {% if selected_themes_objects|length > 27 %}
+                        {% if search_selected_themes_objects|length > 27 %}
                             <div id="search-hidden-themes-badges" style="display: none;">
-                                {% for theme in selected_themes_objects|slice:"27:" %}
+                                {% for theme in search_selected_themes_objects|slice:"27:" %}
                                     <span class="badge bg-warning me-1 mb-1 search-active-theme-tag"
                                           data-theme-id="{{ theme.id }}"
                                           style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
@@ -466,7 +474,7 @@
                                         class="btn btn-sm btn-outline-secondary search-show-more-themes"
                                         onclick="toggleSearchMoreThemes(this)">
                                     <i class="bi bi-chevron-down"></i> Show all
-                                    ({{ selected_themes_objects|length }})
+                                    ({{ search_selected_themes_objects|length }})
                                 </button>
                                 <button type="button"
                                         class="btn btn-sm btn-outline-secondary search-show-less-themes"
@@ -494,7 +502,7 @@
                                         <input class="form-check-input search-theme-checkbox"
                                                type="checkbox"
                                                value="{{ theme.id }}" id="search_theme_{{ theme.id }}"
-                                               {% if theme.id in selected_themes %}checked{% endif %}>
+                                               {% if theme.id in search_selected_themes %}checked{% endif %}>
                                         <label class="form-check-label small"
                                                for="search_theme_{{ theme.id }}">
                                             {{ theme.name }}
@@ -526,7 +534,7 @@
                 <div id="search-perspectives-content">
                     <!-- Активные перспективы -->
                     <div id="search-active-perspectives" class="mb-2">
-                        {% if selected_perspectives %}
+                        {% if search_selected_perspectives %}
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <div class="d-flex align-items-center gap-2">
                                     <button type="button"
@@ -536,7 +544,7 @@
                                         <i class="bi bi-x-circle me-1"></i>Clear All
                                     </button>
                                     <small class="text-muted" style="font-weight: 500;">
-                                        Selected perspectives ({{ selected_perspectives|length }})
+                                        Selected perspectives ({{ search_selected_perspectives|length }})
                                     </small>
                                 </div>
                             </div>
@@ -544,7 +552,7 @@
 
                         <!-- Видимые перспективы (первые 27) -->
                         <div id="search-visible-perspectives-badges">
-                            {% for perspective in selected_perspectives_objects|slice:":27" %}
+                            {% for perspective in search_selected_perspectives_objects|slice:":27" %}
                                 <span class="badge bg-info me-1 mb-1 search-active-perspective-tag"
                                       data-perspective-id="{{ perspective.id }}"
                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
@@ -555,9 +563,9 @@
                         </div>
 
                         <!-- Скрытые перспективы (остальные) -->
-                        {% if selected_perspectives_objects|length > 27 %}
+                        {% if search_selected_perspectives_objects|length > 27 %}
                             <div id="search-hidden-perspectives-badges" style="display: none;">
-                                {% for perspective in selected_perspectives_objects|slice:"27:" %}
+                                {% for perspective in search_selected_perspectives_objects|slice:"27:" %}
                                     <span class="badge bg-info me-1 mb-1 search-active-perspective-tag"
                                           data-perspective-id="{{ perspective.id }}"
                                           style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
@@ -573,7 +581,7 @@
                                         class="btn btn-sm btn-outline-secondary search-show-more-perspectives"
                                         onclick="toggleSearchMorePerspectives(this)">
                                     <i class="bi bi-chevron-down"></i> Show all
-                                    ({{ selected_perspectives_objects|length }})
+                                    ({{ search_selected_perspectives_objects|length }})
                                 </button>
                                 <button type="button"
                                         class="btn btn-sm btn-outline-secondary search-show-less-perspectives"
@@ -602,7 +610,7 @@
                                                type="checkbox"
                                                value="{{ perspective.id }}"
                                                id="search_perspective_{{ perspective.id }}"
-                                               {% if perspective.id in selected_perspectives %}checked{% endif %}>
+                                               {% if perspective.id in search_selected_perspectives %}checked{% endif %}>
                                         <label class="form-check-label small"
                                                for="search_perspective_{{ perspective.id }}">
                                             {{ perspective.name }}
@@ -634,7 +642,7 @@
                 <div id="search-game-modes-content">
                     <!-- Активные режимы игры -->
                     <div id="search-active-game-modes" class="mb-2">
-                        {% if selected_game_modes %}
+                        {% if search_selected_game_modes %}
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <div class="d-flex align-items-center gap-2">
                                     <button type="button"
@@ -644,7 +652,7 @@
                                         <i class="bi bi-x-circle me-1"></i>Clear All
                                     </button>
                                     <small class="text-muted" style="font-weight: 500;">
-                                        Selected game modes ({{ selected_game_modes|length }})
+                                        Selected game modes ({{ search_selected_game_modes|length }})
                                     </small>
                                 </div>
                             </div>
@@ -652,7 +660,7 @@
 
                         <!-- Видимые режимы игры -->
                         <div id="search-visible-game-modes-badges">
-                            {% for game_mode in selected_game_modes_objects %}
+                            {% for game_mode in search_selected_game_modes_objects %}
                                 <span class="badge bg-purple me-1 mb-1 search-active-game-mode-tag"
                                       data-game-mode-id="{{ game_mode.id }}"
                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
@@ -680,7 +688,7 @@
                                                type="checkbox"
                                                value="{{ game_mode.id }}"
                                                id="search_game_mode_{{ game_mode.id }}"
-                                               {% if game_mode.id in selected_game_modes %}checked{% endif %}>
+                                               {% if game_mode.id in search_selected_game_modes %}checked{% endif %}>
                                         <label class="form-check-label small"
                                                for="search_game_mode_{{ game_mode.id }}">
                                             {{ game_mode.name }}
@@ -712,7 +720,7 @@
                 <div id="search-engines-content">
                     <!-- Активные движки -->
                     <div id="search-active-engines" class="mb-2">
-                        {% if selected_engines %}
+                        {% if search_selected_engines %}
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <div class="d-flex align-items-center gap-2">
                                     <button type="button"
@@ -722,7 +730,7 @@
                                         <i class="bi bi-x-circle me-1"></i>Clear All
                                     </button>
                                     <small class="text-muted" style="font-weight: 500;">
-                                        Selected engines ({{ selected_engines|length }})
+                                        Selected engines ({{ search_selected_engines|length }})
                                     </small>
                                 </div>
                             </div>
@@ -730,7 +738,7 @@
 
                         <!-- Видимые движки (первые 27) -->
                         <div id="search-visible-engines-badges">
-                            {% for engine in selected_engines_objects|slice:":27" %}
+                            {% for engine in search_selected_engines_objects|slice:":27" %}
                                 <span class="badge bg-warning me-1 mb-1 search-active-engine-tag"
                                       data-engine-id="{{ engine.id }}"
                                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
@@ -741,9 +749,9 @@
                         </div>
 
                         <!-- Скрытые движки (остальные) -->
-                        {% if selected_engines_objects|length > 27 %}
+                        {% if search_selected_engines_objects|length > 27 %}
                             <div id="search-hidden-engines-badges" style="display: none;">
-                                {% for engine in selected_engines_objects|slice:"27:" %}
+                                {% for engine in search_selected_engines_objects|slice:"27:" %}
                                     <span class="badge bg-warning me-1 mb-1 search-active-engine-tag"
                                           data-engine-id="{{ engine.id }}"
                                           style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
@@ -759,7 +767,7 @@
                                         class="btn btn-sm btn-outline-secondary search-show-more-engines"
                                         onclick="toggleSearchMoreEngines(this)">
                                     <i class="bi bi-chevron-down"></i> Show all
-                                    ({{ selected_engines_objects|length }})
+                                    ({{ search_selected_engines_objects|length }})
                                 </button>
                                 <button type="button"
                                         class="btn btn-sm btn-outline-secondary search-show-less-engines"
@@ -788,7 +796,7 @@
                                                type="checkbox"
                                                value="{{ engine.id }}"
                                                id="search_engine_{{ engine.id }}"
-                                               {% if engine.id in selected_engines %}checked{% endif %}>
+                                               {% if engine.id in search_selected_engines %}checked{% endif %}>
                                         <label class="form-check-label small"
                                                for="search_engine_{{ engine.id }}">
                                             {{ engine.name }}
@@ -819,7 +827,7 @@
                 </div>
                 <div id="search-release-date-content" class="release-date-filter">
                     <!-- Активный бейдж фильтра даты -->
-                    {% if selected_release_year_start or selected_release_year_end %}
+                    {% if search_selected_release_year_start or search_selected_release_year_end %}
                         <div id="search-active-date-filter" class="mb-3">
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <div class="d-flex align-items-center gap-2">
@@ -837,13 +845,13 @@
 
                             <div id="search-visible-date-filter-badges">
                             <span class="badge bg-warning me-1 mb-1 search-active-date-filter-tag"
-                                  data-date-range="{{ selected_release_year_start|default:'' }}-{{ selected_release_year_end|default:'' }}">
-                                {% if selected_release_year_start and selected_release_year_end %}
-                                    {{ selected_release_year_start }} - {{ selected_release_year_end }}
-                                {% elif selected_release_year_start %}
-                                    From {{ selected_release_year_start }}
-                                {% elif selected_release_year_end %}
-                                    Until {{ selected_release_year_end }}
+                                  data-date-range="{{ search_selected_release_year_start|default:'' }}-{{ search_selected_release_year_end|default:'' }}">
+                                {% if search_selected_release_year_start and search_selected_release_year_end %}
+                                    {{ search_selected_release_year_start }} - {{ search_selected_release_year_end }}
+                                {% elif search_selected_release_year_start %}
+                                    From {{ search_selected_release_year_start }}
+                                {% elif search_selected_release_year_end %}
+                                    Until {{ search_selected_release_year_end }}
                                 {% endif %}
                                 <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
                             </span>
@@ -856,7 +864,7 @@
                         <input type="range"
                                min="{{ years_range.min_year }}"
                                max="{{ years_range.max_year }}"
-                               value="{{ selected_release_year_start|default:years_range.min_year }}"
+                               value="{{ search_selected_release_year_start|default:years_range.min_year }}"
                                class="slider-range"
                                id="search-year-range-slider-min"
                                oninput="updateSearchYearRange('min')">
@@ -864,17 +872,17 @@
                         <input type="range"
                                min="{{ years_range.min_year }}"
                                max="{{ years_range.max_year }}"
-                               value="{{ selected_release_year_end|default:years_range.max_year }}"
+                               value="{{ search_selected_release_year_end|default:years_range.max_year }}"
                                class="slider-range"
                                id="search-year-range-slider-max"
                                oninput="updateSearchYearRange('max')">
 
                         <div class="range-values">
                             <div class="range-min">
-                                <span id="search-min-year-value">{{ selected_release_year_start|default:years_range.min_year }}</span>
+                                <span id="search-min-year-value">{{ search_selected_release_year_start|default:years_range.min_year }}</span>
                             </div>
                             <div class="range-max">
-                                <span id="search-max-year-value">{{ selected_release_year_end|default:years_range.max_year }}</span>
+                                <span id="search-max-year-value">{{ search_selected_release_year_end|default:years_range.max_year }}</span>
                             </div>
                         </div>
 
@@ -892,7 +900,7 @@
                                    class="year-input"
                                    min="{{ years_range.min_year }}"
                                    max="{{ years_range.max_year }}"
-                                   value="{{ selected_release_year_start|default:'' }}"
+                                   value="{{ search_selected_release_year_start|default:'' }}"
                                    placeholder="From year..."
                                    onchange="updateSearchYearFromInput('start')">
                         </div>
@@ -904,7 +912,7 @@
                                    class="year-input"
                                    min="{{ years_range.min_year }}"
                                    max="{{ years_range.max_year }}"
-                                   value="{{ selected_release_year_end|default:'' }}"
+                                   value="{{ search_selected_release_year_end|default:'' }}"
                                    placeholder="To year..."
                                    onchange="updateSearchYearFromInput('end')">
                         </div>
