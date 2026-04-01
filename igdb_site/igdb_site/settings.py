@@ -177,10 +177,10 @@ IGDB_CLIENT_SECRET = os.getenv('IGDB_CLIENT_SECRET')
 RAWG_API_KEY = os.getenv('RAWG_API_KEY')
 STEAM_API_KEY = os.getenv('STEAM_API_KEY')
 
-# GigaChat API Configuration - загружаем из .env
-GIGACHAT_CLIENT_ID = os.getenv('GIGACHAT_CLIENT_ID')
-GIGACHAT_CLIENT_SECRET = os.getenv('GIGACHAT_CLIENT_SECRET')
-GIGACHAT_AUTH_KEY = os.getenv('GIGACHAT_AUTH_KEY')
+# Pollinations.AI API Configuration
+POLLINATIONS_API_KEY = os.getenv('POLLINATIONS_API_KEY')
+POLLINATIONS_DEFAULT_MODEL = 'openai'
+POLLINATIONS_TIMEOUT = 30
 
 
 # ============================================
