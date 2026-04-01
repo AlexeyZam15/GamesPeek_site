@@ -21,6 +21,15 @@ urlpatterns = [
     path('games/<int:game_id>/analyze/found-items/', views.get_found_keywords, name='get_found_keywords'),
     # НОВЫЙ URL ДЛЯ НОРМАЛИЗАЦИИ
     path('games/normalize-keyword/', views.normalize_keyword, name='normalize_keyword'),
+
+    # НОВЫЕ AJAX URL ДЛЯ ДОБАВЛЕНИЯ/УДАЛЕНИЯ КЛЮЧЕВЫХ СЛОВ БЕЗ ПЕРЕЗАГРУЗКИ
+    path('games/<int:game_id>/analyze/add-keyword-ajax/', views.add_keyword_ajax, name='add_keyword_ajax'),
+    path('games/<int:game_id>/analyze/delete-keyword-ajax/', views.delete_keyword_ajax, name='delete_keyword_ajax'),
+    path('games/<int:game_id>/analyze/ajax/', views.analyze_game_ajax, name='analyze_game_ajax'),
+
+    # НОВЫЙ URL ДЛЯ УДАЛЕНИЯ ТЕМЫ ИЗ ИГРЫ
+    path('games/<int:game_id>/remove-theme/<int:theme_id>/', views.remove_theme_from_game,
+         name='remove_theme_from_game'),
 ]
 
 # ОБЯЗАТЕЛЬНО: добавляем статические и медиа файлы ТОЛЬКО в режиме DEBUG

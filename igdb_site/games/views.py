@@ -20,15 +20,19 @@ from .views_parts.other_views import (
     keyword_category_view,
     game_search,
     auto_login_admin,
+    remove_theme_from_game,
 )
 from .views_parts.analyze_views import (
     analyze_single_game,
+    analyze_game_ajax,
     clear_analysis_results,
     is_staff_or_superuser,
     delete_keyword,
     get_current_keywords,
     get_found_keywords,
-    normalize_keyword,  # ← ДОБАВЛЯЕМ ЭТУ СТРОКУ
+    normalize_keyword,
+    add_keyword_ajax,
+    delete_keyword_ajax,
 )
 from .views_parts.base_views import (
     # Helper classes
@@ -72,12 +76,16 @@ __all__ = [
     'game_search',
     'auto_login_admin',
     'analyze_single_game',
+    'analyze_game_ajax',
     'clear_analysis_results',
     'is_staff_or_superuser',
     'delete_keyword',
     'get_current_keywords',
     'get_found_keywords',
-    'normalize_keyword',  # ← ДОБАВЛЯЕМ ЭТУ СТРОКУ
+    'normalize_keyword',
+    'add_keyword_ajax',
+    'delete_keyword_ajax',
+    'remove_theme_from_game',
 
     # Helper classes
     'SimpleSourceGame',
@@ -112,4 +120,6 @@ __all__ = [
 
     # Year range
     'get_release_years_range',
+
+    '_apply_search_filters',
 ]

@@ -1,6 +1,9 @@
-// games/static/games/js/game_list/filters-sort.js
+// games/static/games/js/game_list/filters_js/filters-sort.js
 
-// Добавляем служебный объект для таймеров
+console.log('========================================');
+console.log('!!! FILTERS-SORT.JS VERSION 7.0 - REMOVED SIZE LIMIT FOR PLATFORMS !!!');
+console.log('========================================');
+
 const FilterSortDebugTimer = {
     marks: {},
     start(label) {
@@ -20,200 +23,368 @@ const FilterSortDebugTimer = {
 };
 
 const FilterSort = {
-    // Список всех типов фильтров для обработки
-    filterTypes: [
-        // Search Filters (оригинальные)
-        { container: '.platform-grid', itemClass: 'platform-item', checkboxClass: 'platform-checkbox' },
-        { container: '.game-type-grid', itemClass: 'game-type-item', checkboxClass: 'game-type-checkbox' },
-
-        // Search Filters (новые с префиксом search-)
-        { container: '.search-genre-grid', itemClass: 'search-genre-item', checkboxClass: 'search-genre-checkbox' },
-        { container: '.search-keyword-grid', itemClass: 'search-keyword-item', checkboxClass: 'search-keyword-checkbox' },
-        { container: '.search-theme-grid', itemClass: 'search-theme-item', checkboxClass: 'search-theme-checkbox' },
-        { container: '.search-perspective-grid', itemClass: 'search-perspective-item', checkboxClass: 'search-perspective-checkbox' },
-        { container: '.search-game-mode-grid', itemClass: 'search-game-mode-item', checkboxClass: 'search-game-mode-checkbox' },
-        { container: '.search-engine-grid', itemClass: 'search-engine-item', checkboxClass: 'search-engine-checkbox' },
-
-        // Similarity Filters (оригинальные)
-        { container: '.genre-grid', itemClass: 'genre-item', checkboxClass: 'genre-checkbox' },
-        { container: '.keyword-grid', itemClass: 'keyword-item', checkboxClass: 'keyword-checkbox' },
-        { container: '.theme-grid', itemClass: 'theme-item', checkboxClass: 'theme-checkbox' },
-        { container: '.perspective-grid', itemClass: 'perspective-item', checkboxClass: 'perspective-checkbox' },
-        { container: '.game-mode-grid', itemClass: 'game-mode-item', checkboxClass: 'game-mode-checkbox' },
-        { container: '.engine-grid', itemClass: 'engine-item', checkboxClass: 'engine-checkbox' }
-    ],
-
-    // Флаг для предотвращения множественных сортировок
     isSorting: false,
 
-    // Основная функция сортировки
+    // Фильтры для сортировки
+    filterTypes: [
+        // SEARCH FILTERS - платформы
+        {
+            name: 'search-platforms',
+            container: '.search-platform-grid',
+            itemClass: 'search-platform-item',
+            checkboxClass: 'search-platform-checkbox',
+            dataAttr: 'data-platform-name',
+            sortBySelected: true,
+            maxItems: 500  // Увеличиваем лимит для платформ
+        },
+        // SEARCH FILTERS - game types
+        {
+            name: 'search-game-types',
+            container: '.search-game-type-grid',
+            itemClass: 'search-game-type-item',
+            checkboxClass: 'search-game-type-checkbox',
+            dataAttr: 'data-game-type-name',
+            sortBySelected: true,
+            maxItems: 500
+        },
+        // SEARCH FILTERS - genres
+        {
+            name: 'search-genres',
+            container: '.search-genre-grid',
+            itemClass: 'search-genre-item',
+            checkboxClass: 'search-genre-checkbox',
+            dataAttr: 'data-genre-name',
+            sortBySelected: true,
+            maxItems: 500
+        },
+        // SEARCH FILTERS - themes
+        {
+            name: 'search-themes',
+            container: '.search-theme-grid',
+            itemClass: 'search-theme-item',
+            checkboxClass: 'search-theme-checkbox',
+            dataAttr: 'data-theme-name',
+            sortBySelected: true,
+            maxItems: 500
+        },
+        // SEARCH FILTERS - perspectives
+        {
+            name: 'search-perspectives',
+            container: '.search-perspective-grid',
+            itemClass: 'search-perspective-item',
+            checkboxClass: 'search-perspective-checkbox',
+            dataAttr: 'data-perspective-name',
+            sortBySelected: true,
+            maxItems: 500
+        },
+        // SEARCH FILTERS - game modes
+        {
+            name: 'search-game-modes',
+            container: '.search-game-mode-grid',
+            itemClass: 'search-game-mode-item',
+            checkboxClass: 'search-game-mode-checkbox',
+            dataAttr: 'data-game-mode-name',
+            sortBySelected: true,
+            maxItems: 500
+        },
+        // SEARCH FILTERS - engines
+        {
+            name: 'search-engines',
+            container: '.search-engine-grid',
+            itemClass: 'search-engine-item',
+            checkboxClass: 'search-engine-checkbox',
+            dataAttr: 'data-engine-name',
+            sortBySelected: true,
+            maxItems: 500
+        },
+
+        // SIMILARITY FILTERS - platforms
+        {
+            name: 'platforms',
+            container: '.platform-grid',
+            itemClass: 'platform-item',
+            checkboxClass: 'platform-checkbox',
+            dataAttr: 'data-platform-name',
+            sortBySelected: true,
+            maxItems: 500
+        },
+        // SIMILARITY FILTERS - game types
+        {
+            name: 'game-types',
+            container: '.game-type-grid',
+            itemClass: 'game-type-item',
+            checkboxClass: 'game-type-checkbox',
+            dataAttr: 'data-game-type-name',
+            sortBySelected: true,
+            maxItems: 500
+        },
+        // SIMILARITY FILTERS - genres
+        {
+            name: 'genres',
+            container: '.genre-grid',
+            itemClass: 'genre-item',
+            checkboxClass: 'genre-checkbox',
+            dataAttr: 'data-genre-name',
+            sortBySelected: true,
+            maxItems: 500
+        },
+        // SIMILARITY FILTERS - themes
+        {
+            name: 'themes',
+            container: '.theme-grid',
+            itemClass: 'theme-item',
+            checkboxClass: 'theme-checkbox',
+            dataAttr: 'data-theme-name',
+            sortBySelected: true,
+            maxItems: 500
+        },
+        // SIMILARITY FILTERS - perspectives
+        {
+            name: 'perspectives',
+            container: '.perspective-grid',
+            itemClass: 'perspective-item',
+            checkboxClass: 'perspective-checkbox',
+            dataAttr: 'data-perspective-name',
+            sortBySelected: true,
+            maxItems: 500
+        },
+        // SIMILARITY FILTERS - game modes
+        {
+            name: 'game-modes',
+            container: '.game-mode-grid',
+            itemClass: 'game-mode-item',
+            checkboxClass: 'game-mode-checkbox',
+            dataAttr: 'data-game-mode-name',
+            sortBySelected: true,
+            maxItems: 500
+        },
+        // SIMILARITY FILTERS - engines
+        {
+            name: 'engines',
+            container: '.engine-grid',
+            itemClass: 'engine-item',
+            checkboxClass: 'engine-checkbox',
+            dataAttr: 'data-engine-name',
+            sortBySelected: true,
+            maxItems: 500
+        }
+    ],
+
     sortFilterLists() {
         if (this.isSorting) return;
-
         this.isSorting = true;
-        FilterSortDebugTimer.start('sortFilterLists');
-        console.log('Sorting filter lists...');
 
-        try {
-            this.filterTypes.forEach(filterType => {
-                this.sortSingleFilterList(filterType);
+        FilterSortDebugTimer.start('sortFilterLists');
+        console.log('FilterSort: Starting with platform sorting...');
+
+        // Логируем размеры фильтров
+        this.logFilterSizes();
+
+        // Специальная отладка для платформ
+        const searchPlatformContainer = document.querySelector('.search-platform-grid');
+        const similarityPlatformContainer = document.querySelector('.platform-grid');
+
+        console.log('Search platforms container found:', !!searchPlatformContainer);
+        if (searchPlatformContainer) {
+            const platformItems = searchPlatformContainer.querySelectorAll('.search-platform-item');
+            const selectedPlatforms = searchPlatformContainer.querySelectorAll('.search-platform-checkbox:checked');
+            console.log(`Search platforms: ${platformItems.length} items, ${selectedPlatforms.length} selected`);
+            selectedPlatforms.forEach(cb => {
+                console.log(`  Selected platform ID: ${cb.value}`);
             });
-        } catch (error) {
-            console.error('Error sorting filter lists:', error);
-        } finally {
-            this.isSorting = false;
-            FilterSortDebugTimer.end('sortFilterLists');
+        }
+
+        console.log('Similarity platforms container found:', !!similarityPlatformContainer);
+        if (similarityPlatformContainer) {
+            const platformItems = similarityPlatformContainer.querySelectorAll('.platform-item');
+            const selectedPlatforms = similarityPlatformContainer.querySelectorAll('.platform-checkbox:checked');
+            console.log(`Similarity platforms: ${platformItems.length} items, ${selectedPlatforms.length} selected`);
+            selectedPlatforms.forEach(cb => {
+                console.log(`  Selected platform ID: ${cb.value}`);
+            });
+        }
+
+        // Обрабатываем каждый фильтр
+        this.filterTypes.forEach(filter => {
+            const container = document.querySelector(filter.container);
+            if (container) {
+                const items = container.querySelectorAll(`.${filter.itemClass}`);
+                const maxItems = filter.maxItems || 100;  // По умолчанию 100, если не указано
+
+                if (items.length > 0 && items.length <= maxItems) {
+                    console.log(`Processing ${filter.name}: ${items.length} items`);
+                    this.sortSingleFilterList(container, items, filter);
+                } else if (items.length > maxItems) {
+                    console.log(`FilterSort: ${filter.name} has ${items.length} items, limit is ${maxItems}, skipping sort`);
+                }
+            }
+        });
+
+        this.isSorting = false;
+        FilterSortDebugTimer.end('sortFilterLists');
+    },
+
+    logFilterSizes() {
+        console.log('FilterSort: Filter sizes:');
+        this.filterTypes.forEach(filter => {
+            const container = document.querySelector(filter.container);
+            if (container) {
+                const items = container.querySelectorAll(`.${filter.itemClass}`);
+                if (items.length > 0) {
+                    const selectedCount = this.countSelectedItems(container, filter);
+                    console.log(`  ${filter.name}: ${items.length} items (${selectedCount} selected)`);
+                }
+            }
+        });
+    },
+
+    countSelectedItems(container, filter) {
+        const selectedCheckboxes = container.querySelectorAll(`.${filter.checkboxClass}:checked`);
+        return selectedCheckboxes.length;
+    },
+
+    sortSingleFilterList(container, items, filter) {
+        if (filter.sortBySelected) {
+            // Сортируем: выбранные вверху, затем остальные по алфавиту
+            this.sortWithSelectedFirst(container, items, filter);
+        } else {
+            // Простая сортировка по алфавиту
+            this.sortAlphabetically(container, items, filter);
         }
     },
 
-    // Сортировка одного списка фильтров
-    sortSingleFilterList(filterType) {
-        const container = document.querySelector(filterType.container);
-        if (!container) {
-            console.log(`Container ${filterType.container} not found`);
-            return;
-        }
+    sortWithSelectedFirst(container, items, filter) {
+        FilterSortDebugTimer.start(`sortWithSelectedFirst_${filter.name}`);
 
-        // Получаем ВСЕ элементы, включая скрытые через поиск
-        const allItems = Array.from(container.querySelectorAll(`.${filterType.itemClass}`));
-        if (allItems.length === 0) return;
-
-        // Разделяем на выбранные и невыбранные
+        // Собираем выбранные и невыбранные элементы
         const selectedItems = [];
         const unselectedItems = [];
 
-        allItems.forEach(item => {
-            const checkbox = item.querySelector(`.${filterType.checkboxClass}`);
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            const checkbox = item.querySelector(`.${filter.checkboxClass}`);
             if (checkbox && checkbox.checked) {
                 selectedItems.push(item);
             } else {
                 unselectedItems.push(item);
             }
-        });
-
-        console.log(`Sorting ${filterType.container}: Selected: ${selectedItems.length}, Unselected: ${unselectedItems.length}`);
-
-        // Сохраняем текущий порядок элементов перед сортировкой
-        const currentOrder = allItems.map(item => this.getItemId(item));
-
-        // Создаем новый порядок: выбранные сначала, потом невыбранные
-        const newOrder = [
-            ...selectedItems.map(item => this.getItemId(item)),
-            ...unselectedItems.map(item => this.getItemId(item))
-        ];
-
-        // Проверяем, нужно ли менять порядок
-        if (this.needToUpdateOrder(currentOrder, newOrder)) {
-            this.updateContainerOrder(container, [...selectedItems, ...unselectedItems]);
-        }
-    },
-
-    // Получение ID элемента (значение чекбокса)
-    getItemId(item) {
-        const checkbox = item.querySelector('input[type="checkbox"]');
-        return checkbox ? checkbox.value : 'unknown';
-    },
-
-    // Проверка необходимости обновления порядка (по ID элементов)
-    needToUpdateOrder(currentOrder, newOrder) {
-        if (currentOrder.length !== newOrder.length) {
-            console.log('Different lengths, need update');
-            return true;
         }
 
-        for (let i = 0; i < currentOrder.length; i++) {
-            if (currentOrder[i] !== newOrder[i]) {
-                console.log(`Order changed at position ${i}: ${currentOrder[i]} -> ${newOrder[i]}`);
-                return true;
+        console.log(`FilterSort: ${filter.name} - found ${selectedItems.length} selected items out of ${items.length}`);
+
+        // Если нет выбранных - пропускаем
+        if (selectedItems.length === 0) {
+            FilterSortDebugTimer.end(`sortWithSelectedFirst_${filter.name}`);
+            return;
+        }
+
+        // Проверяем, не находятся ли выбранные уже в начале
+        let alreadyAtStart = true;
+        for (let i = 0; i < selectedItems.length; i++) {
+            if (items[i] !== selectedItems[i]) {
+                alreadyAtStart = false;
+                break;
             }
         }
 
-        return false;
+        if (alreadyAtStart) {
+            console.log(`FilterSort: ${filter.name} - selected items already at top, skipping`);
+            FilterSortDebugTimer.end(`sortWithSelectedFirst_${filter.name}`);
+            return;
+        }
+
+        // Сортируем выбранные элементы по имени (алфавитно)
+        selectedItems.sort((a, b) => {
+            const nameA = this.getItemName(a, filter);
+            const nameB = this.getItemName(b, filter);
+            return nameA.localeCompare(nameB);
+        });
+
+        // Сортируем невыбранные элементы по имени (алфавитно)
+        unselectedItems.sort((a, b) => {
+            const nameA = this.getItemName(a, filter);
+            const nameB = this.getItemName(b, filter);
+            return nameA.localeCompare(nameB);
+        });
+
+        // Объединяем: сначала выбранные, потом остальные
+        const sortedItems = [...selectedItems, ...unselectedItems];
+
+        // Обновляем порядок в DOM
+        this.updateContainerOrder(container, sortedItems);
+
+        console.log(`FilterSort: ${filter.name} - moved ${selectedItems.length} selected items to top`);
+        FilterSortDebugTimer.end(`sortWithSelectedFirst_${filter.name}`);
     },
 
-    // Обновление порядка элементов в контейнере (оптимизированная версия)
+    sortAlphabetically(container, items, filter) {
+        // Сортируем по имени
+        items.sort((a, b) => {
+            const nameA = this.getItemName(a, filter);
+            const nameB = this.getItemName(b, filter);
+            return nameA.localeCompare(nameB);
+        });
+
+        this.updateContainerOrder(container, items);
+        console.log(`FilterSort: ${filter.name} - sorted alphabetically`);
+    },
+
+    getItemName(item, filter) {
+        // 1. Пытаемся получить из data-атрибута
+        if (filter.dataAttr) {
+            const nameFromAttr = item.getAttribute(filter.dataAttr);
+            if (nameFromAttr) return nameFromAttr;
+        }
+
+        // 2. Пытаемся получить из текста лейбла
+        const label = item.querySelector('label');
+        if (label) {
+            let labelText = label.textContent.trim();
+            // Убираем количество игр в скобках если есть
+            labelText = labelText.replace(/\s*\(\d+\)\s*$/, '').trim();
+            if (labelText) return labelText;
+        }
+
+        // 3. Пытаемся получить из текста элемента
+        let text = item.textContent.trim();
+        text = text.replace(/\s*\(\d+\)\s*$/, '').trim();
+
+        return text || 'unknown';
+    },
+
     updateContainerOrder(container, sortedItems) {
-        FilterSortDebugTimer.start('updateContainerOrder');
         try {
-            // Используем DocumentFragment для минимальной перерисовки
+            // Сохраняем текущий скролл
+            const scrollTop = container.scrollTop;
+
             const fragment = document.createDocumentFragment();
-
-            sortedItems.forEach(item => {
-                if (item && item.nodeType === Node.ELEMENT_NODE) {
-                    fragment.appendChild(item);
+            for (let i = 0; i < sortedItems.length; i++) {
+                if (sortedItems[i] && sortedItems[i].nodeType === Node.ELEMENT_NODE) {
+                    fragment.appendChild(sortedItems[i]);
                 }
-            });
+            }
 
-            // Быстрая замена содержимого
+            // Очищаем и заполняем заново
             container.innerHTML = '';
             container.appendChild(fragment);
 
-            console.log(`Updated order for ${container.className}, ${sortedItems.length} items`);
+            // Восстанавливаем скролл
+            container.scrollTop = scrollTop;
+
+            console.log(`FilterSort: Updated container order, restored scroll position to ${scrollTop}`);
         } catch (error) {
             console.error('Error updating container order:', error);
         }
-        FilterSortDebugTimer.end('updateContainerOrder');
     },
 
-    // Быстрая сортировка для одного типа (оптимизированная версия)
-    quickSortFilterList(containerSelector, itemSelector, checkboxSelector) {
-        const container = document.querySelector(containerSelector);
-        if (!container) return;
-
-        const items = Array.from(container.querySelectorAll(itemSelector));
-        if (items.length === 0) return;
-
-        const selected = [];
-        const unselected = [];
-
-        items.forEach(item => {
-            const checkbox = item.querySelector(checkboxSelector);
-            if (checkbox && checkbox.checked) {
-                selected.push(item);
-            } else {
-                unselected.push(item);
-            }
-        });
-
-        // Обновляем если есть выбранные элементы
-        if (selected.length > 0) {
-            this.updateContainerOrder(container, [...selected, ...unselected]);
-        }
-    },
-
-    // Сортировка конкретного типа фильтра по названию
-    sortSpecificFilter(filterName) {
-        console.log(`Sorting specific filter: ${filterName}`);
-
-        const filterMap = {
-            'genres': { container: '.genre-grid', itemClass: 'genre-item', checkboxClass: 'genre-checkbox' },
-            'keywords': { container: '.keyword-grid', itemClass: 'keyword-item', checkboxClass: 'keyword-checkbox' },
-            'platforms': { container: '.platform-grid', itemClass: 'platform-item', checkboxClass: 'platform-checkbox' },
-            'themes': { container: '.theme-grid', itemClass: 'theme-item', checkboxClass: 'theme-checkbox' },
-            'perspectives': { container: '.perspective-grid', itemClass: 'perspective-item', checkboxClass: 'perspective-checkbox' },
-            'game_modes': { container: '.game-mode-grid', itemClass: 'game-mode-item', checkboxClass: 'game-mode-checkbox' },
-            'game_types': { container: '.game-type-grid', itemClass: 'game-type-item', checkboxClass: 'game-type-checkbox' },
-            'engines': { container: '.engine-grid', itemClass: 'engine-item', checkboxClass: 'engine-checkbox' },
-            // Search Filters версии
-            'search_genres': { container: '.search-genre-grid', itemClass: 'search-genre-item', checkboxClass: 'search-genre-checkbox' },
-            'search_keywords': { container: '.search-keyword-grid', itemClass: 'search-keyword-item', checkboxClass: 'search-keyword-checkbox' },
-            'search_themes': { container: '.search-theme-grid', itemClass: 'search-theme-item', checkboxClass: 'search-theme-checkbox' },
-            'search_perspectives': { container: '.search-perspective-grid', itemClass: 'search-perspective-item', checkboxClass: 'search-perspective-checkbox' },
-            'search_game_modes': { container: '.search-game-mode-grid', itemClass: 'search-game-mode-item', checkboxClass: 'search-game-mode-checkbox' },
-            'search_engines': { container: '.search-engine-grid', itemClass: 'search-engine-item', checkboxClass: 'search-engine-checkbox' }
-        };
-
-        const filterType = filterMap[filterName];
-        if (filterType) {
-            this.sortSingleFilterList(filterType);
-        }
-    },
-
-    // Принудительная сортировка всех списков (после поиска и т.д.)
     forceSortAllLists() {
-        console.log('Force sorting all lists...');
-        this.isSorting = false; // Сбрасываем флаг
+        console.log('FilterSort: Force sorting...');
+        this.isSorting = false;
         this.sortFilterLists();
+    },
+
+    clearCache() {
+        console.log('FilterSort: Cache cleared');
     }
 };
 

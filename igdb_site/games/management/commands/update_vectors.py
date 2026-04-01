@@ -15,7 +15,8 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS('СУПЕР-БЫСТРОЕ ОБНОВЛЕНИЕ ВЕКТОРОВ'))
         self.stdout.write(self.style.SUCCESS(f'{"=" * 60}\n'))
 
-        # Получаем статистику ДО обновления
+        self._check_and_clear_locks()
+
         with connection.cursor() as cursor:
             cursor.execute("SELECT COUNT(*) FROM games_game")
             total_games = cursor.fetchone()[0]
@@ -42,16 +43,16 @@ class Command(BaseCommand):
                                   COUNT(engine_ids)      as non_empty_engines
                            FROM games_game
                            WHERE genre_ids != '{}' OR 
-                    keyword_ids != '{}' OR 
-                    theme_ids != '{}' OR 
-                    perspective_ids != '{}' OR 
-                    developer_ids != '{}' OR 
-                    game_mode_ids != '{}' OR 
-                    engine_ids != '{}'
+                      keyword_ids != '{}' OR 
+                      theme_ids != '{}' OR 
+                      perspective_ids != '{}' OR 
+                      developer_ids != '{}' OR 
+                      game_mode_ids != '{}' OR 
+                      engine_ids != '{}'
                            """)
             non_empty_stats = cursor.fetchone()
 
-        self.stdout.write(self.style.WARNING(f'📊 Статистика ДО обновления:'))
+        self.stdout.write(self.style.WARNING(f'\n📊 Статистика ДО обновления:'))
         self.stdout.write(f'   Всего игр в базе: {total_games}')
         self.stdout.write(f'   Игр с непустыми векторами: {non_empty_stats[0] if non_empty_stats else 0}')
         self.stdout.write(f'   Пустые genre_ids: {empty_stats[0]}')
@@ -65,58 +66,77 @@ class Command(BaseCommand):
         self.stdout.write(self.style.WARNING(f'\n🔄 Начинаю обновление векторов...'))
 
         with connection.cursor() as cursor:
-            # Один гигантский запрос, который обновляет всё сразу
+            self.stdout.write('   📦 Оптимизированное обновление через CTE...')
+
             cursor.execute("""
-                           WITH genre_agg AS (SELECT game_id, array_agg(genre_id ORDER BY genre_id) as genre_ids
-                                              FROM games_game_genres
-                                              GROUP BY game_id),
-                                keyword_agg AS (SELECT game_id, array_agg(keyword_id ORDER BY keyword_id) as keyword_ids
-                                                FROM games_game_keywords
-                                                GROUP BY game_id),
-                                theme_agg AS (SELECT game_id, array_agg(theme_id ORDER BY theme_id) as theme_ids
-                                              FROM games_game_themes
-                                              GROUP BY game_id),
-                                perspective_agg
-                                    AS (SELECT game_id, array_agg(playerperspective_id ORDER BY playerperspective_id) as perspective_ids
-                                        FROM games_game_player_perspectives
-                                        GROUP BY game_id),
-                                developer_agg
-                                    AS (SELECT game_id, array_agg(company_id ORDER BY company_id) as developer_ids
-                                        FROM games_game_developers
-                                        GROUP BY game_id),
-                                gamemode_agg
-                                    AS (SELECT game_id, array_agg(gamemode_id ORDER BY gamemode_id) as game_mode_ids
-                                        FROM games_game_game_modes
-                                        GROUP BY game_id),
-                                engine_agg
-                                    AS (SELECT game_id, array_agg(gameengine_id ORDER BY gameengine_id) as engine_ids
-                                        FROM games_game_engines
-                                        GROUP BY game_id)
+                           WITH
+                               -- Собираем все связи в одной CTE для минимизации сканирований
+                               all_relations AS (SELECT game_id, 'genre' as rel_type, genre_id as rel_id
+                                                 FROM games_game_genres
+                                                 UNION ALL
+                                                 SELECT game_id, 'keyword', keyword_id
+                                                 FROM games_game_keywords
+                                                 UNION ALL
+                                                 SELECT game_id, 'theme', theme_id
+                                                 FROM games_game_themes
+                                                 UNION ALL
+                                                 SELECT game_id, 'perspective', playerperspective_id
+                                                 FROM games_game_player_perspectives
+                                                 UNION ALL
+                                                 SELECT game_id, 'developer', company_id
+                                                 FROM games_game_developers
+                                                 UNION ALL
+                                                 SELECT game_id, 'gamemode', gamemode_id
+                                                 FROM games_game_game_modes
+                                                 UNION ALL
+                                                 SELECT game_id, 'engine', gameengine_id
+                                                 FROM games_game_engines),
+                               -- Агрегируем данные за один проход
+                               aggregated AS (SELECT game_id,
+                                                     array_agg(DISTINCT CASE WHEN rel_type = 'genre' THEN rel_id END) FILTER (WHERE rel_type = 'genre') as genre_ids, array_agg(DISTINCT CASE WHEN rel_type = 'keyword' THEN rel_id END) FILTER (WHERE rel_type = 'keyword') as keyword_ids, array_agg(DISTINCT CASE WHEN rel_type = 'theme' THEN rel_id END) FILTER (WHERE rel_type = 'theme') as theme_ids, array_agg(DISTINCT CASE WHEN rel_type = 'perspective' THEN rel_id END) FILTER (WHERE rel_type = 'perspective') as perspective_ids, array_agg(DISTINCT CASE WHEN rel_type = 'developer' THEN rel_id END) FILTER (WHERE rel_type = 'developer') as developer_ids, array_agg(DISTINCT CASE WHEN rel_type = 'gamemode' THEN rel_id END) FILTER (WHERE rel_type = 'gamemode') as game_mode_ids, array_agg(DISTINCT CASE WHEN rel_type = 'engine' THEN rel_id END) FILTER (WHERE rel_type = 'engine') as engine_ids
+                                              FROM all_relations
+                                              GROUP BY game_id)
+                           -- Единое обновление для всех игр
                            UPDATE games_game g
-                           SET genre_ids       = COALESCE(ga.genre_ids, ARRAY[]::integer[]),
-                               keyword_ids     = COALESCE(ka.keyword_ids, ARRAY[]::integer[]),
-                               theme_ids       = COALESCE(ta.theme_ids, ARRAY[]::integer[]),
-                               perspective_ids = COALESCE(pa.perspective_ids, ARRAY[]::integer[]),
-                               developer_ids   = COALESCE(da.developer_ids, ARRAY[]::integer[]),
-                               game_mode_ids   = COALESCE(gma.game_mode_ids, ARRAY[]::integer[]),
-                               engine_ids      = COALESCE(ea.engine_ids, ARRAY[]::integer[]) FROM games_game g2
-                LEFT JOIN genre_agg ga
-                           ON g2.id = ga.game_id
-                               LEFT JOIN keyword_agg ka ON g2.id = ka.game_id
-                               LEFT JOIN theme_agg ta ON g2.id = ta.game_id
-                               LEFT JOIN perspective_agg pa ON g2.id = pa.game_id
-                               LEFT JOIN developer_agg da ON g2.id = da.game_id
-                               LEFT JOIN gamemode_agg gma ON g2.id = gma.game_id
-                               LEFT JOIN engine_agg ea ON g2.id = ea.game_id
-                           WHERE g.id = g2.id
+                           SET genre_ids       = COALESCE(a.genre_ids, ARRAY[]::integer[]),
+                               keyword_ids     = COALESCE(a.keyword_ids, ARRAY[]::integer[]),
+                               theme_ids       = COALESCE(a.theme_ids, ARRAY[]::integer[]),
+                               perspective_ids = COALESCE(a.perspective_ids, ARRAY[]::integer[]),
+                               developer_ids   = COALESCE(a.developer_ids, ARRAY[]::integer[]),
+                               game_mode_ids   = COALESCE(a.game_mode_ids, ARRAY[]::integer[]),
+                               engine_ids      = COALESCE(a.engine_ids, ARRAY[]::integer[]) FROM aggregated a
+                           WHERE g.id = a.game_id
                            """)
 
-            updated = cursor.rowcount
+            updated_with_relations = cursor.rowcount
 
-        # Очищаем кэш
+            cursor.execute("""
+                           UPDATE games_game
+                           SET genre_ids = ARRAY[]::integer[],
+                    keyword_ids = ARRAY[]::integer[],
+                    theme_ids = ARRAY[]::integer[],
+                    perspective_ids = ARRAY[]::integer[],
+                    developer_ids = ARRAY[]::integer[],
+                    game_mode_ids = ARRAY[]::integer[],
+                    engine_ids = ARRAY[]::integer[]
+                           WHERE id NOT IN (SELECT DISTINCT game_id FROM (
+                               SELECT game_id FROM games_game_genres UNION
+                               SELECT game_id FROM games_game_keywords UNION
+                               SELECT game_id FROM games_game_themes UNION
+                               SELECT game_id FROM games_game_player_perspectives UNION
+                               SELECT game_id FROM games_game_developers UNION
+                               SELECT game_id FROM games_game_game_modes UNION
+                               SELECT game_id FROM games_game_engines
+                               ) t)
+                           """)
+
+            updated_without_relations = cursor.rowcount
+
+            self.stdout.write(f'   ✅ Обновлено игр со связями: {updated_with_relations:,}')
+            self.stdout.write(f'   ✅ Очищено игр без связей: {updated_without_relations:,}')
+
         cache.clear()
 
-        # Получаем статистику ПОСЛЕ обновления
         with connection.cursor() as cursor:
             cursor.execute("""
                            SELECT COUNT(CASE WHEN genre_ids != '{}' THEN 1 END)       as non_empty_genres,
@@ -132,20 +152,20 @@ class Command(BaseCommand):
 
         total_time = time.time() - start_time
 
-        self.stdout.write(self.style.SUCCESS(f'\n✅ Обновлено записей: {updated}'))
+        self.stdout.write(
+            self.style.SUCCESS(f'\n✅ Обновлено записей: {updated_with_relations + updated_without_relations}'))
         self.stdout.write(self.style.SUCCESS(f'✅ Кэш очищен'))
         self.stdout.write(self.style.SUCCESS(f'⏱️  Время выполнения: {total_time:.2f} сек'))
 
         self.stdout.write(self.style.WARNING(f'\n📊 Статистика ПОСЛЕ обновления:'))
-        self.stdout.write(f'   Непустые genre_ids: {after_stats[0]}')
-        self.stdout.write(f'   Непустые keyword_ids: {after_stats[1]}')
-        self.stdout.write(f'   Непустые theme_ids: {after_stats[2]}')
-        self.stdout.write(f'   Непустые perspective_ids: {after_stats[3]}')
-        self.stdout.write(f'   Непустые developer_ids: {after_stats[4]}')
-        self.stdout.write(f'   Непустые game_mode_ids: {after_stats[5]}')
-        self.stdout.write(f'   Непустые engine_ids: {after_stats[6]}')
+        self.stdout.write(f'   Непустые genre_ids: {after_stats[0]:,}')
+        self.stdout.write(f'   Непустые keyword_ids: {after_stats[1]:,}')
+        self.stdout.write(f'   Непустые theme_ids: {after_stats[2]:,}')
+        self.stdout.write(f'   Непустые perspective_ids: {after_stats[3]:,}')
+        self.stdout.write(f'   Непустые developer_ids: {after_stats[4]:,}')
+        self.stdout.write(f'   Непустые game_mode_ids: {after_stats[5]:,}')
+        self.stdout.write(f'   Непустые engine_ids: {after_stats[6]:,}')
 
-        # Проверка консистентности
         with connection.cursor() as cursor:
             cursor.execute("""
                            SELECT COUNT(*)                                              as games_with_genres,
@@ -164,24 +184,75 @@ class Command(BaseCommand):
                                   (SELECT COUNT(*) FROM games_game_engines)             as total_engine_relations
                            FROM games_game
                            WHERE genre_ids != '{}' OR 
-                    keyword_ids != '{}' OR 
-                    theme_ids != '{}' OR 
-                    perspective_ids != '{}' OR 
-                    developer_ids != '{}' OR 
-                    game_mode_ids != '{}' OR 
-                    engine_ids != '{}'
+                      keyword_ids != '{}' OR 
+                      theme_ids != '{}' OR 
+                      perspective_ids != '{}' OR 
+                      developer_ids != '{}' OR 
+                      game_mode_ids != '{}' OR 
+                      engine_ids != '{}'
                            """)
             consistency = cursor.fetchone()
 
         self.stdout.write(self.style.WARNING(f'\n🔍 Проверка консистентности:'))
-        self.stdout.write(f'   Жанры: {consistency[0]} игр имеют {consistency[1]} связей')
-        self.stdout.write(f'   Ключевые слова: {consistency[2]} игр имеют {consistency[3]} связей')
-        self.stdout.write(f'   Темы: {consistency[4]} игр имеют {consistency[5]} связей')
-        self.stdout.write(f'   Перспективы: {consistency[6]} игр имеют {consistency[7]} связей')
-        self.stdout.write(f'   Разработчики: {consistency[8]} игр имеют {consistency[9]} связей')
-        self.stdout.write(f'   Режимы игры: {consistency[10]} игр имеют {consistency[11]} связей')
-        self.stdout.write(f'   Движки: {consistency[12]} игр имеют {consistency[13]} связей')
+        self.stdout.write(f'   Жанры: {consistency[0]:,} игр имеют {consistency[1]:,} связей')
+        self.stdout.write(f'   Ключевые слова: {consistency[2]:,} игр имеют {consistency[3]:,} связей')
+        self.stdout.write(f'   Темы: {consistency[4]:,} игр имеют {consistency[5]:,} связей')
+        self.stdout.write(f'   Перспективы: {consistency[6]:,} игр имеют {consistency[7]:,} связей')
+        self.stdout.write(f'   Разработчики: {consistency[8]:,} игр имеют {consistency[9]:,} связей')
+        self.stdout.write(f'   Режимы игры: {consistency[10]:,} игр имеют {consistency[11]:,} связей')
+        self.stdout.write(f'   Движки: {consistency[12]:,} игр имеют {consistency[13]:,} связей')
 
         self.stdout.write(self.style.SUCCESS(f'\n{"=" * 60}'))
         self.stdout.write(self.style.SUCCESS('ОБНОВЛЕНИЕ ЗАВЕРШЕНО'))
         self.stdout.write(self.style.SUCCESS(f'{"=" * 60}\n'))
+
+    def _check_and_clear_locks(self):
+        """Проверяет наличие блокировок и автоматически снимает их"""
+        self.stdout.write(self.style.WARNING('🔍 Проверка блокировок базы данных...'))
+
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                           SELECT a.pid,
+                                  l.mode,
+                                  l.relation::regclass as table_name, age(now(), a.query_start) as lock_age
+                           FROM pg_locks l
+                                    JOIN pg_stat_activity a ON l.pid = a.pid
+                           WHERE NOT l.granted
+                              OR (l.locktype = 'relation' AND l.mode LIKE '%ExclusiveLock%')
+                           ORDER BY lock_age DESC NULLS LAST
+                           """)
+
+            locks = cursor.fetchall()
+
+            if locks:
+                self.stdout.write(self.style.WARNING(f'   ⚠️ Найдено {len(locks)} активных блокировок:'))
+                for lock in locks[:5]:
+                    pid, mode, table_name, lock_age = lock
+                    self.stdout.write(f'      PID: {pid}, {mode}, Таблица: {table_name}, Возраст: {lock_age}')
+
+                self.stdout.write(self.style.WARNING('   🔓 Автоматически снимаю блокировки...'))
+
+                cursor.execute("""
+                               SELECT a.pid
+                               FROM pg_stat_activity a
+                               WHERE a.state = 'active'
+                                 AND a.pid != pg_backend_pid()
+                      AND (a.query_start < now() - interval '30 seconds' OR
+                           a.pid IN (SELECT l.pid FROM pg_locks l WHERE NOT l.granted))
+                               """)
+
+                pids = [row[0] for row in cursor.fetchall()]
+
+                if pids:
+                    for pid in pids:
+                        cursor.execute("SELECT pg_terminate_backend(%s)", [pid])
+                        self.stdout.write(f'      Завершен процесс PID: {pid}')
+
+                    self.stdout.write(self.style.SUCCESS(f'   ✅ Завершено {len(pids)} заблокированных процессов'))
+                    time.sleep(1)
+                else:
+                    self.stdout.write(self.style.WARNING('   ⚠️ Не найдено процессов для завершения'))
+            else:
+                self.stdout.write(self.style.SUCCESS('   ✅ Активных блокировок не найдено'))
+
+            self.stdout.write('')

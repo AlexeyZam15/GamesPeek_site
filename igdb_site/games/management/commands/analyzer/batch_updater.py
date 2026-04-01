@@ -64,15 +64,15 @@ class BatchUpdater:
             return 0
 
     def flush(self) -> int:
-        """Обновляет все накопленные игры максимально быстро через bulk операции"""
+        """Обновляет все накопленные игры с детальным логированием"""
         if not self.games_to_update:
+            if self.verbose:
+                print(f"\nℹ️ Батч пуст, нечего обновлять")
             return 0
 
         try:
             games_in_batch = len(self.games_to_update)
-
-            if self.verbose:
-                print(f"\n💾 Начинаем ОПТИМИЗИРОВАННОЕ обновление батча из {games_in_batch} игр")
+            print(f"\n💾 Начинаем ОПТИМИЗИРОВАННОЕ обновление батча из {games_in_batch} игр")
 
             # Разделяем на ключевые слова и обычные критерии
             keyword_games = []
@@ -84,24 +84,43 @@ class BatchUpdater:
                 else:
                     criteria_games.append(game_data)
 
+            print(f"   📊 Ключевые слова: {len(keyword_games)} игр")
+            print(f"   📊 Обычные критерии: {len(criteria_games)} игр")
+
             total_updated = 0
+            all_skipped = []
 
-            # ОПТИМИЗИРОВАННАЯ обработка ключевых слов (НОВЫЙ МЕТОД)
+            # Обработка ключевых слов
             if keyword_games:
-                keywords_updated = self._update_keywords_bulk(keyword_games)  # ← ВЫЗОВ НОВОГО МЕТОДА
-                if self.verbose:
-                    print(f"📊 Обновлено ключевых слов: {keywords_updated}")
+                keywords_updated, keywords_skipped = self._update_keywords_bulk(keyword_games)
+                print(f"\n📊 КЛЮЧЕВЫЕ СЛОВА:")
+                print(f"   ✅ Обновлено: {keywords_updated} игр")
+                print(f"   ⚠️ Пропущено: {len(keyword_games) - keywords_updated} игр")
+                if keywords_skipped:
+                    for skipped in keywords_skipped[:10]:
+                        print(f"      - Игра {skipped['game_id']}: {skipped['reason']}")
+                    if len(keywords_skipped) > 10:
+                        print(f"      ... и еще {len(keywords_skipped) - 10} игр")
                 total_updated += keywords_updated
+                all_skipped.extend(keywords_skipped)
 
-            # ОПТИМИЗИРОВАННАЯ обработка критериев (НОВЫЙ МЕТОД)
+            # Обработка критериев
             if criteria_games:
-                criteria_updated = self._update_criteria_bulk(criteria_games)  # ← ВЫЗОВ НОВОГО МЕТОДА
-                if self.verbose:
-                    print(f"📊 Обновлено критериев: {criteria_updated}")
+                criteria_updated, criteria_skipped = self._update_criteria_bulk(criteria_games)
+                print(f"\n📊 ОБЫЧНЫЕ КРИТЕРИИ:")
+                print(f"   ✅ Обновлено: {criteria_updated} игр")
+                print(f"   ⚠️ Пропущено: {len(criteria_games) - criteria_updated} игр")
+                if criteria_skipped:
+                    for skipped in criteria_skipped[:10]:
+                        print(f"      - Игра {skipped['game_id']}: {skipped['reason']}")
+                    if len(criteria_skipped) > 10:
+                        print(f"      ... и еще {len(criteria_skipped) - 10} игр")
                 total_updated += criteria_updated
+                all_skipped.extend(criteria_skipped)
 
-            if self.verbose:
-                print(f"\n📊 Результат: реально обновлено {total_updated} игр из {games_in_batch} в батче")
+            print(f"\n📊 РЕЗУЛЬТАТ:")
+            print(f"   ✅ Реально обновлено: {total_updated} игр из {games_in_batch}")
+            print(f"   ⚠️ Пропущено: {games_in_batch - total_updated} игр")
 
             # Очищаем батч
             self.games_to_update.clear()
@@ -109,15 +128,17 @@ class BatchUpdater:
             return total_updated
 
         except Exception as e:
-            if self.verbose:
-                print(f"❌ Ошибка обновления батча: {e}")
-                import traceback
-                traceback.print_exc()
-            self.games_to_update.clear()
-            return 0
+            print(f"\n❌ КРИТИЧЕСКАЯ ОШИБКА при обновлении батча: {e}")
+            import traceback
+            traceback.print_exc()
+            import sys
+            sys.exit(1)
 
     def _update_keywords_bulk(self, keyword_games):
-        """МАКСИМАЛЬНО ОПТИМИЗИРОВАННОЕ обновление ключевых слов"""
+        """
+        МАКСИМАЛЬНО ОПТИМИЗИРОВАННОЕ обновление ключевых слов
+        Возвращает: (обновлено_игр, список_пропущенных_с_причинами)
+        """
         from games.models import Game, Keyword
         from django.utils import timezone
         from django.db import transaction
@@ -133,48 +154,65 @@ class BatchUpdater:
         # 2. Собираем все ID ключевых слов из всех игр
         all_keyword_ids = set()
         games_with_keywords = []
+        skipped_games = []
 
         for game_data in keyword_games:
             game = games.get(game_data['game_id'])
             if not game:
+                skipped_games.append({
+                    'game_id': game_data['game_id'],
+                    'reason': 'игра не найдена в БД'
+                })
                 continue
 
             keywords_data = game_data['results'].get('keywords', {})
             items = keywords_data.get('items', [])
 
-            if items:
-                keyword_ids = [k['id'] for k in items]
-                all_keyword_ids.update(keyword_ids)
-                games_with_keywords.append({
-                    'game': game,
-                    'keyword_ids': keyword_ids
+            if not items:
+                skipped_games.append({
+                    'game_id': game.id,
+                    'reason': 'в результатах нет ключевых слов'
                 })
+                continue
+
+            keyword_ids = [k['id'] for k in items if 'id' in k]
+            if not keyword_ids:
+                skipped_games.append({
+                    'game_id': game.id,
+                    'reason': f'ключевые слова без ID: {items}'
+                })
+                continue
+
+            all_keyword_ids.update(keyword_ids)
+            games_with_keywords.append({
+                'game': game,
+                'keyword_ids': keyword_ids
+            })
 
         if not games_with_keywords:
-            return 0
+            return 0, skipped_games
 
-        # 3. Получаем все существующие ключевые слова одним запросом
+        # 3. Получаем все существующие ключевые слова
         existing_keywords = set(Keyword.objects.filter(id__in=all_keyword_ids).values_list('id', flat=True))
 
-        if not existing_keywords:
-            return 0
+        missing_keyword_ids = all_keyword_ids - existing_keywords
+        if missing_keyword_ids:
+            print(
+                f"   ⚠️ Предупреждение: {len(missing_keyword_ids)} ключевых слов не найдены в БД: {list(missing_keyword_ids)[:5]}...")
 
-        # 4. Получаем текущие связи всех игр с ключевыми словами одним запросом
-        # Используем through модель для прямой работы с промежуточной таблицей
+        # 4. Получаем текущие связи всех игр
         through_model = Game.keywords.through
 
-        # Получаем существующие связи для всех игр сразу
         existing_relations = through_model.objects.filter(
             game_id__in=game_ids,
             keyword_id__in=existing_keywords
         ).values_list('game_id', 'keyword_id')
 
-        # Создаем словарь существующих связей: game_id -> set(keyword_ids)
         existing_by_game = defaultdict(set)
         for game_id, keyword_id in existing_relations:
             existing_by_game[game_id].add(keyword_id)
 
-        # 5. Собираем новые связи для добавления
+        # 5. Собираем новые связи
         new_relations = []
         updated_games = set()
 
@@ -182,42 +220,51 @@ class BatchUpdater:
             game = item['game']
             keyword_ids = item['keyword_ids']
 
-            # Фильтруем только существующие ключевые слова
             valid_ids = [kid for kid in keyword_ids if kid in existing_keywords]
 
             if not valid_ids:
+                skipped_games.append({
+                    'game_id': game.id,
+                    'reason': f'все {len(keyword_ids)} ключевых слов не найдены в БД'
+                })
                 continue
 
-            # Получаем уже существующие для этой игры
             existing_for_game = existing_by_game.get(game.id, set())
-
-            # Находим новые (которых еще нет)
             new_ids = [kid for kid in valid_ids if kid not in existing_for_game]
 
             if new_ids:
-                # Добавляем связи в список для bulk_create
                 for kid in new_ids:
                     new_relations.append(
                         through_model(game_id=game.id, keyword_id=kid)
                     )
                 updated_games.add(game.id)
+            else:
+                skipped_games.append({
+                    'game_id': game.id,
+                    'reason': f'все ключевые слова уже есть у игры (существующих: {len(existing_for_game)})'
+                })
 
-        # 6. Массовое добавление всех новых связей ОДНИМ запросом
+        # 6. Массовое добавление
         if new_relations:
-            with transaction.atomic():
-                through_model.objects.bulk_create(new_relations, ignore_conflicts=True)
-
-                # Обновляем updated_at для всех измененных игр одним запросом
-                Game.objects.filter(id__in=updated_games).update(updated_at=timezone.now())
+            try:
+                with transaction.atomic():
+                    through_model.objects.bulk_create(new_relations, ignore_conflicts=True)
+                    Game.objects.filter(id__in=updated_games).update(updated_at=timezone.now())
+            except Exception as e:
+                print(f"\n❌ ОШИБКА БД при сохранении ключевых слов: {e}")
+                raise
 
         elapsed = time.time() - start_time
         if self.verbose:
             print(f"⚡ Ключевые слова: {len(updated_games)} игр, {len(new_relations)} связей за {elapsed:.2f}с")
 
-        return len(updated_games)
+        return len(updated_games), skipped_games
 
     def _update_criteria_bulk(self, criteria_games):
-        """МАКСИМАЛЬНО ОПТИМИЗИРОВАННОЕ обновление критериев"""
+        """
+        МАКСИМАЛЬНО ОПТИМИЗИРОВАННОЕ обновление критериев
+        Возвращает: (обновлено_игр, список_пропущенных_с_причинами)
+        """
         from games.models import Game, Genre, Theme, PlayerPerspective, GameMode
         from django.utils import timezone
         from django.db import transaction
@@ -227,35 +274,45 @@ class BatchUpdater:
 
         game_ids = [g['game_id'] for g in criteria_games]
 
-        # 1. Получаем все игры одним запросом
-        games = {game.id: game for game in Game.objects.filter(id__in=game_ids)}
+        # 1. Получаем все игры с префетчингом
+        games = {game.id: game for game in Game.objects.filter(id__in=game_ids).prefetch_related(
+            'genres', 'themes', 'player_perspectives', 'game_modes'
+        )}
 
-        # Определяем модели и соответствующие поля для through моделей
         criteria_config = [
-            ('genres', Genre, 'genre'),
-            ('themes', Theme, 'theme'),
-            ('perspectives', PlayerPerspective, 'playerperspective'),
-            ('game_modes', GameMode, 'gamemode')
+            ('genres', Genre, 'genre', 'genres'),
+            ('themes', Theme, 'theme', 'themes'),
+            ('perspectives', PlayerPerspective, 'playerperspective', 'player_perspectives'),
+            ('game_modes', GameMode, 'gamemode', 'game_modes')
         ]
 
-        all_new_relations = defaultdict(list)  # через model -> list of through objects
+        all_new_relations = defaultdict(list)
         updated_games = set()
+        skipped_games = []
 
         for game_data in criteria_games:
             game = games.get(game_data['game_id'])
             if not game:
+                skipped_games.append({
+                    'game_id': game_data['game_id'],
+                    'reason': 'игра не найдена в БД'
+                })
                 continue
 
-            for key, model, field_prefix in criteria_config:
+            game_has_updates = False
+            game_skipped_reasons = []
+
+            for key, model, field_prefix, relation_field in criteria_config:
                 items = game_data['results'].get(key, {}).get('items', [])
                 if not items:
                     continue
 
-                # Получаем названия through модели
-                through_model = getattr(Game, key).through
-                item_ids = [item['id'] for item in items]
+                item_ids = [item['id'] for item in items if 'id' in item]
+                if not item_ids:
+                    game_skipped_reasons.append(f'{key}: нет ID в элементах')
+                    continue
 
-                # Получаем существующие связи для этой игры (будут закешированы)
+                # Получаем существующие ID
                 existing_ids = set()
                 if key == 'genres':
                     existing_ids = set(game.genres.values_list('id', flat=True))
@@ -270,31 +327,58 @@ class BatchUpdater:
                 new_ids = [iid for iid in item_ids if iid not in existing_ids]
 
                 if new_ids:
-                    # Создаем объекты through для bulk_create
-                    field_name = f"{field_prefix}_id"
-                    for iid in new_ids:
-                        all_new_relations[through_model].append(
-                            through_model(game_id=game.id, **{field_name: iid})
-                        )
-                    updated_games.add(game.id)
+                    # Проверяем, существуют ли эти ID в БД
+                    model_objects = model.objects.filter(id__in=new_ids)
+                    existing_model_ids = set(model_objects.values_list('id', flat=True))
+                    valid_new_ids = [iid for iid in new_ids if iid in existing_model_ids]
 
-        # 2. Массовое добавление всех связей для всех типов критериев
+                    if valid_new_ids:
+                        through_model = getattr(Game, relation_field).through
+                        for iid in valid_new_ids:
+                            all_new_relations[through_model].append(
+                                through_model(game_id=game.id, **{f"{field_prefix}_id": iid})
+                            )
+                        game_has_updates = True
+                    else:
+                        game_skipped_reasons.append(f'{key}: новые ID не найдены в БД ({new_ids})')
+                else:
+                    if item_ids:
+                        game_skipped_reasons.append(f'{key}: все {len(item_ids)} элементов уже есть у игры')
+
+            if game_has_updates:
+                updated_games.add(game.id)
+            elif game_skipped_reasons:
+                skipped_games.append({
+                    'game_id': game.id,
+                    'reason': '; '.join(game_skipped_reasons)
+                })
+            else:
+                skipped_games.append({
+                    'game_id': game.id,
+                    'reason': 'нет элементов для добавления'
+                })
+
+        # 2. Массовое добавление
         total_added = 0
-        with transaction.atomic():
-            for through_model, relations in all_new_relations.items():
-                if relations:
-                    through_model.objects.bulk_create(relations, ignore_conflicts=True)
-                    total_added += len(relations)
+        if all_new_relations:
+            try:
+                with transaction.atomic():
+                    for through_model, relations in all_new_relations.items():
+                        if relations:
+                            through_model.objects.bulk_create(relations, ignore_conflicts=True)
+                            total_added += len(relations)
 
-            # Обновляем updated_at для всех измененных игр одним запросом
-            if updated_games:
-                Game.objects.filter(id__in=updated_games).update(updated_at=timezone.now())
+                    if updated_games:
+                        Game.objects.filter(id__in=updated_games).update(updated_at=timezone.now())
+            except Exception as e:
+                print(f"\n❌ ОШИБКА БД при сохранении критериев: {e}")
+                raise
 
         elapsed = time.time() - start_time
         if self.verbose:
             print(f"⚡ Критерии: {len(updated_games)} игр, {total_added} связей за {elapsed:.2f}с")
 
-        return len(updated_games)
+        return len(updated_games), skipped_games
 
     def _execute_large_batch_update(self) -> int:
         """Выполняет обновление крупного батча (оптимизировано для скорости)"""

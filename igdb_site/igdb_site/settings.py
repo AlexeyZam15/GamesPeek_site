@@ -175,19 +175,13 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 IGDB_CLIENT_ID = os.getenv('IGDB_CLIENT_ID')
 IGDB_CLIENT_SECRET = os.getenv('IGDB_CLIENT_SECRET')
 RAWG_API_KEY = os.getenv('RAWG_API_KEY')
-STEAM_API_KEY = os.getenv('STEAM_API_KEY')  # Добавляем Steam API ключ
+STEAM_API_KEY = os.getenv('STEAM_API_KEY')
 
-# Проверяем, что переменные окружения загружены
-if not IGDB_CLIENT_ID or not IGDB_CLIENT_SECRET:
-    raise Exception("IGDB_CLIENT_ID and IGDB_CLIENT_SECRET must be set in .env file")
+# Pollinations.AI API Configuration
+POLLINATIONS_API_KEY = os.getenv('POLLINATIONS_API_KEY')
+POLLINATIONS_DEFAULT_MODEL = 'openai'
+POLLINATIONS_TIMEOUT = 30
 
-# Опционально: проверка RAWG API ключа
-if not RAWG_API_KEY:
-    print("⚠️ Warning: RAWG_API_KEY is not set in .env file")
-
-# Опционально: проверка Steam API ключа
-if not STEAM_API_KEY:
-    print("⚠️ Warning: STEAM_API_KEY is not set in .env file")
 
 # ============================================
 # КЭШИРОВАНИЕ ДЛЯ УСКОРЕНИЯ

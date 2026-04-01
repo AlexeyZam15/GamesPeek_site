@@ -18,13 +18,19 @@ class PatternManager:
 
     @staticmethod
     def _compile_patterns_dict(patterns_dict: Dict[str, List[str]]) -> Dict[str, List[re.Pattern]]:
-        """Компилирует словарь паттернов"""
+        """Компилирует словарь паттернов с поддержкой регистра через префикс (?c)"""
         compiled = {}
         for name, patterns in patterns_dict.items():
             compiled_patterns = []
             for pattern_str in patterns:
                 try:
-                    compiled_patterns.append(re.compile(pattern_str, re.IGNORECASE | re.UNICODE))
+                    if pattern_str.startswith('(?c)'):
+                        # Регистрочувствительный паттерн - убираем префикс, добавляем UNICODE
+                        actual_pattern = pattern_str[4:].lstrip()
+                        compiled_patterns.append(re.compile(actual_pattern, re.UNICODE))
+                    else:
+                        # Регистронезависимый паттерн
+                        compiled_patterns.append(re.compile(pattern_str, re.IGNORECASE | re.UNICODE))
                 except re.error as e:
                     print(f"⚠️ Ошибка компиляции паттерна '{pattern_str}': {e}")
             compiled[name] = compiled_patterns
@@ -32,28 +38,11 @@ class PatternManager:
 
     # Паттерны вынесены в константы для легкого редактирования
     GENRE_PATTERNS = {
-        'Turn-based': [
-            r'\bturn[-\s]?based\b',
-            r'\btbs\b',
-            r'\bturn[-\s]?by[-\s]?turn\b',
-            r'\bturns?\s+(system|mechanic|combat)\b',
-            r'\bplayer\s+turns?\b',
-            r'\benemy\s+turns?\b',
-            r'\balternating\s+turns?\b',
-            r'\bcharacter\s+turns?\b',
-            r'\bwait\s+for\s+your\s+turn\b',
-            r'\btake\s+turns\b',
-            r'\btaking\s+turns\b',
-            r'\bstrategy\s+turn[-\s]?based\b',
-            r'\btactical\s+turn[-\s]?based\b',
-        ],
         'Action': [
-            r'\baction[-\s]?packed\b',
             r'\bintense\s+action\b',
             r'\bnon[-\s]?stop\s+action\b',
             r'\bfast[-\s]?paced\s+action\b',
             r'\bheart[-\s]?pounding\s+action\b',
-            r'\baction[-\s]?oriented\b',
             r'\baction[-\s]?driven\b',
             r'\bhigh[-\s]?octane\s+action\b',
             r'\bexplosive\s+action\b',
@@ -75,6 +64,35 @@ class PatternManager:
             r'\barcade(\s+game|\s+style|\s+classic)\b',
             r'\barcade-style\b',
         ],
+        'Base Building': [
+            r'\bbase[-\s]?building\b',
+            r'\bbase\s+construction\b',
+            r'\bbuild\s+(?:a|your|the)\s+base\b',
+            r'\bbuilding\s+(?:a|your|the)\s+base\b',
+            r'\bconstruct\s+(?:a|your|the)\s+base\b',
+            r'\bconstructing\s+(?:a|your|the)\s+base\b',
+            r'\bplayers?\s+can\s+build\s+(?:a|their)\s+base\b',
+            r'\byou\s+can\s+build\s+(?:a|your)\s+base\b',
+            r'\bable\s+to\s+build\s+(?:a|your|the)\s+base\b',
+            r'\bbuild(?:ing)?\s+(?:structures?|homes?|buildings?|fortifications?|walls?|defenses?)\b',
+            r'\bconstruct(?:ing)?\s+(?:buildings?|structures?|fortifications?|walls?|defenses?)\b',
+            r'\brebuild(?:ing)?\s+(?:bases?|structures?|buildings?|settlements?)\b',
+            r'\bbuild\s+(?:a|your|the)\s+fortress\b',
+            r'\bbuilding\s+(?:a|your|the)\s+fortress\b',
+            r'\bconstruct\s+(?:a|your|the)\s+fortress\b',
+            r'\bconstructing\s+(?:a|your|the)\s+fortress\b',
+            r'\bbuild\s+(?:a|your|the)\s+settlement\b',
+            r'\bbuilding\s+(?:a|your|the)\s+settlement\b',
+            r'\bfortress\s+building\b',
+            r'\bfortress\s+construction\b',
+            r'\bstronghold\s+building\b',
+            r'\bstronghold\s+construction\b',
+            r'\bbase\s+building\s+mechanics?\b',
+            r'\bbuilding\s+and\s+expanding\s+(?:a|your)\s+base\b',
+            r'\bexpand\s+(?:a|your|the)\s+base\b',
+            r'\bupgrade\s+(?:a|your|the)\s+base\b',
+            r'\bmanage\s+(?:a|your|the)\s+base\b',
+        ],
         'Card & Board Game': [
             r'\bis\s+a\s+(board|card)\s+game\b',
             r'\bas\s+a\s+(board|card)\s+game\b',
@@ -91,17 +109,40 @@ class PatternManager:
             r'\bstyled\s+after\s+a\s+(board|card)\s+game\b',
             r'\binspired\s+by\s+(board|card)\s+game\b',
         ],
+        'Colony Sim': [
+            r'\bcolony\s+sim(?:ulation)?\b',
+            r'\bcolony\s+management\b',
+            r'\bcolon(?:y|ies)\s+simulation\b',
+            r'\bbase\s+building\s+sim\b',
+            r'\bcolonist\s+management\b',
+        ],
+        'Engineering': [
+            r'\bengineering\s+sim(?:ulation)?\b',
+            r'\bvehicle\s+engineering\b',
+            r'\bconstruct\s+machines?\b',
+            r'\bbuild\s+vehicles?\b',
+        ],
         'Fighting': [
             r'\bfighting(\s+game|\s+title)\b',
             r'\b(this|the)\s+fighting(\s+game|\s+title)\b',
         ],
-        'Hack and slash/Beat \'em up': [
-            r'\bhack\s+and\s+slash\b',
-            r'\bbeat\s+\'?em\s+up\b',
-        ],
-        'Indie': [
-            r'\bindie(\s+game|\s+title|\s+developer)\b',
-            r'\bindependent(\s+developer|\s+studio)\b',
+        'Grid-Based': [
+            r'\bgrid[-\s]?based\b',
+            r'\bon\s+a\s+grid\b',
+            r'\bgrid\s+system\b',
+            r'\btile[-\s]?based\b',
+            r'\btile\s+grid\b',
+            r'\bgrid\s+movement\b',
+            r'\bgrid\s+combat\b',
+            r'\bmove\s+on\s+a\s+grid\b',
+            r'\bhex[-\s]?based\b',
+            r'\bhex\s+grid\b',
+            r'\bsquare\s+grid\b',
+            r'\bisometric\s+grid\b',
+            r'\btactical\s+grid\b',
+            r'\bgridded\s+map\b',
+            r'\bgridded\s+battlefield\b',
+            r'\bgrid[-\s]?like\s+battlefield\b',
         ],
         'MOBA': [
             r'\bmoba\b',
@@ -128,6 +169,21 @@ class PatternManager:
             r'\bpoint\s+and\s+click\b',
             r'\bpoint-and-click\b',
         ],
+        'Precision Combat': [
+            r'\baim\s+skill[\s-]?shots?\b',
+            r'\bdodge\s+projectiles?\b',
+            r'\bprecise\s+WASD\s+controls\b',
+            r'\bcursor[\s-]?based\s+aiming\b',
+            r'\bno\s+click\s+to\s+move\b',
+            r'\bmanual\s+aiming\b',
+            r'\bdirect\s+control\s+combat\b',
+            r'\bprecision\s+movement\b',
+            r'\bskill[\s-]?based\s+aiming\b',
+            r'\bprojectile\s+dodging\b',
+            r'\breal[\s-]?time\s+aiming\b',
+            r'\btwin[\s-]?stick\s+controls?\b',
+            r'\bmanual\s+targeting\b',
+        ],
         'Puzzle': [
             r'\bpuzzle(\s+game|\s+title)\b',
             r'\bbrain\s+teaser\b',
@@ -144,20 +200,16 @@ class PatternManager:
             r'\breal\s+time\s+strategy\b',
             r'\brts(\s+game|\s+title)?\b',
         ],
-        'Real-time Combat': [
-            r'\breal[-\s]?time\s+combat\b',
-            r'\breal\s+time\s+combat\s+system\b',
-            r'\breal[-\s]?time\s+battles?\b',
-            r'\baction\s+rpg\s+with\s+real[-\s]?time\s+combat\b',
-            r'\breal[-\s]?time\s+tactical\s+combat\b',
-            r'\bdynamic\s+real[-\s]?time\s+combat\b',
-            r'\bfast[-\s]?paced\s+real[-\s]?time\s+combat\b',
-            r'\breal[-\s]?time\s+combat\s+mechanics?\b',
-            r'\bcombat\s+occurs?\s+in\s+real[-\s]?time\b',
-            r'\bbattles?\s+happen\s+in\s+real[-\s]?time\b',
-            r'\bfighting\s+in\s+real[-\s]?time\b',
-            r'\breal[-\s]?time\s+combat\s+and\s+exploration\b',
-            r'\bengaging\s+real[-\s]?time\s+combat\b',
+        'Real-Time with Pause (RTwP)': [
+            r'\breal-time\s+with\s+pause\b',
+            r'\brtwp\b',
+            r'\breal\s+time\s+pausable\b',
+            r'\bpausable\s+real-time\b',
+        ],
+        'Roguelike / Roguelite': [
+            r'\broguelike\b',
+            r'\broguelite\b',
+            r'\brogue-like\b',
         ],
         'Role-playing (RPG)': [
             r'\brole-playing(\s+game|\s+title)\b',
@@ -172,33 +224,84 @@ class PatternManager:
             r'\bfps(\s+game|\s+title)\b',
         ],
         'Simulator': [
-            r'\bsimulator(\s+game|\s+title)\b',
-            r'\bsimulation(\s+game|\s+title)\b',
+            r'\bsimulator\b',
+            r'\bsimulation\b',
+            r'\bsim\b',
+            r'\brealistic\s+simulation\b',
+            r'\blife\s+simulator\b',
         ],
         'Sport': [
             r'\bsports(\s+game|\s+title)\b',
             r'\bfootball(\s+game|\s+simulator)\b',
+        ],
+        'Squad Management': [
+            r'\bsquad[-\s]?based\b',
+            r'\bsquad\s+management\b',
+            r'\bparty\s+management\b',
+            r'\bteam\s+management\b',
+            r'\bmanage\s+(?:a|your|the)\s+(?:squad|party|team)\b',
+            r'\bmanaging\s+(?:a|your|the)\s+(?:squad|party|team)\b',
+            r'\bbuild\s+(?:a|your|the)\s+(?:squad|party|team)\b',
+            r'\bbuilding\s+(?:a|your|the)\s+(?:squad|party|team)\b',
+            r'\bbuild\s+up\s+(?:a|your|the)\s+(?:squad|party|team)\b',
+            r'\bbuilding\s+up\s+(?:a|your|the)\s+(?:squad|party|team)\b',
+            r'\b(?:recruit|assemble|gather|form|build)\s+(?:team(?:mates)?|companions?|followers?|members?|allies?|squad|party|group|company|band|crew)\b',
+            r'\b(?:recruiting|assembling|gathering|forming|building)\s+(?:team(?:mates)?|companions?|followers?|members?|allies?|squad|party|group|company|band|crew)\b',
+            r'\b(?:recruiting|assembling|gathering|forming|building)\s+up\s+(?:team(?:mates)?|companions?|followers?|members?|allies?|squad|party|group|company|band|crew)\b',
+            r'\b(?:command|lead|control)\s+(?:a|the|your)\s+(?:squad|party|team|group|company)\b',
+            r'\b(?:commanding|leading|controlling)\s+(?:a|the|your)\s+(?:squad|party|team|group|company)\b',
+            r'\btactical\s+(?:squad|party|team)\s+(?:control|management|commands?)\b',
+            r'\b(?:issue|give)\s+orders?\s+to\s+(?:your|the)\s+(?:squad|party|team)\b',
+            r'\b(?:switch|swap|assign|allocate)\s+allocations?\s+of\s+(?:fighters?|characters?|units?)\b'
+        ],
+        'Stealth': [
+            r'\bstealth(\s+game)?\b',
+            r'\bsneaking(\s+game)?\b',
         ],
         'Strategy': [
             r'\bstrategy(\s+game|\s+title|\s+rpg)\b',
             r'\bstrategic(\s+game|\s+thinking)\b',
         ],
         'Survival': [
-            r'\bsurvival(\s+(game|title|experience|horror|elements|mechanics|based|focused|oriented))?\b',
-            r'\b(to\s+)?survive(\s+(the|in|against))?\b',
-            r'\bsurviving\s+(in|against|the)\b',
+            r'\bsurvival\s+(?:game|title|experience|horror|elements|mechanics|based|focused|oriented|sim|simulator|crafting)\b',
+            r'\bsurvival\s+genre\b',
+            r'\bsurvival\s+mode\b',
+            r'\bopen-world\s+survival\b',
             r'\bpost-apocalyptic\s+survival\b',
             r'\bwilderness\s+survival\b',
             r'\bsurvival\s+horror\b',
-            r'\bstruggle\s+to\s+survive\b',
-            r'\bfight\s+for\s+survival\b',
-            r'\bbattle\s+for\s+survival\b',
+            r'\bmanage\s+(?:your|the|their)\s+(?:hunger|thirst|stamina|health|temperature|body\s+temp)\b',
+            r'\b(?:hunger|thirst|temperature)\s+(?:system|mechanics?|management)\b',
+            r'\bscavenge\s+for\s+(?:food|water|supplies|resources)\b',
+            r'\b(?:craft|build)\s+(?:shelter|tools|weapons?)\s+to\s+survive\b',
+            r'\bstruggle\s+to\s+survive\s+in\s+(?:a|the)\s+(?:harsh|dangerous|hostile|post-apocalyptic|wilderness)\b',
+            r'\bfight\s+for\s+survival\s+against\s+(?:the\s+)?(?:elements|nature|zombies|enemies|creatures)\b',
+            r'\bbattle\s+for\s+survival\s+in\s+(?:a|the)\s+(?:harsh|dangerous)\s+world\b',
             r'\bsurvival\s+of\s+the\s+fittest\b',
+            r'\b(?:day|night)\s+cycle\s+survival\b',
+            r'\bpermadeath\s+survival\b',
+            r'\bhardcore\s+survival\b',
+            r'\broguelike\s+survival\b',
         ],
         'Tactical': [
             r'\btactical(\s+game|\s+decisions|\s+rpg)\b',
             r'\btactics(\s+game)?\b',
             r'\bturn-based\s+tactics\b',
+        ],
+        'Turn-based': [
+            r'\bturn[-\s]?based\b',
+            r'\btbs\b',
+            r'\bturn[-\s]?by[-\s]?turn\b',
+            r'\bturns?\s+(system|mechanic|combat)\b',
+            r'\bplayer\s+turns?\b',
+            r'\benemy\s+turns?\b',
+            r'\balternating\s+turns?\b',
+            r'\bcharacter\s+turns?\b',
+            r'\bwait\s+for\s+your\s+turn\b',
+            r'\btake\s+turns\b',
+            r'\btaking\s+turns\b',
+            r'\bstrategy\s+turn[-\s]?based\b',
+            r'\btactical\s+turn[-\s]?based\b',
         ],
         'Turn-based strategy (TBS)': [
             r'\bturn-based\s+strategy\b',
@@ -209,48 +312,13 @@ class PatternManager:
         'Visual Novel': [
             r'\bvisual\s+novel\b',
             r'\bvn(\s+game)?\b',
-        ]
+        ],
     }
 
     THEME_PATTERNS = {
         '4X (explore, expand, exploit, and exterminate)': [
             r'\b4x(\s+game|\s|$)',
             r'\bexplore.*expand.*exploit.*exterminate',
-        ],
-        'Base Building': [
-            r'\bbase\s+building\b',
-            r'\bbase\s+construction\b',
-            r'\bbuilding\s+bases\b',
-            r'\bconstructing\s+bases\b',
-            r'\bplayers?\s+can\s+build\b',
-            r'\byou\s+can\s+build\b',
-            r'\bable\s+to\s+build\b',
-            r'\bbuild(?:ing)?\s+(?:structures?|bases?|homes?|buildings?)\b',
-            r'\bconstruct(?:ing)?\s+(?:buildings?|structures?)\b',
-            r'\brebuild(?:ing)?\s+(?:bases?|structures?|buildings?|cities?|towns?|settlements?|castle|fortress)\b',
-            r'\brebuild(?:ing)?\s+(?:your|their|the)\s+(?:castle|fortress|base|structure|building|city|town|settlement)\b',
-            r'\bbuilds?\s+a\s+castle\b',
-            r'\bconstructs?\s+a\s+castle\b',
-            r'\bcastle\s+building\b',
-            r'\bcastle\s+construction\b',
-            r'\bbuild(?:ing)?\s+castles?\b',
-            r'\bconstruct(?:ing)?\s+castles?\b',
-            r'\beraise\s+a\s+castle\b',
-            r'\bestablish\s+a\s+castle\b',
-            r'\bfortress\s+building\b',
-            r'\bfortress\s+construction\b',
-            r'\bbuild(?:ing)?\s+fortresses?\b',
-            r'\bconstruct(?:ing)?\s+fortresses?\b',
-            r'\bstronghold\s+building\b',
-            r'\bstronghold\s+construction\b',
-            r'\bbuild(?:ing)?\s+strongholds?\b',
-            r'\bconstruct(?:ing)?\s+strongholds?\b',
-            r'\bbuild(?:ing)?\s+(?:your|their|a)\s+own\s+castle\b',
-            r'\bconstruct(?:ing)?\s+(?:your|their|a)\s+own\s+castle\b',
-            r'\bcreate(?:ing)?\s+a\s+castle\b',
-            r'\beraise(?:ing)?\s+(?:your|their|a)\s+castle\b',
-            r'\bdesign(?:ing)?\s+(?:your|their|a)\s+castle\b',
-            r'\bdevelop(?:ing)?\s+a\s+castle\b',
         ],
         'Business': [
             r'\bbusiness\s+simulation\b',
@@ -332,6 +400,19 @@ class PatternManager:
             r'\bobtain(?:ing)?\s+(?:advanced|better)\s+(?:materials?|equipment)\b',
             r'\bacquir(?:ing|e)\s+(?:advanced|superior)\s+(?:materials?|equipment)\b',
         ],
+        'Cyberpunk': [
+            r'\bcyberpunk\b',
+            r'\bcyber[-\s]?punk\b',
+            r'\bhigh\s+tech\s+low\s+life\b',
+            r'\bneon[-\s]?soaked\b',
+            r'\bcybernetics\b',
+            r'\bcyberware\b',
+        ],
+        'Dark Fantasy': [
+            r'\bdark\s+fantasy\b',
+            r'\bgothic\s+fantasy\b',
+            r'\bgrim\s+dark\s+fantasy\b',
+        ],
         'Drama': [
             r'\bdrama(\s+game)?\b',
             r'\bdramatic(\s+story)?\b',
@@ -355,8 +436,13 @@ class PatternManager:
             r'\bfantasy(\s+world|\s+setting|\s+game|\s|$)',
             r'\bmagical(\s+world|\s|$)',
         ],
+        'Fire Emblem': [
+            r'\bfire\s+emblem\b',
+        ],
         'Gothic': [
             r'\bgothic\b',
+            r'\bgothic\s+horror\b',
+            r'\bgothic\s+fantasy\b',
         ],
         'Historical': [
             r'\bhistorical\s+(drama|fiction|epic|recreation)\b',
@@ -374,6 +460,10 @@ class PatternManager:
             r'\bhorror(\s+game|\s+title)\b',
             r'\bsurvival\s+horror\b',
         ],
+        'Indie': [
+            r'\bindie(\s+game|\s+title|\s+developer)\b',
+            r'\bindependent(\s+developer|\s+studio)\b',
+        ],
         'Kids': [
             r'\bfor\s+kids\b',
             r'\bchildren\s+as\s+main\s+characters\b',
@@ -384,19 +474,32 @@ class PatternManager:
             r'\byoung\s+protagonists\b',
             r'\bchildhood\s+adventure\b',
         ],
+        'Mecha': [
+            r'\bmecha\b',
+            r'\bmeka\b',
+            r'\bgiant\s+robots?\b',
+            r'\bmobile\s+suit\b',
+            r'\bmachina\b',
+        ],
         'Medieval': [
             r'\bmedieval\b',
             r'\bmiddle\s+ages\b',
             r'\bmiddle-age\b',
         ],
-        'Mystery': [
-            r'\bmystery(\s+game)?\b',
-            r'\bdetective(\s+story)?\b',
-        ],
         'Non-fiction': [
             r'\bnon-fiction\b',
             r'\bnonfiction\b',
-            r'\breal(\s+world|\s+life)\b',
+            r'\bdocumentary\s+style\b',
+            r'\bbased on real events\b',
+            r'\bhistorical reenactment\b',
+            r'\bcontemporary setting\b',
+            r'\bmodern world\b',
+            r'\burban environment\b',
+            r'\bmodern city\b',
+            r'\brealistic contemporary\b',
+            r'\bpresent[-\s]?day\b',
+            r'\bmodern[-\s]?day\b',
+            r'\bpresent\s+day\s+setting\b',
         ],
         'Party': [
             r'\bparty\s+(game|games|title|mode)\b',
@@ -405,25 +508,23 @@ class PatternManager:
             r'\bcasual\s+party\b',
             r'\bfun\s+party\b',
         ],
-        'Precision Combat': [
-            r'\baim\s+skill[\s-]?shots?\b',
-            r'\bdodge\s+projectiles?\b',
-            r'\bprecise\s+WASD\s+controls\b',
-            r'\bcursor[\s-]?based\s+aiming\b',
-            r'\bno\s+click\s+to\s+move\b',
-            r'\bmanual\s+aiming\b',
-            r'\bdirect\s+control\s+combat\b',
-            r'\bprecision\s+movement\b',
-            r'\bskill[\s-]?based\s+aiming\b',
-            r'\bprojectile\s+dodging\b',
-            r'\breal[\s-]?time\s+aiming\b',
-            r'\btwin[\s-]?stick\s+controls?\b',
-            r'\bmanual\s+targeting\b',
-        ],
-        'Real-time Combat': [
-            r'\breal.time.combat\b',
-            r'\brealtime.combat\b',
-            r'\breal.time.combat\b',
+        'Post-apocalyptic': [
+            r'\bpost[-\s]?apocalyptic\b',
+            r'\bpost[-\s]?apocalypse\b',
+            r'\bapocalypse\b',
+            r'\bafter\s+the\s+end\b',
+            r'\bworld\s+after\s+the\s+fall\b',
+            r'\bpost[-\s]?nuclear\b',
+            r'\bnuclear\s+winter\b',
+            r'\bnuclear\s+holocaust\b',
+            r'\bnuclear\s+war\b',
+            r'\bglobal\s+catastrophe\b',
+            r'\bworld\s+ended\b',
+            r'\bend\s+of\s+the\s+world\b',
+            r'\bfallout\b',
+            r'\bpost[-\s]?atomic\b',
+            r'\bpost[-\s]?doomsday\b',
+            r'\bdoomsday\s+event\b',
         ],
         'Romance': [
             r'\bromance(\s+game)?\b',
@@ -434,10 +535,6 @@ class PatternManager:
         'Science fiction': [
             r'\bscience\s+fiction(\s+game|\s|$)',
             r'\bsci-fi(\s+game|\s|$)',
-        ],
-        'Stealth': [
-            r'\bstealth(\s+game)?\b',
-            r'\bsneaking(\s+game)?\b',
         ],
         'Thriller': [
             r'\bpsychological\s+thriller\b',
@@ -466,6 +563,12 @@ class PatternManager:
             r'\bthe\s+thriller\s+(elements|aspects)\b',
             r'\b(thriller|suspense)(?:\s+(game|title|novel|film|movie|story|tale|narrative|plot))?\b',
         ],
+        'Time Travel': [
+            r'\btime\s+travel\b',
+            r'\btime-travel\b',
+            r'\btime\s+loop\b',
+            r'\bjourney\s+through\s+time\b',
+        ],
         'Warfare': [
             r'\bwarfare\s+simulation\b',
             r'\bwar\s+game\b',
@@ -473,6 +576,19 @@ class PatternManager:
             r'\bcombat\s+simulation\b',
             r'\btactical\s+warfare\b',
             r'\ba\s+world\s+of\s+conflict\b',
+        ],
+        'Western': [
+            r'\bwestern\s+(?:setting|theme|game|style|adventure|rpg|shooter|action|open[-\s]?world)\b',
+            r'\bwild\s+west\b',
+            r'\bold\s+west\b',
+            r'\bcowboy\b',
+            r'\bcowboys?\b',
+        ],
+        'Zombie': [
+            r'\bzombie\b',
+            r'\bzombies\b',
+            r'\bthe\s+walking\s+dead\b',
+            r'\bundead\s+hordes?\b',
         ],
     }
 
@@ -484,12 +600,16 @@ class PatternManager:
         ],
         'Bird view / Isometric': [
             r'\bbird[\s-]*view\b',
-            r'\bisometric(\s+view|\s+game|\s|$)',
-            r'\btop-down(\s+view|\s+game|\s+perspective|\s+camera|\s|$)'
+            r'\bisometric(\s+view)?\b',
+            r'\btop-down(\s+view|\s+perspective|\s+camera)?\b'
         ],
         'First person': [
-            r'\bfirst-person(\s+view|\s+shooter|\s+game|\s|$)',
-            r'\bfpp(\s+game|\s|$)'
+            r'\bfirst-person(\s+(perspective|camera|view|shooter))?\b',
+            r'\bfpp\b',
+            r'\bplayed in first person\b',
+            r'\bfrom a first-person perspective\b',
+            r'\bfirst person experience\b',
+            r'\bview through the eyes\b',
         ],
         'Side view': [
             r'\bside\s+view\b',
@@ -501,15 +621,22 @@ class PatternManager:
             r'\btext\s+adventure\b',
         ],
         'Third person': [
-            r'\bthird-person(\s+view|\s+game|\s|$)',
-            r'\btpp(\s+game|\s|$)'
+            r'\bthird-person\b',
+            r'\btpp\b'
         ],
         'Virtual Reality': [
-            r'\bvirtual\s+reality\s+game\b',
-            r'\bvirtual\s+reality\s+experience\b',
-            r'\bvr\s+game\b',
-            r'\bvr\s+experience\b',
-            r'\bimmersive\s+virtual\s+reality\b',
+            r'\bplayed in virtual reality\b',
+            r'\bvirtual reality experience\b',
+            r'\bvirtual reality game\b',
+            r'\bvirtual reality mode\b',
+            r'\bsupports virtual reality\b',
+            r'\bvirtual reality support\b',
+            r'\bvr support\b',
+            r'\bvr mode\b',
+            r'\bvr headset\b',
+            r'\bvr exclusive\b',
+            r'\bvirtual reality headset\b',
+            r'\bvirtual reality (is|as) (the|a) (primary|main) (perspective|view|camera)\b',
         ],
     }
 
@@ -519,19 +646,18 @@ class PatternManager:
             r'\broyale(\s+mode)?\b',
         ],
         'Co-operative': [
-            r'\bco-operative(\s+game|\s+mode|\s|$)',
-            r'\bcooperative(\s+game|\s|$)',
-            r'\bco-op(\s+game|\s|$)'
+            r'\bco-operative(\s+game|\s+mode)?\b',
+            r'\bcooperative(\s+game)?\b',
+            r'\bco-op(\s+game)?\b'
         ],
         'Massively Multiplayer Online (MMO)': [
-            r'\bmassively\s+multiplayer(\s+game|\s|$)',
-            r'\bmmo(\s+game|\s|$)',
+            r'\bmassively\s+multiplayer(\s+game)?\b',
+            r'\bmmo(\s+game)?\b',
         ],
         'Multiplayer': [
-            r'\bmultiplayer(\s+game|\s+mode|\s|$)',
-            r'\bmulti-player(\s+game|\s|$)'
+            r'\bmultiplayer(\s+game|\s+mode)?\b',
+            r'\bmulti-player(\s+game)?\b'
         ],
-        # ДОБАВЛЯЕМ НОВУЮ КАТЕГОРИЮ
         'Player vs Player (PvP)': [
             r'\bpvp\b',
             r'\bpvp\s+mode\b',
@@ -543,8 +669,8 @@ class PatternManager:
             r'\bbattle\s+against\s+other\s+players\b',
         ],
         'Single player': [
-            r'\bsingle-player(\s+game|\s+campaign|\s|$)',
-            r'\bsingle\s+player(\s+game|\s|$)'
+            r'\bsingle-player\b',
+            r'\bsingle\s+player\b'
         ],
         'Split screen': [
             r'\bsplit\s+screen\b',

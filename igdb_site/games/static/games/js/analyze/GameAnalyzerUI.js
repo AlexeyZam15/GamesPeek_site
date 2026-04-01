@@ -46,11 +46,37 @@ import {
 
 class GameAnalyzerUI {
     constructor(options = {}) {
+        // Получение gameId из разных источников
+        let gameId = options.gameId;
+
+        if (!gameId) {
+            const gameIdInput = document.getElementById('game-id');
+            if (gameIdInput && gameIdInput.value) {
+                gameId = gameIdInput.value;
+            }
+        }
+
+        if (!gameId) {
+            const urlMatch = window.location.pathname.match(/\/games\/(\d+)\/analyze/);
+            if (urlMatch && urlMatch[1]) {
+                gameId = urlMatch[1];
+            }
+        }
+
+        if (!gameId) {
+            const analyzeContainer = document.querySelector('.analyze-page');
+            if (analyzeContainer && analyzeContainer.dataset.gameId) {
+                gameId = analyzeContainer.dataset.gameId;
+            }
+        }
+
         this.options = {
-            gameId: options.gameId || null,
+            gameId: gameId || null,
             apiUrl: options.apiUrl || '',
             ...options
         };
+
+        console.log('GameAnalyzerUI initialized with gameId:', this.options.gameId);
 
         this.elements = {};
         this.currentTab = '';
@@ -58,24 +84,23 @@ class GameAnalyzerUI {
         this.highlightedElements = new Set();
         this.currentMultiTooltip = null;
         this.isRestoringScroll = false;
+        this.hasUnsavedResults = false;
+        this.analyzeClickHandler = null;
+
         this.init();
     }
-
-    /* ============================================
-       INITIALIZATION METHODS
-       ============================================ */
 
     init() {
         this.cacheElements();
         this.getCurrentState();
         this.bindEvents();
-        setupTooltips(this);
-        setupMultiCriteriaTooltips(this);
-        setupHighlightEvents(this);
+        this.setupTooltips();
+        this.setupMultiCriteriaTooltips();
+        this.setupHighlightEvents();
         this.handleScroll();
         this.loadUrlParams();
         this.forceTextAlignmentFix();
-        this.checkForAutoAnalyze();
+        this.setupCopyHandler();
 
         const restoredTab = restoreCurrentTab(this);
 
@@ -86,6 +111,290 @@ class GameAnalyzerUI {
         }
 
         console.log('Game Analyzer UI initialized');
+    }
+
+    /**
+     * Настройка обработчика копирования текста из описаний в поле ввода ключевых слов
+     */
+    setupCopyHandler() {
+        console.log('Setting up copy handler for text selection...');
+
+        document.addEventListener('copy', (e) => {
+            // Даем браузеру выполнить стандартное копирование
+            // После этого через небольшую задержку читаем из буфера обмена
+            setTimeout(() => {
+                this.handleClipboardText();
+            }, 100);
+        });
+    }
+
+    /**
+     * Читает текст из буфера обмена и помещает его в поле ввода ключевых слов
+     */
+    async handleClipboardText() {
+        try {
+            // Проверяем поддержку Clipboard API
+            if (!navigator.clipboard || !navigator.clipboard.readText) {
+                console.warn('Clipboard API not supported');
+                // Fallback: пробуем получить выделенный текст напрямую
+                this.handleSelectedTextFallback();
+                return;
+            }
+
+            // Читаем текст из буфера обмена
+            const clipboardText = await navigator.clipboard.readText();
+
+            if (!clipboardText || !clipboardText.trim()) {
+                return; // Пустой буфер обмена
+            }
+
+            const selectedText = clipboardText.trim();
+
+            // Проверяем, что текст действительно был выделен из описания
+            const selection = window.getSelection();
+            const selectionText = selection.toString().trim();
+
+            // Если выделенный текст совпадает с текстом из буфера, значит копировали отсюда
+            if (selectionText && selectionText === selectedText) {
+                this.processSelectedText(selectedText, selection);
+            }
+
+        } catch (error) {
+            console.error('Error reading from clipboard:', error);
+            // Если не удалось прочитать из буфера, пробуем получить выделенный текст напрямую
+            this.handleSelectedTextFallback();
+        }
+    }
+
+    /**
+     * Fallback метод для получения выделенного текста напрямую (без Clipboard API)
+     */
+    handleSelectedTextFallback() {
+        const selection = window.getSelection();
+        const selectedText = selection.toString().trim();
+
+        if (selectedText) {
+            this.processSelectedText(selectedText, selection);
+        }
+    }
+
+    /**
+     * Обрабатывает выделенный текст и помещает его в поле ввода
+     */
+    processSelectedText(selectedText, selection) {
+        try {
+            // Проверяем длину текста (не более 100 символов, как указано в maxlength)
+            if (selectedText.length > 100) {
+                this.showMessage('Selected text is too long. Maximum 100 characters allowed.', 'warning', 3000);
+                return;
+            }
+
+            // Проверяем, что выделение находится внутри области с текстом описания
+            const selectionRange = selection.getRangeAt(0);
+            const selectionContainer = selectionRange.commonAncestorContainer;
+
+            // Проверяем, находится ли выделение внутри .text-content или .text-display-area
+            let isInDescription = false;
+            let node = selectionContainer;
+
+            while (node && node !== document) {
+                if (node.nodeType === Node.ELEMENT_NODE) {
+                    const element = node;
+                    if (element.classList && (
+                        element.classList.contains('text-content') ||
+                        element.classList.contains('text-display-area') ||
+                        element.closest('.text-content') ||
+                        element.closest('.text-display-area')
+                    )) {
+                        isInDescription = true;
+                        break;
+                    }
+                }
+                node = node.parentNode;
+            }
+
+            // Проверяем, не внутри ли мы боковой панели или других элементов
+            if (!isInDescription) {
+                // Проверяем, не внутри ли мы боковой панели
+                const inSidebar = selectionContainer.closest && selectionContainer.closest('.sidebar-card');
+                const inSettings = selectionContainer.closest && selectionContainer.closest('.settings-card');
+                const inHeader = selectionContainer.closest && selectionContainer.closest('.analyze-header');
+
+                if (inSidebar || inSettings || inHeader) {
+                    return; // Не копируем из этих элементов
+                }
+            }
+
+            // Получаем поле ввода
+            const keywordInput = document.getElementById('new-keyword-input');
+            if (!keywordInput) {
+                console.warn('Keyword input not found');
+                return;
+            }
+
+            // Устанавливаем выделенный текст в поле ввода
+            keywordInput.value = selectedText;
+
+            // Фокусируемся на поле ввода
+            keywordInput.focus();
+
+            // Показываем уведомление
+            this.showMessage(`Text copied to keyword input: "${selectedText}"`, 'success', 2000);
+
+        } catch (error) {
+            console.error('Error processing selected text:', error);
+        }
+    }
+
+    setupTooltips() {
+        console.log('Setting up tooltips...');
+
+        if (window.bootstrap && bootstrap.Tooltip) {
+            const existingTooltips = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+            existingTooltips.forEach(el => {
+                const tooltip = bootstrap.Tooltip.getInstance(el);
+                if (tooltip) {
+                    tooltip.dispose();
+                }
+            });
+        }
+
+        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+
+        if (window.bootstrap && bootstrap.Tooltip) {
+            tooltipTriggerList.forEach(tooltipTriggerEl => {
+                try {
+                    new bootstrap.Tooltip(tooltipTriggerEl, {
+                        trigger: 'hover focus',
+                        placement: 'top',
+                        boundary: 'viewport'
+                    });
+                } catch (e) {
+                    console.warn('Could not create tooltip for element:', tooltipTriggerEl, e);
+                }
+            });
+        }
+
+        const activePane = document.querySelector(`#${this.currentTab}.tab-pane.active`);
+        if (activePane) {
+            const highlights = activePane.querySelectorAll(`
+                .highlight-genre, .highlight-theme, .highlight-perspective,
+                .highlight-game_mode, .highlight-keyword
+            `);
+
+            highlights.forEach(highlight => {
+                if (!highlight.hasAttribute('data-bs-toggle')) {
+                    const elementName = highlight.dataset.elementName || 'Found element';
+                    const category = highlight.dataset.category || 'element';
+                    const categoryDisplay = {
+                        'genres': 'Genre',
+                        'themes': 'Theme',
+                        'perspectives': 'Perspective',
+                        'game_modes': 'Game Mode',
+                        'keywords': 'Keyword'
+                    }[category] || category;
+
+                    highlight.setAttribute('data-bs-toggle', 'tooltip');
+                    highlight.setAttribute('data-bs-title', `${categoryDisplay}: ${elementName}`);
+                    highlight.setAttribute('data-bs-placement', 'top');
+
+                    if (window.bootstrap && bootstrap.Tooltip) {
+                        try {
+                            new bootstrap.Tooltip(highlight, {
+                                trigger: 'hover focus',
+                                placement: 'top'
+                            });
+                        } catch (e) {}
+                    }
+                }
+            });
+        }
+
+        console.log('Tooltips setup complete');
+    }
+
+    setupMultiCriteriaTooltips() {
+        if (typeof setupMultiCriteriaTooltips === 'function') {
+            setupMultiCriteriaTooltips(this);
+        }
+    }
+
+    setupHighlightEvents() {
+        if (typeof setupHighlightEvents === 'function') {
+            setupHighlightEvents(this);
+        }
+    }
+
+    showMessage(text, type = 'info', duration = 5000) {
+        console.log(`Showing message: ${text} (${type})`);
+
+        const oldAlerts = document.querySelectorAll('.analyzer-alert');
+        oldAlerts.forEach(alert => {
+            if (window.bootstrap && bootstrap.Alert) {
+                const bsAlert = bootstrap.Alert.getInstance(alert);
+                if (bsAlert) {
+                    bsAlert.close();
+                } else {
+                    alert.remove();
+                }
+            } else {
+                alert.remove();
+            }
+        });
+
+        const alert = document.createElement('div');
+        alert.className = `alert alert-${type} alert-dismissible fade show analyzer-alert position-fixed`;
+        alert.style.cssText = `
+            top: 20px;
+            right: 20px;
+            z-index: 1060;
+            min-width: 300px;
+            max-width: 500px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            animation: slideInRight 0.3s ease;
+        `;
+
+        const icons = {
+            'success': 'bi-check-circle',
+            'error': 'bi-x-circle',
+            'warning': 'bi-exclamation-triangle',
+            'info': 'bi-info-circle'
+        };
+
+        alert.innerHTML = `
+            <div class="d-flex align-items-center">
+                <i class="bi ${icons[type] || 'bi-info-circle'} me-3 fs-5 text-${type}"></i>
+                <div class="flex-grow-1">${text}</div>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        `;
+
+        document.body.appendChild(alert);
+
+        if (window.bootstrap && bootstrap.Alert) {
+            try {
+                new bootstrap.Alert(alert);
+            } catch (e) {
+                console.warn('Could not create Bootstrap Alert', e);
+            }
+        }
+
+        if (type !== 'error' && duration > 0) {
+            setTimeout(() => {
+                if (alert.parentNode) {
+                    if (window.bootstrap && bootstrap.Alert) {
+                        const bsAlert = bootstrap.Alert.getInstance(alert);
+                        if (bsAlert) {
+                            bsAlert.close();
+                        }
+                    } else {
+                        alert.remove();
+                    }
+                }
+            }, duration);
+        }
+
+        return alert;
     }
 
     refreshCurrentKeywords() {
@@ -158,96 +467,6 @@ class GameAnalyzerUI {
                 this.isRestoringScroll = false;
             }
         }, 500);
-    }
-
-    handleAddKeyword() {
-        const keywordInput = document.getElementById('new-keyword-input');
-        const keyword = keywordInput ? keywordInput.value.trim() : '';
-
-        if (!keyword) {
-            this.showMessage('Please enter a keyword', 'error');
-            return;
-        }
-
-        const csrfToken = this.getCSRFToken();
-        if (!csrfToken) {
-            this.showMessage('Security token missing', 'error');
-            return;
-        }
-
-        const form = this.elements.analyzeForm;
-        if (!form) {
-            this.showMessage('Form not found', 'error');
-            return;
-        }
-
-        const autoAnalyzeInput = document.getElementById('auto-analyze-input');
-        if (autoAnalyzeInput) {
-            autoAnalyzeInput.value = 'true';
-        }
-
-        const newKeywordInput = document.createElement('input');
-        newKeywordInput.type = 'hidden';
-        newKeywordInput.name = 'new_keyword';
-        newKeywordInput.value = keyword;
-        form.appendChild(newKeywordInput);
-
-        const addKeywordInput = document.createElement('input');
-        addKeywordInput.type = 'hidden';
-        addKeywordInput.name = 'add_keyword';
-        addKeywordInput.value = 'true';
-        form.appendChild(addKeywordInput);
-
-        const currentTab = this.currentTab;
-        const analyzeTabInput = document.getElementById('analyze-tab-input');
-        if (analyzeTabInput) {
-            analyzeTabInput.value = currentTab;
-        }
-
-        setTimeout(() => {
-            try {
-                form.submit();
-            } catch (error) {
-                console.error('Error submitting form:', error);
-                this.showMessage('Error adding keyword: ' + error.message, 'error');
-
-                if (newKeywordInput.parentNode === form) {
-                    form.removeChild(newKeywordInput);
-                }
-                if (addKeywordInput.parentNode === form) {
-                    form.removeChild(addKeywordInput);
-                }
-            }
-        }, 100);
-    }
-
-    checkForAutoAnalyze() {
-        const urlParams = new URLSearchParams(window.location.search);
-
-        if (urlParams.get('cleared') === '1') {
-            this.showMessage('✅ Unsaved results successfully cleared.', 'success');
-            setTimeout(() => this.removeUrlParam('cleared'), 3000);
-        }
-
-        if (urlParams.get('keyword_added') === '1') {
-            this.showMessage('✅ Keyword added successfully!', 'success');
-
-            if (urlParams.get('auto_analyze') === '1') {
-                setTimeout(() => {
-                    this.showMessage('🔍 Text automatically analyzed after keyword addition. All matches highlighted.', 'info');
-                }, 500);
-            }
-
-            setTimeout(() => {
-                this.removeUrlParam('keyword_added');
-                this.removeUrlParam('auto_analyze');
-            }, 3000);
-        }
-
-        if (urlParams.get('saved') === '1') {
-            this.showMessage('✅ Results saved successfully!', 'success');
-            setTimeout(() => this.removeUrlParam('saved'), 3000);
-        }
     }
 
     cacheElements() {
@@ -341,7 +560,7 @@ class GameAnalyzerUI {
 
         setTimeout(() => {
             this.forceTextAlignmentFix();
-            setupTooltips(this);
+            this.setupTooltips();
         }, 10);
 
         this.updateUrlParam('tab', tabName);
@@ -371,11 +590,14 @@ class GameAnalyzerUI {
         return handleScroll(this);
     }
 
-    showMessage(text, type = 'info', duration = 5000) {
-        return showMessage(text, type, duration);
-    }
-
     getCSRFToken() {
+        const cookieValue = document.cookie
+            .split('; ')
+            .find(row => row.startsWith('csrftoken='))
+            ?.split('=')[1];
+
+        if (cookieValue) return cookieValue;
+
         const csrfInput = document.querySelector('[name="csrfmiddlewaretoken"]');
         return csrfInput ? csrfInput.value : null;
     }

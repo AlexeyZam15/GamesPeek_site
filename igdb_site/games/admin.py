@@ -11,7 +11,7 @@ from django.urls import reverse
 from .models import (
     Game, GameSimilarityDetail, GameCountsCache, Company, Series,
     Theme, PlayerPerspective, GameMode, KeywordCategory, Keyword,
-    Genre, Platform, GameSimilarityCache, Screenshot
+    Genre, Platform, GameSimilarityCache, Screenshot, GameEngine
 )
 
 
@@ -95,11 +95,11 @@ class PopularityFilter(admin.SimpleListFilter):
 class GameAdmin(admin.ModelAdmin):
     # Основные настройки отображения
     list_display = [
-        'name_link',  # Ссылка с имени вместо ID
+        'name_link',
         'game_type',
         'rating',
         'first_release_date',
-        'date_added',  # ← ДОБАВЛЕНО: Дата добавления
+        'date_added',
     ]
 
     # Фильтры в правой панели
@@ -107,21 +107,17 @@ class GameAdmin(admin.ModelAdmin):
         'game_type',
         'genres',
         'platforms',
-        'date_added',  # ← ДОБАВЛЕНО: Фильтр по дате добавления
+        'date_added',
+        'themes',
     ]
 
     # Поля только для чтения
-    readonly_fields = ['date_added']  # ← ДОБАВЛЕНО
+    readonly_fields = ['date_added']
 
-    # ТОЧНЫЙ ПОИСК ПО НАЗВАНИЮ (используем __iexact для точного совпадения)
-    search_fields = [
-        'name',  # Только по названию игры
-    ]
+    search_fields = ['name']
 
-    # Сортировка по умолчанию - сначала новые
-    ordering = ['-date_added']  # ← ИЗМЕНЕНО: Сортировка по дате добавления (новые сверху)
+    ordering = ['-date_added']
 
-    # Переопределяем поиск для точного совпадения
     def get_search_results(self, request, queryset, search_term):
         """
         Кастомный поиск: сначала точное совпадение, затем частичное
@@ -129,30 +125,19 @@ class GameAdmin(admin.ModelAdmin):
         if not search_term:
             return queryset, False
 
-        # Ищем точное совпадение (без учета регистра)
         exact_matches = queryset.filter(name__iexact=search_term)
-
-        # Если есть точные совпадения - показываем только их
         if exact_matches.exists():
             return exact_matches, False
 
-        # Ищем частичные совпадения (содержит слово)
         contains_matches = queryset.filter(name__icontains=search_term)
-
-        # Если есть частичные совпадения - показываем их
         if contains_matches.exists():
             return contains_matches, False
 
-        # Если ничего не найдено
         return queryset.none(), False
 
-    # Опции редактирования связей
-    filter_horizontal = ['genres', 'platforms', 'keywords', 'developers', 'publishers']
-
-    # Оптимизация для полей с большим количеством записей
+    filter_horizontal = ['genres', 'platforms', 'keywords', 'developers', 'publishers', 'engines', 'themes']
     raw_id_fields = ['parent_game', 'version_parent']
 
-    # Группировка полей в форме редактирования
     fieldsets = (
         ('Основная информация', {
             'fields': (
@@ -164,7 +149,7 @@ class GameAdmin(admin.ModelAdmin):
                 'rating_count',
                 'first_release_date',
                 'last_analyzed_date',
-                'date_added',  # ← ДОБАВЛЕНО: В форму редактирования
+                'date_added',
             )
         }),
         ('Связи с играми', {
@@ -187,6 +172,7 @@ class GameAdmin(admin.ModelAdmin):
                 'genres',
                 'platforms',
                 'keywords',
+                'engines',
             )
         }),
         ('Многие ко многим - Компании', {
@@ -208,28 +194,24 @@ class GameAdmin(admin.ModelAdmin):
             'fields': (
                 'storyline',
                 'rawg_description',
-                'wiki_description',  # Вики описание на странице редактирования
+                'wiki_description',
                 'cover_url'
             ),
             'classes': ('wide',),
         }),
     )
 
-    # Количество элементов на странице
     list_per_page = 50
 
-    # Действия массового редактирования
     actions = [
         'mark_as_analyzed',
         'clear_wiki_descriptions',
         'copy_summary_to_wiki',
         'update_cached_counts_action',
+        'remove_all_themes_from_selected_games',
     ]
 
-    # Поля доступные для быстрого редактирования в списке
     list_editable = ['game_type']
-
-    # ========== КАСТОМНЫЕ МЕТОДЫ ДЛЯ ОТОБРАЖЕНИЯ ==========
 
     def name_link(self, obj):
         """Ссылка на редактирование с названия игры"""
@@ -239,27 +221,17 @@ class GameAdmin(admin.ModelAdmin):
     name_link.short_description = "Название игры"
     name_link.admin_order_field = 'name'
 
-    # ========== КАСТОМНЫЕ АДМИН-ДЕЙСТВИЯ ==========
-
     def mark_as_analyzed(self, request, queryset):
         """Пометить игры как проанализированные"""
         updated = queryset.update(last_analyzed_date=timezone.now())
-        self.message_user(
-            request,
-            f"{updated} игр помечены как проанализированные",
-            messages.SUCCESS
-        )
+        self.message_user(request, f"{updated} игр помечены как проанализированные", messages.SUCCESS)
 
     mark_as_analyzed.short_description = "📝 Пометить как проанализированные"
 
     def clear_wiki_descriptions(self, request, queryset):
         """Очистить вики описания у выбранных игр"""
         updated = queryset.update(wiki_description='')
-        self.message_user(
-            request,
-            f"Вики описания очищены у {updated} игр",
-            messages.SUCCESS
-        )
+        self.message_user(request, f"Вики описания очищены у {updated} игр", messages.SUCCESS)
 
     clear_wiki_descriptions.short_description = "🗑️ Очистить вики описания"
 
@@ -287,46 +259,43 @@ class GameAdmin(admin.ModelAdmin):
             game.update_cached_counts(force=True)
             count += 1
 
-        self.message_user(
-            request,
-            f"Кэш обновлен у {count} игр",
-            messages.SUCCESS
-        )
+        self.message_user(request, f"Кэш обновлен у {count} игр", messages.SUCCESS)
 
     update_cached_counts_action.short_description = "🔄 Обновить кэш счетчиков"
 
-    # ========== ПРИОРИТЕТНЫЙ ПОИСК ==========
+    def remove_all_themes_from_selected_games(self, request, queryset):
+        """
+        Массовое удаление всех тем у выбранных игр
+        """
+        removed_count = 0
+        for game in queryset:
+            theme_count = game.themes.count()
+            if theme_count > 0:
+                game.themes.clear()
+                removed_count += theme_count
+
+        self.message_user(
+            request,
+            f"✅ Удалено {removed_count} тем из {queryset.count()} игр",
+            messages.SUCCESS
+        )
+
+    remove_all_themes_from_selected_games.short_description = "🗑️ Удалить все темы у выбранных игр"
 
     def changelist_view(self, request, extra_context=None):
-        """
-        Добавляем информацию о поиске в контекст
-        """
+        """Добавляем информацию о поиске в контекст"""
         extra_context = extra_context or {}
-
-        # Если есть поисковый запрос
         search_term = request.GET.get('q', '')
         if search_term:
-            # Получаем queryset
             queryset = self.get_queryset(request)
-
-            # Считаем результаты поиска
             search_results = self.get_search_results(request, queryset, search_term)[0]
-
-            # Добавляем информацию в контекст
             extra_context['search_results_count'] = search_results.count()
             extra_context['search_term'] = search_term
-
-            # Если найдены точные совпадения, показываем сообщение
             exact_count = queryset.filter(name__iexact=search_term).count()
             if exact_count > 0:
-                messages.info(
-                    request,
-                    f"Найдено {exact_count} точных совпадений по запросу '{search_term}'"
-                )
+                messages.info(request, f"Найдено {exact_count} точных совпадений по запросу '{search_term}'")
 
         return super().changelist_view(request, extra_context)
-
-    # ========== ОПТИМИЗАЦИЯ ==========
 
     def get_queryset(self, request):
         """Оптимизация запросов"""
@@ -335,8 +304,7 @@ class GameAdmin(admin.ModelAdmin):
 
     def formfield_for_manytomany(self, db_field, request, **kwargs):
         """Оптимизация для полей ManyToMany"""
-        if db_field.name in ['genres', 'platforms', 'keywords']:
-            # Сортировка по имени для удобства
+        if db_field.name in ['genres', 'platforms', 'keywords', 'engines', 'themes']:
             kwargs['queryset'] = db_field.remote_field.model.objects.all().order_by('name')
         return super().formfield_for_manytomany(db_field, request, **kwargs)
 
@@ -474,6 +442,124 @@ class KeywordAdmin(admin.ModelAdmin):
     bulk_delete_unused.short_description = "🗑️ Удалить неиспользуемые (0)"
 
 
+# ===== CUSTOM THEME ADMIN =====
+
+@admin.register(Theme)
+class ThemeAdmin(admin.ModelAdmin):
+    """Админ-панель для тем с оптимизированным удалением"""
+
+    list_display = [
+        'name',
+        'igdb_id',
+        'games_count',
+        'delete_link',
+    ]
+
+    search_fields = ['name']
+    list_filter = []
+    ordering = ['name']
+
+    actions = ['delete_selected', 'delete_unused_themes']
+
+    fieldsets = (
+        ('Основная информация', {
+            'fields': ('name', 'igdb_id')
+        }),
+        ('Статистика', {
+            'fields': ('games_count',),
+            'classes': ('collapse',)
+        }),
+    )
+
+    readonly_fields = ['games_count']
+
+    def games_count(self, obj):
+        """Отображает количество игр с этой темой"""
+        count = obj.game_set.count()
+        if count == 0:
+            return format_html('<span style="color: #999;">{}</span>', count)
+        elif count < 10:
+            return format_html('<span style="color: #4caf50;">{}</span>', count)
+        elif count < 50:
+            return format_html('<span style="color: #ff9800;">{}</span>', count)
+        else:
+            return format_html('<span style="color: #f44336;"><strong>{}</strong></span>', count)
+
+    games_count.short_description = "Игр с темой"
+
+    def delete_link(self, obj):
+        """Ссылка для быстрого удаления темы"""
+        url = reverse('admin:games_theme_delete', args=[obj.id])
+        count = obj.game_set.count()
+
+        if count > 0:
+            return format_html(
+                '<a href="{}" style="color: #ba2121;" onclick="return confirm(\'ВНИМАНИЕ! Тема используется в {} играх. Удаление темы удалит связь с этими играми. Продолжить?\');">'
+                '<img src="/static/admin/img/icon-deletelink.svg" alt="Delete" title="Удалить тему (используется в {} играх)" width="24" height="24">'
+                '</a>',
+                url, count, count
+            )
+        else:
+            return format_html(
+                '<a href="{}">'
+                '<img src="/static/admin/img/icon-deletelink.svg" alt="Delete" title="Удалить тему" width="24" height="24">'
+                '</a>',
+                url
+            )
+
+    delete_link.short_description = "🗑️"
+
+    def delete_unused_themes(self, request, queryset):
+        """
+        Массовое удаление тем, которые не используются в играх
+        """
+        unused_themes = queryset.filter(game__isnull=True)
+        count = unused_themes.count()
+
+        if count == 0:
+            self.message_user(
+                request,
+                "Среди выбранных нет тем, которые не используются в играх.",
+                messages.WARNING
+            )
+            return
+
+        for theme in unused_themes:
+            theme.delete()
+
+        self.message_user(
+            request,
+            f"✅ Удалено {count} неиспользуемых тем.",
+            messages.SUCCESS
+        )
+
+    delete_unused_themes.short_description = "🗑️ Удалить выбранные неиспользуемые темы"
+
+    def get_actions(self, request):
+        """
+        Настраиваем действия для массового удаления
+        """
+        actions = super().get_actions(request)
+        return actions
+
+    def delete_queryset(self, request, queryset):
+        """
+        Кастомное удаление с подсчетом и логированием
+        """
+        count = queryset.count()
+        for theme in queryset:
+            games_with_theme = theme.game_set.count()
+            if games_with_theme > 0:
+                theme.game_set.clear()
+
+        super().delete_queryset(request, queryset)
+        self.message_user(
+            request,
+            f"✅ Удалено {count} тем.",
+            messages.SUCCESS
+        )
+
+
 # ===== BASIC ADMIN CONFIGURATIONS =====
 
 @admin.register(Company)
@@ -509,12 +595,6 @@ class KeywordCategoryAdmin(admin.ModelAdmin):
     search_fields = ['name']
 
 
-@admin.register(Theme)
-class ThemeAdmin(admin.ModelAdmin):
-    list_display = ['name', 'igdb_id']
-    search_fields = ['name']
-
-
 @admin.register(PlayerPerspective)
 class PlayerPerspectiveAdmin(admin.ModelAdmin):
     list_display = ['name', 'igdb_id']
@@ -525,6 +605,12 @@ class PlayerPerspectiveAdmin(admin.ModelAdmin):
 class GameModeAdmin(admin.ModelAdmin):
     list_display = ['name', 'igdb_id']
     search_fields = ['name']
+
+
+@admin.register(GameEngine)
+class GameEngineAdmin(admin.ModelAdmin):
+    list_display = ['name', 'igdb_id', 'games_count']
+    search_fields = ['name', 'description']
 
 
 @admin.register(Screenshot)

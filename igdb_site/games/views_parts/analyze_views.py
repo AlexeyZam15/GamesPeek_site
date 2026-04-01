@@ -24,9 +24,1398 @@ def is_staff_or_superuser(user):
     return user.is_authenticated and (user.is_staff or user.is_superuser)
 
 
+# ===== НОВЫЕ AJAX ФУНКЦИИ =====
+
+@login_required
+@user_passes_test(is_staff_or_superuser)
+def analyze_game_ajax(request: HttpRequest, game_id: int):
+    """
+    AJAX обработчик для анализа текста игры без перезагрузки страницы.
+    Возвращает JSON с подсвеченным HTML и информацией о найденных элементах.
+    """
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Invalid request method'}, status=405)
+
+    try:
+        data = json.loads(request.body)
+        tab_key = data.get('tab', 'summary')
+
+        game = get_object_or_404(Game, pk=game_id)
+
+        # Получаем оригинальный текст для указанной вкладки
+        text_sources = {
+            'summary': game.summary,
+            'storyline': game.storyline,
+            'rawg': game.rawg_description,
+            'wiki': game.wiki_description,
+        }
+        original_text = text_sources.get(tab_key, '')
+
+        if not original_text:
+            return JsonResponse({
+                'success': False,
+                'error': f'No text found for the "{tab_key}" tab.'
+            })
+
+        print(f"\n=== АНАЛИЗ ТЕКСТА для игры {game_id}, вкладка {tab_key} ===")
+        print(f"Длина текста: {len(original_text)}")
+        print(f"Текст: '{original_text}'")
+
+        # Очищаем кэш Trie перед анализом
+        try:
+            from games.analyze.keyword_trie import KeywordTrieManager
+            KeywordTrieManager().clear_cache()
+            print("✅ Кэш Trie очищен")
+        except Exception as e:
+            print(f"⚠️ Ошибка при очистке кэша Trie: {e}")
+
+        # Выполняем анализ текста
+        analyzer = GameAnalyzerAPI(verbose=True)
+
+        analysis_result = analyzer.analyze_game_text_comprehensive(
+            text=original_text,
+            game_id=game.id,
+            existing_game=game,
+            exclude_existing=False  # Находим все, включая существующие
+        )
+
+        # ОТЛАДКА: смотрим, что вернул анализ
+        print(f"\n=== РЕЗУЛЬТАТЫ АНАЛИЗА ===")
+        print(f"Успех: {analysis_result['success']}")
+        print(f"Ключи analysis_result: {list(analysis_result.keys())}")
+
+        if 'pattern_info' in analysis_result:
+            print(f"Ключи pattern_info: {list(analysis_result['pattern_info'].keys())}")
+            for category in ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']:
+                matches = analysis_result['pattern_info'].get(category, [])
+                print(f"  {category}: {len(matches)} совпадений")
+                if matches and len(matches) > 0:
+                    print(f"    Первое совпадение: {matches[0]}")
+        else:
+            print("❌ pattern_info отсутствует!")
+
+        if not analysis_result['success']:
+            return JsonResponse({
+                'success': False,
+                'error': analysis_result.get('error', 'Unknown analysis error')
+            })
+
+        # Форматируем текст в HTML с сохранением абзацев
+        formatted_text = format_text_with_html(original_text)
+
+        # Применяем подсветку используя pattern_info из результата анализа
+        highlighted_text = apply_highlights_from_pattern_info(
+            formatted_text,
+            original_text,
+            analysis_result.get('pattern_info', {})
+        )
+
+        # Извлекаем найденные элементы с правильным флагом is_new
+        found_items = extract_found_items_combined(analysis_result, game)
+
+        # Подготавливаем данные для сохранения
+        save_data = prepare_save_data(analysis_result, game, tab_key)
+
+        # Сохраняем результаты в сессию
+        session_key = f'unsaved_results_{game_id}'
+        unsaved_results = request.session.get(session_key, {
+            'highlighted_text': {},
+            'found_items': {},
+            'analysis_data': {},
+            'save_data': {}
+        })
+
+        unsaved_results['highlighted_text'][tab_key] = highlighted_text
+        unsaved_results['found_items'][tab_key] = found_items
+        unsaved_results['analysis_data'][tab_key] = {
+            'text_source': tab_key,
+            'results': analysis_result.get('results', {}),
+            'summary': analysis_result.get('summary', {}),
+            'pattern_info': analysis_result.get('pattern_info', {}),
+            'original_text': original_text,
+            'formatted_text': formatted_text
+        }
+        unsaved_results['save_data'] = save_data
+
+        request.session[session_key] = unsaved_results
+        request.session.modified = True
+
+        # Формируем успешный JSON ответ
+        total_found = analysis_result['summary'].get('found_count', 0)
+        total_matches = analysis_result.get('total_matches', 0)
+
+        response_data = {
+            'success': True,
+            'highlighted_html': highlighted_text,
+            'found_items': found_items,
+            'summary': {
+                'found_count': total_found,
+                'total_matches': total_matches,
+                'has_results': total_found > 0,
+            },
+            'message': f'Found {total_found} elements with {total_matches} matches.',
+            'has_unsaved_results': True
+        }
+
+        print(f"✅ Отправляем ответ с {total_found} элементами")
+        return JsonResponse(response_data)
+
+    except Game.DoesNotExist:
+        print(f"❌ Игра {game_id} не найдена")
+        return JsonResponse({'success': False, 'error': 'Game not found.'})
+    except Exception as e:
+        print(f"❌ ОШИБКА в analyze_game_ajax: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({'success': False, 'error': f'Server error: {str(e)}'})
+
+
+@login_required
+@user_passes_test(is_staff_or_superuser)
+def add_keyword_ajax(request: HttpRequest, game_id: int):
+    """AJAX добавление ключевого слова без перезагрузки страницы"""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Invalid request method'}, status=405)
+
+    try:
+        import json
+        data = json.loads(request.body)
+        keyword_name = data.get('keyword', '').strip()
+
+        if not keyword_name:
+            return JsonResponse({'success': False, 'message': 'Please enter a keyword'})
+
+        game = get_object_or_404(Game, pk=game_id)
+
+        # Создаем или получаем ключевое слово
+        keyword = Keyword.objects.filter(name__iexact=keyword_name).first()
+        was_created = False
+
+        if not keyword:
+            other_category, created = KeywordCategory.objects.get_or_create(
+                name='Other',
+                defaults={'description': 'Manually added keywords'}
+            )
+
+            max_igdb_id = Keyword.objects.aggregate(models.Max('igdb_id'))['igdb_id__max'] or 1000000
+            new_igdb_id = max_igdb_id + 1
+
+            keyword = Keyword.objects.create(
+                name=keyword_name,
+                category=other_category,
+                igdb_id=new_igdb_id,
+                cached_usage_count=1
+            )
+            was_created = True
+            print(f"✅ Ключевое слово '{keyword_name}' создано (Trie будет обновлен при следующем анализе)")
+
+        # Добавляем ключевое слово к игре (если его еще нет)
+        already_exists = False
+        if keyword in game.keywords.all():
+            already_exists = True
+        else:
+            game.keywords.add(keyword)
+            # Обновляем кэш
+            keyword.update_cached_count(force=True)
+            game.update_cached_counts(force=True)
+
+        return JsonResponse({
+            'success': True,
+            'message': f'Keyword "{keyword_name}" added to game!',
+            'keyword': {
+                'id': keyword.id,
+                'name': keyword.name
+            },
+            'was_created': was_created,
+            'already_exists': already_exists
+        })
+
+    except Exception as e:
+        print(f"✗ ОШИБКА добавления ключевого слова: {str(e)}")
+        return JsonResponse({
+            'success': False,
+            'message': f'Error adding keyword: {str(e)}'
+        })
+
+
+@login_required
+@user_passes_test(is_staff_or_superuser)
+def delete_keyword_ajax(request: HttpRequest, game_id: int):
+    """AJAX удаление ключевого слова из БД с вызовом команды обновления векторов"""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Invalid request method'}, status=405)
+
+    try:
+        import json
+        import sys
+        import time
+        from datetime import datetime, timedelta
+        from django.core.management import call_command
+        from io import StringIO
+
+        data = json.loads(request.body)
+        keyword_name = data.get('keyword', '').strip()
+
+        print(f"\n=== УДАЛЕНИЕ КЛЮЧЕВОГО СЛОВА ИЗ БД ===")
+        print(f"Игра ID: {game_id}")
+        print(f"Искомое слово: '{keyword_name}'")
+
+        if not keyword_name:
+            print(f"❌ Пустое ключевое слово")
+            return JsonResponse({'success': False, 'message': 'Please enter a keyword'})
+
+        game = get_object_or_404(Game, pk=game_id)
+        print(f"Игра: '{game.name}' (ID: {game.id})")
+
+        # Ищем ключевое слово в БД
+        from django.db.models import Q
+
+        # Пробуем найти точное совпадение
+        keyword = Keyword.objects.filter(name__iexact=keyword_name).first()
+
+        if not keyword:
+            print(f"⚠️ Точное совпадение не найдено, ищем по частичному совпадению...")
+            # Пробуем частичное совпадение
+            keyword = Keyword.objects.filter(name__icontains=keyword_name).first()
+
+        if not keyword:
+            print(f"❌ Ключевое слово '{keyword_name}' не найдено в БД")
+            return JsonResponse({
+                'success': False,
+                'message': f'Keyword "{keyword_name}" not found in database'
+            })
+
+        print(f"✅ Найдено ключевое слово: '{keyword.name}' (ID: {keyword.id})")
+
+        # Получаем список ID всех игр, которые используют это ключевое слово ДО удаления
+        game_ids_with_keyword = list(keyword.game_set.values_list('id', flat=True))
+        total_affected_games = len(game_ids_with_keyword)
+        print(f"📊 Ключевое слово используется в {total_affected_games} играх")
+
+        # Сохраняем популярность для ответа
+        popularity = total_affected_games
+
+        # Удаляем ключевое слово из БД
+        keyword.delete()
+        print(f"✓ Ключевое слово удалено из БД")
+
+        # Запускаем команду обновления векторов, если были затронутые игры
+        if total_affected_games > 0:
+            print(f"\n🔄 Запуск обновления векторов для {total_affected_games} затронутых игр...")
+
+            # Перехватываем вывод команды
+            output = StringIO()
+            start_time = time.time()
+
+            # Запускаем команду update_vectors
+            call_command('update_vectors', stdout=output, stderr=output)
+
+            total_time = time.time() - start_time
+
+            # Получаем вывод команды
+            command_output = output.getvalue()
+
+            # Выводим только ключевую информацию
+            print(f"  ✓ Команда update_vectors выполнена за {total_time:.2f} сек")
+
+            # Извлекаем статистику из вывода команды
+            import re
+
+            # Ищем количество обновленных записей
+            updated_match = re.search(r'✅ Обновлено записей: (\d+)', command_output)
+            updated_count = updated_match.group(1) if updated_match else "?"
+
+            # Ищем статистику по ключевым словам
+            keywords_match = re.search(r'Ключевые слова: (\d+) игр имеют (\d+) связей', command_output)
+            if keywords_match:
+                games_with_keywords = keywords_match.group(1)
+                total_keyword_relations = keywords_match.group(2)
+                print(
+                    f"  ✓ После обновления: {games_with_keywords} игр имеют {total_keyword_relations} связей с ключевыми словами")
+
+            print(f"  ✓ Все векторы успешно обновлены")
+        else:
+            print(f"✓ Нет игр для обновления векторов")
+
+        print(f"✅ Готово\n")
+
+        return JsonResponse({
+            'success': True,
+            'message': f'Keyword "{keyword_name}" deleted successfully',
+            'keyword': {
+                'id': keyword.id,
+                'name': keyword.name
+            },
+            'popularity': popularity,
+            'still_exists_in_db': False,
+            'vectors_updated': total_affected_games > 0,
+            'affected_games': total_affected_games
+        })
+
+    except Exception as e:
+        print(f"✗ ОШИБКА удаления ключевого слова: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({
+            'success': False,
+            'message': f'Error deleting keyword: {str(e)}'
+        })
+
+
+@login_required
+@user_passes_test(is_staff_or_superuser)
+def analyze_single_game(request: HttpRequest, game_id: int):
+    """Анализ одной игры - ТОЛЬКО комбинированный режим"""
+
+    # Проверяем, нужно ли выполнить автоматический анализ (удаляем эту логику - не нужна)
+    # Весь блок с auto_analyze_key удаляем
+
+    # ДОБАВЛЯЕМ: Обновляем Trie перед каждым GET запросом (для актуальности данных)
+    try:
+        from games.analyze.keyword_trie import KeywordTrieManager
+        KeywordTrieManager().clear_cache()
+        print(f"✅ Кэш Trie обновлен при загрузке страницы для игры {game_id}")
+    except Exception as e:
+        print(f"⚠️ Ошибка при обновлении Trie: {e}")
+
+    # Инициализация
+    game, original_descriptions, active_tab = _initialize_analysis_context(request, game_id)
+
+    # Обработка POST запросов
+    if request.method == 'POST':
+        return _handle_post_request(request, game, original_descriptions, active_tab)
+
+    # Подготовка контекста для GET запроса
+    context = _prepare_get_context(request, game, original_descriptions, active_tab)
+
+    return render(request, 'games/analyze.html', context)
+
+
+def apply_highlights_from_pattern_info(html_text: str, original_text: str, pattern_info: Dict) -> str:
+    """
+    Применяет подсветку к HTML тексту, используя данные из pattern_info.
+    ИСПРАВЛЕНО: Декодирует HTML-сущности перед поиском и правильно обрабатывает кавычки
+    """
+    if not html_text or not pattern_info or not original_text:
+        return html_text
+
+    try:
+        import re
+        import html
+
+        # ИСПРАВЛЕНИЕ: Декодируем HTML-сущности в тексте перед обработкой
+        # Заменяем &quot; на " для правильного поиска
+        html_text = html.unescape(html_text)
+
+        # ПРОВЕРКА: если текст уже содержит span'ы подсветки, нужно сначала их удалить
+        if re.search(r'<span[^>]*class="[^"]*highlight-[^"]*"[^>]*>', html_text):
+            # Удаляем старую подсветку
+            html_text = remove_existing_highlights(html_text)
+            print("✅ Удалена старая подсветка перед применением новой")
+
+        # Получаем чистый текст из HTML для поиска
+        clean_text = re.sub(r'<[^>]+>', '', html_text)
+        clean_text_lower = clean_text.lower()
+
+        if not clean_text:
+            return html_text
+
+        # Собираем все совпадения для подсветки
+        categories = ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']
+        category_classes = {
+            'genres': 'highlight-genre',
+            'themes': 'highlight-theme',
+            'perspectives': 'highlight-perspective',
+            'game_modes': 'highlight-game_mode',
+            'keywords': 'highlight-keyword'
+        }
+
+        # Словарь для хранения занятых позиций в ЧИСТОМ тексте
+        occupied_clean_positions = []
+        # Словарь для хранения всех найденных совпадений
+        all_matches = []
+
+        print("\n=== ОТЛАДКА: поиск совпадений в тексте ===")
+
+        # Сначала собираем ВСЕ совпадения (и фразы, и отдельные слова)
+        for category in categories:
+            for match in pattern_info.get(category, []):
+                if match.get('status') == 'found':
+                    matched_text = match.get('matched_text', '')
+                    if not matched_text or len(matched_text) < 2:
+                        continue
+
+                    # ОТЛАДКА для game_modes
+                    if category == 'game_modes':
+                        print(f"\n🔍 Обработка game_modes: '{matched_text}'")
+                        print(f"  длина: {len(matched_text)}")
+                        print(f"  name: {match.get('name')}")
+                        print(f"  matched_text в raw виде: {repr(matched_text)}")
+
+                    # Ищем все вхождения этого текста в чистом тексте
+                    search_text = matched_text.lower()
+                    pos = 0
+                    while True:
+                        found_pos = clean_text_lower.find(search_text, pos)
+                        if found_pos == -1:
+                            if category == 'game_modes' and pos == 0:
+                                print(f"  ❌ Текст '{search_text}' не найден в clean_text")
+                                print(f"  Первые 200 символов clean_text: '{clean_text[:200]}'")
+                            break
+
+                        end_pos = found_pos + len(matched_text)
+
+                        if category == 'game_modes':
+                            print(f"  Найдена позиция: {found_pos}-{end_pos}")
+                            context_start = max(0, found_pos - 30)
+                            context_end = min(len(clean_text), end_pos + 30)
+                            print(
+                                f"  Контекст: '...{clean_text[context_start:found_pos]}>>>{clean_text[found_pos:end_pos]}<<<{clean_text[end_pos:context_end]}...'")
+
+                        # Проверяем границы слова
+                        is_valid = True
+
+                        # Проверяем начало
+                        if found_pos > 0:
+                            prev_char = clean_text[found_pos - 1]
+                            # Допускаем пробел, дефис, открывающую скобку, кавычку в начале
+                            if prev_char.isalnum() and prev_char not in "-'\"([{":
+                                is_valid = False
+                                if category == 'game_modes':
+                                    print(f"  ❌ Невалидное начало: prev_char='{prev_char}' (код: {ord(prev_char)})")
+
+                        # Проверяем конец
+                        if end_pos < len(clean_text):
+                            next_char = clean_text[end_pos]
+                            # Допускаем: пробел, дефис, апостроф, знаки препинания, закрывающие скобки
+                            if next_char.isalnum() and next_char.lower() not in "s":
+                                is_valid = False
+                                if category == 'game_modes':
+                                    print(f"  ❌ Невалидный конец: next_char='{next_char}' (код: {ord(next_char)})")
+                            # Специальная проверка для 's (притяжательный падеж)
+                            elif next_char.lower() == 's':
+                                # Проверяем, что после 's не идет буква
+                                if end_pos + 1 < len(clean_text) and clean_text[end_pos + 1].isalnum():
+                                    is_valid = False
+                                    if category == 'game_modes':
+                                        print(f"  ❌ 's' является частью большего слова")
+
+                        # Проверяем, не пересекается ли с уже найденными совпадениями
+                        if is_valid:
+                            for occ_start, occ_end in occupied_clean_positions:
+                                if not (end_pos <= occ_start or found_pos >= occ_end):
+                                    is_valid = False
+                                    if category == 'game_modes':
+                                        print(f"  ❌ Пересекается с существующим совпадением {occ_start}-{occ_end}")
+                                    break
+
+                        if is_valid:
+                            if category == 'game_modes':
+                                print(f"  ✅ Валидное совпадение!")
+
+                            # Добавляем в список всех совпадений
+                            all_matches.append({
+                                'clean_start': found_pos,
+                                'clean_end': end_pos,
+                                'category': category,
+                                'class_name': category_classes[category],
+                                'name': match['name'],
+                                'matched_text': matched_text,
+                                'length': len(matched_text),
+                                'is_phrase': ' ' in matched_text or '-' in matched_text
+                            })
+
+                            # Запоминаем занятую позицию
+                            occupied_clean_positions.append((found_pos, end_pos))
+                        else:
+                            if category == 'game_modes':
+                                print(f"  ❌ Совпадение отклонено")
+
+                        pos = found_pos + 1
+
+        print(f"\n✅ Всего найдено совпадений для подсветки: {len(all_matches)}")
+        for category in categories:
+            cat_matches = [m for m in all_matches if m['category'] == category]
+            if cat_matches:
+                print(f"  {category}: {len(cat_matches)} совпадений")
+                for m in cat_matches[:3]:
+                    print(f"    - '{m['matched_text']}'")
+
+        if not all_matches:
+            print("⚠️ Нет совпадений для подсветки")
+            return html_text
+
+        # Сортируем совпадения: сначала фразы (по длине), потом отдельные слова
+        all_matches.sort(key=lambda x: (-x['length'], not x['is_phrase']))
+
+        # Группируем пересекающиеся совпадения
+        grouped_matches = []
+        for match in all_matches:
+            # Проверяем, не пересекается ли с уже добавленными
+            is_overlapping = False
+            for group in grouped_matches:
+                # Проверяем пересечение по позициям в чистом тексте
+                if not (match['clean_end'] <= group['clean_start'] or match['clean_start'] >= group['clean_end']):
+                    # Пересекается - объединяем группы
+                    group['clean_start'] = min(group['clean_start'], match['clean_start'])
+                    group['clean_end'] = max(group['clean_end'], match['clean_end'])
+                    group['matches'].append(match)
+                    is_overlapping = True
+                    break
+
+            if not is_overlapping:
+                grouped_matches.append({
+                    'clean_start': match['clean_start'],
+                    'clean_end': match['clean_end'],
+                    'matches': [match]
+                })
+
+        print(f"\n📊 Сгруппировано в {len(grouped_matches)} групп")
+
+        # Теперь для каждой группы находим позиции в HTML и создаем подсветку
+        highlight_positions = []
+
+        for group in grouped_matches:
+            # Находим соответствующую позицию в HTML
+            html_start = find_html_position(html_text, clean_text, group['clean_start'])
+            if html_start == -1:
+                continue
+
+            # Находим конец в HTML (ищем соответствующий конец в чистом тексте)
+            html_end = html_start
+            clean_pos = group['clean_start']
+            html_pos = html_start
+
+            in_tag = False
+            in_entity = False
+
+            while clean_pos < group['clean_end'] and html_pos < len(html_text):
+                char = html_text[html_pos]
+
+                if char == '<':
+                    in_tag = True
+                elif char == '>':
+                    in_tag = False
+                elif char == '&' and not in_tag:
+                    in_entity = True
+                elif char == ';' and in_entity:
+                    in_entity = False
+                    clean_pos += 1
+                elif not in_tag and not in_entity:
+                    # Это текстовый символ
+                    if clean_pos == group['clean_end'] - 1:
+                        html_end = html_pos + 1
+                        break
+                    clean_pos += 1
+
+                html_pos += 1
+
+            # Проверяем, что не внутри существующего span'а (хотя мы их удалили, но на всякий случай)
+            if is_inside_html_tag(html_text, html_start):
+                continue
+
+            # Определяем тип подсветки (одиночный или множественный)
+            if len(group['matches']) > 1:
+                # Множественные критерии
+                unique_categories = set(m['category'] for m in group['matches'])
+
+                if len(unique_categories) >= 2:
+                    # Используем мульти-подсветку
+                    highlight_positions.append({
+                        'start': html_start,
+                        'end': html_end,
+                        'type': 'multi',
+                        'matches': group['matches'],
+                        'num_criteria': len(unique_categories)
+                    })
+                    continue
+
+            # Если дошли сюда - одиночный критерий или все критерии одной категории
+            for match in group['matches']:
+                highlight_positions.append({
+                    'start': html_start,
+                    'end': html_end,
+                    'type': 'single',
+                    'match': match
+                })
+                break  # Берем только первый (они все одной категории или мы уже обработали мульти)
+
+        if not highlight_positions:
+            print("⚠️ Нет позиций для подсветки в HTML")
+            return html_text
+
+        # Удаляем дубликаты (одинаковые позиции)
+        unique_positions = []
+        seen = set()
+        for pos in highlight_positions:
+            key = (pos['start'], pos['end'])
+            if key not in seen:
+                seen.add(key)
+                unique_positions.append(pos)
+
+        print(f"🎯 Создано {len(unique_positions)} уникальных позиций для подсветки")
+
+        # Сортируем от конца к началу для корректной замены
+        unique_positions.sort(key=lambda x: x['start'], reverse=True)
+
+        # Применяем подсветку
+        highlighted_text = html_text
+
+        for pos_info in unique_positions:
+            try:
+                if pos_info['start'] < 0 or pos_info['end'] > len(highlighted_text):
+                    continue
+                if pos_info['start'] >= pos_info['end']:
+                    continue
+
+                # Получаем оригинальный текст из HTML
+                original_html = highlighted_text[pos_info['start']:pos_info['end']]
+
+                # Пропускаем, если уже содержит span (дополнительная проверка)
+                if '<span' in original_html and '</span>' in original_html:
+                    continue
+
+                # Экранируем текст для безопасности
+                safe_text = html.escape(original_html)
+
+                if pos_info['type'] == 'multi':
+                    # Множественные критерии
+                    highlighted_span = create_multi_highlight_span(
+                        safe_text,
+                        pos_info['matches'],
+                        pos_info['num_criteria']
+                    )
+                else:
+                    # Одиночный критерий
+                    match = pos_info['match']
+                    category_display = {
+                        'genres': 'Genre',
+                        'themes': 'Theme',
+                        'perspectives': 'Perspective',
+                        'game_modes': 'Game Mode',
+                        'keywords': 'Keyword'
+                    }.get(match['category'], match['category'])
+
+                    # ИСПРАВЛЕНИЕ: Используем html.escape для всех атрибутов,
+                    # а для кавычек в title используем &quot; через замену
+                    safe_name = html.escape(match['name']).replace('"', '&quot;')
+                    safe_category_display = html.escape(category_display).replace('"', '&quot;')
+
+                    highlighted_span = (
+                        f'<span class="{match["class_name"]}" '
+                        f'data-element-name="{safe_name}" '
+                        f'data-category="{match["category"]}" '
+                        f'title="{safe_category_display}: {safe_name}">'
+                        f'{safe_text}'
+                        f'</span>'
+                    )
+
+                # Заменяем в тексте
+                highlighted_text = (
+                        highlighted_text[:pos_info['start']] +
+                        highlighted_span +
+                        highlighted_text[pos_info['end']:]
+                )
+
+            except Exception as e:
+                print(f"❌ Ошибка при подсветке: {e}")
+                continue
+
+        return highlighted_text
+
+    except Exception as e:
+        print(f"❌ Ошибка в apply_highlights_from_pattern_info: {e}")
+        import traceback
+        traceback.print_exc()
+        return html_text
+
+
+def create_multi_highlight_span(text: str, matches: List[Dict], num_criteria: int) -> str:
+    """
+    Создает span для МНОЖЕСТВЕННЫХ критериев
+    ИСПРАВЛЕНО: Использует &quot; для кавычек в атрибутах
+    """
+    import html
+
+    # Собираем уникальные категории и имена
+    unique_matches = {}
+    for match in matches:
+        key = f"{match['name']}|{match['category']}"
+        if key not in unique_matches:
+            unique_matches[key] = match
+
+    # Собираем информацию для тултипа
+    category_names = {
+        'genres': 'Genre',
+        'themes': 'Theme',
+        'perspectives': 'Perspective',
+        'game_modes': 'Game Mode',
+        'keywords': 'Keyword'
+    }
+
+    tooltip_parts = []
+    names_list = []
+    categories_list = []
+    all_classes = set()
+
+    for match in unique_matches.values():
+        category_display = category_names.get(match['category'], match['category'])
+        # ИСПРАВЛЕНИЕ: Экранируем и заменяем кавычки на &quot;
+        safe_name = html.escape(match['name']).replace('"', '&quot;')
+        safe_category_display = html.escape(category_display).replace('"', '&quot;')
+        tooltip_parts.append(f"{safe_category_display}: {safe_name}")
+        names_list.append(match['name'])
+        categories_list.append(match['category'])
+        all_classes.add(match['class_name'])
+
+    tooltip_text = " | ".join(tooltip_parts)
+    class_str = ' '.join(all_classes)
+
+    # Экранируем имена для data-атрибутов
+    safe_names = ','.join([html.escape(name).replace('"', '&quot;') for name in names_list])
+    safe_categories = ','.join(categories_list)
+
+    # Определяем стиль полосатой подсветки в зависимости от количества критериев
+    if num_criteria == 2:
+        striped_style = "background: repeating-linear-gradient(45deg, rgba(220, 53, 69, 0.2), rgba(220, 53, 69, 0.2) 5px, rgba(255, 193, 7, 0.2) 5px, rgba(255, 193, 7, 0.2) 10px) !important;"
+    elif num_criteria >= 3:
+        striped_style = "background: repeating-linear-gradient(45deg, rgba(220, 53, 69, 0.15), rgba(220, 53, 69, 0.15) 4px, rgba(255, 193, 7, 0.15) 4px, rgba(255, 193, 7, 0.15) 8px, rgba(0, 123, 255, 0.15) 8px, rgba(0, 123, 255, 0.15) 12px) !important;"
+    else:
+        striped_style = ""
+
+    return f'<span class="highlight-multi {class_str}" ' \
+           f'style="{striped_style}" ' \
+           f'data-element-names="{safe_names}" ' \
+           f'data-categories="{safe_categories}" ' \
+           f'data-num-criteria="{num_criteria}" ' \
+           f'title="{tooltip_text}">{text}</span>'
+
+
+def simple_highlight_text(html_text: str, analysis_result: Dict) -> str:
+    """
+    ПРОСТОЙ метод подсветки текста
+    ИСПРАВЛЕНО: подсвечивает все категории с правильной обработкой структуры данных
+    """
+    if not html_text or not analysis_result.get('pattern_info'):
+        return html_text
+
+    try:
+        import re
+        import html
+
+        # Декодируем HTML-сущности перед обработкой
+        html_text = html.unescape(html_text)
+
+        # ОТЛАДКА: выводим структуру pattern_info
+        print("\n=== ОТЛАДКА simple_highlight_text ===")
+        print(f"Категории в pattern_info: {list(analysis_result['pattern_info'].keys())}")
+
+        # Собираем все слова для подсветки из ВСЕХ категорий
+        words_to_highlight = {}
+        categories = ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']
+        category_classes = {
+            'genres': 'highlight-genre',
+            'themes': 'highlight-theme',
+            'perspectives': 'highlight-perspective',
+            'game_modes': 'highlight-game_mode',
+            'keywords': 'highlight-keyword'
+        }
+
+        for category in categories:
+            category_matches = analysis_result['pattern_info'].get(category, [])
+            print(f"\nКатегория {category}: {len(category_matches)} совпадений")
+
+            for i, match in enumerate(category_matches):
+                print(f"  Совпадение {i + 1}: {match.keys()}")
+
+                if match.get('status') == 'found':
+                    # ИСПРАВЛЕНИЕ: для разных категорий поля могут называться по-разному
+                    matched_text = None
+
+                    # Пробуем разные возможные названия поля с текстом
+                    if 'matched_text' in match:
+                        matched_text = match.get('matched_text', '')
+                        print(f"    matched_text: '{matched_text}'")
+                    elif 'word' in match:
+                        matched_text = match.get('word', '')
+                        print(f"    word: '{matched_text}'")
+                    elif 'text' in match:
+                        matched_text = match.get('text', '')
+                        print(f"    text: '{matched_text}'")
+
+                    name = match.get('name', '')
+                    print(f"    name: '{name}'")
+
+                    if matched_text and name:
+                        matched_text_lower = matched_text.lower()
+                        if matched_text_lower not in words_to_highlight:
+                            words_to_highlight[matched_text_lower] = {
+                                'word': matched_text,
+                                'name': name,
+                                'category': category,
+                                'class_name': category_classes[category]
+                            }
+                            print(f"    ✅ Добавлено в подсветку: '{matched_text}' -> {category}")
+                        else:
+                            print(f"    ⚠️ Уже есть в подсветке: '{matched_text}'")
+                    else:
+                        print(f"    ❌ Нет matched_text или name")
+
+        print(f"\nВсего слов для подсветки: {len(words_to_highlight)}")
+        for word, info in words_to_highlight.items():
+            print(f"  '{word}' -> {info['category']}")
+
+        if not words_to_highlight:
+            print("⚠️ Нет слов для подсветки")
+            return html_text
+
+        # Разбиваем HTML на части: теги и текст
+        result_parts = []
+        remaining_text = html_text
+
+        # Находим все теги
+        tag_pattern = re.compile(r'(<[^>]+>)')
+
+        while remaining_text:
+            # Ищем следующий тег
+            tag_match = tag_pattern.search(remaining_text)
+
+            if tag_match:
+                # Текст до тега
+                before_tag = remaining_text[:tag_match.start()]
+                if before_tag:
+                    # Обрабатываем текст
+                    processed = process_text_chunk(before_tag, words_to_highlight)
+                    result_parts.append(processed)
+
+                # Добавляем тег как есть
+                result_parts.append(tag_match.group(1))
+
+                # Оставшийся текст после тега
+                remaining_text = remaining_text[tag_match.end():]
+            else:
+                # Нет больше тегов, обрабатываем оставшийся текст
+                if remaining_text:
+                    processed = process_text_chunk(remaining_text, words_to_highlight)
+                    result_parts.append(processed)
+                break
+
+        return ''.join(result_parts)
+
+    except Exception as e:
+        print(f"❌ Error in simple_highlight_text: {e}")
+        import traceback
+        traceback.print_exc()
+        return html_text
+
+
+def process_text_chunk(text: str, words_to_highlight: Dict) -> str:
+    """
+    Обрабатывает кусок текста (без HTML тегов), подсвечивая слова
+    """
+    import re
+    import html
+
+    # Экранируем спецсимволы в словах
+    words = list(words_to_highlight.keys())
+    words.sort(key=len, reverse=True)  # Сначала длинные слова
+
+    # Создаем паттерн для поиска слов
+    escaped_words = [re.escape(w) for w in words]
+    pattern = re.compile(r'\b(' + '|'.join(escaped_words) + r')\b', re.IGNORECASE)
+
+    def replace_word(match):
+        matched_word = match.group(1)
+        word_lower = matched_word.lower()
+
+        # ИСПРАВЛЕНИЕ: Проверяем, есть ли слово в словаре
+        if word_lower in words_to_highlight:
+            word_info = words_to_highlight[word_lower]
+
+            category_display = {
+                'genres': 'Genre',
+                'themes': 'Theme',
+                'perspectives': 'Perspective',
+                'game_modes': 'Game Mode',
+                'keywords': 'Keyword'
+            }.get(word_info['category'], word_info['category'])
+
+            # Экранируем и заменяем кавычки на &quot;
+            safe_name = html.escape(word_info['name']).replace('"', '&quot;')
+            safe_category_display = html.escape(category_display).replace('"', '&quot;')
+
+            return (f'<span class="{word_info["class_name"]}" '
+                    f'data-element-name="{safe_name}" '
+                    f'data-category="{word_info["category"]}" '
+                    f'title="{safe_category_display}: {safe_name}">'
+                    f'{matched_word}</span>')
+        else:
+            # Если слово не найдено (редкий случай), возвращаем как есть
+            return matched_word
+
+    # Заменяем все вхождения
+    return pattern.sub(replace_word, text)
+
+
+def create_single_highlight_span(text: str, match: Dict) -> str:
+    """
+    Создает span для одиночного критерия
+    ИСПРАВЛЕНО: Использует &quot; для кавычек в атрибутах
+    """
+    import html
+
+    category_display = {
+        'genres': 'Genre',
+        'themes': 'Theme',
+        'perspectives': 'Perspective',
+        'game_modes': 'Game Mode',
+        'keywords': 'Keyword'
+    }.get(match['category'], match['category'])
+
+    # ИСПРАВЛЕНИЕ: Экранируем и заменяем кавычки на &quot;
+    safe_name = html.escape(match['name']).replace('"', '&quot;')
+    safe_category_display = html.escape(category_display).replace('"', '&quot;')
+
+    title = f"{safe_category_display}: {safe_name}"
+
+    return f'<span class="{match["class_name"]}" ' \
+           f'data-element-name="{safe_name}" ' \
+           f'data-category="{match["category"]}" ' \
+           f'title="{title}">{html.escape(text)}</span>'
+
+
+def format_text_with_html(text: str) -> str:
+    """
+    Форматирует текст в HTML
+    ИСПРАВЛЕНО: Декодирует HTML-сущности перед форматированием
+    """
+    if not text:
+        return ""
+
+    import html
+
+    # Если уже есть HTML
+    if '<p>' in text:
+        return text
+
+    # ИСПРАВЛЕНИЕ: Декодируем HTML-сущности перед обработкой
+    text = html.unescape(text)
+
+    # Разбиваем на абзацы
+    paragraphs = text.split('\n\n')
+    formatted = []
+
+    for para in paragraphs:
+        if para.strip():
+            # Экранируем HTML
+            safe_para = html.escape(para.strip())
+            # Сохраняем переносы строк внутри абзаца
+            safe_para = safe_para.replace('\n', '<br>')
+            formatted.append(f'<p>{safe_para}</p>')
+
+    if formatted:
+        return '\n'.join(formatted)
+    else:
+        safe_text = html.escape(text.replace('\n', '<br>'))
+        return f'<p>{safe_text}</p>'
+
+
+def remove_existing_highlights(html_text: str) -> str:
+    """
+    Удаляет существующие span теги подсветки из HTML текста
+    ИСПРАВЛЕНО: Более надежное удаление с учетом вложенных span'ов
+    """
+    import re
+
+    if not html_text:
+        return html_text
+
+    # Паттерн для поиска span'ов подсветки
+    # Ищем span с классом, содержащим "highlight-"
+    pattern = r'<span[^>]*class="[^"]*highlight-[^"]*"[^>]*>(.*?)</span>'
+
+    # Рекурсивно удаляем все span'ы подсветки, пока они есть
+    prev_text = None
+    current_text = html_text
+
+    iteration = 0
+    while prev_text != current_text and iteration < 10:  # Ограничиваем итерации
+        prev_text = current_text
+        # Заменяем span на его содержимое
+        current_text = re.sub(pattern, r'\1', current_text, flags=re.DOTALL | re.IGNORECASE)
+        iteration += 1
+
+    # Дополнительная очистка: удаляем возможные остатки атрибутов данных
+    # (на случай, если какие-то span'ы остались из-за вложенности)
+    current_text = re.sub(r'<span[^>]*data-element-name[^>]*>(.*?)</span>', r'\1', current_text, flags=re.DOTALL)
+
+    return current_text
+
+
+def is_inside_existing_span(html_text: str, position: int) -> bool:
+    """
+    Проверяет, находится ли позиция внутри существующего span тега подсветки
+    ИСПРАВЛЕНО: Более надежная проверка с учетом вложенных тегов
+    """
+    if position < 0 or position >= len(html_text):
+        return False
+
+    # Находим все открывающие span'ы до этой позиции
+    span_starts = []
+    pos = 0
+    while True:
+        span_start = html_text.find('<span', pos, position)
+        if span_start == -1:
+            break
+
+        # Проверяем, что это span подсветки
+        tag_end = html_text.find('>', span_start)
+        if tag_end != -1 and tag_end < position:
+            tag_content = html_text[span_start:tag_end]
+            if 'class="' in tag_content and 'highlight-' in tag_content:
+                span_starts.append((span_start, tag_end))
+
+        pos = span_start + 1
+
+    if not span_starts:
+        return False
+
+    # Для каждого найденного span'а проверяем, есть ли закрывающий тег после позиции
+    for span_start, tag_end in span_starts:
+        closing_span = html_text.find('</span>', tag_end)
+        if closing_span != -1 and position < closing_span:
+            # Находимся внутри этого span'а
+            return True
+
+    return False
+
+
+def find_html_position(html_text: str, clean_text: str, clean_pos: int) -> int:
+    """
+    Находит позицию в HTML тексте, соответствующую позиции в чистом тексте
+    ИСПРАВЛЕНО: Более точное сопоставление позиций
+    """
+    if clean_pos < 0 or clean_pos >= len(clean_text):
+        return -1
+
+    html_idx = 0
+    clean_idx = 0
+    in_tag = False
+    in_entity = False
+
+    while html_idx < len(html_text) and clean_idx <= clean_pos:
+        char = html_text[html_idx]
+
+        if char == '<':
+            in_tag = True
+            html_idx += 1
+            continue
+        elif char == '>':
+            in_tag = False
+            html_idx += 1
+            continue
+        elif char == '&' and not in_tag:
+            in_entity = True
+            html_idx += 1
+            continue
+        elif char == ';' and in_entity:
+            in_entity = False
+            html_idx += 1
+            # HTML entity считается как 1 символ в чистом тексте
+            clean_idx += 1
+            continue
+
+        if not in_tag and not in_entity:
+            # Это обычный текстовый символ
+            if clean_idx == clean_pos:
+                return html_idx
+            clean_idx += 1
+
+        html_idx += 1
+
+    return -1
+
+
+def is_inside_html_tag(text: str, position: int) -> bool:
+    """
+    Проверяет, находится ли позиция внутри HTML тега
+    """
+    if position < 0 or position >= len(text):
+        return False
+
+    # Находим последний открывающий тег до этой позиции
+    last_lt = text.rfind('<', 0, position)
+    if last_lt == -1:
+        return False
+
+    # Находим последний закрывающий тег до этой позиции
+    last_gt = text.rfind('>', 0, position)
+
+    # Если есть < без соответствующего > после него, значит мы внутри тега
+    if last_lt > last_gt:
+        # Проверяем, не является ли это закрывающим тегом
+        if position < len(text) and text[position:position + 2] == '</':
+            return False
+        return True
+
+    return False
+
+
+def extract_found_items_combined(analysis_result: Dict, game=None) -> Dict:
+    """
+    Извлекает найденные элементы с правильным флагом is_new
+    """
+    results = {}
+    categories = ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']
+
+    for category in categories:
+        items = analysis_result.get('results', {}).get(category, {}).get('items', [])
+        if items:
+            found_items = []
+            new_count = 0
+            seen_ids = set()
+
+            for item in items:
+                # Пропускаем дубликаты по ID
+                if item['id'] in seen_ids:
+                    continue
+                seen_ids.add(item['id'])
+
+                # Проверяем, есть ли уже у игры
+                is_new = True
+                if game:
+                    if category == 'keywords':
+                        is_new = not game.keywords.filter(id=item['id']).exists()
+                    elif category == 'genres':
+                        is_new = not game.genres.filter(id=item['id']).exists()
+                    elif category == 'themes':
+                        is_new = not game.themes.filter(id=item['id']).exists()
+                    elif category == 'perspectives':
+                        is_new = not game.player_perspectives.filter(id=item['id']).exists()
+                    elif category == 'game_modes':
+                        is_new = not game.game_modes.filter(id=item['id']).exists()
+
+                if is_new:
+                    new_count += 1
+
+                found_items.append({
+                    'name': item['name'],
+                    'id': item['id'],
+                    'is_new': is_new
+                })
+
+            results[category] = found_items
+            results[f'{category}_new_count'] = new_count
+        else:
+            results[f'{category}_new_count'] = 0
+
+    # Общая статистика
+    total_found = 0
+    for category in categories:
+        total_found += len(results.get(category, []))
+    results['total_found'] = total_found
+
+    return results
+
+
+def prepare_save_data(analysis_result: Dict, game: Game, tab: str) -> Dict:
+    """
+    Подготавливает данные для сохранения - ТОЛЬКО НОВЫЕ элементы
+    """
+    save_data = {
+        'text_source': tab,
+        'results': {},
+        'found_count': 0
+    }
+
+    categories = ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']
+    total_new = 0
+
+    for category in categories:
+        items = analysis_result.get('results', {}).get(category, {}).get('items', [])
+        if not items:
+            continue
+
+        # Получаем существующие ID игры
+        if category == 'keywords':
+            existing_ids = set(game.keywords.values_list('id', flat=True))
+        elif category == 'genres':
+            existing_ids = set(game.genres.values_list('id', flat=True))
+        elif category == 'themes':
+            existing_ids = set(game.themes.values_list('id', flat=True))
+        elif category == 'perspectives':
+            existing_ids = set(game.player_perspectives.values_list('id', flat=True))
+        elif category == 'game_modes':
+            existing_ids = set(game.game_modes.values_list('id', flat=True))
+        else:
+            existing_ids = set()
+
+        # Фильтруем только новые элементы
+        category_new_items = []
+        seen_ids = set()
+
+        for item in items:
+            # Проверяем по ID
+            if item['id'] not in existing_ids and item['id'] not in seen_ids:
+                seen_ids.add(item['id'])
+                category_new_items.append(item)
+
+        if category_new_items:
+            save_data['results'][category] = {'items': category_new_items}
+            total_new += len(category_new_items)
+
+    save_data['found_count'] = total_new
+    return save_data
+
+
+def _handle_post_request(request: HttpRequest, game: Game, original_descriptions: Dict, active_tab: str):
+    """Обработка POST запросов"""
+
+    # Добавление ключевого слова (старый метод - оставляем для обратной совместимости)
+    if 'add_keyword' in request.POST:
+        return _handle_add_keyword(request, game, original_descriptions, active_tab)
+
+    # Анализ текста
+    elif 'analyze' in request.POST:
+        # ДОБАВЛЯЕМ: Принудительное обновление Trie перед анализом
+        try:
+            from games.analyze.keyword_trie import KeywordTrieManager
+            KeywordTrieManager().clear_cache()
+            print(f"✅ Кэш Trie обновлен перед анализом для игры {game.id}")
+        except Exception as e:
+            print(f"⚠️ Ошибка при обновлении Trie перед анализом: {e}")
+
+        return _handle_analyze_request(request, game, original_descriptions, active_tab)
+
+    # Сохранение результатов
+    elif 'save_results' in request.POST:
+        return _handle_save_results(request, game, original_descriptions, active_tab)
+
+    # По умолчанию - редирект на ту же вкладку
+    return _redirect_to_tab(game.id, active_tab)
+
+
+def _handle_add_keyword(request: HttpRequest, game: Game, original_descriptions: Dict, active_tab: str):
+    """Обработка добавления ключевого слова (старый метод - только для обратной совместимости)"""
+    keyword_name = request.POST.get('new_keyword', '').strip()
+    analyze_tab = request.POST.get('analyze_tab', active_tab)
+
+    if not keyword_name:
+        messages.error(request, '❌ Please enter a keyword')
+        return _redirect_to_tab(game.id, analyze_tab)
+
+    try:
+        # Создаем или получаем ключевое слово
+        keyword = Keyword.objects.filter(name__iexact=keyword_name).first()
+
+        if not keyword:
+            other_category, created = KeywordCategory.objects.get_or_create(
+                name='Other',
+                defaults={'description': 'Manually added keywords'}
+            )
+
+            max_igdb_id = Keyword.objects.aggregate(models.Max('igdb_id'))['igdb_id__max'] or 1000000
+            new_igdb_id = max_igdb_id + 1
+
+            keyword = Keyword.objects.create(
+                name=keyword_name,
+                category=other_category,
+                igdb_id=new_igdb_id,
+                cached_usage_count=1
+            )
+            messages.success(request, f'✅ Created new keyword: "{keyword_name}"')
+        else:
+            messages.info(request, f'ℹ️ Keyword "{keyword_name}" already exists')
+
+        # Добавляем ключевое слово к игре
+        game.keywords.add(keyword)
+
+        # Обновляем кэш
+        keyword.update_cached_count(force=True)
+        game.update_cached_counts(force=True)
+
+        messages.success(request, f'✅ Keyword "{keyword_name}" added to game!')
+
+        # УБИРАЕМ весь автоанализ - не нужно
+
+        redirect_url = reverse('analyze_game', args=[game.id])
+        params = []
+        if analyze_tab and analyze_tab != 'summary':
+            params.append(f'tab={analyze_tab}')
+        params.append('keyword_added=1')
+        if params:
+            redirect_url += '?' + '&'.join(params)
+
+        return redirect(redirect_url)
+
+    except Exception as e:
+        messages.error(request, f'❌ Error adding keyword: {str(e)}')
+        return _redirect_to_tab(game.id, analyze_tab)
+
+
+def _handle_analyze_request(request: HttpRequest, game: Game, original_descriptions: Dict, active_tab: str):
+    """Обработка запроса на анализ"""
+    analyze_tab = request.POST.get('analyze_tab', active_tab)
+
+    # Обновляем флаг подсветки
+    highlight_toggle = request.POST.get('highlight_toggle')
+    if highlight_toggle is not None:
+        highlight_enabled = (highlight_toggle == 'on')
+        request.session[f'highlight_enabled_{game.id}'] = highlight_enabled
+
+    # Проверяем наличие текста для анализа
+    if analyze_tab not in original_descriptions:
+        messages.error(request, '❌ Selected tab has no text')
+        return _redirect_to_tab(game.id, active_tab)
+
+    text = original_descriptions[analyze_tab]
+
+    if not text:
+        messages.error(request, '❌ No text to analyze.')
+        return _redirect_to_tab(game.id, active_tab)
+
+    try:
+        analyzer = GameAnalyzerAPI(verbose=True)
+
+        # Выполняем анализ оригинального текста
+        analysis_result = analyzer.analyze_game_text_comprehensive(
+            text=text,
+            game_id=game.id,
+            existing_game=game,
+            exclude_existing=False
+        )
+
+        if analysis_result['success']:
+            # Сохраняем результаты анализа
+            _save_analysis_results(request, game.id, analyze_tab, text, analysis_result)
+
+            # Сообщение о результатах
+            total_found = analysis_result['summary'].get('found_count', 0)
+            total_matches = analysis_result.get('total_matches', 0)
+
+            if total_found > 0:
+                messages.success(request,
+                                 f'🔍 Found {total_found} elements with {total_matches} total matches. '
+                                 f'All matches highlighted. Click "Save Results" to save new elements to database.')
+            else:
+                messages.info(request,
+                              'ℹ️ No new elements found in text. Existing elements are highlighted.')
+
+            # Обновляем активную вкладку
+            active_tab = analyze_tab
+        else:
+            messages.error(request, f'❌ Analysis error: {analysis_result.get("error", "Unknown error")}')
+
+    except Exception as e:
+        messages.error(request, f'❌ Error during analysis: {str(e)}')
+
+    return _redirect_to_tab(game.id, active_tab)
+
+
 @login_required
 @user_passes_test(is_staff_or_superuser)
 def delete_keyword(request: HttpRequest, game_id: int):
+    """Обработка удаления ключевого слова (старый метод - только для обратной совместимости)"""
     if request.method != 'POST':
         return JsonResponse({'success': False, 'message': 'Invalid request method'}, status=405)
 
@@ -40,6 +1429,7 @@ def delete_keyword(request: HttpRequest, game_id: int):
         if not keyword_name:
             return JsonResponse({'success': False, 'message': 'Please enter a keyword'})
 
+        game = get_object_or_404(Game, pk=game_id)
         keyword = Keyword.objects.filter(name__iexact=keyword_name).first()
 
         if not keyword:
@@ -48,90 +1438,35 @@ def delete_keyword(request: HttpRequest, game_id: int):
                 'message': f'Keyword "{keyword_name}" not found in database'
             })
 
-        # Получаем список ID всех игр, которые используют это ключевое слово
-        game_ids_with_keyword = list(keyword.game_set.values_list('id', flat=True))
+        # Проверяем, есть ли ключевое слово у этой игры
+        if keyword not in game.keywords.all():
+            return JsonResponse({
+                'success': False,
+                'message': f'Keyword "{keyword_name}" is not associated with this game'
+            })
 
-        # Сохраняем популярность (сколько игр используют этот ключевое слово)
-        popularity = len(game_ids_with_keyword)
+        # Удаляем связь с игрой
+        game.keywords.remove(keyword)
 
-        print(f"\n--- Удаление ключевого слова: {keyword_name} (ID: {keyword.id}) ---")
-        print(f"Затронуто игр: {popularity}")
+        # Обновляем кэш и материализованные векторы для этой игры
+        game.update_cached_counts(force=True)
 
-        # Удаляем ключевое слово из базы данных
-        keyword.delete()
-        print(f"✓ Ключевое слово удалено из БД")
+        # Обновляем keyword_ids (материализованный вектор)
+        new_keyword_ids = list(game.keywords.values_list('igdb_id', flat=True))
+        game.keyword_ids = new_keyword_ids
+        game._cache_updated_at = timezone.now()
+        game.save(update_fields=['keyword_ids', '_cache_updated_at', '_cached_keyword_count'])
 
-        # ВАЖНОЕ ИСПРАВЛЕНИЕ: Очищаем кэш Trie после удаления ключевого слова
-        from games.analyze.keyword_trie import KeywordTrieManager
-        KeywordTrieManager().clear_cache()
-        print(f"✓ Кэш Trie очищен")
+        print(f"✓ Обновлен вектор для игры {game.id}: keyword_ids = {new_keyword_ids}")
 
-        # Обновляем кэш и материализованные векторы для ВСЕХ игр, которые использовали это ключевое слово
-        if game_ids_with_keyword:
-            # Оптимизация: Используем bulk_update для массового обновления
-            games_to_update = []
+        # УБИРАЕМ весь автоанализ
+        # Даже если auto_analyze=True - игнорируем
 
-            # Получаем все игры одним запросом
-            games = Game.objects.filter(id__in=game_ids_with_keyword).prefetch_related('keywords')
-
-            for game in games:
-                # Пересчитываем количество ключевых слов
-                keyword_count = game.keywords.count()
-
-                # ВАЖНО: Обновляем материализованный вектор keyword_ids
-                # Получаем актуальные ID ключевых слов
-                new_keyword_ids = list(game.keywords.values_list('igdb_id', flat=True))
-
-                # Проверяем, изменились ли данные
-                needs_update = (
-                        game._cached_keyword_count != keyword_count or
-                        set(new_keyword_ids) != set(game.keyword_ids or [])
-                )
-
-                if needs_update:
-                    # Обновляем кэшированные счетчики
-                    game._cached_keyword_count = keyword_count
-                    game._cache_updated_at = timezone.now()
-
-                    # Обновляем материализованный вектор
-                    game.keyword_ids = new_keyword_ids
-
-                    games_to_update.append(game)
-
-            # Массовое обновление
-            if games_to_update:
-                Game.objects.bulk_update(
-                    games_to_update,
-                    ['_cached_keyword_count', '_cache_updated_at', 'keyword_ids'],
-                    batch_size=100
-                )
-                print(f"✓ Обновлены векторы для {len(games_to_update)} игр")
-            else:
-                print(f"✓ Игры не требуют обновления")
-        else:
-            print(f"✓ Нет игр для обновления")
-
-        response_data = {
+        return JsonResponse({
             'success': True,
-            'message': f'Keyword "{keyword_name}" deleted successfully',
-            'popularity': popularity
-        }
-
-        # ВАЖНОЕ ИСПРАВЛЕНИЕ: Добавляем флаг для автоматического анализа
-        if auto_analyze:
-            response_data['analyze_after_delete'] = True
-            response_data['tab'] = tab
-            response_data['message'] += ' и выполняется повторный анализ текста'
-
-            # Сохраняем в сессии информацию для выполнения анализа
-            request.session[f'auto_analyze_after_delete_{game_id}'] = {
-                'tab': tab,
-                'keyword_deleted': keyword_name
-            }
-            print(f"✓ Запланирован автоанализ для игры {game_id}")
-
-        print(f"✓ Готово\n")
-        return JsonResponse(response_data)
+            'message': f'Keyword "{keyword_name}" removed from game',
+            'popularity': keyword.game_set.count()
+        })
 
     except Exception as e:
         print(f"✗ ОШИБКА: {str(e)}")
@@ -140,6 +1475,25 @@ def delete_keyword(request: HttpRequest, game_id: int):
             'message': f'Error deleting keyword: {str(e)}'
         })
 
+
+# Обновляем метод get_current_keywords для поддержки AJAX
+@login_required
+@user_passes_test(is_staff_or_superuser)
+def get_current_keywords(request: HttpRequest, game_id: int):
+    try:
+        game = get_object_or_404(Game, pk=game_id)
+        keywords = list(game.keywords.values_list('name', flat=True).order_by('name'))
+
+        return JsonResponse({
+            'success': True,
+            'keywords': keywords,
+            'count': len(keywords)
+        })
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Error getting keywords: {str(e)}'
+        })
 
 @login_required
 @user_passes_test(is_staff_or_superuser)
@@ -207,6 +1561,17 @@ def analyze_single_game(request: HttpRequest, game_id: int):
 
         # Устанавливаем флаг для автоматического анализа
         request.session[f'auto_analyze_{game_id}'] = True
+
+    # ДОБАВЛЯЕМ: Проверяем, нужно ли обновить Trie перед анализом
+    # Это происходит при каждом анализе, гарантируя актуальность данных
+    if request.method == 'POST' and 'analyze' in request.POST:
+        try:
+            from games.analyze.keyword_trie import KeywordTrieManager
+            # Очищаем кэш Trie перед анализом, чтобы получить актуальные данные
+            KeywordTrieManager().clear_cache()
+            print(f"✅ Кэш Trie обновлен перед анализом для игры {game_id}")
+        except Exception as e:
+            print(f"⚠️ Ошибка при обновлении Trie: {e}")
 
     # Инициализация
     game, original_descriptions, active_tab = _initialize_analysis_context(request, game_id)
@@ -367,27 +1732,6 @@ def create_single_criteria_span(text: str, criteria: Dict) -> str:
            f'data-category="{criteria["category"]}" ' \
            f'title="{category_display}: {html.escape(criteria["name"])}">' \
            f'{text}</span>'
-
-
-def is_inside_html_tag(html_text: str, position: int) -> bool:
-    """
-    Проверяет, находится ли позиция внутри HTML тега
-    """
-    if position < 0 or position >= len(html_text):
-        return False
-
-    # Находим последний '<' до этой позиции
-    last_lt = html_text.rfind('<', 0, position)
-    if last_lt == -1:
-        return False
-
-    # Находим следующий '>' после этого '<'
-    next_gt = html_text.find('>', last_lt)
-    if next_gt == -1:
-        return True  # Незакрытый тег
-
-    # Если позиция между '<' и '>', значит внутри тега
-    return last_lt < position < next_gt
 
 
 def is_inside_span(html_text: str, position: int) -> bool:
@@ -648,202 +1992,6 @@ def _initialize_analysis_context(request: HttpRequest, game_id: int) -> Tuple[Ga
     return game, original_descriptions, active_tab
 
 
-def _handle_post_request(request: HttpRequest, game: Game, original_descriptions: Dict, active_tab: str):
-    """Обработка POST запросов"""
-
-    # Добавление ключевого слова
-    if 'add_keyword' in request.POST:
-        return _handle_add_keyword(request, game, original_descriptions, active_tab)
-
-    # Анализ текста
-    elif 'analyze' in request.POST:
-        return _handle_analyze_request(request, game, original_descriptions, active_tab)
-
-    # Сохранение результатов
-    elif 'save_results' in request.POST:
-        return _handle_save_results(request, game, original_descriptions, active_tab)
-
-    # По умолчанию - редирект на ту же вкладку
-    return _redirect_to_tab(game.id, active_tab)
-
-
-def _handle_add_keyword(request: HttpRequest, game: Game, original_descriptions: Dict, active_tab: str):
-    """Обработка добавления ключевого слова"""
-    keyword_name = request.POST.get('new_keyword', '').strip()
-
-    # ИСПРАВЛЕНИЕ: получаем вкладку из POST запроса
-    analyze_tab = request.POST.get('analyze_tab', active_tab)
-    auto_analyze = request.POST.get('auto_analyze', 'false') == 'true'
-
-    if not keyword_name:
-        messages.error(request, '❌ Please enter a keyword')
-        return _redirect_to_tab(game.id, analyze_tab)  # Используем analyze_tab
-
-    try:
-        # Создаем или получаем ключевое слово
-        keyword = Keyword.objects.filter(name__iexact=keyword_name).first()
-
-        if not keyword:
-            other_category, created = KeywordCategory.objects.get_or_create(
-                name='Other',
-                defaults={'description': 'Manually added keywords'}
-            )
-
-            max_igdb_id = Keyword.objects.aggregate(models.Max('igdb_id'))['igdb_id__max'] or 1000000
-            new_igdb_id = max_igdb_id + 1
-
-            keyword = Keyword.objects.create(
-                name=keyword_name,
-                category=other_category,
-                igdb_id=new_igdb_id,
-                cached_usage_count=1
-            )
-            messages.success(request, f'✅ Created new keyword: "{keyword_name}"')
-
-            # ВАЖНОЕ ИСПРАВЛЕНИЕ: Очищаем кэш Trie после создания нового ключевого слова
-            from games.analyze.keyword_trie import KeywordTrieManager
-            KeywordTrieManager().clear_cache()
-            print(f"✅ Кэш Trie очищен после создания ключевого слова '{keyword_name}'")
-        else:
-            messages.info(request, f'ℹ️ Keyword "{keyword_name}" already exists')
-
-        # Добавляем ключевое слово к игре
-        game.keywords.add(keyword)
-
-        # Обновляем кэш
-        keyword.update_cached_count(force=True)
-        game.update_cached_counts(force=True)
-
-        # Обновляем данные игры
-        game.refresh_from_db()
-        messages.success(request, f'✅ Keyword "{keyword_name}" added to game!')
-
-        # ВАЖНОЕ ИСПРАВЛЕНИЕ: Обновляем сессию для немедленного отображения
-        # Получаем текущую сессию анализа
-        session_key = f'unsaved_results_{game.id}'
-        unsaved_results = request.session.get(session_key, {})
-
-        # Если есть сохраненные результаты анализа, обновляем их с новым ключевым словом
-        if unsaved_results.get('analysis_data', {}).get(analyze_tab):
-            text = original_descriptions.get(analyze_tab, '')
-            if text:
-                try:
-                    analyzer = GameAnalyzerAPI(verbose=True)
-                    analysis_result = analyzer.analyze_game_text_comprehensive(
-                        text=text,
-                        game_id=game.id,
-                        existing_game=game,
-                        exclude_existing=False
-                    )
-
-                    if analysis_result['success']:
-                        # Сохраняем обновленные результаты
-                        _save_analysis_results(request, game.id, analyze_tab, text, analysis_result)
-                        messages.info(request,
-                                      f'🔍 Text automatically analyzed after adding keyword (tab: {analyze_tab}).')
-                except Exception as e:
-                    messages.warning(request, f'⚠️ Keyword added, but analysis error: {str(e)}')
-        else:
-            # Если нет сохраненного анализа, выполняем автоматический анализ
-            if auto_analyze and analyze_tab in original_descriptions:
-                text = original_descriptions[analyze_tab]
-                if text:
-                    try:
-                        analyzer = GameAnalyzerAPI(verbose=True)
-                        analysis_result = analyzer.analyze_game_text_comprehensive(
-                            text=text,
-                            game_id=game.id,
-                            existing_game=game,
-                            exclude_existing=False
-                        )
-
-                        if analysis_result['success']:
-                            _save_analysis_results(request, game.id, analyze_tab, text, analysis_result)
-                            messages.info(request,
-                                          f'🔍 Text automatically analyzed after adding keyword (tab: {analyze_tab}).')
-                    except Exception as e:
-                        messages.warning(request, f'⚠️ Keyword added, but analysis error: {str(e)}')
-
-        # Редирект с параметрами
-        redirect_url = reverse('analyze_game', args=[game.id])
-
-        # Правильное формирование параметров
-        params = []
-        if analyze_tab and analyze_tab != 'summary':
-            params.append(f'tab={analyze_tab}')
-        params.append('keyword_added=1')
-        if auto_analyze:
-            params.append('auto_analyze=1')
-
-        if params:
-            redirect_url += '?' + '&'.join(params)
-
-        return redirect(redirect_url)
-
-    except Exception as e:
-        messages.error(request, f'❌ Error adding keyword: {str(e)}')
-        return _redirect_to_tab(game.id, analyze_tab)
-
-
-def _handle_analyze_request(request: HttpRequest, game: Game, original_descriptions: Dict, active_tab: str):
-    """Обработка запроса на анализ"""
-    analyze_tab = request.POST.get('analyze_tab', active_tab)
-
-    # Обновляем флаг подсветки
-    highlight_toggle = request.POST.get('highlight_toggle')
-    if highlight_toggle is not None:
-        highlight_enabled = (highlight_toggle == 'on')
-        request.session[f'highlight_enabled_{game.id}'] = highlight_enabled
-
-    # Проверяем наличие текста для анализа
-    if analyze_tab not in original_descriptions:
-        messages.error(request, '❌ Selected tab has no text')
-        return _redirect_to_tab(game.id, active_tab)
-
-    text = original_descriptions[analyze_tab]
-
-    if not text:
-        messages.error(request, '❌ No text to analyze.')
-        return _redirect_to_tab(game.id, active_tab)
-
-    try:
-        analyzer = GameAnalyzerAPI(verbose=True)
-
-        # Выполняем анализ оригинального текста
-        analysis_result = analyzer.analyze_game_text_comprehensive(
-            text=text,
-            game_id=game.id,
-            existing_game=game,
-            exclude_existing=False
-        )
-
-        if analysis_result['success']:
-            # Сохраняем результаты анализа
-            _save_analysis_results(request, game.id, analyze_tab, text, analysis_result)
-
-            # Сообщение о результатах
-            total_found = analysis_result['summary'].get('found_count', 0)
-            total_matches = analysis_result.get('total_matches', 0)
-
-            if total_found > 0:
-                messages.success(request,
-                                 f'🔍 Found {total_found} elements with {total_matches} total matches. '
-                                 f'All matches highlighted. Click "Save Results" to save new elements to database.')
-            else:
-                messages.info(request,
-                              'ℹ️ No new elements found in text. Existing elements are highlighted.')
-
-            # Обновляем активную вкладку
-            active_tab = analyze_tab
-        else:
-            messages.error(request, f'❌ Analysis error: {analysis_result.get("error", "Unknown error")}')
-
-    except Exception as e:
-        messages.error(request, f'❌ Error during analysis: {str(e)}')
-
-    return _redirect_to_tab(game.id, active_tab)
-
-
 def _handle_save_results(request: HttpRequest, game: Game, original_descriptions: Dict, active_tab: str):
     """Обработка сохранения результатов"""
     unsaved_results = request.session.get(f'unsaved_results_{game.id}', {})
@@ -914,6 +2062,14 @@ def _redirect_to_tab(game_id: int, tab: str):
 def _save_analysis_results(request: HttpRequest, game_id: int, tab: str, original_text: str, analysis_result: Dict):
     """Сохранение результатов анализа в сессии"""
     try:
+        print(f"\n=== _save_analysis_results для игры {game_id}, вкладка {tab} ===")
+        print(f"Ключи analysis_result: {list(analysis_result.keys())}")
+
+        # ПРИНУДИТЕЛЬНО вызываем simple_highlight_text
+        print("=" * 50)
+        print("ВЫЗЫВАЕМ simple_highlight_text")
+        print("=" * 50)
+
         # Фильтруем дубликаты
         if 'pattern_info' in analysis_result:
             analysis_result['pattern_info'] = filter_duplicate_patterns(analysis_result['pattern_info'])
@@ -923,6 +2079,10 @@ def _save_analysis_results(request: HttpRequest, game_id: int, tab: str, origina
 
         # Используем ПРОСТОЙ метод подсветки
         highlighted_text = simple_highlight_text(formatted_text, analysis_result)
+
+        print("=" * 50)
+        print("simple_highlight_text ВЫПОЛНЕН")
+        print("=" * 50)
 
         # Сохраняем данные
         game = Game.objects.get(id=game_id)
@@ -960,77 +2120,6 @@ def _save_analysis_results(request: HttpRequest, game_id: int, tab: str, origina
         print(f"❌ Ошибка в _save_analysis_results: {e}")
         import traceback
         traceback.print_exc()
-
-
-def simple_highlight_text(html_text: str, analysis_result: Dict) -> str:
-    """
-    ПРОСТОЙ метод подсветки текста БЕЗ вложенных тегов
-    УЛУЧШЕНО: Подсвечивает ключевые слова внутри составных слов через дефис
-    """
-    if not html_text or not analysis_result.get('pattern_info'):
-        return html_text
-
-    try:
-        # Удаляем существующую подсветку
-        html_text = remove_existing_highlights(html_text)
-
-        # Собираем ВСЕ совпадения
-        all_matches = collect_all_matches(analysis_result['pattern_info'])
-
-        if not all_matches:
-            return html_text
-
-        # Получаем чистый текст из HTML для поиска
-        clean_text = get_clean_text_from_html(html_text)
-
-        # Находим ВСЕ позиции всех совпадений в ЧИСТОМ тексте
-        text_positions = find_all_text_positions(clean_text, all_matches)
-
-        # ДОБАВЛЯЕМ: Поиск ключевых слов внутри составных слов через дефис
-        hyphenated_matches = find_keywords_in_hyphenated_words(clean_text, all_matches)
-        text_positions.extend(hyphenated_matches)
-
-        if not text_positions:
-            return html_text
-
-        # Группируем пересечения в ЧИСТОМ тексте
-        clean_groups = group_overlapping_positions(text_positions)
-
-        # Преобразуем группы в формат для замены
-        replacements = prepare_replacements_from_groups(clean_text, clean_groups)
-
-        if not replacements:
-            return html_text
-
-        # Применяем подсветку к HTML (прямая замена по тексту)
-        highlighted_text = apply_direct_highlights(html_text, replacements)
-
-        return highlighted_text
-
-    except Exception as e:
-        print(f"❌ Error in simple_highlight_text: {e}")
-        import traceback
-        traceback.print_exc()
-        return html_text
-
-
-def remove_existing_highlights(html_text: str) -> str:
-    """
-    Удаляет существующие span теги подсветки
-    """
-    import re
-
-    # Удаляем span теги, но сохраняем текст внутри них
-    def remove_span(match):
-        # Возвращаем только текст внутри span
-        content = match.group(1)
-        return content
-
-    # Удаляем все span с классами highlight-
-    pattern = r'<span[^>]*class="[^"]*highlight-[^"]*"[^>]*>(.*?)</span>'
-    html_text = re.sub(pattern, remove_span, html_text, flags=re.DOTALL | re.IGNORECASE)
-
-    return html_text
 
 
 def collect_all_matches(pattern_info: Dict) -> List[Dict]:
@@ -1130,156 +2219,104 @@ def prepare_replacements_from_groups(clean_text: str, clean_groups: List[Dict]) 
 def apply_direct_highlights(html_text: str, replacements: List[Dict]) -> str:
     """
     Заменяет текст в HTML на основе УЖЕ НАЙДЕННЫХ и ПРОВЕРЕННЫХ совпадений
-    Использует исходный текст для поиска, затем применяет все замены за один проход
+    ИСПРАВЛЕНО: предотвращает создание вложенных span'ов
     """
     if not replacements:
         return html_text
 
-    # Используем ОРИГИНАЛЬНЫЙ текст для поиска всех позиций
-    # Собираем все позиции для замены из исходного текста
-    all_positions = []
+    # Сортируем замены по длине (от самых длинных к коротким) и по позиции
+    replacements.sort(key=lambda x: (-len(x['text']), -x.get('priority', 0)))
+
+    highlighted_text = html_text
+    applied_spans = []  # Список кортежей (start, end) уже примененных span'ов
 
     for replacement in replacements:
         search_text = replacement['text']
 
-        # Ищем все вхождения этого текста в ОРИГИНАЛЬНОМ HTML
+        # Ищем все вхождения этого текста
         start_pos = 0
-
         while True:
-            # Регистронезависимый поиск
-            found_pos = html_text.lower().find(search_text.lower(), start_pos)
+            # Находим следующее вхождение
+            found_pos = highlighted_text.lower().find(search_text.lower(), start_pos)
             if found_pos == -1:
                 break
 
-            # Проверяем границы слова в ОРИГИНАЛЬНОМ тексте
+            end_pos = found_pos + len(search_text)
+
+            # ПРОВЕРКА 1: Не внутри HTML тега
+            if is_inside_html_tag(highlighted_text, found_pos):
+                start_pos = found_pos + 1
+                continue
+
+            # ПРОВЕРКА 2: Не пересекается с уже примененными span'ами
+            is_inside_existing = False
+            for span_start, span_end in applied_spans:
+                # Если найденная позиция полностью внутри существующего span'а
+                if found_pos >= span_start and end_pos <= span_end:
+                    is_inside_existing = True
+                    break
+                # Если частично пересекается - тоже пропускаем (не должно быть)
+                if not (end_pos <= span_start or found_pos >= span_end):
+                    is_inside_existing = True
+                    break
+
+            if is_inside_existing:
+                start_pos = found_pos + 1
+                continue
+
+            # ПРОВЕРКА 3: Проверяем границы слова
             is_valid = True
 
             # Проверяем начало
             if found_pos > 0:
-                prev_char = html_text[found_pos - 1]
-                if prev_char.isalnum():
-                    is_valid = False
+                prev_char = highlighted_text[found_pos - 1]
+                if prev_char.isalnum() and prev_char != '-':
+                    # Проверяем особый случай: слово с дефисом
+                    if not (prev_char == '-' and found_pos > 1 and
+                            highlighted_text[found_pos - 2].isalnum()):
+                        is_valid = False
 
             # Проверяем конец
-            end_pos = found_pos + len(search_text)
-            if end_pos < len(html_text):
-                next_char = html_text[end_pos]
-                if next_char.isalnum() and next_char != 's' and next_char != '-':
+            if end_pos < len(highlighted_text):
+                next_char = highlighted_text[end_pos]
+                if next_char.isalnum() and next_char not in "s'-":
                     is_valid = False
 
-            if is_valid:
-                all_positions.append({
-                    'start': found_pos,
-                    'end': end_pos,
-                    'replacement': replacement,
-                    'text': html_text[found_pos:end_pos]
-                })
-
-            start_pos = found_pos + 1
-
-    if not all_positions:
-        return html_text
-
-    # Сортируем позиции от конца к началу для корректной замены
-    all_positions.sort(key=lambda x: x['start'], reverse=True)
-
-    # Применяем все замены за один проход
-    highlighted_text = html_text
-
-    for pos_info in all_positions:
-        try:
-            start = pos_info['start']
-            end = pos_info['end']
-            replacement = pos_info['replacement']
-            original_text = pos_info['text']
-
-            # Пропускаем, если позиции вышли за границы (после предыдущих замен)
-            if start < 0 or end > len(highlighted_text) or start >= end:
+            if not is_valid:
+                start_pos = found_pos + 1
                 continue
 
-            # Проверяем, что на этой позиции все еще тот же текст
-            current_text = highlighted_text[start:end]
-            if current_text.lower() != original_text.lower():
-                continue
+            # Получаем оригинальный текст
+            original_text = highlighted_text[found_pos:end_pos]
 
             # Создаем подсветку
             if replacement['type'] == 'multi':
-                span_html = create_multi_highlight_span(original_text, replacement['matches'],
-                                                        replacement['num_criteria'])
+                span_html = create_multi_highlight_span(
+                    original_text,
+                    replacement['matches'],
+                    replacement['num_criteria']
+                )
             else:
                 span_html = create_single_highlight_span(original_text, replacement['match'])
 
-            # Заменяем
-            highlighted_text = highlighted_text[:start] + span_html + highlighted_text[end:]
+            # Применяем замену
+            highlighted_text = (
+                    highlighted_text[:found_pos] +
+                    span_html +
+                    highlighted_text[end_pos:]
+            )
 
-        except Exception:
-            continue
+            # Запоминаем позицию примененного span'а (с учетом изменения длины)
+            new_end = found_pos + len(span_html)
+            applied_spans.append((found_pos, new_end))
+
+            # Сортируем span'ы для эффективного поиска
+            applied_spans.sort()
+
+            # Продолжаем поиск после этого span'а
+            start_pos = new_end
 
     return highlighted_text
-
-
-def create_single_highlight_span(text: str, match: Dict) -> str:
-    """
-    Создает span для одиночного критерия
-    """
-    category_display = {
-        'genres': 'Genre',
-        'themes': 'Theme',
-        'perspectives': 'Perspective',
-        'game_modes': 'Game Mode',
-        'keywords': 'Keyword'
-    }.get(match['category'], match['category'])
-
-    title = f"{category_display}: {html.escape(match['name'])}"
-
-    return f'<span class="{match["class_name"]}" ' \
-           f'data-element-name="{html.escape(match["name"])}" ' \
-           f'data-category="{match["category"]}" ' \
-           f'title="{title}">{html.escape(text)}</span>'
-
-
-def create_multi_highlight_span(text: str, matches: List[Dict], num_criteria: int) -> str:
-    """
-    Создает span для МНОЖЕСТВЕННЫХ критериев
-    """
-    # Собираем информацию
-    category_names = {
-        'genres': 'Genre',
-        'themes': 'Theme',
-        'perspectives': 'Perspective',
-        'game_modes': 'Game Mode',
-        'keywords': 'Keyword'
-    }
-
-    tooltip_parts = []
-    names_list = []
-    categories_list = []
-    all_classes = set()
-
-    for match in matches:
-        category_display = category_names.get(match['category'], match['category'])
-        tooltip_parts.append(f"{category_display}: {html.escape(match['name'])}")
-        names_list.append(match['name'])
-        categories_list.append(match['category'])
-        all_classes.add(match['class_name'])
-
-    tooltip_text = " | ".join(tooltip_parts)
-    class_str = ' '.join(all_classes)
-
-    # Определяем стиль полосатой подсветки
-    if num_criteria == 2:
-        striped_style = "background: repeating-linear-gradient(45deg, rgba(220, 53, 69, 0.2), rgba(220, 53, 69, 0.2) 5px, rgba(255, 193, 7, 0.2) 5px, rgba(255, 193, 7, 0.2) 10px) !important;"
-    elif num_criteria >= 3:
-        striped_style = "background: repeating-linear-gradient(45deg, rgba(220, 53, 69, 0.15), rgba(220, 53, 69, 0.15) 4px, rgba(255, 193, 7, 0.15) 4px, rgba(255, 193, 7, 0.15) 8px, rgba(0, 123, 255, 0.15) 8px, rgba(0, 123, 255, 0.15) 12px) !important;"
-    else:
-        striped_style = ""
-
-    return f'<span class="highlight-multi {class_str}" ' \
-           f'style="{striped_style}" ' \
-           f'data-element-names="{html.escape(",".join(names_list))}" ' \
-           f'data-categories="{",".join(categories_list)}" ' \
-           f'title="{tooltip_text}">{html.escape(text)}</span>'
-
 
 def get_clean_text_from_html(html_text: str) -> str:
     """
@@ -1334,7 +2371,7 @@ def find_all_text_positions(clean_text: str, all_matches: List[Dict]) -> List[Di
             end_pos = found_pos + len(search_text)
             if end_pos < len(clean_text):
                 next_char = clean_text[end_pos]
-                # Допускаем дефис после слова (часть составного слова)
+                # ИСПРАВЛЕНИЕ: Разрешаем дефис после слова (часть составного слова)
                 if next_char.isalnum() and next_char not in "s'-":
                     is_valid = False
                 # Разрешаем 's' для множественного числа
@@ -1344,30 +2381,18 @@ def find_all_text_positions(clean_text: str, all_matches: List[Dict]) -> List[Di
                         is_valid = False
 
             if is_valid:
-                # ДЛЯ КЛЮЧЕВЫХ СЛОВ: особый случай - можем быть частью составного слова
-                if match['category'] == 'keywords':
-                    # Проверяем, является ли это частью составного слова через дефис
-                    # "devil" в "devil-worshipping" - допустимо
-                    if found_pos > 0 and clean_text[found_pos - 1] == '-':
-                        # Слово после дефиса - валидно
-                        is_valid = True
-                    if end_pos < len(clean_text) and clean_text[end_pos] == '-':
-                        # Слово перед дефисом - валидно
-                        is_valid = True
+                # Создаем запись с расширенным текстом
+                extended_text = clean_text[found_pos:end_pos]
 
-                if is_valid:
-                    # Создаем запись с расширенным текстом
-                    extended_text = clean_text[found_pos:end_pos]
-
-                    text_positions.append({
-                        'start': found_pos,
-                        'end': end_pos,
-                        'name': match['name'],
-                        'category': match['category'],
-                        'class_name': match['class_name'],
-                        'color': match['color'],
-                        'text': extended_text
-                    })
+                text_positions.append({
+                    'start': found_pos,
+                    'end': end_pos,
+                    'name': match['name'],
+                    'category': match['category'],
+                    'class_name': match['class_name'],
+                    'color': match['color'],
+                    'text': extended_text
+                })
 
             pos = found_pos + 1
 
@@ -1695,142 +2720,6 @@ def filter_duplicate_patterns(pattern_info: Dict) -> Dict:
     return filtered_info
 
 
-def format_text_with_html(text: str) -> str:
-    """
-    Форматирует текст в HTML
-    """
-    if not text:
-        return ""
-
-    # Если уже есть HTML
-    if '<p>' in text:
-        return text
-
-    # Разбиваем на абзацы
-    paragraphs = text.split('\n\n')
-    formatted = []
-
-    for para in paragraphs:
-        if para.strip():
-            # Экранируем HTML
-            safe_para = html.escape(para.strip())
-            # Сохраняем переносы строк внутри абзаца
-            safe_para = safe_para.replace('\n', '<br>')
-            formatted.append(f'<p>{safe_para}</p>')
-
-    if formatted:
-        return '\n'.join(formatted)
-    else:
-        safe_text = html.escape(text.replace('\n', '<br>'))
-        return f'<p>{safe_text}</p>'
-
-
-def prepare_save_data(analysis_result: Dict, game: Game, tab: str) -> Dict:
-    """
-    Подготавливает данные для сохранения
-    """
-    save_data = {
-        'text_source': tab,
-        'results': {},
-        'found_count': 0
-    }
-
-    categories = ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']
-    total_new = 0
-
-    for category in categories:
-        items = analysis_result.get('results', {}).get(category, {}).get('items', [])
-        if not items:
-            continue
-
-        # Получаем существующие ID
-        if category == 'keywords':
-            existing_ids = set(game.keywords.values_list('id', flat=True))
-        elif category == 'genres':
-            existing_ids = set(game.genres.values_list('id', flat=True))
-        elif category == 'themes':
-            existing_ids = set(game.themes.values_list('id', flat=True))
-        elif category == 'perspectives':
-            existing_ids = set(game.player_perspectives.values_list('id', flat=True))
-        elif category == 'game_modes':
-            existing_ids = set(game.game_modes.values_list('id', flat=True))
-        else:
-            existing_ids = set()
-
-        # Фильтруем новые элементы
-        category_new_items = []
-        seen_names = set()
-
-        for item in items:
-            if item['id'] not in existing_ids:
-                name_lower = item['name'].lower()
-                if name_lower not in seen_names:
-                    seen_names.add(name_lower)
-                    category_new_items.append(item)
-
-        if category_new_items:
-            save_data['results'][category] = {'items': category_new_items}
-            total_new += len(category_new_items)
-
-    save_data['found_count'] = total_new
-    return save_data
-
-
-def extract_found_items_combined(analysis_result: Dict, game=None) -> Dict:
-    """
-    Извлекает найденные элементы
-    """
-    results = {}
-    categories = ['genres', 'themes', 'perspectives', 'game_modes', 'keywords']
-
-    for category in categories:
-        items = analysis_result.get('results', {}).get(category, {}).get('items', [])
-        if items:
-            found_items = []
-            new_count = 0
-            seen_names = set()
-
-            for item in items:
-                name_lower = item['name'].lower()
-                if name_lower in seen_names:
-                    continue
-
-                seen_names.add(name_lower)
-
-                is_new = True
-                if game:
-                    if category == 'keywords':
-                        is_new = not game.keywords.filter(id=item['id']).exists()
-                    elif category == 'genres':
-                        is_new = not game.genres.filter(id=item['id']).exists()
-                    elif category == 'themes':
-                        is_new = not game.themes.filter(id=item['id']).exists()
-                    elif category == 'perspectives':
-                        is_new = not game.player_perspectives.filter(id=item['id']).exists()
-                    elif category == 'game_modes':
-                        is_new = not game.game_modes.filter(id=item['id']).exists()
-
-                if is_new:
-                    new_count += 1
-
-                found_items.append({
-                    'name': item['name'],
-                    'id': item['id'],
-                    'is_new': is_new
-                })
-
-            results[category] = found_items
-            results[f'{category}_new_count'] = new_count
-        else:
-            results[f'{category}_new_count'] = 0
-
-    # Статистика
-    total_found = sum(len(results.get(cat, [])) for cat in categories)
-    results['total_found'] = total_found
-
-    return results
-
-
 def create_highlighted_html(html_text: str, analysis_result: Dict) -> str:
     """
     Создает подсвеченный HTML текст на основе результатов анализа
@@ -1985,29 +2874,6 @@ def find_html_positions_for_match(html_text: str, clean_text: str,
         html_pos += 1
 
     return None
-
-
-def is_inside_existing_span(html_text: str, position: int) -> bool:
-    """
-    Проверяет, находится ли позиция внутри существующего span
-    """
-    # Находим последний открывающий span до этой позиции
-    last_span_start = html_text.rfind('<span', 0, position)
-    if last_span_start == -1:
-        return False
-
-    # Находим закрывающий span для этого открывающего
-    span_content_start = html_text.find('>', last_span_start)
-    if span_content_start == -1:
-        return False
-
-    span_end = html_text.find('</span>', span_content_start)
-    if span_end == -1:
-        return False
-
-    # Проверяем, находится ли позиция между началом и концом span
-    return span_content_start < position < span_end
-
 
 def find_overlapping_matches(matches: List[Dict]) -> Dict:
     """
@@ -2219,7 +3085,7 @@ def apply_highlights(html_text: str, replacements: List[Dict]) -> str:
 
 def _prepare_get_context(request: HttpRequest, game: Game, original_descriptions: Dict, active_tab: str) -> Dict:
     """Подготовка контекста для GET запроса
-    ИСПРАВЛЕНИЕ: Упрощенная логика с сохранением абзацной структуры
+    ИСПРАВЛЕНИЕ: Упрощенная логика с сохранением абзацной структуры и правильной обработкой подсветки
     """
 
     # Проверяем флаг auto_analyze в URL
@@ -2247,6 +3113,7 @@ def _prepare_get_context(request: HttpRequest, game: Game, original_descriptions
 
     if unsaved_highlighted_text and highlight_enabled:
         # Текст уже в HTML формате из сессии, применяем mark_safe
+        # ВАЖНО: Не удаляем старую подсветку здесь - она уже правильная
         display_text = mark_safe(unsaved_highlighted_text)
         found_items = unsaved_found_items
     elif active_tab in original_descriptions:
@@ -3377,29 +4244,43 @@ def normalize_keyword(request: HttpRequest):
         if not word:
             return JsonResponse({'success': False, 'message': 'Please enter a word to normalize'})
 
-        # Используем логику из команды normalize_keywords для получения базовой формы
-        # Создаем экземпляр команды и вызываем её метод _get_base_form
-        normalizer = NormalizeCommand()
-        normalizer._init_nltk()  # Убедимся, что WordNet доступен
+        # Используем WordNetAPI напрямую для нормализации
+        from games.analyze.wordnet_api import get_wordnet_api
 
-        # Короткие слова не нормализуем
-        if normalizer._is_short_word(word):
-            base_form = word
-        # Игровые термины не нормализуем
-        elif normalizer._is_gaming_term(word):
-            base_form = word
+        # Получаем API
+        wordnet_api = get_wordnet_api(verbose=True)
+
+        # Проверяем доступность
+        if not wordnet_api.is_available():
+            return JsonResponse({
+                'success': False,
+                'message': 'WordNet API is not available'
+            })
+
+        # Получаем базовую форму через API
+        base_form = wordnet_api.get_best_base_form(word)
+
+        # Для отладки выводим информацию
+        print(f"\n=== НОРМАЛИЗАЦИЯ СЛОВА '{word}' ===")
+        print(f"Базовая форма: '{base_form}'")
+
+        # Формируем сообщение
+        if word.lower() == base_form.lower():
+            message = f'Слово уже в базовой форме: "{word}"'
         else:
-            base_form = normalizer._get_base_form(word)
+            message = f'Нормализованная форма: "{base_form}"'
 
         return JsonResponse({
             'success': True,
             'original': word,
             'normalized': base_form,
-            'message': f'Normalized form: "{base_form}"'
+            'message': message
         })
 
     except Exception as e:
         print(f"✗ ОШИБКА нормализации слова: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return JsonResponse({
             'success': False,
             'message': f'Error normalizing word: {str(e)}'

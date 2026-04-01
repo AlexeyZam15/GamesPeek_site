@@ -25,11 +25,59 @@ class StateManager:
         self.state_file = None
         self.criteria_state_file = None  # Отдельный файл для критериев
 
+        # ОПТИМИЗАЦИЯ: Добавляем буферизацию сохранений
+        self._save_pending = False
+        self._last_save_time = 0
+        self._save_interval = 60  # Увеличим с 30 до 60 секунд
+        self._save_threshold = 5000  # Увеличим с 1000 до 5000 игр
+        self._games_since_last_save = 0
+
         self._init_state_files()
 
+    def clear_all_state(self):
+        """Полностью очищает всё состояние и кэш - С ПРИНУДИТЕЛЬНЫМ ВЫВОДОМ"""
+        import sys
+
+        sys.stderr.write("   🔄 StateManager.clear_all_state() начат\n")
+        sys.stderr.flush()
+
+        self.processed_games.clear()
+        self.checked_criteria.clear()
+        self._games_since_last_save = 0
+        self._save_pending = False
+
+        # Удаляем файлы состояния
+        if self.state_file and os.path.exists(self.state_file):
+            try:
+                os.remove(self.state_file)
+                sys.stderr.write(f"   🗑️ Удален файл состояния: {self.state_file}\n")
+                sys.stderr.flush()
+            except Exception as e:
+                sys.stderr.write(f"   ⚠️ Ошибка удаления {self.state_file}: {e}\n")
+                sys.stderr.flush()
+
+        if self.criteria_state_file and os.path.exists(self.criteria_state_file):
+            try:
+                os.remove(self.criteria_state_file)
+                sys.stderr.write(f"   🗑️ Удален файл критериев: {self.criteria_state_file}\n")
+                sys.stderr.flush()
+            except Exception as e:
+                sys.stderr.write(f"   ⚠️ Ошибка удаления {self.criteria_state_file}: {e}\n")
+                sys.stderr.flush()
+
+        sys.stderr.write("   ✅ StateManager.clear_all_state() завершен\n")
+        sys.stderr.flush()
+
     def _init_state_files(self):
-        """Инициализирует файлы состояния"""
+        """Инициализирует файлы состояния - С ПРИНУДИТЕЛЬНЫМ ВЫВОДОМ"""
+        import sys
+
+        sys.stderr.write("   🔧 StateManager._init_state_files() начат\n")
+        sys.stderr.flush()
+
         if not self.output_path:
+            sys.stderr.write("   ⚠️ output_path отсутствует\n")
+            sys.stderr.flush()
             return
 
         try:
@@ -52,14 +100,22 @@ class StateManager:
             directory = os.path.dirname(self.state_file)
             if directory:
                 os.makedirs(directory, exist_ok=True)
+                sys.stderr.write(f"   📁 Создана директория: {directory}\n")
+                sys.stderr.flush()
 
-            print(f"📝 Файл состояния: {self.state_file}", file=sys.stderr)
-            print(f"📝 Файл состояния критериев: {self.criteria_state_file}", file=sys.stderr)
+            sys.stderr.write(f"   📝 Файл состояния: {self.state_file}\n")
+            sys.stderr.flush()
+            sys.stderr.write(f"   📝 Файл состояния критериев: {self.criteria_state_file}\n")
+            sys.stderr.flush()
 
         except Exception as e:
-            print(f"⚠️ Ошибка инициализации файлов состояния: {e}", file=sys.stderr)
+            sys.stderr.write(f"   ⚠️ Ошибка инициализации файлов состояния: {e}\n")
+            sys.stderr.flush()
             self.state_file = None
             self.criteria_state_file = None
+
+        sys.stderr.write("   ✅ StateManager._init_state_files() завершен\n")
+        sys.stderr.flush()
 
     def load_state(self) -> int:
         """Загружает состояние из файлов"""
@@ -108,6 +164,11 @@ class StateManager:
                           file=sys.stderr)
                     self.checked_criteria.clear()
 
+            # Сбрасываем счетчики сохранений
+            self._games_since_last_save = 0
+            self._last_save_time = time.time()
+            self._save_pending = False
+
             return total_processed
 
         except Exception as e:
@@ -117,9 +178,50 @@ class StateManager:
             return 0
 
     def save_state(self, processed_count: int = 0):
-        """Сохраняет состояние в файлы - ТОЛЬКО обработанные игры"""
+        """
+        Сохраняет состояние в файлы - ОПТИМИЗИРОВАНО с буферизацией
+        Теперь сохраняет только если прошло достаточно времени или накопилось много игр
+        """
+        if not self.state_file:
+            return
+
+        # Обновляем счетчик
+        self._games_since_last_save += 1
+        current_time = time.time()
+
+        # Проверяем, нужно ли реально сохранять
+        time_elapsed = current_time - self._last_save_time
+        should_save = (
+                time_elapsed >= self._save_interval or
+                self._games_since_last_save >= self._save_threshold or
+                processed_count == 0  # Первое сохранение
+        )
+
+        # ДОПОЛНИТЕЛЬНАЯ ОПТИМИЗАЦИЯ: проверяем, были ли вообще изменения
+        if should_save:
+            # Выполняем реальное сохранение только если есть изменения
+            if self._save_pending or self._games_since_last_save > 0:
+                self._save_games_state(processed_count)
+                self._save_criteria_state()
+
+                # Обновляем таймеры
+                self._last_save_time = current_time
+                self._games_since_last_save = 0
+                self._save_pending = False
+        else:
+            # Откладываем сохранение
+            self._save_pending = True
+
+    def force_save(self, processed_count: int = 0):
+        """Принудительное сохранение состояния (игнорирует буферизацию)"""
+        if not self.state_file:
+            return
+
         self._save_games_state(processed_count)
         self._save_criteria_state()
+        self._last_save_time = time.time()
+        self._games_since_last_save = 0
+        self._save_pending = False
 
     def _save_games_state(self, processed_count: int = 0):
         """Сохраняет состояние обработанных игр - БЕЗ статистики пропусков"""
@@ -213,19 +315,41 @@ class StateManager:
         return len(self.processed_games)
 
     def reset_state(self):
-        """Полностью сбрасывает состояние"""
+        """Полностью сбрасывает состояние - С ПРИНУДИТЕЛЬНЫМ ВЫВОДОМ"""
+        import sys
+
+        sys.stderr.write("   🔄 StateManager.reset_state() начат\n")
+        sys.stderr.flush()
+
         self.processed_games.clear()
         self.checked_criteria.clear()
+        self._games_since_last_save = 0
+        self._save_pending = False
 
         # Удаляем файлы состояния
+        sys.stderr.write(f"   📁 Проверяем файл состояния: {self.state_file}\n")
+        sys.stderr.flush()
+
         if self.state_file and os.path.exists(self.state_file):
             try:
                 os.remove(self.state_file)
-            except:
-                pass
+                sys.stderr.write(f"   🗑️ Удален файл состояния: {self.state_file}\n")
+                sys.stderr.flush()
+            except Exception as e:
+                sys.stderr.write(f"   ⚠️ Ошибка удаления {self.state_file}: {e}\n")
+                sys.stderr.flush()
+
+        sys.stderr.write(f"   📁 Проверяем файл критериев: {self.criteria_state_file}\n")
+        sys.stderr.flush()
 
         if self.criteria_state_file and os.path.exists(self.criteria_state_file):
             try:
                 os.remove(self.criteria_state_file)
-            except:
-                pass
+                sys.stderr.write(f"   🗑️ Удален файл критериев: {self.criteria_state_file}\n")
+                sys.stderr.flush()
+            except Exception as e:
+                sys.stderr.write(f"   ⚠️ Ошибка удаления {self.criteria_state_file}: {e}\n")
+                sys.stderr.flush()
+
+        sys.stderr.write("   ✅ StateManager.reset_state() завершен\n")
+        sys.stderr.flush()
