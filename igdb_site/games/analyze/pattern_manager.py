@@ -18,13 +18,19 @@ class PatternManager:
 
     @staticmethod
     def _compile_patterns_dict(patterns_dict: Dict[str, List[str]]) -> Dict[str, List[re.Pattern]]:
-        """Компилирует словарь паттернов"""
+        """Компилирует словарь паттернов с поддержкой регистра через префикс (?c)"""
         compiled = {}
         for name, patterns in patterns_dict.items():
             compiled_patterns = []
             for pattern_str in patterns:
                 try:
-                    compiled_patterns.append(re.compile(pattern_str, re.IGNORECASE | re.UNICODE))
+                    if pattern_str.startswith('(?c)'):
+                        # Регистрочувствительный паттерн - убираем префикс, добавляем UNICODE
+                        actual_pattern = pattern_str[4:].lstrip()
+                        compiled_patterns.append(re.compile(actual_pattern, re.UNICODE))
+                    else:
+                        # Регистронезависимый паттерн
+                        compiled_patterns.append(re.compile(pattern_str, re.IGNORECASE | re.UNICODE))
                 except re.error as e:
                     print(f"⚠️ Ошибка компиляции паттерна '{pattern_str}': {e}")
             compiled[name] = compiled_patterns

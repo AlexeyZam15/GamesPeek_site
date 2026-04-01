@@ -49,6 +49,7 @@ class Command(BaseCommand):
         self.offset = 0
         self.game_name = None
         self.genre = None
+        self.filter_genre = None
         self.theme = None
         self.verbose = False
         self.threads = 16
@@ -58,6 +59,7 @@ class Command(BaseCommand):
         self.only_found = False
         self.combine_all_texts = False
         self.no_progress = False
+        self.custom_pattern = None
         self.patterns = None
         self.criteria_cache = None
         self.criteria_by_name = None
@@ -73,6 +75,8 @@ class Command(BaseCommand):
                             help='Название игры для анализа (поиск по частичному совпадению)')
         parser.add_argument('--genre', type=str, default=None,
                             help='Анализировать ТОЛЬКО этот жанр (искать паттерны только для указанного жанра)')
+        parser.add_argument('--filter-genre', type=str, default=None,
+                            help='Фильтровать игры, у которых уже есть этот жанр (анализировать только игры с этим жанром)')
         parser.add_argument('--theme', type=str, default=None,
                             help='Анализировать ТОЛЬКО эту тему (искать паттерны только для указанной темы)')
         parser.add_argument('--verbose', action='store_true',
@@ -91,6 +95,56 @@ class Command(BaseCommand):
                             help='Автоматически сохранять в БД без подтверждения')
         parser.add_argument('--no-combine-texts', action='store_true',
                             help='НЕ объединять все источники текста (использовать только summary)')
+        parser.add_argument('--custom-pattern', type=str, default=None,
+                            help='Пользовательский паттерн для поиска (будет добавлен к указанному жанру)')
+
+    def _filter_games_by_genre(self, games: List[Dict]) -> List[Dict]:
+        """Фильтрует игры, у которых уже есть указанный жанр"""
+        if not self.filter_genre:
+            return games
+
+        sys.stderr.write(f"\n   🎭 Фильтрация игр по жанру: '{self.filter_genre}'\n")
+        sys.stderr.flush()
+
+        # Получаем ID жанра
+        try:
+            genre_obj = Genre.objects.filter(name__iexact=self.filter_genre).first()
+            if not genre_obj:
+                sys.stderr.write(f"   ⚠️ Жанр '{self.filter_genre}' не найден в БД\n")
+                sys.stderr.flush()
+                return []
+
+            genre_id = genre_obj.id
+            sys.stderr.write(f"   🔍 ID жанра: {genre_id}\n")
+            sys.stderr.flush()
+
+            # Получаем ID игр с этим жанром через сырой SQL для скорости
+            from django.db import connection
+            game_ids = set()
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                               SELECT game_id
+                               FROM games_game_genres
+                               WHERE genre_id = %s
+                               """, [genre_id])
+                for row in cursor.fetchall():
+                    game_ids.add(row[0])
+
+            sys.stderr.write(f"   📊 Найдено игр с жанром '{self.filter_genre}': {len(game_ids)}\n")
+            sys.stderr.flush()
+
+            # Фильтруем переданные игры
+            filtered_games = [g for g in games if g['id'] in game_ids]
+
+            sys.stderr.write(f"   ✅ Отфильтровано: {len(filtered_games)} игр из {len(games)}\n")
+            sys.stderr.flush()
+
+            return filtered_games
+
+        except Exception as e:
+            sys.stderr.write(f"   ⚠️ Ошибка фильтрации по жанру: {e}\n")
+            sys.stderr.flush()
+            return games
 
     def _find_pattern_and_context_for_criteria(self, pattern_info: Dict, criteria_type: str, criteria_id: int,
                                                criteria_name: str) -> Optional[Dict]:
@@ -219,7 +273,6 @@ class Command(BaseCommand):
 
         self.patterns = PatternManager.get_all_patterns()
 
-        # Используем list/dict вместо вложенных структур для скорости
         self.criteria_by_id = {
             'genres': {},
             'themes': {},
@@ -276,7 +329,6 @@ class Command(BaseCommand):
             self.criteria_by_name['game_modes'][m.name.lower()] = m.id
 
         # Компилируем паттерны в плоский список для быстрого доступа
-        # ВАЖНО: если указан --genre или --theme, берем паттерны ТОЛЬКО для них
         self.compiled_patterns = []
 
         # Определяем, какие типы критериев нужно обрабатывать
@@ -317,6 +369,18 @@ class Command(BaseCommand):
             else:
                 patterns_dict = type_patterns
 
+            # Добавляем пользовательский паттерн если указан
+            if self.custom_pattern and criteria_type == 'genres' and filter_name:
+                sys.stderr.write(f"   🔧 Добавляем пользовательский паттерн: '{self.custom_pattern}'\n")
+                sys.stderr.flush()
+
+                # Создаем копию словаря с добавленным паттерном
+                patterns_dict = dict(patterns_dict)
+                if filter_name in patterns_dict:
+                    patterns_dict[filter_name] = list(patterns_dict[filter_name]) + [self.custom_pattern]
+                else:
+                    patterns_dict[filter_name] = [self.custom_pattern]
+
             # Компилируем паттерны
             for name, patterns in patterns_dict.items():
                 name_lower = name.lower()
@@ -326,15 +390,24 @@ class Command(BaseCommand):
                         try:
                             if hasattr(pattern_str, 'search'):
                                 compiled = pattern_str
+                                is_case_sensitive = compiled.flags & re.IGNORECASE == 0
                             else:
-                                compiled = re.compile(pattern_str, re.IGNORECASE)
+                                # Компилируем с поддержкой регистра через префикс (?c)
+                                if isinstance(pattern_str, str) and pattern_str.startswith('(?c)'):
+                                    actual_pattern = pattern_str[4:].lstrip()
+                                    compiled = re.compile(actual_pattern, re.UNICODE)
+                                    is_case_sensitive = True
+                                else:
+                                    compiled = re.compile(pattern_str, re.IGNORECASE | re.UNICODE)
+                                    is_case_sensitive = False
 
                             self.compiled_patterns.append({
                                 'type': criteria_type,
                                 'id': criteria_id,
                                 'name': name,
                                 'pattern': compiled,
-                                'pattern_str': pattern_str if isinstance(pattern_str, str) else pattern_str.pattern
+                                'pattern_str': pattern_str if isinstance(pattern_str, str) else pattern_str.pattern,
+                                'is_case_sensitive': is_case_sensitive
                             })
                         except Exception as e:
                             continue
@@ -474,7 +547,7 @@ class Command(BaseCommand):
         return game.summary or game.storyline or game.rawg_description or game.wiki_description or ''
 
     def _analyze_game_fast(self, game_dict: Dict, existing_relations: Dict[str, set] = None) -> Dict[str, Any]:
-        """Максимально быстрый анализ одной игры - оптимизированная версия с EXISTS"""
+        """Максимально быстрый анализ одной игры - оптимизированная версия с EXISTS и поддержкой регистра"""
 
         if self.combine_all_texts:
             summary = game_dict.get('summary', '') or ''
@@ -522,25 +595,17 @@ class Command(BaseCommand):
 
         total_found = 0
 
-        def extract_full_word(text, position):
-            """Извлекает полное слово по позиции, включая дефисы и подчеркивания"""
-            start = position
-            end = position
-
-            # Идем влево пока буквы, цифры, дефис или подчеркивание
-            while start > 0 and (text[start - 1].isalnum() or text[start - 1] in '-_'):
-                start -= 1
-
-            # Идем вправо пока буквы, цифры, дефис или подчеркивание
-            while end < len(text) and (text[end].isalnum() or text[end] in '-_'):
-                end += 1
-
-            return text[start:end]
-
         for p in self.compiled_patterns:
             try:
-                # Ищем в lower тексте
-                match = p['pattern'].search(text_lower)
+                is_case_sensitive = p.get('is_case_sensitive', False)
+
+                if is_case_sensitive:
+                    match = p['pattern'].search(text)
+                    search_text = text
+                else:
+                    match = p['pattern'].search(text_lower)
+                    search_text = text_lower
+
                 if match:
                     crit_type = p['type']
                     crit_id = p['id']
@@ -549,40 +614,71 @@ class Command(BaseCommand):
                         found_ids[crit_type].add(crit_id)
                         total_found += 1
 
-                        # Получаем позицию совпадения в оригинальном тексте
-                        match_start_lower = match.start()
-                        match_end_lower = match.end()
+                        if is_case_sensitive:
+                            match_start = match.start()
+                            match_end = match.end()
 
-                        # Находим соответствующую позицию в оригинальном тексте
-                        # (текст в lower может быть короче из-за юникода, но в нашем случае ASCII)
-                        original_match_start = match_start_lower
-                        original_match_end = match_end_lower
+                            # Извлекаем полное слово, в котором найдено совпадение
+                            word_start = match_start
+                            while word_start > 0 and (text[word_start - 1].isalnum() or text[word_start - 1] in '-_'):
+                                word_start -= 1
 
-                        # Извлекаем полное слово из оригинального текста
-                        full_word = extract_full_word(text, original_match_start)
+                            word_end = match_end
+                            while word_end < len(text) and (text[word_end].isalnum() or text[word_end] in '-_'):
+                                word_end += 1
 
-                        # Контекст: 40 символов до и после ПОЛНОГО слова
-                        word_start = text.find(full_word, max(0, original_match_start - len(full_word)))
-                        if word_start == -1:
+                            matched_word = text[word_start:word_end]
+
+                            # Получаем контекст
+                            context_start = max(0, word_start - 40)
+                            context_end = min(len(text), word_end + 40)
+                            context = text[context_start:context_end]
+                            if context_start > 0:
+                                context = "..." + context
+                            if context_end < len(text):
+                                context = context + "..."
+
+                            pattern_info[crit_type].append({
+                                'name': p['name'],
+                                'id': crit_id,
+                                'matched_text': matched_word[:100],
+                                'context': context[:200],
+                                'pattern': p['pattern_str'],
+                                'status': 'found'
+                            })
+                        else:
+                            match_start_lower = match.start()
+                            match_end_lower = match.end()
+
+                            original_match_start = match_start_lower
+                            original_match_end = match_end_lower
+
                             word_start = original_match_start
-                        word_end = word_start + len(full_word)
+                            while word_start > 0 and (text[word_start - 1].isalnum() or text[word_start - 1] in '-_'):
+                                word_start -= 1
 
-                        context_start = max(0, word_start - 40)
-                        context_end = min(len(text), word_end + 40)
-                        context = text[context_start:context_end]
-                        if context_start > 0:
-                            context = "..." + context
-                        if context_end < len(text):
-                            context = context + "..."
+                            word_end = original_match_end
+                            while word_end < len(text) and (text[word_end].isalnum() or text[word_end] in '-_'):
+                                word_end += 1
 
-                        pattern_info[crit_type].append({
-                            'name': p['name'],
-                            'id': crit_id,
-                            'matched_text': full_word[:100],  # Полное слово целиком
-                            'context': context[:200],
-                            'pattern': p['pattern_str'],
-                            'status': 'found'
-                        })
+                            full_word = text[word_start:word_end]
+
+                            context_start = max(0, word_start - 40)
+                            context_end = min(len(text), word_end + 40)
+                            context = text[context_start:context_end]
+                            if context_start > 0:
+                                context = "..." + context
+                            if context_end < len(text):
+                                context = context + "..."
+
+                            pattern_info[crit_type].append({
+                                'name': p['name'],
+                                'id': crit_id,
+                                'matched_text': full_word[:100],
+                                'context': context[:200],
+                                'pattern': p['pattern_str'],
+                                'status': 'found'
+                            })
             except Exception:
                 continue
 
@@ -1272,6 +1368,7 @@ class Command(BaseCommand):
             self.offset = options.get('offset', 0)
             self.game_name = options.get('game_name')
             self.genre = options.get('genre')
+            self.filter_genre = options.get('filter_genre')
             self.theme = options.get('theme')
             self.verbose = options.get('verbose', False)
             self.threads = min(options.get('threads', 16), 32)
@@ -1280,6 +1377,7 @@ class Command(BaseCommand):
             self.only_found = options.get('only_found', False)
             self.no_progress = options.get('no_progress', False)
             self.auto_save = options.get('auto_save', False)
+            self.custom_pattern = options.get('custom_pattern')
 
             self.update_game = True
             self.combine_all_texts = not options.get('no_combine_texts', False)
@@ -1305,6 +1403,11 @@ class Command(BaseCommand):
             sys.stderr.write("\n🎮 Загрузка игр...\n")
             sys.stderr.flush()
             games_to_analyze = self._get_games_to_analyze()
+
+            # Фильтруем игры по жанру если указан
+            if self.filter_genre:
+                games_to_analyze = self._filter_games_by_genre(games_to_analyze)
+
             sys.stderr.write(f"   ✅ Получено {len(games_to_analyze)} игр\n")
             sys.stderr.flush()
 
@@ -1359,8 +1462,12 @@ class Command(BaseCommand):
             sys.stderr.write(f"🎮 Поиск по имени: '{self.game_name}'\n")
         if self.genre:
             sys.stderr.write(f"🎭 Анализировать ТОЛЬКО жанр: '{self.genre}'\n")
+        if self.filter_genre:
+            sys.stderr.write(f"🎭 Фильтровать игры по жанру: '{self.filter_genre}'\n")
         if self.theme:
             sys.stderr.write(f"📚 Анализировать ТОЛЬКО тему: '{self.theme}'\n")
+        if self.custom_pattern:
+            sys.stderr.write(f"🔧 Пользовательский паттерн: '{self.custom_pattern}'\n")
         sys.stderr.write("=" * 70 + "\n")
         sys.stderr.flush()
 
