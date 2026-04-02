@@ -377,7 +377,8 @@ class Command(BaseCommand):
                 # Создаем копию словаря с добавленным паттерном
                 patterns_dict = dict(patterns_dict)
                 if filter_name in patterns_dict:
-                    patterns_dict[filter_name] = list(patterns_dict[filter_name]) + [self.custom_pattern]
+                    if self.custom_pattern not in patterns_dict[filter_name]:
+                        patterns_dict[filter_name] = list(patterns_dict[filter_name]) + [self.custom_pattern]
                 else:
                     patterns_dict[filter_name] = [self.custom_pattern]
 
