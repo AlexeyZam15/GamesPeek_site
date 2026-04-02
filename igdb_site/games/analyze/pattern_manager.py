@@ -127,6 +127,7 @@ class PatternManager:
             r'\b(this|the)\s+fighting(\s+game|\s+title)\b',
         ],
         'Grid-Based': [
+            # r'(?c)\bgrid\b(?!-)'
             r'\bgrid[-\s]?based\b',
             r'\bon\s+a\s+grid\b',
             r'\bgrid\s+system\b',
