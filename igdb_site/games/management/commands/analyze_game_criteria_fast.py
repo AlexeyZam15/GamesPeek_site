@@ -871,6 +871,10 @@ class Command(BaseCommand):
         processed = 0
         start_time = time.time()
         last_report = time.time()
+        last_processed = 0
+        last_speed_time = start_time
+        smooth_speed = 0.0
+        last_percent_displayed = -1
 
         def format_time(seconds):
             if seconds < 60:
@@ -881,9 +885,33 @@ class Command(BaseCommand):
                 return f"{seconds / 3600:.1f}ч"
 
         try:
+            # Запускаем отдельный поток для обработки результатов, чтобы не блокировать получение
+            results_buffer = []
+
             while processed < total_games and not stop_flag.is_set():
+                # Пытаемся получить сразу много результатов из очереди
+                batch_results = []
                 try:
-                    result = result_queue.get(timeout=0.5)
+                    # Сначала берем один результат
+                    result = result_queue.get(timeout=0.1)
+                    batch_results.append(result)
+
+                    # Затем забираем все остальные, которые уже есть в очереди
+                    while True:
+                        try:
+                            batch_results.append(result_queue.get_nowait())
+                        except Empty:
+                            break
+                except Empty:
+                    # Проверяем, живы ли воркеры
+                    with workers_lock:
+                        workers_alive = active_workers > 0
+                    if not workers_alive and task_queue.empty():
+                        break
+                    continue
+
+                # Обрабатываем всю пачку результатов
+                for result in batch_results:
                     processed += 1
 
                     with stats_lock:
@@ -905,57 +933,46 @@ class Command(BaseCommand):
                                         'found': result.get('found', {})
                                     })
 
-                    now = time.time()
-                    if now - last_report >= 1.0:
-                        elapsed = now - start_time
-                        percent = (processed / total_games) * 100
-                        speed = processed / elapsed if elapsed > 0 else 0
+                # Обновляем прогресс-бар
+                now = time.time()
+                if now - last_report >= 1.0 or processed == total_games:
+                    elapsed = now - start_time
+                    percent = (processed / total_games) * 100
 
-                        if speed > 0:
-                            remaining = (total_games - processed) / speed
-                            eta = format_time(remaining)
+                    # Рассчитываем скорость
+                    time_delta = now - last_speed_time
+                    processed_delta = processed - last_processed
+
+                    if time_delta > 0 and processed_delta > 0:
+                        instant_speed = processed_delta / time_delta
+                        if smooth_speed == 0:
+                            smooth_speed = instant_speed
                         else:
-                            eta = "расчет..."
+                            smooth_speed = smooth_speed * 0.7 + instant_speed * 0.3
 
+                    # Рассчитываем оставшееся время
+                    if smooth_speed > 0 and processed < total_games:
+                        remaining_seconds = (total_games - processed) / smooth_speed
+                        eta = format_time(remaining_seconds)
+                    else:
+                        eta = "расчет..."
+
+                    # Показываем прогресс только если изменился процент (чтобы не спамить)
+                    current_percent_int = int(percent)
+                    if current_percent_int != last_percent_displayed or processed == total_games:
                         progress_line = (f"\r📊 {processed}/{total_games} ({percent:.1f}%) | "
-                                         f"Скорость: {speed:.1f} игр/сек | "
+                                         f"Скорость: {smooth_speed:.1f} игр/сек | "
                                          f"Осталось: {eta} | "
                                          f"Найдено: {stats['total_found']} | "
                                          f"Новых: {stats['total_new_found']}    ")
 
                         sys.stderr.write(progress_line)
                         sys.stderr.flush()
-                        last_report = now
+                        last_percent_displayed = current_percent_int
 
-                except Empty:
-                    with workers_lock:
-                        workers_alive = active_workers > 0
-
-                    if not workers_alive and task_queue.empty():
-                        try:
-                            while True:
-                                result = result_queue.get_nowait()
-                                processed += 1
-                                with stats_lock:
-                                    stats['processed'] = processed
-                                    stats['all_results'].append(result)
-                                    if result.get('skipped'):
-                                        stats['skipped'] += 1
-                                    elif result.get('has_results'):
-                                        stats['with_results'] += 1
-                                        stats['total_found'] += result.get('count', 0)
-                                        if result.get('has_new'):
-                                            stats['with_new_results'] += 1
-                                            stats['total_new_found'] += result.get('count', 0)
-                                            if self.update_game:
-                                                stats['to_save'].append({
-                                                    'id': result['id'],
-                                                    'found': result.get('found', {})
-                                                })
-                        except Empty:
-                            pass
-                        break
-                    continue
+                    last_report = now
+                    last_processed = processed
+                    last_speed_time = now
 
         except KeyboardInterrupt:
             if not interrupted:
@@ -970,6 +987,7 @@ class Command(BaseCommand):
             for t in threads:
                 t.join(timeout=2)
 
+            # Собираем оставшиеся результаты
             try:
                 while True:
                     result = result_queue.get_nowait()
@@ -993,11 +1011,21 @@ class Command(BaseCommand):
                 pass
 
             elapsed = time.time() - start_time
+            final_speed = stats['processed'] / elapsed if elapsed > 0 else 0
+
+            # Принудительно выводим финальный прогресс 100%
+            sys.stderr.write(f"\r📊 {stats['processed']}/{total_games} (100.0%) | "
+                             f"Скорость: {final_speed:.1f} игр/сек | "
+                             f"Осталось: 0сек | "
+                             f"Найдено: {stats['total_found']} | "
+                             f"Новых: {stats['total_new_found']}    \n")
+            sys.stderr.flush()
+
             sys.stderr.write(f"\n✅ Обработано: {stats['processed']}/{total_games} игр за {format_time(elapsed)}\n")
             sys.stderr.flush()
 
             stats['analysis_time'] = elapsed
-            stats['games_per_second'] = stats['processed'] / elapsed if elapsed > 0 else 0
+            stats['games_per_second'] = final_speed
             stats['interrupted'] = interrupted
 
             return stats
@@ -1300,17 +1328,13 @@ class Command(BaseCommand):
                         self.output_file.write(f"        📝 Контекст: {pattern_context['context']}\n")
                     else:
                         self.output_file.write(f"        ⚠️ Информация о паттерне не найдена\n")
-                    self.output_file.write("\n")
-
-                self.output_file.write("\n")
 
             if not has_any_new:
-                self.output_file.write("   ℹ️ Нет новых критериев (только существующие)\n\n")
+                self.output_file.write("   ℹ️ Нет новых критериев (только существующие)\n")
 
             index += 1
-            self.output_file.flush()
 
-        self.output_file.write("=" * 60 + "\n")
+        self.output_file.write("\n" + "=" * 60 + "\n")
         self.output_file.write(f"✅ Вывод завершен. Показано игр с новыми критериями: {len(games_with_new)}\n")
         self.output_file.write("=" * 60 + "\n")
         self.output_file.flush()
