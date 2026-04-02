@@ -330,6 +330,8 @@ class Command(BaseCommand):
 
         # Компилируем паттерны в плоский список для быстрого доступа
         self.compiled_patterns = []
+        # Счетчик срабатываний паттернов: ключ - (тип_критерия, имя_паттерна, паттерн_строка)
+        self.pattern_match_counter = defaultdict(int)
 
         # Определяем, какие типы критериев нужно обрабатывать
         criteria_types_to_process = []
@@ -610,6 +612,10 @@ class Command(BaseCommand):
                 if match:
                     crit_type = p['type']
                     crit_id = p['id']
+
+                    # Увеличиваем счетчик срабатываний для этого паттерна
+                    pattern_key = (crit_type, p['name'], p['pattern_str'])
+                    self.pattern_match_counter[pattern_key] += 1
 
                     if crit_id not in found_ids[crit_type]:
                         found_ids[crit_type].add(crit_id)
@@ -1132,26 +1138,64 @@ class Command(BaseCommand):
         sys.stderr.flush()
 
     def _output_results(self, results: List[Dict]):
-        """Вывод результатов в файл (только игры с новыми критериями, паттерны и контекст)"""
+        """Вывод результатов в файл (только игры с новыми критериями, паттерны и контекст, включая статистику срабатываний)"""
         if not self.output_file:
             return
 
         games_with_new = [r for r in results if r.get('has_new', False)]
 
+        self.output_file.write("=" * 60 + "\n")
+        self.output_file.write("📊 РЕЗУЛЬТАТЫ АНАЛИЗА\n")
+        self.output_file.write("=" * 60 + "\n")
+
+        # Выводим статистику срабатываний паттернов ВСЕГДА, если она есть
+        if hasattr(self, 'pattern_match_counter') and self.pattern_match_counter:
+            self.output_file.write("\n📊 СТАТИСТИКА СРАБАТЫВАНИЙ ПАТТЕРНОВ\n")
+            self.output_file.write("=" * 60 + "\n")
+
+            # Сортируем по убыванию количества срабатываний
+            sorted_patterns = sorted(self.pattern_match_counter.items(), key=lambda x: x[1], reverse=True)
+
+            # Группируем по типам критериев
+            patterns_by_type = {}
+            for (crit_type, name, pattern_str), count in sorted_patterns:
+                if crit_type not in patterns_by_type:
+                    patterns_by_type[crit_type] = []
+                patterns_by_type[crit_type].append((name, pattern_str, count))
+
+            # Выводим для каждого типа
+            type_display_names = {
+                'genres': 'Жанры',
+                'themes': 'Темы',
+                'perspectives': 'Перспективы',
+                'game_modes': 'Режимы игры'
+            }
+
+            for crit_type, patterns in patterns_by_type.items():
+                display_name = type_display_names.get(crit_type, crit_type)
+                self.output_file.write(f"\n📌 {display_name}:\n")
+                for name, pattern_str, count in patterns:
+                    self.output_file.write(f"   • {name}\n")
+                    self.output_file.write(f"     Паттерн: {pattern_str}\n")
+                    self.output_file.write(f"     Срабатываний: {count}\n")
+                    self.output_file.write("\n")
+
+            total_matches = sum(self.pattern_match_counter.values())
+            self.output_file.write(f"\n📊 Всего срабатываний: {total_matches}\n")
+            self.output_file.write(f"🎯 Уникальных паттернов: {len(self.pattern_match_counter)}\n")
+            self.output_file.write("=" * 60 + "\n")
+        else:
+            self.output_file.write("\n📊 Статистика срабатываний паттернов отсутствует\n")
+            self.output_file.write("=" * 60 + "\n")
+
         self.output_file.flush()
 
         if not games_with_new:
-            self.output_file.write("=" * 60 + "\n")
-            self.output_file.write("📊 РЕЗУЛЬТАТЫ АНАЛИЗА\n")
-            self.output_file.write("=" * 60 + "\n")
             self.output_file.write("\n✅ Нет игр с новыми критериями для сохранения\n")
             self.output_file.write("=" * 60 + "\n")
             self.output_file.flush()
             return
 
-        self.output_file.write("=" * 60 + "\n")
-        self.output_file.write("📊 РЕЗУЛЬТАТЫ АНАЛИЗА (только НОВЫЕ критерии)\n")
-        self.output_file.write("=" * 60 + "\n")
         self.output_file.write(f"\n📈 Всего игр с новыми критериями: {len(games_with_new)}\n")
         self.output_file.write("=" * 60 + "\n")
         self.output_file.flush()
