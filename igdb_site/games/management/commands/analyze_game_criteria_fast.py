@@ -598,6 +598,41 @@ class Command(BaseCommand):
 
         total_found = 0
 
+        def get_sentence_context(full_text, match_start, match_end):
+            """Извлекает полное предложение, содержащее совпадение"""
+            # Ищем начало предложения (после .!? или начало текста)
+            sentence_start = match_start
+            while sentence_start > 0:
+                prev_char = full_text[sentence_start - 1]
+                if prev_char in '.!?':
+                    # Начинаем со следующего символа после знака препинания
+                    sentence_start = sentence_start
+                    break
+                sentence_start -= 1
+
+            # Ищем конец предложения (до .!? или конец текста)
+            sentence_end = match_end
+            while sentence_end < len(full_text):
+                if full_text[sentence_end] in '.!?':
+                    sentence_end += 1  # Включаем знак препинания
+                    break
+                sentence_end += 1
+
+            # Извлекаем предложение и очищаем от лишних пробелов
+            sentence = full_text[sentence_start:sentence_end].strip()
+
+            # Если предложение слишком длинное, обрезаем с сохранением контекста вокруг совпадения
+            if len(sentence) > 500:
+                context_before = max(0, match_start - 100)
+                context_after = min(len(full_text), match_end + 100)
+                sentence = full_text[context_before:context_after]
+                if context_before > 0:
+                    sentence = "..." + sentence
+                if context_after < len(full_text):
+                    sentence = sentence + "..."
+
+            return sentence
+
         for p in self.compiled_patterns:
             try:
                 is_case_sensitive = p.get('is_case_sensitive', False)
@@ -636,20 +671,14 @@ class Command(BaseCommand):
 
                             matched_word = text[word_start:word_end]
 
-                            # Получаем контекст
-                            context_start = max(0, word_start - 40)
-                            context_end = min(len(text), word_end + 40)
-                            context = text[context_start:context_end]
-                            if context_start > 0:
-                                context = "..." + context
-                            if context_end < len(text):
-                                context = context + "..."
+                            # Получаем контекст в виде полного предложения
+                            context = get_sentence_context(text, match_start, match_end)
 
                             pattern_info[crit_type].append({
                                 'name': p['name'],
                                 'id': crit_id,
                                 'matched_text': matched_word[:100],
-                                'context': context[:200],
+                                'context': context[:500],
                                 'pattern': p['pattern_str'],
                                 'status': 'found'
                             })
@@ -670,19 +699,14 @@ class Command(BaseCommand):
 
                             full_word = text[word_start:word_end]
 
-                            context_start = max(0, word_start - 40)
-                            context_end = min(len(text), word_end + 40)
-                            context = text[context_start:context_end]
-                            if context_start > 0:
-                                context = "..." + context
-                            if context_end < len(text):
-                                context = context + "..."
+                            # Получаем контекст в виде полного предложения
+                            context = get_sentence_context(text, original_match_start, original_match_end)
 
                             pattern_info[crit_type].append({
                                 'name': p['name'],
                                 'id': crit_id,
                                 'matched_text': full_word[:100],
-                                'context': context[:200],
+                                'context': context[:500],
                                 'pattern': p['pattern_str'],
                                 'status': 'found'
                             })
