@@ -330,8 +330,10 @@ class Command(BaseCommand):
 
         # Компилируем паттерны в плоский список для быстрого доступа
         self.compiled_patterns = []
-        # Счетчик срабатываний паттернов: ключ - (тип_критерия, имя_паттерна, паттерн_строка)
-        self.pattern_match_counter = defaultdict(int)
+        # Счетчик срабатываний паттернов для НОВЫХ критериев: ключ - (тип_критерия, имя_паттерна, паттерн_строка)
+        self.pattern_match_counter_new = defaultdict(int)
+        # Счетчик срабатываний паттернов для СУЩЕСТВУЮЩИХ критериев: ключ - (тип_критерия, имя_паттерна, паттерн_строка)
+        self.pattern_match_counter_existing = defaultdict(int)
 
         # Определяем, какие типы критериев нужно обрабатывать
         criteria_types_to_process = []
@@ -600,28 +602,23 @@ class Command(BaseCommand):
 
         def get_sentence_context(full_text, match_start, match_end):
             """Извлекает полное предложение, содержащее совпадение"""
-            # Ищем начало предложения (после .!? или начало текста)
             sentence_start = match_start
             while sentence_start > 0:
                 prev_char = full_text[sentence_start - 1]
                 if prev_char in '.!?':
-                    # Начинаем со следующего символа после знака препинания
                     sentence_start = sentence_start
                     break
                 sentence_start -= 1
 
-            # Ищем конец предложения (до .!? или конец текста)
             sentence_end = match_end
             while sentence_end < len(full_text):
                 if full_text[sentence_end] in '.!?':
-                    sentence_end += 1  # Включаем знак препинания
+                    sentence_end += 1
                     break
                 sentence_end += 1
 
-            # Извлекаем предложение и очищаем от лишних пробелов
             sentence = full_text[sentence_start:sentence_end].strip()
 
-            # Если предложение слишком длинное, обрезаем с сохранением контекста вокруг совпадения
             if len(sentence) > 500:
                 context_before = max(0, match_start - 100)
                 context_after = min(len(full_text), match_end + 100)
@@ -648,9 +645,17 @@ class Command(BaseCommand):
                     crit_type = p['type']
                     crit_id = p['id']
 
-                    # Увеличиваем счетчик срабатываний для этого паттерна
+                    # Проверяем, существует ли уже этот критерий у игры
+                    is_existing = False
+                    if existing_relations and crit_type in existing_relations:
+                        is_existing = (game_id, crit_id) in existing_relations[crit_type]
+
+                    # Увеличиваем соответствующий счетчик срабатываний для этого паттерна
                     pattern_key = (crit_type, p['name'], p['pattern_str'])
-                    self.pattern_match_counter[pattern_key] += 1
+                    if is_existing:
+                        self.pattern_match_counter_existing[pattern_key] += 1
+                    else:
+                        self.pattern_match_counter_new[pattern_key] += 1
 
                     if crit_id not in found_ids[crit_type]:
                         found_ids[crit_type].add(crit_id)
@@ -1173,40 +1178,64 @@ class Command(BaseCommand):
         self.output_file.write("=" * 60 + "\n")
 
         # Выводим статистику срабатываний паттернов ВСЕГДА, если она есть
-        if hasattr(self, 'pattern_match_counter') and self.pattern_match_counter:
+        if hasattr(self, 'pattern_match_counter_new') or hasattr(self, 'pattern_match_counter_existing'):
             self.output_file.write("\n📊 СТАТИСТИКА СРАБАТЫВАНИЙ ПАТТЕРНОВ\n")
             self.output_file.write("=" * 60 + "\n")
 
-            # Сортируем по убыванию количества срабатываний
-            sorted_patterns = sorted(self.pattern_match_counter.items(), key=lambda x: x[1], reverse=True)
+            # Собираем все уникальные паттерны из обоих счетчиков
+            all_pattern_keys = set()
+            if hasattr(self, 'pattern_match_counter_new'):
+                all_pattern_keys.update(self.pattern_match_counter_new.keys())
+            if hasattr(self, 'pattern_match_counter_existing'):
+                all_pattern_keys.update(self.pattern_match_counter_existing.keys())
 
-            # Группируем по типам критериев
-            patterns_by_type = {}
-            for (crit_type, name, pattern_str), count in sorted_patterns:
-                if crit_type not in patterns_by_type:
-                    patterns_by_type[crit_type] = []
-                patterns_by_type[crit_type].append((name, pattern_str, count))
+            if not all_pattern_keys:
+                self.output_file.write("\nНет данных о срабатываниях паттернов\n")
+            else:
+                # Сортируем по типу и имени для группировки
+                sorted_patterns = sorted(all_pattern_keys, key=lambda x: (x[0], x[1]))
 
-            # Выводим для каждого типа
-            type_display_names = {
-                'genres': 'Жанры',
-                'themes': 'Темы',
-                'perspectives': 'Перспективы',
-                'game_modes': 'Режимы игры'
-            }
+                # Группируем по типам критериев
+                patterns_by_type = {}
+                for crit_type, name, pattern_str in sorted_patterns:
+                    if crit_type not in patterns_by_type:
+                        patterns_by_type[crit_type] = []
 
-            for crit_type, patterns in patterns_by_type.items():
-                display_name = type_display_names.get(crit_type, crit_type)
-                self.output_file.write(f"\n📌 {display_name}:\n")
-                for name, pattern_str, count in patterns:
-                    self.output_file.write(f"   • {name}\n")
-                    self.output_file.write(f"     Паттерн: {pattern_str}\n")
-                    self.output_file.write(f"     Срабатываний: {count}\n")
-                    self.output_file.write("\n")
+                    new_count = self.pattern_match_counter_new.get((crit_type, name, pattern_str), 0)
+                    existing_count = self.pattern_match_counter_existing.get((crit_type, name, pattern_str), 0)
+                    total_count = new_count + existing_count
 
-            total_matches = sum(self.pattern_match_counter.values())
-            self.output_file.write(f"\n📊 Всего срабатываний: {total_matches}\n")
-            self.output_file.write(f"🎯 Уникальных паттернов: {len(self.pattern_match_counter)}\n")
+                    patterns_by_type[crit_type].append((name, pattern_str, new_count, existing_count, total_count))
+
+                # Выводим для каждого типа
+                type_display_names = {
+                    'genres': 'Жанры',
+                    'themes': 'Темы',
+                    'perspectives': 'Перспективы',
+                    'game_modes': 'Режимы игры'
+                }
+
+                for crit_type, patterns in patterns_by_type.items():
+                    display_name = type_display_names.get(crit_type, crit_type)
+                    self.output_file.write(f"\n📌 {display_name}:\n")
+                    for name, pattern_str, new_count, existing_count, total_count in patterns:
+                        self.output_file.write(f"   • {name}\n")
+                        self.output_file.write(f"     Паттерн: {pattern_str}\n")
+                        self.output_file.write(f"     Срабатываний (НОВЫЕ критерии): {new_count}\n")
+                        self.output_file.write(f"     Срабатываний (СУЩЕСТВУЮЩИЕ критерии): {existing_count}\n")
+                        self.output_file.write(f"     Всего срабатываний: {total_count}\n")
+                        self.output_file.write("\n")
+
+                total_new_matches = sum(self.pattern_match_counter_new.values()) if hasattr(self,
+                                                                                            'pattern_match_counter_new') else 0
+                total_existing_matches = sum(self.pattern_match_counter_existing.values()) if hasattr(self,
+                                                                                                      'pattern_match_counter_existing') else 0
+                total_matches = total_new_matches + total_existing_matches
+
+                self.output_file.write(f"\n📊 Всего срабатываний (НОВЫЕ): {total_new_matches}\n")
+                self.output_file.write(f"📊 Всего срабатываний (СУЩЕСТВУЮЩИЕ): {total_existing_matches}\n")
+                self.output_file.write(f"📊 Всего срабатываний (ОБЩЕЕ): {total_matches}\n")
+                self.output_file.write(f"🎯 Уникальных паттернов: {len(all_pattern_keys)}\n")
             self.output_file.write("=" * 60 + "\n")
         else:
             self.output_file.write("\n📊 Статистика срабатываний паттернов отсутствует\n")
