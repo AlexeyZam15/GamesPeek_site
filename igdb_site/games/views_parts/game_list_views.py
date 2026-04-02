@@ -513,23 +513,6 @@ def game_list(request: HttpRequest) -> HttpResponse:
     if find_similar and source_game_obj:
         print("DEBUG game_list: Source game detected, populating search filters from source game")
 
-        # Получаем платформы исходной игры
-        source_platforms = list(source_game_obj.platforms.values_list('id', flat=True))
-        print(f"DEBUG: Source game platforms: {source_platforms}")
-
-        # Получаем режимы игры исходной игры
-        source_game_modes = list(source_game_obj.game_modes.values_list('id', flat=True))
-        print(f"DEBUG: Source game modes: {source_game_modes}")
-
-        # Заполняем SEARCH FILTERS платформами и режимами игры из исходной игры
-        if source_platforms:
-            search_selected['platforms'] = source_platforms
-            print(f"DEBUG: Search platforms set to: {source_platforms}")
-
-        if source_game_modes:
-            search_selected['game_modes'] = source_game_modes
-            print(f"DEBUG: Search game modes set to: {source_game_modes}")
-
         # Получаем объекты для поисковых фильтров
         search_selected_objects = _get_selected_criteria_objects(search_selected)
 
