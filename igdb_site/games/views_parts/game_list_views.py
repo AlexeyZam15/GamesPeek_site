@@ -698,7 +698,7 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
     params = extract_request_params(request)
     selected_criteria = convert_params_to_lists(params)
 
-    # Извлекаем поисковые фильтры
+    # ИЗВЛЕКАЕМ SEARCH ПАРАМЕТРЫ
     search_genres = request.GET.get('search_g', '')
     search_keywords = request.GET.get('search_k', '')
     search_themes = request.GET.get('search_t', '')
@@ -720,10 +720,6 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
     search_platforms_list = [int(x) for x in search_platforms.split(',') if x.isdigit()] if search_platforms else []
     search_game_types_list = [int(x) for x in search_game_types.split(',') if x.isdigit()] if search_game_types else []
 
-    print(f"DEBUG: search_engines_list = {search_engines_list}")
-    print(f"DEBUG: search_platforms_list = {search_platforms_list}")
-    print(f"DEBUG: search_game_modes_list = {search_game_modes_list}")
-
     try:
         search_year_start_int = int(search_year_start) if search_year_start else None
     except ValueError:
@@ -736,8 +732,7 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
 
     print(f"Search genres: {search_genres_list}")
     print(f"Search platforms: {search_platforms_list}")
-    print(f"Search engines: {search_engines_list}")
-    print(f"Search years: {search_year_start_int}-{search_year_end_int}")
+    print(f"Search keywords: {search_keywords_list}")
 
     sort_field = params.get('sort', '-rating_count')
     find_similar = params.get('find_similar') == '1'
@@ -752,14 +747,77 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
     timers['params_extraction'] = round(time.time() - stage_start, 3)
 
     stage_start = time.time()
-    if find_similar and (source_game_obj or any([
-        selected_criteria['genres'],
-        selected_criteria['keywords'],
-        selected_criteria['themes'],
-        selected_criteria['perspectives'],
-        selected_criteria['game_modes'],
-        selected_criteria['engines']
-    ])):
+
+    # ВАЖНО: Если есть search параметры ИЛИ find_similar не активен - используем обычный режим
+    has_search_params = any([
+        search_genres_list, search_keywords_list, search_themes_list,
+        search_perspectives_list, search_game_modes_list, search_engines_list,
+        search_platforms_list, search_game_types_list,
+        search_year_start_int, search_year_end_int
+    ])
+
+    # Обычный режим если: есть search параметры ИЛИ нет similarity режима
+    use_regular_mode = has_search_params or not find_similar
+
+    if use_regular_mode:
+        print("Mode: regular games with search filters")
+
+        # Строим словарь search_filters для _apply_search_filters
+        search_filters = {}
+        if search_platforms_list:
+            search_filters['platforms'] = search_platforms_list
+        if search_game_types_list:
+            search_filters['game_types'] = search_game_types_list
+        if search_genres_list:
+            search_filters['genres'] = search_genres_list
+        if search_keywords_list:
+            search_filters['keywords'] = search_keywords_list
+        if search_themes_list:
+            search_filters['themes'] = search_themes_list
+        if search_perspectives_list:
+            search_filters['perspectives'] = search_perspectives_list
+        if search_game_modes_list:
+            search_filters['game_modes'] = search_game_modes_list
+        if search_engines_list:
+            search_filters['engines'] = search_engines_list
+        if search_year_start_int:
+            search_filters['release_year_start'] = search_year_start_int
+        if search_year_end_int:
+            search_filters['release_year_end'] = search_year_end_int
+
+        # Получаем queryset с применением search_filters
+        games_qs = Game.objects.all().only(
+            'id', 'name', 'rating', 'rating_count',
+            'first_release_date', 'cover_url', 'game_type'
+        )
+
+        if search_filters:
+            from .base_views import _apply_search_filters
+            games_qs = _apply_search_filters(games_qs, search_filters)
+
+        if sort_field in ['name', '-name', 'rating', '-rating', 'rating_count', '-rating_count', '-first_release_date']:
+            games_qs = games_qs.order_by(sort_field)
+        else:
+            games_qs = games_qs.order_by('-rating_count')
+
+        paginator = Paginator(games_qs, ITEMS_PER_PAGE)
+
+        try:
+            page_obj = paginator.page(page_num)
+        except PageNotAnInteger:
+            page_obj = paginator.page(1)
+        except EmptyPage:
+            page_obj = paginator.page(paginator.num_pages)
+
+        total_count = paginator.count
+        total_pages = paginator.num_pages
+
+        games = list(page_obj.object_list)
+        games_with_similarity = []
+        show_similarity = False
+        source_game = None
+
+    else:
         print("Mode: similar games")
         mode_result = _get_similar_games_mode_with_pagination(
             params,
@@ -779,37 +837,41 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
         )
 
         games_with_similarity = mode_result.get('games_with_similarity', [])
+        games = []
         source_game = mode_result.get('source_game')
         paginator = mode_result.get('paginator')
         total_pages = paginator.num_pages if paginator else 1
         total_count = mode_result.get('total_count', 0)
+        show_similarity = True
 
-        mode_timers = mode_result.get('timers', {})
-    else:
-        print("Mode: regular games")
-        mode_result = _get_all_games_mode_with_pagination(
-            selected_criteria, sort_field, page_num
-        )
-
-        games_with_similarity = []
-        source_game = None
-        paginator = mode_result.get('paginator')
-        total_pages = paginator.num_pages if paginator else 1
-        total_count = mode_result.get('total_count', 0)
-        games = list(mode_result.get('page_obj', {}).object_list) if mode_result.get('page_obj') else []
-
-        mode_timers = {}
     timers['mode_determination'] = round(time.time() - stage_start, 3)
 
     stage_start = time.time()
-    if find_similar and (source_game_obj or any([
-        selected_criteria['genres'],
-        selected_criteria['keywords'],
-        selected_criteria['themes'],
-        selected_criteria['perspectives'],
-        selected_criteria['game_modes'],
-        selected_criteria['engines']
-    ])):
+
+    if use_regular_mode:
+        games = _update_games_with_cached_cards(
+            games,
+            {
+                'show_similarity': False,
+                'current_page': page_num,
+            }
+        )
+        template_context = {
+            'games': games,
+            'current_page': page_num,
+            'page_obj': page_obj,
+            'paginator': paginator,
+            'is_paginated': paginator.num_pages > 1,
+            'total_count': total_count,
+            'total_pages': total_pages,
+            'start_index': (page_num - 1) * ITEMS_PER_PAGE + 1,
+            'end_index': min(page_num * ITEMS_PER_PAGE, total_count),
+            'items_per_page': ITEMS_PER_PAGE,
+            'current_sort': sort_field,
+            'request': request,
+            'show_similarity': False,
+        }
+    else:
         games_with_similarity = _update_games_with_cached_cards(
             games_with_similarity,
             {
@@ -818,7 +880,6 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
                 'current_page': page_num,
             }
         )
-
         template_context = {
             'games': games_with_similarity,
             'show_similarity': True,
@@ -833,38 +894,15 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
             'start_index': (page_num - 1) * ITEMS_PER_PAGE + 1,
             'end_index': min(page_num * ITEMS_PER_PAGE, total_count),
             'items_per_page': ITEMS_PER_PAGE,
-            'current_sort': params.get('sort', ''),
+            'current_sort': sort_field,
             'request': request,
         }
-    else:
-        games = _update_games_with_cached_cards(
-            games,
-            {
-                'show_similarity': False,
-                'current_page': page_num,
-            }
-        )
 
-        template_context = {
-            'games': games,
-            'current_page': page_num,
-            'page_obj': mode_result.get('page_obj'),
-            'paginator': paginator,
-            'is_paginated': mode_result.get('is_paginated', False),
-            'total_count': total_count,
-            'total_pages': total_pages,
-            'start_index': (page_num - 1) * ITEMS_PER_PAGE + 1,
-            'end_index': min(page_num * ITEMS_PER_PAGE, total_count),
-            'items_per_page': ITEMS_PER_PAGE,
-            'current_sort': params.get('sort', ''),
-            'request': request,
-        }
     timers['card_caching'] = round(time.time() - stage_start, 3)
 
     template_context['debug_total_pages'] = template_context['total_pages']
     template_context['debug_current_page'] = page_num
     template_context['debug_params'] = dict(request.GET)
-    template_context['debug_search_genres'] = search_genres_list
 
     stage_start = time.time()
     html = render_to_string('games/game_list/_games_results.html', template_context)
@@ -875,12 +913,6 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
     print("\n=== TIMERS: ajax_load_games_page ===")
     print(f"Params extraction: {timers['params_extraction']}s")
     print(f"Mode determination: {timers['mode_determination']}s")
-    if mode_timers:
-        print(f"  - Source game creation: {mode_timers.get('source_game_creation', 0)}s")
-        print(f"  - Formatting: {mode_timers.get('formatting', 0)}s")
-        print(f"  - Search filters: {mode_timers.get('search_filters', 0)}s")
-        print(f"  - Sorting: {mode_timers.get('sorting', 0)}s")
-        print(f"  - Pagination: {mode_timers.get('pagination', 0)}s")
     print(f"Card caching: {timers['card_caching']}s")
     print(f"Template rendering: {timers['template_rendering']}s")
     print(f"TOTAL AJAX: {timers['total']}s")

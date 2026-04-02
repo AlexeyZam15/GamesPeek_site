@@ -72,174 +72,19 @@
 
         console.log('Apply Filters AJAX: clicked');
 
-        // Получаем текущий URL
         const currentUrl = new URL(window.location.href);
-
-        // СОХРАНЯЕМ ВСЕ существующие similarity параметры из URL
-        const similarityParams = {
-            g: currentUrl.searchParams.get('g'),
-            k: currentUrl.searchParams.get('k'),
-            t: currentUrl.searchParams.get('t'),
-            pp: currentUrl.searchParams.get('pp'),
-            gm: currentUrl.searchParams.get('gm'),
-            e: currentUrl.searchParams.get('e'),
-            source_game: currentUrl.searchParams.get('source_game'),
-            find_similar: currentUrl.searchParams.get('find_similar') || '1'
-        };
-
-        console.log('Saved similarity params:', similarityParams);
-
-        // Определяем активную вкладку
         const activeTab = document.querySelector('.filter-tab-link.active')?.dataset.tab;
         console.log('Active tab:', activeTab);
 
-        // Создаем новый URL с базовым путем
         const newUrl = new URL('/games/', window.location.origin);
 
-        // ВОССТАНАВЛИВАЕМ similarity параметры
-        if (similarityParams.g) newUrl.searchParams.set('g', similarityParams.g);
-        if (similarityParams.k) newUrl.searchParams.set('k', similarityParams.k);
-        if (similarityParams.t) newUrl.searchParams.set('t', similarityParams.t);
-        if (similarityParams.pp) newUrl.searchParams.set('pp', similarityParams.pp);
-        if (similarityParams.gm) newUrl.searchParams.set('gm', similarityParams.gm);
-        if (similarityParams.e) newUrl.searchParams.set('e', similarityParams.e);
-        if (similarityParams.source_game) newUrl.searchParams.set('source_game', similarityParams.source_game);
-        newUrl.searchParams.set('find_similar', similarityParams.find_similar);
-
         if (activeTab === 'search-filters-pane') {
-            // Search Filters - собираем search параметры
-            const platformCheckboxes = document.querySelectorAll('.search-platform-checkbox:checked');
-            const platformIds = Array.from(platformCheckboxes).map(cb => cb.value);
+            // ===== SEARCH MODE - НЕ ДОБАВЛЯЕМ find_similar =====
+            // Явно удаляем find_similar
+            newUrl.searchParams.delete('find_similar');
+            newUrl.searchParams.delete('source_game');
 
-            const gameTypeCheckboxes = document.querySelectorAll('.search-game-type-checkbox:checked');
-            const gameTypeIds = Array.from(gameTypeCheckboxes).map(cb => cb.value);
-
-            // Жанры из поиска
-            const searchGenreCheckboxes = document.querySelectorAll('.search-genre-checkbox:checked');
-            const searchGenreIds = Array.from(searchGenreCheckboxes).map(cb => cb.value);
-
-            // Ключевые слова из поиска
-            const searchKeywordCheckboxes = document.querySelectorAll('.search-keyword-checkbox:checked');
-            const searchKeywordIds = Array.from(searchKeywordCheckboxes).map(cb => cb.value);
-
-            // Темы из поиска
-            const searchThemeCheckboxes = document.querySelectorAll('.search-theme-checkbox:checked');
-            const searchThemeIds = Array.from(searchThemeCheckboxes).map(cb => cb.value);
-
-            // Перспективы из поиска
-            const searchPerspectiveCheckboxes = document.querySelectorAll('.search-perspective-checkbox:checked');
-            const searchPerspectiveIds = Array.from(searchPerspectiveCheckboxes).map(cb => cb.value);
-
-            // Режимы игры из поиска
-            const searchGameModeCheckboxes = document.querySelectorAll('.search-game-mode-checkbox:checked');
-            const searchGameModeIds = Array.from(searchGameModeCheckboxes).map(cb => cb.value);
-
-            // Движки из поиска
-            const searchEngineCheckboxes = document.querySelectorAll('.search-engine-checkbox:checked');
-            const searchEngineIds = Array.from(searchEngineCheckboxes).map(cb => cb.value);
-
-            const yearStart = document.getElementById('search-manual-year-start')?.value;
-            const yearEnd = document.getElementById('search-manual-year-end')?.value;
-
-            console.log('Search filters - platforms:', platformIds);
-            console.log('Search filters - game types:', gameTypeIds);
-            console.log('Search filters - genres:', searchGenreIds);
-            console.log('Search filters - keywords:', searchKeywordIds);
-            console.log('Search filters - themes:', searchThemeIds);
-            console.log('Search filters - perspectives:', searchPerspectiveIds);
-            console.log('Search filters - game modes:', searchGameModeIds);
-            console.log('Search filters - engines:', searchEngineIds);
-            console.log('Search filters - years:', { yearStart, yearEnd });
-
-            // Устанавливаем search параметры (с префиксом search_)
-            if (platformIds.length > 0) {
-                newUrl.searchParams.set('search_p', platformIds.join(','));
-            } else {
-                newUrl.searchParams.delete('search_p');
-            }
-
-            if (gameTypeIds.length > 0) {
-                newUrl.searchParams.set('search_gt', gameTypeIds.join(','));
-            } else {
-                newUrl.searchParams.delete('search_gt');
-            }
-
-            if (searchGenreIds.length > 0) {
-                newUrl.searchParams.set('search_g', searchGenreIds.join(','));
-            } else {
-                newUrl.searchParams.delete('search_g');
-            }
-
-            if (searchKeywordIds.length > 0) {
-                newUrl.searchParams.set('search_k', searchKeywordIds.join(','));
-            } else {
-                newUrl.searchParams.delete('search_k');
-            }
-
-            if (searchThemeIds.length > 0) {
-                newUrl.searchParams.set('search_t', searchThemeIds.join(','));
-            } else {
-                newUrl.searchParams.delete('search_t');
-            }
-
-            if (searchPerspectiveIds.length > 0) {
-                newUrl.searchParams.set('search_pp', searchPerspectiveIds.join(','));
-            } else {
-                newUrl.searchParams.delete('search_pp');
-            }
-
-            if (searchGameModeIds.length > 0) {
-                newUrl.searchParams.set('search_gm', searchGameModeIds.join(','));
-            } else {
-                newUrl.searchParams.delete('search_gm');
-            }
-
-            if (searchEngineIds.length > 0) {
-                newUrl.searchParams.set('search_e', searchEngineIds.join(','));
-            } else {
-                newUrl.searchParams.delete('search_e');
-            }
-
-            if (yearStart && yearStart.trim() !== '') {
-                newUrl.searchParams.set('search_ys', yearStart);
-            } else {
-                newUrl.searchParams.delete('search_ys');
-            }
-
-            if (yearEnd && yearEnd.trim() !== '') {
-                newUrl.searchParams.set('search_ye', yearEnd);
-            } else {
-                newUrl.searchParams.delete('search_ye');
-            }
-
-        } else {
-            // Similarity Filters - обновляем similarity параметры
-            const genreCheckboxes = document.querySelectorAll('.genre-checkbox:checked');
-            const genreIds = Array.from(genreCheckboxes).map(cb => cb.value);
-
-            const keywordCheckboxes = document.querySelectorAll('.keyword-checkbox:checked');
-            const keywordIds = Array.from(keywordCheckboxes).map(cb => cb.value);
-
-            const themeCheckboxes = document.querySelectorAll('.theme-checkbox:checked');
-            const themeIds = Array.from(themeCheckboxes).map(cb => cb.value);
-
-            const perspectiveCheckboxes = document.querySelectorAll('.perspective-checkbox:checked');
-            const perspectiveIds = Array.from(perspectiveCheckboxes).map(cb => cb.value);
-
-            const gameModeCheckboxes = document.querySelectorAll('.game-mode-checkbox:checked');
-            const gameModeIds = Array.from(gameModeCheckboxes).map(cb => cb.value);
-
-            const engineCheckboxes = document.querySelectorAll('.engine-checkbox:checked');
-            const engineIds = Array.from(engineCheckboxes).map(cb => cb.value);
-
-            console.log('Similarity filters - genres:', genreIds);
-            console.log('Similarity filters - keywords:', keywordIds);
-            console.log('Similarity filters - themes:', themeIds);
-            console.log('Similarity filters - perspectives:', perspectiveIds);
-            console.log('Similarity filters - game modes:', gameModeIds);
-            console.log('Similarity filters - engines:', engineIds);
-
-            // Очищаем все similarity параметры
+            // Удаляем все similarity параметры (g, k, t, pp, gm, e)
             newUrl.searchParams.delete('g');
             newUrl.searchParams.delete('k');
             newUrl.searchParams.delete('t');
@@ -247,27 +92,102 @@
             newUrl.searchParams.delete('gm');
             newUrl.searchParams.delete('e');
 
-            // Устанавливаем новые значения
+            // Собираем search параметры
+            const searchGenreCheckboxes = document.querySelectorAll('.search-genre-checkbox:checked');
+            const searchGenreIds = Array.from(searchGenreCheckboxes).map(cb => cb.value);
+
+            if (searchGenreIds.length > 0) {
+                newUrl.searchParams.set('search_g', searchGenreIds.join(','));
+            }
+
+            const platformCheckboxes = document.querySelectorAll('.search-platform-checkbox:checked');
+            const platformIds = Array.from(platformCheckboxes).map(cb => cb.value);
+            if (platformIds.length > 0) {
+                newUrl.searchParams.set('search_p', platformIds.join(','));
+            }
+
+            const searchKeywordCheckboxes = document.querySelectorAll('.search-keyword-checkbox:checked');
+            const searchKeywordIds = Array.from(searchKeywordCheckboxes).map(cb => cb.value);
+            if (searchKeywordIds.length > 0) {
+                newUrl.searchParams.set('search_k', searchKeywordIds.join(','));
+            }
+
+            const searchThemeCheckboxes = document.querySelectorAll('.search-theme-checkbox:checked');
+            const searchThemeIds = Array.from(searchThemeCheckboxes).map(cb => cb.value);
+            if (searchThemeIds.length > 0) {
+                newUrl.searchParams.set('search_t', searchThemeIds.join(','));
+            }
+
+            const searchPerspectiveCheckboxes = document.querySelectorAll('.search-perspective-checkbox:checked');
+            const searchPerspectiveIds = Array.from(searchPerspectiveCheckboxes).map(cb => cb.value);
+            if (searchPerspectiveIds.length > 0) {
+                newUrl.searchParams.set('search_pp', searchPerspectiveIds.join(','));
+            }
+
+            const searchGameModeCheckboxes = document.querySelectorAll('.search-game-mode-checkbox:checked');
+            const searchGameModeIds = Array.from(searchGameModeCheckboxes).map(cb => cb.value);
+            if (searchGameModeIds.length > 0) {
+                newUrl.searchParams.set('search_gm', searchGameModeIds.join(','));
+            }
+
+            const searchEngineCheckboxes = document.querySelectorAll('.search-engine-checkbox:checked');
+            const searchEngineIds = Array.from(searchEngineCheckboxes).map(cb => cb.value);
+            if (searchEngineIds.length > 0) {
+                newUrl.searchParams.set('search_e', searchEngineIds.join(','));
+            }
+
+            const gameTypeCheckboxes = document.querySelectorAll('.search-game-type-checkbox:checked');
+            const gameTypeIds = Array.from(gameTypeCheckboxes).map(cb => cb.value);
+            if (gameTypeIds.length > 0) {
+                newUrl.searchParams.set('search_gt', gameTypeIds.join(','));
+            }
+
+            const yearStart = document.getElementById('search-manual-year-start')?.value;
+            const yearEnd = document.getElementById('search-manual-year-end')?.value;
+
+            if (yearStart && yearStart.trim() !== '') {
+                newUrl.searchParams.set('search_ys', yearStart);
+            }
+            if (yearEnd && yearEnd.trim() !== '') {
+                newUrl.searchParams.set('search_ye', yearEnd);
+            }
+
+        } else {
+            // ===== SIMILARITY MODE =====
+            newUrl.searchParams.set('find_similar', '1');
+
+            const genreCheckboxes = document.querySelectorAll('.genre-checkbox:checked');
+            const genreIds = Array.from(genreCheckboxes).map(cb => cb.value);
             if (genreIds.length > 0) {
                 newUrl.searchParams.set('g', genreIds.join(','));
             }
 
+            const keywordCheckboxes = document.querySelectorAll('.keyword-checkbox:checked');
+            const keywordIds = Array.from(keywordCheckboxes).map(cb => cb.value);
             if (keywordIds.length > 0) {
                 newUrl.searchParams.set('k', keywordIds.join(','));
             }
 
+            const themeCheckboxes = document.querySelectorAll('.theme-checkbox:checked');
+            const themeIds = Array.from(themeCheckboxes).map(cb => cb.value);
             if (themeIds.length > 0) {
                 newUrl.searchParams.set('t', themeIds.join(','));
             }
 
+            const perspectiveCheckboxes = document.querySelectorAll('.perspective-checkbox:checked');
+            const perspectiveIds = Array.from(perspectiveCheckboxes).map(cb => cb.value);
             if (perspectiveIds.length > 0) {
                 newUrl.searchParams.set('pp', perspectiveIds.join(','));
             }
 
+            const gameModeCheckboxes = document.querySelectorAll('.game-mode-checkbox:checked');
+            const gameModeIds = Array.from(gameModeCheckboxes).map(cb => cb.value);
             if (gameModeIds.length > 0) {
                 newUrl.searchParams.set('gm', gameModeIds.join(','));
             }
 
+            const engineCheckboxes = document.querySelectorAll('.engine-checkbox:checked');
+            const engineIds = Array.from(engineCheckboxes).map(cb => cb.value);
             if (engineIds.length > 0) {
                 newUrl.searchParams.set('e', engineIds.join(','));
             }
@@ -281,9 +201,7 @@
             newUrl.searchParams.set('sort', sortSelect.value);
         }
 
-        console.log('Final AJAX URL:', newUrl.toString());
-
-        // Загружаем через AJAX
+        console.log('Final URL:', newUrl.toString());
         loadGamesPage(newUrl.toString());
     }
 
