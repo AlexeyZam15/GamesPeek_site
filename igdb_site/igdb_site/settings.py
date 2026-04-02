@@ -5,7 +5,7 @@ Django settings for igdb_site project.
 from pathlib import Path
 import os
 from dotenv import load_dotenv
-
+import sys
 import warnings
 
 warnings.filterwarnings("ignore",
@@ -20,6 +20,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # ============================================
 # НАСТРОЙКИ БЕЗОПАСНОСТИ И БАЗОВЫЕ
 # ============================================
+
+# Определяем окружение через переменную окружения RENDER
+IS_RENDER = os.getenv('RENDER', False)
 
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'dev-secret-key-change-in-production')
 
@@ -66,7 +69,6 @@ ROOT_URLCONF = 'igdb_site.urls'
 # ОПТИМИЗАЦИЯ ШАБЛОНОВ
 # ============================================
 
-# В settings.py измените контекстный процессор на относительный путь:
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -78,7 +80,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
-                'games.context_processors.debug_context',  # Исправленный путь
+                'games.context_processors.debug_context',
             ],
             'debug': DEBUG,
             'string_if_invalid': '' if not DEBUG else 'INVALID',
@@ -100,7 +102,7 @@ DATABASES = {
         'PASSWORD': os.getenv('DB_PASSWORD', 'django_user'),
         'HOST': os.getenv('DB_HOST', 'localhost'),
         'PORT': os.getenv('DB_PORT', '5432'),
-        'CONN_MAX_AGE': 600,  # Долговременные соединения для скорости
+        'CONN_MAX_AGE': 600,
         'OPTIONS': {
             'connect_timeout': 10,
             'client_encoding': 'UTF8',
@@ -153,10 +155,10 @@ STATIC_URL = '/static/'
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, 'games', 'static'),
 ]
-STATIC_ROOT = BASE_DIR / 'staticfiles'  # Для сбора статики в production
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Поддержка ES6 модулей
-SECURE_CROSS_ORIGIN_OPENER_POLICY = None  # или 'same-origin'
+SECURE_CROSS_ORIGIN_OPENER_POLICY = None
 
 # Media files
 MEDIA_URL = 'media/'
@@ -182,7 +184,6 @@ POLLINATIONS_API_KEY = os.getenv('POLLINATIONS_API_KEY')
 POLLINATIONS_DEFAULT_MODEL = 'openai'
 POLLINATIONS_TIMEOUT = 30
 
-
 # ============================================
 # КЭШИРОВАНИЕ ДЛЯ УСКОРЕНИЯ
 # ============================================
@@ -190,21 +191,21 @@ POLLINATIONS_TIMEOUT = 30
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
-        'LOCATION': os.path.join(BASE_DIR, 'django_cache'),  # Папка для кэша в корне проекта
-        'TIMEOUT': 3600,  # 1 час для данных загрузки
+        'LOCATION': os.path.join(BASE_DIR, 'django_cache'),
+        'TIMEOUT': 3600,
         'OPTIONS': {
-            'MAX_ENTRIES': 1000,  # Меньше записей, но каждая может быть большой
+            'MAX_ENTRIES': 1000,
         }
     },
     'page_cache': {
         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
         'LOCATION': 'page-cache',
-        'TIMEOUT': 900,  # 15 минут для страниц
+        'TIMEOUT': 900,
     },
     'template_cache': {
         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
         'LOCATION': 'template-cache',
-        'TIMEOUT': 3600,  # 1 час для шаблонов
+        'TIMEOUT': 3600,
     }
 }
 
@@ -227,7 +228,7 @@ DEBUG_TOOLBAR_PANELS = [
     'debug_toolbar.panels.settings.SettingsPanel',
     'debug_toolbar.panels.headers.HeadersPanel',
     'debug_toolbar.panels.request.RequestPanel',
-    'debug_toolbar.panels.sql.SQLPanel',  # Самая важная панель для оптимизации!
+    'debug_toolbar.panels.sql.SQLPanel',
     'debug_toolbar.panels.staticfiles.StaticFilesPanel',
     'debug_toolbar.panels.templates.TemplatesPanel',
     'debug_toolbar.panels.cache.CachePanel',
@@ -237,16 +238,15 @@ DEBUG_TOOLBAR_PANELS = [
 DEBUG_TOOLBAR_CONFIG = {
     'SHOW_COLLAPSED': True,
     'SHOW_TOOLBAR_CALLBACK': lambda request: DEBUG,
-    'RESULTS_CACHE_SIZE': 100,  # Количество запросов в истории
-    'SQL_WARNING_THRESHOLD': 500,  # Порог для предупреждения о медленных запросах (мс)
+    'RESULTS_CACHE_SIZE': 100,
+    'SQL_WARNING_THRESHOLD': 500,
     'ENABLE_STACKTRACES': True,
     'SHOW_TEMPLATE_CONTEXT': True,
-    # Оптимизации
     'DISABLE_PANELS': {
         'debug_toolbar.panels.redirects.RedirectsPanel',
     },
-    'PRINT_SQL': False,  # Отключаем для скорости
-    'SQL_EXPLAIN': True,  # Включаем EXPLAIN для анализа запросов
+    'PRINT_SQL': False,
+    'SQL_EXPLAIN': True,
     'SQL_PARAMS': True,
     'PROFILER_MAX_DEPTH': 10,
 }
@@ -289,7 +289,6 @@ LOGGING = {
             'filename': BASE_DIR / 'logs' / 'django.log',
             'formatter': 'verbose',
         },
-        # Обработчик для медленных SQL запросов
         'slow_sql': {
             'level': 'WARNING',
             'class': 'logging.FileHandler',
@@ -304,7 +303,7 @@ LOGGING = {
             'propagate': True,
         },
         'django.db.backends': {
-            'level': 'WARNING',  # Только предупреждения и ошибки
+            'level': 'WARNING',
             'handlers': ['console', 'slow_sql'],
             'propagate': False,
         },
@@ -353,22 +352,22 @@ if DEBUG:
 # ============================================
 
 # Автоматически оптимизировать базу данных при первом запросе в DEBUG режиме
-DATABASE_AUTO_OPTIMIZE = False  # Отключаем для PostgreSQL
+DATABASE_AUTO_OPTIMIZE = False
 
 # Создавать дополнительные индексы
 CREATE_EXTENDED_INDEXES = True
 
 # PostgreSQL специфичные настройки
 POSTGRESQL_OPTIMIZATIONS = {
-    'ENABLE_SEQSCAN': True,  # Разрешить последовательное сканирование
+    'ENABLE_SEQSCAN': True,
     'ENABLE_HASHJOIN': True,
-    'WORK_MEM': '64MB',  # Память для операций
-    'MAINTENANCE_WORK_MEM': '512MB',  # Для создания индексов
+    'WORK_MEM': '64MB',
+    'MAINTENANCE_WORK_MEM': '512MB',
 }
 
 # Настройки для PostgreSQL расширений
-USE_POSTGRES_TRGM = True  # Использовать pg_trgm для похожести строк
-USE_POSTGRES_GIN = True  # Использовать GIN индексы
+USE_POSTGRES_TRGM = True
+USE_POSTGRES_GIN = True
 
 # ============================================
 # НАСТРОЙКИ ПРИЛОЖЕНИЯ GAMES
@@ -382,10 +381,10 @@ SIMILARITY_THRESHOLD = 0.15
 
 # Время кэширования в секундах
 CACHE_TIMES = {
-    'similar_games': 86400,  # 24 часа
-    'filtered_games': 1800,  # 30 минут
-    'full_page': 300,  # 5 минут
-    'filter_data': 3600,  # 1 час
+    'similar_games': 86400,
+    'filtered_games': 1800,
+    'full_page': 300,
+    'filter_data': 3600,
 }
 
 # ============================================
@@ -393,8 +392,6 @@ CACHE_TIMES = {
 # ============================================
 
 # Проверка подключения к PostgreSQL
-import sys
-
 try:
     from django.db import connections
 
@@ -404,11 +401,11 @@ try:
     db_info = f"""
 ✅ Настройки Django загружены
 📁 Режим: {'DEBUG' if DEBUG else 'PRODUCTION'}
-🔧 База данных: PostgreSQL (gamespeek)
-⚡ Кэширование: LocMemCache (3 уровня)
+🌐 Платформа: {'Render' if IS_RENDER else 'Local'}
+🔧 База данных: PostgreSQL
+⚡ Кэширование: FileBasedCache
 📊 Debug Toolbar: {'Включен' if DEBUG else 'Выключен'}
 🔗 Подключение к PostgreSQL: УСПЕШНО
-📊 Драйвер: {conn.vendor} {conn.pg_version if hasattr(conn, 'pg_version') else ''}
 """
 except Exception as e:
     db_info = f"""
@@ -416,12 +413,10 @@ except Exception as e:
 ⚠️  Проверьте:
   1. Запущена ли служба PostgreSQL
   2. Корректны ли настройки в .env файле
-  3. Существует ли база 'gamespeek' и пользователь 'django_user'
 """
-    print(db_info, file=sys.stderr)
-    # В режиме DEBUG можно продолжить, в production - нет
     if not DEBUG:
         raise
+    print(db_info)
 
 print(db_info)
 
