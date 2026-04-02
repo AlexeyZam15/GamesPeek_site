@@ -2,6 +2,8 @@
 # Build script for Render deployment
 set -o errexit
 
+cd .\igdb_site\
+
 # Устанавливаем зависимости
 pip install -r requirements.txt
 
