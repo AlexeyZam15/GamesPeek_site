@@ -1,0 +1,84 @@
+<!-- games/templates/games/game_list/filter_sections/_similarity_engines_section.html -->
+
+<div id="active-engines" class="mb-2">
+    {% if similarity_selected_engines %}
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="d-flex align-items-center gap-2">
+                <button type="button"
+                        class="btn btn-sm clear-engines-btn btn-outline-warning"
+                        style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                        data-param="e">
+                    <i class="bi bi-x-circle me-1"></i>Clear All
+                </button>
+                <small class="text-muted" style="font-weight: 500;">
+                    Selected engines ({{ similarity_selected_engines|length }})
+                </small>
+            </div>
+        </div>
+    {% endif %}
+
+    <div id="visible-engines-badges">
+        {% for engine in similarity_selected_engines_objects|slice:":27" %}
+            <span class="badge bg-warning me-1 mb-1 active-engine-tag"
+                  data-engine-id="{{ engine.id }}"
+                  style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                {{ engine.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+            </span>
+        {% endfor %}
+    </div>
+
+    {% if similarity_selected_engines_objects|length > 27 %}
+        <div id="hidden-engines-badges" style="display: none;">
+            {% for engine in similarity_selected_engines_objects|slice:"27:" %}
+                <span class="badge bg-warning me-1 mb-1 active-engine-tag"
+                      data-engine-id="{{ engine.id }}"
+                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                    {{ engine.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                </span>
+            {% endfor %}
+        </div>
+        <div class="text-center mt-2">
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary show-more-engines"
+                    onclick="toggleMoreengines(this)">
+                <i class="bi bi-chevron-down"></i> Show all ({{ similarity_selected_engines_objects|length }})
+            </button>
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary show-less-engines"
+                    style="display: none;"
+                    onclick="toggleLessengines(this)">
+                <i class="bi bi-chevron-up"></i> Show less
+            </button>
+        </div>
+    {% endif %}
+</div>
+
+<input type="text" class="form-control mb-2" id="engine-search"
+       placeholder="Search engines..." autocomplete="off">
+
+<div class="engine-list border rounded p-2" style="max-height: 200px; overflow-y: auto;">
+    <div class="engine-grid"
+         style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+        {% for engine in engines %}
+            <div class="engine-item" data-engine-name="{{ engine.name|lower }}">
+                <div class="form-check">
+                    <input class="form-check-input engine-checkbox"
+                           type="checkbox"
+                           value="{{ engine.id }}"
+                           id="engine_{{ engine.id }}"
+                           {% if engine.id in similarity_selected_engines %}checked{% endif %}>
+                    <label class="form-check-label small" for="engine_{{ engine.id }}">
+                        {{ engine.name }}
+                    </label>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="text-center mt-2">
+    <button type="button" class="btn btn-outline-secondary btn-sm show-all-engines-btn">
+        <span class="show-text">Show all engines</span>
+        <span class="hide-text" style="display: none;">Show less</span>
+    </button>
+</div>

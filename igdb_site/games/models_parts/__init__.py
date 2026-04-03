@@ -19,8 +19,9 @@ from .similarity import (
     GameSimilarityCache
 )
 from .media import Screenshot
-from .game_card import GameCardCache  # Добавляем новую модель
-from .game_engine import GameEngine  # Новая модель для игровых движков
+from .game_card import GameCardCache
+from .game_engine import GameEngine
+from .filter_cache import FilterSectionCache
 
 __all__ = [
     'GameTypeEnum',
@@ -39,6 +40,7 @@ __all__ = [
     'GameCountsCache',
     'GameSimilarityCache',
     'Screenshot',
-    'GameCardCache',  # Добавляем в экспорт
-    'GameEngine',  # Добавляем новую модель
+    'GameCardCache',
+    'GameEngine',
+    'FilterSectionCache',
 ]

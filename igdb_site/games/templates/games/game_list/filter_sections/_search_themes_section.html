@@ -1,0 +1,83 @@
+<!-- games/templates/games/game_list/filter_sections/_search_themes_section.html -->
+
+<div id="search-active-themes" class="mb-2">
+    {% if search_selected_themes %}
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="d-flex align-items-center gap-2">
+                <button type="button"
+                        class="btn btn-sm search-clear-themes-btn btn-outline-warning"
+                        style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                        data-param="t">
+                    <i class="bi bi-x-circle me-1"></i>Clear All
+                </button>
+                <small class="text-muted" style="font-weight: 500;">
+                    Selected themes ({{ search_selected_themes|length }})
+                </small>
+            </div>
+        </div>
+    {% endif %}
+
+    <div id="search-visible-themes-badges">
+        {% for theme in search_selected_themes_objects|slice:":27" %}
+            <span class="badge bg-warning me-1 mb-1 search-active-theme-tag"
+                  data-theme-id="{{ theme.id }}"
+                  style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                {{ theme.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+            </span>
+        {% endfor %}
+    </div>
+
+    {% if search_selected_themes_objects|length > 27 %}
+        <div id="search-hidden-themes-badges" style="display: none;">
+            {% for theme in search_selected_themes_objects|slice:"27:" %}
+                <span class="badge bg-warning me-1 mb-1 search-active-theme-tag"
+                      data-theme-id="{{ theme.id }}"
+                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                    {{ theme.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                </span>
+            {% endfor %}
+        </div>
+        <div class="text-center mt-2">
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary search-show-more-themes"
+                    onclick="toggleSearchMoreThemes(this)">
+                <i class="bi bi-chevron-down"></i> Show all ({{ search_selected_themes_objects|length }})
+            </button>
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary search-show-less-themes"
+                    style="display: none;"
+                    onclick="toggleSearchLessThemes(this)">
+                <i class="bi bi-chevron-up"></i> Show less
+            </button>
+        </div>
+    {% endif %}
+</div>
+
+<input type="text" class="form-control mb-2" id="search-theme-search"
+       placeholder="Search themes..." autocomplete="off">
+
+<div class="search-theme-list border rounded p-2" style="max-height: 200px; overflow-y: auto;">
+    <div class="search-theme-grid"
+         style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+        {% for theme in themes %}
+            <div class="search-theme-item" data-theme-name="{{ theme.name|lower }}">
+                <div class="form-check">
+                    <input class="form-check-input search-theme-checkbox"
+                           type="checkbox"
+                           value="{{ theme.id }}" id="search_theme_{{ theme.id }}"
+                           {% if theme.id in search_selected_themes %}checked{% endif %}>
+                    <label class="form-check-label small" for="search_theme_{{ theme.id }}">
+                        {{ theme.name }}
+                    </label>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="text-center mt-2">
+    <button type="button" class="btn btn-outline-secondary btn-sm search-show-all-themes-btn">
+        <span class="show-text">Show all themes</span>
+        <span class="hide-text" style="display: none;">Show less</span>
+    </button>
+</div>
