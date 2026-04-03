@@ -1,0 +1,86 @@
+<!-- games/templates/games/game_list/filter_sections/_similarity_keywords_section.html -->
+
+<div id="active-keywords" class="mb-2">
+    {% if similarity_selected_keywords %}
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="d-flex align-items-center gap-2">
+                <button type="button"
+                        class="btn btn-sm clear-keywords-btn btn-outline-success"
+                        style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                        data-param="k">
+                    <i class="bi bi-x-circle me-1"></i>Clear All
+                </button>
+                <small class="text-muted" style="font-weight: 500;">
+                    Selected features ({{ similarity_selected_keywords|length }})
+                </small>
+            </div>
+        </div>
+    {% endif %}
+
+    <div id="visible-keywords-badges">
+        {% for keyword in similarity_selected_keywords_objects|slice:":27" %}
+            <span class="badge bg-success me-1 mb-1 active-keyword-tag"
+                  data-keyword-id="{{ keyword.id }}"
+                  style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                {{ keyword.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+            </span>
+        {% endfor %}
+    </div>
+
+    {% if similarity_selected_keywords_objects|length > 27 %}
+        <div id="hidden-keywords-badges" style="display: none;">
+            {% for keyword in similarity_selected_keywords_objects|slice:"27:" %}
+                <span class="badge bg-success me-1 mb-1 active-keyword-tag"
+                      data-keyword-id="{{ keyword.id }}"
+                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                    {{ keyword.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                </span>
+            {% endfor %}
+        </div>
+        <div class="text-center mt-2">
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary show-more-keywords"
+                    onclick="toggleMorekeywords(this)">
+                <i class="bi bi-chevron-down"></i> Show all ({{ similarity_selected_keywords_objects|length }})
+            </button>
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary show-less-keywords"
+                    style="display: none;"
+                    onclick="toggleLesskeywords(this)">
+                <i class="bi bi-chevron-up"></i> Show less
+            </button>
+        </div>
+    {% endif %}
+</div>
+
+<input type="text" class="form-control mb-2" id="keyword-search"
+       placeholder="Search features..." autocomplete="off">
+
+<div class="keyword-section">
+    <div class="keyword-list border rounded p-2" style="height: 400px; overflow-y: auto; min-height: 400px;">
+        <div class="keyword-grid"
+             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+            {% for keyword in keywords %}
+                <div class="keyword-item" data-keyword-name="{{ keyword.name|lower }}">
+                    <div class="form-check">
+                        <input class="form-check-input keyword-checkbox"
+                               type="checkbox"
+                               value="{{ keyword.id }}"
+                               id="keyword_{{ keyword.id }}"
+                               {% if keyword.id in similarity_selected_keywords %}checked{% endif %}>
+                        <label class="form-check-label small" for="keyword_{{ keyword.id }}">
+                            {{ keyword.name }}
+                        </label>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<div class="text-center mt-2">
+    <button type="button" class="btn btn-outline-secondary btn-sm show-all-keywords-btn">
+        <span class="show-text">Show all features</span>
+        <span class="hide-text" style="display: none;">Show less</span>
+    </button>
+</div>

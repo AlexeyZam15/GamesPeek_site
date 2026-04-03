@@ -1,0 +1,86 @@
+<!-- games/templates/games/game_list/filter_sections/_search_keywords_section.html -->
+
+<div id="search-active-keywords" class="mb-2">
+    {% if search_selected_keywords %}
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="d-flex align-items-center gap-2">
+                <button type="button"
+                        class="btn btn-sm search-clear-keywords-btn btn-outline-success"
+                        style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                        data-param="k">
+                    <i class="bi bi-x-circle me-1"></i>Clear All
+                </button>
+                <small class="text-muted" style="font-weight: 500;">
+                    Selected features ({{ search_selected_keywords|length }})
+                </small>
+            </div>
+        </div>
+    {% endif %}
+
+    <div id="search-visible-keywords-badges">
+        {% for keyword in search_selected_keywords_objects|slice:":27" %}
+            <span class="badge bg-success me-1 mb-1 search-active-keyword-tag"
+                  data-keyword-id="{{ keyword.id }}"
+                  style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                {{ keyword.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+            </span>
+        {% endfor %}
+    </div>
+
+    {% if search_selected_keywords_objects|length > 27 %}
+        <div id="search-hidden-keywords-badges" style="display: none;">
+            {% for keyword in search_selected_keywords_objects|slice:"27:" %}
+                <span class="badge bg-success me-1 mb-1 search-active-keyword-tag"
+                      data-keyword-id="{{ keyword.id }}"
+                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                    {{ keyword.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                </span>
+            {% endfor %}
+        </div>
+        <div class="text-center mt-2">
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary search-show-more-keywords"
+                    onclick="toggleSearchMoreKeywords(this)">
+                <i class="bi bi-chevron-down"></i> Show all ({{ search_selected_keywords_objects|length }})
+            </button>
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary search-show-less-keywords"
+                    style="display: none;"
+                    onclick="toggleSearchLessKeywords(this)">
+                <i class="bi bi-chevron-up"></i> Show less
+            </button>
+        </div>
+    {% endif %}
+</div>
+
+<input type="text" class="form-control mb-2" id="search-keyword-search"
+       placeholder="Search features..." autocomplete="off">
+
+<div class="search-keyword-section">
+    <div class="search-keyword-list border rounded p-2" style="height: 400px; overflow-y: auto; min-height: 400px;">
+        <div class="search-keyword-grid"
+             style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+            {% for keyword in keywords %}
+                <div class="search-keyword-item" data-keyword-name="{{ keyword.name|lower }}">
+                    <div class="form-check">
+                        <input class="form-check-input search-keyword-checkbox"
+                               type="checkbox"
+                               value="{{ keyword.id }}"
+                               id="search_keyword_{{ keyword.id }}"
+                               {% if keyword.id in search_selected_keywords %}checked{% endif %}>
+                        <label class="form-check-label small" for="search_keyword_{{ keyword.id }}">
+                            {{ keyword.name }}
+                        </label>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<div class="text-center mt-2">
+    <button type="button" class="btn btn-outline-secondary btn-sm search-show-all-keywords-btn">
+        <span class="show-text">Show all features</span>
+        <span class="hide-text" style="display: none;">Show less</span>
+    </button>
+</div>

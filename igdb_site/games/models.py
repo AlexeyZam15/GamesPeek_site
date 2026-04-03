@@ -17,8 +17,9 @@ from .models_parts import (
     GameCountsCache,
     GameSimilarityCache,
     Screenshot,
-    GameCardCache,  # Добавляем новую модель
-    GameEngine,  # Новая модель для игровых движков
+    GameCardCache,
+    GameEngine,
+    FilterSectionCache,
 )
 
 __all__ = [
@@ -38,6 +39,7 @@ __all__ = [
     'GameCountsCache',
     'GameSimilarityCache',
     'Screenshot',
-    'GameCardCache',  # Добавляем в экспорт
-    'GameEngine',  # Добавляем новую модель
+    'GameCardCache',
+    'GameEngine',
+    'FilterSectionCache',
 ]
