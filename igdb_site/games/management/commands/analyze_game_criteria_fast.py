@@ -48,7 +48,7 @@ class Command(BaseCommand):
         self.limit = None
         self.offset = 0
         self.game_name = None
-        self.genre = None
+        self.criteria_name = None
         self.filter_genre = None
         self.theme = None
         self.verbose = False
@@ -73,8 +73,8 @@ class Command(BaseCommand):
                             help='Пропустить первые N игр')
         parser.add_argument('--game-name', type=str, default=None,
                             help='Название игры для анализа (поиск по частичному совпадению)')
-        parser.add_argument('--genre', type=str, default=None,
-                            help='Анализировать ТОЛЬКО этот жанр (искать паттерны только для указанного жанра)')
+        parser.add_argument('--criteria-name', type=str, default=None,
+                            help='Имя критерия для анализа (ищется в жанрах, темах, перспективах и режимах игры)')
         parser.add_argument('--filter-genre', type=str, default=None,
                             help='Фильтровать игры, у которых уже есть этот жанр (анализировать только игры с этим жанром)')
         parser.add_argument('--theme', type=str, default=None,
@@ -96,7 +96,7 @@ class Command(BaseCommand):
         parser.add_argument('--no-combine-texts', action='store_true',
                             help='НЕ объединять все источники текста (использовать только summary)')
         parser.add_argument('--custom-pattern', type=str, default=None,
-                            help='Пользовательский паттерн для поиска (будет добавлен к указанному жанру)')
+                            help='Пользовательский паттерн для поиска (будет добавлен к указанному критерию)')
 
     def _filter_games_by_genre(self, games: List[Dict]) -> List[Dict]:
         """Фильтрует игры, у которых уже есть указанный жанр"""
@@ -267,7 +267,7 @@ class Command(BaseCommand):
         return False
 
     def _preload_all_data(self):
-        """Предзагрузка ВСЕХ данных в память с максимальной оптимизацией и фильтрацией по жанру/теме"""
+        """Предзагрузка ВСЕХ данных в память с максимальной оптимизацией и фильтрацией по критерию"""
         import re
         from collections import defaultdict
 
@@ -287,46 +287,60 @@ class Command(BaseCommand):
             'game_modes': {}
         }
 
-        # Загружаем данные с фильтрацией по жанру (если указан)
-        if self.genre:
-            sys.stderr.write(f"   🎭 Фильтрация: загружаем ТОЛЬКО жанр '{self.genre}'\n")
-            sys.stderr.flush()
-            genres = Genre.objects.filter(name__iexact=self.genre).only('id', 'name')
-            for g in genres:
-                self.criteria_by_id['genres'][g.id] = g.name
-                self.criteria_by_name['genres'][g.name.lower()] = g.id
-            if not self.criteria_by_id['genres']:
-                sys.stderr.write(f"   ⚠️ Жанр '{self.genre}' не найден в БД\n")
-                sys.stderr.flush()
-        else:
-            for g in Genre.objects.all().only('id', 'name'):
-                self.criteria_by_id['genres'][g.id] = g.name
-                self.criteria_by_name['genres'][g.name.lower()] = g.id
+        # Загружаем все жанры
+        for g in Genre.objects.all().only('id', 'name'):
+            self.criteria_by_id['genres'][g.id] = g.name
+            self.criteria_by_name['genres'][g.name.lower()] = g.id
 
-        # Загружаем данные с фильтрацией по теме (если указана)
-        if self.theme:
-            sys.stderr.write(f"   📚 Фильтрация: загружаем ТОЛЬКО тему '{self.theme}'\n")
-            sys.stderr.flush()
-            themes = Theme.objects.filter(name__iexact=self.theme).only('id', 'name')
-            for t in themes:
-                self.criteria_by_id['themes'][t.id] = t.name
-                self.criteria_by_name['themes'][t.name.lower()] = t.id
-            if not self.criteria_by_id['themes']:
-                sys.stderr.write(f"   ⚠️ Тема '{self.theme}' не найдена в БД\n")
-                sys.stderr.flush()
-        else:
-            for t in Theme.objects.all().only('id', 'name'):
-                self.criteria_by_id['themes'][t.id] = t.name
-                self.criteria_by_name['themes'][t.name.lower()] = t.id
+        # Загружаем все темы
+        for t in Theme.objects.all().only('id', 'name'):
+            self.criteria_by_id['themes'][t.id] = t.name
+            self.criteria_by_name['themes'][t.name.lower()] = t.id
 
-        # Перспективы и режимы всегда загружаем полностью
+        # Загружаем все перспективы
         for p in PlayerPerspective.objects.all().only('id', 'name'):
             self.criteria_by_id['perspectives'][p.id] = p.name
             self.criteria_by_name['perspectives'][p.name.lower()] = p.id
 
+        # Загружаем все режимы
         for m in GameMode.objects.all().only('id', 'name'):
             self.criteria_by_id['game_modes'][m.id] = m.name
             self.criteria_by_name['game_modes'][m.name.lower()] = m.id
+
+        # Определяем, какие типы критериев и какие имена нужно обрабатывать
+        criteria_types_to_process = []
+        target_name = None
+
+        # Если указан --criteria-name, ищем во всех типах
+        if hasattr(self, 'criteria_name') and self.criteria_name:
+            target_name = self.criteria_name.lower()
+            sys.stderr.write(f"   🔍 Универсальный поиск критерия: '{self.criteria_name}'\n")
+            sys.stderr.flush()
+
+            # Проверяем, существует ли такой критерий в БД
+            found_in_db = False
+            for crit_type in ['genres', 'themes', 'perspectives', 'game_modes']:
+                if target_name in self.criteria_by_name[crit_type]:
+                    criteria_types_to_process.append((crit_type, self.criteria_name))
+                    found_in_db = True
+                    sys.stderr.write(f"   ✅ Найден в {crit_type}: '{self.criteria_name}'\n")
+                    sys.stderr.flush()
+
+            if not found_in_db:
+                sys.stderr.write(
+                    f"   ⚠️ Критерий '{self.criteria_name}' не найден в БД (ни в жанрах, ни в темах, ни в перспективах, ни в режимах)\n")
+                sys.stderr.flush()
+
+        # Если указан --theme (обратная совместимость)
+        elif self.theme:
+            criteria_types_to_process.append(('themes', self.theme))
+            sys.stderr.write(f"   📚 Фильтрация: загружаем ТОЛЬКО тему '{self.theme}'\n")
+            sys.stderr.flush()
+
+        # Если не указаны фильтры, обрабатываем все типы
+        if not criteria_types_to_process:
+            criteria_types_to_process = [('genres', None), ('themes', None), ('perspectives', None),
+                                         ('game_modes', None)]
 
         # Компилируем паттерны в плоский список для быстрого доступа
         self.compiled_patterns = []
@@ -334,18 +348,6 @@ class Command(BaseCommand):
         self.pattern_match_counter_new = defaultdict(int)
         # Счетчик срабатываний паттернов для СУЩЕСТВУЮЩИХ критериев: ключ - (тип_критерия, имя_паттерна, паттерн_строка)
         self.pattern_match_counter_existing = defaultdict(int)
-
-        # Определяем, какие типы критериев нужно обрабатывать
-        criteria_types_to_process = []
-        if self.genre:
-            criteria_types_to_process.append(('genres', self.genre))
-        if self.theme:
-            criteria_types_to_process.append(('themes', self.theme))
-
-        # Если не указаны фильтры, обрабатываем все типы
-        if not criteria_types_to_process:
-            criteria_types_to_process = [('genres', None), ('themes', None), ('perspectives', None),
-                                         ('game_modes', None)]
 
         for criteria_type, filter_name in criteria_types_to_process:
             # Получаем паттерны для этого типа
@@ -368,13 +370,13 @@ class Command(BaseCommand):
                     sys.stderr.flush()
                 else:
                     patterns_dict = {}
-                    sys.stderr.write(f"   ⚠️ Паттерны для '{filter_name}' не найдены\n")
+                    sys.stderr.write(f"   ⚠️ Паттерны для '{filter_name}' не найдены в {criteria_type}\n")
                     sys.stderr.flush()
             else:
                 patterns_dict = type_patterns
 
             # Добавляем пользовательский паттерн если указан
-            if self.custom_pattern and criteria_type == 'genres' and filter_name:
+            if self.custom_pattern and filter_name:
                 sys.stderr.write(f"   🔧 Добавляем пользовательский паттерн: '{self.custom_pattern}'\n")
                 sys.stderr.flush()
 
@@ -1205,70 +1207,80 @@ class Command(BaseCommand):
         self.output_file.write("📊 РЕЗУЛЬТАТЫ АНАЛИЗА\n")
         self.output_file.write("=" * 60 + "\n")
 
-        # Выводим статистику срабатываний паттернов ВСЕГДА, если она есть
-        if hasattr(self, 'pattern_match_counter_new') or hasattr(self, 'pattern_match_counter_existing'):
-            self.output_file.write("\n📊 СТАТИСТИКА СРАБАТЫВАНИЙ ПАТТЕРНОВ\n")
-            self.output_file.write("=" * 60 + "\n")
+        # ВСЕГДА выводим статистику срабатываний паттернов
+        self.output_file.write("\n📊 СТАТИСТИКА СРАБАТЫВАНИЙ ПАТТЕРНОВ\n")
+        self.output_file.write("=" * 60 + "\n")
 
-            # Собираем все уникальные паттерны из обоих счетчиков
-            all_pattern_keys = set()
-            if hasattr(self, 'pattern_match_counter_new'):
-                all_pattern_keys.update(self.pattern_match_counter_new.keys())
-            if hasattr(self, 'pattern_match_counter_existing'):
-                all_pattern_keys.update(self.pattern_match_counter_existing.keys())
+        # Собираем все уникальные паттерны из обоих счетчиков
+        all_pattern_keys = set()
+        if hasattr(self, 'pattern_match_counter_new') and self.pattern_match_counter_new:
+            all_pattern_keys.update(self.pattern_match_counter_new.keys())
+        if hasattr(self, 'pattern_match_counter_existing') and self.pattern_match_counter_existing:
+            all_pattern_keys.update(self.pattern_match_counter_existing.keys())
 
-            if not all_pattern_keys:
-                self.output_file.write("\nНет данных о срабатываниях паттернов\n")
-            else:
-                # Сортируем по типу и имени для группировки
-                sorted_patterns = sorted(all_pattern_keys, key=lambda x: (x[0], x[1]))
+        # Если нет загруженных паттернов - используем compiled_patterns для получения списка
+        if not all_pattern_keys and hasattr(self, 'compiled_patterns') and self.compiled_patterns:
+            for p in self.compiled_patterns:
+                all_pattern_keys.add((p['type'], p['name'], p['pattern_str']))
 
-                # Группируем по типам критериев
-                patterns_by_type = {}
-                for crit_type, name, pattern_str in sorted_patterns:
-                    if crit_type not in patterns_by_type:
-                        patterns_by_type[crit_type] = []
-
-                    new_count = self.pattern_match_counter_new.get((crit_type, name, pattern_str), 0)
-                    existing_count = self.pattern_match_counter_existing.get((crit_type, name, pattern_str), 0)
-                    total_count = new_count + existing_count
-
-                    patterns_by_type[crit_type].append((name, pattern_str, new_count, existing_count, total_count))
-
-                # Выводим для каждого типа
-                type_display_names = {
-                    'genres': 'Жанры',
-                    'themes': 'Темы',
-                    'perspectives': 'Перспективы',
-                    'game_modes': 'Режимы игры'
-                }
-
-                for crit_type, patterns in patterns_by_type.items():
-                    display_name = type_display_names.get(crit_type, crit_type)
-                    self.output_file.write(f"\n📌 {display_name}:\n")
-                    for name, pattern_str, new_count, existing_count, total_count in patterns:
-                        self.output_file.write(f"   • {name}\n")
-                        self.output_file.write(f"     Паттерн: {pattern_str}\n")
-                        self.output_file.write(f"     Срабатываний (НОВЫЕ критерии): {new_count}\n")
-                        self.output_file.write(f"     Срабатываний (СУЩЕСТВУЮЩИЕ критерии): {existing_count}\n")
-                        self.output_file.write(f"     Всего срабатываний: {total_count}\n")
-                        self.output_file.write("\n")
-
-                total_new_matches = sum(self.pattern_match_counter_new.values()) if hasattr(self,
-                                                                                            'pattern_match_counter_new') else 0
-                total_existing_matches = sum(self.pattern_match_counter_existing.values()) if hasattr(self,
-                                                                                                      'pattern_match_counter_existing') else 0
-                total_matches = total_new_matches + total_existing_matches
-
-                self.output_file.write(f"\n📊 Всего срабатываний (НОВЫЕ): {total_new_matches}\n")
-                self.output_file.write(f"📊 Всего срабатываний (СУЩЕСТВУЮЩИЕ): {total_existing_matches}\n")
-                self.output_file.write(f"📊 Всего срабатываний (ОБЩЕЕ): {total_matches}\n")
-                self.output_file.write(f"🎯 Уникальных паттернов: {len(all_pattern_keys)}\n")
-            self.output_file.write("=" * 60 + "\n")
+        if not all_pattern_keys:
+            self.output_file.write("\n⚠️ Нет загруженных паттернов для анализа\n")
         else:
-            self.output_file.write("\n📊 Статистика срабатываний паттернов отсутствует\n")
-            self.output_file.write("=" * 60 + "\n")
+            # Сортируем по типу и имени для группировки
+            sorted_patterns = sorted(all_pattern_keys, key=lambda x: (x[0], x[1]))
 
+            # Группируем по типам критериев
+            patterns_by_type = {}
+            for crit_type, name, pattern_str in sorted_patterns:
+                if crit_type not in patterns_by_type:
+                    patterns_by_type[crit_type] = []
+
+                new_count = 0
+                existing_count = 0
+
+                if hasattr(self, 'pattern_match_counter_new'):
+                    new_count = self.pattern_match_counter_new.get((crit_type, name, pattern_str), 0)
+                if hasattr(self, 'pattern_match_counter_existing'):
+                    existing_count = self.pattern_match_counter_existing.get((crit_type, name, pattern_str), 0)
+
+                total_count = new_count + existing_count
+
+                patterns_by_type[crit_type].append((name, pattern_str, new_count, existing_count, total_count))
+
+            # Выводим для каждого типа
+            type_display_names = {
+                'genres': 'Жанры',
+                'themes': 'Темы',
+                'perspectives': 'Перспективы',
+                'game_modes': 'Режимы игры'
+            }
+
+            total_new_matches = 0
+            total_existing_matches = 0
+
+            for crit_type, patterns in patterns_by_type.items():
+                display_name = type_display_names.get(crit_type, crit_type)
+                self.output_file.write(f"\n📌 {display_name}:\n")
+
+                for name, pattern_str, new_count, existing_count, total_count in patterns:
+                    self.output_file.write(f"   • {name}\n")
+                    self.output_file.write(f"     Паттерн: {pattern_str}\n")
+                    self.output_file.write(f"     Срабатываний (НОВЫЕ критерии): {new_count}\n")
+                    self.output_file.write(f"     Срабатываний (СУЩЕСТВУЮЩИЕ критерии): {existing_count}\n")
+                    self.output_file.write(f"     Всего срабатываний: {total_count}\n")
+                    self.output_file.write("\n")
+
+                    total_new_matches += new_count
+                    total_existing_matches += existing_count
+
+            total_matches = total_new_matches + total_existing_matches
+
+            self.output_file.write(f"\n📊 Всего срабатываний (НОВЫЕ): {total_new_matches}\n")
+            self.output_file.write(f"📊 Всего срабатываний (СУЩЕСТВУЮЩИЕ): {total_existing_matches}\n")
+            self.output_file.write(f"📊 Всего срабатываний (ОБЩЕЕ): {total_matches}\n")
+            self.output_file.write(f"🎯 Уникальных паттернов: {len(all_pattern_keys)}\n")
+
+        self.output_file.write("=" * 60 + "\n")
         self.output_file.flush()
 
         if not games_with_new:
@@ -1489,7 +1501,7 @@ class Command(BaseCommand):
             self.limit = options.get('limit')
             self.offset = options.get('offset', 0)
             self.game_name = options.get('game_name')
-            self.genre = options.get('genre')
+            self.criteria_name = options.get('criteria_name')
             self.filter_genre = options.get('filter_genre')
             self.theme = options.get('theme')
             self.verbose = options.get('verbose', False)
@@ -1582,8 +1594,8 @@ class Command(BaseCommand):
         sys.stderr.write(f"📚 Объединять все тексты: {'✅' if self.combine_all_texts else '❌'}\n")
         if self.game_name:
             sys.stderr.write(f"🎮 Поиск по имени: '{self.game_name}'\n")
-        if self.genre:
-            sys.stderr.write(f"🎭 Анализировать ТОЛЬКО жанр: '{self.genre}'\n")
+        if self.criteria_name:
+            sys.stderr.write(f"🎯 Анализировать критерий: '{self.criteria_name}' (поиск во всех типах)\n")
         if self.filter_genre:
             sys.stderr.write(f"🎭 Фильтровать игры по жанру: '{self.filter_genre}'\n")
         if self.theme:
