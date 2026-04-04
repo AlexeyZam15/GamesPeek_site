@@ -75,36 +75,33 @@ class Command(BaseCommand):
         self.output_file.write("# 📊 РЕЗУЛЬТАТЫ АНАЛИЗА (ГРУППИРОВКА ПО ПАТТЕРНАМ)\n\n")
         self.output_file.write("---\n\n")
 
-        # Статистика срабатываний паттернов
+        # Статистика срабатываний паттернов - берем ИЗ СКОМПИЛИРОВАННЫХ ПАТТЕРНОВ (включая нулевые)
         self.output_file.write("## 📊 СТАТИСТИКА СРАБАТЫВАНИЙ ПАТТЕРНОВ\n\n")
 
-        all_pattern_keys = set()
-        if hasattr(self, 'pattern_match_counter_new') and self.pattern_match_counter_new:
-            all_pattern_keys.update(self.pattern_match_counter_new.keys())
-        if hasattr(self, 'pattern_match_counter_existing') and self.pattern_match_counter_existing:
-            all_pattern_keys.update(self.pattern_match_counter_existing.keys())
-
-        if not all_pattern_keys and hasattr(self, 'compiled_patterns') and self.compiled_patterns:
-            for p in self.compiled_patterns:
-                all_pattern_keys.add((p['type'], p['name'], p['pattern_str']))
-
-        if not all_pattern_keys:
+        # Получаем все паттерны из self.compiled_patterns (а не только из счетчиков)
+        if not hasattr(self, 'compiled_patterns') or not self.compiled_patterns:
             self.output_file.write("⚠️ Нет загруженных паттернов для анализа\n\n")
         else:
-            sorted_patterns = sorted(all_pattern_keys, key=lambda x: (x[0], x[1]))
-
+            # Группируем паттерны по типу и имени
             patterns_by_type = {}
-            for crit_type, name, pattern_str in sorted_patterns:
+
+            for p in self.compiled_patterns:
+                crit_type = p['type']
+                name = p['name']
+                pattern_str = p['pattern_str']
+
                 if crit_type not in patterns_by_type:
                     patterns_by_type[crit_type] = []
 
+                # Получаем количество срабатываний из счетчиков (если есть)
                 new_count = 0
                 existing_count = 0
+                pattern_key = (crit_type, name, pattern_str)
 
                 if hasattr(self, 'pattern_match_counter_new'):
-                    new_count = self.pattern_match_counter_new.get((crit_type, name, pattern_str), 0)
+                    new_count = self.pattern_match_counter_new.get(pattern_key, 0)
                 if hasattr(self, 'pattern_match_counter_existing'):
-                    existing_count = self.pattern_match_counter_existing.get((crit_type, name, pattern_str), 0)
+                    existing_count = self.pattern_match_counter_existing.get(pattern_key, 0)
 
                 total_count = new_count + existing_count
 
@@ -120,11 +117,15 @@ class Command(BaseCommand):
             total_new_matches = 0
             total_existing_matches = 0
 
-            for crit_type, patterns in patterns_by_type.items():
+            # Выводим в порядке: жанры, темы, перспективы, режимы игры
+            for crit_type in ['genres', 'themes', 'perspectives', 'game_modes']:
+                if crit_type not in patterns_by_type:
+                    continue
+
                 display_name = type_display_names.get(crit_type, crit_type)
                 self.output_file.write(f"### {display_name}\n\n")
 
-                for name, pattern_str, new_count, existing_count, total_count in patterns:
+                for name, pattern_str, new_count, existing_count, total_count in patterns_by_type[crit_type]:
                     self.output_file.write(f"**{name}**\n\n")
                     self.output_file.write(f"- Паттерн: `{pattern_str}`\n")
                     self.output_file.write(f"- Срабатываний (НОВЫЕ критерии): {new_count}\n")
@@ -140,13 +141,14 @@ class Command(BaseCommand):
             self.output_file.write(f"- Всего срабатываний (НОВЫЕ): {total_new_matches}\n")
             self.output_file.write(f"- Всего срабатываний (СУЩЕСТВУЮЩИЕ): {total_existing_matches}\n")
             self.output_file.write(f"- Всего срабатываний (ОБЩЕЕ): {total_matches}\n")
-            self.output_file.write(f"- Уникальных паттернов: {len(all_pattern_keys)}\n\n")
+            self.output_file.write(f"- Уникальных паттернов: {len(self.compiled_patterns)}\n\n")
 
         self.output_file.write("---\n\n")
         self.output_file.write("## 📊 РЕЗУЛЬТАТЫ ПО ПАТТЕРНАМ\n\n")
 
-        # Собираем все срабатывания паттернов по играм (ВСЕ вхождения, без удаления дубликатов)
-        pattern_to_occurrences = {}  # ключ: (crit_type, pattern_str, crit_name) -> список вхождений
+        # ... остальная часть метода (сбор и вывод вхождений по играм) остается без изменений ...
+        # Собираем все срабатывания паттернов по играм
+        pattern_to_occurrences = {}
 
         for result in results:
             if result.get('skipped') or not result.get('has_results'):
@@ -175,7 +177,6 @@ class Command(BaseCommand):
                     if key not in pattern_to_occurrences:
                         pattern_to_occurrences[key] = []
 
-                    # Добавляем ВСЕ вхождения, включая несколько для одной игры
                     pattern_to_occurrences[key].append({
                         'game_id': game_id,
                         'game_name': game_name,
