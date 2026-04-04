@@ -475,7 +475,6 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
 
     # Получаем текущую версию кэша из модели
     from games.models import GameCardCache
-    from games.utils.game_card_utils import GameCardCreator
     current_cache_version = GameCardCache.CARD_CACHE_VERSION
 
     # Загружаем ВСЕ карточки из БД ОДНИМ ЗАПРОСОМ
@@ -520,6 +519,10 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
                         replacement = r'\1 data-source-game-id="' + str(source_game.id) + r'">'
                         card_html = re.sub(pattern, replacement, card_html, count=1)
 
+                # Добавляем similarity к объекту игры для шаблона
+                if show_similarity and similarity is not None:
+                    game_obj.similarity = similarity
+
                 if isinstance(item, dict):
                     item['cached_card'] = card_html
                 else:
@@ -547,6 +550,10 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
                 pattern = r'(<div[^>]*class="[^"]*game-card-container[^"]*"[^>]*)>'
                 replacement = r'\1 data-source-game-id="' + str(source_game.id) + r'">'
                 card_html = re.sub(pattern, replacement, card_html, count=1)
+
+        # Добавляем similarity к объекту игры для шаблона
+        if show_similarity and similarity is not None:
+            game_obj.similarity = similarity
 
         if isinstance(item, dict):
             item['cached_card'] = card_html
