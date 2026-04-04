@@ -90,7 +90,7 @@ class GameSimilarity:
     DEFAULT_MIN_SIMILARITY = 40
 
     # Вспомогательные константы для расчетов
-    KEYWORDS_ADD_PER_MATCH = 0.4
+    KEYWORDS_ADD_PER_MATCH = 0.2
 
     def __init__(self):
         # Кэш для ускорения повторных расчетов
@@ -831,8 +831,8 @@ class GameSimilarity:
                                        source_engine_count,
                                        target_data, source_data=None):
         """
-        НОВЫЙ расчет схожести - с ФИКСИРОВАННЫМИ весами.
-        Ключевые слова считаются по проценту совпадения (common/source_total * 100%).
+        НОВЫЙ расчет схожести - с KEYWORDS_ADD_PER_MATCH для ключевых слов.
+        Ключевые слова: каждое совпадение дает KEYWORDS_ADD_PER_MATCH %.
         """
         # Используем фиксированные веса из класса, а не динамические
         total_weight = (self.GENRES_WEIGHT + self.KEYWORDS_WEIGHT + self.THEMES_WEIGHT +
@@ -847,11 +847,13 @@ class GameSimilarity:
                 genre_match_ratio = target_data['common_genres'] / max(source_genre_count, 1)
                 similarity += genre_match_ratio * self.GENRES_WEIGHT
 
-        # 2. КЛЮЧЕВЫЕ СЛОВА - ИСПРАВЛЕНО: рассчитываем как процент совпадения
+        # 2. КЛЮЧЕВЫЕ СЛОВА - ИСПРАВЛЕНО: каждое совпадение дает KEYWORDS_ADD_PER_MATCH %
         if self.KEYWORDS_WEIGHT > 0 and source_keyword_count > 0:
-            if target_data.get('common_keywords', 0) > 0:
-                keyword_match_ratio = target_data['common_keywords'] / max(source_keyword_count, 1)
-                similarity += keyword_match_ratio * self.KEYWORDS_WEIGHT
+            common_keywords = target_data.get('common_keywords', 0)
+            if common_keywords > 0:
+                # Каждое совпадение добавляет KEYWORDS_ADD_PER_MATCH %, но не больше KEYWORDS_WEIGHT
+                keyword_score = min(common_keywords * self.KEYWORDS_ADD_PER_MATCH, self.KEYWORDS_WEIGHT)
+                similarity += keyword_score
 
         # 3. ТЕМЫ
         if self.THEMES_WEIGHT > 0 and source_theme_count > 0:
@@ -1015,7 +1017,7 @@ class GameSimilarity:
 
     def get_similarity_breakdown(self, source, target):
         """
-        Детальная разбивка похожести по компонентам с ФИКСИРОВАННЫМИ весами.
+        Детальная разбивка похожести по компонентам с KEYWORDS_ADD_PER_MATCH для ключевых слов.
         Использует ту же логику, что и _calculate_game_similarity_new.
         """
         source_data, single_player_info = self._prepare_source_data(source)
@@ -1031,7 +1033,7 @@ class GameSimilarity:
             'common_engines': len(source_data.get('engines', set()) & target_raw.get('engines', set())),
         }
 
-        # Фиксированные веса, а не динамические
+        # Фиксированные веса
         max_scores = {
             'genres': self.GENRES_WEIGHT,
             'keywords': self.KEYWORDS_WEIGHT,
@@ -1054,11 +1056,12 @@ class GameSimilarity:
         else:
             scores['genres'] = 0.0
 
-        # Ключевые слова - процент совпадения
+        # Ключевые слова - каждое совпадение дает KEYWORDS_ADD_PER_MATCH %
         if max_scores['keywords'] > 0 and source_data['keyword_count'] > 0:
             if target_data['common_keywords'] > 0:
-                keyword_match_ratio = target_data['common_keywords'] / max(source_data['keyword_count'], 1)
-                scores['keywords'] = keyword_match_ratio * max_scores['keywords']
+                keyword_score = min(target_data['common_keywords'] * self.KEYWORDS_ADD_PER_MATCH,
+                                    max_scores['keywords'])
+                scores['keywords'] = keyword_score
             else:
                 scores['keywords'] = 0.0
         else:
@@ -1183,7 +1186,7 @@ class GameSimilarity:
                 'max_score': max_scores['engines'],
                 'common_elements': common_elements['engines']
             },
-            'dynamic_weights': max_scores,  # Переименовано для совместимости, но теперь это просто фиксированные веса
+            'dynamic_weights': max_scores,
             'total_similarity': total,
             'bonus': bonus,
             'total_without_bonus': total_without_bonus
@@ -1192,7 +1195,7 @@ class GameSimilarity:
     def _calculate_similarity_for_candidates(self, games_data, source_data, source_game, single_player_info):
         """
         МАКСИМАЛЬНО ОПТИМИЗИРОВАННЫЙ расчет схожести для всех кандидатов.
-        Использует предварительно вычисленные значения для ускорения.
+        Использует KEYWORDS_ADD_PER_MATCH для ключевых слов.
         """
         import time
 
@@ -1259,36 +1262,43 @@ class GameSimilarity:
             if has_single_player and not data['has_single_player']:
                 continue
 
-            # Расчет схожести - минимизируем деления
+            # Расчет схожести
             similarity = 0.0
 
-            # Жанры
+            # 1. Жанры (процент совпадения от веса)
             if source_genre_count > 0 and data['common_genres'] > 0:
-                similarity += (data['common_genres'] / source_genre_count) * weights['genres']
+                genre_match_ratio = data['common_genres'] / source_genre_count
+                similarity += genre_match_ratio * weights['genres']
 
-            # Ключевые слова
+            # 2. Ключевые слова - ИСПРАВЛЕНО: каждое совпадение дает KEYWORDS_ADD_PER_MATCH %
             if source_keyword_count > 0 and data['common_keywords'] > 0:
-                similarity += (data['common_keywords'] / source_keyword_count) * weights['keywords']
+                keyword_score = min(data['common_keywords'] * self.KEYWORDS_ADD_PER_MATCH, weights['keywords'])
+                similarity += keyword_score
 
-            # Темы
+            # 3. Темы (процент совпадения от веса)
             if source_theme_count > 0 and data['common_themes'] > 0:
-                similarity += (data['common_themes'] / source_theme_count) * weights['themes']
+                theme_match_ratio = data['common_themes'] / source_theme_count
+                similarity += theme_match_ratio * weights['themes']
 
-            # Перспективы
+            # 4. Перспективы (процент совпадения от веса)
             if source_perspective_count > 0 and data['common_perspectives'] > 0:
-                similarity += (data['common_perspectives'] / source_perspective_count) * weights['perspectives']
+                perspective_match_ratio = data['common_perspectives'] / source_perspective_count
+                similarity += perspective_match_ratio * weights['perspectives']
 
-            # Режимы игры
+            # 5. Режимы игры (процент совпадения от веса)
             if source_game_mode_count > 0 and data['common_game_modes'] > 0:
-                similarity += (data['common_game_modes'] / source_game_mode_count) * weights['game_modes']
+                game_mode_match_ratio = data['common_game_modes'] / source_game_mode_count
+                similarity += game_mode_match_ratio * weights['game_modes']
 
-            # Разработчики
+            # 6. Разработчики (процент совпадения от веса)
             if source_developer_count > 0 and data.get('common_developers', 0) > 0:
-                similarity += (data.get('common_developers', 0) / source_developer_count) * weights['developers']
+                developer_match_ratio = data.get('common_developers', 0) / source_developer_count
+                similarity += developer_match_ratio * weights['developers']
 
-            # Движки
+            # 7. Движки (процент совпадения от веса)
             if source_engine_count > 0 and data.get('common_engines', 0) > 0:
-                similarity += (data.get('common_engines', 0) / source_engine_count) * weights['engines']
+                engine_match_ratio = data.get('common_engines', 0) / source_engine_count
+                similarity += engine_match_ratio * weights['engines']
 
             # Бонус за множественные совпадения
             if similarity > 0:
