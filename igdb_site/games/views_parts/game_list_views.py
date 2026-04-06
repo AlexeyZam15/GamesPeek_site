@@ -468,10 +468,16 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
             similarity = item.get('similarity')
             game_ids.append(game_obj.id)
             game_items.append((item, game_obj, similarity, True))
+            # ОТЛАДКА: выводим similarity для каждого элемента
+            if similarity is not None:
+                print(f"DEBUG: Item similarity for game {game_obj.id} ({game_obj.name}): {similarity}")
         else:
             game_obj = item
+            similarity = getattr(game_obj, 'similarity', None)
             game_ids.append(game_obj.id)
-            game_items.append((item, game_obj, None, False))
+            game_items.append((item, game_obj, similarity, False))
+            if similarity is not None:
+                print(f"DEBUG: Direct similarity for game {game_obj.id} ({game_obj.name}): {similarity}")
 
     # Получаем текущую версию кэша из модели
     from games.models import GameCardCache
@@ -507,6 +513,10 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
                 if show_similarity and similarity is not None and similarity > 0:
                     import re
 
+                    # ОТЛАДКА
+                    print(
+                        f"DEBUG: Adding data-similarity={similarity} to card for game {game_obj.id} ({game_obj.name})")
+
                     # Сначала добавляем data-similarity
                     pattern = r'(<div[^>]*class="[^"]*game-card-container[^"]*"[^>]*)>'
                     replacement = r'\1 data-similarity="' + str(similarity) + r'">'
@@ -522,6 +532,7 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
                 # Добавляем similarity к объекту игры для шаблона
                 if show_similarity and similarity is not None:
                     game_obj.similarity = similarity
+                    print(f"DEBUG: Set game_obj.similarity for {game_obj.id} ({game_obj.name}) to {similarity}")
 
                 if isinstance(item, dict):
                     item['cached_card'] = card_html
@@ -541,6 +552,11 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
         # Добавляем data-атрибуты с процентом и source_game, если нужно
         if show_similarity and similarity is not None and similarity > 0:
             import re
+
+            # ОТЛАДКА
+            print(
+                f"DEBUG: Creating new card with data-similarity={similarity} for game {game_obj.id} ({game_obj.name})")
+
             pattern = r'(<div[^>]*class="[^"]*game-card-container[^"]*"[^>]*)>'
             replacement = r'\1 data-similarity="' + str(similarity) + r'">'
             card_html = re.sub(pattern, replacement, card_html, count=1)
@@ -554,6 +570,7 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
         # Добавляем similarity к объекту игры для шаблона
         if show_similarity and similarity is not None:
             game_obj.similarity = similarity
+            print(f"DEBUG: Set game_obj.similarity (new card) for {game_obj.id} ({game_obj.name}) to {similarity}")
 
         if isinstance(item, dict):
             item['cached_card'] = card_html
@@ -1051,6 +1068,7 @@ def get_similar_games_for_criteria(selected_criteria: Dict[str, List[int]], sear
     """Get similar games for criteria - с поддержкой поиска без жанров."""
     import json
     import hashlib
+    from ..similarity import GameSimilarity
 
     start_total = time.time()
     print(f"\n=== get_similar_games_for_criteria START ===")
@@ -1058,6 +1076,11 @@ def get_similar_games_for_criteria(selected_criteria: Dict[str, List[int]], sear
         f"Criteria: genres={len(selected_criteria['genres'])}, keywords={len(selected_criteria['keywords'])}, themes={len(selected_criteria['themes'])}, engines={len(selected_criteria.get('engines', []))}")
 
     stage_start = time.time()
+
+    # Получаем текущую версию алгоритма
+    similarity_engine = GameSimilarity()
+    algorithm_version = similarity_engine.ALGORITHM_VERSION
+
     cache_data = json.dumps({
         'g': selected_criteria['genres'],
         'k': selected_criteria['keywords'],
@@ -1066,8 +1089,8 @@ def get_similar_games_for_criteria(selected_criteria: Dict[str, List[int]], sear
         'd': selected_criteria['developers'],
         'gm': selected_criteria['game_modes'],
         'e': selected_criteria['engines'],
-        'search_filters': search_filters,  # Добавляем поисковые фильтры в ключ кэша
-        'version': 'v18_with_search_filters'
+        'search_filters': search_filters,
+        'algorithm_version': algorithm_version,
     }, sort_keys=True)
 
     cache_key = f'virtual_search_full_{hashlib.md5(cache_data.encode()).hexdigest()}'
@@ -1096,13 +1119,9 @@ def get_similar_games_for_criteria(selected_criteria: Dict[str, List[int]], sear
     print(f"VirtualGame created: {time.time() - stage_start:.3f}s")
 
     stage_start = time.time()
-    similarity_engine = GameSimilarity()
-    print(f"GameSimilarity engine created: {time.time() - stage_start:.3f}s")
-
-    stage_start = time.time()
     similar_games = similarity_engine.find_similar_games(
         source_game=virtual_game,
-        search_filters=search_filters  # Передаем поисковые фильтры
+        search_filters=search_filters
     )
     print(f"find_similar_games executed: {time.time() - stage_start:.3f}s, found {len(similar_games)} games")
 
@@ -1137,17 +1156,23 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int], se
     List, int]:
     """Get similar games for a specific game without limits - ОПТИМИЗИРОВАНО."""
     from .base_views import _generate_cache_key, CACHE_TIMES
+    from ..similarity import GameSimilarity
     import hashlib
 
     start_total = time.time()
     print(f"\n=== get_similar_games_for_game START for game {game_obj.id} - {game_obj.name} ===")
 
     stage_start = time.time()
+
+    # Получаем текущую версию алгоритма
+    similarity_engine = GameSimilarity()
+    algorithm_version = similarity_engine.ALGORITHM_VERSION
+
     cache_key_data = {
         'game_id': game_obj.id,
         'platforms': sorted(selected_platforms) if selected_platforms else [],
-        'search_filters': search_filters,  # Добавляем поисковые фильтры в ключ кэша
-        'version': 'v18_with_search_filters',
+        'search_filters': search_filters,
+        'algorithm_version': algorithm_version,
         'game_cached_counts': {
             'genres': game_obj.cached_genre_count,
             'keywords': game_obj.cached_keyword_count,
@@ -1172,14 +1197,10 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int], se
     print(f"Cache MISS for game {game_obj.id} - calculating similarity...")
 
     stage_start = time.time()
-    similarity_engine = GameSimilarity()
-    print(f"GameSimilarity engine created: {time.time() - stage_start:.3f}s")
-
-    stage_start = time.time()
     similar_games = similarity_engine.find_similar_games(
         source_game=game_obj,
         min_similarity=0,
-        search_filters=search_filters  # Передаем поисковые фильтры
+        search_filters=search_filters
     )
     print(f"find_similar_games executed: {time.time() - stage_start:.3f}s, found {len(similar_games)} games")
 
