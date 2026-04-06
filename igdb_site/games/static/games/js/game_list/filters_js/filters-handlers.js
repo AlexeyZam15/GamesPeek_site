@@ -148,27 +148,20 @@ const FilterHandlers = {
         const activeTab = this.getActiveTab();
         console.log(`Active tab: ${activeTab}`);
 
-        // Получаем все текущие параметры из URL
+        // Получаем все текущие параметры из URL один раз
         const urlParams = new URLSearchParams(window.location.search);
+        const newUrlParams = new URLSearchParams();
 
-        // ПОЛУЧАЕМ ЗНАЧЕНИЯ ИЗ URL (не из скрытых полей!)
-        const urlValues = {
-            g: urlParams.get('g') || '',
-            k: urlParams.get('k') || '',
-            p: urlParams.get('p') || '',
-            t: urlParams.get('t') || '',
-            pp: urlParams.get('pp') || '',
-            gm: urlParams.get('gm') || '',
-            gt: urlParams.get('gt') || '',
-            e: urlParams.get('e') || '',
-            ys: urlParams.get('ys') || '',
-            ye: urlParams.get('ye') || ''
-        };
-
-        console.log('Values from URL:', urlValues);
+        // Копируем существующие параметры, которые не будут изменены
+        const preserveParams = ['source_game', 'sort'];
+        preserveParams.forEach(param => {
+            const value = urlParams.get(param);
+            if (value) newUrlParams.set(param, value);
+        });
 
         if (activeTab === 'search-filters-pane') {
             // Search Filters - обновляем ТОЛЬКО поисковые параметры
+
             // Платформы
             const platformCheckboxes = document.querySelectorAll('.search-platform-checkbox:checked');
             const platformIds = Array.from(platformCheckboxes).map(cb => cb.value);
@@ -176,6 +169,9 @@ const FilterHandlers = {
             if (platformsField) {
                 platformsField.value = platformIds.join(',');
                 console.log('Updated platforms-field:', platformsField.value);
+            }
+            if (platformIds.length > 0) {
+                newUrlParams.set('p', platformIds.join(','));
             }
 
             // Game Types
@@ -186,60 +182,38 @@ const FilterHandlers = {
                 gameTypesField.value = gameTypeIds.join(',');
                 console.log('Updated game-types-field:', gameTypesField.value);
             }
+            if (gameTypeIds.length > 0) {
+                newUrlParams.set('gt', gameTypeIds.join(','));
+            }
 
             // Даты
-            const yearStartField = document.getElementById('year-start-field');
-            const yearEndField = document.getElementById('year-end-field');
             const manualStart = document.getElementById('search-manual-year-start');
             const manualEnd = document.getElementById('search-manual-year-end');
+            const yearStartField = document.getElementById('year-start-field');
+            const yearEndField = document.getElementById('year-end-field');
 
             if (manualStart && manualStart.value && yearStartField) {
                 yearStartField.value = manualStart.value;
+                newUrlParams.set('ys', manualStart.value);
             }
             if (manualEnd && manualEnd.value && yearEndField) {
                 yearEndField.value = manualEnd.value;
+                newUrlParams.set('ye', manualEnd.value);
             }
 
             // Обновляем combined year field
             this.updateDateFields();
 
-            // В URL устанавливаем ТОЛЬКО те параметры, которые были изменены
-            // Платформы
-            if (platformIds.length > 0) {
-                urlParams.set('p', platformIds.join(','));
-            } else {
-                urlParams.delete('p');
-            }
-
-            // Game Types
-            if (gameTypeIds.length > 0) {
-                urlParams.set('gt', gameTypeIds.join(','));
-            } else {
-                urlParams.delete('gt');
-            }
-
-            // Даты
-            if (yearStartField && yearStartField.value) {
-                urlParams.set('ys', yearStartField.value);
-            } else {
-                urlParams.delete('ys');
-            }
-            if (yearEndField && yearEndField.value) {
-                urlParams.set('ye', yearEndField.value);
-            } else {
-                urlParams.delete('ye');
-            }
-
-            // СОХРАНЯЕМ similarity параметры ИЗ URL (не из полей!)
-            if (urlValues.g) urlParams.set('g', urlValues.g);
-            if (urlValues.k) urlParams.set('k', urlValues.k);
-            if (urlValues.t) urlParams.set('t', urlValues.t);
-            if (urlValues.pp) urlParams.set('pp', urlValues.pp);
-            if (urlValues.gm) urlParams.set('gm', urlValues.gm);
-            if (urlValues.e) urlParams.set('e', urlValues.e);
+            // Сохраняем similarity параметры ИЗ URL (не из полей!)
+            const similarityParams = ['g', 'k', 't', 'pp', 'gm', 'e'];
+            similarityParams.forEach(param => {
+                const value = urlParams.get(param);
+                if (value) newUrlParams.set(param, value);
+            });
 
         } else {
             // Similarity Filters - обновляем параметры похожести
+
             // Genres
             const genreCheckboxes = document.querySelectorAll('.genre-checkbox:checked');
             const genreIds = Array.from(genreCheckboxes).map(cb => cb.value);
@@ -247,6 +221,9 @@ const FilterHandlers = {
             if (genresField) {
                 genresField.value = genreIds.join(',');
                 console.log('Updated genres-field:', genresField.value);
+            }
+            if (genreIds.length > 0) {
+                newUrlParams.set('g', genreIds.join(','));
             }
 
             // Keywords
@@ -257,6 +234,9 @@ const FilterHandlers = {
                 keywordsField.value = keywordIds.join(',');
                 console.log('Updated keywords-field:', keywordsField.value);
             }
+            if (keywordIds.length > 0) {
+                newUrlParams.set('k', keywordIds.join(','));
+            }
 
             // Themes
             const themeCheckboxes = document.querySelectorAll('.theme-checkbox:checked');
@@ -265,6 +245,9 @@ const FilterHandlers = {
             if (themesField) {
                 themesField.value = themeIds.join(',');
                 console.log('Updated themes-field:', themesField.value);
+            }
+            if (themeIds.length > 0) {
+                newUrlParams.set('t', themeIds.join(','));
             }
 
             // Perspectives
@@ -275,6 +258,9 @@ const FilterHandlers = {
                 perspectivesField.value = perspectiveIds.join(',');
                 console.log('Updated perspectives-field:', perspectivesField.value);
             }
+            if (perspectiveIds.length > 0) {
+                newUrlParams.set('pp', perspectiveIds.join(','));
+            }
 
             // Game Modes
             const gameModeCheckboxes = document.querySelectorAll('.game-mode-checkbox:checked');
@@ -283,6 +269,9 @@ const FilterHandlers = {
             if (gameModesField) {
                 gameModesField.value = gameModeIds.join(',');
                 console.log('Updated game-modes-field:', gameModesField.value);
+            }
+            if (gameModeIds.length > 0) {
+                newUrlParams.set('gm', gameModeIds.join(','));
             }
 
             // Engines
@@ -293,6 +282,9 @@ const FilterHandlers = {
                 enginesField.value = engineIds.join(',');
                 console.log('Updated engines-field:', enginesField.value);
             }
+            if (engineIds.length > 0) {
+                newUrlParams.set('e', engineIds.join(','));
+            }
 
             // Platforms (если есть в similarity)
             const platformCheckboxes = document.querySelectorAll('.platform-checkbox:checked');
@@ -301,6 +293,9 @@ const FilterHandlers = {
             if (platformsField) {
                 platformsField.value = platformIds.join(',');
                 console.log('Updated platforms-field:', platformsField.value);
+            }
+            if (platformIds.length > 0) {
+                newUrlParams.set('p', platformIds.join(','));
             }
 
             // Game Types (если есть в similarity)
@@ -311,85 +306,33 @@ const FilterHandlers = {
                 gameTypesField.value = gameTypeIds.join(',');
                 console.log('Updated game-types-field:', gameTypesField.value);
             }
-
-            // Обновляем URL параметры
-            if (genreIds.length > 0) {
-                urlParams.set('g', genreIds.join(','));
-            } else {
-                urlParams.delete('g');
-            }
-
-            if (keywordIds.length > 0) {
-                urlParams.set('k', keywordIds.join(','));
-            } else {
-                urlParams.delete('k');
-            }
-
-            if (themeIds.length > 0) {
-                urlParams.set('t', themeIds.join(','));
-            } else {
-                urlParams.delete('t');
-            }
-
-            if (perspectiveIds.length > 0) {
-                urlParams.set('pp', perspectiveIds.join(','));
-            } else {
-                urlParams.delete('pp');
-            }
-
-            if (gameModeIds.length > 0) {
-                urlParams.set('gm', gameModeIds.join(','));
-            } else {
-                urlParams.delete('gm');
-            }
-
-            if (engineIds.length > 0) {
-                urlParams.set('e', engineIds.join(','));
-            } else {
-                urlParams.delete('e');
-            }
-
-            if (platformIds.length > 0) {
-                urlParams.set('p', platformIds.join(','));
-            } else {
-                urlParams.delete('p');
-            }
-
             if (gameTypeIds.length > 0) {
-                urlParams.set('gt', gameTypeIds.join(','));
-            } else {
-                urlParams.delete('gt');
+                newUrlParams.set('gt', gameTypeIds.join(','));
             }
-        }
-
-        // Всегда сохраняем source_game, если он был
-        const sourceGameParam = urlParams.get('source_game');
-        if (sourceGameParam) {
-            console.log('Сохраняем source_game:', sourceGameParam);
         }
 
         // Всегда сохраняем find_similar
-        urlParams.set('find_similar', '1');
+        newUrlParams.set('find_similar', '1');
 
         // Сохраняем сортировку
         const sortSelect = document.querySelector('select[name="sort"]');
         if (sortSelect && sortSelect.value) {
-            urlParams.set('sort', sortSelect.value);
+            newUrlParams.set('sort', sortSelect.value);
         }
 
         // Сохраняем page=1 при изменении фильтров
-        urlParams.set('page', '1');
+        newUrlParams.set('page', '1');
 
         // Обновляем action формы с новыми параметрами
         if (this.form) {
             const baseUrl = window.location.pathname;
-            const queryString = urlParams.toString();
+            const queryString = newUrlParams.toString();
             this.form.action = baseUrl + (queryString ? '?' + queryString : '');
             console.log('Form action updated to:', this.form.action);
 
             // Для отладки выводим все параметры
             console.log('Final URL parameters:');
-            urlParams.forEach((value, key) => {
+            newUrlParams.forEach((value, key) => {
                 console.log(`  ${key}: ${value}`);
             });
         }
@@ -451,33 +394,44 @@ const FilterHandlers = {
         FilterHandlersDebugTimer.start('setupCheckboxListeners');
         console.log('Setting up checkbox listeners...');
 
+        // Создаем debounced функцию один раз
+        const debouncedUpdate = this.debounce(() => {
+            this.updateHiddenFields();
+            this.triggerSortWithDelay();
+        }, 100);
+
         // Все чекбоксы из обеих вкладок
         const allCheckboxes = document.querySelectorAll(
-            // Search Filters
             '.search-genre-checkbox, .search-keyword-checkbox, .search-platform-checkbox, ' +
             '.search-theme-checkbox, .search-perspective-checkbox, .search-game-mode-checkbox, ' +
             '.search-game-type-checkbox, .search-engine-checkbox, ' +
-            // Similarity Filters
             '.genre-checkbox, .keyword-checkbox, .platform-checkbox, ' +
             '.theme-checkbox, .perspective-checkbox, .game-mode-checkbox, .game-type-checkbox, ' +
             '.engine-checkbox'
         );
 
         allCheckboxes.forEach(checkbox => {
-            // Удаляем старые обработчики
             const newCheckbox = checkbox.cloneNode(true);
             checkbox.parentNode.replaceChild(newCheckbox, checkbox);
 
-            // Добавляем новый обработчик
-            newCheckbox.addEventListener('change', () => {
-                console.log(`Checkbox changed: ${newCheckbox.value}, checked: ${newCheckbox.checked}`);
-                this.updateHiddenFields();
-                this.triggerSortWithDelay();
-            });
+            newCheckbox.addEventListener('change', debouncedUpdate);
         });
 
         console.log(`Set up listeners for ${allCheckboxes.length} checkboxes`);
         FilterHandlersDebugTimer.end('setupCheckboxListeners');
+    },
+
+    // Вспомогательный метод debounce
+    debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
     },
 
     // Настройка кнопок очистки

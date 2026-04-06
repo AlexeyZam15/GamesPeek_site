@@ -170,6 +170,7 @@ const FilterSort = {
         }
     ],
 
+
     sortFilterLists() {
         if (this.isSorting) return;
         this.isSorting = true;
@@ -209,7 +210,7 @@ const FilterSort = {
             const container = document.querySelector(filter.container);
             if (container) {
                 const items = container.querySelectorAll(`.${filter.itemClass}`);
-                const maxItems = filter.maxItems || 100;  // По умолчанию 100, если не указано
+                const maxItems = filter.maxItems || 100;
 
                 if (items.length > 0 && items.length <= maxItems) {
                     console.log(`Processing ${filter.name}: ${items.length} items`);
@@ -256,11 +257,12 @@ const FilterSort = {
     sortWithSelectedFirst(container, items, filter) {
         FilterSortDebugTimer.start(`sortWithSelectedFirst_${filter.name}`);
 
-        // Собираем выбранные и невыбранные элементы
+        // Оптимизация: собираем выбранные и невыбранные элементы за один проход
         const selectedItems = [];
         const unselectedItems = [];
+        const itemsLength = items.length;
 
-        for (let i = 0; i < items.length; i++) {
+        for (let i = 0; i < itemsLength; i++) {
             const item = items[i];
             const checkbox = item.querySelector(`.${filter.checkboxClass}`);
             if (checkbox && checkbox.checked) {
@@ -280,7 +282,8 @@ const FilterSort = {
 
         // Проверяем, не находятся ли выбранные уже в начале
         let alreadyAtStart = true;
-        for (let i = 0; i < selectedItems.length; i++) {
+        const selectedLength = selectedItems.length;
+        for (let i = 0; i < selectedLength; i++) {
             if (items[i] !== selectedItems[i]) {
                 alreadyAtStart = false;
                 break;
@@ -293,17 +296,34 @@ const FilterSort = {
             return;
         }
 
+        // Оптимизированная сортировка: кэшируем имена для сравнения
+        const getName = (item) => {
+            if (filter.dataAttr) {
+                const nameFromAttr = item.getAttribute(filter.dataAttr);
+                if (nameFromAttr) return nameFromAttr;
+            }
+            const label = item.querySelector('label');
+            if (label) {
+                let labelText = label.textContent.trim();
+                labelText = labelText.replace(/\s*\(\d+\)\s*$/, '').trim();
+                if (labelText) return labelText;
+            }
+            let text = item.textContent.trim();
+            text = text.replace(/\s*\(\d+\)\s*$/, '').trim();
+            return text || 'unknown';
+        };
+
         // Сортируем выбранные элементы по имени (алфавитно)
         selectedItems.sort((a, b) => {
-            const nameA = this.getItemName(a, filter);
-            const nameB = this.getItemName(b, filter);
+            const nameA = getName(a);
+            const nameB = getName(b);
             return nameA.localeCompare(nameB);
         });
 
         // Сортируем невыбранные элементы по имени (алфавитно)
         unselectedItems.sort((a, b) => {
-            const nameA = this.getItemName(a, filter);
-            const nameB = this.getItemName(b, filter);
+            const nameA = getName(a);
+            const nameB = getName(b);
             return nameA.localeCompare(nameB);
         });
 
