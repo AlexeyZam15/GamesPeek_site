@@ -71,6 +71,10 @@ class GameSimilarity:
     """
     УНИВЕРСАЛЬНЫЙ алгоритм похожести с динамическими весами
     """
+    # ВЕРСИЯ АЛГОРИТМА - УВЕЛИЧИВАТЬ ПРИ ЛЮБЫХ ИЗМЕНЕНИЯХ В ЛОГИКЕ РАСЧЕТА
+    # Это гарантирует, что старый кэш не будет использоваться после обновления
+    ALGORITHM_VERSION = 4
+
     DEFAULT_SIMILAR_GAMES_LIMIT = 500  # Если установить 0, будут возвращаться все найденные игры без ограничения
 
     # Базовые константы с распределением весов
@@ -83,28 +87,40 @@ class GameSimilarity:
     ENGINES_WEIGHT = 0.0
 
     # Конфигурационные константы с оптимизированными весами
-    # НОВАЯ КОНСТАНТА: минимальное количество общих жанров для включения в результат
-    MIN_COMMON_GENRES = 2
+    MIN_COMMON_GENRES = 2  # минимальное количество общих жанров для включения в результат
 
-    # НОВАЯ КОНСТАНТА: минимальный порог похожести по умолчанию
-    DEFAULT_MIN_SIMILARITY = 40
+    DEFAULT_MIN_SIMILARITY = 40  # минимальный порог похожести по умолчанию
 
     # Вспомогательные константы для расчетов
-    KEYWORDS_ADD_PER_MATCH = 0.2
+    KEYWORDS_ADD_PER_MATCH = 0.2  # каждое совпадающее ключевое слово добавляет 0.2% к схожести
 
     def __init__(self):
         # Кэш для ускорения повторных расчетов
         self._similarity_cache = {}
         self._game_data_cache = {}
 
+    def clear_cache(self, force=False):
+        """
+        Очищает кэш.
+        Если force=True, полностью очищает все кэши.
+        """
+        if force:
+            self._similarity_cache.clear()
+            self._game_data_cache.clear()
+            print(f"GameSimilarity: Cache cleared completely")
+        else:
+            self._similarity_cache.clear()
+            self._game_data_cache.clear()
+            print(f"GameSimilarity: Cache cleared")
+
     def get_similarity_formula(self, source, target):
         """
         Возвращает структурированные данные для красивого отображения вклада каждого критерия.
-        impact-badge теперь показывает процент соответствия критерия (common/source_total * 100)
+        Процент соответствия показывает common/source_total * 100.
         """
         try:
-            # Получаем breakdown для этой пары игр
-            breakdown = self.get_similarity_breakdown(source, target)
+            # Получаем breakdown для этой пары игр (используем прямой расчет, без рекурсии)
+            breakdown = self._calculate_breakdown_direct(source, target)
 
             # Получаем данные исходной игры
             source_data, _ = self._prepare_source_data(source)
@@ -116,10 +132,7 @@ class GameSimilarity:
             if breakdown['genres']['max_score'] > 0:
                 common_count = len(breakdown['genres']['common_elements'])
                 source_count = source_data['genre_count']
-
-                # Процент соответствия жанров (common/source_total * 100)
                 genre_match_percentage = (common_count / source_count * 100) if source_count > 0 else 0
-
                 criteria_contributions.append({
                     'icon': '🎮',
                     'name': 'Genres',
@@ -128,7 +141,7 @@ class GameSimilarity:
                     'total': source_count,
                     'weight': breakdown['genres']['max_score'],
                     'contribution': breakdown['genres']['score'],
-                    'percentage': genre_match_percentage,  # ИЗМЕНЕНО: процент соответствия
+                    'percentage': genre_match_percentage,
                     'color': 'purple'
                 })
 
@@ -136,10 +149,7 @@ class GameSimilarity:
             if breakdown['keywords']['max_score'] > 0:
                 common_count = len(breakdown['keywords']['common_elements'])
                 source_count = source_data['keyword_count']
-
-                # Процент соответствия ключевых слов (common/source_total * 100)
                 keyword_match_percentage = (common_count / source_count * 100) if source_count > 0 else 0
-
                 criteria_contributions.append({
                     'icon': '🔑',
                     'name': 'Keywords',
@@ -148,7 +158,7 @@ class GameSimilarity:
                     'total': source_count,
                     'weight': breakdown['keywords']['max_score'],
                     'contribution': breakdown['keywords']['score'],
-                    'percentage': keyword_match_percentage,  # ИЗМЕНЕНО: процент соответствия
+                    'percentage': keyword_match_percentage,
                     'color': 'success'
                 })
 
@@ -156,9 +166,7 @@ class GameSimilarity:
             if breakdown['themes']['max_score'] > 0:
                 common_count = len(breakdown['themes']['common_elements'])
                 source_count = source_data['theme_count']
-
                 theme_match_percentage = (common_count / source_count * 100) if source_count > 0 else 0
-
                 criteria_contributions.append({
                     'icon': '🎭',
                     'name': 'Themes',
@@ -167,17 +175,15 @@ class GameSimilarity:
                     'total': source_count,
                     'weight': breakdown['themes']['max_score'],
                     'contribution': breakdown['themes']['score'],
-                    'percentage': theme_match_percentage,  # ИЗМЕНЕНО
+                    'percentage': theme_match_percentage,
                     'color': 'orange'
                 })
 
-            # Перспективы
+            # Перспективы - ДОБАВЛЕНО
             if breakdown['perspectives']['max_score'] > 0:
                 common_count = len(breakdown['perspectives']['common_elements'])
                 source_count = source_data['perspective_count']
-
                 perspective_match_percentage = (common_count / source_count * 100) if source_count > 0 else 0
-
                 criteria_contributions.append({
                     'icon': '👁️',
                     'name': 'Perspectives',
@@ -186,17 +192,15 @@ class GameSimilarity:
                     'total': source_count,
                     'weight': breakdown['perspectives']['max_score'],
                     'contribution': breakdown['perspectives']['score'],
-                    'percentage': perspective_match_percentage,  # ИЗМЕНЕНО
+                    'percentage': perspective_match_percentage,
                     'color': 'info'
                 })
 
-            # Режимы игры
+            # Режимы игры - ДОБАВЛЕНО
             if breakdown['game_modes']['max_score'] > 0:
                 common_count = len(breakdown['game_modes']['common_elements'])
                 source_count = source_data['game_mode_count']
-
                 gamemode_match_percentage = (common_count / source_count * 100) if source_count > 0 else 0
-
                 criteria_contributions.append({
                     'icon': '🎯',
                     'name': 'Game Modes',
@@ -205,17 +209,15 @@ class GameSimilarity:
                     'total': source_count,
                     'weight': breakdown['game_modes']['max_score'],
                     'contribution': breakdown['game_modes']['score'],
-                    'percentage': gamemode_match_percentage,  # ИЗМЕНЕНО
+                    'percentage': gamemode_match_percentage,
                     'color': 'pink'
                 })
 
-            # Разработчики
+            # Разработчики - ДОБАВЛЕНО
             if breakdown['developers']['max_score'] > 0:
                 common_count = len(breakdown['developers']['common_elements'])
                 source_count = source_data['developer_count']
-
                 developer_match_percentage = (common_count / source_count * 100) if source_count > 0 else 0
-
                 criteria_contributions.append({
                     'icon': '🏢',
                     'name': 'Developers',
@@ -224,7 +226,7 @@ class GameSimilarity:
                     'total': source_count,
                     'weight': breakdown['developers']['max_score'],
                     'contribution': breakdown['developers']['score'],
-                    'percentage': developer_match_percentage,  # ИЗМЕНЕНО
+                    'percentage': developer_match_percentage,
                     'color': 'secondary'
                 })
 
@@ -232,9 +234,7 @@ class GameSimilarity:
             if breakdown['engines']['max_score'] > 0:
                 common_count = len(breakdown['engines']['common_elements'])
                 source_count = source_data['engine_count']
-
                 engine_match_percentage = (common_count / source_count * 100) if source_count > 0 else 0
-
                 criteria_contributions.append({
                     'icon': '⚙️',
                     'name': 'Engines',
@@ -243,7 +243,7 @@ class GameSimilarity:
                     'total': source_count,
                     'weight': breakdown['engines']['max_score'],
                     'contribution': breakdown['engines']['score'],
-                    'percentage': engine_match_percentage,  # ИЗМЕНЕНО
+                    'percentage': engine_match_percentage,
                     'color': 'warning'
                 })
 
@@ -269,6 +269,346 @@ class GameSimilarity:
                 'total_from_criteria': 0,
                 'error': str(e)
             }
+
+    def get_similarity_breakdown(self, source, target):
+        """
+        Детальная разбивка похожести по компонентам.
+        Использует унифицированный алгоритм через _calculate_breakdown_direct.
+        """
+        return self._calculate_breakdown_direct(source, target)
+
+    def _calculate_breakdown_direct(self, source, target):
+        """
+        Прямой расчет детальной разбивки похожести без рекурсии.
+        Использует унифицированный алгоритм _calculate_unified_similarity.
+        """
+        source_data, single_player_info = self._prepare_source_data(source)
+        target_raw = self._get_cached_game_data(target)
+
+        # Подготавливаем данные target для унифицированного расчета
+        common_genres = len(source_data.get('genres', set()) & target_raw.get('genres', set()))
+        common_keywords = len(source_data.get('keywords', set()) & target_raw.get('keywords', set()))
+        common_themes = len(source_data.get('themes', set()) & target_raw.get('themes', set()))
+        common_perspectives = len(source_data.get('perspectives', set()) & target_raw.get('perspectives', set()))
+        common_game_modes = len(source_data.get('game_modes', set()) & target_raw.get('game_modes', set()))
+        common_developers = len(source_data.get('developers', set()) & target_raw.get('developers', set()))
+        common_engines = len(source_data.get('engines', set()) & target_raw.get('engines', set()))
+
+        # ОТЛАДКА ДЛЯ XCOM 2 (ID: 840)
+        source_game_id = source_data.get('game_id')
+
+        # Пытаемся получить ID целевой игры из разных мест
+        target_game_id = None
+        if hasattr(target, 'id'):
+            target_game_id = target.id
+        elif isinstance(target, dict) and 'id' in target:
+            target_game_id = target['id']
+        elif hasattr(target, 'get') and callable(getattr(target, 'get', None)):
+            target_game_id = target.get('id')
+
+        if source_game_id == 826 and target_game_id == 840:
+            print(f"\n=== BREAKDOWN DEBUG FOR XCOM 2 ===")
+            print(f"Source perspectives count: {source_data['perspective_count']}")
+            print(f"Source perspectives set: {source_data.get('perspectives', set())}")
+            print(f"Target perspectives set: {target_raw.get('perspectives', set())}")
+            print(f"Common perspectives count: {common_perspectives}")
+            print(f"Source game_modes count: {source_data['game_mode_count']}")
+            print(f"Source game_modes set: {source_data.get('game_modes', set())}")
+            print(f"Target game_modes set: {target_raw.get('game_modes', set())}")
+            print(f"Common game_modes count: {common_game_modes}")
+            print(f"Source developers count: {source_data['developer_count']}")
+            print(f"Source developers set: {source_data.get('developers', set())}")
+            print(f"Target developers set: {target_raw.get('developers', set())}")
+            print(f"Common developers count: {common_developers}")
+            print(f"Source engines count: {source_data['engine_count']}")
+            print(f"Source engines set: {source_data.get('engines', set())}")
+            print(f"Target engines set: {target_raw.get('engines', set())}")
+            print(f"Common engines count: {common_engines}")
+
+        target_data = {
+            'common_genres': common_genres,
+            'common_keywords': common_keywords,
+            'common_themes': common_themes,
+            'common_perspectives': common_perspectives,
+            'common_game_modes': common_game_modes,
+            'common_developers': common_developers,
+            'common_engines': common_engines,
+        }
+
+        # Фиксированные веса
+        max_scores = {
+            'genres': self.GENRES_WEIGHT,
+            'keywords': self.KEYWORDS_WEIGHT,
+            'themes': self.THEMES_WEIGHT,
+            'perspectives': self.PERSPECTIVES_WEIGHT,
+            'game_modes': self.GAME_MODES_WEIGHT,
+            'developers': self.DEVELOPERS_WEIGHT,
+            'engines': self.ENGINES_WEIGHT,
+        }
+
+        # Рассчитываем скоры для каждого критерия отдельно
+        scores = {}
+
+        # Жанры
+        if max_scores['genres'] > 0 and source_data['genre_count'] > 0:
+            if target_data['common_genres'] > 0:
+                genre_match_ratio = target_data['common_genres'] / max(source_data['genre_count'], 1)
+                scores['genres'] = genre_match_ratio * max_scores['genres']
+            else:
+                scores['genres'] = 0.0
+        else:
+            scores['genres'] = 0.0
+
+        # Ключевые слова - каждое совпадение дает KEYWORDS_ADD_PER_MATCH %
+        if max_scores['keywords'] > 0 and source_data['keyword_count'] > 0:
+            if target_data['common_keywords'] > 0:
+                keyword_score = min(target_data['common_keywords'] * self.KEYWORDS_ADD_PER_MATCH,
+                                    max_scores['keywords'])
+                scores['keywords'] = keyword_score
+            else:
+                scores['keywords'] = 0.0
+        else:
+            scores['keywords'] = 0.0
+
+        # Темы
+        if max_scores['themes'] > 0 and source_data['theme_count'] > 0:
+            if target_data['common_themes'] > 0:
+                theme_match_ratio = target_data['common_themes'] / max(source_data['theme_count'], 1)
+                scores['themes'] = theme_match_ratio * max_scores['themes']
+            else:
+                scores['themes'] = 0.0
+        else:
+            scores['themes'] = 0.0
+
+        # Перспективы
+        if max_scores['perspectives'] > 0 and source_data['perspective_count'] > 0:
+            if target_data['common_perspectives'] > 0:
+                perspective_match_ratio = target_data['common_perspectives'] / max(source_data['perspective_count'], 1)
+                scores['perspectives'] = perspective_match_ratio * max_scores['perspectives']
+            else:
+                scores['perspectives'] = 0.0
+        else:
+            scores['perspectives'] = 0.0
+
+        # Режимы игры
+        if max_scores['game_modes'] > 0 and source_data['game_mode_count'] > 0:
+            if target_data['common_game_modes'] > 0:
+                game_mode_match_ratio = target_data['common_game_modes'] / max(source_data['game_mode_count'], 1)
+                scores['game_modes'] = game_mode_match_ratio * max_scores['game_modes']
+            else:
+                scores['game_modes'] = 0.0
+        else:
+            scores['game_modes'] = 0.0
+
+        # Разработчики
+        if max_scores['developers'] > 0 and source_data['developer_count'] > 0:
+            if target_data['common_developers'] > 0:
+                developer_match_ratio = target_data['common_developers'] / max(source_data['developer_count'], 1)
+                scores['developers'] = developer_match_ratio * max_scores['developers']
+            else:
+                scores['developers'] = 0.0
+        else:
+            scores['developers'] = 0.0
+
+        # Движки
+        if max_scores['engines'] > 0 and source_data['engine_count'] > 0:
+            if target_data['common_engines'] > 0:
+                engine_match_ratio = target_data['common_engines'] / max(source_data['engine_count'], 1)
+                scores['engines'] = engine_match_ratio * max_scores['engines']
+            else:
+                scores['engines'] = 0.0
+        else:
+            scores['engines'] = 0.0
+
+        total_without_bonus = sum(scores.values())
+
+        # Бонус за любые совпадения, если задействовано более одного критерия
+        has_any_matches = any([
+            target_data['common_genres'] > 0,
+            target_data['common_keywords'] > 0,
+            target_data['common_themes'] > 0,
+            target_data['common_perspectives'] > 0,
+            target_data['common_game_modes'] > 0,
+            target_data['common_developers'] > 0,
+            target_data['common_engines'] > 0
+        ])
+
+        active_criteria_count = sum([
+            source_data['genre_count'] > 0,
+            source_data['keyword_count'] > 0,
+            source_data['theme_count'] > 0,
+            source_data['perspective_count'] > 0,
+            source_data['game_mode_count'] > 0,
+            source_data['developer_count'] > 0,
+            source_data['engine_count'] > 0
+        ])
+
+        bonus = 0.0
+        if has_any_matches and active_criteria_count > 1:
+            bonus = 5.0
+
+        final_total = min(100.0, total_without_bonus + bonus)
+
+        # ОТЛАДКА ДЛЯ XCOM 2
+        if source_game_id == 826 and target_game_id == 840:
+            print(f"\n=== BREAKDOWN SCORES FOR XCOM 2 ===")
+            print(f"genres: {scores['genres']}")
+            print(f"keywords: {scores['keywords']}")
+            print(f"themes: {scores['themes']}")
+            print(f"perspectives: {scores['perspectives']}")
+            print(f"game_modes: {scores['game_modes']}")
+            print(f"developers: {scores['developers']}")
+            print(f"engines: {scores['engines']}")
+            print(f"total_without_bonus: {total_without_bonus}")
+            print(f"has_any_matches: {has_any_matches}")
+            print(f"active_criteria_count: {active_criteria_count}")
+            print(f"bonus: {bonus}")
+            print(f"final_total: {final_total}")
+            print(f"=====================================\n")
+
+        common_elements = {
+            'genres': list(source_data.get('genres', set()) & target_raw.get('genres', set())),
+            'keywords': list(source_data.get('keywords', set()) & target_raw.get('keywords', set())),
+            'themes': list(source_data.get('themes', set()) & target_raw.get('themes', set())),
+            'perspectives': list(source_data.get('perspectives', set()) & target_raw.get('perspectives', set())),
+            'game_modes': list(source_data.get('game_modes', set()) & target_raw.get('game_modes', set())),
+            'developers': list(source_data.get('developers', set()) & target_raw.get('developers', set())),
+            'engines': list(source_data.get('engines', set()) & target_raw.get('engines', set())),
+        }
+
+        return {
+            'genres': {
+                'score': scores['genres'],
+                'max_score': max_scores['genres'],
+                'common_elements': common_elements['genres']
+            },
+            'keywords': {
+                'score': scores['keywords'],
+                'max_score': max_scores['keywords'],
+                'common_elements': common_elements['keywords']
+            },
+            'themes': {
+                'score': scores['themes'],
+                'max_score': max_scores['themes'],
+                'common_elements': common_elements['themes']
+            },
+            'developers': {
+                'score': scores['developers'],
+                'max_score': max_scores['developers'],
+                'common_elements': common_elements['developers']
+            },
+            'perspectives': {
+                'score': scores['perspectives'],
+                'max_score': max_scores['perspectives'],
+                'common_elements': common_elements['perspectives']
+            },
+            'game_modes': {
+                'score': scores['game_modes'],
+                'max_score': max_scores['game_modes'],
+                'common_elements': common_elements['game_modes']
+            },
+            'engines': {
+                'score': scores['engines'],
+                'max_score': max_scores['engines'],
+                'common_elements': common_elements['engines']
+            },
+            'dynamic_weights': max_scores,
+            'total_similarity': final_total,
+            'bonus': bonus,
+            'total_without_bonus': total_without_bonus
+        }
+
+    def _calculate_unified_similarity(self, source_genre_count, source_keyword_count, source_theme_count,
+                                      source_developer_count, source_perspective_count, source_game_mode_count,
+                                      source_engine_count, target_data):
+        """
+        УНИФИЦИРОВАННЫЙ расчет схожести для всех мест использования.
+        Использует KEYWORDS_ADD_PER_MATCH для ключевых слов.
+
+        Args:
+            source_genre_count: Количество жанров в исходной игре
+            source_keyword_count: Количество ключевых слов в исходной игре
+            source_theme_count: Количество тем в исходной игре
+            source_developer_count: Количество разработчиков в исходной игре
+            source_perspective_count: Количество перспектив в исходной игре
+            source_game_mode_count: Количество режимов игры в исходной игре
+            source_engine_count: Количество движков в исходной игре
+            target_data: Словарь с данными целевой игры (common_* поля)
+
+        Returns:
+            float: Процент схожести (0-100)
+        """
+        similarity = 0.0
+
+        # 1. ЖАНРЫ - процент совпадения от веса
+        if self.GENRES_WEIGHT > 0 and source_genre_count > 0:
+            if target_data.get('common_genres', 0) > 0:
+                genre_match_ratio = target_data['common_genres'] / max(source_genre_count, 1)
+                similarity += genre_match_ratio * self.GENRES_WEIGHT
+
+        # 2. КЛЮЧЕВЫЕ СЛОВА - каждое совпадение дает KEYWORDS_ADD_PER_MATCH %
+        if self.KEYWORDS_WEIGHT > 0 and source_keyword_count > 0:
+            common_keywords = target_data.get('common_keywords', 0)
+            if common_keywords > 0:
+                keyword_score = min(common_keywords * self.KEYWORDS_ADD_PER_MATCH, self.KEYWORDS_WEIGHT)
+                similarity += keyword_score
+
+        # 3. ТЕМЫ - процент совпадения от веса
+        if self.THEMES_WEIGHT > 0 and source_theme_count > 0:
+            if target_data.get('common_themes', 0) > 0:
+                theme_match_ratio = target_data['common_themes'] / max(source_theme_count, 1)
+                similarity += theme_match_ratio * self.THEMES_WEIGHT
+
+        # 4. ПЕРСПЕКТИВЫ - процент совпадения от веса
+        if self.PERSPECTIVES_WEIGHT > 0 and source_perspective_count > 0:
+            if target_data.get('common_perspectives', 0) > 0:
+                perspective_match_ratio = target_data['common_perspectives'] / max(source_perspective_count, 1)
+                similarity += perspective_match_ratio * self.PERSPECTIVES_WEIGHT
+
+        # 5. РЕЖИМЫ ИГРЫ - процент совпадения от веса
+        if self.GAME_MODES_WEIGHT > 0 and source_game_mode_count > 0:
+            if target_data.get('common_game_modes', 0) > 0:
+                game_mode_match_ratio = target_data['common_game_modes'] / max(source_game_mode_count, 1)
+                similarity += game_mode_match_ratio * self.GAME_MODES_WEIGHT
+
+        # 6. РАЗРАБОТЧИКИ - процент совпадения от веса
+        if self.DEVELOPERS_WEIGHT > 0 and source_developer_count > 0:
+            if target_data.get('common_developers', 0) > 0:
+                developer_match_ratio = target_data.get('common_developers', 0) / max(source_developer_count, 1)
+                similarity += developer_match_ratio * self.DEVELOPERS_WEIGHT
+
+        # 7. ДВИЖКИ - процент совпадения от веса
+        if self.ENGINES_WEIGHT > 0 and source_engine_count > 0:
+            if target_data.get('common_engines', 0) > 0:
+                engine_match_ratio = target_data.get('common_engines', 0) / max(source_engine_count, 1)
+                similarity += engine_match_ratio * self.ENGINES_WEIGHT
+
+        # 8. ДОПОЛНИТЕЛЬНЫЙ БОНУС за любые совпадения, если задействовано более одного критерия
+        has_any_matches = any([
+            target_data.get('common_genres', 0) > 0,
+            target_data.get('common_keywords', 0) > 0,
+            target_data.get('common_themes', 0) > 0,
+            target_data.get('common_perspectives', 0) > 0,
+            target_data.get('common_game_modes', 0) > 0,
+            target_data.get('common_developers', 0) > 0,
+            target_data.get('common_engines', 0) > 0
+        ])
+
+        active_criteria_count = sum([
+            source_genre_count > 0,
+            source_keyword_count > 0,
+            source_theme_count > 0,
+            source_perspective_count > 0,
+            source_game_mode_count > 0,
+            source_developer_count > 0,
+            source_engine_count > 0
+        ])
+
+        if has_any_matches and active_criteria_count > 1:
+            similarity += 5.0
+
+        # Возвращаем с округлением до 2 десятичных знаков для консистентности
+        return round(min(100.0, similarity), 2)
 
     def _get_candidate_ids_new(self, source_data, single_player_info, min_similarity, search_filters=None):
         """
@@ -592,6 +932,7 @@ class GameSimilarity:
         source_perspective_ids = source_data.get('perspective_ids', [])
         source_game_mode_ids = source_data.get('game_mode_ids', [])
         source_engine_ids = source_data.get('engine_ids', [])
+        source_developer_ids = source_data.get('developer_ids', [])  # ДОБАВЛЕНО
         single_player_mode_id = source_data.get('single_player_mode_id')
 
         # Подготавливаем строки для IN
@@ -601,6 +942,7 @@ class GameSimilarity:
         perspective_in = ','.join(map(str, source_perspective_ids)) if source_perspective_ids else 'NULL'
         gamemode_in = ','.join(map(str, source_game_mode_ids)) if source_game_mode_ids else 'NULL'
         engine_in = ','.join(map(str, source_engine_ids)) if source_engine_ids else 'NULL'
+        developer_in = ','.join(map(str, source_developer_ids)) if source_developer_ids else 'NULL'  # ДОБАВЛЕНО
 
         candidate_ids_str = ','.join(map(str, candidate_ids))
         single_player_id = single_player_mode_id or 0
@@ -610,7 +952,7 @@ class GameSimilarity:
             SELECT
                 g.id as game_id,
 
-                -- Быстрый подсчет общих жанров через JSON
+                -- Быстрый подсчет общих жанров
                 COALESCE((
                     SELECT COUNT(*)
                     FROM games_game_genres ggg
@@ -652,6 +994,13 @@ class GameSimilarity:
                     WHERE gge.game_id = g.id AND gge.gameengine_id IN ({engine_in if engine_in != 'NULL' else 'NULL'})
                 ), 0) as common_engines,
 
+                -- Быстрый подсчет общих разработчиков (ДОБАВЛЕНО)
+                COALESCE((
+                    SELECT COUNT(*)
+                    FROM games_game_developers ggd
+                    WHERE ggd.game_id = g.id AND ggd.company_id IN ({developer_in if developer_in != 'NULL' else 'NULL'})
+                ), 0) as common_developers,
+
                 -- Быстрая проверка Single Player
                 EXISTS (
                     SELECT 1
@@ -676,7 +1025,8 @@ class GameSimilarity:
                         'common_perspectives': row[4],
                         'common_game_modes': row[5],
                         'common_engines': row[6],
-                        'has_single_player': bool(row[7]),
+                        'common_developers': row[7],  # ДОБАВЛЕНО
+                        'has_single_player': bool(row[8]),
                     })
 
         print(f"Подсчет с разбивкой завершен за {time.time() - start_time:.2f} сек")
@@ -766,7 +1116,8 @@ class GameSimilarity:
                     COALESCE(tc.theme_count, 0) as total_themes,
                     COALESCE(pc.perspective_count, 0) as total_perspectives,
                     COALESCE(gmc.game_mode_count, 0) as total_game_modes,
-                    COALESCE(ec.engine_count, 0) as total_engines
+                    COALESCE(ec.engine_count, 0) as total_engines,
+                    COALESCE(dc.developer_count, 0) as total_developers
                 FROM games_game g
                 LEFT JOIN (
                     SELECT game_id, COUNT(*) as genre_count
@@ -798,6 +1149,11 @@ class GameSimilarity:
                     FROM games_game_engines
                     GROUP BY game_id
                 ) ec ON g.id = ec.game_id
+                LEFT JOIN (
+                    SELECT game_id, COUNT(*) as developer_count
+                    FROM games_game_developers
+                    GROUP BY game_id
+                ) dc ON g.id = dc.game_id
                 WHERE g.id IN ({candidate_ids_str})
             """
 
@@ -814,12 +1170,14 @@ class GameSimilarity:
                     'total_perspectives': row[5],
                     'total_game_modes': row[6],
                     'total_engines': row[7],
+                    'total_developers': row[8],
                     'common_keywords': 0,
                     'common_genres': 0,
                     'common_themes': 0,
                     'common_perspectives': 0,
                     'common_game_modes': 0,
                     'common_engines': 0,
+                    'common_developers': 0,
                     'has_single_player': False,
                 }
 
@@ -913,7 +1271,10 @@ class GameSimilarity:
         return min(100.0, similarity)
 
     def calculate_similarity(self, source, target):
-        """Основной метод вычисления похожести с ФИКСИРОВАННЫМИ весами."""
+        """
+        Основной метод вычисления похожести.
+        Использует унифицированный алгоритм с KEYWORDS_ADD_PER_MATCH.
+        """
         # Проверка на идентичность
         if source == target:
             return 100.0
@@ -925,104 +1286,11 @@ class GameSimilarity:
         if cache_key in self._similarity_cache:
             return self._similarity_cache[cache_key]
 
-        # Получаем данные
-        source_data = self._get_cached_game_data(source)
-        target_data = self._get_cached_game_data(target)
-
-        # Используем фиксированные веса из класса
-        total_weight = (self.GENRES_WEIGHT + self.KEYWORDS_WEIGHT + self.THEMES_WEIGHT +
-                        self.PERSPECTIVES_WEIGHT + self.GAME_MODES_WEIGHT +
-                        self.DEVELOPERS_WEIGHT + self.ENGINES_WEIGHT)
-
-        similarity = 0.0
-
-        # Подсчитываем активные критерии для бонуса
-        active_criteria_count = 0
-
-        # 1. ЖАНРЫ
-        if self.GENRES_WEIGHT > 0 and source_data.get('genres'):
-            common_genres = source_data['genres'] & target_data['genres']
-            if common_genres:
-                source_count = len(source_data['genres'])
-                match_ratio = len(common_genres) / source_count
-                similarity += match_ratio * self.GENRES_WEIGHT
-                active_criteria_count += 1
-
-        # 2. КЛЮЧЕВЫЕ СЛОВА - процент совпадения
-        if self.KEYWORDS_WEIGHT > 0 and source_data.get('keywords'):
-            common_keywords = source_data['keywords'] & target_data['keywords']
-            if common_keywords:
-                source_count = len(source_data['keywords'])
-                match_ratio = len(common_keywords) / source_count
-                similarity += match_ratio * self.KEYWORDS_WEIGHT
-                active_criteria_count += 1
-
-        # 3. ТЕМЫ
-        if self.THEMES_WEIGHT > 0 and source_data.get('themes'):
-            common_themes = source_data['themes'] & target_data['themes']
-            if common_themes:
-                source_count = len(source_data['themes'])
-                match_ratio = len(common_themes) / source_count
-                similarity += match_ratio * self.THEMES_WEIGHT
-                active_criteria_count += 1
-
-        # 4. РАЗРАБОТЧИКИ
-        if self.DEVELOPERS_WEIGHT > 0 and source_data.get('developers'):
-            common_developers = source_data['developers'] & target_data['developers']
-            if common_developers:
-                source_count = len(source_data['developers'])
-                match_ratio = len(common_developers) / source_count
-                similarity += match_ratio * self.DEVELOPERS_WEIGHT
-                active_criteria_count += 1
-
-        # 5. ПЕРСПЕКТИВЫ
-        if self.PERSPECTIVES_WEIGHT > 0 and source_data.get('perspectives'):
-            common_perspectives = source_data['perspectives'] & target_data['perspectives']
-            if common_perspectives:
-                source_count = len(source_data['perspectives'])
-                match_ratio = len(common_perspectives) / source_count
-                similarity += match_ratio * self.PERSPECTIVES_WEIGHT
-                active_criteria_count += 1
-
-        # 6. РЕЖИМЫ ИГРЫ
-        if self.GAME_MODES_WEIGHT > 0 and source_data.get('game_modes'):
-            common_game_modes = source_data['game_modes'] & target_data['game_modes']
-            if common_game_modes:
-                source_count = len(source_data['game_modes'])
-                match_ratio = len(common_game_modes) / source_count
-                similarity += match_ratio * self.GAME_MODES_WEIGHT
-                active_criteria_count += 1
-
-        # 7. ДВИЖКИ
-        if self.ENGINES_WEIGHT > 0 and source_data.get('engines'):
-            common_engines = source_data['engines'] & target_data['engines']
-            if common_engines:
-                source_count = len(source_data['engines'])
-                match_ratio = len(common_engines) / source_count
-                similarity += match_ratio * self.ENGINES_WEIGHT
-                active_criteria_count += 1
-
-        # Добавляем бонус, если есть любые совпадения и задействовано более одного критерия
-        has_any_matches = similarity > 0
-        if has_any_matches and active_criteria_count > 1:
-            similarity += 5.0
-
-        # Ограничиваем результат
-        similarity = max(0.0, min(100.0, similarity))
-
-        # Сохраняем в кэш
-        self._similarity_cache[cache_key] = similarity
-
-        return similarity
-
-    def get_similarity_breakdown(self, source, target):
-        """
-        Детальная разбивка похожести по компонентам с KEYWORDS_ADD_PER_MATCH для ключевых слов.
-        Использует ту же логику, что и _calculate_game_similarity_new.
-        """
+        # Получаем данные для source и target
         source_data, single_player_info = self._prepare_source_data(source)
         target_raw = self._get_cached_game_data(target)
 
+        # Подготавливаем данные target в формате, понятном унифицированному алгоритму
         target_data = {
             'common_genres': len(source_data.get('genres', set()) & target_raw.get('genres', set())),
             'common_keywords': len(source_data.get('keywords', set()) & target_raw.get('keywords', set())),
@@ -1033,169 +1301,27 @@ class GameSimilarity:
             'common_engines': len(source_data.get('engines', set()) & target_raw.get('engines', set())),
         }
 
-        # Фиксированные веса
-        max_scores = {
-            'genres': self.GENRES_WEIGHT,
-            'keywords': self.KEYWORDS_WEIGHT,
-            'themes': self.THEMES_WEIGHT,
-            'perspectives': self.PERSPECTIVES_WEIGHT,
-            'game_modes': self.GAME_MODES_WEIGHT,
-            'developers': self.DEVELOPERS_WEIGHT,
-            'engines': self.ENGINES_WEIGHT,
-        }
+        # Используем унифицированный расчет схожести
+        similarity = self._calculate_unified_similarity(
+            source_data['genre_count'],
+            source_data['keyword_count'],
+            source_data['theme_count'],
+            source_data['developer_count'],
+            source_data['perspective_count'],
+            source_data['game_mode_count'],
+            source_data['engine_count'],
+            target_data
+        )
 
-        scores = {}
+        # Сохраняем в кэш
+        self._similarity_cache[cache_key] = similarity
 
-        # Жанры
-        if max_scores['genres'] > 0 and source_data['genre_count'] > 0:
-            if target_data['common_genres'] > 0:
-                genre_match_ratio = target_data['common_genres'] / max(source_data['genre_count'], 1)
-                scores['genres'] = genre_match_ratio * max_scores['genres']
-            else:
-                scores['genres'] = 0.0
-        else:
-            scores['genres'] = 0.0
-
-        # Ключевые слова - каждое совпадение дает KEYWORDS_ADD_PER_MATCH %
-        if max_scores['keywords'] > 0 and source_data['keyword_count'] > 0:
-            if target_data['common_keywords'] > 0:
-                keyword_score = min(target_data['common_keywords'] * self.KEYWORDS_ADD_PER_MATCH,
-                                    max_scores['keywords'])
-                scores['keywords'] = keyword_score
-            else:
-                scores['keywords'] = 0.0
-        else:
-            scores['keywords'] = 0.0
-
-        # Темы
-        if max_scores['themes'] > 0 and source_data['theme_count'] > 0:
-            if target_data['common_themes'] > 0:
-                theme_match_ratio = target_data['common_themes'] / max(source_data['theme_count'], 1)
-                scores['themes'] = theme_match_ratio * max_scores['themes']
-            else:
-                scores['themes'] = 0.0
-        else:
-            scores['themes'] = 0.0
-
-        # Перспективы
-        if max_scores['perspectives'] > 0 and source_data['perspective_count'] > 0:
-            if target_data['common_perspectives'] > 0:
-                perspective_match_ratio = target_data['common_perspectives'] / max(source_data['perspective_count'], 1)
-                scores['perspectives'] = perspective_match_ratio * max_scores['perspectives']
-            else:
-                scores['perspectives'] = 0.0
-        else:
-            scores['perspectives'] = 0.0
-
-        # Режимы игры
-        if max_scores['game_modes'] > 0 and source_data['game_mode_count'] > 0:
-            if target_data['common_game_modes'] > 0:
-                game_mode_match_ratio = target_data['common_game_modes'] / max(source_data['game_mode_count'], 1)
-                scores['game_modes'] = game_mode_match_ratio * max_scores['game_modes']
-            else:
-                scores['game_modes'] = 0.0
-        else:
-            scores['game_modes'] = 0.0
-
-        # Разработчики
-        if max_scores['developers'] > 0 and source_data['developer_count'] > 0:
-            if target_data['common_developers'] > 0:
-                developer_match_ratio = target_data['common_developers'] / max(source_data['developer_count'], 1)
-                scores['developers'] = developer_match_ratio * max_scores['developers']
-            else:
-                scores['developers'] = 0.0
-        else:
-            scores['developers'] = 0.0
-
-        # Движки
-        if max_scores['engines'] > 0 and source_data['engine_count'] > 0:
-            if target_data['common_engines'] > 0:
-                engine_match_ratio = target_data['common_engines'] / max(source_data['engine_count'], 1)
-                scores['engines'] = engine_match_ratio * max_scores['engines']
-            else:
-                scores['engines'] = 0.0
-        else:
-            scores['engines'] = 0.0
-
-        total_without_bonus = sum(scores.values())
-
-        # Бонус за любые совпадения, если задействовано более одного критерия
-        has_any_matches = any(scores.values())
-        active_criteria_count = sum([
-            source_data['genre_count'] > 0,
-            source_data['keyword_count'] > 0,
-            source_data['theme_count'] > 0,
-            source_data['perspective_count'] > 0,
-            source_data['game_mode_count'] > 0,
-            source_data['developer_count'] > 0,
-            source_data['engine_count'] > 0
-        ])
-
-        bonus = 0.0
-        if has_any_matches and active_criteria_count > 1:
-            bonus = 5.0
-            total = total_without_bonus + bonus
-        else:
-            total = total_without_bonus
-
-        total = min(100.0, total)
-
-        common_elements = {
-            'genres': list(source_data.get('genres', set()) & target_raw.get('genres', set())),
-            'keywords': list(source_data.get('keywords', set()) & target_raw.get('keywords', set())),
-            'themes': list(source_data.get('themes', set()) & target_raw.get('themes', set())),
-            'perspectives': list(source_data.get('perspectives', set()) & target_raw.get('perspectives', set())),
-            'game_modes': list(source_data.get('game_modes', set()) & target_raw.get('game_modes', set())),
-            'developers': list(source_data.get('developers', set()) & target_raw.get('developers', set())),
-            'engines': list(source_data.get('engines', set()) & target_raw.get('engines', set())),
-        }
-
-        return {
-            'genres': {
-                'score': scores['genres'],
-                'max_score': max_scores['genres'],
-                'common_elements': common_elements['genres']
-            },
-            'keywords': {
-                'score': scores['keywords'],
-                'max_score': max_scores['keywords'],
-                'common_elements': common_elements['keywords']
-            },
-            'themes': {
-                'score': scores['themes'],
-                'max_score': max_scores['themes'],
-                'common_elements': common_elements['themes']
-            },
-            'developers': {
-                'score': scores['developers'],
-                'max_score': max_scores['developers'],
-                'common_elements': common_elements['developers']
-            },
-            'perspectives': {
-                'score': scores['perspectives'],
-                'max_score': max_scores['perspectives'],
-                'common_elements': common_elements['perspectives']
-            },
-            'game_modes': {
-                'score': scores['game_modes'],
-                'max_score': max_scores['game_modes'],
-                'common_elements': common_elements['game_modes']
-            },
-            'engines': {
-                'score': scores['engines'],
-                'max_score': max_scores['engines'],
-                'common_elements': common_elements['engines']
-            },
-            'dynamic_weights': max_scores,
-            'total_similarity': total,
-            'bonus': bonus,
-            'total_without_bonus': total_without_bonus
-        }
+        return similarity
 
     def _calculate_similarity_for_candidates(self, games_data, source_data, source_game, single_player_info):
         """
         МАКСИМАЛЬНО ОПТИМИЗИРОВАННЫЙ расчет схожести для всех кандидатов.
-        Использует KEYWORDS_ADD_PER_MATCH для ключевых слов.
+        Использует унифицированный метод _calculate_unified_similarity.
         """
         import time
 
@@ -1220,17 +1346,6 @@ class GameSimilarity:
         source_game_name = getattr(source_game, 'name', 'Source Game') if isinstance(source_game,
                                                                                      Game) else 'Source Game'
 
-        # Предварительные вычисления для ускорения
-        weights = {
-            'genres': self.GENRES_WEIGHT,
-            'keywords': self.KEYWORDS_WEIGHT,
-            'themes': self.THEMES_WEIGHT,
-            'perspectives': self.PERSPECTIVES_WEIGHT,
-            'game_modes': self.GAME_MODES_WEIGHT,
-            'developers': self.DEVELOPERS_WEIGHT,
-            'engines': self.ENGINES_WEIGHT,
-        }
-
         # Сначала добавляем исходную игру, если это реальная игра (не VirtualGame)
         if source_game_id is not None:
             similar_games.append({
@@ -1246,13 +1361,144 @@ class GameSimilarity:
                 'has_single_player': has_single_player,
                 'is_source_game': True
             })
-            print(f"Добавлена исходная игра '{source_game_name}' с 100% схожести")
 
         # Обработка кандидатов
         for game_id, data in games_data.items():
             # Пропускаем исходную игру
             if source_game_id and game_id == source_game_id:
                 continue
+
+            # СПЕЦИАЛЬНАЯ ОТЛАДКА ДЛЯ XCOM 2 (ID: 840)
+            if game_id == 840:
+                print(f"\n=== DEBUG FOR XCOM 2 (ID: 840) ===")
+                print(f"Game name: {data['name']}")
+                print(f"Source genre_count: {source_genre_count}")
+                print(f"common_genres: {data['common_genres']}")
+                print(f"Source keyword_count: {source_keyword_count}")
+                print(f"common_keywords: {data['common_keywords']}")
+                print(f"Source theme_count: {source_theme_count}")
+                print(f"common_themes: {data['common_themes']}")
+                print(f"Source perspective_count: {source_perspective_count}")
+                print(f"common_perspectives: {data['common_perspectives']}")
+                print(f"Source game_mode_count: {source_game_mode_count}")
+                print(f"common_game_modes: {data['common_game_modes']}")
+                print(f"Source developer_count: {source_developer_count}")
+                print(f"common_developers: {data.get('common_developers', 0)}")
+                print(f"Source engine_count: {source_engine_count}")
+                print(f"common_engines: {data.get('common_engines', 0)}")
+
+                # Пошаговый расчет
+                similarity = 0.0
+
+                # Жанры
+                if self.GENRES_WEIGHT > 0 and source_genre_count > 0:
+                    if data['common_genres'] > 0:
+                        genre_match_ratio = data['common_genres'] / max(source_genre_count, 1)
+                        genre_score = genre_match_ratio * self.GENRES_WEIGHT
+                        similarity += genre_score
+                        print(
+                            f"Genres: {data['common_genres']}/{source_genre_count} = {genre_match_ratio:.4f} × {self.GENRES_WEIGHT} = {genre_score:.2f}")
+
+                # Ключевые слова
+                if self.KEYWORDS_WEIGHT > 0 and source_keyword_count > 0:
+                    common_keywords = data['common_keywords']
+                    if common_keywords > 0:
+                        keyword_score = min(common_keywords * self.KEYWORDS_ADD_PER_MATCH, self.KEYWORDS_WEIGHT)
+                        similarity += keyword_score
+                        print(
+                            f"Keywords: {common_keywords} × {self.KEYWORDS_ADD_PER_MATCH} = {common_keywords * self.KEYWORDS_ADD_PER_MATCH:.2f} (capped at {self.KEYWORDS_WEIGHT}) = {keyword_score:.2f}")
+
+                # Темы
+                if self.THEMES_WEIGHT > 0 and source_theme_count > 0:
+                    if data['common_themes'] > 0:
+                        theme_match_ratio = data['common_themes'] / max(source_theme_count, 1)
+                        theme_score = theme_match_ratio * self.THEMES_WEIGHT
+                        similarity += theme_score
+                        print(
+                            f"Themes: {data['common_themes']}/{source_theme_count} = {theme_match_ratio:.4f} × {self.THEMES_WEIGHT} = {theme_score:.2f}")
+
+                # Перспективы
+                if self.PERSPECTIVES_WEIGHT > 0 and source_perspective_count > 0:
+                    if data['common_perspectives'] > 0:
+                        perspective_match_ratio = data['common_perspectives'] / max(source_perspective_count, 1)
+                        perspective_score = perspective_match_ratio * self.PERSPECTIVES_WEIGHT
+                        similarity += perspective_score
+                        print(
+                            f"Perspectives: {data['common_perspectives']}/{source_perspective_count} = {perspective_match_ratio:.4f} × {self.PERSPECTIVES_WEIGHT} = {perspective_score:.2f}")
+
+                # Режимы игры
+                if self.GAME_MODES_WEIGHT > 0 and source_game_mode_count > 0:
+                    if data['common_game_modes'] > 0:
+                        game_mode_match_ratio = data['common_game_modes'] / max(source_game_mode_count, 1)
+                        game_mode_score = game_mode_match_ratio * self.GAME_MODES_WEIGHT
+                        similarity += game_mode_score
+                        print(
+                            f"Game Modes: {data['common_game_modes']}/{source_game_mode_count} = {game_mode_match_ratio:.4f} × {self.GAME_MODES_WEIGHT} = {game_mode_score:.2f}")
+
+                # Разработчики
+                if self.DEVELOPERS_WEIGHT > 0 and source_developer_count > 0:
+                    common_developers = data.get('common_developers', 0)
+                    if common_developers > 0:
+                        developer_match_ratio = common_developers / max(source_developer_count, 1)
+                        developer_score = developer_match_ratio * self.DEVELOPERS_WEIGHT
+                        similarity += developer_score
+                        print(
+                            f"Developers: {common_developers}/{source_developer_count} = {developer_match_ratio:.4f} × {self.DEVELOPERS_WEIGHT} = {developer_score:.2f}")
+
+                # Движки
+                if self.ENGINES_WEIGHT > 0 and source_engine_count > 0:
+                    common_engines = data.get('common_engines', 0)
+                    if common_engines > 0:
+                        engine_match_ratio = common_engines / max(source_engine_count, 1)
+                        engine_score = engine_match_ratio * self.ENGINES_WEIGHT
+                        similarity += engine_score
+                        print(
+                            f"Engines: {common_engines}/{source_engine_count} = {engine_match_ratio:.4f} × {self.ENGINES_WEIGHT} = {engine_score:.2f}")
+
+                # Бонус
+                has_any_matches = any([
+                    data.get('common_genres', 0) > 0,
+                    data.get('common_keywords', 0) > 0,
+                    data.get('common_themes', 0) > 0,
+                    data.get('common_perspectives', 0) > 0,
+                    data.get('common_game_modes', 0) > 0,
+                    data.get('common_developers', 0) > 0,
+                    data.get('common_engines', 0) > 0
+                ])
+
+                active_criteria_count = sum([
+                    source_genre_count > 0,
+                    source_keyword_count > 0,
+                    source_theme_count > 0,
+                    source_perspective_count > 0,
+                    source_game_mode_count > 0,
+                    source_developer_count > 0,
+                    source_engine_count > 0
+                ])
+
+                if has_any_matches and active_criteria_count > 1:
+                    similarity += 5.0
+                    print(
+                        f"Bonus: +5.0 (has_any_matches={has_any_matches}, active_criteria_count={active_criteria_count})")
+
+                final_similarity = min(100.0, similarity)
+                print(f"FINAL SIMILARITY: {final_similarity}")
+                print(f"=====================================\n")
+
+                # Используем уже рассчитанную similarity
+                pass
+            else:
+                # Обычный расчет
+                similarity = self._calculate_unified_similarity(
+                    source_genre_count,
+                    source_keyword_count,
+                    source_theme_count,
+                    source_developer_count,
+                    source_perspective_count,
+                    source_game_mode_count,
+                    source_engine_count,
+                    data
+                )
 
             # Быстрая фильтрация по жанрам
             if has_genres and data['common_genres'] < dynamic_min_common_genres:
@@ -1261,60 +1507,6 @@ class GameSimilarity:
             # Быстрая фильтрация по Single Player
             if has_single_player and not data['has_single_player']:
                 continue
-
-            # Расчет схожести
-            similarity = 0.0
-
-            # 1. Жанры (процент совпадения от веса)
-            if source_genre_count > 0 and data['common_genres'] > 0:
-                genre_match_ratio = data['common_genres'] / source_genre_count
-                similarity += genre_match_ratio * weights['genres']
-
-            # 2. Ключевые слова - ИСПРАВЛЕНО: каждое совпадение дает KEYWORDS_ADD_PER_MATCH %
-            if source_keyword_count > 0 and data['common_keywords'] > 0:
-                keyword_score = min(data['common_keywords'] * self.KEYWORDS_ADD_PER_MATCH, weights['keywords'])
-                similarity += keyword_score
-
-            # 3. Темы (процент совпадения от веса)
-            if source_theme_count > 0 and data['common_themes'] > 0:
-                theme_match_ratio = data['common_themes'] / source_theme_count
-                similarity += theme_match_ratio * weights['themes']
-
-            # 4. Перспективы (процент совпадения от веса)
-            if source_perspective_count > 0 and data['common_perspectives'] > 0:
-                perspective_match_ratio = data['common_perspectives'] / source_perspective_count
-                similarity += perspective_match_ratio * weights['perspectives']
-
-            # 5. Режимы игры (процент совпадения от веса)
-            if source_game_mode_count > 0 and data['common_game_modes'] > 0:
-                game_mode_match_ratio = data['common_game_modes'] / source_game_mode_count
-                similarity += game_mode_match_ratio * weights['game_modes']
-
-            # 6. Разработчики (процент совпадения от веса)
-            if source_developer_count > 0 and data.get('common_developers', 0) > 0:
-                developer_match_ratio = data.get('common_developers', 0) / source_developer_count
-                similarity += developer_match_ratio * weights['developers']
-
-            # 7. Движки (процент совпадения от веса)
-            if source_engine_count > 0 and data.get('common_engines', 0) > 0:
-                engine_match_ratio = data.get('common_engines', 0) / source_engine_count
-                similarity += engine_match_ratio * weights['engines']
-
-            # Бонус за множественные совпадения
-            if similarity > 0:
-                active_criteria = sum([
-                    source_genre_count > 0 and data['common_genres'] > 0,
-                    source_keyword_count > 0 and data['common_keywords'] > 0,
-                    source_theme_count > 0 and data['common_themes'] > 0,
-                    source_perspective_count > 0 and data['common_perspectives'] > 0,
-                    source_game_mode_count > 0 and data['common_game_modes'] > 0,
-                    source_developer_count > 0 and data.get('common_developers', 0) > 0,
-                    source_engine_count > 0 and data.get('common_engines', 0) > 0,
-                ])
-                if active_criteria > 1:
-                    similarity += 5.0
-
-            similarity = min(100.0, similarity)
 
             if similarity >= min_similarity:
                 similar_games.append({
@@ -1336,7 +1528,7 @@ class GameSimilarity:
         return similar_games
 
     def _get_similarity_cache_key(self, source, target):
-        """Генерирует ключ для кэша схожести"""
+        """Генерирует ключ для кэша схожести с учетом версии алгоритма"""
         if isinstance(source, VirtualGame):
             source_key = f"virtual_{hash(tuple(sorted(source.genre_ids + source.keyword_ids + source.theme_ids + source.game_type_ids + source.engine_ids)))}"
         else:
@@ -1347,7 +1539,8 @@ class GameSimilarity:
         else:
             target_key = f"game_{target.id}"
 
-        return f"{source_key}_{target_key}"
+        # Добавляем версию алгоритма в ключ кэша для автоматической инвалидации
+        return f"sim_v{self.ALGORITHM_VERSION}_{source_key}_{target_key}"
 
     def _get_cached_game_data(self, obj):
         """Получает или кэширует данные игры - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
@@ -1774,7 +1967,7 @@ class GameSimilarity:
         return candidate_ids
 
     def _generate_cache_key(self, source_game, min_similarity, limit, source_data, single_player_info):
-        """Генерация ключа кэша"""
+        """Генерация ключа кэша с учетом версии алгоритма"""
         import json
         import hashlib
 
@@ -1790,7 +1983,8 @@ class GameSimilarity:
                 'dynamic_min_common_genres': single_player_info['dynamic_min_common_genres'],
                 'has_single_player': single_player_info['has_single_player'],
                 'limit': limit,
-                'version': 'v_with_game_types_and_engines'
+                'algorithm_version': self.ALGORITHM_VERSION,  # Добавляем версию алгоритма
+                'version': 'v19_with_algorithm_version'
             }
         else:
             cache_key_data = {
@@ -1802,7 +1996,8 @@ class GameSimilarity:
                 'game_type': getattr(source_game, 'game_type', None),
                 'engines': sorted([e.id for e in source_game.engines.all()]),
                 'limit': limit,
-                'version': 'v_with_game_types_and_engines'
+                'algorithm_version': self.ALGORITHM_VERSION,  # Добавляем версию алгоритма
+                'version': 'v19_with_algorithm_version'
             }
 
         cache_key_str = json.dumps(cache_key_data, sort_keys=True)
@@ -2010,11 +2205,6 @@ class GameSimilarity:
             return overlap_ratio * max_score
 
         return 0.0
-
-    def clear_cache(self):
-        """Очищает кэш (полезно при изменении данных)"""
-        self._similarity_cache.clear()
-        self._game_data_cache.clear()
 
     def batch_calculate_similarities(self, source_game, target_games):
         """

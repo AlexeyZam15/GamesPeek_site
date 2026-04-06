@@ -841,6 +841,17 @@ class Command(BaseCommand):
 
             return sentence
 
+        def has_negation_before(text, match_start):
+            """Проверяет, есть ли отрицание перед совпадением (в пределах 30 символов)"""
+            negations = {'not', "isn't", 'aren\'t', 'wasn\'t', 'weren\'t', 'no', 'never', 'nor', 'without'}
+            before_start = max(0, match_start - 30)
+            before_text = text[before_start:match_start].lower()
+
+            for neg in negations:
+                if neg in before_text:
+                    return True
+            return False
+
         for p in self.compiled_patterns:
             try:
                 is_case_sensitive = p.get('is_case_sensitive', False)
@@ -864,12 +875,19 @@ class Command(BaseCommand):
                     if not match:
                         break
 
-                    pattern_match_count += 1
-                    match_start = match.start()
-                    match_end = match.end()
+                    match_start_pos = match.start()
+                    match_end_pos = match.end()
 
-                    if self.collect_all_patterns and is_position_occupied(match_start, match_end, occupied_positions):
-                        search_start = match_end
+                    # Проверка на отрицание перед совпадением
+                    if has_negation_before(text, match_start_pos):
+                        search_start = match_end_pos
+                        continue
+
+                    pattern_match_count += 1
+
+                    if self.collect_all_patterns and is_position_occupied(match_start_pos, match_end_pos,
+                                                                          occupied_positions):
+                        search_start = match_end_pos
                         continue
 
                     is_existing = False
@@ -886,20 +904,18 @@ class Command(BaseCommand):
                         found_ids[crit_type].add(crit_id)
                         total_found += 1
 
-                    # Для collect_all_patterns добавляем ВСЕ совпадения
-                    # Для обычного режима добавляем только первое
                     if self.collect_all_patterns or first_match_for_criteria:
                         if is_case_sensitive:
-                            word_start = match_start
+                            word_start = match_start_pos
                             while word_start > 0 and (text[word_start - 1].isalnum() or text[word_start - 1] in '-_'):
                                 word_start -= 1
 
-                            word_end = match_end
+                            word_end = match_end_pos
                             while word_end < len(text) and (text[word_end].isalnum() or text[word_end] in '-_'):
                                 word_end += 1
 
                             matched_word = text[word_start:word_end]
-                            context = get_sentence_context(text, match_start, match_end)
+                            context = get_sentence_context(text, match_start_pos, match_end_pos)
 
                             pattern_info[crit_type].append({
                                 'name': crit_name,
@@ -908,19 +924,19 @@ class Command(BaseCommand):
                                 'context': context[:500],
                                 'pattern': p['pattern_str'],
                                 'status': 'found',
-                                'position': match_start
+                                'position': match_start_pos
                             })
                         else:
-                            word_start = match_start
+                            word_start = match_start_pos
                             while word_start > 0 and (text[word_start - 1].isalnum() or text[word_start - 1] in '-_'):
                                 word_start -= 1
 
-                            word_end = match_end
+                            word_end = match_end_pos
                             while word_end < len(text) and (text[word_end].isalnum() or text[word_end] in '-_'):
                                 word_end += 1
 
                             full_word = text[word_start:word_end]
-                            context = get_sentence_context(text, match_start, match_end)
+                            context = get_sentence_context(text, match_start_pos, match_end_pos)
 
                             pattern_info[crit_type].append({
                                 'name': crit_name,
@@ -929,14 +945,14 @@ class Command(BaseCommand):
                                 'context': context[:500],
                                 'pattern': p['pattern_str'],
                                 'status': 'found',
-                                'position': match_start
+                                'position': match_start_pos
                             })
 
                         if self.collect_all_patterns:
-                            occupied_positions.append((match_start, match_end))
+                            occupied_positions.append((match_start_pos, match_end_pos))
 
                     first_match_for_criteria = False
-                    search_start = match_end
+                    search_start = match_end_pos
 
                     if not self.collect_all_patterns:
                         processed_criteria[crit_type].add(crit_id)

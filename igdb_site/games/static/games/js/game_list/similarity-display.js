@@ -80,6 +80,9 @@ const SimilarityDisplay = {
         const similarity = parseFloat(container.dataset.similarity);
         if (isNaN(similarity)) return;
 
+        // ОТЛАДКА
+        console.log(`Card similarity for game ${container.dataset.gameId}: ${similarity}`);
+
         // Ищем контейнер для процента
         let similarityContainer = container.querySelector('.similarity-container');
 
@@ -115,8 +118,8 @@ const SimilarityDisplay = {
     },
 
     createSimilaritySVG: function(percent, size) {
-        // Округляем процент
-        const roundedPercent = Math.round(percent);
+        // Округляем процент до 1 десятичного знака для единообразия
+        const roundedPercent = Math.round(percent * 10) / 10;
         const similarityText = roundedPercent + '%';
         const color = this.getSimilarityColor(roundedPercent);
 
@@ -168,7 +171,7 @@ const SimilarityDisplay = {
 
         // Создаем img тэг с base64 для точного соответствия оригиналу
         const svgString = new XMLSerializer().serializeToString(svg);
-        const base64 = btoa(svgString);
+        const base64 = btoa(unescape(encodeURIComponent(svgString)));
 
         const img = document.createElement('img');
         img.src = 'data:image/svg+xml;base64,' + base64;
