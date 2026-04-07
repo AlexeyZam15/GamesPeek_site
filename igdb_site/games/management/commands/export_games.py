@@ -73,7 +73,8 @@ class Command(BaseCommand):
         parser.add_argument(
             '--game-name',
             type=str,
-            help='Export exact game by name (case-sensitive exact match)'
+            nargs='+',
+            help='Export exact games by name (case-sensitive exact match). Can specify multiple names separated by spaces'
         )
         parser.add_argument(
             '--simple-list',
@@ -111,18 +112,27 @@ class Command(BaseCommand):
             if options.get('with_keywords', False):
                 queryset = queryset.prefetch_related('keywords')
 
-        # Фильтрация по точному названию игры
+        # Фильтрация по точному названию игры (поддержка нескольких названий)
         if options['game_name']:
-            queryset = queryset.filter(name__exact=options['game_name'])
-            game_count = queryset.count()
-            if game_count == 0:
-                self.stdout.write(self.style.WARNING(f"No game found with exact name: '{options['game_name']}'"))
+            # game_name теперь список строк благодаря nargs='+'
+            game_names = options['game_name']
+            queryset = queryset.filter(name__in=game_names)
+
+            found_count = queryset.count()
+            if found_count == 0:
+                self.stdout.write(self.style.WARNING(f"No games found with exact names: {', '.join(game_names)}"))
                 return None
-            elif game_count > 1:
-                self.stdout.write(
-                    self.style.WARNING(f"Found {game_count} games with exact name: '{options['game_name']}'"))
             else:
-                self.stdout.write(self.style.SUCCESS(f"Found game: '{options['game_name']}'"))
+                # Получаем список найденных названий для отображения
+                found_names = list(queryset.values_list('name', flat=True).distinct())
+                missing_names = set(game_names) - set(found_names)
+
+                if missing_names:
+                    self.stdout.write(self.style.WARNING(f"Games not found: {', '.join(missing_names)}"))
+
+                if found_names:
+                    self.stdout.write(
+                        self.style.SUCCESS(f"Found {found_count} game(s) matching: {', '.join(found_names)}"))
 
         # Фильтрация по жанру (по имени жанра, регистронезависимо)
         if options.get('genre'):
