@@ -34,6 +34,20 @@ class PatternManager:
             compiled[name] = compiled_patterns
         return compiled
 
+    @staticmethod
+    def is_valid_simulator_match(text: str, match_start: int, match_end: int) -> bool:
+        """Проверяет, что перед 'X simulator' нет отрицания."""
+        negations = {'not', "isn't", 'aren\'t', 'wasn\'t', 'weren\'t', 'no', 'never', 'nor', 'without'}
+
+        before_start = max(0, match_start - 30)
+        before_text = text[before_start:match_start].lower()
+
+        for neg in negations:
+            if neg in before_text:
+                return False
+
+        return True
+
     GENRE_PATTERNS = {
         'Action': [
             r'\baction\b(?:(?!\.|\!|\?|\n).){0,30}?\bgames?\b',
@@ -41,14 +55,38 @@ class PatternManager:
             r'\b(?:instant|real-time|fast|rapid|sudden)(?:(?!\.|\!|\?|\n).){0,30}?\baction(?!-)\b',
             # r'\baction\b',
         ],
-        'Adventure': [
-            r'\b(?:action-?adventure|adventure)\s+(?:game|title|experience|story|narrative)\b',
-            r'\b(?:exploration|discovery|journey)[-\s]?(?:based|focused|driven|heavy)\s+(?:game|experience|adventure)\b',
-            r'\b(?:point-?-and-?-click|interactive\s+story|narrative-driven)\s+adventure\b',
-            r'\b(?:uncover\s+secrets|solve\s+mysteries|discover\s+hidden\s+treasures)\s+in\s+(?:a|an)\s+adventure\b',
-            r'\b(?:embark|go)\s+on\s+(?:an?\s+)?(?:epic|grand|great)\s+adventure\b',
-            r'\b(?:story-rich|character-driven|choice-based)\s+adventure\b',
-        ],
+        # 'Adventure': [
+        #     # Core genre markers for 'adventure' (from frequency analysis)
+        #     r'\badventure\b(?:(?!\.|\!|\?|\n).){0,30}?\b(?:action|horror|survival|puzzle|platformer|platforming|roguelike|strategy|turn-based|open-world|point-and-click|visual novel)\b',
+        #
+        #     # # # Reverse order (genre before adventure)
+        #     # r'\b(?:action|horror|survival|puzzle|platformer|roguelike|strategy|turn-based|open-world|point-and-click|visual novel)\b(?:(?!\.|\!|\?|\n).){0,30}?\badventure\b',
+        #     #
+        #     # # Role-playing specific (most common hybrid)
+        #     # r'\b(?:role-playing|rpg)\b(?:(?!\.|\!|\?|\n).){0,30}?\badventure\b',
+        #     # r'\badventure\b(?:(?!\.|\!|\?|\n).){0,30}?\b(?:role-playing|rpg)\b',
+        #     #
+        #     # # Fantasy as genre modifier (often "fantasy adventure" as a genre)
+        #     # r'\bfantasy\b(?:(?!\.|\!|\?|\n).){0,30}?\badventure\b',
+        #     # r'\badventure\b(?:(?!\.|\!|\?|\n).){0,30}?\bfantasy\b',
+        #     #
+        #     # # Dungeon-crawler subtype
+        #     # r'\b(?:dungeon|crawler)\b(?:(?!\.|\!|\?|\n).){0,30}?\badventure\b',
+        #     # r'\badventure\b(?:(?!\.|\!|\?|\n).){0,30}?\bdungeon\b',
+        #     #
+        #     # # Quest/adventure game hybrid
+        #     # r'\b(?:quest|questing)\b(?:(?!\.|\!|\?|\n).){0,30}?\badventure\b',
+        #     #
+        #     # # Classic adventure game (often denotes genre purity)
+        #     # r'\bclassic\b(?:(?!\.|\!|\?|\n).){0,30}?\badventure\b',
+        #     # r'\badventure\b(?:(?!\.|\!|\?|\n).){0,30}?\bclassic\b',
+        #     #
+        #     # # Episodic adventure (genre format)
+        #     # r'\bepisodic\b(?:(?!\.|\!|\?|\n).){0,30}?\badventure\b',
+        #     #
+        #     # # Story-driven as genre qualifier
+        #     # r'\bstory-driven\b(?:(?!\.|\!|\?|\n).){0,30}?\badventure\b',
+        # ],
         'Arcade': [
             r'\barcade\s+(?:game|style|classic|action|experience|vibe|shooter|racer|fighter)\b',
             r'\barcade-style\s+(?:gameplay|action|shooter|racer)\b',
@@ -57,7 +95,8 @@ class PatternManager:
             r'\b(?:coin-op|coin-operated)\s+(?:game|machine|cabinet)\b',
         ],
         'Base Building': [
-            r'(?<!-)\b(?:build\w*|rebuild\w*)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:base|fortress\w*|stronghold\w*|settlement\w*|outpost\w*|headquarters\w*|colon\w*|structure\w*|building\w*|facilit\w*|home\w*)\b',
+            r'(?<!-)\b(?:build\w*|rebuild\w*)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:base|fortress\w*|stronghold\w*|settlement\w*|outpost\w*|headquarters\w*|colon\w*|structure\w*|building\w*|facilit\w*|home\w*|room\w*|base|bases)\b',
+            # r'(?<!-)\b(?:build\w*|rebuild\w*)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:base|bases)\b',
         ],
         'Card & Board Game': [
             r'\b(?:is|as|this|digital|electronic|video)\s+(board|card)\s+game\b',
@@ -164,6 +203,12 @@ class PatternManager:
             r'\b(?:character|class|skill)\s+(?:creation|customization|development|progression|tree)\b',
             r'\b(?:experience|level|stat|attribute)\s+(?:points?|system|mechanics)\b',
             r'\b(?:quest|mission|objective|task)\s+(?:system|design|log|journal)\b',
+            r'\bnew\w*\s+(?:(?!\.|\!|\?|\n).){0,30}?\btrait\w*\b',
+
+            # attribute/stat/point/ability/skill/level и их альтернативы
+            r'\b(?:charact\w*|skill\w*|strength\w*|level\w*|abilit\w*|hero\w*|stat|stats|magic\w*|class|classes)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:attribut\w*|stat|stats|point\w*|abilit\w*)\b',
+
+            r'\b(?:skill\w*|class|classes|abilit\w*|stat|stats|attribut\w*|trait|traits|equip\w*)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:system\w*|tree\w*|progression\w*|point\w*|slot\w*|inventory\w*|loadout\w*|abilit\w*|skill\w*|unit\w*|class|classes|stat|stats|perk\w*|trait|traits|upgrad\w*|craft\w*)\b',
         ],
         'Sandbox': [
             r'\bsandbox(?:\s+(?:game|experience|environment|world|mode|gameplay))?\b',
@@ -179,10 +224,8 @@ class PatternManager:
             r'\b(?:weapon|gun|arsenal)\s+(?:customization|loadout|variety)\b',
         ],
         'Simulator': [
-            r'\b(?:simulator|simulation|sim)(?:\s+(?:game|experience|genre))?\b',
-            r'\brealistic\s+(?:simulation|simulator|experience)\b',
-            r'\b(?:life|job|career|profession|vehicle)\s+(?:simulator|simulation)\b',
-            r'\b(?:sandbox|physics)\s+(?:simulation|based)\b',
+            # Прямые жанровые маркеры (X simulator / X simulation)
+            r'(?i)\b(?:life|farming|flight|truck|business|construction|police|wolf|animal|driving|combat|space|social|dating|city)\s+simulat(?:ion|or)\b',
         ],
         'Sport': [
             r'\bsports?(?:\s+(?:game|title|genre|simulator|experience))?\b',
@@ -358,6 +401,7 @@ class PatternManager:
             r'\b(?:warfare|military|armed)\s+(?:conflict|operations|action)\b',
             r'\b(?:declare|wage|fight)\s+war\b',
             r'\b(?:guerrilla|asymmetric|conventional|biological|chemical)\s+(?:warfare|war)\b',
+            r'\b(?:fight|battle)\w*\s+(?:(?!\.|\!|\?|\n).){0,30}?\benem\w*\s+(?:(?!\.|\!|\?|\n).){0,30}?\bwar\b'
         ],
         'Western': [
             r'\bwestern(?:\s+(?:setting|theme|game|style|adventure|rpg|shooter|action|open[-\s]?world))?\b',
