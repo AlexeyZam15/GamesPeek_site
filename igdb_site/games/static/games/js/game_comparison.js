@@ -35,7 +35,6 @@ function scrollToSharedSection(targetId) {
     const targetElement = document.getElementById(targetId);
     if (!targetElement) return;
 
-    // Скролл с центрированием элемента
     targetElement.scrollIntoView({
         behavior: 'smooth',
         block: 'center',
@@ -53,7 +52,6 @@ function handleCommonItemClick(event) {
 
     if (!criterionType) return;
 
-    // Маппинг типов критериев на ID блоков
     const sectionMap = {
         'genres': 'shared-genres-section',
         'keywords': 'shared-keywords-section',
@@ -77,7 +75,6 @@ function setupCommonItemsClickHandlers() {
     const commonItems = document.querySelectorAll('[data-criterion-type]');
     commonItems.forEach(item => {
         item.addEventListener('click', handleCommonItemClick);
-        // Добавляем указатель мыши для понимания, что элемент кликабельный
         item.style.cursor = 'pointer';
     });
 }
@@ -145,20 +142,241 @@ function centerGenresOnCards() {
 }
 
 /**
+ * Получает название категории из элемента
+ * @param {Element} categoryNameElem - элемент с названием категории
+ * @returns {string} - название категории
+ */
+function getCategoryName(categoryNameElem) {
+    if (!categoryNameElem) return '';
+
+    const iconSpan = categoryNameElem.querySelector('span');
+    const icon = iconSpan ? iconSpan.textContent.trim() : '';
+
+    let name = '';
+    for (let node of categoryNameElem.childNodes) {
+        if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
+            name = node.textContent.trim();
+            break;
+        }
+    }
+
+    const iconToName = {
+        '🎮': 'Genres',
+        '🔑': 'Keywords',
+        '🎭': 'Themes',
+        '👁️': 'Perspectives',
+        '🎯': 'Game Modes',
+        '🏢': 'Developers'
+    };
+
+    if (icon && iconToName[icon]) {
+        name = iconToName[icon];
+    }
+
+    return name || 'Unknown';
+}
+
+/**
+ * Получает детали категории (common/total)
+ * @param {Element} categoryNameElem - элемент с названием категории
+ * @returns {string} - детали вида (7/7)
+ */
+function getCategoryDetails(categoryNameElem) {
+    if (!categoryNameElem) return '';
+    const small = categoryNameElem.querySelector('small');
+    return small ? small.textContent.trim() : '';
+}
+
+/**
+ * Получает процент вклада категории
+ * @param {Element} contributionElem - элемент с вкладом
+ * @returns {string} - процент вида +30.0%
+ */
+function getContribution(contributionElem) {
+    if (!contributionElem) return '';
+    return contributionElem.textContent.trim();
+}
+
+/**
+ * Получает общие элементы категории
+ * @param {Element} category - элемент категории
+ * @returns {string} - список общих элементов через запятую
+ */
+function getSharedItems(category) {
+    const sharedItemsGrid = category.querySelector('.shared-items-grid');
+    if (!sharedItemsGrid) return '';
+
+    const items = sharedItemsGrid.querySelectorAll('.shared-item');
+    if (items.length === 0) return '';
+
+    return Array.from(items).map(item => item.textContent.trim()).join(', ');
+}
+
+/**
+ * Собирает текст из карточек сравнения
+ * @returns {string} - отформатированный текст карточек
+ */
+function getComparisonCardsText() {
+    const cards = document.querySelectorAll('.game-comparison-card');
+    let result = '';
+
+    cards.forEach((card) => {
+        const gameName = card.querySelector('.game-title')?.textContent?.trim() || '';
+        if (!gameName) return '';
+
+        const similarityScore = card.querySelector('.similarity-value .text-warning')?.textContent?.trim() || '';
+        const ratingElem = card.querySelector('.game-rating .text-warning');
+        const rating = ratingElem ? ratingElem.textContent.trim() : '';
+        const ratingCount = card.querySelector('.game-rating small')?.textContent?.trim() || '';
+
+        const genres = Array.from(card.querySelectorAll('.game-genres .badge')).map(el => el.textContent.trim());
+        const gameModes = Array.from(card.querySelectorAll('.game-modes .badge')).map(el => el.textContent.trim());
+        const developers = Array.from(card.querySelectorAll('.game-developers .badge')).map(el => el.textContent.trim());
+        const releaseDateElem = card.querySelector('.release-date small');
+        const releaseDate = releaseDateElem ? releaseDateElem.textContent.trim() : '';
+
+        result += `\n${'='.repeat(50)}\n`;
+        result += `${gameName}\n`;
+        if (similarityScore) result += `Similarity: ${similarityScore}\n`;
+        if (rating) result += `${rating} ${ratingCount}\n`;
+        if (genres.length) result += `Genres: ${genres.join(', ')}\n`;
+        if (gameModes.length) result += `Game Modes: ${gameModes.join(', ')}\n`;
+        if (developers.length) result += `Developers: ${developers.join(', ')}\n`;
+        if (releaseDate) result += `Release Date: ${releaseDate}\n`;
+    });
+
+    return result;
+}
+
+/**
+ * Собирает текст из Similarity Breakdown
+ * @returns {string} - отформатированный текст
+ */
+function getSimilarityBreakdownText() {
+    const categories = document.querySelectorAll('.similarity-category');
+    if (categories.length === 0) return '';
+
+    let result = `\n${'='.repeat(50)}\n`;
+    result += `SIMILARITY BREAKDOWN\n`;
+    result += `${'='.repeat(50)}\n`;
+
+    let bonusText = '';
+    let totalText = '';
+
+    categories.forEach(category => {
+        if (category.classList.contains('total-category')) {
+            const totalScore = category.querySelector('.similarity-badge')?.textContent?.trim() || '';
+            totalText = `\nTOTAL SIMILARITY: ${totalScore}\n`;
+            return;
+        }
+
+        if (category.classList.contains('bonus-category')) {
+            const contribution = getContribution(category.querySelector('.contribution-value'));
+            bonusText = `\nBonus (multiple criteria) → ${contribution}\n`;
+            return;
+        }
+
+        const categoryNameElem = category.querySelector('.category-name');
+        const name = getCategoryName(categoryNameElem);
+        const details = getCategoryDetails(categoryNameElem);
+        const contribution = getContribution(category.querySelector('.contribution-value'));
+        const sharedItems = getSharedItems(category);
+
+        if (name) {
+            result += `\n${name} ${details} → ${contribution}\n`;
+            if (sharedItems) {
+                result += `  Shared: ${sharedItems}\n`;
+            }
+        }
+    });
+
+    if (bonusText) result += bonusText;
+    if (totalText) result += totalText;
+
+    return result;
+}
+
+/**
+ * Собирает текст из Shared секций
+ * @returns {string} - отформатированный текст
+ */
+function getSharedSectionsText() {
+    const sections = [
+        { id: 'shared-genres-section', title: '🎮 Shared Genres' },
+        { id: 'shared-themes-section', title: '🎭 Shared Themes' },
+        { id: 'shared-developers-section', title: '🏢 Shared Developers' },
+        { id: 'shared-perspectives-section', title: '👁️ Shared Perspectives' },
+        { id: 'shared-game-modes-section', title: '🎯 Shared Game Modes' },
+        { id: 'shared-keywords-section', title: '🔑 Shared Features' }
+    ];
+
+    let result = `\n${'='.repeat(50)}\n`;
+    result += `SHARED ITEMS\n`;
+    result += `${'='.repeat(50)}\n`;
+
+    sections.forEach(section => {
+        const sectionElement = document.getElementById(section.id);
+        if (!sectionElement) return;
+
+        const items = sectionElement.querySelectorAll('.shared-item');
+        if (items.length === 0) return;
+
+        const itemNames = Array.from(items).map(item => item.textContent.trim());
+
+        result += `\n${section.title}\n`;
+        result += `${itemNames.join(', ')}\n`;
+    });
+
+    return result;
+}
+
+/**
+ * Копирует всю страницу в читаемом текстовом формате
+ */
+function copyComparisonAsText() {
+    const similarityHeader = document.querySelector('.similarity-header');
+    let similarityText = '';
+    if (similarityHeader) {
+        const score = similarityHeader.querySelector('h3')?.textContent?.trim() || '';
+        const description = similarityHeader.querySelector('p')?.textContent?.trim() || '';
+        if (score) similarityText = `${score}\n${description}\n`;
+    }
+
+    const cardsText = getComparisonCardsText();
+    const breakdownText = getSimilarityBreakdownText();
+    const sharedText = getSharedSectionsText();
+
+    const finalText = similarityText + cardsText + breakdownText + sharedText;
+
+    navigator.clipboard.writeText(finalText).then(() => {
+        const copyBtn = document.getElementById('copyComparisonAsText');
+        if (copyBtn) {
+            const originalHtml = copyBtn.innerHTML;
+            copyBtn.innerHTML = '<i class="bi bi-check-lg"></i> Copied!';
+            setTimeout(() => {
+                copyBtn.innerHTML = originalHtml;
+            }, 2000);
+        }
+    });
+}
+
+/**
  * Главная функция инициализации при загрузке страницы
  */
 document.addEventListener('DOMContentLoaded', function() {
-    // Получаем процент схожести из data-атрибута или переменной
     const similarityScore = parseFloat(document.body.dataset.similarityScore || '0');
 
-    // Инициализация всех функций
     initTooltips();
     highlightSimilarityHeader(similarityScore);
     initKeywordsToggle();
     centerGenresOnCards();
     setupCommonItemsClickHandlers();
+
+    const copyBtn = document.getElementById('copyComparisonAsText');
+    if (copyBtn) {
+        copyBtn.addEventListener('click', copyComparisonAsText);
+    }
 });
 
-// Экспортируем функции для глобального доступа
 window.toggleKeywords = toggleKeywords;
 window.scrollToSharedSection = scrollToSharedSection;
