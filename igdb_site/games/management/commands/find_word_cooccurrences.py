@@ -1165,31 +1165,26 @@ class Command(BaseCommand):
             self._print_message(f"Результаты сохранены в: {self.output_path}")
 
     def _print_message(self, message: str):
-        """Выводит сообщение"""
+        """Выводит сообщение только в файл (не дублирует в консоль)"""
         if self.output_file and not self.output_file.closed:
             self.output_file.write(message + "\n")
             self.output_file.flush()
-
-        if self.original_stdout:
-            self.original_stdout.write(message + "\n")
-            self.original_stdout.flush()
-        else:
-            self.stdout.write(message)
 
     def _print_error(self, message: str):
-        """Выводит ошибку"""
+        """Выводит ошибку только в файл (не дублирует в консоль)"""
         if self.output_file and not self.output_file.closed:
             self.output_file.write(message + "\n")
             self.output_file.flush()
-
-        if self.original_stdout:
-            self.original_stdout.write(message + "\n")
-            self.original_stdout.flush()
         else:
-            self.stderr.write(message)
+            # Только если нет файла, выводим в stderr
+            if self.original_stdout:
+                self.original_stdout.write(message + "\n")
+                self.original_stdout.flush()
+            else:
+                self.stderr.write(message)
 
     def _setup_output_file(self):
-        """Настраивает вывод в файл"""
+        """Настраивает вывод только в файл (без дублирования в консоль)"""
         import os
 
         try:
@@ -1197,12 +1192,11 @@ class Command(BaseCommand):
             if directory:
                 os.makedirs(directory, exist_ok=True)
 
-            self.original_stdout = sys.stdout
             self.output_file = open(self.output_path, 'w', encoding='utf-8')
-            sys.stdout = self.output_file
+            # НЕ сохраняем original_stdout и НЕ перенаправляем sys.stdout
 
         except Exception as e:
-            self._print_error(f"Ошибка открытия файла: {e}")
+            self.stderr.write(f"Ошибка открытия файла: {e}")
 
     def _cleanup(self):
         """Очистка ресурсов"""
