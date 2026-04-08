@@ -39,3 +39,130 @@ Thumbs.db
 
 # Git backups
 /git_compare_backup_*.txt
+/igdb_site/add_genres_themes/logs/processed_files_state.json
+/igdb_site/add_genres_themes/001.json
+/igdb_site/add_genres_themes/002.json
+/igdb_site/add_genres_themes/003.json
+/igdb_site/add_genres_themes/004.json
+/igdb_site/add_genres_themes/005.json
+/igdb_site/add_genres_themes/006.json
+/igdb_site/add_genres_themes/007.json
+/igdb_site/add_genres_themes/008.json
+/igdb_site/add_genres_themes/009.json
+/igdb_site/add_genres_themes/010.json
+/igdb_site/add_genres_themes/011.json
+/igdb_site/add_genres_themes/012.json
+/igdb_site/add_genres_themes/013.json
+/igdb_site/add_genres_themes/014.json
+/igdb_site/add_genres_themes/015.json
+/igdb_site/add_genres_themes/016.json
+/igdb_site/add_genres_themes/017.json
+/igdb_site/add_genres_themes/018.json
+/igdb_site/backups/genre_Action.json
+/igdb_site/backups/genre_Adventure.json
+/igdb_site/backups/genre_Arcade.json
+/igdb_site/backups/genre_Base Building.json
+/igdb_site/backups/genre_Card  Board Game.json
+/igdb_site/backups/genre_Colony Sim.json
+/igdb_site/backups/genre_Engineering.json
+/igdb_site/backups/genre_Fighting.json
+/igdb_site/backups/genre_Grid-Based.json
+/igdb_site/backups/genre_MOBA.json
+/igdb_site/backups/genre_Music.json
+/igdb_site/backups/genre_Open World.json
+/igdb_site/backups/genre_Pinball.json
+/igdb_site/backups/genre_Platform.json
+/igdb_site/backups/genre_Point-and-click.json
+/igdb_site/backups/genre_Precision Combat.json
+/igdb_site/backups/genre_Puzzle.json
+/igdb_site/backups/genre_QuizTrivia.json
+/igdb_site/backups/genre_Racing.json
+/igdb_site/backups/genre_Real Time Strategy RTS.json
+/igdb_site/backups/genre_Real-Time with Pause RTwP.json
+/igdb_site/backups/genre_Roguelike  Roguelite.json
+/igdb_site/backups/genre_Role-playing RPG.json
+/igdb_site/backups/genre_Sandbox.json
+/igdb_site/backups/genre_Shooter.json
+/igdb_site/backups/genre_Simulator.json
+/igdb_site/backups/genre_Sport.json
+/igdb_site/backups/genre_Squad Management.json
+/igdb_site/backups/genre_Stealth.json
+/igdb_site/backups/genre_Strategy.json
+/igdb_site/backups/genre_Survival.json
+/igdb_site/backups/genre_Tactical.json
+/igdb_site/backups/genre_Turn-based.json
+/igdb_site/backups/genre_Turn-based strategy TBS.json
+/igdb_site/backups/genre_Visual Novel.json
+/igdb_site/backups/theme_4X explore expand exploit and exterminate.json
+/igdb_site/backups/theme_Business.json
+/igdb_site/backups/theme_Comedy.json
+/igdb_site/backups/theme_Crafting  Gathering.json
+/igdb_site/backups/theme_Cyberpunk.json
+/igdb_site/backups/theme_Dark Fantasy.json
+/igdb_site/backups/theme_Drama.json
+/igdb_site/backups/theme_Educational.json
+/igdb_site/backups/theme_Erotic.json
+/igdb_site/backups/theme_Fantasy.json
+/igdb_site/backups/theme_Fire Emblem.json
+/igdb_site/backups/theme_Gothic.json
+/igdb_site/backups/theme_Historical.json
+/igdb_site/backups/theme_Horror.json
+/igdb_site/backups/theme_Indie.json
+/igdb_site/backups/theme_Kids.json
+/igdb_site/backups/theme_Mecha.json
+/igdb_site/backups/theme_Medieval.json
+/igdb_site/backups/theme_Non-fiction.json
+/igdb_site/backups/theme_Party.json
+/igdb_site/backups/theme_Post-apocalyptic.json
+/igdb_site/backups/theme_Romance.json
+/igdb_site/backups/theme_Science fiction.json
+/igdb_site/backups/theme_Thriller.json
+/igdb_site/backups/theme_Time Travel.json
+/igdb_site/backups/theme_Warfare.json
+/igdb_site/backups/theme_Western.json
+/igdb_site/backups/theme_Zombie.json
+/igdb_site/debug_logs/final_1331.json
+/igdb_site/debug_logs/final_1384.json
+/igdb_site/debug_logs/final_1877.json
+/igdb_site/debug_logs/final_7334.json
+/igdb_site/debug_logs/final_7342.json
+/igdb_site/debug_logs/final_17000.json
+/igdb_site/debug_logs/final_19130.json
+/igdb_site/debug_logs/final_76882.json
+/igdb_site/debug_logs/igdb_data_1331.json
+/igdb_site/debug_logs/igdb_data_1384.json
+/igdb_site/debug_logs/igdb_data_1877.json
+/igdb_site/debug_logs/igdb_data_7334.json
+/igdb_site/debug_logs/igdb_data_7342.json
+/igdb_site/debug_logs/igdb_data_8173.json
+/igdb_site/debug_logs/igdb_data_17000.json
+/igdb_site/debug_logs/igdb_data_19130.json
+/igdb_site/debug_logs/igdb_data_76882.json
+/igdb_site/debug_logs/missing_data_1331.json
+/igdb_site/debug_logs/missing_data_1384.json
+/igdb_site/debug_logs/missing_data_1877.json
+/igdb_site/debug_logs/missing_data_7334.json
+/igdb_site/debug_logs/missing_data_7342.json
+/igdb_site/debug_logs/missing_data_8173.json
+/igdb_site/debug_logs/missing_data_17000.json
+/igdb_site/debug_logs/missing_data_19130.json
+/igdb_site/debug_logs/missing_data_76882.json
+/igdb_site/debug_logs/planned_updates_1331.json
+/igdb_site/debug_logs/planned_updates_1384.json
+/igdb_site/debug_logs/planned_updates_1877.json
+/igdb_site/debug_logs/planned_updates_7334.json
+/igdb_site/debug_logs/planned_updates_7342.json
+/igdb_site/debug_logs/planned_updates_17000.json
+/igdb_site/debug_logs/planned_updates_19130.json
+/igdb_site/debug_logs/planned_updates_76882.json
+/igdb_site/debug_logs/start_processing_1331.json
+/igdb_site/debug_logs/start_processing_1384.json
+/igdb_site/debug_logs/start_processing_1877.json
+/igdb_site/debug_logs/start_processing_7334.json
+/igdb_site/debug_logs/start_processing_7342.json
+/igdb_site/debug_logs/start_processing_8173.json
+/igdb_site/debug_logs/start_processing_17000.json
+/igdb_site/debug_logs/start_processing_19130.json
+/igdb_site/debug_logs/start_processing_76882.json
+/igdb_site/game_keywords_backups/games_backup_20260309_135728_44749games.json
+/igdb_site/game_keywords_backups/games_backup_20260310_152324_44749games.json

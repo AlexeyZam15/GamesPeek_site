@@ -615,9 +615,9 @@ class GameEngineAdmin(admin.ModelAdmin):
 
 @admin.register(Screenshot)
 class ScreenshotAdmin(admin.ModelAdmin):
-    list_display = ['igdb_id', 'game', 'is_primary', 'width', 'height']
-    list_filter = ['is_primary']
-    search_fields = ['game__name', 'caption']
+    list_display = ['id', 'game', 'url', 'w', 'h', 'primary']
+    list_filter = ['primary']
+    search_fields = ['game__name']
     raw_id_fields = ['game']
 
 

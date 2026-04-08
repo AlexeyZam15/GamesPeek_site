@@ -94,25 +94,77 @@ WSGI_APPLICATION = 'igdb_site.wsgi.application'
 # POSTGRESQL НАСТРОЙКИ БАЗЫ ДАННЫХ
 # ============================================
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DB_NAME', 'gamespeek'),
-        'USER': os.getenv('DB_USER', 'django_user'),
-        'PASSWORD': os.getenv('DB_PASSWORD', 'django_user'),
-        'HOST': os.getenv('DB_HOST', 'localhost'),
-        'PORT': os.getenv('DB_PORT', '5432'),
-        'CONN_MAX_AGE': 600,
-        'OPTIONS': {
-            'connect_timeout': 10,
-            'client_encoding': 'UTF8',
-            'sslmode': 'prefer',
-        },
-        'TEST': {
-            'NAME': 'test_gamespeek',
+import dj_database_url
+
+# Приоритет: DATABASE_URL (для Hugging Face / Render) > отдельные переменные (локально)
+if os.getenv('DATABASE_URL'):
+    # Режим продакшн на Hugging Face или Render с единой строкой подключения
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=os.getenv('DATABASE_URL'),
+            conn_max_age=600,
+            ssl_require=True
+        )
+    }
+else:
+    # Локальная разработка с отдельными переменными окружения
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.getenv('DB_NAME', 'gamespeek'),
+            'USER': os.getenv('DB_USER', 'django_user'),
+            'PASSWORD': os.getenv('DB_PASSWORD', 'django_user'),
+            'HOST': os.getenv('DB_HOST', 'localhost'),
+            'PORT': os.getenv('DB_PORT', '5432'),
+            'CONN_MAX_AGE': 600,
+            'OPTIONS': {
+                'connect_timeout': 10,
+                'client_encoding': 'UTF8',
+                'sslmode': 'prefer',
+            },
+            'TEST': {
+                'NAME': 'test_gamespeek',
+            }
         }
     }
-}
+
+# Дополнительная настройка для Supabase (отключаем проверку соединений)
+if os.getenv('DATABASE_URL') and 'supabase' in os.getenv('DATABASE_URL'):
+    DATABASES['default']['CONN_MAX_AGE'] = 0
+    DATABASES['default']['CONN_HEALTH_CHECKS'] = False
+
+# ============================================
+# АВТОМАТИЧЕСКИЕ НАСТРОЙКИ ДЛЯ HUGGING FACE
+# ============================================
+
+# Определяем, что мы на Hugging Face Spaces
+IS_HF_SPACE = bool(os.getenv('SPACE_AUTHOR'))
+
+if IS_HF_SPACE:
+    # Отключаем DEBUG режим на продакшне
+    DEBUG = False
+
+    # Разрешаем только домены Hugging Face и localhost
+    ALLOWED_HOSTS = ['.hf.space', 'localhost', '127.0.0.1']
+
+    # Настройка для работы за прокси Hugging Face
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+    # Безопасные cookie
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+
+    # Отключаем debug toolbar на продакшне
+    MIDDLEWARE = [m for m in MIDDLEWARE if m != 'debug_toolbar.middleware.DebugToolbarMiddleware']
+    INSTALLED_APPS = [app for app in INSTALLED_APPS if app != 'debug_toolbar']
+
+    # Используем локальный кэш вместо файлового (файловая система на Hugging Face временная)
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'unique-snowflake',
+        }
+    }
 
 # ============================================
 # ПАРОЛИ И ВАЛИДАЦИЯ (ОПТИМИЗИРОВАННЫЕ)
@@ -399,20 +451,20 @@ try:
     conn.ensure_connection()
 
     db_info = f"""
-✅ Настройки Django загружены
-📁 Режим: {'DEBUG' if DEBUG else 'PRODUCTION'}
-🌐 Платформа: {'Render' if IS_RENDER else 'Local'}
-🔧 База данных: PostgreSQL
-⚡ Кэширование: FileBasedCache
-📊 Debug Toolbar: {'Включен' if DEBUG else 'Выключен'}
-🔗 Подключение к PostgreSQL: УСПЕШНО
+[OK] Django settings loaded
+[INFO] Mode: {'DEBUG' if DEBUG else 'PRODUCTION'}
+[INFO] Platform: {'Render' if IS_RENDER else 'Local'}
+[INFO] Database: PostgreSQL
+[INFO] Cache: FileBasedCache
+[INFO] Debug Toolbar: {'ON' if DEBUG else 'OFF'}
+[INFO] PostgreSQL connection: SUCCESS
 """
 except Exception as e:
     db_info = f"""
-❌ Ошибка подключения к PostgreSQL: {e}
-⚠️  Проверьте:
-  1. Запущена ли служба PostgreSQL
-  2. Корректны ли настройки в .env файле
+[ERROR] PostgreSQL connection error: {e}
+[WARNING] Check:
+  1. Is PostgreSQL service running?
+  2. Are .env settings correct?
 """
     if not DEBUG:
         raise
@@ -424,4 +476,4 @@ print(db_info)
 required_settings = ['IGDB_CLIENT_ID', 'IGDB_CLIENT_SECRET']
 for setting in required_settings:
     if not globals().get(setting):
-        print(f"⚠️  Внимание: {setting} не установлен")
+        print(f"[WARNING] {setting} is not set")
