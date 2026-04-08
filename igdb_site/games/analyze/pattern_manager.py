@@ -220,8 +220,6 @@ class PatternManager:
             r'\bshooter(?:\s+(?:game|title|genre|experience))?\b',
             r'\b(?:fps|tps)\s+(?:game|shooter)\b',
             r'\b(?:first|third)-person\s+shooter\b',
-            r'\b(?:cover|blind-fire|lean)\s+(?:system|mechanics)\b',
-            r'\b(?:weapon|gun|arsenal)\s+(?:customization|loadout|variety)\b',
         ],
         'Simulator': [
             # Прямые жанровые маркеры (X simulator / X simulation)
