@@ -166,3 +166,5 @@ Thumbs.db
 /igdb_site/debug_logs/start_processing_76882.json
 /igdb_site/game_keywords_backups/games_backup_20260309_135728_44749games.json
 /igdb_site/game_keywords_backups/games_backup_20260310_152324_44749games.json
+/igdb_site/build/
+/igdb_site/dist/

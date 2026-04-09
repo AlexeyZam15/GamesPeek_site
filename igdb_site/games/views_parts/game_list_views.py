@@ -831,7 +831,7 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
     params = extract_request_params(request)
     selected_criteria = convert_params_to_lists(params)
 
-    # ИЗВЛЕКАЕМ SEARCH ПАРАМЕТРЫ
+    # Extract search parameters from GET
     search_genres = request.GET.get('search_g', '')
     search_keywords = request.GET.get('search_k', '')
     search_themes = request.GET.get('search_t', '')
@@ -881,7 +881,7 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
 
     stage_start = time.time()
 
-    # ВАЖНО: Если есть search параметры ИЛИ find_similar не активен - используем обычный режим
+    # Check if there are any search parameters
     has_search_params = any([
         search_genres_list, search_keywords_list, search_themes_list,
         search_perspectives_list, search_game_modes_list, search_engines_list,
@@ -889,13 +889,14 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
         search_year_start_int, search_year_end_int
     ])
 
-    # Обычный режим если: есть search параметры ИЛИ нет similarity режима
-    use_regular_mode = has_search_params or not find_similar
+    # CRITICAL: When in similar mode, we should use similar mode with search filters,
+    # NOT fall back to regular mode
+    use_regular_mode = not find_similar
 
     if use_regular_mode:
         print("Mode: regular games with search filters")
 
-        # Строим словарь search_filters для _apply_search_filters
+        # Build search_filters dictionary for _apply_search_filters
         search_filters = {}
         if search_platforms_list:
             search_filters['platforms'] = search_platforms_list
@@ -918,7 +919,7 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
         if search_year_end_int:
             search_filters['release_year_end'] = search_year_end_int
 
-        # Получаем queryset с применением search_filters
+        # Get queryset with search filters applied
         games_qs = Game.objects.all().only(
             'id', 'name', 'rating', 'rating_count',
             'first_release_date', 'cover_url', 'game_type'
@@ -951,7 +952,8 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
         source_game = None
 
     else:
-        print("Mode: similar games")
+        print("Mode: similar games with search filters")
+        # Pass search filters to the similar games function
         mode_result = _get_similar_games_mode_with_pagination(
             params,
             selected_criteria,
