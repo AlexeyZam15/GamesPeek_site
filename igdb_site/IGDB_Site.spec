@@ -126,7 +126,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='IGDB_Site',
+    name='gamespeek',  # Изменено с 'IGDB_Site' на 'gamespeek'
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
