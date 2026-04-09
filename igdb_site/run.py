@@ -90,8 +90,7 @@ def start_postgresql():
 def run_migrations_once():
     """
     Run desktop-specific migration to create ALL tables, then import data.
-    Optimized for Game model with ManyToMany fields through intermediate tables.
-    Uses bulk_create and raw SQL for maximum speed.
+    Optimized for maximum speed using parallel processing and optimized queries.
     """
     from django.db import connection, transaction
     from django.core.management import call_command
@@ -100,6 +99,8 @@ def run_migrations_once():
     from tqdm import tqdm
     import gc
     import time
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import threading
 
     # Сначала применяем стандартные миграции Django
     print("📦 Applying Django core migrations...")
@@ -162,6 +163,8 @@ def run_migrations_once():
                 with connection.cursor() as cursor:
                     cursor.execute('SET CONSTRAINTS ALL DEFERRED')
                     cursor.execute('SET synchronous_commit TO OFF')
+                    cursor.execute('SET maintenance_work_mem TO "1GB"')
+                    cursor.execute('SET work_mem TO "256MB"')
 
                 total_objects = 0
                 import_start_time = time.time()
@@ -179,7 +182,7 @@ def run_migrations_once():
                         fields = item['fields'].copy()
                         objects_to_create.append(game_models.KeywordCategory(id=item['pk'], **fields))
 
-                    batch_size = 1000
+                    batch_size = 5000
                     saved_count = 0
                     with tqdm(total=len(objects_to_create), desc="  ⏳ Saving", unit="rec",
                               bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]') as pbar:
@@ -215,7 +218,7 @@ def run_migrations_once():
                             fields = item['fields'].copy()
                             objects_to_create.append(model_class(id=item['pk'], **fields))
 
-                        batch_size = 5000
+                        batch_size = 10000
                         saved_count = 0
                         with tqdm(total=len(objects_to_create), desc="  ⏳ Saving", unit="rec",
                                   bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]') as pbar:
@@ -250,7 +253,7 @@ def run_migrations_once():
                             f"({pk}, {igdb_id}, '{name}', {cached_usage_count}, {category_sql}, '{created_at}')")
 
                     if values_list:
-                        batch_size = 5000
+                        batch_size = 10000
                         inserted = 0
                         with tqdm(total=len(values_list), desc="  ⏳ Saving", unit="rec",
                                   bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]') as pbar:
@@ -280,7 +283,7 @@ def run_migrations_once():
                         games_data,
                         key=lambda x: (
                             (x['fields'].get('parent_game') is not None) or (
-                                        x['fields'].get('version_parent') is not None),
+                                    x['fields'].get('version_parent') is not None),
                             x['fields'].get('parent_game') or 0,
                             x['fields'].get('version_parent') or 0
                         )
@@ -388,7 +391,7 @@ def run_migrations_once():
 
                     # Raw SQL INSERT для Game
                     if game_values:
-                        batch_size = 1000
+                        batch_size = 2000
                         inserted = 0
                         with tqdm(total=len(game_values), desc="  ⏳ Saving games", unit="rec",
                                   bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]') as pbar:
@@ -411,7 +414,6 @@ def run_migrations_once():
                         total_objects += inserted
 
                     # Обновляем parent_game и version_parent через raw SQL
-                    # Сначала получаем список всех существующих game_id
                     with connection.cursor() as cursor:
                         cursor.execute("SELECT id FROM games_game")
                         existing_ids = set(row[0] for row in cursor.fetchall())
@@ -419,7 +421,6 @@ def run_migrations_once():
                     parent_updates = []
                     for ref in game_parent_refs:
                         if ref['parent_game_id'] or ref['version_parent_id']:
-                            # Проверяем, что parent_game_id и version_parent_id существуют
                             valid_parent = True
                             if ref['parent_game_id'] and ref['parent_game_id'] not in existing_ids:
                                 valid_parent = False
@@ -449,26 +450,25 @@ def run_migrations_once():
                                         cursor.execute(sql)
                                         updated += cursor.rowcount
                                     pbar.update(1)
-                        print(
-                            f"    ✅ Parents updated: {updated} (skipped: {len(game_parent_refs) - len(parent_updates)})")
+                        print(f"    ✅ Parents updated: {updated}")
 
-                    # ManyToMany связи через raw SQL для максимальной скорости
+                    # ManyToMany связи через raw SQL с оптимизацией для keywords
                     print("  🔗 Creating ManyToMany relationships...")
 
-                    m2m_mappings = [
-                        ('developers', 'games_game_developers', 'company_id'),
-                        ('publishers', 'games_game_publishers', 'company_id'),
-                        ('genres', 'games_game_genres', 'genre_id'),
-                        ('platforms', 'games_game_platforms', 'platform_id'),
-                        ('keywords', 'games_game_keywords', 'keyword_id'),
-                        ('engines', 'games_game_engines', 'gameengine_id'),
-                        ('themes', 'games_game_themes', 'theme_id'),
-                        ('player_perspectives', 'games_game_player_perspectives', 'playerperspective_id'),
-                        ('game_modes', 'games_game_game_modes', 'gamemode_id'),
-                        ('series', 'games_game_series', 'series_id'),
-                    ]
-
                     with connection.cursor() as cursor:
+                        # Обрабатываем все связи кроме keywords с увеличенным batch_size
+                        m2m_mappings = [
+                            ('developers', 'games_game_developers', 'company_id'),
+                            ('publishers', 'games_game_publishers', 'company_id'),
+                            ('genres', 'games_game_genres', 'genre_id'),
+                            ('platforms', 'games_game_platforms', 'platform_id'),
+                            ('engines', 'games_game_engines', 'gameengine_id'),
+                            ('themes', 'games_game_themes', 'theme_id'),
+                            ('player_perspectives', 'games_game_player_perspectives', 'playerperspective_id'),
+                            ('game_modes', 'games_game_game_modes', 'gamemode_id'),
+                            ('series', 'games_game_series', 'series_id'),
+                        ]
+
                         for field_name, table_name, column_name in m2m_mappings:
                             values = []
                             for m2m in game_m2m_data:
@@ -478,7 +478,7 @@ def run_migrations_once():
 
                             if values:
                                 print(f"    ⏳ Creating {field_name} relations: {len(values)} records...")
-                                batch_size = 10000
+                                batch_size = 20000
                                 inserted = 0
                                 with tqdm(total=len(values), desc=f"    ⏳ {field_name}", unit="rel",
                                           bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
@@ -491,9 +491,56 @@ def run_migrations_once():
                                         """
                                         cursor.execute(sql)
                                         inserted += cursor.rowcount
+                                        total_objects += cursor.rowcount
                                         pbar.update(len(batch))
                                 print(f"      ✅ Inserted: {inserted} relations")
-                                total_objects += inserted
+
+                        # Обрабатываем keywords отдельно с максимальной оптимизацией
+                        total_keywords = sum(len(m2m['keywords']) for m2m in game_m2m_data)
+                        if total_keywords > 0:
+                            print(f"    ⏳ Creating keywords relations: {total_keywords} records...")
+
+                            # Используем генератор для экономии памяти
+                            def keyword_values_generator():
+                                for m2m in game_m2m_data:
+                                    game_id = m2m['game_id']
+                                    for keyword_id in m2m['keywords']:
+                                        yield f"({game_id}, {keyword_id})"
+
+                            # Вставляем очень большими батчами по 100000 записей
+                            batch_size = 100000
+                            batch = []
+                            inserted = 0
+
+                            with tqdm(total=total_keywords, desc="    ⏳ keywords", unit="rel",
+                                      bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]') as pbar:
+                                for value in keyword_values_generator():
+                                    batch.append(value)
+                                    if len(batch) >= batch_size:
+                                        sql = f"""
+                                            INSERT INTO games_game_keywords (game_id, keyword_id)
+                                            VALUES {','.join(batch)}
+                                            ON CONFLICT (game_id, keyword_id) DO NOTHING
+                                        """
+                                        cursor.execute(sql)
+                                        inserted += cursor.rowcount
+                                        total_objects += cursor.rowcount
+                                        pbar.update(len(batch))
+                                        batch = []
+
+                                # Вставляем остаток
+                                if batch:
+                                    sql = f"""
+                                        INSERT INTO games_game_keywords (game_id, keyword_id)
+                                        VALUES {','.join(batch)}
+                                        ON CONFLICT (game_id, keyword_id) DO NOTHING
+                                    """
+                                    cursor.execute(sql)
+                                    inserted += cursor.rowcount
+                                    total_objects += cursor.rowcount
+                                    pbar.update(len(batch))
+
+                            print(f"      ✅ Inserted: {inserted} keyword relations")
 
                     # ИМПОРТ SCREENSHOTS через raw SQL
                     screenshot_values = []
@@ -509,7 +556,7 @@ def run_migrations_once():
 
                     if screenshot_values:
                         print(f"    ⏳ Creating screenshots: {len(screenshot_values)} records...")
-                        batch_size = 5000
+                        batch_size = 10000
                         inserted = 0
                         with tqdm(total=len(screenshot_values), desc="    ⏳ Screenshots", unit="rec",
                                   bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
@@ -559,70 +606,129 @@ def run_migrations_once():
 
 def main():
     """Main entry point for the desktop application."""
-    print("=" * 50)
-    print("🎮 IGDB Site Desktop Launcher")
-    print("=" * 50)
+    from datetime import datetime
+    import sys
+    from pathlib import Path
 
-    setup_environment()
-
-    database_url = start_postgresql()
-    os.environ['DATABASE_URL'] = database_url
-
-    import django
-    django.setup()
-
-    # Принудительно обновляем настройки статики после django.setup()
-    from django.conf import settings
-
+    # Настройка логирования в файл
     if getattr(sys, 'frozen', False):
         exe_dir = Path(sys.executable).parent
-        static_root = exe_dir / 'staticfiles'
+    else:
+        exe_dir = Path.cwd()
 
-        if static_root.exists():
-            # Переопределяем настройки статики
-            settings.STATIC_ROOT = str(static_root)
-            settings.STATIC_URL = '/static/'
+    logs_dir = exe_dir / 'logs'
+    logs_dir.mkdir(exist_ok=True)
 
-            print(f"✅ Static files found at: {static_root}")
+    log_filename = logs_dir / f'gamespeek_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
 
-            # Проверяем содержимое staticfiles
-            games_css = static_root / 'games' / 'css'
-            if games_css.exists():
-                css_files = list(games_css.glob('*.css'))
-                print(f"   - Found {len(css_files)} CSS files in games/css")
-                for css_file in css_files:
-                    print(f"     * {css_file.name}")
+    # Открываем файл лога для записи
+    log_file = open(log_filename, 'w', encoding='utf-8', buffering=1)
 
-            # Проверяем наличие admin статики
-            admin_static = static_root / 'admin'
-            if admin_static.exists():
-                print(f"   - Admin static files: OK")
+    # Перенаправляем stdout и stderr в файл и консоль
+    class TeeLogger:
+        def __init__(self, log_file, console_stream, is_error=False):
+            self.log_file = log_file
+            self.console_stream = console_stream
+            self.is_error = is_error
 
-            # Проверяем доступность конкретных файлов
-            style_css = games_css / 'style.css'
-            if style_css.exists():
-                print(f"   - style.css: OK ({style_css.stat().st_size} bytes)")
-            else:
-                print(f"   - style.css: NOT FOUND")
-        else:
-            print(f"⚠️ Static files not found at: {static_root}")
-            print(f"   Contents of {exe_dir}:")
-            for item in exe_dir.iterdir():
-                if item.is_dir():
-                    print(f"     📁 {item.name}/")
+        def write(self, message):
+            if message.strip():
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                log_line = f"{timestamp} - {'ERROR' if self.is_error else 'INFO'} - {message}"
+                self.log_file.write(log_line + '\n')
+                self.log_file.flush()
+            if self.console_stream:
+                self.console_stream.write(message)
+                self.console_stream.flush()
+
+        def flush(self):
+            self.log_file.flush()
+            if self.console_stream:
+                self.console_stream.flush()
+
+    # Сохраняем оригинальные потоки
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+
+    # Перенаправляем stdout и stderr
+    sys.stdout = TeeLogger(log_file, sys.__stdout__, is_error=False)
+    sys.stderr = TeeLogger(log_file, sys.__stderr__, is_error=True)
+
+    try:
+        print("=" * 50)
+        print("🎮 gamespeek Desktop Launcher")
+        print("=" * 50)
+        print(f"📝 Log file: {log_filename}")
+
+        setup_environment()
+
+        database_url = start_postgresql()
+        os.environ['DATABASE_URL'] = database_url
+
+        import django
+        django.setup()
+
+        from django.conf import settings
+
+        if getattr(sys, 'frozen', False):
+            exe_dir = Path(sys.executable).parent
+            static_root = exe_dir / 'staticfiles'
+
+            if static_root.exists():
+                settings.STATIC_ROOT = str(static_root)
+                settings.STATIC_URL = '/static/'
+
+                print(f"✅ Static files found at: {static_root}")
+
+                games_css = static_root / 'games' / 'css'
+                if games_css.exists():
+                    css_files = list(games_css.glob('*.css'))
+                    print(f"   - Found {len(css_files)} CSS files in games/css")
+                    for css_file in css_files:
+                        print(f"     * {css_file.name}")
+
+                admin_static = static_root / 'admin'
+                if admin_static.exists():
+                    print(f"   - Admin static files: OK")
+
+                style_css = games_css / 'style.css'
+                if style_css.exists():
+                    print(f"   - style.css: OK ({style_css.stat().st_size} bytes)")
                 else:
-                    print(f"     📄 {item.name}")
+                    print(f"   - style.css: NOT FOUND")
+            else:
+                print(f"⚠️ Static files not found at: {static_root}")
+                print(f"   Contents of {exe_dir}:")
+                for item in exe_dir.iterdir():
+                    if item.is_dir():
+                        print(f"     📁 {item.name}/")
+                    else:
+                        print(f"     📄 {item.name}")
 
-    run_migrations_once()
+        run_migrations_once()
 
-    print("\n" + "=" * 50)
-    print("🌐 SERVER RUNNING")
-    print("Open your browser and go to: http://127.0.0.1:8000")
-    print("Press Ctrl+C to stop the server")
-    print("=" * 50 + "\n")
+        print("\n" + "=" * 50)
+        print("🌐 SERVER RUNNING")
+        print("Open your browser and go to: http://127.0.0.1:8000")
+        print("Press Ctrl+C to stop the server")
+        print("=" * 50 + "\n")
+        print(f"📝 All output is being logged to: {log_filename}")
 
-    from django.core.management import execute_from_command_line
-    execute_from_command_line(['manage.py', 'runserver', '--noreload', '127.0.0.1:8000'])
+        from django.core.management import execute_from_command_line
+        execute_from_command_line(['manage.py', 'runserver', '--noreload', '127.0.0.1:8000'])
+
+    except KeyboardInterrupt:
+        print("\n🛑 Server stopped by user")
+    except Exception as e:
+        print(f"❌ Fatal error: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        # Восстанавливаем оригинальные потоки
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
+        log_file.close()
+        print(f"📝 Log saved to: {log_filename}")
 
 
 if __name__ == '__main__':

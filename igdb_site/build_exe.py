@@ -119,9 +119,9 @@ def collect_static_files():
 
 
 def run_pyinstaller():
-    """Execute pyinstaller."""
+    """Execute pyinstaller to build gamespeek.exe."""
     print("\n" + "=" * 50)
-    print("Building IGDB_Site.exe")
+    print("Building gamespeek.exe")
     print("=" * 50)
 
     spec_file = PROJECT_ROOT / 'IGDB_Site.spec'
@@ -230,7 +230,7 @@ def copy_all_to_dist():
 
 def main():
     print("=" * 60)
-    print("🚀 IGDB_Site.exe BUILDER")
+    print("🚀 gamespeek.exe BUILDER")
     print("=" * 60)
     print()
 
@@ -252,11 +252,11 @@ def main():
     print("\n" + "=" * 60)
     print("✅ BUILD COMPLETED SUCCESSFULLY!")
     print("=" * 60)
-    print(f"\n📁 All files are in: {DIST_DIR / 'IGDB_Site'}")
-    print("   - IGDB_Site.exe")
+    print(f"\n📁 All files are in: {DIST_DIR}")
+    print("   - gamespeek.exe")
     print("   - data.json")
     print("   - staticfiles/ (with correct structure)")
-    print("\nTo run: double-click IGDB_Site.exe")
+    print("\nTo run: double-click gamespeek.exe")
 
 
 if __name__ == '__main__':
