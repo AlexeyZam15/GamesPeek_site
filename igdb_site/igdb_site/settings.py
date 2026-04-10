@@ -128,10 +128,131 @@ else:
         }
     }
 
-# Дополнительная настройка для Supabase (отключаем проверку соединений)
-if os.getenv('DATABASE_URL') and 'supabase' in os.getenv('DATABASE_URL'):
-    DATABASES['default']['CONN_MAX_AGE'] = 0
-    DATABASES['default']['CONN_HEALTH_CHECKS'] = False
+# ============================================
+# DESKTOP MODE SETTINGS (for .exe launcher)
+# MUST BE BEFORE DATABASE CONNECTION CHECK
+# ============================================
+
+if os.getenv('DESKTOP_MODE') == '1':
+    # Disable SSL for embedded PostgreSQL - MUST BE FIRST
+    if 'default' in DATABASES:
+        if 'OPTIONS' not in DATABASES['default']:
+            DATABASES['default']['OPTIONS'] = {}
+        DATABASES['default']['OPTIONS']['sslmode'] = 'disable'
+        if 'ssl_require' in DATABASES['default']:
+            DATABASES['default'].pop('ssl_require')
+
+    # Disable debug mode for desktop
+    DEBUG = True
+
+    # Allow all hosts in desktop mode
+    ALLOWED_HOSTS = ['*']
+
+    # Add desktop_migrations to INSTALLED_APPS
+    if 'desktop_migrations' not in INSTALLED_APPS:
+        INSTALLED_APPS.append('desktop_migrations')
+
+    # Remove debug_toolbar if present
+    if 'debug_toolbar' in INSTALLED_APPS:
+        INSTALLED_APPS = [app for app in INSTALLED_APPS if app != 'debug_toolbar']
+
+    # Remove debug_toolbar from middleware if present
+    MIDDLEWARE = [m for m in MIDDLEWARE if 'debug_toolbar' not in m]
+
+    # Disable debug toolbar config
+    DEBUG_TOOLBAR_CONFIG = None
+
+    # Clear internal IPs for debug toolbar
+    INTERNAL_IPS = []
+
+    # Disable timezone for embedded PostgreSQL
+    USE_TZ = False
+    TIME_ZONE = 'UTC'
+
+    # Disable PostgreSQL extensions that pgembed doesn't support
+    DATABASE_AUTO_OPTIMIZE = False
+    CREATE_EXTENDED_INDEXES = False
+    USE_POSTGRES_TRGM = False
+    USE_POSTGRES_GIN = False
+
+    # ============================================
+    # СТАТИЧЕСКИЕ ФАЙЛЫ ДЛЯ DESKTOP РЕЖИМА
+    # ============================================
+    if getattr(sys, 'frozen', False):
+        base_dir = Path(sys.executable).parent
+    else:
+        base_dir = Path(__file__).resolve().parent.parent
+
+    STATIC_URL = '/static/'
+    STATIC_ROOT = base_dir / 'staticfiles'
+
+    # В desktop-режиме STATICFILES_DIRS должен быть пустым
+    STATICFILES_DIRS = []
+
+    print(f"[DESKTOP MODE] STATIC_ROOT: {STATIC_ROOT}")
+    print(f"[DESKTOP MODE] STATIC_URL: {STATIC_URL}")
+    print(f"[DESKTOP MODE] DEBUG: {DEBUG}")
+
+    # ============================================
+    # ЛОГИРОВАНИЕ
+    # ============================================
+    LOGGING = {
+        'version': 1,
+        'disable_existing_loggers': False,
+        'formatters': {
+            'simple': {
+                'format': '{levelname} {message}',
+                'style': '{',
+            },
+        },
+        'handlers': {
+            'console': {
+                'class': 'logging.StreamHandler',
+                'formatter': 'simple',
+            },
+        },
+        'root': {
+            'handlers': ['console'],
+            'level': 'INFO',
+        },
+        'loggers': {
+            'django': {
+                'handlers': ['console'],
+                'level': 'INFO',
+                'propagate': False,
+            },
+            'django.template': {
+                'handlers': ['console'],
+                'level': 'WARNING',
+                'propagate': False,
+            },
+            'games': {
+                'handlers': ['console'],
+                'level': 'INFO',
+                'propagate': False,
+            },
+        },
+    }
+
+    # ============================================
+    # КЭШ
+    # ============================================
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'desktop-cache',
+        },
+        'page_cache': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'page-cache',
+        },
+        'template_cache': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'template-cache',
+        },
+    }
+
+    print("[DESKTOP MODE] Settings applied")
 
 # ============================================
 # АВТОМАТИЧЕСКИЕ НАСТРОЙКИ ДЛЯ HUGGING FACE
@@ -240,26 +361,27 @@ POLLINATIONS_TIMEOUT = 30
 # КЭШИРОВАНИЕ ДЛЯ УСКОРЕНИЯ
 # ============================================
 
-CACHES = {
-    'default': {
-        'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
-        'LOCATION': os.path.join(BASE_DIR, 'django_cache'),
-        'TIMEOUT': 3600,
-        'OPTIONS': {
-            'MAX_ENTRIES': 1000,
+if not os.getenv('DESKTOP_MODE') == '1':
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+            'LOCATION': os.path.join(BASE_DIR, 'django_cache'),
+            'TIMEOUT': 3600,
+            'OPTIONS': {
+                'MAX_ENTRIES': 1000,
+            }
+        },
+        'page_cache': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'page-cache',
+            'TIMEOUT': 900,
+        },
+        'template_cache': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'template-cache',
+            'TIMEOUT': 3600,
         }
-    },
-    'page_cache': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'page-cache',
-        'TIMEOUT': 900,
-    },
-    'template_cache': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'template-cache',
-        'TIMEOUT': 3600,
     }
-}
 
 # Оптимизация сессий - храним в кэше
 SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
@@ -307,68 +429,69 @@ DEBUG_TOOLBAR_CONFIG = {
 # ЛОГИРОВАНИЕ С ОПТИМИЗАЦИЕЙ
 # ============================================
 
-LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'formatters': {
-        'verbose': {
-            'format': '{levelname} {asctime} {module} {message}',
-            'style': '{',
+if not os.getenv('DESKTOP_MODE') == '1':
+    LOGGING = {
+        'version': 1,
+        'disable_existing_loggers': False,
+        'formatters': {
+            'verbose': {
+                'format': '{levelname} {asctime} {module} {message}',
+                'style': '{',
+            },
+            'simple': {
+                'format': '{levelname} {message}',
+                'style': '{',
+            },
         },
-        'simple': {
-            'format': '{levelname} {message}',
-            'style': '{',
+        'filters': {
+            'require_debug_true': {
+                '()': 'django.utils.log.RequireDebugTrue',
+            },
+            'require_debug_false': {
+                '()': 'django.utils.log.RequireDebugFalse',
+            },
         },
-    },
-    'filters': {
-        'require_debug_true': {
-            '()': 'django.utils.log.RequireDebugTrue',
+        'handlers': {
+            'console': {
+                'level': 'INFO' if DEBUG else 'WARNING',
+                'filters': ['require_debug_true'],
+                'class': 'logging.StreamHandler',
+                'formatter': 'simple',
+            },
+            'file': {
+                'level': 'ERROR',
+                'class': 'logging.FileHandler',
+                'filename': BASE_DIR / 'logs' / 'django.log',
+                'formatter': 'verbose',
+            },
+            'slow_sql': {
+                'level': 'WARNING',
+                'class': 'logging.FileHandler',
+                'filename': BASE_DIR / 'logs' / 'slow_sql.log',
+                'formatter': 'verbose',
+            },
         },
-        'require_debug_false': {
-            '()': 'django.utils.log.RequireDebugFalse',
+        'loggers': {
+            'django': {
+                'handlers': ['console'],
+                'level': 'INFO',
+                'propagate': True,
+            },
+            'django.db.backends': {
+                'level': 'WARNING',
+                'handlers': ['console', 'slow_sql'],
+                'propagate': False,
+            },
+            'games': {
+                'handlers': ['console', 'file'],
+                'level': 'DEBUG' if DEBUG else 'INFO',
+                'propagate': False,
+            },
         },
-    },
-    'handlers': {
-        'console': {
-            'level': 'INFO' if DEBUG else 'WARNING',
-            'filters': ['require_debug_true'],
-            'class': 'logging.StreamHandler',
-            'formatter': 'simple',
-        },
-        'file': {
-            'level': 'ERROR',
-            'class': 'logging.FileHandler',
-            'filename': BASE_DIR / 'logs' / 'django.log',
-            'formatter': 'verbose',
-        },
-        'slow_sql': {
-            'level': 'WARNING',
-            'class': 'logging.FileHandler',
-            'filename': BASE_DIR / 'logs' / 'slow_sql.log',
-            'formatter': 'verbose',
-        },
-    },
-    'loggers': {
-        'django': {
-            'handlers': ['console'],
-            'level': 'INFO',
-            'propagate': True,
-        },
-        'django.db.backends': {
-            'level': 'WARNING',
-            'handlers': ['console', 'slow_sql'],
-            'propagate': False,
-        },
-        'games': {
-            'handlers': ['console', 'file'],
-            'level': 'DEBUG' if DEBUG else 'INFO',
-            'propagate': False,
-        },
-    },
-}
+    }
 
-# Создаем папку для логов если её нет
-os.makedirs(BASE_DIR / 'logs', exist_ok=True)
+    # Создаем папку для логов если её нет
+    os.makedirs(BASE_DIR / 'logs', exist_ok=True)
 
 # ============================================
 # ОПТИМИЗАЦИИ ДЛЯ РАЗРАБОТКИ
@@ -477,133 +600,3 @@ required_settings = ['IGDB_CLIENT_ID', 'IGDB_CLIENT_SECRET']
 for setting in required_settings:
     if not globals().get(setting):
         print(f"[WARNING] {setting} is not set")
-
-# ============================================
-# DESKTOP MODE SETTINGS (for .exe launcher)
-# ============================================
-
-import os
-import sys
-from pathlib import Path
-
-if os.getenv('DESKTOP_MODE') == '1':
-    # Disable debug mode for desktop
-    DEBUG = True  # Временно включаем DEBUG для отладки статики
-    # DEBUG = False  # Раскомментировать после исправления статики
-
-    # Allow all hosts in desktop mode
-    ALLOWED_HOSTS = ['*']
-
-    # Добавляем desktop_migrations в INSTALLED_APPS
-    if 'desktop_migrations' not in INSTALLED_APPS:
-        INSTALLED_APPS.append('desktop_migrations')
-
-    # Remove debug_toolbar if present
-    if 'debug_toolbar' in INSTALLED_APPS:
-        INSTALLED_APPS = [app for app in INSTALLED_APPS if app != 'debug_toolbar']
-
-    # Remove debug_toolbar from middleware if present
-    MIDDLEWARE = [m for m in MIDDLEWARE if 'debug_toolbar' not in m]
-
-    # Disable debug toolbar config
-    DEBUG_TOOLBAR_CONFIG = None
-
-    # Clear internal IPs for debug toolbar
-    INTERNAL_IPS = []
-
-    # Disable timezone for embedded PostgreSQL
-    USE_TZ = False
-    TIME_ZONE = 'UTC'
-
-    # Disable PostgreSQL extensions that pgembed doesn't support
-    DATABASE_AUTO_OPTIMIZE = False
-    CREATE_EXTENDED_INDEXES = False
-    USE_POSTGRES_TRGM = False
-    USE_POSTGRES_GIN = False
-
-    # Disable SSL for embedded PostgreSQL
-    if 'default' in DATABASES:
-        if 'OPTIONS' not in DATABASES['default']:
-            DATABASES['default']['OPTIONS'] = {}
-        DATABASES['default']['OPTIONS']['sslmode'] = 'disable'
-        if 'ssl_require' in DATABASES['default']:
-            DATABASES['default'].pop('ssl_require')
-
-    # ============================================
-    # СТАТИЧЕСКИЕ ФАЙЛЫ ДЛЯ DESKTOP РЕЖИМА
-    # ============================================
-    if getattr(sys, 'frozen', False):
-        base_dir = Path(sys.executable).parent
-    else:
-        base_dir = Path(__file__).resolve().parent.parent
-
-    STATIC_URL = '/static/'
-    STATIC_ROOT = base_dir / 'staticfiles'
-
-    # В desktop-режиме STATICFILES_DIRS должен быть пустым
-    STATICFILES_DIRS = []
-
-    print(f"[DESKTOP MODE] STATIC_ROOT: {STATIC_ROOT}")
-    print(f"[DESKTOP MODE] STATIC_URL: {STATIC_URL}")
-    print(f"[DESKTOP MODE] DEBUG: {DEBUG}")
-
-    # ============================================
-    # ЛОГИРОВАНИЕ
-    # ============================================
-    LOGGING = {
-        'version': 1,
-        'disable_existing_loggers': False,
-        'formatters': {
-            'simple': {
-                'format': '{levelname} {message}',
-                'style': '{',
-            },
-        },
-        'handlers': {
-            'console': {
-                'class': 'logging.StreamHandler',
-                'formatter': 'simple',
-            },
-        },
-        'root': {
-            'handlers': ['console'],
-            'level': 'INFO',
-        },
-        'loggers': {
-            'django': {
-                'handlers': ['console'],
-                'level': 'INFO',
-                'propagate': False,
-            },
-            'django.template': {
-                'handlers': ['console'],
-                'level': 'WARNING',
-                'propagate': False,
-            },
-            'games': {
-                'handlers': ['console'],
-                'level': 'INFO',
-                'propagate': False,
-            },
-        },
-    }
-
-    # ============================================
-    # КЭШ
-    # ============================================
-    CACHES = {
-        'default': {
-            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-            'LOCATION': 'desktop-cache',
-        },
-        'page_cache': {
-            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-            'LOCATION': 'page-cache',
-        },
-        'template_cache': {
-            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-            'LOCATION': 'template-cache',
-        },
-    }
-
-    print("[DESKTOP MODE] Settings applied")

@@ -48,6 +48,7 @@ def start_postgresql():
     """
     Start embedded PostgreSQL server.
     Data persists in user's AppData folder between launches.
+    Returns database URL after successful connection.
     """
     try:
         import pgembed
@@ -61,53 +62,197 @@ def start_postgresql():
     else:
         data_dir = os.path.join(os.path.expanduser('~'), '.igdb_site_postgresql')
 
-    # Не удаляем базу данных при запуске
-    # База данных удаляется только при сборке в build_exe.py
-
     Path(data_dir).mkdir(parents=True, exist_ok=True)
 
     print(f"📁 Database stored at: {data_dir}")
 
-    server = pgembed.get_server(data_dir)
-    database_url = server.get_uri()
+    # Kill any existing PostgreSQL processes using this data directory
+    def kill_orphaned_postgresql():
+        """Kill any PostgreSQL processes that might be using our data directory."""
+        import subprocess
+        import psutil
 
-    # Отключаем SSL для pgembed
-    if database_url.startswith('postgresql://'):
-        database_url = database_url.replace('postgresql://', 'postgres://')
+        print("  Checking for orphaned PostgreSQL processes...")
+        killed_count = 0
 
-    # Добавляем параметр отключения SSL
-    if '?' in database_url:
-        database_url += '&sslmode=disable'
-    else:
-        database_url += '?sslmode=disable'
+        if sys.platform == 'win32':
+            try:
+                for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                    try:
+                        if proc.info['name'] and 'postgres' in proc.info['name'].lower():
+                            cmdline = ' '.join(proc.info['cmdline']) if proc.info['cmdline'] else ''
+                            if data_dir in cmdline:
+                                print(f"    Killing orphaned PostgreSQL process PID {proc.info['pid']}")
+                                proc.kill()
+                                killed_count += 1
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        continue
+            except Exception as e:
+                print(f"    Warning: Could not check processes: {e}")
+        else:
+            try:
+                result = subprocess.run(
+                    ['pgrep', '-f', f'postgres.*{data_dir}'],
+                    capture_output=True,
+                    text=True
+                )
+                if result.stdout:
+                    pids = result.stdout.strip().split('\n')
+                    for pid in pids:
+                        if pid:
+                            print(f"    Killing orphaned PostgreSQL process PID {pid}")
+                            os.kill(int(pid), 9)
+                            killed_count += 1
+            except Exception as e:
+                print(f"    Warning: Could not check processes: {e}")
 
-    atexit.register(lambda: server.cleanup())
+        if killed_count > 0:
+            print(f"    Killed {killed_count} orphaned processes")
+            time.sleep(2)
+        else:
+            print("    No orphaned processes found")
 
-    print("✅ PostgreSQL started")
+    def cleanup_port(port):
+        """Kill process using specific port."""
+        import subprocess
+        import psutil
+
+        if sys.platform == 'win32':
+            try:
+                result = subprocess.run(
+                    f'netstat -ano | findstr :{port} | findstr LISTENING',
+                    shell=True,
+                    capture_output=True,
+                    text=True
+                )
+                if result.stdout:
+                    lines = result.stdout.strip().split('\n')
+                    for line in lines:
+                        parts = line.split()
+                        if len(parts) >= 5:
+                            pid = parts[4]
+                            try:
+                                proc = psutil.Process(int(pid))
+                                if 'postgres' in proc.name().lower():
+                                    print(f"    Killing process on port {port} (PID {pid})")
+                                    proc.kill()
+                            except:
+                                pass
+            except Exception as e:
+                print(f"    Warning: Could not cleanup port {port}: {e}")
+
+    kill_orphaned_postgresql()
+
+    import socket
+    import time
+
+    def check_port(port):
+        """Check if port is available."""
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            return sock.connect_ex(('127.0.0.1', port)) != 0
+
+    def wait_for_postgres(port, timeout=30):
+        """Wait for PostgreSQL to accept connections."""
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            try:
+                import psycopg2
+                conn = psycopg2.connect(
+                    host='127.0.0.1',
+                    port=port,
+                    user='postgres',
+                    connect_timeout=1,
+                    sslmode='disable'
+                )
+                conn.close()
+                return True
+            except:
+                time.sleep(0.5)
+        return False
+
+    max_retries = 3
+    server = None
+    database_url = None
+
+    for attempt in range(max_retries):
+        try:
+            print(f"  Attempt {attempt + 1}/{max_retries} to start PostgreSQL...")
+
+            import re
+            test_url = f"postgres://user@localhost:7937"
+            port_match = re.search(r':(\d+)', test_url)
+            test_port = int(port_match.group(1)) if port_match else 7937
+            cleanup_port(test_port)
+
+            server = pgembed.get_server(data_dir, cleanup_mode='stop')
+
+            database_url = server.get_uri()
+            port_match = re.search(r':(\d+)', database_url)
+            port = int(port_match.group(1)) if port_match else 7937
+
+            if wait_for_postgres(port, timeout=30):
+                print(f"✅ PostgreSQL started successfully on port {port}")
+
+                def cleanup_server():
+                    try:
+                        print("  Cleaning up PostgreSQL server...")
+                        server.cleanup()
+                        time.sleep(1)
+                        kill_orphaned_postgresql()
+                    except:
+                        pass
+
+                atexit.register(cleanup_server)
+                break
+            else:
+                print(f"  Server started but not responding, retrying...")
+                if server:
+                    try:
+                        server.cleanup()
+                    except:
+                        pass
+                time.sleep(2)
+                continue
+
+        except Exception as e:
+            print(f"  Attempt failed: {e}")
+            if server:
+                try:
+                    server.cleanup()
+                except:
+                    pass
+            time.sleep(2)
+            if attempt == max_retries - 1:
+                print(f"❌ Failed to start PostgreSQL after {max_retries} attempts")
+                sys.exit(1)
+
+    # Fix database URL - convert to postgres:// and disable SSL
+    if database_url:
+        if database_url.startswith('postgresql://'):
+            database_url = database_url.replace('postgresql://', 'postgres://')
+
+        # Remove any existing sslmode parameter
+        if 'sslmode=' in database_url:
+            import re
+            database_url = re.sub(r'[?&]sslmode=[^&]*', '', database_url)
+
+        # Add sslmode=disable
+        if '?' in database_url:
+            database_url += '&sslmode=disable'
+        else:
+            database_url += '?sslmode=disable'
+
+        # Also set environment variable for Django
+        os.environ['PGSSLMODE'] = 'disable'
+
+    print("✅ PostgreSQL ready")
     return database_url
 
 
-def run_migrations_once():
-    """
-    Run desktop-specific migration to create ALL tables, then import data.
-    Optimized for maximum speed using parallel processing and optimized queries.
-    """
-    from django.db import connection, transaction
-    from django.core.management import call_command
-    from django.contrib.auth import get_user_model
-    import json
-    from tqdm import tqdm
-    import gc
-    import time
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    import threading
+def check_database_state():
+    """Check if database tables and data exist."""
+    from django.db import connection
 
-    # Сначала применяем стандартные миграции Django
-    print("📦 Applying Django core migrations...")
-    call_command('migrate', interactive=False)
-    print("✅ Core migrations completed")
-
-    # Проверяем наличие таблицы games_game и данных в ней
     with connection.cursor() as cursor:
         cursor.execute("""
                        SELECT EXISTS (SELECT 1
@@ -123,6 +268,602 @@ def run_migrations_once():
             has_games_data = game_count > 0
             print(f"📊 Current games in database: {game_count}")
 
+    return has_games_table, has_games_data
+
+
+def apply_database_optimizations():
+    """Apply PostgreSQL optimizations and fix array comparison issues."""
+    from django.db import connection
+
+    with connection.cursor() as cursor:
+        cursor.execute('SET CONSTRAINTS ALL DEFERRED')
+        cursor.execute('SET synchronous_commit TO OFF')
+        cursor.execute('SET maintenance_work_mem TO "1GB"')
+        cursor.execute('SET work_mem TO "256MB"')
+
+        # Check if function exists before creating
+        cursor.execute("""
+                       SELECT EXISTS (SELECT 1
+                                      FROM pg_proc
+                                      WHERE proname = 'safe_array_equals'
+                                        AND pronargs = 2);
+                       """)
+
+        function_exists = cursor.fetchone()[0]
+
+        if not function_exists:
+            # Create function without DO block - simpler syntax
+            cursor.execute("""
+                           CREATE FUNCTION safe_array_equals(text, integer [])
+                               RETURNS boolean AS
+                               $$
+                           SELECT FALSE;
+                           $$
+                           LANGUAGE sql
+                IMMUTABLE;
+                           """)
+
+
+def restore_database_settings():
+    """Restore PostgreSQL settings after import."""
+    from django.db import connection
+    from django.db import transaction
+
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute('SET CONSTRAINTS ALL IMMEDIATE')
+            cursor.execute('SET synchronous_commit TO ON')
+
+
+def import_independent_model(data_key, model_class, data, results):
+    """Import independent model data in parallel."""
+    if data_key in data and data[data_key]:
+        objects_data = data[data_key]
+        objects_to_create = []
+        for item in objects_data:
+            fields = item['fields'].copy()
+            objects_to_create.append(model_class(id=item['pk'], **fields))
+
+        batch_size = 10000
+        saved_count = 0
+        for i in range(0, len(objects_to_create), batch_size):
+            batch = objects_to_create[i:i + batch_size]
+            created = model_class.objects.bulk_create(batch, ignore_conflicts=True)
+            saved_count += len(created)
+        results[data_key] = saved_count
+
+
+def import_keyword_category(data):
+    """Import KeywordCategory data."""
+    from games import models as game_models
+    from tqdm import tqdm
+    import gc
+
+    if 'KeywordCategory' not in data or not data['KeywordCategory']:
+        return 0
+
+    objects_data = data['KeywordCategory']
+    print(f"\n  ⚡ Importing KeywordCategory: {len(objects_data)} records...")
+
+    objects_to_create = []
+    for item in objects_data:
+        fields = item['fields'].copy()
+        objects_to_create.append(game_models.KeywordCategory(id=item['pk'], **fields))
+
+    batch_size = 5000
+    saved_count = 0
+    total_objects = 0
+
+    with tqdm(total=len(objects_to_create), desc="  ⏳ Saving", unit="rec",
+              bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
+        for i in range(0, len(objects_to_create), batch_size):
+            batch = objects_to_create[i:i + batch_size]
+            created = game_models.KeywordCategory.objects.bulk_create(batch, ignore_conflicts=True)
+            saved_count += len(created)
+            total_objects += len(created)
+            pbar.update(len(batch))
+
+    print(f"    ✅ Saved: {saved_count}/{len(objects_data)} records")
+    del objects_to_create
+    gc.collect()
+    return total_objects
+
+
+def import_keywords(data):
+    """Import Keyword data using raw SQL for speed."""
+    from django.db import connection
+    from tqdm import tqdm
+    import gc
+
+    if 'Keyword' not in data or not data['Keyword']:
+        return 0
+
+    objects_data = data['Keyword']
+    print(f"\n  ⚡ Importing Keyword: {len(objects_data)} records...")
+
+    values_list = []
+    for item in objects_data:
+        fields = item['fields']
+        pk = item['pk']
+        igdb_id = fields.get('igdb_id', 0)
+        name = fields.get('name', '').replace("'", "''")
+        cached_usage_count = fields.get('cached_usage_count', 0)
+        category_id = fields.get('category')
+        created_at = fields.get('created_at', 'NOW()')
+        category_sql = str(category_id) if category_id else 'NULL'
+        values_list.append(
+            f"({pk}, {igdb_id}, '{name}', {cached_usage_count}, {category_sql}, '{created_at}')")
+
+    if not values_list:
+        return 0
+
+    batch_size = 10000
+    inserted = 0
+
+    with tqdm(total=len(values_list), desc="  ⏳ Saving", unit="rec",
+              bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
+        with connection.cursor() as cursor:
+            for i in range(0, len(values_list), batch_size):
+                batch = values_list[i:i + batch_size]
+                sql = f"""
+                    INSERT INTO games_keyword (id, igdb_id, name, cached_usage_count, category_id, created_at)
+                    VALUES {','.join(batch)}
+                    ON CONFLICT (id) DO NOTHING
+                """
+                cursor.execute(sql)
+                inserted += cursor.rowcount
+                pbar.update(len(batch))
+
+    print(f"    ✅ Saved: {inserted}/{len(objects_data)} records")
+    del values_list
+    gc.collect()
+    return inserted
+
+
+def prepare_game_data(games_data):
+    """Prepare game data for bulk insert."""
+    game_values = []
+    game_m2m_data = []
+    game_parent_refs = []
+
+    def sql_value(val, is_string=False):
+        if val is None:
+            return 'NULL'
+        if is_string:
+            if val == '':
+                return "''"
+            escaped = str(val).replace("'", "''")
+            return f"'{escaped}'"
+        if isinstance(val, bool):
+            return 'TRUE' if val else 'FALSE'
+        return str(val)
+
+    games_data_sorted = sorted(
+        games_data,
+        key=lambda x: (
+            (x['fields'].get('parent_game') is not None) or (x['fields'].get('version_parent') is not None),
+            x['fields'].get('parent_game') or 0,
+            x['fields'].get('version_parent') or 0
+        )
+    )
+
+    from tqdm import tqdm
+
+    with tqdm(total=len(games_data_sorted), desc="  ⏳ Preparing", unit="rec",
+              bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
+        for game_data in games_data_sorted:
+            game_id = game_data['pk']
+            fields = game_data['fields'].copy()
+
+            developers = fields.pop('developers', [])
+            publishers = fields.pop('publishers', [])
+            genres = fields.pop('genres', [])
+            platforms = fields.pop('platforms', [])
+            keywords = fields.pop('keywords', [])
+            engines = fields.pop('engines', [])
+            themes = fields.pop('themes', [])
+            player_perspectives = fields.pop('player_perspectives', [])
+            game_modes = fields.pop('game_modes', [])
+            series = fields.pop('series', [])
+            screenshots = fields.pop('screenshots', [])
+
+            parent_game_id = fields.get('parent_game')
+            version_parent_id = fields.get('version_parent')
+
+            igdb_id = fields.get('igdb_id', 0)
+            name = sql_value(fields.get('name', ''), True)
+            summary = sql_value(fields.get('summary'), True)
+            game_type = sql_value(fields.get('game_type'))
+            version_title = sql_value(fields.get('version_title'), True)
+            rawg_description = sql_value(fields.get('rawg_description'), True)
+            storyline = sql_value(fields.get('storyline'), True)
+            rating = sql_value(fields.get('rating'))
+            rating_count = fields.get('rating_count', 0)
+            first_release_date = sql_value(fields.get('first_release_date'), True)
+            series_order = sql_value(fields.get('series_order'))
+            cover_url = sql_value(fields.get('cover_url'), True)
+            wiki_description = sql_value(fields.get('wiki_description'), True)
+
+            date_added = sql_value(fields.get('date_added'), True)
+            if date_added == 'NULL':
+                date_added = 'NOW()'
+            updated_at = sql_value(fields.get('updated_at'), True)
+            if updated_at == 'NULL':
+                updated_at = 'NOW()'
+
+            import json as json_module
+            developer_ids = sql_value(json_module.dumps(developers), True)
+            game_mode_ids = sql_value(json_module.dumps(game_modes), True)
+            genre_ids = sql_value(json_module.dumps(genres), True)
+            keyword_ids = sql_value(json_module.dumps(keywords), True)
+            perspective_ids = sql_value(json_module.dumps(player_perspectives), True)
+            theme_ids = sql_value(json_module.dumps(themes), True)
+            engine_ids = sql_value(json_module.dumps(engines), True)
+
+            game_values.append(f"""({game_id}, {igdb_id}, {name}, {summary}, {game_type}, 
+                {version_title}, {rawg_description}, {storyline}, {rating}, {rating_count},
+                {first_release_date}, {series_order}, {cover_url}, {wiki_description},
+                {developer_ids}, {game_mode_ids}, {genre_ids}, {keyword_ids},
+                {perspective_ids}, {theme_ids}, {engine_ids}, {date_added}, {updated_at})""")
+
+            game_m2m_data.append({
+                'game_id': game_id,
+                'developers': developers,
+                'publishers': publishers,
+                'genres': genres,
+                'platforms': platforms,
+                'keywords': keywords,
+                'engines': engines,
+                'themes': themes,
+                'player_perspectives': player_perspectives,
+                'game_modes': game_modes,
+                'series': series,
+                'screenshots': screenshots,
+            })
+
+            game_parent_refs.append({
+                'game_id': game_id,
+                'parent_game_id': parent_game_id,
+                'version_parent_id': version_parent_id,
+            })
+
+            pbar.update(1)
+
+    return game_values, game_m2m_data, game_parent_refs
+
+
+def insert_games(game_values, games_data):
+    """Insert games using raw SQL."""
+    from django.db import connection
+    from tqdm import tqdm
+
+    if not game_values:
+        return 0
+
+    batch_size = 2000
+    inserted = 0
+
+    with tqdm(total=len(game_values), desc="  ⏳ Saving games", unit="rec",
+              bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
+        with connection.cursor() as cursor:
+            for i in range(0, len(game_values), batch_size):
+                batch = game_values[i:i + batch_size]
+                sql = f"""
+                    INSERT INTO games_game (id, igdb_id, name, summary, game_type, version_title,
+                        rawg_description, storyline, rating, rating_count, first_release_date,
+                        series_order, cover_url, wiki_description, developer_ids, game_mode_ids,
+                        genre_ids, keyword_ids, perspective_ids, theme_ids, engine_ids,
+                        date_added, updated_at)
+                    VALUES {','.join(batch)}
+                    ON CONFLICT (id) DO NOTHING
+                """
+                cursor.execute(sql)
+                inserted += cursor.rowcount
+                pbar.update(len(batch))
+
+    print(f"    ✅ Games saved: {inserted}/{len(games_data)}")
+    return inserted
+
+
+def update_game_parents(game_parent_refs):
+    """Update parent_game and version_parent references."""
+    from django.db import connection
+    from tqdm import tqdm
+
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT id FROM games_game")
+        existing_ids = set(row[0] for row in cursor.fetchall())
+
+    parent_updates = []
+    for ref in game_parent_refs:
+        if ref['parent_game_id'] or ref['version_parent_id']:
+            valid_parent = True
+            if ref['parent_game_id'] and ref['parent_game_id'] not in existing_ids:
+                valid_parent = False
+            if ref['version_parent_id'] and ref['version_parent_id'] not in existing_ids:
+                valid_parent = False
+            if valid_parent:
+                parent_updates.append(ref)
+
+    if not parent_updates:
+        return 0
+
+    updated = 0
+    with tqdm(total=len(parent_updates), desc="  ⏳ Updating parents", unit="rec",
+              bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
+        with connection.cursor() as cursor:
+            for ref in parent_updates:
+                updates = []
+                if ref['parent_game_id'] and ref['parent_game_id'] in existing_ids:
+                    updates.append(f"parent_game_id = {ref['parent_game_id']}")
+                if ref['version_parent_id'] and ref['version_parent_id'] in existing_ids:
+                    updates.append(f"version_parent_id = {ref['version_parent_id']}")
+                if updates:
+                    sql = f"""
+                        UPDATE games_game 
+                        SET {', '.join(updates)}
+                        WHERE id = {ref['game_id']}
+                    """
+                    cursor.execute(sql)
+                    updated += cursor.rowcount
+                pbar.update(1)
+
+    print(f"    ✅ Parents updated: {updated}")
+    return updated
+
+
+def insert_m2m_batch(table_name, column_name, values_batch):
+    """Insert one batch of ManyToMany relationships."""
+    from django.db import connections
+
+    with connections['default'].cursor() as cursor:
+        sql = f"""
+            INSERT INTO {table_name} (game_id, {column_name})
+            VALUES {','.join(values_batch)}
+            ON CONFLICT (game_id, {column_name}) DO NOTHING
+        """
+        cursor.execute(sql)
+        return cursor.rowcount
+
+
+def process_m2m_parallel(field_name, table_name, column_name, game_m2m_data):
+    """Process one ManyToMany relationship in parallel."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    values = []
+    for m2m in game_m2m_data:
+        game_id = m2m['game_id']
+        for related_id in m2m[field_name]:
+            values.append(f"({game_id}, {related_id})")
+
+    if not values:
+        return 0
+
+    print(f"    ⏳ Creating {field_name} relations: {len(values)} records...")
+
+    batch_size = 20000
+    batches = [values[i:i + batch_size] for i in range(0, len(values), batch_size)]
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = []
+        for batch in batches:
+            future = executor.submit(insert_m2m_batch, table_name, column_name, batch)
+            futures.append(future)
+
+        total_inserted = 0
+        for future in as_completed(futures):
+            total_inserted += future.result()
+
+    print(f"      ✅ Inserted: {total_inserted} {field_name} relations")
+    return total_inserted
+
+
+def insert_keywords_relations(game_m2m_data):
+    """Insert keyword relations sequentially to avoid deadlocks."""
+    from django.db import connection
+    from tqdm import tqdm
+
+    total_keywords = sum(len(m2m['keywords']) for m2m in game_m2m_data)
+    if total_keywords == 0:
+        return 0
+
+    print(f"    ⏳ Creating keywords relations: {total_keywords} records...")
+
+    values = []
+    for m2m in game_m2m_data:
+        game_id = m2m['game_id']
+        for keyword_id in m2m['keywords']:
+            values.append(f"({game_id}, {keyword_id})")
+
+    batch_size = 50000
+    total_inserted = 0
+
+    with tqdm(total=len(values), desc="    ⏳ keywords", unit="rec",
+              bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
+        with connection.cursor() as cursor:
+            for i in range(0, len(values), batch_size):
+                batch = values[i:i + batch_size]
+                sql = f"""
+                    INSERT INTO games_game_keywords (game_id, keyword_id)
+                    VALUES {','.join(batch)}
+                    ON CONFLICT (game_id, keyword_id) DO NOTHING
+                """
+                cursor.execute(sql)
+                total_inserted += cursor.rowcount
+                pbar.update(len(batch))
+
+    print(f"      ✅ Inserted: {total_inserted} keyword relations")
+    return total_inserted
+
+
+def insert_screenshots(game_m2m_data):
+    """Insert screenshot data."""
+    from django.db import connection
+    from tqdm import tqdm
+
+    screenshot_values = []
+    for m2m in game_m2m_data:
+        game_id = m2m['game_id']
+        for screenshot_data in m2m['screenshots']:
+            if isinstance(screenshot_data, dict):
+                url = screenshot_data.get('url', '').replace("'", "''")
+                w = screenshot_data.get('w', 0)
+                h = screenshot_data.get('h', 0)
+                primary = str(screenshot_data.get('primary', False)).lower()
+                screenshot_values.append(f"({game_id}, '{url}', {w}, {h}, {primary})")
+
+    if not screenshot_values:
+        return 0
+
+    print(f"    ⏳ Creating screenshots: {len(screenshot_values)} records...")
+
+    batch_size = 10000
+    inserted = 0
+
+    with tqdm(total=len(screenshot_values), desc="    ⏳ Screenshots", unit="rec",
+              bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
+        with connection.cursor() as cursor:
+            for i in range(0, len(screenshot_values), batch_size):
+                batch = screenshot_values[i:i + batch_size]
+                sql = f"""
+                    INSERT INTO games_screenshot (game_id, url, w, h, "primary")
+                    VALUES {','.join(batch)}
+                    ON CONFLICT DO NOTHING
+                """
+                cursor.execute(sql)
+                inserted += cursor.rowcount
+                pbar.update(len(batch))
+
+    print(f"      ✅ Inserted: {inserted} screenshots")
+    return inserted
+
+
+def import_independent_models_parallel(data):
+    """Import all independent models in parallel."""
+    from games import models as game_models
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import gc
+
+    independent_models = {
+        'PlayerPerspective': game_models.PlayerPerspective,
+        'GameMode': game_models.GameMode,
+        'Theme': game_models.Theme,
+        'Genre': game_models.Genre,
+        'Platform': game_models.Platform,
+        'GameEngine': game_models.GameEngine,
+        'Company': game_models.Company,
+        'Series': game_models.Series,
+    }
+
+    print("\n  ⚡ Importing independent models in parallel...")
+    results = {}
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = []
+        for data_key, model_class in independent_models.items():
+            future = executor.submit(import_independent_model, data_key, model_class, data, results)
+            futures.append(future)
+
+        for future in as_completed(futures):
+            future.result()
+
+    total_objects = 0
+    for data_key, count in results.items():
+        if count:
+            print(f"    ✅ {data_key}: {count} records")
+            total_objects += count
+
+    gc.collect()
+    return total_objects
+
+
+def import_all_m2m_relationships(game_m2m_data):
+    """Import all ManyToMany relationships sequentially to avoid deadlocks."""
+
+    m2m_mappings = [
+        ('developers', 'games_game_developers', 'company_id'),
+        ('publishers', 'games_game_publishers', 'company_id'),
+        ('genres', 'games_game_genres', 'genre_id'),
+        ('platforms', 'games_game_platforms', 'platform_id'),
+        ('engines', 'games_game_engines', 'gameengine_id'),
+        ('themes', 'games_game_themes', 'theme_id'),
+        ('player_perspectives', 'games_game_player_perspectives', 'playerperspective_id'),
+        ('game_modes', 'games_game_game_modes', 'gamemode_id'),
+        ('series', 'games_game_series', 'series_id'),
+    ]
+
+    total_objects = 0
+
+    for field_name, table_name, column_name in m2m_mappings:
+        total_objects += process_m2m_sequential(field_name, table_name, column_name, game_m2m_data)
+
+    return total_objects
+
+
+def process_m2m_sequential(field_name, table_name, column_name, game_m2m_data):
+    """Process one ManyToMany relationship sequentially."""
+    from django.db import connection
+
+    values = []
+    for m2m in game_m2m_data:
+        game_id = m2m['game_id']
+        for related_id in m2m[field_name]:
+            values.append(f"({game_id}, {related_id})")
+
+    if not values:
+        return 0
+
+    print(f"    ⏳ Creating {field_name} relations: {len(values)} records...")
+
+    batch_size = 20000
+    total_inserted = 0
+
+    with connection.cursor() as cursor:
+        for i in range(0, len(values), batch_size):
+            batch = values[i:i + batch_size]
+            sql = f"""
+                INSERT INTO {table_name} (game_id, {column_name})
+                VALUES {','.join(batch)}
+                ON CONFLICT (game_id, {column_name}) DO NOTHING
+            """
+            cursor.execute(sql)
+            total_inserted += cursor.rowcount
+
+    print(f"      ✅ Inserted: {total_inserted} {field_name} relations")
+    return total_inserted
+
+def create_default_superuser():
+    """Create default superuser if none exists."""
+    from django.contrib.auth import get_user_model
+
+    User = get_user_model()
+    if User.objects.count() == 0:
+        print("👤 Creating default superuser...")
+        User.objects.create_superuser('admin', 'admin@localhost.com', 'admin')
+        print("⚠️ Default superuser created: admin / admin")
+
+
+def run_migrations_once():
+    """
+    Run desktop-specific migration to create ALL tables, then import data.
+    Optimized for maximum speed using parallel processing and optimized queries.
+    """
+    from django.core.management import call_command
+    from django.db import transaction
+    from django.db import connection
+    import json
+    from tqdm import tqdm
+    import time
+    from pathlib import Path
+    import sys
+    import gc
+
+    print("📦 Applying Django core migrations...")
+    call_command('migrate', interactive=False)
+    print("✅ Core migrations completed")
+
+    has_games_table, has_games_data = check_database_state()
+
     if not has_games_table:
         print("📦 First run: creating database tables using desktop migration...")
         call_command('migrate', 'desktop_migrations', interactive=False)
@@ -135,473 +876,98 @@ def run_migrations_once():
         print("✅ Database tables exist with data, skipping migrations and import")
         needs_import = False
 
-    if needs_import:
-        # Определяем путь к data.json
-        if getattr(sys, 'frozen', False):
-            exe_dir = Path(sys.executable).parent
-        else:
-            exe_dir = Path.cwd()
+    if not needs_import:
+        return
 
-        data_file = exe_dir / 'data.json'
+    if getattr(sys, 'frozen', False):
+        exe_dir = Path(sys.executable).parent
+    else:
+        exe_dir = Path.cwd()
 
-        if data_file.exists():
-            file_size_mb = data_file.stat().st_size / 1024 / 1024
-            print(f"📦 Found data.json ({file_size_mb:.1f} MB)")
-            print("📖 Loading JSON file...")
+    data_file = exe_dir / 'data.json'
 
-            try:
-                # Загружаем JSON с прогресс-баром
-                with tqdm(total=100, desc="  ⏳ Loading JSON", unit="%",
-                          bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
-                    with open(data_file, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                    pbar.update(100)
+    if not data_file.exists():
+        print("⚠️ No data.json found. Database will be empty.")
+        return
 
-                print(f"✅ JSON loaded successfully")
-                print(f"📊 Found {len(data)} model types in fixture")
+    file_size_mb = data_file.stat().st_size / 1024 / 1024
+    print(f"📦 Found data.json ({file_size_mb:.1f} MB)")
+    print("📖 Loading JSON file...")
 
-                with connection.cursor() as cursor:
-                    cursor.execute('SET CONSTRAINTS ALL DEFERRED')
-                    cursor.execute('SET synchronous_commit TO OFF')
-                    cursor.execute('SET maintenance_work_mem TO "1GB"')
-                    cursor.execute('SET work_mem TO "256MB"')
+    try:
+        with tqdm(total=100, desc="  ⏳ Loading JSON", unit="%",
+                  bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
+            with open(data_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            pbar.update(100)
 
-                total_objects = 0
-                import_start_time = time.time()
+        print(f"✅ JSON loaded successfully")
+        print(f"📊 Found {len(data)} model types in fixture")
 
-                # Импортируем модели из games.models
-                from games import models as game_models
+        # Apply optimizations in transaction
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute('SET CONSTRAINTS ALL DEFERRED')
+                cursor.execute('SET synchronous_commit TO OFF')
+                cursor.execute('SET maintenance_work_mem TO "1GB"')
+                cursor.execute('SET work_mem TO "256MB"')
 
-                # ИМПОРТ KEYWORD CATEGORY
-                if 'KeywordCategory' in data and data['KeywordCategory']:
-                    objects_data = data['KeywordCategory']
-                    print(f"\n  ⚡ Importing KeywordCategory: {len(objects_data)} records...")
+                # Create safe array comparison function
+                cursor.execute("""
+                               CREATE
+                               OR REPLACE FUNCTION safe_array_equals(text, integer[])
+                    RETURNS boolean AS
+                    $$
+                               SELECT FALSE;
+                               $$
+                               LANGUAGE sql
+                    IMMUTABLE;
+                               """)
 
-                    objects_to_create = []
-                    for item in objects_data:
-                        fields = item['fields'].copy()
-                        objects_to_create.append(game_models.KeywordCategory(id=item['pk'], **fields))
+        total_objects = 0
+        import_start_time = time.time()
 
-                    batch_size = 5000
-                    saved_count = 0
-                    with tqdm(total=len(objects_to_create), desc="  ⏳ Saving", unit="rec",
-                              bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]') as pbar:
-                        for i in range(0, len(objects_to_create), batch_size):
-                            batch = objects_to_create[i:i + batch_size]
-                            created = game_models.KeywordCategory.objects.bulk_create(batch, ignore_conflicts=True)
-                            saved_count += len(created)
-                            total_objects += len(created)
-                            pbar.update(len(batch))
-                    print(f"    ✅ Saved: {saved_count}/{len(objects_data)} records")
-                    del objects_to_create
-                    gc.collect()
+        total_objects += import_keyword_category(data)
+        total_objects += import_independent_models_parallel(data)
+        total_objects += import_keywords(data)
 
-                # ИМПОРТ НЕЗАВИСИМЫХ МОДЕЛЕЙ (без внешних ключей)
-                independent_models = {
-                    'PlayerPerspective': game_models.PlayerPerspective,
-                    'GameMode': game_models.GameMode,
-                    'Theme': game_models.Theme,
-                    'Genre': game_models.Genre,
-                    'Platform': game_models.Platform,
-                    'GameEngine': game_models.GameEngine,
-                    'Company': game_models.Company,
-                    'Series': game_models.Series,
-                }
+        if 'Game' in data and data['Game']:
+            games_data = data['Game']
+            print(f"\n  🚀 Importing Game: {len(games_data)} records...")
 
-                for data_key, model_class in independent_models.items():
-                    if data_key in data and data[data_key]:
-                        objects_data = data[data_key]
-                        print(f"\n  ⚡ Importing {data_key}: {len(objects_data)} records...")
+            game_values, game_m2m_data, game_parent_refs = prepare_game_data(games_data)
+            total_objects += insert_games(game_values, games_data)
+            total_objects += update_game_parents(game_parent_refs)
 
-                        objects_to_create = []
-                        for item in objects_data:
-                            fields = item['fields'].copy()
-                            objects_to_create.append(model_class(id=item['pk'], **fields))
+            print("  🔗 Creating ManyToMany relationships...")
+            total_objects += import_all_m2m_relationships(game_m2m_data)
+            total_objects += insert_keywords_relations(game_m2m_data)
+            total_objects += insert_screenshots(game_m2m_data)
 
-                        batch_size = 10000
-                        saved_count = 0
-                        with tqdm(total=len(objects_to_create), desc="  ⏳ Saving", unit="rec",
-                                  bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]') as pbar:
-                            for i in range(0, len(objects_to_create), batch_size):
-                                batch = objects_to_create[i:i + batch_size]
-                                created = model_class.objects.bulk_create(batch, ignore_conflicts=True)
-                                saved_count += len(created)
-                                total_objects += len(created)
-                                pbar.update(len(batch))
-                        print(f"    ✅ Saved: {saved_count}/{len(objects_data)} records")
-                        del objects_to_create
-                        gc.collect()
+            del game_values
+            del game_m2m_data
+            del game_parent_refs
+            gc.collect()
 
-                # ИМПОРТ KEYWORD (имеет ForeignKey на KeywordCategory)
-                if 'Keyword' in data and data['Keyword']:
-                    objects_data = data['Keyword']
-                    print(f"\n  ⚡ Importing Keyword: {len(objects_data)} records...")
+        # Restore settings
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute('SET CONSTRAINTS ALL IMMEDIATE')
+                cursor.execute('SET synchronous_commit TO ON')
 
-                    # Используем raw SQL для максимальной скорости
-                    values_list = []
-                    for item in objects_data:
-                        fields = item['fields']
-                        pk = item['pk']
-                        igdb_id = fields.get('igdb_id', 0)
-                        name = fields.get('name', '').replace("'", "''")
-                        cached_usage_count = fields.get('cached_usage_count', 0)
-                        category_id = fields.get('category')
-                        created_at = fields.get('created_at', 'NOW()')
+        import_time = time.time() - import_start_time
+        print(f"\n{'=' * 50}")
+        print(f"✅ ИМПОРТ ЗАВЕРШЁН за {import_time:.1f} сек")
+        print(f"{'=' * 50}")
+        print(f"📊 Сохранено: {total_objects} записей")
+        print(f"⚡ Скорость: {total_objects / import_time:.0f} rec/sec")
 
-                        category_sql = str(category_id) if category_id else 'NULL'
-                        values_list.append(
-                            f"({pk}, {igdb_id}, '{name}', {cached_usage_count}, {category_sql}, '{created_at}')")
+        create_default_superuser()
 
-                    if values_list:
-                        batch_size = 10000
-                        inserted = 0
-                        with tqdm(total=len(values_list), desc="  ⏳ Saving", unit="rec",
-                                  bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]') as pbar:
-                            with connection.cursor() as cursor:
-                                for i in range(0, len(values_list), batch_size):
-                                    batch = values_list[i:i + batch_size]
-                                    sql = f"""
-                                        INSERT INTO games_keyword (id, igdb_id, name, cached_usage_count, category_id, created_at)
-                                        VALUES {','.join(batch)}
-                                        ON CONFLICT (id) DO NOTHING
-                                    """
-                                    cursor.execute(sql)
-                                    inserted += cursor.rowcount
-                                    pbar.update(len(batch))
-                        print(f"    ✅ Saved: {inserted}/{len(objects_data)} records")
-                        total_objects += inserted
-                    del values_list
-                    gc.collect()
-
-                # ИМПОРТ GAME - МАКСИМАЛЬНО БЫСТРЫЙ
-                if 'Game' in data and data['Game']:
-                    games_data = data['Game']
-                    print(f"\n  🚀 Importing Game: {len(games_data)} records...")
-
-                    # Сортируем игры: сначала без parent_game и version_parent
-                    games_data_sorted = sorted(
-                        games_data,
-                        key=lambda x: (
-                            (x['fields'].get('parent_game') is not None) or (
-                                    x['fields'].get('version_parent') is not None),
-                            x['fields'].get('parent_game') or 0,
-                            x['fields'].get('version_parent') or 0
-                        )
-                    )
-
-                    # Подготавливаем данные для raw SQL INSERT игр
-                    game_values = []
-                    game_m2m_data = []
-                    game_parent_refs = []
-
-                    # Функция для безопасного преобразования значений в SQL
-                    def sql_value(val, is_string=False):
-                        if val is None:
-                            return 'NULL'
-                        if is_string:
-                            if val == '':
-                                return "''"
-                            escaped = str(val).replace("'", "''")
-                            return f"'{escaped}'"
-                        if isinstance(val, bool):
-                            return 'TRUE' if val else 'FALSE'
-                        return str(val)
-
-                    with tqdm(total=len(games_data_sorted), desc="  ⏳ Preparing", unit="rec",
-                              bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
-                        for game_data in games_data_sorted:
-                            game_id = game_data['pk']
-                            fields = game_data['fields'].copy()
-
-                            developers = fields.pop('developers', [])
-                            publishers = fields.pop('publishers', [])
-                            genres = fields.pop('genres', [])
-                            platforms = fields.pop('platforms', [])
-                            keywords = fields.pop('keywords', [])
-                            engines = fields.pop('engines', [])
-                            themes = fields.pop('themes', [])
-                            player_perspectives = fields.pop('player_perspectives', [])
-                            game_modes = fields.pop('game_modes', [])
-                            series = fields.pop('series', [])
-                            screenshots = fields.pop('screenshots', [])
-
-                            parent_game_id = fields.get('parent_game')
-                            version_parent_id = fields.get('version_parent')
-
-                            # Подготавливаем все поля для SQL INSERT
-                            igdb_id = fields.get('igdb_id', 0)
-                            name = sql_value(fields.get('name', ''), True)
-                            summary = sql_value(fields.get('summary'), True)
-                            game_type = sql_value(fields.get('game_type'))
-                            version_title = sql_value(fields.get('version_title'), True)
-                            rawg_description = sql_value(fields.get('rawg_description'), True)
-                            storyline = sql_value(fields.get('storyline'), True)
-                            rating = sql_value(fields.get('rating'))
-                            rating_count = fields.get('rating_count', 0)
-                            first_release_date = sql_value(fields.get('first_release_date'), True)
-                            series_order = sql_value(fields.get('series_order'))
-                            cover_url = sql_value(fields.get('cover_url'), True)
-                            wiki_description = sql_value(fields.get('wiki_description'), True)
-
-                            # Добавляем date_added и updated_at с NOW()
-                            date_added = sql_value(fields.get('date_added'), True)
-                            if date_added == 'NULL':
-                                date_added = 'NOW()'
-                            updated_at = sql_value(fields.get('updated_at'), True)
-                            if updated_at == 'NULL':
-                                updated_at = 'NOW()'
-
-                            import json as json_module
-                            developer_ids = sql_value(json_module.dumps(developers), True)
-                            game_mode_ids = sql_value(json_module.dumps(game_modes), True)
-                            genre_ids = sql_value(json_module.dumps(genres), True)
-                            keyword_ids = sql_value(json_module.dumps(keywords), True)
-                            perspective_ids = sql_value(json_module.dumps(player_perspectives), True)
-                            theme_ids = sql_value(json_module.dumps(themes), True)
-                            engine_ids = sql_value(json_module.dumps(engines), True)
-
-                            game_values.append(f"""({game_id}, {igdb_id}, {name}, {summary}, {game_type}, 
-                                {version_title}, {rawg_description}, {storyline}, {rating}, {rating_count},
-                                {first_release_date}, {series_order}, {cover_url}, {wiki_description},
-                                {developer_ids}, {game_mode_ids}, {genre_ids}, {keyword_ids},
-                                {perspective_ids}, {theme_ids}, {engine_ids}, {date_added}, {updated_at})""")
-
-                            game_m2m_data.append({
-                                'game_id': game_id,
-                                'developers': developers,
-                                'publishers': publishers,
-                                'genres': genres,
-                                'platforms': platforms,
-                                'keywords': keywords,
-                                'engines': engines,
-                                'themes': themes,
-                                'player_perspectives': player_perspectives,
-                                'game_modes': game_modes,
-                                'series': series,
-                                'screenshots': screenshots,
-                            })
-
-                            game_parent_refs.append({
-                                'game_id': game_id,
-                                'parent_game_id': parent_game_id,
-                                'version_parent_id': version_parent_id,
-                            })
-
-                            pbar.update(1)
-
-                    # Raw SQL INSERT для Game
-                    if game_values:
-                        batch_size = 2000
-                        inserted = 0
-                        with tqdm(total=len(game_values), desc="  ⏳ Saving games", unit="rec",
-                                  bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]') as pbar:
-                            with connection.cursor() as cursor:
-                                for i in range(0, len(game_values), batch_size):
-                                    batch = game_values[i:i + batch_size]
-                                    sql = f"""
-                                        INSERT INTO games_game (id, igdb_id, name, summary, game_type, version_title,
-                                            rawg_description, storyline, rating, rating_count, first_release_date,
-                                            series_order, cover_url, wiki_description, developer_ids, game_mode_ids,
-                                            genre_ids, keyword_ids, perspective_ids, theme_ids, engine_ids,
-                                            date_added, updated_at)
-                                        VALUES {','.join(batch)}
-                                        ON CONFLICT (id) DO NOTHING
-                                    """
-                                    cursor.execute(sql)
-                                    inserted += cursor.rowcount
-                                    pbar.update(len(batch))
-                        print(f"    ✅ Games saved: {inserted}/{len(games_data)}")
-                        total_objects += inserted
-
-                    # Обновляем parent_game и version_parent через raw SQL
-                    with connection.cursor() as cursor:
-                        cursor.execute("SELECT id FROM games_game")
-                        existing_ids = set(row[0] for row in cursor.fetchall())
-
-                    parent_updates = []
-                    for ref in game_parent_refs:
-                        if ref['parent_game_id'] or ref['version_parent_id']:
-                            valid_parent = True
-                            if ref['parent_game_id'] and ref['parent_game_id'] not in existing_ids:
-                                valid_parent = False
-                            if ref['version_parent_id'] and ref['version_parent_id'] not in existing_ids:
-                                valid_parent = False
-
-                            if valid_parent:
-                                parent_updates.append(ref)
-
-                    if parent_updates:
-                        updated = 0
-                        with tqdm(total=len(parent_updates), desc="  ⏳ Updating parents", unit="rec",
-                                  bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
-                            with connection.cursor() as cursor:
-                                for ref in parent_updates:
-                                    updates = []
-                                    if ref['parent_game_id'] and ref['parent_game_id'] in existing_ids:
-                                        updates.append(f"parent_game_id = {ref['parent_game_id']}")
-                                    if ref['version_parent_id'] and ref['version_parent_id'] in existing_ids:
-                                        updates.append(f"version_parent_id = {ref['version_parent_id']}")
-                                    if updates:
-                                        sql = f"""
-                                            UPDATE games_game 
-                                            SET {', '.join(updates)}
-                                            WHERE id = {ref['game_id']}
-                                        """
-                                        cursor.execute(sql)
-                                        updated += cursor.rowcount
-                                    pbar.update(1)
-                        print(f"    ✅ Parents updated: {updated}")
-
-                    # ManyToMany связи через raw SQL с оптимизацией для keywords
-                    print("  🔗 Creating ManyToMany relationships...")
-
-                    with connection.cursor() as cursor:
-                        # Обрабатываем все связи кроме keywords с увеличенным batch_size
-                        m2m_mappings = [
-                            ('developers', 'games_game_developers', 'company_id'),
-                            ('publishers', 'games_game_publishers', 'company_id'),
-                            ('genres', 'games_game_genres', 'genre_id'),
-                            ('platforms', 'games_game_platforms', 'platform_id'),
-                            ('engines', 'games_game_engines', 'gameengine_id'),
-                            ('themes', 'games_game_themes', 'theme_id'),
-                            ('player_perspectives', 'games_game_player_perspectives', 'playerperspective_id'),
-                            ('game_modes', 'games_game_game_modes', 'gamemode_id'),
-                            ('series', 'games_game_series', 'series_id'),
-                        ]
-
-                        for field_name, table_name, column_name in m2m_mappings:
-                            values = []
-                            for m2m in game_m2m_data:
-                                game_id = m2m['game_id']
-                                for related_id in m2m[field_name]:
-                                    values.append(f"({game_id}, {related_id})")
-
-                            if values:
-                                print(f"    ⏳ Creating {field_name} relations: {len(values)} records...")
-                                batch_size = 20000
-                                inserted = 0
-                                with tqdm(total=len(values), desc=f"    ⏳ {field_name}", unit="rel",
-                                          bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
-                                    for i in range(0, len(values), batch_size):
-                                        batch = values[i:i + batch_size]
-                                        sql = f"""
-                                            INSERT INTO {table_name} (game_id, {column_name})
-                                            VALUES {','.join(batch)}
-                                            ON CONFLICT (game_id, {column_name}) DO NOTHING
-                                        """
-                                        cursor.execute(sql)
-                                        inserted += cursor.rowcount
-                                        total_objects += cursor.rowcount
-                                        pbar.update(len(batch))
-                                print(f"      ✅ Inserted: {inserted} relations")
-
-                        # Обрабатываем keywords отдельно с максимальной оптимизацией
-                        total_keywords = sum(len(m2m['keywords']) for m2m in game_m2m_data)
-                        if total_keywords > 0:
-                            print(f"    ⏳ Creating keywords relations: {total_keywords} records...")
-
-                            # Используем генератор для экономии памяти
-                            def keyword_values_generator():
-                                for m2m in game_m2m_data:
-                                    game_id = m2m['game_id']
-                                    for keyword_id in m2m['keywords']:
-                                        yield f"({game_id}, {keyword_id})"
-
-                            # Вставляем очень большими батчами по 100000 записей
-                            batch_size = 100000
-                            batch = []
-                            inserted = 0
-
-                            with tqdm(total=total_keywords, desc="    ⏳ keywords", unit="rel",
-                                      bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]') as pbar:
-                                for value in keyword_values_generator():
-                                    batch.append(value)
-                                    if len(batch) >= batch_size:
-                                        sql = f"""
-                                            INSERT INTO games_game_keywords (game_id, keyword_id)
-                                            VALUES {','.join(batch)}
-                                            ON CONFLICT (game_id, keyword_id) DO NOTHING
-                                        """
-                                        cursor.execute(sql)
-                                        inserted += cursor.rowcount
-                                        total_objects += cursor.rowcount
-                                        pbar.update(len(batch))
-                                        batch = []
-
-                                # Вставляем остаток
-                                if batch:
-                                    sql = f"""
-                                        INSERT INTO games_game_keywords (game_id, keyword_id)
-                                        VALUES {','.join(batch)}
-                                        ON CONFLICT (game_id, keyword_id) DO NOTHING
-                                    """
-                                    cursor.execute(sql)
-                                    inserted += cursor.rowcount
-                                    total_objects += cursor.rowcount
-                                    pbar.update(len(batch))
-
-                            print(f"      ✅ Inserted: {inserted} keyword relations")
-
-                    # ИМПОРТ SCREENSHOTS через raw SQL
-                    screenshot_values = []
-                    for m2m in game_m2m_data:
-                        game_id = m2m['game_id']
-                        for screenshot_data in m2m['screenshots']:
-                            if isinstance(screenshot_data, dict):
-                                url = screenshot_data.get('url', '').replace("'", "''")
-                                w = screenshot_data.get('w', 0)
-                                h = screenshot_data.get('h', 0)
-                                primary = str(screenshot_data.get('primary', False)).lower()
-                                screenshot_values.append(f"({game_id}, '{url}', {w}, {h}, {primary})")
-
-                    if screenshot_values:
-                        print(f"    ⏳ Creating screenshots: {len(screenshot_values)} records...")
-                        batch_size = 10000
-                        inserted = 0
-                        with tqdm(total=len(screenshot_values), desc="    ⏳ Screenshots", unit="rec",
-                                  bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
-                            with connection.cursor() as cursor:
-                                for i in range(0, len(screenshot_values), batch_size):
-                                    batch = screenshot_values[i:i + batch_size]
-                                    sql = f"""
-                                        INSERT INTO games_screenshot (game_id, url, w, h, "primary")
-                                        VALUES {','.join(batch)}
-                                        ON CONFLICT DO NOTHING
-                                    """
-                                    cursor.execute(sql)
-                                    inserted += cursor.rowcount
-                                    pbar.update(len(batch))
-                        print(f"      ✅ Inserted: {inserted} screenshots")
-                        total_objects += inserted
-
-                    del game_values
-                    del game_m2m_data
-                    del game_parent_refs
-                    gc.collect()
-
-                with connection.cursor() as cursor:
-                    cursor.execute('SET CONSTRAINTS ALL IMMEDIATE')
-                    cursor.execute('SET synchronous_commit TO ON')
-
-                import_time = time.time() - import_start_time
-                print(f"\n{'=' * 50}")
-                print(f"✅ ИМПОРТ ЗАВЕРШЁН за {import_time:.1f} сек")
-                print(f"{'=' * 50}")
-                print(f"📊 Сохранено: {total_objects} записей")
-                print(f"⚡ Скорость: {total_objects / import_time:.0f} rec/sec")
-
-                User = get_user_model()
-                if User.objects.count() == 0:
-                    print("👤 Creating default superuser...")
-                    User.objects.create_superuser('admin', 'admin@localhost.com', 'admin')
-                    print("⚠️ Default superuser created: admin / admin")
-
-            except Exception as e:
-                print(f"⚠️ Import error: {e}")
-                import traceback
-                traceback.print_exc()
-        else:
-            print("⚠️ No data.json found. Database will be empty.")
+    except Exception as e:
+        print(f"⚠️ Import error: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def main():
