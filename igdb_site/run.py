@@ -44,12 +44,70 @@ def setup_environment():
         sys.path.insert(0, str(current_dir / 'igdb_site'))
 
 
+def setup_signal_handlers():
+    """Setup signal handlers for graceful shutdown on window close."""
+    import signal
+    import sys
+
+    def signal_handler(signum, frame):
+        """Handle SIGTERM and SIGINT signals."""
+        print("\n🛑 Received shutdown signal. Cleaning up...")
+        cleanup_resources()
+        sys.exit(0)
+
+    # Register signal handlers
+    signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C
+    signal.signal(signal.SIGTERM, signal_handler)  # Termination signal
+
+    # For Windows, also handle console close event
+    if sys.platform == 'win32':
+        try:
+            import win32api
+            import win32con
+
+            def console_ctrl_handler(ctrl_type):
+                """Handle Windows console close event."""
+                if ctrl_type == 0:  # CTRL_C_EVENT
+                    print("\n🛑 Received Ctrl+C. Cleaning up...")
+                elif ctrl_type == 2:  # CTRL_CLOSE_EVENT (window X button)
+                    print("\n🛑 Window closed. Cleaning up PostgreSQL...")
+                cleanup_resources()
+                return True
+
+            win32api.SetConsoleCtrlHandler(console_ctrl_handler, True)
+        except ImportError:
+            print("[WARNING] pywin32 not installed. Window X button may not be handled.")
+            print("         Install: pip install pywin32")
+
+
+def cleanup_resources():
+    """Clean up PostgreSQL server and other resources."""
+    global _postgresql_server
+
+    if _postgresql_server:
+        try:
+            print("  Stopping PostgreSQL server...")
+            _postgresql_server.cleanup()
+            print("  ✅ PostgreSQL stopped")
+        except Exception as e:
+            print(f"  ⚠️ Error stopping PostgreSQL: {e}")
+
+    # Close log file if exists
+    if hasattr(sys.stdout, 'log_file'):
+        try:
+            sys.stdout.log_file.close()
+        except:
+            pass
+
+
 def start_postgresql():
     """
     Start embedded PostgreSQL server.
     Data persists in user's AppData folder between launches.
     Returns database URL after successful connection.
     """
+    global _postgresql_server
+
     try:
         import pgembed
     except ImportError:
@@ -185,6 +243,7 @@ def start_postgresql():
             cleanup_port(test_port)
 
             server = pgembed.get_server(data_dir, cleanup_mode='stop')
+            _postgresql_server = server  # Store for cleanup
 
             database_url = server.get_uri()
             port_match = re.search(r':(\d+)', database_url)
@@ -194,13 +253,16 @@ def start_postgresql():
                 print(f"✅ PostgreSQL started successfully on port {port}")
 
                 def cleanup_server():
-                    try:
-                        print("  Cleaning up PostgreSQL server...")
-                        server.cleanup()
-                        time.sleep(1)
-                        kill_orphaned_postgresql()
-                    except:
-                        pass
+                    global _postgresql_server
+                    if _postgresql_server:
+                        try:
+                            print("  Cleaning up PostgreSQL server...")
+                            _postgresql_server.cleanup()
+                            time.sleep(1)
+                            kill_orphaned_postgresql()
+                            _postgresql_server = None
+                        except:
+                            pass
 
                 atexit.register(cleanup_server)
                 break
@@ -209,6 +271,7 @@ def start_postgresql():
                 if server:
                     try:
                         server.cleanup()
+                        _postgresql_server = None
                     except:
                         pass
                 time.sleep(2)
@@ -219,6 +282,7 @@ def start_postgresql():
             if server:
                 try:
                     server.cleanup()
+                    _postgresql_server = None
                 except:
                     pass
             time.sleep(2)
@@ -420,11 +484,27 @@ def import_keywords(data):
     return inserted
 
 
-def prepare_game_data(games_data):
-    """Prepare game data for bulk insert."""
+def prepare_game_data(games_data, screenshots_data=None):
+    """Prepare game data for bulk insert with optional screenshots."""
     game_values = []
     game_m2m_data = []
     game_parent_refs = []
+
+    # Создаем словарь скриншотов по game_id если передан
+    screenshots_by_game = {}
+    if screenshots_data:
+        for item in screenshots_data:
+            fields = item['fields']
+            game_id = fields.get('game')
+            if game_id:
+                if game_id not in screenshots_by_game:
+                    screenshots_by_game[game_id] = []
+                screenshots_by_game[game_id].append({
+                    'url': fields.get('url', ''),
+                    'w': fields.get('w', 0),
+                    'h': fields.get('h', 0),
+                    'primary': fields.get('primary', False),
+                })
 
     def sql_value(val, is_string=False):
         if val is None:
@@ -465,7 +545,9 @@ def prepare_game_data(games_data):
             player_perspectives = fields.pop('player_perspectives', [])
             game_modes = fields.pop('game_modes', [])
             series = fields.pop('series', [])
-            screenshots = fields.pop('screenshots', [])
+
+            # Берем скриншоты из словаря, загруженного из Screenshot модели
+            screenshots = screenshots_by_game.get(game_id, [])
 
             parent_game_id = fields.get('parent_game')
             version_parent_id = fields.get('version_parent')
@@ -659,72 +741,110 @@ def process_m2m_parallel(field_name, table_name, column_name, game_m2m_data):
 
 
 def insert_keywords_relations(game_m2m_data):
-    """Insert keyword relations sequentially to avoid deadlocks."""
+    """Insert keyword relations using MAXIMUM speed single-threaded batch insert."""
     from django.db import connection
     from tqdm import tqdm
 
-    total_keywords = sum(len(m2m['keywords']) for m2m in game_m2m_data)
-    if total_keywords == 0:
+    # Собираем уникальные пары через set comprehension
+    unique_pairs = {(m2m['game_id'], keyword_id)
+                    for m2m in game_m2m_data
+                    for keyword_id in m2m['keywords']}
+
+    if not unique_pairs:
         return 0
 
-    print(f"    ⏳ Creating keywords relations: {total_keywords} records...")
+    print(f"    ⏳ Creating keywords relations: {len(unique_pairs)} unique records...")
 
-    values = []
-    for m2m in game_m2m_data:
-        game_id = m2m['game_id']
-        for keyword_id in m2m['keywords']:
-            values.append(f"({game_id}, {keyword_id})")
+    # Генератор значений
+    values_gen = (f"({game_id}, {keyword_id})" for game_id, keyword_id in unique_pairs)
 
-    batch_size = 50000
-    total_inserted = 0
+    batch_size = 100000
+    inserted = 0
 
-    with tqdm(total=len(values), desc="    ⏳ keywords", unit="rec",
-              bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
-        with connection.cursor() as cursor:
-            for i in range(0, len(values), batch_size):
-                batch = values[i:i + batch_size]
+    with connection.cursor() as cursor:
+        # Отключаем проверки ограничений для скорости
+        cursor.execute("SET session_replication_role = replica;")
+
+        batch = []
+        batch_count = 0
+
+        with tqdm(total=len(unique_pairs), desc="    ⏳ Keywords insert", unit="rec",
+                  bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
+
+            for value in values_gen:
+                batch.append(value)
+                batch_count += 1
+
+                if len(batch) >= batch_size:
+                    sql = f"""
+                        INSERT INTO games_game_keywords (game_id, keyword_id)
+                        VALUES {','.join(batch)}
+                        ON CONFLICT (game_id, keyword_id) DO NOTHING
+                    """
+                    cursor.execute(sql)
+                    inserted += cursor.rowcount
+                    pbar.update(len(batch))
+                    batch = []
+
+            # Вставляем остаток
+            if batch:
                 sql = f"""
                     INSERT INTO games_game_keywords (game_id, keyword_id)
                     VALUES {','.join(batch)}
                     ON CONFLICT (game_id, keyword_id) DO NOTHING
                 """
                 cursor.execute(sql)
-                total_inserted += cursor.rowcount
+                inserted += cursor.rowcount
                 pbar.update(len(batch))
 
-    print(f"      ✅ Inserted: {total_inserted} keyword relations")
-    return total_inserted
+        # Включаем проверки ограничений обратно
+        cursor.execute("SET session_replication_role = DEFAULT;")
+
+    print(f"      ✅ Inserted: {inserted} keyword relations")
+    return inserted
 
 
 def insert_screenshots(game_m2m_data):
-    """Insert screenshot data."""
+    """Insert screenshot data using MAXIMUM speed batch insert."""
     from django.db import connection
     from tqdm import tqdm
 
-    screenshot_values = []
+    # Оптимизация 1: Используем set comprehension для уникальности
+    unique_screenshots = set()
     for m2m in game_m2m_data:
-        game_id = m2m['game_id']
         for screenshot_data in m2m['screenshots']:
             if isinstance(screenshot_data, dict):
-                url = screenshot_data.get('url', '').replace("'", "''")
-                w = screenshot_data.get('w', 0)
-                h = screenshot_data.get('h', 0)
-                primary = str(screenshot_data.get('primary', False)).lower()
-                screenshot_values.append(f"({game_id}, '{url}', {w}, {h}, {primary})")
+                url = screenshot_data.get('url', '')
+                if url:
+                    w = screenshot_data.get('w', 0)
+                    h = screenshot_data.get('h', 0)
+                    primary = screenshot_data.get('primary', False)
+                    unique_screenshots.add((m2m['game_id'], url, w, h, primary))
 
-    if not screenshot_values:
+    if not unique_screenshots:
+        print("    ⏳ No screenshots to insert")
         return 0
 
-    print(f"    ⏳ Creating screenshots: {len(screenshot_values)} records...")
+    print(f"    ⏳ Creating screenshots: {len(unique_screenshots)} unique records...")
 
-    batch_size = 10000
+    # Готовим VALUES
+    values = []
+    for game_id, url, w, h, primary in unique_screenshots:
+        escaped_url = url.replace("'", "''")
+        primary_str = 'TRUE' if primary else 'FALSE'
+        values.append(f"({game_id}, '{escaped_url}', {w}, {h}, {primary_str})")
+
+    batch_size = 50000
     inserted = 0
 
-    with tqdm(total=len(screenshot_values), desc="    ⏳ Screenshots", unit="rec",
-              bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
-        with connection.cursor() as cursor:
-            for i in range(0, len(screenshot_values), batch_size):
-                batch = screenshot_values[i:i + batch_size]
+    with connection.cursor() as cursor:
+        # Отключаем проверки ограничений
+        cursor.execute("SET session_replication_role = replica;")
+
+        with tqdm(total=len(values), desc="    ⏳ Screenshots insert", unit="rec",
+                  bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
+            for i in range(0, len(values), batch_size):
+                batch = values[i:i + batch_size]
                 sql = f"""
                     INSERT INTO games_screenshot (game_id, url, w, h, "primary")
                     VALUES {','.join(batch)}
@@ -733,6 +853,9 @@ def insert_screenshots(game_m2m_data):
                 cursor.execute(sql)
                 inserted += cursor.rowcount
                 pbar.update(len(batch))
+
+        # Включаем проверки обратно
+        cursor.execute("SET session_replication_role = DEFAULT;")
 
     print(f"      ✅ Inserted: {inserted} screenshots")
     return inserted
@@ -801,36 +924,64 @@ def import_all_m2m_relationships(game_m2m_data):
 
 
 def process_m2m_sequential(field_name, table_name, column_name, game_m2m_data):
-    """Process one ManyToMany relationship sequentially."""
+    """Process one ManyToMany relationship using MAXIMUM speed single-threaded batch insert."""
     from django.db import connection
+    from tqdm import tqdm
 
-    values = []
-    for m2m in game_m2m_data:
-        game_id = m2m['game_id']
-        for related_id in m2m[field_name]:
-            values.append(f"({game_id}, {related_id})")
+    # Собираем уникальные пары через set comprehension
+    unique_pairs = {(m2m['game_id'], related_id)
+                    for m2m in game_m2m_data
+                    for related_id in m2m[field_name]}
 
-    if not values:
+    if not unique_pairs:
         return 0
 
-    print(f"    ⏳ Creating {field_name} relations: {len(values)} records...")
+    print(f"    ⏳ Creating {field_name} relations: {len(unique_pairs)} unique records...")
 
-    batch_size = 20000
-    total_inserted = 0
+    # Генератор значений
+    values_gen = (f"({game_id}, {related_id})" for game_id, related_id in unique_pairs)
+
+    batch_size = 100000
+    inserted = 0
 
     with connection.cursor() as cursor:
-        for i in range(0, len(values), batch_size):
-            batch = values[i:i + batch_size]
-            sql = f"""
-                INSERT INTO {table_name} (game_id, {column_name})
-                VALUES {','.join(batch)}
-                ON CONFLICT (game_id, {column_name}) DO NOTHING
-            """
-            cursor.execute(sql)
-            total_inserted += cursor.rowcount
+        # Отключаем проверки ограничений для скорости
+        cursor.execute("SET session_replication_role = replica;")
 
-    print(f"      ✅ Inserted: {total_inserted} {field_name} relations")
-    return total_inserted
+        batch = []
+        with tqdm(total=len(unique_pairs), desc=f"    ⏳ {field_name} insert", unit="rec",
+                  bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
+
+            for value in values_gen:
+                batch.append(value)
+
+                if len(batch) >= batch_size:
+                    sql = f"""
+                        INSERT INTO {table_name} (game_id, {column_name})
+                        VALUES {','.join(batch)}
+                        ON CONFLICT (game_id, {column_name}) DO NOTHING
+                    """
+                    cursor.execute(sql)
+                    inserted += cursor.rowcount
+                    pbar.update(len(batch))
+                    batch = []
+
+            # Вставляем остаток
+            if batch:
+                sql = f"""
+                    INSERT INTO {table_name} (game_id, {column_name})
+                    VALUES {','.join(batch)}
+                    ON CONFLICT (game_id, {column_name}) DO NOTHING
+                """
+                cursor.execute(sql)
+                inserted += cursor.rowcount
+                pbar.update(len(batch))
+
+        # Включаем проверки ограничений обратно
+        cursor.execute("SET session_replication_role = DEFAULT;")
+
+    print(f"      ✅ Inserted: {inserted} {field_name} relations")
+    return inserted
 
 def create_default_superuser():
     """Create default superuser if none exists."""
@@ -933,9 +1084,13 @@ def run_migrations_once():
 
         if 'Game' in data and data['Game']:
             games_data = data['Game']
-            print(f"\n  🚀 Importing Game: {len(games_data)} records...")
+            screenshots_data = data.get('Screenshot', [])
 
-            game_values, game_m2m_data, game_parent_refs = prepare_game_data(games_data)
+            print(f"\n  🚀 Importing Game: {len(games_data)} records...")
+            if screenshots_data:
+                print(f"  📸 Found {len(screenshots_data)} screenshots to attach...")
+
+            game_values, game_m2m_data, game_parent_refs = prepare_game_data(games_data, screenshots_data)
             total_objects += insert_games(game_values, games_data)
             total_objects += update_game_parents(game_parent_refs)
 
@@ -975,6 +1130,9 @@ def main():
     from datetime import datetime
     import sys
     from pathlib import Path
+
+    # Setup signal handlers for graceful shutdown
+    setup_signal_handlers()
 
     # Настройка логирования в файл
     if getattr(sys, 'frozen', False):
@@ -1019,6 +1177,10 @@ def main():
     # Перенаправляем stdout и stderr
     sys.stdout = TeeLogger(log_file, sys.__stdout__, is_error=False)
     sys.stderr = TeeLogger(log_file, sys.__stderr__, is_error=True)
+
+    # Store log file reference for cleanup
+    sys.stdout.log_file = log_file
+    sys.stderr.log_file = log_file
 
     try:
         print("=" * 50)
@@ -1076,7 +1238,7 @@ def main():
         print("\n" + "=" * 50)
         print("🌐 SERVER RUNNING")
         print("Open your browser and go to: http://127.0.0.1:8000")
-        print("Press Ctrl+C to stop the server")
+        print("Press Ctrl+C or close the window to stop the server")
         print("=" * 50 + "\n")
         print(f"📝 All output is being logged to: {log_filename}")
 
@@ -1090,6 +1252,8 @@ def main():
         import traceback
         traceback.print_exc()
     finally:
+        # Cleanup resources
+        cleanup_resources()
         # Восстанавливаем оригинальные потоки
         sys.stdout = original_stdout
         sys.stderr = original_stderr
