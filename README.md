@@ -12,6 +12,9 @@ using smart filters — no internet required after download.
 3. **Open your browser** and go to: `http://127.0.0.1:8000`
 4. **Start discovering** games!
 
+> ⚠️ **First launch may take a while** — the database is being loaded and optimized. Please be patient. Subsequent
+launches will be much faster.
+
 > ⚠️ Keep the terminal window open while using Gamespeek. Close it to stop the local server.
 
 ## 🔍 How It Works
