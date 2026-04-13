@@ -148,10 +148,6 @@ if os.getenv('DESKTOP_MODE') == '1':
     # Allow all hosts in desktop mode
     ALLOWED_HOSTS = ['*']
 
-    # Add desktop_migrations to INSTALLED_APPS
-    if 'desktop_migrations' not in INSTALLED_APPS:
-        INSTALLED_APPS.append('desktop_migrations')
-
     # Remove debug_toolbar if present
     if 'debug_toolbar' in INSTALLED_APPS:
         INSTALLED_APPS = [app for app in INSTALLED_APPS if app != 'debug_toolbar']
@@ -167,7 +163,7 @@ if os.getenv('DESKTOP_MODE') == '1':
 
     # Disable timezone for embedded PostgreSQL
     USE_TZ = False
-    TIME_ZONE = 'UTC'
+    TIME_ZONE = 'Europe/Moscow'
 
     # Disable PostgreSQL extensions that pgembed doesn't support
     DATABASE_AUTO_OPTIMIZE = False
