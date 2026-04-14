@@ -1,0 +1,87 @@
+<!-- games/templates/games/game_list/filter_sections/_search_platforms_section.html -->
+
+<div id="search-active-platforms" class="mb-2">
+    {% if search_selected_platforms %}
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="d-flex align-items-center gap-2">
+                <button type="button"
+                        class="btn btn-sm search-clear-platforms-btn btn-outline-info"
+                        style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                        data-param="p">
+                    <i class="bi bi-x-circle me-1"></i>Clear All
+                </button>
+                <small class="text-muted" style="font-weight: 500;">
+                    Selected platforms ({{ search_selected_platforms|length }})
+                </small>
+            </div>
+        </div>
+    {% endif %}
+
+    <div id="search-visible-platforms-badges">
+        {% for platform in search_selected_platforms_objects|slice:":27" %}
+            <span class="badge bg-info me-1 mb-1 search-active-platform-tag"
+                  data-platform-id="{{ platform.id }}"
+                  style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                {{ platform.name }} ({{ platform.game_count }})
+                <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+            </span>
+        {% endfor %}
+    </div>
+
+    {% if search_selected_platforms_objects|length > 27 %}
+        <div id="search-hidden-platforms-badges" style="display: none;">
+            {% for platform in search_selected_platforms_objects|slice:"27:" %}
+                <span class="badge bg-info me-1 mb-1 search-active-platform-tag"
+                      data-platform-id="{{ platform.id }}"
+                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                    {{ platform.name }} ({{ platform.game_count }})
+                    <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                </span>
+            {% endfor %}
+        </div>
+        <div class="text-center mt-2">
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary search-show-more-platforms"
+                    onclick="toggleSearchMorePlatforms(this)">
+                <i class="bi bi-chevron-down"></i> Show all ({{ search_selected_platforms_objects|length }})
+            </button>
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary search-show-less-platforms"
+                    style="display: none;"
+                    onclick="toggleSearchLessPlatforms(this)">
+                <i class="bi bi-chevron-up"></i> Show less
+            </button>
+        </div>
+    {% endif %}
+</div>
+
+<input type="text" class="form-control mb-2" id="platform-search"
+       placeholder="Search platforms..." autocomplete="off">
+
+<div class="search-platform-list border rounded p-2" style="max-height: 200px; overflow-y: auto;">
+    <div class="search-platform-grid"
+         style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+        {% for platform in platforms %}
+            <div class="search-platform-item" data-platform-name="{{ platform.name|lower }}"
+                 data-game-count="{{ platform.game_count }}">
+                <div class="form-check">
+                    <input class="form-check-input search-platform-checkbox"
+                           type="checkbox"
+                           value="{{ platform.id }}" id="search_platform_{{ platform.id }}"
+                           {% if platform.id in search_selected_platforms %}checked{% endif %}>
+                    <label class="form-check-label small" for="search_platform_{{ platform.id }}">
+                        {{ platform.name }}
+                        <span class="text-muted ms-1">({{ platform.game_count }})</span>
+                    </label>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="text-center mt-2">
+    <button type="button" class="btn btn-outline-secondary btn-sm search-show-all-platforms-btn">
+        <span class="show-text">Show all platforms</span>
+        <span class="hide-text" style="display: none;">Show less</span>
+    </button>
+</div>

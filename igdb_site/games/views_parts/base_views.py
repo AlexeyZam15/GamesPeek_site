@@ -1070,7 +1070,7 @@ def _get_cached_years_range() -> Dict:
 
 def _get_optimized_filter_data() -> Dict[str, List]:
     """Get all filter data with intelligent caching."""
-    cache_key = get_cache_key('optimized_filter_data')
+    cache_key = get_cache_key('optimized_filter_data_v7')
 
     def fetch_filter_data():
         from django.db.models import Prefetch, Count
@@ -1108,14 +1108,9 @@ def _get_optimized_filter_data() -> Dict[str, List]:
             developed_game_count=Count('developed_games', distinct=True)
         ).filter(developed_game_count__gt=0).only('id', 'name').order_by('name'))
 
-        # ИСПРАВЛЕНО: используем annotate с правильным related_name='games'
-        print("DEBUG fetch_filter_data: Loading engines with annotate")
-
         engines = list(GameEngine.objects.annotate(
-            game_count=Count('games', distinct=True)  # related_name='games'
+            game_count=Count('games', distinct=True)
         ).filter(game_count__gt=0).only('id', 'name').order_by('-game_count', 'name'))
-
-        print(f"DEBUG fetch_filter_data: Found {len(engines)} engines with games via annotate")
 
         return {
             'platforms': platforms,

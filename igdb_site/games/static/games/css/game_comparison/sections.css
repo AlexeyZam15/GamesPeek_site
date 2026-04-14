@@ -27,6 +27,7 @@
   font-weight: 600;
   transition: all 0.2s ease;
   box-shadow: var(--section-shadow);
+  display: inline-block;
 }
 
 .shared-item:hover {
@@ -42,4 +43,38 @@
   background: rgba(255, 255, 255, 0.03);
   border-radius: 6px;
   border: 1px dashed var(--border);
+}
+
+/* Стили для копирования в одну строку - сохраняем визуал */
+.shared-items-grid.copy-as-single-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.shared-items-grid.copy-as-single-line .shared-item {
+  display: inline-block;
+  padding: 0.75rem 1.25rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  box-shadow: var(--section-shadow);
+}
+
+.shared-items-grid.copy-as-single-line .shared-item::after {
+  content: ", ";
+  display: inline;
+  white-space: normal;
+  font-weight: normal;
+  color: inherit;
+}
+
+.shared-items-grid.copy-as-single-line .shared-item:last-child::after {
+  content: "";
+}
+
+.shared-items-grid.copy-as-single-line .shared-item:hover {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: var(--section-hover-shadow);
 }

@@ -116,22 +116,22 @@ class GameLoader(BaseGamesCommand):
         self._last_processed_count = 0
         self._db_lock = threading.RLock()  # Блокировка для потокобезопасного доступа к БД
 
-    def restore_genres_and_themes(self, options, debug=False, start_offset=0):
-        """Восстанавливает жанры и темы для всех игр в базе с параллельными запросами"""
-        from games.models import Game, Genre, Theme
-        from games.igdb_api import OPTIMAL_CONFIG, make_igdb_request
-        import time
+    def restore_genres_and_themes(self, options, debug=False, start_offset=0, target_genre=None, target_theme=None):
+        """Восстанавливает жанры и темы для всех игр в базе с параллельными запросами
+
+        Args:
+            target_genre: Название конкретного жанра для восстановления (например, 'action')
+            target_theme: Название конкретной темы для восстановления (например, 'action')
+        """
         import signal
         import sys
-        import queue
         import threading
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        from django.db import transaction
-        from collections import defaultdict
+        import time
+        from games.igdb_api import OPTIMAL_CONFIG
+        from games.models import Game
 
         offset = start_offset
         limit = options.get('limit', 0)
-
         total_start_time = time.time()
 
         self.interrupted = threading.Event()
@@ -151,10 +151,14 @@ class GameLoader(BaseGamesCommand):
                     sys.stdout.write(f'📍 Загружен сохраненный offset: {offset}\n')
                     sys.stdout.flush()
 
-            # ЗАПОМИНАЕМ НАЧАЛЬНЫЙ OFFSET ДЛЯ ПРАВИЛЬНОГО СОХРАНЕНИЯ
             initial_offset = offset
 
-            sys.stdout.write(f'\n🎯 ВОССТАНОВЛЕНИЕ ЖАНРОВ И ТЕМ ДЛЯ ВСЕХ ИГР\n')
+            if target_genre:
+                sys.stdout.write(f'\n🎯 ВОССТАНОВЛЕНИЕ ЖАНРА "{target_genre.upper()}" ДЛЯ ВСЕХ ИГР\n')
+            elif target_theme:
+                sys.stdout.write(f'\n🎯 ВОССТАНОВЛЕНИЕ ТЕМЫ "{target_theme.upper()}" ДЛЯ ВСЕХ ИГР\n')
+            else:
+                sys.stdout.write(f'\n🎯 ВОССТАНОВЛЕНИЕ ЖАНРОВ И ТЕМ ДЛЯ ВСЕХ ИГР\n')
             sys.stdout.write('=' * 60 + '\n')
             sys.stdout.flush()
 
@@ -188,246 +192,337 @@ class GameLoader(BaseGamesCommand):
                 signal.signal(signal.SIGINT, original_sigint)
                 return 0
 
-            sys.stdout.write('\n' + '=' * 60 + '\n')
-            sys.stdout.write('🔄 СБОР ДАННЫХ ИЗ IGDB (параллельное сохранение)\n')
-            sys.stdout.write('=' * 60 + '\n')
+            target_genre_id = None
+            target_theme_id = None
+
+            if target_genre:
+                target_genre_id = self._get_target_genre_id(target_genre, debug)
+                if target_genre_id is None:
+                    signal.signal(signal.SIGINT, original_sigint)
+                    return 0
+
+            if target_theme:
+                target_theme_id = self._get_target_theme_id(target_theme, debug)
+                if target_theme_id is None:
+                    signal.signal(signal.SIGINT, original_sigint)
+                    return 0
+
+            processed_count, games_with_new_data_to_add, games_saved, api_errors, all_genre_ids, all_theme_ids, games_without_data, games_with_nothing_to_update = self._collect_restore_data(
+                all_games, target_genre_id, target_theme_id, debug, offset, initial_offset, limit
+            )
+
+            if self.interrupted.is_set():
+                self._handle_restore_interruption(initial_offset, processed_count, options, original_sigint)
+                return 0
+
+            self._load_restored_data(target_genre, target_theme, all_genre_ids, all_theme_ids, debug)
+
+            next_offset = initial_offset + processed_count
+            self.save_offset_for_continuation(options, next_offset)
+
+            self._display_restore_statistics(
+                initial_offset, processed_count, total_games_to_process,
+                games_with_new_data_to_add, games_saved, all_genre_ids, all_theme_ids,
+                games_with_nothing_to_update, games_without_data, api_errors,
+                total_start_time, next_offset, target_genre, target_theme
+            )
+
+            signal.signal(signal.SIGINT, original_sigint)
+            return games_saved
+
+        except KeyboardInterrupt:
+            self._handle_restore_interruption(initial_offset if 'initial_offset' in locals() else offset,
+                                              processed_count if 'processed_count' in locals() else 0,
+                                              options, original_sigint)
+            return 0
+
+        except Exception as e:
+            sys.stderr.write(f'\n❌ Ошибка: {e}\n')
+            if debug:
+                import traceback
+                sys.stderr.write(traceback.format_exc())
+            sys.stderr.flush()
+            signal.signal(signal.SIGINT, original_sigint)
+            return 0
+
+    def _get_target_genre_id(self, target_genre, debug):
+        """Получает ID целевого жанра из IGDB"""
+        from games.igdb_api import make_igdb_request
+        import sys
+
+        if not target_genre:
+            return None
+
+        genre_name_formatted = target_genre.capitalize()
+
+        sys.stdout.write(f'\n🔍 Поиск жанра "{genre_name_formatted}" в IGDB...\n')
+        sys.stdout.flush()
+
+        genre_query = f'fields id,name; where name = "{genre_name_formatted}";'
+        try:
+            genre_result = make_igdb_request('genres', genre_query, debug=False)
+
+            if not genre_result or len(genre_result) == 0:
+                sys.stdout.write(
+                    f'   ⚠️ Жанр "{genre_name_formatted}" не найден, пробуем поиск без учета регистра...\n')
+                genre_query = f'fields id,name; where name ~ *"{target_genre}"*; limit 5;'
+                genre_result = make_igdb_request('genres', genre_query, debug=False)
+
+                if genre_result and len(genre_result) > 0:
+                    for genre in genre_result:
+                        if genre.get('name', '').lower() == target_genre.lower():
+                            target_genre_id = genre['id']
+                            sys.stdout.write(f'✅ Жанр "{genre_name_formatted}" найден: ID {target_genre_id}\n')
+                            return target_genre_id
+
+                    target_genre_id = genre_result[0]['id']
+                    found_name = genre_result[0].get('name', 'Unknown')
+                    sys.stdout.write(
+                        f'✅ Найден похожий жанр "{found_name}" (искали "{target_genre}"): ID {target_genre_id}\n')
+                    return target_genre_id
+
+            if genre_result and len(genre_result) > 0:
+                target_genre_id = genre_result[0]['id']
+                sys.stdout.write(f'✅ Жанр "{genre_name_formatted}" найден: ID {target_genre_id}\n')
+                return target_genre_id
+            else:
+                sys.stdout.write(f'❌ Жанр "{target_genre}" не найден в IGDB\n')
+                sys.stdout.flush()
+                return None
+        except Exception as e:
+            sys.stdout.write(f'❌ Ошибка поиска жанра: {e}\n')
             sys.stdout.flush()
+            return None
 
-            BATCH_SIZE = OPTIMAL_CONFIG["BATCH_SIZE"]
-            MAX_WORKERS = OPTIMAL_CONFIG["MAX_WORKERS"]
-            DELAY_BETWEEN_REQUESTS = OPTIMAL_CONFIG["DELAY_BETWEEN_REQUESTS"]
+    def _get_target_theme_id(self, target_theme, debug):
+        """Получает ID целевой темы из IGDB"""
+        from games.igdb_api import make_igdb_request
+        import sys
 
-            all_genre_ids = set()
-            all_theme_ids = set()
-            games_without_data = 0
-            games_with_nothing_to_update = 0
-            games_with_new_data_to_add = 0
-            games_saved = 0
-            api_errors = 0
+        if not target_theme:
+            return None
 
-            save_queue = queue.Queue()
-            save_completed = threading.Event()
-            save_thread_error = None
+        theme_name_formatted = target_theme.capitalize()
 
-            def save_worker():
-                nonlocal games_saved, games_with_new_data_to_add, save_thread_error
+        sys.stdout.write(f'\n🔍 Поиск темы "{theme_name_formatted}" в IGDB...\n')
+        sys.stdout.flush()
 
-                while not save_completed.is_set() or not save_queue.empty():
-                    try:
-                        batch_data = save_queue.get(timeout=0.5)
-                        if batch_data is None:
-                            break
+        theme_query = f'fields id,name; where name = "{theme_name_formatted}";'
+        try:
+            theme_result = make_igdb_request('themes', theme_query, debug=False)
 
-                        saved_count, games_with_updates = self._save_game_batch(batch_data, all_games, debug)
-                        games_saved += saved_count
+            if not theme_result or len(theme_result) == 0:
+                sys.stdout.write(
+                    f'   ⚠️ Тема "{theme_name_formatted}" не найдена, пробуем поиск без учета регистра...\n')
+                theme_query = f'fields id,name; where name ~ *"{target_theme}"*; limit 5;'
+                theme_result = make_igdb_request('themes', theme_query, debug=False)
 
-                    except queue.Empty:
-                        continue
-                    except Exception as e:
-                        save_thread_error = e
+                if theme_result and len(theme_result) > 0:
+                    for theme in theme_result:
+                        if theme.get('name', '').lower() == target_theme.lower():
+                            target_theme_id = theme['id']
+                            sys.stdout.write(f'✅ Тема "{theme_name_formatted}" найдена: ID {target_theme_id}\n')
+                            return target_theme_id
+
+                    target_theme_id = theme_result[0]['id']
+                    found_name = theme_result[0].get('name', 'Unknown')
+                    sys.stdout.write(
+                        f'✅ Найдена похожая тема "{found_name}" (искали "{target_theme}"): ID {target_theme_id}\n')
+                    return target_theme_id
+
+            if theme_result and len(theme_result) > 0:
+                target_theme_id = theme_result[0]['id']
+                sys.stdout.write(f'✅ Тема "{theme_name_formatted}" найдена: ID {target_theme_id}\n')
+                return target_theme_id
+            else:
+                sys.stdout.write(f'❌ Тема "{target_theme}" не найдена в IGDB\n')
+                sys.stdout.flush()
+                return None
+        except Exception as e:
+            sys.stdout.write(f'❌ Ошибка поиска темы: {e}\n')
+            sys.stdout.flush()
+            return None
+
+    def _collect_restore_data(self, all_games, target_genre_id, target_theme_id, debug, offset, initial_offset, limit):
+        """Собирает данные из IGDB для восстановления"""
+        from games.igdb_api import OPTIMAL_CONFIG, make_igdb_request
+        import time
+        import sys
+        import queue
+        import threading
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        sys.stdout.write('\n' + '=' * 60 + '\n')
+        sys.stdout.write('🔄 СБОР ДАННЫХ ИЗ IGDB (параллельное сохранение)\n')
+        sys.stdout.write('=' * 60 + '\n')
+        sys.stdout.flush()
+
+        BATCH_SIZE = OPTIMAL_CONFIG["BATCH_SIZE"]
+        MAX_WORKERS = OPTIMAL_CONFIG["MAX_WORKERS"]
+        DELAY_BETWEEN_REQUESTS = OPTIMAL_CONFIG["DELAY_BETWEEN_REQUESTS"]
+
+        all_genre_ids = set()
+        all_theme_ids = set()
+        games_without_data = 0
+        games_with_nothing_to_update = 0
+        games_with_new_data_to_add = 0
+        games_saved = 0
+        api_errors = 0
+
+        save_queue = queue.Queue()
+        save_completed = threading.Event()
+        save_thread_error = None
+
+        def save_worker():
+            nonlocal games_saved, games_with_new_data_to_add, save_thread_error
+
+            while not save_completed.is_set() or not save_queue.empty():
+                try:
+                    batch_data = save_queue.get(timeout=0.5)
+                    if batch_data is None:
                         break
 
-            save_thread = threading.Thread(target=save_worker, daemon=True)
-            save_thread.start()
+                    saved_count, games_with_updates = self._save_game_batch(batch_data, all_games, debug)
+                    games_saved += saved_count
 
-            start_time = time.time()
-            processed_count = 0
+                except queue.Empty:
+                    continue
+                except Exception as e:
+                    save_thread_error = e
+                    break
 
-            game_ids_list = list(all_games.values_list('igdb_id', flat=True))
+        save_thread = threading.Thread(target=save_worker, daemon=True)
+        save_thread.start()
 
-            batches = []
-            for i in range(0, len(game_ids_list), BATCH_SIZE):
-                batch_ids = game_ids_list[i:i + BATCH_SIZE]
-                if batch_ids:
-                    batches.append(batch_ids)
+        start_time = time.time()
+        processed_count = 0
 
-            total_batches = len(batches)
+        game_ids_list = list(all_games.values_list('igdb_id', flat=True))
 
-            stats_lock = threading.Lock()
+        batches = []
+        for i in range(0, len(game_ids_list), BATCH_SIZE):
+            batch_ids = game_ids_list[i:i + BATCH_SIZE]
+            if batch_ids:
+                batches.append(batch_ids)
 
-            def process_batch(batch_ids, batch_num):
-                nonlocal all_genre_ids, all_theme_ids, games_without_data, games_with_nothing_to_update
-                nonlocal games_with_new_data_to_add, api_errors, processed_count
+        total_batches = len(batches)
 
-                id_list = ','.join(map(str, batch_ids))
-                query = f'fields id,genres,themes; where id = ({id_list}); limit 500;'
+        stats_lock = threading.Lock()
 
-                time.sleep(DELAY_BETWEEN_REQUESTS)
+        def process_batch(batch_ids, batch_num):
+            nonlocal all_genre_ids, all_theme_ids, games_without_data, games_with_nothing_to_update
+            nonlocal games_with_new_data_to_add, api_errors, processed_count
 
-                games_data = None
-                for attempt in range(OPTIMAL_CONFIG["MAX_RETRIES"] + 1):
-                    try:
-                        games_data = make_igdb_request('games', query, debug=False)
-                        break
-                    except Exception as e:
-                        if attempt < OPTIMAL_CONFIG["MAX_RETRIES"]:
-                            delay = OPTIMAL_CONFIG["RETRY_DELAYS"][attempt] if attempt < len(
-                                OPTIMAL_CONFIG["RETRY_DELAYS"]) else 5.0
-                            time.sleep(delay)
-                        else:
-                            with stats_lock:
-                                api_errors += len(batch_ids)
-                            if debug:
-                                sys.stderr.write(f'\n      ❌ Ошибка пачки {batch_num}: {e}\n')
-                                sys.stderr.flush()
-                            return None
+            return self._process_restore_batch(
+                batch_ids, batch_num, target_genre_id, target_theme_id, all_games,
+                all_genre_ids, all_theme_ids, games_without_data,
+                games_with_nothing_to_update, games_with_new_data_to_add,
+                api_errors, processed_count, stats_lock, debug
+            )
 
-                current_batch_games = []
-                games_in_batch = len(batch_ids)
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            futures = {}
+            for batch_num, batch_ids in enumerate(batches, 1):
+                if self.interrupted.is_set():
+                    break
+                future = executor.submit(process_batch, batch_ids, batch_num)
+                futures[future] = batch_num
 
-                local_all_genre_ids = set()
-                local_all_theme_ids = set()
-                local_games_without_data = 0
-                local_games_with_nothing_to_update = 0
-                local_games_with_new_data_to_add = 0
+            for future in as_completed(futures):
+                if self.interrupted.is_set():
+                    for f in futures:
+                        if not f.done():
+                            f.cancel()
+                    break
 
-                if games_data:
-                    games_found = len(games_data)
-                    games_missing = games_in_batch - games_found
-                    local_games_without_data = games_missing
-
-                    existing_genres_by_game = {}
-                    existing_themes_by_game = {}
-
-                    for game in games_data:
-                        game_id = game.get('id')
-                        if game_id:
-                            try:
-                                game_obj = Game.objects.filter(igdb_id=game_id).first()
-                                if game_obj:
-                                    existing_genres_by_game[game_id] = set(
-                                        game_obj.genres.values_list('igdb_id', flat=True))
-                                    existing_themes_by_game[game_id] = set(
-                                        game_obj.themes.values_list('igdb_id', flat=True))
-                                else:
-                                    existing_genres_by_game[game_id] = set()
-                                    existing_themes_by_game[game_id] = set()
-                            except Exception:
-                                existing_genres_by_game[game_id] = set()
-                                existing_themes_by_game[game_id] = set()
-
-                    for game in games_data:
-                        game_id = game.get('id')
-                        if game_id:
-                            genres_from_igdb = set(game.get('genres', []))
-                            themes_from_igdb = set(game.get('themes', []))
-
-                            existing_genres = existing_genres_by_game.get(game_id, set())
-                            existing_themes = existing_themes_by_game.get(game_id, set())
-
-                            new_genres = genres_from_igdb - existing_genres
-                            new_themes = themes_from_igdb - existing_themes
-
-                            if new_genres:
-                                local_all_genre_ids.update(new_genres)
-                            if new_themes:
-                                local_all_theme_ids.update(new_themes)
-
-                            if new_genres or new_themes:
-                                current_batch_games.append({
-                                    'igdb_id': game_id,
-                                    'genres': list(new_genres),
-                                    'themes': list(new_themes)
-                                })
-                                local_games_with_new_data_to_add += 1
-                            else:
-                                local_games_with_nothing_to_update += 1
-                else:
-                    local_games_without_data += games_in_batch
-                    local_games_with_nothing_to_update += games_in_batch
-
-                with stats_lock:
-                    all_genre_ids.update(local_all_genre_ids)
-                    all_theme_ids.update(local_all_theme_ids)
-                    games_without_data += local_games_without_data
-                    games_with_nothing_to_update += local_games_with_nothing_to_update
-                    games_with_new_data_to_add += local_games_with_new_data_to_add
-                    processed_count += games_in_batch
-
-                return current_batch_games
-
-            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-                futures = {}
-                for batch_num, batch_ids in enumerate(batches, 1):
-                    if self.interrupted.is_set():
-                        break
-                    future = executor.submit(process_batch, batch_ids, batch_num)
-                    futures[future] = batch_num
-
-                completed_batches = 0
-                for future in as_completed(futures):
-                    if self.interrupted.is_set():
-                        for f in futures:
-                            if not f.done():
-                                f.cancel()
-                        break
-
-                    batch_num = futures[future]
-                    completed_batches += 1
-
-                    try:
-                        current_batch_games = future.result(timeout=60)
-                        if current_batch_games:
-                            save_queue.put(current_batch_games)
-                    except Exception as e:
-                        with stats_lock:
-                            api_errors += 1
-                        if debug:
-                            sys.stderr.write(f'\n      ❌ Ошибка обработки пачки {batch_num}: {e}\n')
-                            sys.stderr.flush()
-
-                    elapsed_time = time.time() - start_time
-                    percentage = (processed_count / total_games_to_process * 100) if total_games_to_process > 0 else 0
-
-                    if processed_count > 0:
-                        avg_time_per_game = elapsed_time / processed_count
-                        remaining_games = total_games_to_process - processed_count
-                        eta_seconds = avg_time_per_game * remaining_games
-
-                        if eta_seconds < 60:
-                            eta_str = f"{eta_seconds:.0f}с"
-                        elif eta_seconds < 3600:
-                            eta_str = f"{eta_seconds / 60:.1f}мин"
-                        else:
-                            eta_str = f"{eta_seconds / 3600:.1f}ч"
-
-                        if elapsed_time < 60:
-                            elapsed_str = f"{elapsed_time:.0f}с"
-                        elif elapsed_time < 3600:
-                            elapsed_str = f"{elapsed_time / 60:.1f}мин"
-                        else:
-                            elapsed_str = f"{elapsed_time / 3600:.1f}ч"
-                    else:
-                        eta_str = "---"
-                        elapsed_str = "0с"
-
-                    bar_length = 30
-                    filled_length = int(bar_length * processed_count // total_games_to_process)
-                    bar = '█' * filled_length + '░' * (bar_length - filled_length)
-
+                batch_num = futures[future]
+                try:
+                    current_batch_games = future.result(timeout=60)
+                    if current_batch_games:
+                        save_queue.put(current_batch_games)
+                except Exception as e:
                     with stats_lock:
-                        message = (
-                            f"\rСбор данных: {percentage:.1f}% [{processed_count}/{total_games_to_process}] [{bar}]  "
-                            f"✅ {games_with_new_data_to_add}  💾 {games_saved}  ❌ {api_errors}  "
-                            f"⚪ {games_with_nothing_to_update}  ⏭️ {games_without_data}  "
-                            f"({elapsed_str} < {eta_str})")
+                        api_errors += 1
+                    if debug:
+                        sys.stderr.write(f'\n      ❌ Ошибка обработки пачки {batch_num}: {e}\n')
+                        sys.stderr.flush()
 
-                    sys.stdout.write('\r' + ' ' * 150 + '\r')
-                    sys.stdout.write(message)
-                    sys.stdout.flush()
+                elapsed_time = time.time() - start_time
+                percentage = (processed_count / len(game_ids_list) * 100) if len(game_ids_list) > 0 else 0
 
-            save_completed.set()
-            save_queue.put(None)
-            save_thread.join(timeout=10)
+                if processed_count > 0:
+                    avg_time_per_game = elapsed_time / processed_count
+                    remaining_games = len(game_ids_list) - processed_count
+                    eta_seconds = avg_time_per_game * remaining_games
 
-            if save_thread_error:
-                raise save_thread_error
+                    if eta_seconds < 60:
+                        eta_str = f"{eta_seconds:.0f}с"
+                    elif eta_seconds < 3600:
+                        eta_str = f"{eta_seconds / 60:.1f}мин"
+                    else:
+                        eta_str = f"{eta_seconds / 3600:.1f}ч"
 
-            sys.stdout.write('\r' + ' ' * 150 + '\r')
-            sys.stdout.flush()
+                    if elapsed_time < 60:
+                        elapsed_str = f"{elapsed_time:.0f}с"
+                    elif elapsed_time < 3600:
+                        elapsed_str = f"{elapsed_time / 60:.1f}мин"
+                    else:
+                        elapsed_str = f"{elapsed_time / 3600:.1f}ч"
+                else:
+                    eta_str = "---"
+                    elapsed_str = "0с"
 
-            collection_time = time.time() - start_time
+                bar_length = 30
+                filled_length = int(bar_length * processed_count // len(game_ids_list)) if len(game_ids_list) > 0 else 0
+                bar = '█' * filled_length + '░' * (bar_length - filled_length)
 
+                message = (
+                    f"\rСбор данных: {percentage:.1f}% [{processed_count}/{len(game_ids_list)}] [{bar}]  "
+                    f"✅ {games_with_new_data_to_add}  💾 {games_saved}  ❌ {api_errors}  "
+                    f"⚪ {games_with_nothing_to_update}  ⏭️ {games_without_data}  "
+                    f"({elapsed_str} < {eta_str})")
+
+                sys.stdout.write('\r' + ' ' * 150 + '\r')
+                sys.stdout.write(message)
+                sys.stdout.flush()
+
+        save_completed.set()
+        save_queue.put(None)
+        save_thread.join(timeout=10)
+
+        if save_thread_error:
+            raise save_thread_error
+
+        sys.stdout.write('\r' + ' ' * 150 + '\r')
+        sys.stdout.flush()
+
+        collection_time = time.time() - start_time
+
+        if target_genre_id and target_theme_id:
+            sys.stdout.write(f'\n✅ Собрано данных за {collection_time:.1f}с | '
+                             f'обработано: {processed_count} | '
+                             f'✅ игр с обновлениями: {games_with_new_data_to_add} | '
+                             f'💾 реально обновлено: {games_saved} | '
+                             f'⚪ игр без обновлений: {games_with_nothing_to_update} | '
+                             f'⏭️ игр без данных в IGDB: {games_without_data} | '
+                             f'❌ ошибок: {api_errors}\n')
+        elif target_genre_id:
+            sys.stdout.write(f'\n✅ Собрано данных за {collection_time:.1f}с | '
+                             f'обработано: {processed_count} | '
+                             f'✅ игр с жанром: {games_with_new_data_to_add} | '
+                             f'💾 реально обновлено: {games_saved} | '
+                             f'⚪ игр без жанра: {games_with_nothing_to_update} | '
+                             f'⏭️ игр без данных в IGDB: {games_without_data} | '
+                             f'❌ ошибок: {api_errors}\n')
+        elif target_theme_id:
+            sys.stdout.write(f'\n✅ Собрано данных за {collection_time:.1f}с | '
+                             f'обработано: {processed_count} | '
+                             f'✅ игр с темой: {games_with_new_data_to_add} | '
+                             f'💾 реально обновлено: {games_saved} | '
+                             f'⚪ игр без темы: {games_with_nothing_to_update} | '
+                             f'⏭️ игр без данных в IGDB: {games_without_data} | '
+                             f'❌ ошибок: {api_errors}\n')
+        else:
             sys.stdout.write(f'\n✅ Собрано данных за {collection_time:.1f}с | '
                              f'обработано: {processed_count} | '
                              f'✅ игр с НОВЫМИ данными: {games_with_new_data_to_add} | '
@@ -437,21 +532,240 @@ class GameLoader(BaseGamesCommand):
                              f'⚪ игр без новых данных: {games_with_nothing_to_update} | '
                              f'⏭️ игр без данных в IGDB: {games_without_data} | '
                              f'❌ ошибок: {api_errors}\n')
+        sys.stdout.flush()
+
+        return (processed_count, games_with_new_data_to_add, games_saved, api_errors,
+                all_genre_ids, all_theme_ids, games_without_data, games_with_nothing_to_update)
+
+    def _process_restore_batch(self, batch_ids, batch_num, target_genre_id, target_theme_id, all_games,
+                               all_genre_ids, all_theme_ids, games_without_data,
+                               games_with_nothing_to_update, games_with_new_data_to_add,
+                               api_errors, processed_count, stats_lock, debug):
+        """Обрабатывает одну пачку данных для восстановления"""
+        from games.igdb_api import OPTIMAL_CONFIG, make_igdb_request
+        from games.models import Game
+        import time
+        import sys
+
+        id_list = ','.join(map(str, batch_ids))
+
+        if target_genre_id and target_theme_id:
+            query = f'fields id,genres,themes; where id = ({id_list}) & (genres = ({target_genre_id}) | themes = ({target_theme_id})); limit 500;'
+        elif target_genre_id:
+            query = f'fields id,genres; where id = ({id_list}) & genres = ({target_genre_id}); limit 500;'
+        elif target_theme_id:
+            query = f'fields id,themes; where id = ({id_list}) & themes = ({target_theme_id}); limit 500;'
+        else:
+            query = f'fields id,genres,themes; where id = ({id_list}); limit 500;'
+
+        time.sleep(OPTIMAL_CONFIG["DELAY_BETWEEN_REQUESTS"])
+
+        games_data = None
+        for attempt in range(OPTIMAL_CONFIG["MAX_RETRIES"] + 1):
+            try:
+                games_data = make_igdb_request('games', query, debug=False)
+                break
+            except Exception as e:
+                if attempt < OPTIMAL_CONFIG["MAX_RETRIES"]:
+                    delay = OPTIMAL_CONFIG["RETRY_DELAYS"][attempt] if attempt < len(
+                        OPTIMAL_CONFIG["RETRY_DELAYS"]) else 5.0
+                    time.sleep(delay)
+                else:
+                    with stats_lock:
+                        api_errors += len(batch_ids)
+                    if debug:
+                        sys.stderr.write(f'\n      ❌ Ошибка пачки {batch_num}: {e}\n')
+                        sys.stderr.flush()
+                    return None
+
+        current_batch_games = []
+        games_in_batch = len(batch_ids)
+
+        local_all_genre_ids = set()
+        local_all_theme_ids = set()
+        local_games_without_data = 0
+        local_games_with_nothing_to_update = 0
+        local_games_with_new_data_to_add = 0
+
+        if games_data:
+            games_found = len(games_data)
+            games_missing = games_in_batch - games_found
+            local_games_without_data = games_missing
+
+            existing_genres_by_game = {}
+            existing_themes_by_game = {}
+
+            for game in games_data:
+                game_id = game.get('id')
+                if game_id:
+                    try:
+                        game_obj = Game.objects.filter(igdb_id=game_id).first()
+                        if game_obj:
+                            existing_genres_by_game[game_id] = set(
+                                game_obj.genres.values_list('igdb_id', flat=True))
+                            existing_themes_by_game[game_id] = set(
+                                game_obj.themes.values_list('igdb_id', flat=True))
+                        else:
+                            existing_genres_by_game[game_id] = set()
+                            existing_themes_by_game[game_id] = set()
+                    except Exception:
+                        existing_genres_by_game[game_id] = set()
+                        existing_themes_by_game[game_id] = set()
+
+            for game in games_data:
+                game_id = game.get('id')
+                if game_id:
+                    genres_from_igdb = set(game.get('genres', []))
+                    themes_from_igdb = set(game.get('themes', []))
+                    existing_genres = existing_genres_by_game.get(game_id, set())
+                    existing_themes = existing_themes_by_game.get(game_id, set())
+
+                    if target_genre_id and target_theme_id:
+                        new_genres = set()
+                        new_themes = set()
+
+                        if target_genre_id in genres_from_igdb and target_genre_id not in existing_genres:
+                            new_genres.add(target_genre_id)
+
+                        if target_theme_id in themes_from_igdb and target_theme_id not in existing_themes:
+                            new_themes.add(target_theme_id)
+
+                        if new_genres or new_themes:
+                            current_batch_games.append({
+                                'igdb_id': game_id,
+                                'genres': list(new_genres),
+                                'themes': list(new_themes)
+                            })
+                            local_games_with_new_data_to_add += 1
+                            local_all_genre_ids.update(new_genres)
+                            local_all_theme_ids.update(new_themes)
+                        else:
+                            local_games_with_nothing_to_update += 1
+
+                    elif target_genre_id:
+                        if target_genre_id in genres_from_igdb and target_genre_id not in existing_genres:
+                            current_batch_games.append({
+                                'igdb_id': game_id,
+                                'genres': [target_genre_id],
+                                'themes': []
+                            })
+                            local_games_with_new_data_to_add += 1
+                            local_all_genre_ids.add(target_genre_id)
+                        else:
+                            local_games_with_nothing_to_update += 1
+
+                    elif target_theme_id:
+                        if target_theme_id in themes_from_igdb and target_theme_id not in existing_themes:
+                            current_batch_games.append({
+                                'igdb_id': game_id,
+                                'genres': [],
+                                'themes': [target_theme_id]
+                            })
+                            local_games_with_new_data_to_add += 1
+                            local_all_theme_ids.add(target_theme_id)
+                        else:
+                            local_games_with_nothing_to_update += 1
+
+                    else:
+                        new_genres = genres_from_igdb - existing_genres
+                        new_themes = themes_from_igdb - existing_themes
+
+                        if new_genres:
+                            local_all_genre_ids.update(new_genres)
+                        if new_themes:
+                            local_all_theme_ids.update(new_themes)
+
+                        if new_genres or new_themes:
+                            current_batch_games.append({
+                                'igdb_id': game_id,
+                                'genres': list(new_genres),
+                                'themes': list(new_themes)
+                            })
+                            local_games_with_new_data_to_add += 1
+                        else:
+                            local_games_with_nothing_to_update += 1
+        else:
+            local_games_without_data += games_in_batch
+            local_games_with_nothing_to_update += games_in_batch
+
+        with stats_lock:
+            all_genre_ids.update(local_all_genre_ids)
+            all_theme_ids.update(local_all_theme_ids)
+            games_without_data += local_games_without_data
+            games_with_nothing_to_update += local_games_with_nothing_to_update
+            games_with_new_data_to_add += local_games_with_new_data_to_add
+            processed_count += games_in_batch
+
+        return current_batch_games
+
+    def _load_restored_data(self, target_genre, target_theme, all_genre_ids, all_theme_ids, debug):
+        """Загружает собранные данные в базу"""
+        import sys
+        import time
+
+        if target_genre and target_theme:
+            sys.stdout.write('\n' + '=' * 60 + '\n')
+            sys.stdout.write('🔄 ЭТАП 2: ЗАГРУЗКА ЖАНРОВ И ТЕМ В БД\n')
+            sys.stdout.write('=' * 60 + '\n')
             sys.stdout.flush()
 
-            if self.interrupted.is_set():
-                sys.stdout.write('\n🛑 СБОР ДАННЫХ ПРЕРВАН\n')
-                sys.stdout.flush()
-                signal.signal(signal.SIGINT, original_sigint)
+            start_time = time.time()
 
-                # ПРАВИЛЬНОЕ СОХРАНЕНИЕ OFFSET ПРИ ПРЕРЫВАНИИ
-                next_offset = initial_offset + processed_count
-                self.save_offset_for_continuation(options, next_offset)
-                sys.stdout.write(f'📍 Сохранён offset для продолжения: {next_offset}\n')
+            if all_genre_ids:
+                sys.stdout.write('   📥 Загрузка жанров...\n')
+                sys.stdout.flush()
+                genre_map = self._bulk_load_genres(list(all_genre_ids), debug)
+                sys.stdout.write(f'      ✅ Загружено жанров: {len(genre_map)}\n')
                 sys.stdout.flush()
 
-                return 0
+            if all_theme_ids:
+                sys.stdout.write('   📥 Загрузка тем...\n')
+                sys.stdout.flush()
+                theme_map = self._bulk_load_themes(list(all_theme_ids), debug)
+                sys.stdout.write(f'      ✅ Загружено тем: {len(theme_map)}\n')
+                sys.stdout.flush()
 
+            load_time = time.time() - start_time
+            sys.stdout.write(f'   ⏱️  Время загрузки: {load_time:.1f}с\n')
+            sys.stdout.flush()
+
+        elif target_genre:
+            sys.stdout.write('\n' + '=' * 60 + '\n')
+            sys.stdout.write('🔄 ЭТАП 2: ЗАГРУЗКА ЖАНРОВ В БД\n')
+            sys.stdout.write('=' * 60 + '\n')
+            sys.stdout.flush()
+
+            start_time = time.time()
+
+            sys.stdout.write('   📥 Загрузка жанров...\n')
+            sys.stdout.flush()
+            genre_map = self._bulk_load_genres(list(all_genre_ids), debug)
+            sys.stdout.write(f'      ✅ Загружено жанров: {len(genre_map)}\n')
+            sys.stdout.flush()
+
+            load_time = time.time() - start_time
+            sys.stdout.write(f'   ⏱️  Время загрузки: {load_time:.1f}с\n')
+            sys.stdout.flush()
+
+        elif target_theme:
+            sys.stdout.write('\n' + '=' * 60 + '\n')
+            sys.stdout.write('🔄 ЭТАП 2: ЗАГРУЗКА ТЕМ В БД\n')
+            sys.stdout.write('=' * 60 + '\n')
+            sys.stdout.flush()
+
+            start_time = time.time()
+
+            sys.stdout.write('   📥 Загрузка тем...\n')
+            sys.stdout.flush()
+            theme_map = self._bulk_load_themes(list(all_theme_ids), debug)
+            sys.stdout.write(f'      ✅ Загружено тем: {len(theme_map)}\n')
+            sys.stdout.flush()
+
+            load_time = time.time() - start_time
+            sys.stdout.write(f'   ⏱️  Время загрузки: {load_time:.1f}с\n')
+            sys.stdout.flush()
+
+        else:
             sys.stdout.write('\n' + '=' * 60 + '\n')
             sys.stdout.write('🔄 ЭТАП 2: ЗАГРУЗКА ЖАНРОВ И ТЕМ В БД\n')
             sys.stdout.write('=' * 60 + '\n')
@@ -475,70 +789,155 @@ class GameLoader(BaseGamesCommand):
             sys.stdout.write(f'   ⏱️  Время загрузки: {load_time:.1f}с\n')
             sys.stdout.flush()
 
-            total_time = time.time() - total_start_time
+    def _display_restore_statistics(self, initial_offset, processed_count, total_games_to_process,
+                                    games_with_new_data_to_add, games_saved, all_genre_ids, all_theme_ids,
+                                    games_with_nothing_to_update, games_without_data, api_errors,
+                                    total_start_time, next_offset, target_genre, target_theme):
+        """Выводит финальную статистику восстановления"""
+        import sys
+        import time
 
-            # ПРАВИЛЬНОЕ СОХРАНЕНИЕ OFFSET ПОСЛЕ УСПЕШНОГО ЗАВЕРШЕНИЯ
-            next_offset = initial_offset + processed_count
-            self.save_offset_for_continuation(options, next_offset)
+        total_time = time.time() - total_start_time
 
-            sys.stdout.write(f'\n' + '=' * 60 + '\n')
-            sys.stdout.write(f'📊 ИТОГОВАЯ СТАТИСТИКА\n')
-            sys.stdout.write('=' * 60 + '\n')
-            sys.stdout.write(f'📍 Начальный offset: {initial_offset}\n')
-            sys.stdout.write(f'📍 Обработано игр: {processed_count}/{total_games_to_process}\n')
-            sys.stdout.write(f'✅ Игр с НОВЫМИ данными: {games_with_new_data_to_add}\n')
-            sys.stdout.write(f'💾 Реально обновлено игр: {games_saved}\n')
+        sys.stdout.write(f'\n' + '=' * 60 + '\n')
+        sys.stdout.write(f'📊 ИТОГОВАЯ СТАТИСТИКА\n')
+        sys.stdout.write('=' * 60 + '\n')
+        sys.stdout.write(f'📍 Начальный offset: {initial_offset}\n')
+        sys.stdout.write(f'📍 Обработано игр: {processed_count}/{total_games_to_process}\n')
+        sys.stdout.write(f'✅ Игр с НОВЫМИ данными: {games_with_new_data_to_add}\n')
+        sys.stdout.write(f'💾 Реально обновлено игр: {games_saved}\n')
+
+        if target_genre:
+            sys.stdout.write(f'✅ Новых жанров добавлено: {len(all_genre_ids)}\n')
+        if target_theme:
+            sys.stdout.write(f'✅ Новых тем добавлено: {len(all_theme_ids)}\n')
+        if not target_genre and not target_theme:
             sys.stdout.write(f'✅ Новых жанров добавлено: {len(all_genre_ids)}\n')
             sys.stdout.write(f'✅ Новых тем добавлено: {len(all_theme_ids)}\n')
-            sys.stdout.write(f'⚪ Игр без новых данных: {games_with_nothing_to_update}\n')
-            sys.stdout.write(f'⏭️ Игр без данных в IGDB: {games_without_data}\n')
-            sys.stdout.write(f'❌ Ошибок API: {api_errors}\n')
-            sys.stdout.write(f'⏱️  Общее время: {total_time:.2f}с\n')
-            sys.stdout.write(f'📍 Следующий offset: {next_offset}\n')
 
-            if total_time > 0:
-                speed = total_games_to_process / total_time
-                sys.stdout.write(f'🚀 Скорость: {speed:.1f} игр/сек\n')
+        sys.stdout.write(f'⚪ Игр без новых данных: {games_with_nothing_to_update}\n')
+        sys.stdout.write(f'⏭️ Игр без данных в IGDB: {games_without_data}\n')
+        sys.stdout.write(f'❌ Ошибок API: {api_errors}\n')
+        sys.stdout.write(f'⏱️  Общее время: {total_time:.2f}с\n')
+        sys.stdout.write(f'📍 Следующий offset: {next_offset}\n')
 
+        if total_time > 0:
+            speed = total_games_to_process / total_time
+            sys.stdout.write(f'🚀 Скорость: {speed:.1f} игр/сек\n')
+
+        sys.stdout.flush()
+
+    def _handle_restore_interruption(self, initial_offset, processed_count, options, original_sigint):
+        """Обрабатывает прерывание восстановления"""
+        import sys
+        import signal
+
+        next_offset = initial_offset + processed_count
+        self.save_offset_for_continuation(options, next_offset)
+
+        sys.stdout.write(f'\n🛑 КОМАНДА ПРЕРВАНА ПОЛЬЗОВАТЕЛЕМ (Ctrl+C)\n')
+        sys.stdout.write(f'📍 Обработано игр: {processed_count}\n')
+        sys.stdout.write(f'📍 Следующий offset: {next_offset}\n')
+        sys.stdout.flush()
+
+        signal.signal(signal.SIGINT, original_sigint)
+
+    def _prepare_restore_environment(self, options, offset, limit, total_start_time, target_genre):
+        """Подготавливает окружение для восстановления данных"""
+        from games.models import Game
+        import sys
+
+        if offset == 0 and not options.get('reset_offset', False):
+            saved_offset = self.get_saved_offset(options)
+            if saved_offset is not None:
+                offset = saved_offset
+                sys.stdout.write(f'📍 Загружен сохраненный offset: {offset}\n')
+                sys.stdout.flush()
+
+        initial_offset = offset
+
+        if target_genre:
+            sys.stdout.write(f'\n🎯 ВОССТАНОВЛЕНИЕ ЖАНРА "{target_genre.upper()}" ДЛЯ ВСЕХ ИГР\n')
+        else:
+            sys.stdout.write(f'\n🎯 ВОССТАНОВЛЕНИЕ ЖАНРОВ И ТЕМ ДЛЯ ВСЕХ ИГР\n')
+        sys.stdout.write('=' * 60 + '\n')
+        sys.stdout.flush()
+
+        all_games = Game.objects.order_by('id').values('igdb_id', 'id', 'name')
+        total_games_in_db = all_games.count()
+
+        sys.stdout.write(f'📊 Всего игр в базе: {total_games_in_db}\n')
+        sys.stdout.flush()
+
+        if offset > 0:
+            if offset >= total_games_in_db:
+                sys.stdout.write(self.style.WARNING(f'⚠️ Offset {offset} превышает общее количество игр\n'))
+                sys.stdout.flush()
+                return offset, initial_offset, 0
+
+            all_games = all_games[offset:]
+            sys.stdout.write(f'📍 Пропускаем первые {offset} игр, осталось: {all_games.count()}\n')
             sys.stdout.flush()
-            signal.signal(signal.SIGINT, original_sigint)
-            return games_saved
 
-        except KeyboardInterrupt:
-            self.interrupted.set()
+        if limit > 0:
+            all_games = all_games[:limit]
+            sys.stdout.write(f'🎯 Лимит: {limit} игр\n')
+            sys.stdout.flush()
 
-            # ПРАВИЛЬНОЕ СОХРАНЕНИЕ OFFSET ПРИ ПРЕРЫВАНИИ
-            if 'processed_count' in locals() and 'initial_offset' in locals():
-                next_offset = initial_offset + processed_count
-            elif 'processed_count' in locals():
-                next_offset = offset + processed_count
+        total_games_to_process = all_games.count()
+
+        if total_games_to_process == 0:
+            sys.stdout.write('\n✅ Нет игр для обработки\n')
+            sys.stdout.flush()
+
+        return offset, initial_offset, total_games_to_process
+
+    def _update_restore_progress(self, processed_count, total_batches, completed_batches,
+                                 total_games_to_process, start_time,
+                                 games_with_new_data_to_add, games_saved, api_errors,
+                                 games_with_nothing_to_update, games_without_data):
+        """Обновляет отображение прогресса восстановления"""
+        import sys
+        import time
+
+        elapsed_time = time.time() - start_time
+        percentage = (processed_count / total_games_to_process * 100) if total_games_to_process > 0 else 0
+
+        if processed_count > 0:
+            avg_time_per_game = elapsed_time / processed_count
+            remaining_games = total_games_to_process - processed_count
+            eta_seconds = avg_time_per_game * remaining_games
+
+            if eta_seconds < 60:
+                eta_str = f"{eta_seconds:.0f}с"
+            elif eta_seconds < 3600:
+                eta_str = f"{eta_seconds / 60:.1f}мин"
             else:
-                next_offset = offset
+                eta_str = f"{eta_seconds / 3600:.1f}ч"
 
-            self.save_offset_for_continuation(options, next_offset)
+            if elapsed_time < 60:
+                elapsed_str = f"{elapsed_time:.0f}с"
+            elif elapsed_time < 3600:
+                elapsed_str = f"{elapsed_time / 60:.1f}мин"
+            else:
+                elapsed_str = f"{elapsed_time / 3600:.1f}ч"
+        else:
+            eta_str = "---"
+            elapsed_str = "0с"
 
-            sys.stdout.write(f'\n🛑 КОМАНДА ПРЕРВАНА ПОЛЬЗОВАТЕЛЕМ (Ctrl+C)\n')
-            if 'processed_count' in locals():
-                sys.stdout.write(f'📍 Обработано игр: {processed_count}/{total_games_to_process}\n')
-            if 'games_with_new_data_to_add' in locals():
-                sys.stdout.write(f'📍 Игр с новыми данными: {games_with_new_data_to_add}\n')
-            if 'games_saved' in locals():
-                sys.stdout.write(f'📍 Реально обновлено игр: {games_saved}\n')
-            sys.stdout.write(f'📍 Следующий offset: {next_offset}\n')
-            sys.stdout.flush()
+        bar_length = 30
+        filled_length = int(bar_length * processed_count // total_games_to_process) if total_games_to_process > 0 else 0
+        bar = '█' * filled_length + '░' * (bar_length - filled_length)
 
-            signal.signal(signal.SIGINT, original_sigint)
-            return 0
+        message = (
+            f"\rСбор данных: {percentage:.1f}% [{processed_count}/{total_games_to_process}] [{bar}]  "
+            f"✅ {games_with_new_data_to_add}  💾 {games_saved}  ❌ {api_errors}  "
+            f"⚪ {games_with_nothing_to_update}  ⏭️ {games_without_data}  "
+            f"({elapsed_str} < {eta_str})")
 
-        except Exception as e:
-            sys.stderr.write(f'\n❌ Ошибка: {e}\n')
-            if debug:
-                import traceback
-                sys.stderr.write(traceback.format_exc())
-            sys.stderr.flush()
-
-            signal.signal(signal.SIGINT, original_sigint)
-            return 0
+        sys.stdout.write('\r' + ' ' * 150 + '\r')
+        sys.stdout.write(message)
+        sys.stdout.flush()
 
     def _save_game_batch(self, batch_games, all_games, debug=False):
         """Сохраняет пачку игр в БД - добавляет только новые связи

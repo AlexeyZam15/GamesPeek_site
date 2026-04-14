@@ -986,29 +986,32 @@ def create_single_highlight_span(text: str, match: Dict) -> str:
 
 def format_text_with_html(text: str) -> str:
     """
-    Форматирует текст в HTML
-    ИСПРАВЛЕНО: Декодирует HTML-сущности перед форматированием
+    Форматирует текст в HTML с сохранением абзацной структуры.
+    ИСПРАВЛЕНО: Заменяет &amp; и namp; на n, так как & ломает подсветку.
     """
     if not text:
         return ""
 
     import html
 
-    # Если уже есть HTML
-    if '<p>' in text:
+    # Если уже есть HTML теги
+    if '<p>' in text or '<br>' in text or '<div>' in text:
+        # Заменяем &amp; и namp; на n
+        text = text.replace('&amp;', 'n')
+        text = text.replace('namp;', 'n')
         return text
 
-    # ИСПРАВЛЕНИЕ: Декодируем HTML-сущности перед обработкой
-    text = html.unescape(text)
-
-    # Разбиваем на абзацы
+    # Разбиваем на абзацы по двойным переносам строк
     paragraphs = text.split('\n\n')
     formatted = []
 
     for para in paragraphs:
         if para.strip():
-            # Экранируем HTML
+            # Экранируем HTML-символы
             safe_para = html.escape(para.strip())
+            # Заменяем &amp; и namp; на n
+            safe_para = safe_para.replace('&amp;', 'n')
+            safe_para = safe_para.replace('namp;', 'n')
             # Сохраняем переносы строк внутри абзаца
             safe_para = safe_para.replace('\n', '<br>')
             formatted.append(f'<p>{safe_para}</p>')
@@ -1016,7 +1019,10 @@ def format_text_with_html(text: str) -> str:
     if formatted:
         return '\n'.join(formatted)
     else:
-        safe_text = html.escape(text.replace('\n', '<br>'))
+        safe_text = text.replace('\n', '<br>')
+        safe_text = html.escape(safe_text)
+        safe_text = safe_text.replace('&amp;', 'n')
+        safe_text = safe_text.replace('namp;', 'n')
         return f'<p>{safe_text}</p>'
 
 

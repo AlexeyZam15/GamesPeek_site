@@ -1,0 +1,84 @@
+<!-- games/templates/games/game_list/filter_sections/_search_engines_section.html -->
+
+<div id="search-active-engines" class="mb-2">
+    {% if search_selected_engines %}
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="d-flex align-items-center gap-2">
+                <button type="button"
+                        class="btn btn-sm search-clear-engines-btn btn-outline-warning"
+                        style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                        data-param="e">
+                    <i class="bi bi-x-circle me-1"></i>Clear All
+                </button>
+                <small class="text-muted" style="font-weight: 500;">
+                    Selected engines ({{ search_selected_engines|length }})
+                </small>
+            </div>
+        </div>
+    {% endif %}
+
+    <div id="search-visible-engines-badges">
+        {% for engine in search_selected_engines_objects|slice:":27" %}
+            <span class="badge bg-warning me-1 mb-1 search-active-engine-tag"
+                  data-engine-id="{{ engine.id }}"
+                  style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                {{ engine.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+            </span>
+        {% endfor %}
+    </div>
+
+    {% if search_selected_engines_objects|length > 27 %}
+        <div id="search-hidden-engines-badges" style="display: none;">
+            {% for engine in search_selected_engines_objects|slice:"27:" %}
+                <span class="badge bg-warning me-1 mb-1 search-active-engine-tag"
+                      data-engine-id="{{ engine.id }}"
+                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                    {{ engine.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                </span>
+            {% endfor %}
+        </div>
+        <div class="text-center mt-2">
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary search-show-more-engines"
+                    onclick="toggleSearchMoreEngines(this)">
+                <i class="bi bi-chevron-down"></i> Show all ({{ search_selected_engines_objects|length }})
+            </button>
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary search-show-less-engines"
+                    style="display: none;"
+                    onclick="toggleSearchLessEngines(this)">
+                <i class="bi bi-chevron-up"></i> Show less
+            </button>
+        </div>
+    {% endif %}
+</div>
+
+<input type="text" class="form-control mb-2" id="search-engine-search"
+       placeholder="Search engines..." autocomplete="off">
+
+<div class="search-engine-list border rounded p-2" style="max-height: 200px; overflow-y: auto;">
+    <div class="search-engine-grid"
+         style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+        {% for engine in engines %}
+            <div class="search-engine-item" data-engine-name="{{ engine.name|lower }}">
+                <div class="form-check">
+                    <input class="form-check-input search-engine-checkbox"
+                           type="checkbox"
+                           value="{{ engine.id }}"
+                           id="search_engine_{{ engine.id }}"
+                           {% if engine.id in search_selected_engines %}checked{% endif %}>
+                    <label class="form-check-label small" for="search_engine_{{ engine.id }}">
+                        {{ engine.name }}
+                    </label>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="text-center mt-2">
+    <button type="button" class="btn btn-outline-secondary btn-sm search-show-all-engines-btn">
+        <span class="show-text">Show all engines</span>
+        <span class="hide-text" style="display: none;">Show less</span>
+    </button>
+</div>
