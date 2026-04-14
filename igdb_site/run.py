@@ -479,8 +479,6 @@ def start_postgresql(output_callback):
         _postgresql_port = port
         output_callback(f"  Using port: {port}\n")
 
-        pg_ctl_exe = Path(bin_path) / 'pg_ctl.exe' if sys.platform == 'win32' else Path(bin_path) / 'pg_ctl'
-
         # Write port to postgresql.conf
         conf_file = Path(data_dir) / 'postgresql.conf'
         if conf_file.exists():
@@ -510,41 +508,43 @@ def start_postgresql(output_callback):
         output_callback(f"  PostgreSQL log: {pg_log_file}\n")
 
         if sys.platform == 'win32':
-            DETACHED_PROCESS = 0x00000008
+            # CREATE_NO_WINDOW решает проблему полностью - окна не появляются
             CREATE_NO_WINDOW = 0x08000000
-            creationflags = DETACHED_PROCESS | CREATE_NO_WINDOW
+            CREATE_NEW_PROCESS_GROUP = 0x00000200
 
+            # Используем оба флага для максимальной надежности
+            creationflags = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
+
+            # STARTUPINFO для дополнительного скрытия
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags = subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = 0
+            startupinfo.wShowWindow = 0  # SW_HIDE
 
-            # Write PostgreSQL output to both log file and callback
-            with open(pg_log_file, 'a', encoding='utf-8', errors='ignore') as log_f:
-                process = subprocess.Popen(
-                    [str(pg_ctl_exe), '-D', data_dir, 'start'],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    stdin=subprocess.DEVNULL,
-                    creationflags=creationflags,
-                    startupinfo=startupinfo,
-                    text=True,
-                    encoding='utf-8',
-                    errors='ignore'
-                )
+            # Запускаем pg_ctl с правильными флагами
+            process = subprocess.Popen(
+                [str(Path(bin_path) / 'pg_ctl.exe'), '-D', data_dir, 'start', '-l', str(pg_log_file)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,
+                creationflags=creationflags,
+                startupinfo=startupinfo,
+                text=True,
+                encoding='utf-8',
+                errors='ignore'
+            )
 
             def read_output(pipe, prefix):
                 for line in iter(pipe.readline, ''):
                     if line.strip():
                         output_callback(f"{prefix}{line}")
-                        with open(pg_log_file, 'a', encoding='utf-8', errors='ignore') as log_f:
-                            log_f.write(line)
 
             threading.Thread(target=read_output, args=(process.stdout, ""), daemon=True).start()
             threading.Thread(target=read_output, args=(process.stderr, ""), daemon=True).start()
         else:
+            # Для Unix систем
             with open(pg_log_file, 'a', encoding='utf-8', errors='ignore') as log_f:
                 process = subprocess.Popen(
-                    [str(pg_ctl_exe), '-D', data_dir, 'start'],
+                    [str(Path(bin_path) / 'pg_ctl'), '-D', data_dir, 'start'],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     stdin=subprocess.DEVNULL,
@@ -557,8 +557,6 @@ def start_postgresql(output_callback):
                 for line in iter(pipe.readline, ''):
                     if line.strip():
                         output_callback(f"{prefix}{line}")
-                        with open(pg_log_file, 'a', encoding='utf-8', errors='ignore') as log_f:
-                            log_f.write(line)
 
             threading.Thread(target=read_output, args=(process.stdout, ""), daemon=True).start()
             threading.Thread(target=read_output, args=(process.stderr, ""), daemon=True).start()
