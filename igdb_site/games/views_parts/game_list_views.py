@@ -449,14 +449,11 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
     Обновляет список игр объектами с кэшированными карточками из БД.
     ОПТИМИЗИРОВАНО: пакетная загрузка карточек одним запросом.
     """
+
     show_similarity = context.get('show_similarity', False)
 
     if not games_list:
         return games_list
-
-    print(f"\n=== UPDATE GAMES WITH CACHED CARDS DEBUG ===")
-    print(f"games_list length: {len(games_list)}")
-    print(f"show_similarity: {show_similarity}")
 
     # Собираем все ID игр
     game_ids = []
@@ -468,16 +465,11 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
             similarity = item.get('similarity')
             game_ids.append(game_obj.id)
             game_items.append((item, game_obj, similarity, True))
-            # ОТЛАДКА: выводим similarity для каждого элемента
-            if similarity is not None:
-                print(f"DEBUG: Item similarity for game {game_obj.id} ({game_obj.name}): {similarity}")
         else:
             game_obj = item
             similarity = getattr(game_obj, 'similarity', None)
             game_ids.append(game_obj.id)
             game_items.append((item, game_obj, similarity, False))
-            if similarity is not None:
-                print(f"DEBUG: Direct similarity for game {game_obj.id} ({game_obj.name}): {similarity}")
 
     # Получаем текущую версию кэша из модели
     from games.models import GameCardCache
@@ -513,10 +505,6 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
                 if show_similarity and similarity is not None and similarity > 0:
                     import re
 
-                    # ОТЛАДКА
-                    print(
-                        f"DEBUG: Adding data-similarity={similarity} to card for game {game_obj.id} ({game_obj.name})")
-
                     # Сначала добавляем data-similarity
                     pattern = r'(<div[^>]*class="[^"]*game-card-container[^"]*"[^>]*)>'
                     replacement = r'\1 data-similarity="' + str(similarity) + r'">'
@@ -532,7 +520,6 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
                 # Добавляем similarity к объекту игры для шаблона
                 if show_similarity and similarity is not None:
                     game_obj.similarity = similarity
-                    print(f"DEBUG: Set game_obj.similarity for {game_obj.id} ({game_obj.name}) to {similarity}")
 
                 if isinstance(item, dict):
                     item['cached_card'] = card_html
@@ -545,17 +532,12 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
                 logger.error(f"Error using cached card: {str(e)}")
 
         # Нет карточки в кэше или она устарела - создаём простую карточку без сохранения в БД
-        # (для скорости, не сохраняем в БД при пагинации)
         card_context = {'game': game_obj}
         card_html = render_to_string('games/partials/_game_card.html', card_context)
 
         # Добавляем data-атрибуты с процентом и source_game, если нужно
         if show_similarity and similarity is not None and similarity > 0:
             import re
-
-            # ОТЛАДКА
-            print(
-                f"DEBUG: Creating new card with data-similarity={similarity} for game {game_obj.id} ({game_obj.name})")
 
             pattern = r'(<div[^>]*class="[^"]*game-card-container[^"]*"[^>]*)>'
             replacement = r'\1 data-similarity="' + str(similarity) + r'">'
@@ -570,7 +552,6 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
         # Добавляем similarity к объекту игры для шаблона
         if show_similarity and similarity is not None:
             game_obj.similarity = similarity
-            print(f"DEBUG: Set game_obj.similarity (new card) for {game_obj.id} ({game_obj.name}) to {similarity}")
 
         if isinstance(item, dict):
             item['cached_card'] = card_html
