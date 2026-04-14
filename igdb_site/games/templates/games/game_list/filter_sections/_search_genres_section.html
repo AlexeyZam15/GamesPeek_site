@@ -1,0 +1,83 @@
+<!-- games/templates/games/game_list/filter_sections/_search_genres_section.html -->
+
+<div id="search-active-genres" class="mb-2">
+    {% if search_selected_genres %}
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="d-flex align-items-center gap-2">
+                <button type="button"
+                        class="btn btn-sm search-clear-genres-btn btn-outline-primary"
+                        style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                        data-param="g">
+                    <i class="bi bi-x-circle me-1"></i>Clear All
+                </button>
+                <small class="text-muted" style="font-weight: 500;">
+                    Selected genres ({{ search_selected_genres|length }})
+                </small>
+            </div>
+        </div>
+    {% endif %}
+
+    <div id="search-visible-genres-badges">
+        {% for genre in search_selected_genres_objects|slice:":27" %}
+            <span class="badge bg-primary me-1 mb-1 search-active-genre-tag"
+                  data-genre-id="{{ genre.id }}"
+                  style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                {{ genre.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+            </span>
+        {% endfor %}
+    </div>
+
+    {% if search_selected_genres_objects|length > 27 %}
+        <div id="search-hidden-genres-badges" style="display: none;">
+            {% for genre in search_selected_genres_objects|slice:"27:" %}
+                <span class="badge bg-primary me-1 mb-1 search-active-genre-tag"
+                      data-genre-id="{{ genre.id }}"
+                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                    {{ genre.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                </span>
+            {% endfor %}
+        </div>
+        <div class="text-center mt-2">
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary search-show-more-genres"
+                    onclick="toggleSearchMoreGenres(this)">
+                <i class="bi bi-chevron-down"></i> Show all ({{ search_selected_genres_objects|length }})
+            </button>
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary search-show-less-genres"
+                    style="display: none;"
+                    onclick="toggleSearchLessGenres(this)">
+                <i class="bi bi-chevron-up"></i> Show less
+            </button>
+        </div>
+    {% endif %}
+</div>
+
+<input type="text" class="form-control mb-2" id="search-genre-search"
+       placeholder="Search genres..." autocomplete="off">
+
+<div class="search-genre-list border rounded p-2" style="max-height: 200px; overflow-y: auto;">
+    <div class="search-genre-grid"
+         style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+        {% for genre in genres %}
+            <div class="search-genre-item" data-genre-name="{{ genre.name|lower }}">
+                <div class="form-check">
+                    <input class="form-check-input search-genre-checkbox"
+                           type="checkbox"
+                           value="{{ genre.id }}" id="search_genre_{{ genre.id }}"
+                           {% if genre.id in search_selected_genres %}checked{% endif %}>
+                    <label class="form-check-label small" for="search_genre_{{ genre.id }}">
+                        {{ genre.name }}
+                    </label>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="text-center mt-2">
+    <button type="button" class="btn btn-outline-secondary btn-sm search-show-all-genres-btn">
+        <span class="show-text">Show all genres</span>
+        <span class="hide-text" style="display: none;">Show less</span>
+    </button>
+</div>

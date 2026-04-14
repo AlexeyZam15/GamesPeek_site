@@ -25,27 +25,114 @@ const FilterSearch = {
         FilterSearchDebugTimer.start('setupSearchFilters');
         console.log('Setting up search filters...');
 
-        // Search Filters
-        // Для Platforms используем классы из шаблона
-        this.setupSearchInput('platform-search', '.search-platform-item', 'data-platform-name');
-        // Для Game Types
-        this.setupSearchInput('game-type-search', '.search-game-type-item', 'data-game-type-name');
-        // Остальные Search Filters
-        this.setupSearchInput('search-genre-search', '.search-genre-item', 'data-genre-name');
-        this.setupSearchInput('search-keyword-search', '.search-keyword-item', 'data-keyword-name');
-        this.setupSearchInput('search-theme-search', '.search-theme-item', 'data-theme-name');
-        this.setupSearchInput('search-perspective-search', '.search-perspective-item', 'data-perspective-name');
-        this.setupSearchInput('search-game-mode-search', '.search-game-mode-item', 'data-game-mode-name');
-        this.setupSearchInput('search-engine-search', '.search-engine-item', 'data-engine-name');
+        // Конфигурация всех поисковых полей
+        const searchConfigs = [
+            { inputId: 'platform-search', itemSelector: '.search-platform-item', dataAttr: 'data-platform-name' },
+            { inputId: 'game-type-search', itemSelector: '.search-game-type-item', dataAttr: 'data-game-type-name' },
+            { inputId: 'search-genre-search', itemSelector: '.search-genre-item', dataAttr: 'data-genre-name' },
+            { inputId: 'search-keyword-search', itemSelector: '.search-keyword-item', dataAttr: 'data-keyword-name' },
+            { inputId: 'search-theme-search', itemSelector: '.search-theme-item', dataAttr: 'data-theme-name' },
+            { inputId: 'search-perspective-search', itemSelector: '.search-perspective-item', dataAttr: 'data-perspective-name' },
+            { inputId: 'search-game-mode-search', itemSelector: '.search-game-mode-item', dataAttr: 'data-game-mode-name' },
+            { inputId: 'search-engine-search', itemSelector: '.search-engine-item', dataAttr: 'data-engine-name' },
+            { inputId: 'genre-search', itemSelector: '.genre-item', dataAttr: 'data-genre-name' },
+            { inputId: 'keyword-search', itemSelector: '.keyword-item', dataAttr: 'data-keyword-name' },
+            { inputId: 'theme-search', itemSelector: '.theme-item', dataAttr: 'data-theme-name' },
+            { inputId: 'perspective-search', itemSelector: '.perspective-item', dataAttr: 'data-perspective-name' },
+            { inputId: 'game-mode-search', itemSelector: '.game-mode-item', dataAttr: 'data-game-mode-name' },
+            { inputId: 'engine-search', itemSelector: '.engine-item', dataAttr: 'data-engine-name' }
+        ];
 
-        // Similarity Filters (оригинальные классы)
-        this.setupSearchInput('genre-search', '.genre-item', 'data-genre-name');
-        this.setupSearchInput('keyword-search', '.keyword-item', 'data-keyword-name');
-        this.setupSearchInput('theme-search', '.theme-item', 'data-theme-name');
-        this.setupSearchInput('perspective-search', '.perspective-item', 'data-perspective-name');
-        this.setupSearchInput('game-mode-search', '.game-mode-item', 'data-game-mode-name');
-        this.setupSearchInput('engine-search', '.engine-item', 'data-engine-name');
+        // Создаем debounced функцию сортировки один раз
+        const debouncedSort = this.debounce(() => {
+            if (window.FilterManager && window.FilterManager.sort) {
+                window.FilterManager.sort.forceSortAllLists();
+            }
+        }, 150);
+
+        // Настраиваем каждое поле поиска
+        searchConfigs.forEach(config => {
+            this.setupSingleSearchInput(config.inputId, config.itemSelector, config.dataAttr, debouncedSort);
+        });
+
         FilterSearchDebugTimer.end('setupSearchFilters');
+    },
+
+    // Новый метод для настройки одного поля поиска
+    setupSingleSearchInput(inputId, itemSelector, dataAttr, debouncedSort) {
+        const searchInput = document.getElementById(inputId);
+        if (!searchInput) {
+            console.log(`Search input ${inputId} not found`);
+            return;
+        }
+
+        console.log(`Setting up search for ${inputId} with selector ${itemSelector}`);
+
+        const originalInput = searchInput;
+        const newInput = originalInput.cloneNode(false);
+
+        for (let attr of originalInput.attributes) {
+            newInput.setAttribute(attr.name, attr.value);
+        }
+        newInput.value = originalInput.value;
+
+        const handleInput = (e) => {
+            const searchTerm = e.target.value.toLowerCase().trim();
+            const items = document.querySelectorAll(itemSelector);
+
+            let visibleCount = 0;
+            const termLength = searchTerm.length;
+
+            for (const item of items) {
+                const itemName = item.getAttribute(dataAttr);
+                if (itemName && (termLength === 0 || itemName.toLowerCase().includes(searchTerm))) {
+                    item.style.display = 'block';
+                    visibleCount++;
+                } else {
+                    item.style.display = 'none';
+                }
+            }
+
+            console.log(`Search "${searchTerm}" in ${inputId}: ${visibleCount} visible items of ${items.length}`);
+
+            if (inputId === 'keyword-search' || inputId === 'search-keyword-search') {
+                this.handleKeywordSearchUpdate(searchTerm, visibleCount);
+            }
+
+            debouncedSort();
+        };
+
+        newInput.addEventListener('input', handleInput);
+        newInput.addEventListener('search', () => {
+            if (newInput.value === '') {
+                setTimeout(() => {
+                    const items = document.querySelectorAll(itemSelector);
+                    for (const item of items) {
+                        item.style.display = 'block';
+                    }
+                    if (inputId === 'keyword-search' || inputId === 'search-keyword-search') {
+                        this.handleKeywordSearchClear();
+                    }
+                    debouncedSort();
+                }, 10);
+            }
+        });
+
+        originalInput.parentNode.replaceChild(newInput, originalInput);
+        console.log(`Search setup complete for ${inputId}`);
+    },
+
+    // Вспомогательный метод debounce
+    debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
     },
 
     // Настройка одного поля поиска

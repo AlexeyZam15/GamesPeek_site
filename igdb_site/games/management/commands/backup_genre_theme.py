@@ -17,6 +17,19 @@ from games.models_parts.game import Game
 class Command(BaseCommand):
     """
     Create backup or restore a genre or theme with all relationships.
+
+    Примеры:
+      # Резервное копирование
+      python manage.py backup_genre_theme --backup --type genre --name Action
+      python manage.py backup_genre_theme --backup-all
+
+      # Восстановление
+      python manage.py backup_genre_theme --restore --type genre --name Action
+      python manage.py backup_genre_theme --restore --file backups/genre_Action.json
+      python manage.py backup_genre_theme --restore-all --force
+
+      # Проверка
+      python manage.py backup_genre_theme --check-up --type genre --verbose
     """
 
     help = 'Create backup or restore genre/theme with all relationships'
@@ -544,17 +557,69 @@ class Command(BaseCommand):
         file_path = options.get('file')
         dry_run = options.get('dry_run')
         force = options.get('force')
+        name = options.get('name')  # Добавлена поддержка поиска по имени
+
+        # Если не указан file, но указан name и type - ищем файл автоматически
+        if not file_path and name and options.get('type'):
+            entity_type = options.get('type')
+            backup_dir = options.get('backup_dir')
+            safe_name = "".join(c for c in name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+            auto_file_path = os.path.join(backup_dir, f"{entity_type}_{safe_name}.json")
+
+            if os.path.exists(auto_file_path):
+                file_path = auto_file_path
+                self.stdout.write(f"Автоматически найден файл бэкапа: {file_path}")
+            else:
+                # Пробуем найти файл без учета регистра
+                pattern = f"{entity_type}_*.json"
+                search_pattern = os.path.join(backup_dir, pattern)
+                backup_files = glob.glob(search_pattern)
+
+                found_file = None
+                for backup_file in backup_files:
+                    filename = os.path.basename(backup_file)
+                    # Извлекаем имя из формата "type_Имя.json"
+                    if '_' in filename:
+                        file_name_part = filename[filename.find('_') + 1:filename.rfind('.')]
+                        if file_name_part.lower() == safe_name.lower():
+                            found_file = backup_file
+                            break
+
+                if found_file:
+                    file_path = found_file
+                    self.stdout.write(f"Найден файл бэкапа (без учета регистра): {file_path}")
+                else:
+                    raise CommandError(
+                        f"Файл бэкапа не найден для {entity_type} '{name}'. "
+                        f"Используйте --file для указания конкретного файла"
+                    )
 
         if not file_path:
-            raise CommandError("--restore requires --file parameter")
+            raise CommandError(
+                "--restore требует --file параметр, или --type и --name для автоматического поиска"
+            )
 
         if not os.path.exists(file_path):
-            raise CommandError(f"File not found: {file_path}")
+            raise CommandError(f"Файл не найден: {file_path}")
 
-        self.stdout.write(f"Loading backup file...")
+        self.stdout.write(f"Загрузка файла бэкапа...")
 
         with open(file_path, 'r', encoding='utf-8') as backup_file:
             backup_data = json.load(backup_file)
+
+        # Проверяем соответствие типа и имени, если указаны
+        if name and options.get('type'):
+            entity_type = options.get('type')
+            if backup_data.get('type') != entity_type:
+                raise CommandError(
+                    f"Несоответствие типа: ожидается {entity_type}, "
+                    f"в бэкапе {backup_data.get('type')}"
+                )
+            if backup_data.get('name').lower() != name.lower():
+                raise CommandError(
+                    f"Несоответствие имени: ожидается '{name}', "
+                    f"в бэкапе '{backup_data.get('name')}'"
+                )
 
         self._restore_from_data(backup_data, dry_run, force)
 

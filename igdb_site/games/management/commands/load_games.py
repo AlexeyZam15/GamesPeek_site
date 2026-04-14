@@ -46,6 +46,10 @@ class Command(BaseCommand):
                             help='Обновить отсутствующие данные у существующих игр. Можно использовать с --game-names или без для обновления всех игр')
         parser.add_argument('--update-covers', action='store_true',
                             help='Обновить только обложки у существующих игр')
+        parser.add_argument('--restore-genre', type=str, default='',
+                            help='Восстановить указанный жанр для всех игр, у которых он есть в IGDB (например, --restore-genre action)')
+        parser.add_argument('--restore-theme', type=str, default='',
+                            help='Восстановить указанную тему для всех игр, у которых она есть в IGDB (например, --restore-theme action)')
 
         parser.add_argument('--no-cache', action='store_true',
                             help='Отключить кэширование загрузки из БД')
@@ -63,19 +67,16 @@ class Command(BaseCommand):
 
         options['use_cache'] = not options.get('no_cache', False)
 
-        # Очистка кэша
         if options.get('clear_cache', False):
             self.stdout.write('\n🧹 ОЧИСТКА КЭША')
             self.stdout.write('=' * 50)
 
-            # Очищаем кэш проверенных игр
             try:
                 cleared_count = GameCacheManager.clear_cache()
                 self.stdout.write(f'   ✅ Кэш проверенных игр очищен: {cleared_count} записей')
             except Exception as e:
                 self.stdout.write(f'   ⚠️ Ошибка очистки кэша проверенных игр: {e}')
 
-            # Очищаем кэш relations
             try:
                 cache.delete("games_relations_cache")
                 self.stdout.write('   ✅ Кэш relations очищен')
@@ -119,7 +120,30 @@ class Command(BaseCommand):
                     self.stdout.write('⏹️ Команда отменена')
                     return
 
-        # Режим восстановления жанров и тем
+        if options.get('restore_genre'):
+            genre_name = options['restore_genre'].strip()
+            self.stdout.write(f'🎭 РЕЖИМ: ВОССТАНОВЛЕНИЕ ЖАНРА "{genre_name.upper()}"')
+            self.stdout.write('=' * 60)
+
+            loader = GameLoader(self.stdout, self.stderr)
+            updated_count = loader.restore_genres_and_themes(options, options.get('debug', False),
+                                                             target_genre=genre_name)
+
+            self.stdout.write(f'\n✅ Восстановлено жанров: {updated_count} игр получили жанр "{genre_name}"')
+            return
+
+        if options.get('restore_theme'):
+            theme_name = options['restore_theme'].strip()
+            self.stdout.write(f'🎭 РЕЖИМ: ВОССТАНОВЛЕНИЕ ТЕМЫ "{theme_name.upper()}"')
+            self.stdout.write('=' * 60)
+
+            loader = GameLoader(self.stdout, self.stderr)
+            updated_count = loader.restore_genres_and_themes(options, options.get('debug', False),
+                                                             target_theme=theme_name)
+
+            self.stdout.write(f'\n✅ Восстановлено тем: {updated_count} игр получили тему "{theme_name}"')
+            return
+
         if options.get('restore_genres_themes', False):
             self.stdout.write('🎭 РЕЖИМ: ВОССТАНОВЛЕНИЕ ЖАНРОВ И ТЕМ')
             self.stdout.write('=' * 60)

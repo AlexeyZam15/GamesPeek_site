@@ -1,0 +1,83 @@
+<!-- games/templates/games/game_list/filter_sections/_similarity_themes_section.html -->
+
+<div id="active-themes" class="mb-2">
+    {% if similarity_selected_themes %}
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="d-flex align-items-center gap-2">
+                <button type="button"
+                        class="btn btn-sm clear-themes-btn btn-outline-warning"
+                        style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                        data-param="t">
+                    <i class="bi bi-x-circle me-1"></i>Clear All
+                </button>
+                <small class="text-muted" style="font-weight: 500;">
+                    Selected themes ({{ similarity_selected_themes|length }})
+                </small>
+            </div>
+        </div>
+    {% endif %}
+
+    <div id="visible-themes-badges">
+        {% for theme in similarity_selected_themes_objects|slice:":27" %}
+            <span class="badge bg-warning me-1 mb-1 active-theme-tag"
+                  data-theme-id="{{ theme.id }}"
+                  style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                {{ theme.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+            </span>
+        {% endfor %}
+    </div>
+
+    {% if similarity_selected_themes_objects|length > 27 %}
+        <div id="hidden-themes-badges" style="display: none;">
+            {% for theme in similarity_selected_themes_objects|slice:"27:" %}
+                <span class="badge bg-warning me-1 mb-1 active-theme-tag"
+                      data-theme-id="{{ theme.id }}"
+                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                    {{ theme.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                </span>
+            {% endfor %}
+        </div>
+        <div class="text-center mt-2">
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary show-more-themes"
+                    onclick="toggleMorethemes(this)">
+                <i class="bi bi-chevron-down"></i> Show all ({{ similarity_selected_themes_objects|length }})
+            </button>
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary show-less-themes"
+                    style="display: none;"
+                    onclick="toggleLessthemes(this)">
+                <i class="bi bi-chevron-up"></i> Show less
+            </button>
+        </div>
+    {% endif %}
+</div>
+
+<input type="text" class="form-control mb-2" id="theme-search"
+       placeholder="Search themes..." autocomplete="off">
+
+<div class="theme-list border rounded p-2" style="max-height: 200px; overflow-y: auto;">
+    <div class="theme-grid"
+         style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+        {% for theme in themes %}
+            <div class="theme-item" data-theme-name="{{ theme.name|lower }}">
+                <div class="form-check">
+                    <input class="form-check-input theme-checkbox"
+                           type="checkbox"
+                           value="{{ theme.id }}" id="theme_{{ theme.id }}"
+                           {% if theme.id in similarity_selected_themes %}checked{% endif %}>
+                    <label class="form-check-label small" for="theme_{{ theme.id }}">
+                        {{ theme.name }}
+                    </label>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="text-center mt-2">
+    <button type="button" class="btn btn-outline-secondary btn-sm show-all-themes-btn">
+        <span class="show-text">Show all themes</span>
+        <span class="hide-text" style="display: none;">Show less</span>
+    </button>
+</div>

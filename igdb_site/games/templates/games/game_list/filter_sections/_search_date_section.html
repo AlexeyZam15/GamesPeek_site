@@ -1,0 +1,108 @@
+<!-- games/templates/games/game_list/filter_sections/_search_date_section.html -->
+
+{% if search_selected_release_year_start or search_selected_release_year_end %}
+    <div id="search-active-date-filter" class="mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="d-flex align-items-center gap-2">
+                <button type="button"
+                        class="btn btn-sm search-clear-date-filter-btn btn-outline-warning"
+                        style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                        data-param="yr,ys,ye">
+                    <i class="bi bi-x-circle me-1"></i>Clear Date Filter
+                </button>
+                <small class="text-muted" style="font-weight: 500;">
+                    Selected date range
+                </small>
+            </div>
+        </div>
+
+        <div id="search-visible-date-filter-badges">
+            <span class="badge bg-warning me-1 mb-1 search-active-date-filter-tag"
+                  data-date-range="{{ search_selected_release_year_start|default:'' }}-{{ search_selected_release_year_end|default:'' }}">
+                {% if search_selected_release_year_start and search_selected_release_year_end %}
+                    {{ search_selected_release_year_start }} - {{ search_selected_release_year_end }}
+                {% elif search_selected_release_year_start %}
+                    From {{ search_selected_release_year_start }}
+                {% elif search_selected_release_year_end %}
+                    Until {{ search_selected_release_year_end }}
+                {% endif %}
+                <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+            </span>
+        </div>
+    </div>
+{% endif %}
+
+<div class="range-slider-container">
+    <input type="range"
+           min="{{ years_range.min_year }}"
+           max="{{ years_range.max_year }}"
+           value="{{ search_selected_release_year_start|default:years_range.min_year }}"
+           class="slider-range"
+           id="search-year-range-slider-min"
+           oninput="updateSearchYearRange('min')">
+
+    <input type="range"
+           min="{{ years_range.min_year }}"
+           max="{{ years_range.max_year }}"
+           value="{{ search_selected_release_year_end|default:years_range.max_year }}"
+           class="slider-range"
+           id="search-year-range-slider-max"
+           oninput="updateSearchYearRange('max')">
+
+    <div class="range-values">
+        <div class="range-min">
+            <span id="search-min-year-value">{{ search_selected_release_year_start|default:years_range.min_year }}</span>
+        </div>
+        <div class="range-max">
+            <span id="search-max-year-value">{{ search_selected_release_year_end|default:years_range.max_year }}</span>
+        </div>
+    </div>
+
+    <div class="range-info">
+        Drag sliders to select date range
+    </div>
+</div>
+
+<div class="year-inputs">
+    <div class="year-input-group">
+        <label for="search-manual-year-start">Start Year:</label>
+        <input type="number"
+               id="search-manual-year-start"
+               class="year-input"
+               min="{{ years_range.min_year }}"
+               max="{{ years_range.max_year }}"
+               value="{{ search_selected_release_year_start|default:'' }}"
+               placeholder="From year..."
+               onchange="updateSearchYearFromInput('start')">
+    </div>
+
+    <div class="year-input-group">
+        <label for="search-manual-year-end">End Year:</label>
+        <input type="number"
+               id="search-manual-year-end"
+               class="year-input"
+               min="{{ years_range.min_year }}"
+               max="{{ years_range.max_year }}"
+               value="{{ search_selected_release_year_end|default:'' }}"
+               placeholder="To year..."
+               onchange="updateSearchYearFromInput('end')">
+    </div>
+</div>
+
+<div class="d-flex flex-wrap gap-2 mt-3">
+    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setSearchYearRange('last5')">
+        Last 5 Years
+    </button>
+    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setSearchYearRange('2010s')">
+        2010s
+    </button>
+    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setSearchYearRange('2000s')">
+        2000s
+    </button>
+    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setSearchYearRange('1990s')">
+        1990s
+    </button>
+    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setSearchYearRange('1980s')">
+        1980s
+    </button>
+</div>

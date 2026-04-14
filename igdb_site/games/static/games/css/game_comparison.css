@@ -56,3 +56,34 @@
 .criteria-section:last-child {
   margin-bottom: 0;
 }
+
+/* Стиль для контейнеров общих элементов - сохраняем внешний вид, но копируем в строку */
+.shared-items-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.shared-items-grid.copy-as-single-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.shared-items-grid.copy-as-single-line .shared-item {
+  display: inline-block;
+}
+
+.shared-items-grid.copy-as-single-line .shared-item::after {
+  content: ", ";
+  display: inline;
+  white-space: normal;
+}
+
+.shared-items-grid.copy-as-single-line .shared-item:last-child::after {
+  content: "";
+}
+
+.shared-items-grid.copy-as-single-line .shared-item br {
+  display: none;
+}

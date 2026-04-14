@@ -1,0 +1,59 @@
+<!-- games/templates/games/game_list/filter_sections/_similarity_game_modes_section.html -->
+
+<div id="active-game-modes" class="mb-2">
+    {% if similarity_selected_game_modes %}
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="d-flex align-items-center gap-2">
+                <button type="button"
+                        class="btn btn-sm clear-game-modes-btn btn-outline-purple"
+                        style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                        data-param="gm">
+                    <i class="bi bi-x-circle me-1"></i>Clear All
+                </button>
+                <small class="text-muted" style="font-weight: 500;">
+                    Selected game modes ({{ similarity_selected_game_modes|length }})
+                </small>
+            </div>
+        </div>
+    {% endif %}
+
+    <div id="visible-game-modes-badges">
+        {% for game_mode in similarity_selected_game_modes_objects|slice:":27" %}
+            <span class="badge bg-purple me-1 mb-1 active-game-mode-tag"
+                  data-game-mode-id="{{ game_mode.id }}"
+                  style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                {{ game_mode.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+            </span>
+        {% endfor %}
+    </div>
+</div>
+
+<input type="text" class="form-control mb-2" id="game-mode-search"
+       placeholder="Search game modes..." autocomplete="off">
+
+<div class="game-mode-list border rounded p-2" style="max-height: 200px; overflow-y: auto;">
+    <div class="game-mode-grid"
+         style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+        {% for game_mode in game_modes %}
+            <div class="game-mode-item" data-game-mode-name="{{ game_mode.name|lower }}">
+                <div class="form-check">
+                    <input class="form-check-input game-mode-checkbox"
+                           type="checkbox"
+                           value="{{ game_mode.id }}"
+                           id="game_mode_{{ game_mode.id }}"
+                           {% if game_mode.id in similarity_selected_game_modes %}checked{% endif %}>
+                    <label class="form-check-label small" for="game_mode_{{ game_mode.id }}">
+                        {{ game_mode.name }}
+                    </label>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="text-center mt-2">
+    <button type="button" class="btn btn-outline-secondary btn-sm show-all-game-modes-btn">
+        <span class="show-text">Show all game modes</span>
+        <span class="hide-text" style="display: none;">Show less</span>
+    </button>
+</div>

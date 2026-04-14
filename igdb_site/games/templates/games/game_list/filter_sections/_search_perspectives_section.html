@@ -1,0 +1,84 @@
+<!-- games/templates/games/game_list/filter_sections/_search_perspectives_section.html -->
+
+<div id="search-active-perspectives" class="mb-2">
+    {% if search_selected_perspectives %}
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="d-flex align-items-center gap-2">
+                <button type="button"
+                        class="btn btn-sm search-clear-perspectives-btn btn-outline-info"
+                        style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
+                        data-param="pp">
+                    <i class="bi bi-x-circle me-1"></i>Clear All
+                </button>
+                <small class="text-muted" style="font-weight: 500;">
+                    Selected perspectives ({{ search_selected_perspectives|length }})
+                </small>
+            </div>
+        </div>
+    {% endif %}
+
+    <div id="search-visible-perspectives-badges">
+        {% for perspective in search_selected_perspectives_objects|slice:":27" %}
+            <span class="badge bg-info me-1 mb-1 search-active-perspective-tag"
+                  data-perspective-id="{{ perspective.id }}"
+                  style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                {{ perspective.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+            </span>
+        {% endfor %}
+    </div>
+
+    {% if search_selected_perspectives_objects|length > 27 %}
+        <div id="search-hidden-perspectives-badges" style="display: none;">
+            {% for perspective in search_selected_perspectives_objects|slice:"27:" %}
+                <span class="badge bg-info me-1 mb-1 search-active-perspective-tag"
+                      data-perspective-id="{{ perspective.id }}"
+                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                    {{ perspective.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                </span>
+            {% endfor %}
+        </div>
+        <div class="text-center mt-2">
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary search-show-more-perspectives"
+                    onclick="toggleSearchMorePerspectives(this)">
+                <i class="bi bi-chevron-down"></i> Show all ({{ search_selected_perspectives_objects|length }})
+            </button>
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary search-show-less-perspectives"
+                    style="display: none;"
+                    onclick="toggleSearchLessPerspectives(this)">
+                <i class="bi bi-chevron-up"></i> Show less
+            </button>
+        </div>
+    {% endif %}
+</div>
+
+<input type="text" class="form-control mb-2" id="search-perspective-search"
+       placeholder="Search perspectives..." autocomplete="off">
+
+<div class="search-perspective-list border rounded p-2" style="max-height: 200px; overflow-y: auto;">
+    <div class="search-perspective-grid"
+         style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
+        {% for perspective in perspectives %}
+            <div class="search-perspective-item" data-perspective-name="{{ perspective.name|lower }}">
+                <div class="form-check">
+                    <input class="form-check-input search-perspective-checkbox"
+                           type="checkbox"
+                           value="{{ perspective.id }}"
+                           id="search_perspective_{{ perspective.id }}"
+                           {% if perspective.id in search_selected_perspectives %}checked{% endif %}>
+                    <label class="form-check-label small" for="search_perspective_{{ perspective.id }}">
+                        {{ perspective.name }}
+                    </label>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="text-center mt-2">
+    <button type="button" class="btn btn-outline-secondary btn-sm search-show-all-perspectives-btn">
+        <span class="show-text">Show all perspectives</span>
+        <span class="hide-text" style="display: none;">Show less</span>
+    </button>
+</div>
