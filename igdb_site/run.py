@@ -867,7 +867,7 @@ def insert_games(game_values, games_data):
 
 
 def import_database_dump(output_callback):
-    """Import full PostgreSQL dump with schema and data using pg_restore."""
+    """Import full PostgreSQL dump with schema and data without dropping database."""
 
     if getattr(sys, 'frozen', False):
         exe_dir = Path(sys.executable).parent
@@ -884,7 +884,7 @@ def import_database_dump(output_callback):
     dump_size_mb = dump_file.stat().st_size / (1024 * 1024)
     output_callback(f"📦 Found database dump: {dump_file.name} ({dump_size_mb:.1f} MB)\n")
 
-    output_callback("🗜️ Restoring full database with schema and data...\n")
+    output_callback("🗜️ Restoring database schema and data...\n")
 
     bin_path = get_postgres_bin_path(output_callback)
     if not bin_path:
@@ -910,55 +910,13 @@ def import_database_dump(output_callback):
     output_callback(f"  Host: {db_host}:{db_port}\n")
 
     tmp_dump_path = str(dump_file)
-    tmp_size_mb = Path(tmp_dump_path).stat().st_size / (1024 * 1024)
-    output_callback(f"  Size: {tmp_size_mb:.1f} MB\n")
 
     try:
         env = os.environ.copy()
         if db_password:
             env['PGPASSWORD'] = db_password
 
-        output_callback("  Preparing database...\n")
-
-        psql_exe = Path(bin_path) / 'psql.exe' if sys.platform == 'win32' else Path(bin_path) / 'psql'
-
-        # Terminate all connections to the target database
-        terminate_cmd = [
-            str(psql_exe),
-            '-h', db_host,
-            '-p', str(db_port),
-            '-U', db_user,
-            '-d', 'postgres',
-            '-c', f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{db_name}';"
-        ]
-        subprocess.run(terminate_cmd, env=env, capture_output=True)
-
-        # Drop target database if exists
-        drop_cmd = [
-            str(psql_exe),
-            '-h', db_host,
-            '-p', str(db_port),
-            '-U', db_user,
-            '-d', 'postgres',
-            '-c', f'DROP DATABASE IF EXISTS "{db_name}" WITH (FORCE);'
-        ]
-        subprocess.run(drop_cmd, env=env, capture_output=True)
-
-        # Create fresh database
-        create_cmd = [
-            str(psql_exe),
-            '-h', db_host,
-            '-p', str(db_port),
-            '-U', db_user,
-            '-d', 'postgres',
-            '-c', f'CREATE DATABASE "{db_name}" OWNER "{db_user}";'
-        ]
-        result = subprocess.run(create_cmd, env=env, capture_output=True, text=True)
-
-        if result.returncode != 0:
-            output_callback(f"  Warning: {result.stderr}\n")
-
-        output_callback("  Restoring full database (this may take several minutes)...\n")
+        output_callback("  Restoring (this may take several minutes)...\n")
 
         import time
         start_time = time.time()
@@ -966,8 +924,6 @@ def import_database_dump(output_callback):
         restore_cmd = [
             str(pg_restore_exe),
             '--dbname', f'postgresql://{db_user}@{db_host}:{db_port}/{db_name}',
-            '--clean',
-            '--if-exists',
             '--no-owner',
             '--no-privileges',
             '--jobs', '4',
@@ -985,11 +941,12 @@ def import_database_dump(output_callback):
         elapsed = time.time() - start_time
 
         if result.returncode != 0:
-            output_callback(f"  Restore had warnings: {result.stderr[:500]}\n")
+            stderr_output = result.stderr if result.stderr else ""
+            if stderr_output:
+                output_callback(f"  Restore had warnings: {stderr_output[:500]}\n")
 
         output_callback(f"  Restore completed in {elapsed:.1f} seconds\n")
 
-        # Verify data was imported
         from django.db import connections
         connections.close_all()
 
