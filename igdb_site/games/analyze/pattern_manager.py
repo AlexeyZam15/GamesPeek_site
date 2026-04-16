@@ -306,9 +306,7 @@ class PatternManager:
         ],
         'Cyberpunk': [
             r'\bcyber(?:[-\s]?)?punk\b',
-            r'\b(?:high\s+tech|neon[-\s]?soaked|dystopian\s+future|corporate\s+domination)\b',
             r'\b(?:cybernetics|cyberware|implants|augmentations|biotech)\b',
-            r'\b(?:hacking|netrunning|virtual\s+reality|matrix)\s+(?:mechanics|system)\b',
         ],
         'Dark Fantasy': [
             r'\b(?:dark|gothic|grimdark|grim\s+dark|bleak)\s+fantasy\b',
