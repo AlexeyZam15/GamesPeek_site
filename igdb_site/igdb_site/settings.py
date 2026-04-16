@@ -96,9 +96,12 @@ WSGI_APPLICATION = 'igdb_site.wsgi.application'
 
 import dj_database_url
 
-# Приоритет: DATABASE_URL (для Hugging Face / Render) > отдельные переменные (локально)
-if os.getenv('DATABASE_URL'):
-    # Режим продакшн на Hugging Face или Render с единой строкой подключения
+# Определяем окружение по переменным окружения
+IS_RENDER = os.getenv('RENDER') == 'true'
+IS_DESKTOP = os.getenv('DESKTOP_MODE') == '1'
+
+if IS_RENDER:
+    # Режим Render (облачный хостинг) - используем DATABASE_URL от Render
     DATABASES = {
         'default': dj_database_url.config(
             default=os.getenv('DATABASE_URL'),
@@ -106,8 +109,26 @@ if os.getenv('DATABASE_URL'):
             ssl_require=True
         )
     }
+elif IS_DESKTOP:
+    # Режим десктоп - используем локальную базу (существующая логика)
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.getenv('DB_NAME', 'gamespeek'),
+            'USER': os.getenv('DB_USER', 'django_user'),
+            'PASSWORD': os.getenv('DB_PASSWORD', 'django_user'),
+            'HOST': os.getenv('DB_HOST', 'localhost'),
+            'PORT': os.getenv('DB_PORT', '5432'),
+            'CONN_MAX_AGE': 600,
+            'OPTIONS': {
+                'connect_timeout': 10,
+                'client_encoding': 'UTF8',
+                'sslmode': 'disable',
+            },
+        }
+    }
 else:
-    # Локальная разработка с отдельными переменными окружения
+    # Режим разработки (manage.py runserver) - локальная база
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
@@ -122,9 +143,6 @@ else:
                 'client_encoding': 'UTF8',
                 'sslmode': 'prefer',
             },
-            'TEST': {
-                'NAME': 'test_gamespeek',
-            }
         }
     }
 
