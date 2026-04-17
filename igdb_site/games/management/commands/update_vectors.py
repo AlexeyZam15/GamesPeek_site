@@ -137,6 +137,9 @@ class Command(BaseCommand):
 
         cache.clear()
 
+        # Очищаем таблицу кэша карточек
+        self._clear_game_card_cache()
+
         with connection.cursor() as cursor:
             cursor.execute("""
                            SELECT COUNT(CASE WHEN genre_ids != '{}' THEN 1 END)       as non_empty_genres,
@@ -205,6 +208,21 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f'\n{"=" * 60}'))
         self.stdout.write(self.style.SUCCESS('ОБНОВЛЕНИЕ ЗАВЕРШЕНО'))
         self.stdout.write(self.style.SUCCESS(f'{"=" * 60}\n'))
+
+    def _clear_game_card_cache(self, dry_run=False):
+        """Очищает таблицу кэша карточек игр."""
+        from games.models_parts.game_card import GameCardCache
+
+        self.stdout.write(self.style.WARNING('\n🗑️  Очистка кэша карточек игр...'))
+
+        if dry_run:
+            count = GameCardCache.objects.count()
+            self.stdout.write(f'   [DRY-RUN] Будет очищено {count} записей GameCardCache')
+            return count
+
+        count = GameCardCache.objects.all().delete()[0]
+        self.stdout.write(self.style.SUCCESS(f'   ✅ Удалено {count} записей GameCardCache'))
+        return count
 
     def _check_and_clear_locks(self):
         """Проверяет наличие блокировок и автоматически снимает их"""
