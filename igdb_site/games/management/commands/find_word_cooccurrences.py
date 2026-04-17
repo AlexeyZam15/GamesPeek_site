@@ -440,6 +440,7 @@ class Command(BaseCommand):
     ) -> List[Dict]:
         """
         Находит сочетания в радиусе N символов (независимо от порядка слов)
+        Использует regex паттерны для поиска полноценных слов
         """
         if not text or len(text) < 10:
             return []
@@ -463,6 +464,36 @@ class Command(BaseCommand):
         }
 
         search_text = text if self.case_sensitive else text.lower()
+        original_text = text
+
+        # Паттерн для поиска полноценных слов (минимум 3 буквы, только буквы и дефис)
+        word_pattern = r'\b[a-zA-Z][a-zA-Z\-]{2,}[a-zA-Z]\b'
+
+        # Паттерн для поиска в пределах предложения (не пересекаем .!?\n)
+        sentence_boundary = r'(?![.!?\n])'
+
+        # Функция для извлечения предложения целиком
+        def extract_full_sentence(pos, text_full):
+            start = pos
+            for i in range(pos, max(0, pos - 200), -1):
+                if i == 0:
+                    start = 0
+                    break
+                if i > 0 and text_full[i - 1] in '.!?\n':
+                    start = i
+                    break
+
+            end = pos
+            for i in range(pos, min(len(text_full), pos + 200)):
+                if text_full[i] in '.!?\n':
+                    end = i + 1
+                    break
+                if i == len(text_full) - 1:
+                    end = len(text_full)
+
+            sentence = text_full[start:end].strip()
+            sentence = ' '.join(sentence.split())
+            return sentence
 
         # Находим все вхождения целевого паттерна
         target_matches = []
@@ -484,100 +515,179 @@ class Command(BaseCommand):
             target_end = target['end']
             matched_word = target['matched_word']
 
-            search_start = max(0, target_start - self.radius)
-            search_end = min(len(search_text), target_end + self.radius)
+            # Ищем слова ДО целевого (в радиусе 30 символов, не выходя за границы предложения)
+            before_text = search_text[max(0, target_start - self.radius - 50):target_start]
 
-            context = search_text[search_start:search_end]
+            # Паттерн для поиска слов ДО с учетом границ предложения
+            before_pattern = r'(?:(?![.!?\n]).){0,' + str(
+                self.radius) + r'}\b(' + word_pattern + r')\b(?=(?:(?![.!?\n]).){0,' + str(self.radius) + r'}$)'
 
-            # Находим все слова в контексте
-            for word_match in re.finditer(r'\b\w+(?:[-]\w+)*\b', context):
-                original_word = word_match.group()
+            for word_match in re.finditer(before_pattern, before_text, re.UNICODE):
+                original_word = word_match.group(1)
                 word_lower = original_word.lower()
-                word_abs_start = search_start + word_match.start()
-                word_abs_end = search_start + word_match.end()
 
-                if word_abs_start >= target_start and word_abs_end <= target_end:
-                    continue
-
-                if len(original_word) <= 3:
-                    continue
-
-                if word_lower in blacklist:
-                    continue
-
-                word_root = self._get_word_root(original_word)
-
-                if word_abs_end <= target_start:
-                    position = 'before'
-                elif word_abs_start >= target_end:
-                    position = 'after'
-                else:
-                    continue
-
-                cooccurrences.append({
-                    'type': 'single',
-                    'word': word_root,
-                    'original_word': original_word,
-                    'position': position,
-                    'target_word': matched_word,
-                    'game_id': game['id'],
-                    'game_name': game['name']
-                })
-
-            # Находим биграммы
-            words_in_context = []
-            for word_match in re.finditer(r'\b\w+(?:[-]\w+)*\b', context):
-                original_word = word_match.group()
-                word_lower = original_word.lower()
-                word_abs_start = search_start + word_match.start()
-                word_abs_end = search_start + word_match.end()
-
-                if word_abs_start >= target_start and word_abs_end <= target_end:
+                # Проверяем, что слово действительно в радиусе
+                word_end_pos = max(0, target_start - self.radius - 50) + word_match.end(1)
+                if target_start - word_end_pos > self.radius:
                     continue
 
                 if len(original_word) <= 3 or word_lower in blacklist:
                     continue
 
                 word_root = self._get_word_root(original_word)
+                word_abs_start = max(0, target_start - self.radius - 50) + word_match.start(1)
+                word_abs_end = word_abs_start + len(original_word)
+                orig_word = original_text[word_abs_start:word_abs_end]
+                sentence = extract_full_sentence(word_abs_start, original_text)
 
-                words_in_context.append({
+                cooccurrences.append({
+                    'type': 'single',
                     'word': word_root,
-                    'original_word': original_word,
+                    'original_word': orig_word,
+                    'position': 'before',
+                    'target_word': matched_word,
+                    'game_id': game['id'],
+                    'game_name': game['name'],
+                    'context_sentence': sentence
+                })
+
+            # Ищем слова ПОСЛЕ целевого
+            after_text = search_text[target_end:target_end + self.radius + 50]
+            after_pattern = r'\b(' + word_pattern + r')\b'
+
+            for word_match in re.finditer(after_pattern, after_text, re.UNICODE):
+                original_word = word_match.group(1)
+                word_lower = original_word.lower()
+                word_abs_start = target_end + word_match.start(1)
+                word_abs_end = target_end + word_match.end(1)
+
+                if word_abs_start - target_end > self.radius:
+                    break
+
+                if len(original_word) <= 3 or word_lower in blacklist:
+                    continue
+
+                word_root = self._get_word_root(original_word)
+                orig_word = original_text[word_abs_start:word_abs_end]
+                sentence = extract_full_sentence(word_abs_start, original_text)
+
+                cooccurrences.append({
+                    'type': 'single',
+                    'word': word_root,
+                    'original_word': orig_word,
+                    'position': 'after',
+                    'target_word': matched_word,
+                    'game_id': game['id'],
+                    'game_name': game['name'],
+                    'context_sentence': sentence
+                })
+
+            # Ищем биграммы (пары слов) - оба ДО
+            before_words = []
+            for word_match in re.finditer(before_pattern, before_text, re.UNICODE):
+                original_word = word_match.group(1)
+                word_lower = original_word.lower()
+                if len(original_word) <= 3 or word_lower in blacklist:
+                    continue
+                word_abs_start = max(0, target_start - self.radius - 50) + word_match.start(1)
+                word_abs_end = word_abs_start + len(original_word)
+                if target_start - word_abs_end > self.radius:
+                    continue
+                before_words.append({
+                    'word': original_word,
                     'start': word_abs_start,
                     'end': word_abs_end
                 })
 
-            for i in range(len(words_in_context) - 1):
-                word1_root = words_in_context[i]['word']
-                word2_root = words_in_context[i + 1]['word']
-                word1_original = words_in_context[i]['original_word']
-                word2_original = words_in_context[i + 1]['original_word']
+            # Ищем соседние пары слов (оба ДО)
+            for i in range(len(before_words) - 1):
+                word1 = before_words[i]
+                word2 = before_words[i + 1]
 
-                if words_in_context[i + 1]['start'] - words_in_context[i]['end'] <= 2:
+                # Проверяем что слова идут подряд (расстояние между ними не более 2 символов)
+                if word2['start'] - word1['end'] <= 2:
+                    word1_root = self._get_word_root(word1['word'].lower())
+                    word2_root = self._get_word_root(word2['word'].lower())
+
                     bigram_root = f"{word1_root} {word2_root}"
-                    bigram_original = f"{word1_original} {word2_original}"
-
-                    word1_start = words_in_context[i]['start']
-                    word2_end = words_in_context[i + 1]['end']
-
-                    if word2_end <= target_start:
-                        position = 'both_before'
-                    elif word1_start >= target_end:
-                        position = 'both_after'
-                    elif words_in_context[i]['end'] <= target_start and words_in_context[i + 1]['start'] >= target_end:
-                        position = 'split'
-                    else:
-                        continue
+                    bigram_original = f"{original_text[word1['start']:word1['end']]} {original_text[word2['start']:word2['end']]}"
+                    sentence = extract_full_sentence(word1['start'], original_text)
 
                     cooccurrences.append({
                         'type': 'bigram',
                         'word': bigram_root,
                         'original_phrase': bigram_original,
-                        'position': position,
+                        'position': 'both_before',
                         'target_word': matched_word,
                         'game_id': game['id'],
-                        'game_name': game['name']
+                        'game_name': game['name'],
+                        'context_sentence': sentence
                     })
+
+            # Ищем биграммы - оба ПОСЛЕ
+            after_words = []
+            for word_match in re.finditer(after_pattern, after_text, re.UNICODE):
+                original_word = word_match.group(1)
+                word_lower = original_word.lower()
+                if len(original_word) <= 3 or word_lower in blacklist:
+                    continue
+                word_abs_start = target_end + word_match.start(1)
+                word_abs_end = target_end + word_match.end(1)
+                if word_abs_start - target_end > self.radius:
+                    break
+                after_words.append({
+                    'word': original_word,
+                    'start': word_abs_start,
+                    'end': word_abs_end
+                })
+
+            # Ищем соседние пары слов (оба ПОСЛЕ)
+            for i in range(len(after_words) - 1):
+                word1 = after_words[i]
+                word2 = after_words[i + 1]
+
+                if word2['start'] - word1['end'] <= 2:
+                    word1_root = self._get_word_root(word1['word'].lower())
+                    word2_root = self._get_word_root(word2['word'].lower())
+
+                    bigram_root = f"{word1_root} {word2_root}"
+                    bigram_original = f"{original_text[word1['start']:word1['end']]} {original_text[word2['start']:word2['end']]}"
+                    sentence = extract_full_sentence(word1['start'], original_text)
+
+                    cooccurrences.append({
+                        'type': 'bigram',
+                        'word': bigram_root,
+                        'original_phrase': bigram_original,
+                        'position': 'both_after',
+                        'target_word': matched_word,
+                        'game_id': game['id'],
+                        'game_name': game['name'],
+                        'context_sentence': sentence
+                    })
+
+            # Ищем биграммы - первое слово ДО, второе ПОСЛЕ (разделенные целевым словом)
+            for before_word in before_words:
+                for after_word in after_words:
+                    # Проверяем общее расстояние между словами (через целевое слово)
+                    total_distance = (target_start - before_word['end']) + (after_word['start'] - target_end)
+                    if total_distance <= self.radius:
+                        word1_root = self._get_word_root(before_word['word'].lower())
+                        word2_root = self._get_word_root(after_word['word'].lower())
+
+                        bigram_root = f"{word1_root} {word2_root}"
+                        bigram_original = f"{original_text[before_word['start']:before_word['end']]} {original_text[after_word['start']:after_word['end']]}"
+                        sentence = extract_full_sentence(before_word['start'], original_text)
+
+                        cooccurrences.append({
+                            'type': 'bigram',
+                            'word': bigram_root,
+                            'original_phrase': bigram_original,
+                            'position': 'split',
+                            'target_word': matched_word,
+                            'game_id': game['id'],
+                            'game_name': game['name'],
+                            'context_sentence': sentence
+                        })
 
         return cooccurrences
 
@@ -647,7 +757,8 @@ class Command(BaseCommand):
                             stats['before_example'] = {
                                 'game_name': cooc['game_name'],
                                 'word': cooc['original_word'],
-                                'target_word': cooc['target_word']
+                                'target_word': cooc['target_word'],
+                                'context': cooc.get('context_sentence', '')  # Добавляем контекст
                             }
                     else:
                         stats['after_count'] += 1
@@ -657,14 +768,16 @@ class Command(BaseCommand):
                             stats['after_example'] = {
                                 'game_name': cooc['game_name'],
                                 'word': cooc['original_word'],
-                                'target_word': cooc['target_word']
+                                'target_word': cooc['target_word'],
+                                'context': cooc.get('context_sentence', '')  # Добавляем контекст
                             }
 
                     if len(stats['examples']) < 5:
                         stats['examples'].append({
                             'game_name': cooc['game_name'],
                             'word': cooc['original_word'],
-                            'target_word': cooc['target_word']
+                            'target_word': cooc['target_word'],
+                            'context': cooc.get('context_sentence', '')  # Добавляем контекст
                         })
 
                 else:
@@ -680,7 +793,8 @@ class Command(BaseCommand):
                             stats['both_before_example'] = {
                                 'game_name': cooc['game_name'],
                                 'phrase': cooc['original_phrase'],
-                                'target_word': cooc['target_word']
+                                'target_word': cooc['target_word'],
+                                'context': cooc.get('context_sentence', '')  # Добавляем контекст
                             }
                     elif cooc['position'] == 'both_after':
                         stats['both_after_count'] += 1
@@ -688,7 +802,8 @@ class Command(BaseCommand):
                             stats['both_after_example'] = {
                                 'game_name': cooc['game_name'],
                                 'phrase': cooc['original_phrase'],
-                                'target_word': cooc['target_word']
+                                'target_word': cooc['target_word'],
+                                'context': cooc.get('context_sentence', '')  # Добавляем контекст
                             }
                     else:
                         stats['split_count'] += 1
@@ -696,14 +811,16 @@ class Command(BaseCommand):
                             stats['split_example'] = {
                                 'game_name': cooc['game_name'],
                                 'phrase': cooc['original_phrase'],
-                                'target_word': cooc['target_word']
+                                'target_word': cooc['target_word'],
+                                'context': cooc.get('context_sentence', '')  # Добавляем контекст
                             }
 
                     if len(stats['examples']) < 5:
                         stats['examples'].append({
                             'game_name': cooc['game_name'],
                             'phrase': cooc['original_phrase'],
-                            'target_word': cooc['target_word']
+                            'target_word': cooc['target_word'],
+                            'context': cooc.get('context_sentence', '')  # Добавляем контекст
                         })
 
         result = {
@@ -1099,12 +1216,16 @@ class Command(BaseCommand):
 
                 if item.get('before_example'):
                     ex = item['before_example']
-                    self._print_message(
-                        f"       Пример (ДО): {ex['game_name']} (слово '{ex['word']}' рядом с '{ex['target_word']}')")
+                    context = ex.get('context', '')
+                    self._print_message(f"       Пример (ДО): {ex['game_name']}")
+                    if context:
+                        self._print_message(f"           {context}")
                 elif item.get('after_example'):
                     ex = item['after_example']
-                    self._print_message(
-                        f"       Пример (ПОСЛЕ): {ex['game_name']} (слово '{ex['word']}' рядом с '{ex['target_word']}')")
+                    context = ex.get('context', '')
+                    self._print_message(f"       Пример (ПОСЛЕ): {ex['game_name']}")
+                    if context:
+                        self._print_message(f"           {context}")
 
         # Биграммы
         self._print_message("")
@@ -1123,11 +1244,9 @@ class Command(BaseCommand):
                 if original_phrases:
                     sorted_phrases = sorted(original_phrases.items(), key=lambda x: x[1], reverse=True)
                     phrases_list = []
-                    for orig_phrase, freq in sorted_phrases[:3]:
+                    for orig_phrase, freq in sorted_phrases:
                         phrases_list.append(f"'{orig_phrase}' ({freq})")
                     phrases_str = ", ".join(phrases_list)
-                    if len(sorted_phrases) > 3:
-                        phrases_str += f" и еще {len(sorted_phrases) - 3}"
                 else:
                     phrases_str = f"'{phrase_root}'"
 
@@ -1146,16 +1265,22 @@ class Command(BaseCommand):
 
                 if item.get('both_before_example'):
                     ex = item['both_before_example']
-                    self._print_message(
-                        f"       Пример (оба ДО): {ex['game_name']} (фраза '{ex['phrase']}' рядом с '{ex['target_word']}')")
+                    context = ex.get('context', '')
+                    self._print_message(f"       Пример (оба ДО): {ex['game_name']}")
+                    if context:
+                        self._print_message(f"           {context}")
                 elif item.get('both_after_example'):
                     ex = item['both_after_example']
-                    self._print_message(
-                        f"       Пример (оба ПОСЛЕ): {ex['game_name']} (фраза '{ex['phrase']}' рядом с '{ex['target_word']}')")
+                    context = ex.get('context', '')
+                    self._print_message(f"       Пример (оба ПОСЛЕ): {ex['game_name']}")
+                    if context:
+                        self._print_message(f"           {context}")
                 elif item.get('split_example'):
                     ex = item['split_example']
-                    self._print_message(
-                        f"       Пример (первое ДО, второе ПОСЛЕ): {ex['game_name']} (фраза '{ex['phrase']}' рядом с '{ex['target_word']}')")
+                    context = ex.get('context', '')
+                    self._print_message(f"       Пример (первое ДО, второе ПОСЛЕ): {ex['game_name']}")
+                    if context:
+                        self._print_message(f"           {context}")
 
         self._print_message("")
         self._print_message("=" * 70)
