@@ -97,18 +97,34 @@ WSGI_APPLICATION = 'igdb_site.wsgi.application'
 import dj_database_url
 
 # Определяем окружение по переменным окружения
-IS_RENDER = os.getenv('RENDER') == 'true'
+IS_RAILWAY = os.getenv('RAILWAY_ENVIRONMENT') is not None or os.getenv('RAILWAY_SERVICE_ID') is not None
 IS_DESKTOP = os.getenv('DESKTOP_MODE') == '1'
 
-if IS_RENDER:
-    # Режим Render (облачный хостинг) - используем DATABASE_URL от Render
-    DATABASES = {
-        'default': dj_database_url.config(
-            default=os.getenv('DATABASE_URL'),
-            conn_max_age=600,
-            ssl_require=True
-        )
-    }
+if IS_RAILWAY:
+    # Режим Railway - используем DATABASE_URL
+    # Railway автоматически добавляет переменную DATABASE_URL при подключении PostgreSQL
+    database_url = os.getenv('DATABASE_URL')
+    if database_url:
+        DATABASES = {
+            'default': dj_database_url.config(
+                default=database_url,
+                conn_max_age=600,
+                ssl_require=False  # Railway использует внутреннюю сеть, SSL не требуется
+            )
+        }
+    else:
+        # Если DATABASE_URL нет, используем локальную базу как fallback
+        DATABASES = {
+            'default': {
+                'ENGINE': 'django.db.backends.postgresql',
+                'NAME': os.getenv('DB_NAME', 'postgres'),
+                'USER': os.getenv('DB_USER', 'postgres'),
+                'PASSWORD': os.getenv('DB_PASSWORD', ''),
+                'HOST': os.getenv('DB_HOST', 'localhost'),
+                'PORT': os.getenv('DB_PORT', '5432'),
+                'CONN_MAX_AGE': 600,
+            }
+        }
 elif IS_DESKTOP:
     # Режим десктоп - используем локальную базу (существующая логика)
     DATABASES = {
