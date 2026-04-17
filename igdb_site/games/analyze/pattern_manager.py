@@ -88,11 +88,8 @@ class PatternManager:
         #     # r'\bstory-driven\b(?:(?!\.|\!|\?|\n).){0,30}?\badventure\b',
         # ],
         'Arcade': [
-            r'\barcade\s+(?:game|style|classic|action|experience|vibe|shooter|racer|fighter)\b',
-            r'\barcade-style\s+(?:gameplay|action|shooter|racer)\b',
-            r'\b(?:retro|classic)\s+arcade\s+(?:experience|feel|gameplay)\b',
-            r'\bhigh\s+score\s+(?:chasing|hunting|system|mechanics|leaderboard)\b',
-            r'\b(?:coin-op|coin-operated)\s+(?:game|machine|cabinet)\b',
+            r'\barcade\s+(?:game|mode|style|classic|action|experience|vibe|shooter|racer|fighter|platformer|puzzle)\w*\b',
+            r'\barcade\b(?:(?!\.|\!|\?|\n).){0,30}?\b(?:cabinet|machine)\w*\b',
         ],
         'Base Building': [
             r'(?<!-)\b(?:build\w*|rebuild\w*)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:base|fortress\w*|stronghold\w*|settlement\w*|outpost\w*|headquarters\w*|colon\w*|structure\w*|building\w*|facilit\w*|home\w*|room\w*|base|bases)\b',
