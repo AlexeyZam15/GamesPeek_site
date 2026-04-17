@@ -1,5 +1,11 @@
 {
   "deploy": {
     "startCommand": "cd igdb_site && gunicorn igdb_site.wsgi --bind 0.0.0.0:$PORT"
+  },
+  "packages": {
+    "pip": "latest"
+  },
+  "build": {
+    "pipRequirementsFile": "igdb_site/requirements-common.txt"
   }
 }
