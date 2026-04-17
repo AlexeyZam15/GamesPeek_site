@@ -1,0 +1,5 @@
+{
+  "deploy": {
+    "startCommand": "cd igdb_site && gunicorn igdb_site.wsgi --bind 0.0.0.0:$PORT"
+  }
+}
