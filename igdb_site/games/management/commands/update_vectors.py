@@ -69,34 +69,30 @@ class Command(BaseCommand):
             self.stdout.write('   📦 Оптимизированное обновление через CTE...')
 
             cursor.execute("""
-                           WITH
-                               -- Собираем все связи в одной CTE для минимизации сканирований
-                               all_relations AS (SELECT game_id, 'genre' as rel_type, genre_id as rel_id
-                                                 FROM games_game_genres
-                                                 UNION ALL
-                                                 SELECT game_id, 'keyword', keyword_id
-                                                 FROM games_game_keywords
-                                                 UNION ALL
-                                                 SELECT game_id, 'theme', theme_id
-                                                 FROM games_game_themes
-                                                 UNION ALL
-                                                 SELECT game_id, 'perspective', playerperspective_id
-                                                 FROM games_game_player_perspectives
-                                                 UNION ALL
-                                                 SELECT game_id, 'developer', company_id
-                                                 FROM games_game_developers
-                                                 UNION ALL
-                                                 SELECT game_id, 'gamemode', gamemode_id
-                                                 FROM games_game_game_modes
-                                                 UNION ALL
-                                                 SELECT game_id, 'engine', gameengine_id
-                                                 FROM games_game_engines),
-                               -- Агрегируем данные за один проход
-                               aggregated AS (SELECT game_id,
-                                                     array_agg(DISTINCT CASE WHEN rel_type = 'genre' THEN rel_id END) FILTER (WHERE rel_type = 'genre') as genre_ids, array_agg(DISTINCT CASE WHEN rel_type = 'keyword' THEN rel_id END) FILTER (WHERE rel_type = 'keyword') as keyword_ids, array_agg(DISTINCT CASE WHEN rel_type = 'theme' THEN rel_id END) FILTER (WHERE rel_type = 'theme') as theme_ids, array_agg(DISTINCT CASE WHEN rel_type = 'perspective' THEN rel_id END) FILTER (WHERE rel_type = 'perspective') as perspective_ids, array_agg(DISTINCT CASE WHEN rel_type = 'developer' THEN rel_id END) FILTER (WHERE rel_type = 'developer') as developer_ids, array_agg(DISTINCT CASE WHEN rel_type = 'gamemode' THEN rel_id END) FILTER (WHERE rel_type = 'gamemode') as game_mode_ids, array_agg(DISTINCT CASE WHEN rel_type = 'engine' THEN rel_id END) FILTER (WHERE rel_type = 'engine') as engine_ids
-                                              FROM all_relations
-                                              GROUP BY game_id)
-                           -- Единое обновление для всех игр
+                           WITH all_relations AS (SELECT game_id, 'genre' as rel_type, genre_id as rel_id
+                                                  FROM games_game_genres
+                                                  UNION ALL
+                                                  SELECT game_id, 'keyword', keyword_id
+                                                  FROM games_game_keywords
+                                                  UNION ALL
+                                                  SELECT game_id, 'theme', theme_id
+                                                  FROM games_game_themes
+                                                  UNION ALL
+                                                  SELECT game_id, 'perspective', playerperspective_id
+                                                  FROM games_game_player_perspectives
+                                                  UNION ALL
+                                                  SELECT game_id, 'developer', company_id
+                                                  FROM games_game_developers
+                                                  UNION ALL
+                                                  SELECT game_id, 'gamemode', gamemode_id
+                                                  FROM games_game_game_modes
+                                                  UNION ALL
+                                                  SELECT game_id, 'engine', gameengine_id
+                                                  FROM games_game_engines),
+                                aggregated AS (SELECT game_id,
+                                                      array_agg(DISTINCT CASE WHEN rel_type = 'genre' THEN rel_id END) FILTER (WHERE rel_type = 'genre') as genre_ids, array_agg(DISTINCT CASE WHEN rel_type = 'keyword' THEN rel_id END) FILTER (WHERE rel_type = 'keyword') as keyword_ids, array_agg(DISTINCT CASE WHEN rel_type = 'theme' THEN rel_id END) FILTER (WHERE rel_type = 'theme') as theme_ids, array_agg(DISTINCT CASE WHEN rel_type = 'perspective' THEN rel_id END) FILTER (WHERE rel_type = 'perspective') as perspective_ids, array_agg(DISTINCT CASE WHEN rel_type = 'developer' THEN rel_id END) FILTER (WHERE rel_type = 'developer') as developer_ids, array_agg(DISTINCT CASE WHEN rel_type = 'gamemode' THEN rel_id END) FILTER (WHERE rel_type = 'gamemode') as game_mode_ids, array_agg(DISTINCT CASE WHEN rel_type = 'engine' THEN rel_id END) FILTER (WHERE rel_type = 'engine') as engine_ids
+                                               FROM all_relations
+                                               GROUP BY game_id)
                            UPDATE games_game g
                            SET genre_ids       = COALESCE(a.genre_ids, ARRAY[]::integer[]),
                                keyword_ids     = COALESCE(a.keyword_ids, ARRAY[]::integer[]),
@@ -137,8 +133,9 @@ class Command(BaseCommand):
 
         cache.clear()
 
-        # Очищаем таблицу кэша карточек
         self._clear_game_card_cache()
+
+        self._clear_filter_section_cache()
 
         with connection.cursor() as cursor:
             cursor.execute("""
@@ -157,7 +154,9 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS(f'\n✅ Обновлено записей: {updated_with_relations + updated_without_relations}'))
-        self.stdout.write(self.style.SUCCESS(f'✅ Кэш очищен'))
+        self.stdout.write(self.style.SUCCESS(f'✅ Кэш Django очищен'))
+        self.stdout.write(self.style.SUCCESS(f'✅ Кэш карточек игр очищен'))
+        self.stdout.write(self.style.SUCCESS(f'✅ Кэш секций фильтров очищен'))
         self.stdout.write(self.style.SUCCESS(f'⏱️  Время выполнения: {total_time:.2f} сек'))
 
         self.stdout.write(self.style.WARNING(f'\n📊 Статистика ПОСЛЕ обновления:'))
@@ -208,6 +207,16 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f'\n{"=" * 60}'))
         self.stdout.write(self.style.SUCCESS('ОБНОВЛЕНИЕ ЗАВЕРШЕНО'))
         self.stdout.write(self.style.SUCCESS(f'{"=" * 60}\n'))
+
+    def _clear_filter_section_cache(self):
+        """Очищает кэш секций фильтров."""
+        from games.models import FilterSectionCache
+
+        self.stdout.write(self.style.WARNING('\n🗑️  Очистка кэша секций фильтров...'))
+
+        count = FilterSectionCache.objects.all().delete()[0]
+        self.stdout.write(self.style.SUCCESS(f'   ✅ Удалено {count} записей FilterSectionCache'))
+        return count
 
     def _clear_game_card_cache(self, dry_run=False):
         """Очищает таблицу кэша карточек игр."""
