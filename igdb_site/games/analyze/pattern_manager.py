@@ -248,12 +248,10 @@ class PatternManager:
             r'\b(?:resource|economy)\s+(?:management|allocation|optimization)\b',
         ],
         'Survival': [
-            r'\bsurvival\s+(?:game|title|experience|genre|mode|sim|simulator|horror|crafting|elements|mechanics|based|focused|oriented)\b',
-            r'\b(?:open-world|post-apocalyptic|wilderness|hardcore)\s+survival\b',
-            r'\b(?:manage|monitor|maintain)\s+(?:(?!\.|\!|\?|\n).){0,40}?\b(?:hunger|thirst|stamina|health|temperature|energy|oxygen|sanity)\b',
-            r'\b(?:scavenge|forage|hunt|fish|gather)\s+for\s+(?:food|water|supplies|resources|materials)\b',
-            r'\b(?:craft|build|construct)\s+(?:shelter|tools|weapons|clothing|fire)\s+to\s+survive\b',
-            r'\b(?:struggle|fight|battle)\s+for\s+survival\s+against\s+(?:the\s+)?(?:elements|nature|wildlife|enemies|zombies|creatures|environment)\b',
+            r'\bsurvival\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:skill\w*|manag\w*|game\w*|title|experience|genre|sim|simulator|horror|craft\w*|element\w*|mechanic\w*|base|based|focus\w*|oriented)\b',
+            r'\b(?:open-world|post-apocalyptic|wilderness|hardcore|single-player|sandbox|zombie|rpg)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:survival)\b',
+            r'\b(?:manage|monitor|maintain)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:food|hunger|thirst|oxygen)\b',
+            r'\b(?:scaveng\w*|forag\w*|hunt\w*|gather\w*|grow\w*|fish\w*|produc\w*|cultivat\w*|harvest\w*|provid\w*|farm\w*|find\w*|collect\w*|search\w*|need\w*)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:food)\b',
         ],
         'Tactical': [
             r'\btactical(?:\s+(?:game|rpg|shooter|combat|gameplay|decisions|thinking))?\b',
