@@ -27,14 +27,19 @@ IS_RENDER = os.getenv('RENDER', False)
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'dev-secret-key-change-in-production')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DJANGO_DEBUG', 'False') == 'True'
 
 # Оптимизации производительности
 DISABLE_AUTO_CACHE_UPDATES = DEBUG  # True в DEBUG, False в production
 CACHE_UPDATE_BATCH_SIZE = 100  # Размер батча для массовых обновлений
 CACHE_UPDATE_TIMEOUT_HOURS = 24  # Часы между автообновлениями
 
-ALLOWED_HOSTS = ['*'] if DEBUG else ['yourdomain.com', 'localhost']
+# Настройка разрешённых хостов
+if DEBUG:
+    ALLOWED_HOSTS = ['*']
+else:
+    allowed_hosts_str = os.getenv('ALLOWED_HOSTS', 'localhost')
+    ALLOWED_HOSTS = [host.strip() for host in allowed_hosts_str.split(',')]
 
 # ============================================
 # УСКОРЕННЫЕ НАСТРОЙКИ ПРИЛОЖЕНИЙ И MIDDLEWARE
@@ -55,6 +60,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'debug_toolbar.middleware.DebugToolbarMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -367,6 +373,9 @@ SECURE_CROSS_ORIGIN_OPENER_POLICY = None
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# WhiteNoise для раздачи статики в production
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
 # ============================================
 # ПОЛЕ ПО УМОЛЧАНИЮ
 # ============================================
@@ -548,9 +557,6 @@ if DEBUG:
 
     # Авто-перезагрузка шаблонов
     TEMPLATES[0]['OPTIONS']['debug'] = True
-
-    # Быстрая загрузка статики
-    STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.StaticFilesStorage'
 
 # ============================================
 # НАСТРОЙКИ ОПТИМИЗАЦИИ БАЗЫ ДАННЫХ (POSTGRESQL)
