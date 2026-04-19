@@ -3,6 +3,7 @@
 # Re-export all views from parts
 from .views_parts.game_list_views import (
     ajax_load_games_page,
+    ajax_load_filters,
     game_list,
     get_similar_games_for_criteria,
     get_similar_games_for_game,
@@ -18,7 +19,6 @@ from .views_parts.comparison_views import (
 from .views_parts.other_views import (
     home,
     keyword_category_view,
-    game_search,
     auto_login_admin,
     remove_theme_from_game,
 )
@@ -68,12 +68,12 @@ from .views_parts.base_views import (
 __all__ = [
     # Views
     'ajax_load_games_page',
+    'ajax_load_filters',
     'game_list',
     'game_detail',
     'game_comparison',
     'home',
     'keyword_category_view',
-    'game_search',
     'auto_login_admin',
     'analyze_single_game',
     'analyze_game_ajax',

@@ -416,12 +416,20 @@ def _apply_search_filters(queryset: models.QuerySet, search_filters: Dict[str, L
     Apply search filters with logic:
     - BETWEEN different filter groups: AND (must satisfy ALL groups)
     - WITHIN a single group with multiple values: OR (any of selected)
+    - TEXT search: name__icontains for text_query
 
-    Example: platforms OR, engines AND, genres AND
-    Result: (platforms) AND (engines) AND (genres)
+    Example: platforms OR, engines AND, genres AND, text search
+    Result: (platforms) AND (engines) AND (genres) AND (name contains text)
     """
     # Собираем Q объекты для каждой группы фильтров
     filter_groups = []
+
+    # ========== ТЕКСТОВЫЙ ПОИСК ПО НАЗВАНИЮ ==========
+    text_query = search_filters.get('text_query')
+    if text_query:
+        text_filter = Q(name__icontains=text_query)
+        filter_groups.append(text_filter)
+        print(f"DEBUG _apply_search_filters: text search filter: '{text_query}'")
 
     # ========== ГРУППА: Платформы (OR внутри группы) ==========
     if search_filters.get('platforms'):
@@ -448,14 +456,12 @@ def _apply_search_filters(queryset: models.QuerySet, search_filters: Dict[str, L
         print(f"DEBUG _apply_search_filters: game_modes OR filter: {search_filters['game_modes']}")
 
     # ========== ГРУППА: Движки (OR внутри группы) ==========
-    # ВАЖНО: движки - это тоже OR внутри группы
     if search_filters.get('engines'):
         engines_filter = Q(engines__id__in=search_filters['engines'])
         filter_groups.append(engines_filter)
         print(f"DEBUG _apply_search_filters: engines OR filter: {search_filters['engines']}")
 
     # ========== ГРУППА: Жанры (AND внутри группы) ==========
-    # Для жанров нужно, чтобы были ВСЕ выбранные жанры
     if search_filters.get('genres'):
         genres_filter = Q()
         for genre_id in search_filters['genres']:
