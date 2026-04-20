@@ -107,10 +107,11 @@ IS_RAILWAY = os.getenv('RAILWAY') == 'true'
 IS_DESKTOP = os.getenv('DESKTOP_MODE') == '1'
 
 if IS_RAILWAY:
-    # Берём DATABASE_URL только из переменной окружения
     database_url = os.getenv('DATABASE_URL')
+    print(f"[RAILWAY] DATABASE_URL from env: {database_url[:50] if database_url else 'NOT SET'}...")
 
     if not database_url:
+        print("[RAILWAY] ERROR: DATABASE_URL not set in environment!")
         raise ValueError("DATABASE_URL environment variable is not set in Railway!")
 
     DATABASES = {
@@ -121,7 +122,7 @@ if IS_RAILWAY:
             ssl_require=False
         )
     }
-    print("[RAILWAY] PostgreSQL configured via DATABASE_URL from environment")
+    print("[RAILWAY] PostgreSQL configured via DATABASE_URL")
 
 elif IS_DESKTOP:
     DATABASES = {
