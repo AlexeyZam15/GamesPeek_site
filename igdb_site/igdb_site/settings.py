@@ -100,38 +100,30 @@ WSGI_APPLICATION = 'igdb_site.wsgi.application'
 # POSTGRESQL НАСТРОЙКИ БАЗЫ ДАННЫХ
 # ============================================
 
+import os
 import dj_database_url
 
-# Определяем окружение по переменным окружения
 IS_RAILWAY = os.getenv('RAILWAY') == 'true'
 IS_DESKTOP = os.getenv('DESKTOP_MODE') == '1'
 
 if IS_RAILWAY:
-    # Режим Railway - используем DATABASE_URL
+    # Берём DATABASE_URL только из переменной окружения
     database_url = os.getenv('DATABASE_URL')
-    if database_url:
-        DATABASES = {
-            'default': dj_database_url.config(
-                default=database_url,
-                conn_max_age=600,
-                conn_health_checks=True,
-            )
-        }
-    else:
-        # Если DATABASE_URL нет, используем локальную базу как fallback
-        DATABASES = {
-            'default': {
-                'ENGINE': 'django.db.backends.postgresql',
-                'NAME': os.getenv('DB_NAME'),
-                'USER': os.getenv('DB_USER'),
-                'PASSWORD': os.getenv('DB_PASSWORD'),
-                'HOST': os.getenv('DB_HOST'),
-                'PORT': os.getenv('DB_PORT'),
-                'CONN_MAX_AGE': 600,
-            }
-        }
+
+    if not database_url:
+        raise ValueError("DATABASE_URL environment variable is not set in Railway!")
+
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=database_url,
+            conn_max_age=600,
+            conn_health_checks=True,
+            ssl_require=False
+        )
+    }
+    print("[RAILWAY] PostgreSQL configured via DATABASE_URL from environment")
+
 elif IS_DESKTOP:
-    # Режим десктоп - используем локальную базу
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
@@ -149,7 +141,6 @@ elif IS_DESKTOP:
         }
     }
 else:
-    # Режим разработки - локальная база из .env
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
