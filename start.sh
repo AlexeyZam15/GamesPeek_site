@@ -8,6 +8,6 @@ cd igdb_site
 
 python manage.py migrate --noinput
 
-echo "🚀 Starting Gunicorn...."
+echo "🚀 Starting Gunicorn..."
 
 gunicorn igdb_site.wsgi:application
