@@ -14,6 +14,10 @@ warnings.filterwarnings("ignore",
 # Загружаем переменные окружения из .env файла
 load_dotenv()
 
+# Определяем окружение через переменную окружения RAILWAY
+IS_RAILWAY = os.getenv('RAILWAY') == 'true'
+IS_DESKTOP = os.getenv('DESKTOP_MODE') == '1'
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -100,38 +104,31 @@ WSGI_APPLICATION = 'igdb_site.wsgi.application'
 # POSTGRESQL НАСТРОЙКИ БАЗЫ ДАННЫХ
 # ============================================
 
-import dj_database_url
+import os
 
-# Определяем окружение по переменным окружения
 IS_RAILWAY = os.getenv('RAILWAY') == 'true'
 IS_DESKTOP = os.getenv('DESKTOP_MODE') == '1'
 
 if IS_RAILWAY:
-    # Режим Railway - используем DATABASE_URL
-    database_url = os.getenv('DATABASE_URL')
-    if database_url:
-        DATABASES = {
-            'default': dj_database_url.config(
-                default=database_url,
-                conn_max_age=600,
-                conn_health_checks=True,
-            )
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': 'gamespeek',
+            'USER': 'django_user',
+            'PASSWORD': 'django_user',
+            'HOST': 'localhost',
+            'PORT': '5432',
+            'CONN_MAX_AGE': 600,
+            'OPTIONS': {
+                'connect_timeout': 15,
+                'client_encoding': 'UTF8',
+                'sslmode': 'disable',
+            },
         }
-    else:
-        # Если DATABASE_URL нет, используем локальную базу как fallback
-        DATABASES = {
-            'default': {
-                'ENGINE': 'django.db.backends.postgresql',
-                'NAME': os.getenv('DB_NAME'),
-                'USER': os.getenv('DB_USER'),
-                'PASSWORD': os.getenv('DB_PASSWORD'),
-                'HOST': os.getenv('DB_HOST'),
-                'PORT': os.getenv('DB_PORT'),
-                'CONN_MAX_AGE': 600,
-            }
-        }
+    }
+    print("[RAILWAY] PostgreSQL configured via zrok tunnel on localhost:5432")
+
 elif IS_DESKTOP:
-    # Режим десктоп - используем локальную базу
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
@@ -149,7 +146,6 @@ elif IS_DESKTOP:
         }
     }
 else:
-    # Режим разработки - локальная база из .env
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
@@ -602,13 +598,15 @@ CACHE_TIMES = {
 # ============================================
 
 # Проверка подключения к PostgreSQL
-try:
-    from django.db import connections
+# Временно отключено для Railway деплоя
+if not IS_RAILWAY:
+    try:
+        from django.db import connections
 
-    conn = connections['default']
-    conn.ensure_connection()
+        conn = connections['default']
+        conn.ensure_connection()
 
-    db_info = f"""
+        db_info = f"""
 [OK] Django settings loaded
 [INFO] Mode: {'DEBUG' if DEBUG else 'PRODUCTION'}
 [INFO] Platform: {'Railway' if IS_RAILWAY else ('Desktop' if IS_DESKTOP else 'Local')}
@@ -617,18 +615,27 @@ try:
 [INFO] Debug Toolbar: {'ON' if DEBUG else 'OFF'}
 [INFO] PostgreSQL connection: SUCCESS
 """
-except Exception as e:
-    db_info = f"""
+    except Exception as e:
+        db_info = f"""
 [ERROR] PostgreSQL connection error: {e}
 [WARNING] Check:
   1. Is PostgreSQL service running?
   2. Are .env settings correct?
 """
-    if not DEBUG:
-        raise
-    print(db_info)
+        if not DEBUG:
+            raise
+        print(db_info)
 
-print(db_info)
+    print(db_info)
+else:
+    print(f"""
+[OK] Django settings loaded
+[INFO] Mode: {'DEBUG' if DEBUG else 'PRODUCTION'}
+[INFO] Platform: Railway
+[INFO] Database: External PostgreSQL via DATABASE_URL
+[INFO] Cache: FileBasedCache
+[INFO] Debug Toolbar: {'ON' if DEBUG else 'OFF'}
+""")
 
 # Проверка обязательных настроек
 required_settings = ['IGDB_CLIENT_ID', 'IGDB_CLIENT_SECRET']
