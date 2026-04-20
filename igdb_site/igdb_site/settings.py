@@ -103,11 +103,11 @@ WSGI_APPLICATION = 'igdb_site.wsgi.application'
 import dj_database_url
 
 # Определяем окружение по переменным окружения
-IS_RENDER = os.getenv('RENDER') == 'true'
+IS_RAILWAY = os.getenv('RAILWAY') == 'true'
 IS_DESKTOP = os.getenv('DESKTOP_MODE') == '1'
 
-if IS_RENDER:
-    # Режим Render - используем DATABASE_URL
+if IS_RAILWAY:
+    # Режим Railway - используем DATABASE_URL
     database_url = os.getenv('DATABASE_URL')
     if database_url:
         DATABASES = {
@@ -611,7 +611,7 @@ try:
     db_info = f"""
 [OK] Django settings loaded
 [INFO] Mode: {'DEBUG' if DEBUG else 'PRODUCTION'}
-[INFO] Platform: {'Render' if IS_RENDER else 'Local'}
+[INFO] Platform: {'Railway' if IS_RAILWAY else ('Desktop' if IS_DESKTOP else 'Local')}
 [INFO] Database: PostgreSQL
 [INFO] Cache: FileBasedCache
 [INFO] Debug Toolbar: {'ON' if DEBUG else 'OFF'}
