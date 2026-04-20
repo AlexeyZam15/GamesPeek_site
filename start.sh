@@ -6,7 +6,7 @@ echo "🚀 Starting Tailscale..."
 tailscaled --state=/tmp/tailscale.state &
 sleep 5
 
-# Подключаемся к твоей сети Tailscale (ключ из переменной окружения)
+# Подключаемся к сети Tailscale (ключ из переменной окружения Railway)
 tailscale up --auth-key=${TAILSCALE_AUTH_KEY}
 
 echo "✅ Tailscale connected"
