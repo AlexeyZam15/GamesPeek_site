@@ -1,26 +1,28 @@
 #!/bin/bash
 
-echo "🚀 Starting zrok tunnel setup..."
+echo "🚀 Starting Tailscale..."
 
-# Скачиваем и устанавливаем zrok на Railway
-curl -L https://github.com/openziti/zrok/releases/latest/download/zrok_linux_amd64.tar.gz -o /tmp/zrok.tar.gz
-tar -xzf /tmp/zrok.tar.gz -C /tmp
-chmod +x /tmp/zrok
+# Запускаем Tailscale в фоне
+tailscaled --state=/tmp/tailscale.state &
+sleep 5
 
-# Активируем окружение с твоим токеном
-/tmp/zrok enable kSohRKLzWITk
+# Подключаемся к сети Tailscale (ключ из переменной окружения Railway)
+tailscale up --auth-key=${TAILSCALE_AUTH_KEY}
 
-# Подключаемся к твоему приватному туннелю
-/tmp/zrok access private 2mrvu0pcpwl4 --bind 0.0.0.0:5432 &
+echo "✅ Tailscale connected"
 
-# Ждем подключения
-sleep 8
+# PostgreSQL доступен по IP твоего ПК в сети Tailscale
+export DATABASE_URL="postgresql://django_user:django_user@100.66.92.91:5432/gamespeek?sslmode=disable"
 
-# Переходим в папку где лежит manage.py (это igdb_site/igdb_site/)
+echo "📦 Running migrations..."
+
+# Переходим в папку с manage.py
 cd igdb_site
 
 # Запускаем миграции
 python manage.py migrate --noinput
 
-# Запускаем сервер (wsgi.py лежит в igdb_site/igdb_site/igdb_site/)
+echo "🚀 Starting Gunicorn..."
+
+# Запускаем сервер
 gunicorn igdb_site.wsgi:application
