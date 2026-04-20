@@ -1,0 +1,252 @@
+<!-- games/templates/games/game_list/_real_filters.html -->
+
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="get" id="main-search-form">
+            <input type="hidden" name="find_similar" id="find_similar_field"
+                   value="{% if find_similar %}1{% else %}0{% endif %}">
+            <input type="hidden" name="source_game" value="{{ request.GET.source_game|default:'' }}">
+            <input type="hidden" name="g" value="{{ request.GET.g|default:'' }}">
+            <input type="hidden" name="k" value="{{ request.GET.k|default:'' }}">
+            <input type="hidden" name="p" value="{{ request.GET.p|default:'' }}">
+            <input type="hidden" name="t" value="{{ request.GET.t|default:'' }}">
+            <input type="hidden" name="pp" value="{{ request.GET.pp|default:'' }}">
+            <input type="hidden" name="gm" value="{{ request.GET.gm|default:'' }}">
+            <input type="hidden" name="gt" value="{{ request.GET.gt|default:'' }}">
+            <input type="hidden" name="e" value="{{ request.GET.e|default:'' }}">
+            <input type="hidden" name="yr" id="year-range-field" value="{{ request.GET.yr|default:'' }}">
+            <input type="hidden" name="ys" id="year-start-field" value="{{ request.GET.ys|default:'' }}">
+            <input type="hidden" name="ye" id="year-end-field" value="{{ request.GET.ye|default:'' }}">
+
+            <div class="row g-3">
+                {% include 'games/game_list/_sort_form.html' %}
+
+                <div class="filter-tabs-container mb-3">
+                    <div class="filter-tabs" id="filterTabs">
+                        <div class="filter-tab-item">
+                            <a href="#" class="filter-tab-link active" data-tab="search-filters-pane">🔍 Search
+                                Filters</a>
+                        </div>
+                        <div class="filter-tab-item">
+                            <a href="#" class="filter-tab-link" data-tab="similarity-filters-pane">🎯 Similarity
+                                Filters</a>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="filter-tab-content">
+                    <div class="filter-tab-pane active" id="search-filters-pane">
+                        <div class="col-12">
+                            <div class="search-filter-section">
+                                <div class="toggle-section border-bottom pb-2 mb-3"
+                                     data-target="search-filters-content">
+                                    <h6 class="mb-0 d-flex align-items-center">
+                                        <i class="bi bi-chevron-down me-2"></i>🔍 Search Filters
+                                    </h6>
+                                </div>
+                                <div id="search-filters-content">
+                                    <div class="filter-subsection">
+                                        <div class="toggle-subsection mb-2" data-target="search-platforms-content">
+                                            <label class="form-label mb-0 d-flex align-items-center">
+                                                <i class="bi bi-chevron-down me-1"></i>Platforms:
+                                            </label>
+                                        </div>
+                                        <div id="search-platforms-content">
+                                            {{ cached_filter_sections.search_platforms|safe }}
+                                        </div>
+                                    </div>
+
+                                    <div class="filter-subsection mt-3">
+                                        <div class="toggle-subsection mb-2" data-target="search-game-types-content">
+                                            <label class="form-label mb-0 d-flex align-items-center">
+                                                <i class="bi bi-chevron-down me-1"></i>🎲 Game Types:
+                                            </label>
+                                        </div>
+                                        <div id="search-game-types-content">
+                                            {{ cached_filter_sections.search_game_types|safe }}
+                                        </div>
+                                    </div>
+
+                                    <div class="filter-subsection mt-3">
+                                        <div class="toggle-subsection mb-2" data-target="search-genres-content">
+                                            <label class="form-label mb-0 d-flex align-items-center">
+                                                <i class="bi bi-chevron-down me-1"></i>Genres:
+                                            </label>
+                                        </div>
+                                        <div id="search-genres-content">
+                                            {{ cached_filter_sections.search_genres|safe }}
+                                        </div>
+                                    </div>
+
+                                    <div class="filter-subsection mt-3">
+                                        <div class="toggle-subsection mb-2" data-target="search-features-content">
+                                            <label class="form-label mb-0 d-flex align-items-center">
+                                                <i class="bi bi-chevron-down me-1"></i>Features:
+                                            </label>
+                                        </div>
+                                        <div id="search-features-content">
+                                            {{ cached_filter_sections.search_keywords|safe }}
+                                        </div>
+                                    </div>
+
+                                    <div class="filter-subsection mt-3">
+                                        <div class="toggle-subsection mb-2" data-target="search-themes-content">
+                                            <label class="form-label mb-0 d-flex align-items-center">
+                                                <i class="bi bi-chevron-down me-1"></i>🎭 Themes:
+                                            </label>
+                                        </div>
+                                        <div id="search-themes-content">
+                                            {{ cached_filter_sections.search_themes|safe }}
+                                        </div>
+                                    </div>
+
+                                    <div class="filter-subsection mt-3">
+                                        <div class="toggle-subsection mb-2" data-target="search-perspectives-content">
+                                            <label class="form-label mb-0 d-flex align-items-center">
+                                                <i class="bi bi-chevron-down me-1"></i>👁️ Perspectives:
+                                            </label>
+                                        </div>
+                                        <div id="search-perspectives-content">
+                                            {{ cached_filter_sections.search_perspectives|safe }}
+                                        </div>
+                                    </div>
+
+                                    <div class="filter-subsection mt-3">
+                                        <div class="toggle-subsection mb-2" data-target="search-game-modes-content">
+                                            <label class="form-label mb-0 d-flex align-items-center">
+                                                <i class="bi bi-chevron-down me-1"></i>🎮 Game Modes:
+                                            </label>
+                                        </div>
+                                        <div id="search-game-modes-content">
+                                            {{ cached_filter_sections.search_game_modes|safe }}
+                                        </div>
+                                    </div>
+
+                                    <div class="filter-subsection mt-3">
+                                        <div class="toggle-subsection mb-2" data-target="search-engines-content">
+                                            <label class="form-label mb-0 d-flex align-items-center">
+                                                <i class="bi bi-chevron-down me-1"></i>⚙️ Game Engines:
+                                            </label>
+                                        </div>
+                                        <div id="search-engines-content">
+                                            {{ cached_filter_sections.search_engines|safe }}
+                                        </div>
+                                    </div>
+
+                                    <div class="filter-subsection mt-3">
+                                        <div class="toggle-subsection mb-2" data-target="search-release-date-content">
+                                            <label class="form-label mb-0 d-flex align-items-center">
+                                                <i class="bi bi-chevron-down me-1"></i>📅 Release Date:
+                                            </label>
+                                        </div>
+                                        <div id="search-release-date-content" class="release-date-filter">
+                                            {{ cached_filter_sections.search_date|safe }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="filter-tab-pane" id="similarity-filters-pane">
+                        <div class="col-12">
+                            <div class="similarity-filter-section">
+                                <div class="toggle-section border-bottom pb-2 mb-3"
+                                     data-target="similarity-filters-content">
+                                    <h6 class="mb-0 d-flex align-items-center">
+                                        <i class="bi bi-chevron-down me-2"></i>🎯 Find Similar Games
+                                    </h6>
+                                </div>
+                                <div id="similarity-filters-content">
+                                    <div class="filter-subsection">
+                                        <div class="toggle-subsection mb-2" data-target="similarity-genres-content">
+                                            <label class="form-label mb-0 d-flex align-items-center">
+                                                <i class="bi bi-chevron-down me-1"></i>Genres:
+                                            </label>
+                                        </div>
+                                        <div id="similarity-genres-content">
+                                            {{ cached_filter_sections.similarity_genres|safe }}
+                                        </div>
+                                    </div>
+
+                                    <div class="filter-subsection mt-3">
+                                        <div class="toggle-subsection mb-2" data-target="similarity-features-content">
+                                            <label class="form-label mb-0 d-flex align-items-center">
+                                                <i class="bi bi-chevron-down me-1"></i>Features:
+                                            </label>
+                                        </div>
+                                        <div id="similarity-features-content">
+                                            {{ cached_filter_sections.similarity_keywords|safe }}
+                                        </div>
+                                    </div>
+
+                                    <div class="filter-subsection mt-3">
+                                        <div class="toggle-subsection mb-2" data-target="similarity-themes-content">
+                                            <label class="form-label mb-0 d-flex align-items-center">
+                                                <i class="bi bi-chevron-down me-1"></i>🎭 Themes:
+                                            </label>
+                                        </div>
+                                        <div id="similarity-themes-content">
+                                            {{ cached_filter_sections.similarity_themes|safe }}
+                                        </div>
+                                    </div>
+
+                                    <div class="filter-subsection mt-3">
+                                        <div class="toggle-subsection mb-2"
+                                             data-target="similarity-perspectives-content">
+                                            <label class="form-label mb-0 d-flex align-items-center">
+                                                <i class="bi bi-chevron-down me-1"></i>👁️ Perspectives:
+                                            </label>
+                                        </div>
+                                        <div id="similarity-perspectives-content">
+                                            {{ cached_filter_sections.similarity_perspectives|safe }}
+                                        </div>
+                                    </div>
+
+                                    <div class="filter-subsection mt-3">
+                                        <div class="toggle-subsection mb-2" data-target="similarity-game-modes-content">
+                                            <label class="form-label mb-0 d-flex align-items-center">
+                                                <i class="bi bi-chevron-down me-1"></i>🎮 Game Modes:
+                                            </label>
+                                        </div>
+                                        <div id="similarity-game-modes-content">
+                                            {{ cached_filter_sections.similarity_game_modes|safe }}
+                                        </div>
+                                    </div>
+
+                                    <div class="filter-subsection mt-3">
+                                        <div class="toggle-subsection mb-2" data-target="similarity-engines-content">
+                                            <label class="form-label mb-0 d-flex align-items-center">
+                                                <i class="bi bi-chevron-down me-1"></i>⚙️ Game Engines:
+                                            </label>
+                                        </div>
+                                        <div id="similarity-engines-content">
+                                            {{ cached_filter_sections.similarity_engines|safe }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-12">
+                    <div class="d-flex gap-2 flex-wrap">
+                        <button type="button" class="btn btn-primary apply-filters-main">
+                            <i class="bi bi-funnel me-1"></i> Apply Filters
+                        </button>
+                        <a href="{% url 'game_list' %}" class="btn btn-secondary">
+                            <i class="bi bi-arrow-clockwise me-1"></i> Show All Games
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    window.minYear = {{ years_range.min_year }};
+    window.maxYear = {{ years_range.max_year }};
+    window.currentYear = {{ current_year }};
+</script>

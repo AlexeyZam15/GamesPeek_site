@@ -27,14 +27,19 @@ IS_RENDER = os.getenv('RENDER', False)
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'dev-secret-key-change-in-production')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DJANGO_DEBUG', 'False') == 'True'
 
 # Оптимизации производительности
 DISABLE_AUTO_CACHE_UPDATES = DEBUG  # True в DEBUG, False в production
 CACHE_UPDATE_BATCH_SIZE = 100  # Размер батча для массовых обновлений
 CACHE_UPDATE_TIMEOUT_HOURS = 24  # Часы между автообновлениями
 
-ALLOWED_HOSTS = ['*'] if DEBUG else ['yourdomain.com', 'localhost']
+# Настройка разрешённых хостов
+if DEBUG:
+    ALLOWED_HOSTS = ['*']
+else:
+    allowed_hosts_str = os.getenv('ALLOWED_HOSTS', 'localhost')
+    ALLOWED_HOSTS = [host.strip() for host in allowed_hosts_str.split(',')]
 
 # ============================================
 # УСКОРЕННЫЕ НАСТРОЙКИ ПРИЛОЖЕНИЙ И MIDDLEWARE
@@ -55,6 +60,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'debug_toolbar.middleware.DebugToolbarMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -97,19 +103,18 @@ WSGI_APPLICATION = 'igdb_site.wsgi.application'
 import dj_database_url
 
 # Определяем окружение по переменным окружения
-IS_RAILWAY = os.getenv('RAILWAY_ENVIRONMENT') is not None or os.getenv('RAILWAY_SERVICE_ID') is not None
+IS_RENDER = os.getenv('RENDER') == 'true'
 IS_DESKTOP = os.getenv('DESKTOP_MODE') == '1'
 
-if IS_RAILWAY:
-    # Режим Railway - используем DATABASE_URL
-    # Railway автоматически добавляет переменную DATABASE_URL при подключении PostgreSQL
+if IS_RENDER:
+    # Режим Render - используем DATABASE_URL
     database_url = os.getenv('DATABASE_URL')
     if database_url:
         DATABASES = {
             'default': dj_database_url.config(
                 default=database_url,
                 conn_max_age=600,
-                ssl_require=False  # Railway использует внутреннюю сеть, SSL не требуется
+                conn_health_checks=True,
             )
         }
     else:
@@ -117,24 +122,24 @@ if IS_RAILWAY:
         DATABASES = {
             'default': {
                 'ENGINE': 'django.db.backends.postgresql',
-                'NAME': os.getenv('DB_NAME', 'postgres'),
-                'USER': os.getenv('DB_USER', 'postgres'),
-                'PASSWORD': os.getenv('DB_PASSWORD', ''),
-                'HOST': os.getenv('DB_HOST', 'localhost'),
-                'PORT': os.getenv('DB_PORT', '5432'),
+                'NAME': os.getenv('DB_NAME'),
+                'USER': os.getenv('DB_USER'),
+                'PASSWORD': os.getenv('DB_PASSWORD'),
+                'HOST': os.getenv('DB_HOST'),
+                'PORT': os.getenv('DB_PORT'),
                 'CONN_MAX_AGE': 600,
             }
         }
 elif IS_DESKTOP:
-    # Режим десктоп - используем локальную базу (существующая логика)
+    # Режим десктоп - используем локальную базу
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.getenv('DB_NAME', 'gamespeek'),
-            'USER': os.getenv('DB_USER', 'django_user'),
-            'PASSWORD': os.getenv('DB_PASSWORD', 'django_user'),
-            'HOST': os.getenv('DB_HOST', 'localhost'),
-            'PORT': os.getenv('DB_PORT', '5432'),
+            'NAME': os.getenv('DB_NAME'),
+            'USER': os.getenv('DB_USER'),
+            'PASSWORD': os.getenv('DB_PASSWORD'),
+            'HOST': os.getenv('DB_HOST'),
+            'PORT': os.getenv('DB_PORT'),
             'CONN_MAX_AGE': 600,
             'OPTIONS': {
                 'connect_timeout': 10,
@@ -144,15 +149,15 @@ elif IS_DESKTOP:
         }
     }
 else:
-    # Режим разработки (manage.py runserver) - локальная база
+    # Режим разработки - локальная база из .env
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.getenv('DB_NAME', 'gamespeek'),
-            'USER': os.getenv('DB_USER', 'django_user'),
-            'PASSWORD': os.getenv('DB_PASSWORD', 'django_user'),
-            'HOST': os.getenv('DB_HOST', 'localhost'),
-            'PORT': os.getenv('DB_PORT', '5432'),
+            'NAME': os.getenv('DB_NAME'),
+            'USER': os.getenv('DB_USER'),
+            'PASSWORD': os.getenv('DB_PASSWORD'),
+            'HOST': os.getenv('DB_HOST'),
+            'PORT': os.getenv('DB_PORT'),
             'CONN_MAX_AGE': 600,
             'OPTIONS': {
                 'connect_timeout': 10,
@@ -367,6 +372,9 @@ SECURE_CROSS_ORIGIN_OPENER_POLICY = None
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# WhiteNoise для раздачи статики в production
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
 # ============================================
 # ПОЛЕ ПО УМОЛЧАНИЮ
 # ============================================
@@ -548,9 +556,6 @@ if DEBUG:
 
     # Авто-перезагрузка шаблонов
     TEMPLATES[0]['OPTIONS']['debug'] = True
-
-    # Быстрая загрузка статики
-    STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.StaticFilesStorage'
 
 # ============================================
 # НАСТРОЙКИ ОПТИМИЗАЦИИ БАЗЫ ДАННЫХ (POSTGRESQL)
