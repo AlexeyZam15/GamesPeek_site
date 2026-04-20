@@ -340,57 +340,50 @@ def keyword_category_view(request: HttpRequest, category_id: int) -> HttpRespons
 
 
 def game_search(request: HttpRequest) -> HttpResponse:
-    """Simple game search by name."""
-    search_query = request.GET.get('q', '')
+    """
+    Search games by name - redirects to game_list with search parameter.
 
-    # Получаем ID игр по поисковому запросу
-    games_queryset = Game.objects.all().only('id')
+    This integrates text search with the existing AJAX pagination and filtering system.
+    The search query is passed as 'search_k' parameter which is already supported
+    by the filtering system.
 
-    if search_query:
-        games_queryset = games_queryset.filter(name__icontains=search_query)
+    Args:
+        request: HTTP request object with 'q' parameter for search query
 
-    games_queryset = games_queryset.order_by('-rating_count', '-rating')
-    game_ids = list(games_queryset[:100].values_list('id', flat=True))
+    Returns:
+        Redirect to game_list with search parameter
+    """
+    import logging
+    import time
+    from django.urls import reverse
+    from urllib.parse import urlencode
 
-    # Загружаем полные объекты игр
-    games = []
-    if game_ids:
-        games = list(Game.objects.filter(
-            id__in=game_ids
-        ).prefetch_related(
-            'genres', 'platforms', 'player_perspectives'
-        ).only(
-            'id', 'name', 'rating', 'rating_count',
-            'first_release_date', 'cover_url', 'game_type'
-        ))
+    logger = logging.getLogger(__name__)
+    search_query = request.GET.get('q', '').strip()
+    start_time = time.time()
 
-        # Сортируем в том же порядке, что и game_ids
-        game_dict = {game.id: game for game in games}
-        games = [game_dict[game_id] for game_id in game_ids if game_id in game_dict]
+    # Empty query - just go to game list
+    if not search_query:
+        execution_time = (time.time() - start_time) * 1000
+        logger.info(f"SEARCH: empty query - redirect to game_list - {execution_time:.2f}ms")
+        return redirect('game_list')
 
-        # Массово создаем карточки для результатов поиска
-        if games:
-            GameCardCreator.create_cards_for_games(
-                game_ids=game_ids,
-                show_similarity=False,
-                batch_size=100,
-                force=False
-            )
+    # Build URL for game_list with search parameter
+    base_url = reverse('game_list')
 
-    return render(request, 'games/game_search.html', {
-        'games': games,  # Передаем список игр, а не карточек
-        'search_query': search_query,
-        'total_results': games_queryset.count(),
-        'show_similarity': False,
-        'source_game': None,
-        'selected_genres': [],
-        'selected_keywords': [],
-        'selected_themes': [],
-        'selected_perspectives': [],
-        'selected_developers': [],
-        'selected_game_modes': [],
-        'current_page': 1,
-    })
+    # Create parameters for redirect
+    params = {
+        'search_k': search_query,  # Pass search query as keyword filter
+        'find_similar': '0',  # Regular mode, not similarity search
+        'page': '1',  # Reset to first page
+    }
+
+    redirect_url = f"{base_url}?{urlencode(params)}"
+
+    execution_time = (time.time() - start_time) * 1000
+    logger.info(f"SEARCH: '{search_query}' - redirect to {redirect_url} - {execution_time:.2f}ms")
+
+    return redirect(redirect_url)
 
 
 def auto_login_admin(request: HttpRequest) -> JsonResponse:

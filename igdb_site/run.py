@@ -970,32 +970,68 @@ def import_database_dump(output_callback):
 
 
 def run_migrations_once(output_callback):
-    """Import full database dump - no separate migrations needed."""
+    """Import full database dump - clears database on first run or when dump is newer."""
     output_callback("📦 Checking database state...\n")
-
-    has_games_table, has_games_data = check_database_state()
-    output_callback(f"📊 Games in database: {has_games_data}\n")
 
     if getattr(sys, 'frozen', False):
         exe_dir = Path(sys.executable).parent
     else:
         exe_dir = Path.cwd()
 
+    dump_file = exe_dir / 'database.dump'
     import_marker = exe_dir / '.data_imported'
 
-    if import_marker.exists() and has_games_data:
-        output_callback("✅ Database has data, skipping import\n")
-        return
+    if not dump_file.exists():
+        output_callback("ℹ️ No database dump file found\n")
+        return False
 
-    if not has_games_data:
-        output_callback("📦 Database is empty, importing full database...\n")
+    dump_size_mb = dump_file.stat().st_size / (1024 * 1024)
+    output_callback(f"📦 Found database dump: {dump_file.name} ({dump_size_mb:.1f} MB)\n")
+
+    # Check if we need to import
+    should_import = False
+
+    if not import_marker.exists():
+        output_callback("🔄 First run detected - will clear and import database\n")
+        should_import = True
+    else:
+        dump_mtime = dump_file.stat().st_mtime
+        marker_mtime = import_marker.stat().st_mtime
+        if dump_mtime > marker_mtime:
+            output_callback("🔄 Dump file is newer - will clear and reimport database\n")
+            should_import = True
+        else:
+            output_callback("✅ Database is up to date, skipping import\n")
+            return False
+
+    if should_import:
+        output_callback("🗑️ Clearing existing database...\n")
+
+        from django.db import connection
+
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                DO $$ DECLARE
+                    r RECORD;
+                BEGIN
+                    FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
+                        EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
+                    END LOOP;
+                END $$;
+            """)
+            output_callback("  ✅ All tables dropped\n")
+
+        output_callback("📦 Importing full database...\n")
 
         if import_database_dump(output_callback):
             import_marker.touch()
             output_callback("✅ Database import completed successfully\n")
+            return True
         else:
-            output_callback("⚠️ Could not import database dump\n")
-            output_callback("   The application will run with empty database\n")
+            output_callback("❌ Database import failed\n")
+            return False
+
+    return False
 
 
 def run_django_server(output_callback):

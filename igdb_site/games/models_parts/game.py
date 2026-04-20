@@ -237,12 +237,99 @@ class Game(models.Model):
             )
 
         is_new = self.pk is None
+
+        # Сохраняем старые значения полей для определения изменений
+        old_genre_ids = None
+        old_keyword_ids = None
+        old_theme_ids = None
+        old_perspective_ids = None
+        old_game_mode_ids = None
+        old_engine_ids = None
+
+        if not is_new:
+            # Загружаем старые значения материализованных векторов
+            old_game = Game.objects.filter(id=self.pk).only(
+                'genre_ids', 'keyword_ids', 'theme_ids',
+                'perspective_ids', 'game_mode_ids', 'engine_ids'
+            ).first()
+            if old_game:
+                old_genre_ids = set(old_game.genre_ids or [])
+                old_keyword_ids = set(old_game.keyword_ids or [])
+                old_theme_ids = set(old_game.theme_ids or [])
+                old_perspective_ids = set(old_game.perspective_ids or [])
+                old_game_mode_ids = set(old_game.game_mode_ids or [])
+                old_engine_ids = set(old_game.engine_ids or [])
+
         super().save(*args, **kwargs)
 
+        # Проверяем, изменились ли связанные данные
+        has_related_changes = False
+
+        if not is_new and old_genre_ids is not None:
+            new_genre_ids = set(self.genre_ids or [])
+            new_keyword_ids = set(self.keyword_ids or [])
+            new_theme_ids = set(self.theme_ids or [])
+            new_perspective_ids = set(self.perspective_ids or [])
+            new_game_mode_ids = set(self.game_mode_ids or [])
+            new_engine_ids = set(self.engine_ids or [])
+
+            if (old_genre_ids != new_genre_ids or
+                    old_keyword_ids != new_keyword_ids or
+                    old_theme_ids != new_theme_ids or
+                    old_perspective_ids != new_perspective_ids or
+                    old_game_mode_ids != new_game_mode_ids or
+                    old_engine_ids != new_engine_ids):
+                has_related_changes = True
+
         # ВСЕГДА обновляем векторы и счетчики при сохранении
-        # Это гарантирует актуальность данных при любых изменениях
         self.update_cached_counts()
         self.update_materialized_vectors()
+
+        # Если изменились связанные данные - инвалидируем кэши
+        if has_related_changes:
+            self._invalidate_similarity_cache()
+            self._invalidate_card_cache()
+
+    def _invalidate_similarity_cache(self):
+        """Инвалидирует кэш похожих игр для этой игры."""
+        from django.core.cache import cache
+
+        # Удаляем все ключи кэша, связанные с этой игрой
+        cache_key_patterns = [
+            f'similar_for_game_*_{self.id}_*',  # Паттерн для кэша похожих игр
+        ]
+
+        # Используем Redis паттерн, если настроен
+        try:
+            from django.core.cache import caches
+            redis_cache = caches['default']
+            if hasattr(redis_cache, 'delete_pattern'):
+                for pattern in cache_key_patterns:
+                    redis_cache.delete_pattern(pattern)
+        except Exception:
+            # Если нет поддержки паттернов, увеличиваем версию кэша
+            from .base_views import CACHE_VERSION
+            import hashlib
+            new_version = f"v{int(CACHE_VERSION[1:]) + 1}"
+            globals()['CACHE_VERSION'] = new_version
+
+            # Также удаляем конкретный ключ
+            cache.delete(f'similar_for_game_{self.id}')
+
+    def _invalidate_card_cache(self):
+        """Инвалидирует кэш карточки игры."""
+        from .game_card import GameCardCache
+
+        # Деактивируем существующую карточку
+        GameCardCache.objects.filter(game_id=self.id, is_active=True).update(
+            is_active=False,
+            updated_at=timezone.now()
+        )
+
+        # Удаляем из Django cache
+        from django.core.cache import cache
+        cache_key = GameCardCache.generate_cache_key_for_game(self.id)
+        cache.delete(cache_key)
 
     def update_cached_counts(self, force: bool = False, async_update: bool = False) -> None:
         """

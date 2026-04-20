@@ -33,9 +33,9 @@
 
             <div class="d-flex align-items-center gap-3">
                 <!-- Поисковая строка -->
-                <form class="d-flex" method="get" action="{% url 'game_search' %}">
+                <form class="d-flex" method="get" action="{% url 'game_list' %}">
                     <div class="input-group input-group-sm">
-                        <input type="text" class="form-control" name="q" placeholder="Search games..."
+                        <input type="text" class="form-control" name="search_k" placeholder="Search games..."
                                aria-label="Search games" style="width: 200px;">
                         <button class="btn btn-outline-light" type="submit">
                             <i class="bi bi-search"></i>
