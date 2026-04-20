@@ -104,6 +104,7 @@ import os
 import dj_database_url
 
 IS_RAILWAY = os.getenv('RAILWAY') == 'true'
+IS_VPS = os.getenv('VPS_MODE') == 'true'  # ДОБАВЛЕНО: для VPS
 IS_DESKTOP = os.getenv('DESKTOP_MODE') == '1'
 
 if IS_RAILWAY:
@@ -123,6 +124,26 @@ if IS_RAILWAY:
         )
     }
     print("[RAILWAY] PostgreSQL configured via DATABASE_URL")
+
+elif IS_VPS:
+    # НАСТРОЙКИ ДЛЯ VPS (PostgreSQL на localhost)
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.getenv('DB_NAME', 'gamespeek'),
+            'USER': os.getenv('DB_USER', 'django_user'),
+            'PASSWORD': os.getenv('DB_PASSWORD', 'django_user'),
+            'HOST': os.getenv('DB_HOST', 'localhost'),
+            'PORT': os.getenv('DB_PORT', '5432'),
+            'CONN_MAX_AGE': 600,
+            'OPTIONS': {
+                'connect_timeout': 10,
+                'client_encoding': 'UTF8',
+                'sslmode': 'disable',  # На локальном сервере SSL не нужен
+            },
+        }
+    }
+    print(f"[VPS] PostgreSQL configured on {os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', '5432')}")
 
 elif IS_DESKTOP:
     DATABASES = {
