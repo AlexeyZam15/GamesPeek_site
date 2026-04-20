@@ -105,28 +105,45 @@ WSGI_APPLICATION = 'igdb_site.wsgi.application'
 # ============================================
 
 import os
+import dj_database_url
 
 IS_RAILWAY = os.getenv('RAILWAY') == 'true'
 IS_DESKTOP = os.getenv('DESKTOP_MODE') == '1'
 
 if IS_RAILWAY:
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': 'gamespeek',
-            'USER': 'django_user',
-            'PASSWORD': 'django_user',
-            'HOST': 'localhost',
-            'PORT': '5432',
-            'CONN_MAX_AGE': 600,
-            'OPTIONS': {
-                'connect_timeout': 15,
-                'client_encoding': 'UTF8',
-                'sslmode': 'disable',
-            },
+    # На Railway используем DATABASE_URL из переменных окружения
+    # Эта переменная устанавливается в start.sh через export
+    database_url = os.getenv('DATABASE_URL')
+
+    if database_url:
+        DATABASES = {
+            'default': dj_database_url.config(
+                default=database_url,
+                conn_max_age=600,
+                conn_health_checks=True,
+                ssl_require=False
+            )
         }
-    }
-    print("[RAILWAY] PostgreSQL configured via zrok tunnel on localhost:5432")
+        print("[RAILWAY] PostgreSQL configured via DATABASE_URL")
+    else:
+        # Fallback на localhost (для случая если DATABASE_URL не задана)
+        DATABASES = {
+            'default': {
+                'ENGINE': 'django.db.backends.postgresql',
+                'NAME': 'gamespeek',
+                'USER': 'django_user',
+                'PASSWORD': 'django_user',
+                'HOST': 'localhost',
+                'PORT': '5432',
+                'CONN_MAX_AGE': 600,
+                'OPTIONS': {
+                    'connect_timeout': 15,
+                    'client_encoding': 'UTF8',
+                    'sslmode': 'disable',
+                },
+            }
+        }
+        print("[RAILWAY] PostgreSQL configured via localhost (fallback)")
 
 elif IS_DESKTOP:
     DATABASES = {
