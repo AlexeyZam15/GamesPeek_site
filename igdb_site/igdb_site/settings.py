@@ -103,19 +103,18 @@ WSGI_APPLICATION = 'igdb_site.wsgi.application'
 import dj_database_url
 
 # Определяем окружение по переменным окружения
-IS_RAILWAY = os.getenv('RAILWAY_ENVIRONMENT') is not None or os.getenv('RAILWAY_SERVICE_ID') is not None
+IS_RENDER = os.getenv('RENDER') == 'true'
 IS_DESKTOP = os.getenv('DESKTOP_MODE') == '1'
 
-if IS_RAILWAY:
-    # Режим Railway - используем DATABASE_URL
-    # Railway автоматически добавляет переменную DATABASE_URL при подключении PostgreSQL
+if IS_RENDER:
+    # Режим Render - используем DATABASE_URL
     database_url = os.getenv('DATABASE_URL')
     if database_url:
         DATABASES = {
             'default': dj_database_url.config(
                 default=database_url,
                 conn_max_age=600,
-                ssl_require=False  # Railway использует внутреннюю сеть, SSL не требуется
+                conn_health_checks=True,
             )
         }
     else:
@@ -123,24 +122,24 @@ if IS_RAILWAY:
         DATABASES = {
             'default': {
                 'ENGINE': 'django.db.backends.postgresql',
-                'NAME': os.getenv('DB_NAME', 'postgres'),
-                'USER': os.getenv('DB_USER', 'postgres'),
-                'PASSWORD': os.getenv('DB_PASSWORD', ''),
-                'HOST': os.getenv('DB_HOST', 'localhost'),
-                'PORT': os.getenv('DB_PORT', '5432'),
+                'NAME': os.getenv('DB_NAME'),
+                'USER': os.getenv('DB_USER'),
+                'PASSWORD': os.getenv('DB_PASSWORD'),
+                'HOST': os.getenv('DB_HOST'),
+                'PORT': os.getenv('DB_PORT'),
                 'CONN_MAX_AGE': 600,
             }
         }
 elif IS_DESKTOP:
-    # Режим десктоп - используем локальную базу (существующая логика)
+    # Режим десктоп - используем локальную базу
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.getenv('DB_NAME', 'gamespeek'),
-            'USER': os.getenv('DB_USER', 'django_user'),
-            'PASSWORD': os.getenv('DB_PASSWORD', 'django_user'),
-            'HOST': os.getenv('DB_HOST', 'localhost'),
-            'PORT': os.getenv('DB_PORT', '5432'),
+            'NAME': os.getenv('DB_NAME'),
+            'USER': os.getenv('DB_USER'),
+            'PASSWORD': os.getenv('DB_PASSWORD'),
+            'HOST': os.getenv('DB_HOST'),
+            'PORT': os.getenv('DB_PORT'),
             'CONN_MAX_AGE': 600,
             'OPTIONS': {
                 'connect_timeout': 10,
@@ -150,15 +149,15 @@ elif IS_DESKTOP:
         }
     }
 else:
-    # Режим разработки (manage.py runserver) - локальная база
+    # Режим разработки - локальная база из .env
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.getenv('DB_NAME', 'gamespeek'),
-            'USER': os.getenv('DB_USER', 'django_user'),
-            'PASSWORD': os.getenv('DB_PASSWORD', 'django_user'),
-            'HOST': os.getenv('DB_HOST', 'localhost'),
-            'PORT': os.getenv('DB_PORT', '5432'),
+            'NAME': os.getenv('DB_NAME'),
+            'USER': os.getenv('DB_USER'),
+            'PASSWORD': os.getenv('DB_PASSWORD'),
+            'HOST': os.getenv('DB_HOST'),
+            'PORT': os.getenv('DB_PORT'),
             'CONN_MAX_AGE': 600,
             'OPTIONS': {
                 'connect_timeout': 10,
