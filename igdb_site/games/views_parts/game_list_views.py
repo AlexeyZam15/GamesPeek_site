@@ -545,31 +545,29 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
     """
 
     show_similarity = context.get('show_similarity', False)
+    current_page = context.get('current_page', 1)
 
     if not games_list:
         return games_list
 
-    # Собираем все ID игр
     game_ids = []
     game_items = []
 
-    for item in games_list:
+    for idx, item in enumerate(games_list):
         if isinstance(item, dict) and 'game' in item:
             game_obj = item['game']
             similarity = item.get('similarity')
             game_ids.append(game_obj.id)
-            game_items.append((item, game_obj, similarity, True))
+            game_items.append((item, game_obj, similarity, True, idx))
         else:
             game_obj = item
             similarity = getattr(game_obj, 'similarity', None)
             game_ids.append(game_obj.id)
-            game_items.append((item, game_obj, similarity, False))
+            game_items.append((item, game_obj, similarity, False, idx))
 
-    # Получаем текущую версию кэша из модели
     from games.models import GameCardCache
     current_cache_version = GameCardCache.CARD_CACHE_VERSION
 
-    # Загружаем ВСЕ карточки из БД ОДНИМ ЗАПРОСОМ
     cards_in_db = {}
     try:
         all_cards = GameCardCache.objects.filter(
@@ -583,35 +581,29 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
         logger.error(f"Error batch loading card caches: {str(e)}")
         cards_in_db = {}
 
-    # Обрабатываем каждый элемент
     processed_items = []
 
-    for item, game_obj, similarity, is_similar_mode in game_items:
+    for item, game_obj, similarity, is_similar_mode, idx in game_items:
         existing_card = cards_in_db.get(game_obj.id)
 
         if existing_card and existing_card.template_version == current_cache_version:
-            # Карточка актуальна - используем её HTML
             try:
                 existing_card.increment_hit()
                 card_html = existing_card.rendered_card
 
-                # Добавляем data-атрибуты с процентом и source_game, если нужно
                 if show_similarity and similarity is not None and similarity > 0:
                     import re
 
-                    # Сначала добавляем data-similarity
                     pattern = r'(<div[^>]*class="[^"]*game-card-container[^"]*"[^>]*)>'
                     replacement = r'\1 data-similarity="' + str(similarity) + r'">'
                     card_html = re.sub(pattern, replacement, card_html, count=1)
 
-                    # Затем добавляем data-source-game-id если есть
                     source_game = context.get('source_game')
                     if source_game and hasattr(source_game, 'id'):
                         pattern = r'(<div[^>]*class="[^"]*game-card-container[^"]*"[^>]*)>'
                         replacement = r'\1 data-source-game-id="' + str(source_game.id) + r'">'
                         card_html = re.sub(pattern, replacement, card_html, count=1)
 
-                # Добавляем similarity к объекту игры для шаблона
                 if show_similarity and similarity is not None:
                     game_obj.similarity = similarity
 
@@ -625,11 +617,25 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
             except Exception as e:
                 logger.error(f"Error using cached card: {str(e)}")
 
-        # Нет карточки в кэше или она устарела - создаём простую карточку без сохранения в БД
-        card_context = {'game': game_obj}
+        items_per_page = context.get('items_per_page', 16)
+        game_index_offset = (current_page - 1) * items_per_page + idx
+
+        card_context = {
+            'game': game_obj,
+            'current_page': current_page,
+            'game_index': idx,
+            'game_index_offset': game_index_offset,
+            'forloop': {'counter0': idx, 'counter': idx + 1},
+            'show_similarity': show_similarity,
+        }
+
+        if show_similarity:
+            card_context['source_game'] = context.get('source_game')
+            if similarity is not None:
+                card_context['similarity_percent'] = similarity
+
         card_html = render_to_string('games/partials/_game_card.html', card_context)
 
-        # Добавляем data-атрибуты с процентом и source_game, если нужно
         if show_similarity and similarity is not None and similarity > 0:
             import re
 
@@ -643,7 +649,6 @@ def _update_games_with_cached_cards(games_list: List, context: Dict) -> List:
                 replacement = r'\1 data-source-game-id="' + str(source_game.id) + r'">'
                 card_html = re.sub(pattern, replacement, card_html, count=1)
 
-        # Добавляем similarity к объекту игры для шаблона
         if show_similarity and similarity is not None:
             game_obj.similarity = similarity
 
