@@ -8,15 +8,10 @@ import os
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('games.urls')),
+    path('sitemap.xml', include('django.contrib.sitemaps.urls')),
 ]
 
-# ============================================
-# СТАТИЧЕСКИЕ ФАЙЛЫ ДЛЯ DESKTOP РЕЖИМА И DEBUG
-# ============================================
-
-# В desktop-режиме или DEBUG режиме добавляем статику
 if settings.DEBUG or os.getenv('DESKTOP_MODE') == '1':
-    # Используем serve для раздачи статики из STATIC_ROOT
     from django.urls import re_path
     from django.views.static import serve as static_serve
 
@@ -27,13 +22,8 @@ if settings.DEBUG or os.getenv('DESKTOP_MODE') == '1':
         }),
     ]
 
-    # Добавляем медиа файлы если настроены
     if hasattr(settings, 'MEDIA_URL') and hasattr(settings, 'MEDIA_ROOT'):
         urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-
-# ============================================
-# DEBUG TOOLBAR (ТОЛЬКО ДЛЯ DEBUG РЕЖИМА)
-# ============================================
 
 if settings.DEBUG and os.getenv('DESKTOP_MODE') != '1':
     try:
