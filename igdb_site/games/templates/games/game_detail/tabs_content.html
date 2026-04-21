@@ -1,10 +1,11 @@
 <!-- games/templates/games/game_detail/tabs_content.html -->
+
 {% load platform_icons %}
 {% load game_tags %}
 {% load static %}
 
-<!-- Навигация табов -->
-<ul class="nav nav-tabs mb-4" id="gameTabs" role="tablist">
+<!-- Навигация табов (десктопная версия - скрывается на мобильных) -->
+<ul class="nav nav-tabs mb-4 desktop-tabs-nav" id="gameTabs" role="tablist">
     <li class="nav-item" role="presentation">
         <a class="nav-link active" id="overview-tab" data-bs-toggle="tab"
            href="#overview" role="tab" aria-controls="overview" aria-selected="true">
@@ -39,6 +40,51 @@
         </a>
     </li>
 </ul>
+
+<!-- Мобильная карусель вкладок (показывается только на мобильных) -->
+<div class="mobile-tabs-carousel">
+    <button class="carousel-btn left" onclick="moveTabsCarousel(-1)">
+        <i class="bi bi-chevron-left"></i>
+    </button>
+    <button class="carousel-btn right" onclick="moveTabsCarousel(1)">
+        <i class="bi bi-chevron-right"></i>
+    </button>
+
+    <div class="carousel-track-container">
+        <div class="carousel-track" id="mobile-tabs-track">
+            <div class="carousel-slide" data-tab-id="overview">
+                <div class="mobile-tab-card active" data-tab-target="#overview">
+                    <i class="bi bi-info-circle me-2"></i>Overview
+                </div>
+            </div>
+            <div class="carousel-slide" data-tab-id="details">
+                <div class="mobile-tab-card" data-tab-target="#details">
+                    <i class="bi bi-list-check me-2"></i>Details
+                </div>
+            </div>
+            <div class="carousel-slide" data-tab-id="companies">
+                <div class="mobile-tab-card" data-tab-target="#companies">
+                    <i class="bi bi-building me-2"></i>Companies
+                </div>
+            </div>
+            <div class="carousel-slide" data-tab-id="keywords">
+                <div class="mobile-tab-card" data-tab-target="#keywords">
+                    <i class="bi bi-tags me-2"></i>Keywords
+                </div>
+            </div>
+            <div class="carousel-slide" data-tab-id="screenshots">
+                <div class="mobile-tab-card" data-tab-target="#screenshots">
+                    <i class="bi bi-image me-2"></i>Screenshots
+                    {% if game.screenshots.all %}
+                        <span class="badge bg-secondary ms-1">{{ game.screenshots.all|length }}</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="carousel-indicators" id="mobile-tabs-indicators"></div>
+</div>
 
 <!-- Контент табов -->
 <div class="tab-content" id="gameTabsContent">
