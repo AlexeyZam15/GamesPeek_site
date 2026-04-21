@@ -153,13 +153,6 @@ class GameCardCache(models.Model):
     ) -> Dict[str, int]:
         """
         Массовое обновление карточек игр.
-
-        Args:
-            cards_data: List of tuples (game, rendered_card, related_data)
-            batch_size: Batch size for bulk operations (unused in this version)
-
-        Returns:
-            Dictionary with statistics
         """
         import logging
         logger = logging.getLogger(__name__)
@@ -192,11 +185,9 @@ class GameCardCache(models.Model):
                 try:
                     card = cls.objects.get(game=game)
 
-                    # Проверяем, нужно ли обновлять
                     new_card_hash = cls._calculate_card_hash(rendered_card)
 
                     if card.card_hash != new_card_hash or card.template_version != current_template_version:
-                        # Есть изменения - обновляем
                         card.rendered_card = rendered_card
                         card.card_hash = new_card_hash
                         card.template_version = current_template_version
@@ -212,14 +203,17 @@ class GameCardCache(models.Model):
                         card.game_modes_json = related_data.get('game_modes', [])
                         card.cache_key = expected_key
                         card.updated_at = timezone.now()
+                        card.is_active = True
 
                         card.save()
                         stats['updated'] += 1
                     else:
+                        if not card.is_active:
+                            card.is_active = True
+                            card.save(update_fields=['is_active'])
                         stats['skipped'] += 1
 
                 except cls.DoesNotExist:
-                    # Создаем новую карточку
                     card = cls(
                         game=game,
                         rendered_card=rendered_card,
@@ -256,7 +250,6 @@ class GameCardCache(models.Model):
 
         return stats
 
-
     @classmethod
     def get_or_create_card(
             cls,
@@ -266,7 +259,6 @@ class GameCardCache(models.Model):
     ) -> Tuple['GameCardCache', bool]:
         """
         Получает существующую карточку или создает новую.
-        Процент схожести НЕ кэшируется в карточке!
         """
         from django.db import transaction
 
@@ -278,27 +270,22 @@ class GameCardCache(models.Model):
                 card = cls.objects.select_for_update().get(game=game)
                 created = False
 
-                # Проверяем, не изменились ли данные игры или версия кэша
                 new_card_hash = cls._calculate_card_hash(rendered_card)
 
-                # Проверяем, нужно ли обновлять карточку
                 needs_update = False
                 update_fields = []
 
-                # Проверка хэша данных
                 if card.card_hash != new_card_hash:
                     needs_update = True
                     card.rendered_card = rendered_card
                     card.card_hash = new_card_hash
                     update_fields.extend(['rendered_card', 'card_hash'])
 
-                # Проверка версии шаблона
                 if card.template_version != current_template_version:
                     needs_update = True
                     card.template_version = current_template_version
                     update_fields.append('template_version')
 
-                # Проверка связанных данных
                 if card.game_name != game.name:
                     card.game_name = game.name
                     update_fields.append('game_name')
@@ -312,7 +299,6 @@ class GameCardCache(models.Model):
                     card.game_type = getattr(game, 'game_type', None)
                     update_fields.append('game_type')
 
-                # Проверка JSON полей
                 if card.genres_json != related_data.get('genres', []):
                     card.genres_json = related_data.get('genres', [])
                     update_fields.append('genres_json')
@@ -332,10 +318,13 @@ class GameCardCache(models.Model):
                     card.game_modes_json = related_data.get('game_modes', [])
                     update_fields.append('game_modes_json')
 
-                # Обновляем ключ если нужно
                 if card.cache_key != cache_key:
                     card.cache_key = cache_key
                     update_fields.append('cache_key')
+
+                if not card.is_active:
+                    card.is_active = True
+                    update_fields.append('is_active')
 
                 if needs_update or update_fields:
                     card.updated_at = timezone.now()

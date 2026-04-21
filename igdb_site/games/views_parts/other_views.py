@@ -50,18 +50,17 @@ def remove_theme_from_game(request, game_id, theme_id):
 
     return redirect(reverse('admin:games_game_changelist'))
 
+
 def home(request: HttpRequest) -> HttpResponse:
     """Optimized home page with cached game cards."""
-    cache_key = 'optimized_home_with_cards_v1'
-    cached_context = cache_get_or_set(cache_key, lambda: _get_home_context(), 300)
+    context = _get_home_context()
 
-    response = render(request, 'games/home.html', cached_context)
-    response['X-Cache-Hit'] = 'True' if cached_context.get('cached', False) else 'False'
+    response = render(request, 'games/home.html', context)
 
-    if 'query_count' in cached_context:
-        response['X-DB-Queries'] = str(cached_context['query_count'])
-    if 'execution_time' in cached_context:
-        response['X-Response-Time'] = f"{cached_context['execution_time']:.3f}s"
+    if 'query_count' in context:
+        response['X-DB-Queries'] = str(context['query_count'])
+    if 'execution_time' in context:
+        response['X-Response-Time'] = f"{context['execution_time']:.3f}s"
 
     return response
 
@@ -73,20 +72,17 @@ def _get_home_context() -> Dict:
     try:
         from django.db import connection
 
-        # Получаем ID популярных игр (СОРТИРОВКА ВАЖНА!)
         popular_games_ids = list(Game.objects.filter(
             rating_count__gt=10,
             rating__gte=3.0
         ).only('id').order_by('-rating_count', '-rating')[:20].values_list('id', flat=True))
 
-        # Получаем ID недавних игр
         two_years_ago = timezone.now() - timedelta(days=730)
         recent_games_ids = list(Game.objects.filter(
             first_release_date__gte=two_years_ago,
             first_release_date__lte=timezone.now()
         ).only('id').order_by('-first_release_date')[:20].values_list('id', flat=True))
 
-        # Загружаем полные объекты игр для популярных игр
         popular_games = []
         if popular_games_ids:
             popular_games = list(Game.objects.filter(
@@ -98,11 +94,9 @@ def _get_home_context() -> Dict:
                 'first_release_date', 'cover_url', 'game_type'
             ))
 
-            # Сортируем в том же порядке, что и popular_games_ids
             game_dict = {game.id: game for game in popular_games}
             popular_games = [game_dict[game_id] for game_id in popular_games_ids if game_id in game_dict]
 
-        # Загружаем полные объекты игр для недавних игр
         recent_games = []
         if recent_games_ids:
             recent_games = list(Game.objects.filter(
@@ -114,14 +108,11 @@ def _get_home_context() -> Dict:
                 'first_release_date', 'cover_url', 'game_type'
             ))
 
-            # Сортируем в том же порядке, что и recent_games_ids
             game_dict = {game.id: game for game in recent_games}
             recent_games = [game_dict[game_id] for game_id in recent_games_ids if game_id in game_dict]
 
-        # Объединяем все ID игр для массового создания/обновления карточек
         all_game_ids = list(set(popular_games_ids + recent_games_ids))
 
-        # Массово создаем/обновляем карточки для всех игр на главной
         if all_game_ids:
             from ..utils.game_card_utils import GameCardCreator
 
@@ -132,12 +123,10 @@ def _get_home_context() -> Dict:
                 force=False
             )
 
-        # Загружаем готовые карточки из кэша с сохранением порядка
         popular_cards = []
         if popular_games:
             from ..models_parts.game_card import GameCardCache
 
-            # Пакетно загружаем существующие карточки из БД
             cards = {}
             try:
                 card_objects = GameCardCache.objects.filter(
@@ -145,14 +134,11 @@ def _get_home_context() -> Dict:
                     is_active=True
                 )
 
-                # Фильтруем только те карточки, у которых ключ соответствует текущей версии
                 for card in card_objects:
-                    # ИСПРАВЛЕНО: generate_cache_key_for_game принимает только game_id
                     expected_key = GameCardCache.generate_cache_key_for_game(card.game_id)
                     if card.cache_key == expected_key:
                         cards[card.game_id] = card
                     else:
-                        # Карточка с устаревшей версией - деактивируем
                         card.is_active = False
                         card.save(update_fields=['is_active'])
 
@@ -161,25 +147,24 @@ def _get_home_context() -> Dict:
                 logger = logging.getLogger(__name__)
                 logger.error(f"Error batch loading card caches: {str(e)}")
 
-            # Формируем список карточек в правильном порядке
-            for game in popular_games:
+            for idx, game in enumerate(popular_games):
                 if game.id in cards:
-                    # Используем готовую карточку из кэша
                     popular_cards.append(cards[game.id])
                 else:
-                    # Если карточки нет в кэше, но игра есть - рендерим сейчас
                     from django.template.loader import render_to_string
                     card_context = {
                         'game': game,
                         'show_similarity': False,
-                        'source_game': None
+                        'source_game': None,
+                        'current_page': 1,
+                        'game_index': idx,
+                        'game_index_offset': idx,
+                        'forloop': {'counter0': idx, 'counter': idx + 1},
                     }
                     rendered_card = render_to_string('games/partials/_game_card.html', card_context)
 
-                    # Извлекаем связанные данные
                     related_data = GameCardCreator._extract_related_data(game)
 
-                    # Создаем и сохраняем карточку немедленно
                     try:
                         card_cache, created = GameCardCache.get_or_create_card(
                             game=game,
@@ -191,19 +176,16 @@ def _get_home_context() -> Dict:
                         )
                         popular_cards.append(card_cache)
                     except Exception as e:
-                        # Если не удалось сохранить, используем простой объект с rendered_card
                         class SimpleCard:
                             def __init__(self, rendered):
                                 self.rendered_card = rendered
 
                         popular_cards.append(SimpleCard(rendered_card))
 
-        # Загружаем готовые карточки для недавних игр с сохранением порядка
         recent_cards = []
         if recent_games:
             from ..models_parts.game_card import GameCardCache
 
-            # Пакетно загружаем существующие карточки из БД
             cards = {}
             try:
                 card_objects = GameCardCache.objects.filter(
@@ -211,14 +193,11 @@ def _get_home_context() -> Dict:
                     is_active=True
                 )
 
-                # Фильтруем только те карточки, у которых ключ соответствует текущей версии
                 for card in card_objects:
-                    # ИСПРАВЛЕНО: generate_cache_key_for_game принимает только game_id
                     expected_key = GameCardCache.generate_cache_key_for_game(card.game_id)
                     if card.cache_key == expected_key:
                         cards[card.game_id] = card
                     else:
-                        # Карточка с устаревшей версией - деактивируем
                         card.is_active = False
                         card.save(update_fields=['is_active'])
 
@@ -227,25 +206,24 @@ def _get_home_context() -> Dict:
                 logger = logging.getLogger(__name__)
                 logger.error(f"Error batch loading card caches: {str(e)}")
 
-            # Формируем список карточек в правильном порядке
-            for game in recent_games:
+            for idx, game in enumerate(recent_games):
                 if game.id in cards:
-                    # Используем готовую карточку из кэша
                     recent_cards.append(cards[game.id])
                 else:
-                    # Если карточки нет в кэше, но игра есть - рендерим сейчас
                     from django.template.loader import render_to_string
                     card_context = {
                         'game': game,
                         'show_similarity': False,
-                        'source_game': None
+                        'source_game': None,
+                        'current_page': 1,
+                        'game_index': idx,
+                        'game_index_offset': idx,
+                        'forloop': {'counter0': idx, 'counter': idx + 1},
                     }
                     rendered_card = render_to_string('games/partials/_game_card.html', card_context)
 
-                    # Извлекаем связанные данные
                     related_data = GameCardCreator._extract_related_data(game)
 
-                    # Создаем и сохраняем карточку немедленно
                     try:
                         card_cache, created = GameCardCache.get_or_create_card(
                             game=game,
@@ -257,14 +235,12 @@ def _get_home_context() -> Dict:
                         )
                         recent_cards.append(card_cache)
                     except Exception as e:
-                        # Если не удалось сохранить, используем простой объект с rendered_card
                         class SimpleCard:
                             def __init__(self, rendered):
                                 self.rendered_card = rendered
 
                         recent_cards.append(SimpleCard(rendered_card))
 
-        # Популярные ключевые слова
         popular_keywords = list(Keyword.objects.filter(
             cached_usage_count__gt=0
         ).only('id', 'name').order_by('-cached_usage_count')[:20])
