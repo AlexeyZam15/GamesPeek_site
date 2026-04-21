@@ -1,7 +1,10 @@
 """Main Game model with all related functionality."""
 
+"""Main Game model with all related functionality."""
+
 from django.db import models
 from django.utils import timezone
+from django.urls import reverse
 from functools import lru_cache
 from typing import List, Dict, Optional, Tuple
 from django.contrib.postgres.fields import ArrayField
@@ -971,6 +974,14 @@ class Game(models.Model):
         if self.version_title:
             return f"{self.name} - {self.version_title}"
         return self.name
+
+    def get_absolute_url(self):
+        """
+        Возвращает абсолютный URL для детальной страницы игры.
+        Используется для sitemap и других функций Django.
+        """
+        from django.urls import reverse
+        return reverse('game_detail', kwargs={'pk': self.id})
 
     def __str__(self) -> str:
         type_suffix = f" [{self.get_game_type_display}]" if self.game_type is not None else ""
