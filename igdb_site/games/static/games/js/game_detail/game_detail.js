@@ -1,5 +1,18 @@
 // games/static/games/js/game_detail/game_detail.js
+
+// games/static/games/js/game_detail/game_detail.js
+
 console.log('🎮 Game detail scripts loaded');
+
+// Состояние мобильной карусели вкладок
+let mobileTabsState = {
+    currentIndex: 0,
+    totalTabs: 0,
+    track: null,
+    indicators: null,
+    slideWidth: 0,
+    gap: 16
+};
 
 // ===== ФУНКЦИИ ДЛЯ УПРАВЛЕНИЯ ВКЛАДКАМИ =====
 
@@ -23,6 +36,129 @@ window.toggleText = function(type) {
         }
     }
 };
+
+// Функция для переключения вкладки из мобильной карусели
+window.switchMobileTab = function(tabId) {
+    const tabLink = document.querySelector(`#gameTabs a[href="#${tabId}"]`);
+    if (tabLink) {
+        tabLink.click();
+
+        // Обновляем активный класс в мобильных карточках
+        document.querySelectorAll('.mobile-tab-card').forEach(card => {
+            card.classList.remove('active');
+            if (card.getAttribute('data-tab-target') === `#${tabId}`) {
+                card.classList.add('active');
+            }
+        });
+    }
+};
+
+// Функция для перемещения карусели вкладок
+window.moveTabsCarousel = function(direction) {
+    if (!mobileTabsState.track) return;
+
+    const newIndex = mobileTabsState.currentIndex + direction;
+
+    if (newIndex < 0) {
+        mobileTabsState.currentIndex = mobileTabsState.totalTabs - 1;
+    } else if (newIndex >= mobileTabsState.totalTabs) {
+        mobileTabsState.currentIndex = 0;
+    } else {
+        mobileTabsState.currentIndex = newIndex;
+    }
+
+    updateTabsCarouselPosition();
+
+    // Автоматически переключаем вкладку при скролле карусели
+    const currentSlide = mobileTabsState.track.children[mobileTabsState.currentIndex];
+    if (currentSlide) {
+        const tabId = currentSlide.getAttribute('data-tab-id');
+        if (tabId) {
+            window.switchMobileTab(tabId);
+        }
+    }
+};
+
+// Обновление позиции карусели вкладок
+function updateTabsCarouselPosition() {
+    if (!mobileTabsState.track) return;
+
+    const firstSlide = mobileTabsState.track.children[0];
+    if (firstSlide) {
+        mobileTabsState.slideWidth = firstSlide.offsetWidth;
+    }
+
+    const translateX = -mobileTabsState.currentIndex * (mobileTabsState.slideWidth + mobileTabsState.gap);
+
+    mobileTabsState.track.style.transition = 'transform 0.3s ease-in-out';
+    mobileTabsState.track.style.transform = `translateX(${translateX}px)`;
+
+    updateTabsIndicators();
+}
+
+// Обновление индикаторов карусели вкладок
+function updateTabsIndicators() {
+    if (!mobileTabsState.indicators) return;
+
+    let dots = '';
+    for (let i = 0; i < mobileTabsState.totalTabs; i++) {
+        dots += `<span class="carousel-dot ${i === mobileTabsState.currentIndex ? 'active' : ''}"
+                       onclick="goToTabBlock(${i})"></span>`;
+    }
+    mobileTabsState.indicators.innerHTML = dots;
+}
+
+// Переход к конкретному блоку вкладок
+window.goToTabBlock = function(blockIndex) {
+    if (!mobileTabsState.track || blockIndex === mobileTabsState.currentIndex) return;
+
+    mobileTabsState.currentIndex = blockIndex;
+    updateTabsCarouselPosition();
+
+    const currentSlide = mobileTabsState.track.children[mobileTabsState.currentIndex];
+    if (currentSlide) {
+        const tabId = currentSlide.getAttribute('data-tab-id');
+        if (tabId) {
+            window.switchMobileTab(tabId);
+        }
+    }
+};
+
+// Инициализация мобильной карусели вкладок
+function initMobileTabsCarousel() {
+    const track = document.getElementById('mobile-tabs-track');
+    const indicators = document.getElementById('mobile-tabs-indicators');
+
+    if (!track) return;
+
+    const totalSlides = track.children.length;
+
+    mobileTabsState = {
+        currentIndex: 0,
+        totalTabs: totalSlides,
+        track: track,
+        indicators: indicators,
+        slideWidth: track.children[0]?.offsetWidth || 0,
+        gap: 16
+    };
+
+    track.style.transition = 'none';
+
+    setTimeout(() => {
+        updateTabsCarouselPosition();
+    }, 100);
+
+    // Добавляем обработчики кликов на мобильные карточки
+    document.querySelectorAll('.mobile-tab-card').forEach(card => {
+        card.addEventListener('click', function() {
+            const targetId = this.getAttribute('data-tab-target');
+            if (targetId) {
+                const tabId = targetId.substring(1);
+                window.switchMobileTab(tabId);
+            }
+        });
+    });
+}
 
 // Полностью заменяем обработчик Bootstrap
 function setupTabListeners() {
@@ -66,8 +202,38 @@ function setupTabListeners() {
 
             saveActiveTabToUrl(targetId);
 
+            // Обновляем активную карточку в мобильной карусели
+            updateMobileTabCardActive(targetId);
+
             return false;
         });
+    });
+
+    // Инициализируем мобильную карусель после загрузки DOM
+    setTimeout(() => {
+        initMobileTabsCarousel();
+    }, 200);
+}
+
+// Обновление активной карточки в мобильной карусели
+function updateMobileTabCardActive(tabId) {
+    document.querySelectorAll('.mobile-tab-card').forEach(card => {
+        card.classList.remove('active');
+        const target = card.getAttribute('data-tab-target');
+        if (target === `#${tabId}`) {
+            card.classList.add('active');
+
+            // Находим индекс слайда с этой вкладкой и обновляем позицию карусели
+            const slides = document.querySelectorAll('#mobile-tabs-track .carousel-slide');
+            slides.forEach((slide, index) => {
+                if (slide.getAttribute('data-tab-id') === tabId) {
+                    if (mobileTabsState.currentIndex !== index) {
+                        mobileTabsState.currentIndex = index;
+                        updateTabsCarouselPosition();
+                    }
+                }
+            });
+        }
     });
 }
 
@@ -138,6 +304,27 @@ function adaptMobileLayout() {
     if (ratingContainer && window.innerWidth <= 768) {
         ratingContainer.style.flexDirection = 'column';
         ratingContainer.style.alignItems = 'flex-start';
+    }
+
+    // Переключаем видимость десктопных табов и мобильной карусели
+    const desktopTabs = document.querySelector('.desktop-tabs-nav');
+    const mobileCarousel = document.querySelector('.mobile-tabs-carousel');
+
+    if (desktopTabs && mobileCarousel) {
+        if (window.innerWidth <= 768) {
+            desktopTabs.style.display = 'none';
+            mobileCarousel.style.display = 'block';
+            // Переинициализируем карусель при смене ориентации
+            setTimeout(() => {
+                if (mobileTabsState.track) {
+                    mobileTabsState.slideWidth = mobileTabsState.track.children[0]?.offsetWidth || 0;
+                    updateTabsCarouselPosition();
+                }
+            }, 100);
+        } else {
+            desktopTabs.style.display = 'flex';
+            mobileCarousel.style.display = 'none';
+        }
     }
 }
 
