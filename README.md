@@ -1,23 +1,17 @@
 # 🎮 GamesPeek – Intelligent Game Discovery Engine
 
-**GamesPeek** is a desktop application that runs a local web server on your computer, providing access to a database of
-**45,000+ games** with a sophisticated **similarity-based search engine**.
+**GamesPeek** provides access to a database of **45,000+ games** with a sophisticated **similarity-based search engine
+**.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
 
-## 🚀 Quick Start
+## 🌐 Access the Website
 
-1. **Download** the `.rar` archive from Releases
-2. **Extract** the archive
-3. **Double-click** `gamespeek.exe` to run it
-4. **Open your browser** → `http://127.0.0.1:8000`
-5. **Start discovering**
+**Live website is available at:** **[https://gamespeek.dpdns.org](https://gamespeek.dpdns.org)**
 
-⚠️ **First launch may take a while** — the database is loading. Please be patient.
-
-⚠️ Keep the terminal window open while using Gamespeek. Close it to stop the server.
+Open your browser and start discovering games.
 
 ---
 
@@ -34,15 +28,9 @@ Instead of endless scrolling through stores or reading reviews:
 The engine powers two complementary workflows:
 
 | Workflow | What happens |
-|----------|--------------|
+|----------|---------------|
 | **One-click similarity** | Pick any game, click "Find Similar", get 500 ranked recommendations |
 | **Manual criteria** | Build your own search with genres, keywords, themes, release year, platforms, etc. |
-
-## 💻 System Requirements
-
-- Windows 10 or 11
-- Any modern browser (Chrome, Firefox, Edge)
-- No installation required — just run the `.exe`
 
 ---
 
@@ -60,9 +48,7 @@ Join our Discord for support, feedback, and updates:
 
 With sufficient support:
 
-- Online hosting (access from anywhere)
-- Regular database updates
-- More genres and platforms
+- More genres
 - Improved similarity algorithm
 
 ---
