@@ -10,8 +10,8 @@ class GameSitemap(Sitemap):
     def items(self):
         return Game.objects.all()
 
-    def lastmod(self, obj):
-        return obj.updated_at
+    def location(self, item):
+        return reverse('game_detail', kwargs={'pk': item.id})
 
 
 class StaticViewSitemap(Sitemap):
@@ -19,7 +19,7 @@ class StaticViewSitemap(Sitemap):
     priority = 0.5
 
     def items(self):
-        return ['home', 'about', 'contact']
+        return ['home', 'game_list']
 
     def location(self, item):
         return reverse(item)
