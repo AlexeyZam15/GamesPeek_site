@@ -232,6 +232,10 @@ class GameCardCreator:
         context = {
             'game': game,
             'show_similarity': show_similarity,
+            'current_page': 1,
+            'game_index': 0,
+            'game_index_offset': 0,
+            'forloop': {'counter0': 0, 'counter': 1},
         }
 
         if show_similarity and similarity_percent is not None:
