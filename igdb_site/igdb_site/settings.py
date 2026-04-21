@@ -30,7 +30,8 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'dev-secret-key-change-in-production
 DEBUG = os.getenv('DJANGO_DEBUG', 'False') == 'True'
 
 # Оптимизации производительности
-DISABLE_AUTO_CACHE_UPDATES = DEBUG  # True в DEBUG, False в production
+# Убираем проверку DEBUG - всегда обновляем кэш
+DISABLE_AUTO_CACHE_UPDATES = False  # Всегда False, чтобы карточки создавались
 CACHE_UPDATE_BATCH_SIZE = 100  # Размер батча для массовых обновлений
 CACHE_UPDATE_TIMEOUT_HOURS = 24  # Часы между автообновлениями
 
@@ -494,18 +495,9 @@ if not os.getenv('DESKTOP_MODE') == '1':
                 'style': '{',
             },
         },
-        'filters': {
-            'require_debug_true': {
-                '()': 'django.utils.log.RequireDebugTrue',
-            },
-            'require_debug_false': {
-                '()': 'django.utils.log.RequireDebugFalse',
-            },
-        },
         'handlers': {
             'console': {
-                'level': 'INFO' if DEBUG else 'WARNING',
-                'filters': ['require_debug_true'],
+                'level': 'DEBUG',
                 'class': 'logging.StreamHandler',
                 'formatter': 'simple',
             },
@@ -535,7 +527,7 @@ if not os.getenv('DESKTOP_MODE') == '1':
             },
             'games': {
                 'handlers': ['console', 'file'],
-                'level': 'DEBUG' if DEBUG else 'INFO',
+                'level': 'DEBUG',
                 'propagate': False,
             },
         },
