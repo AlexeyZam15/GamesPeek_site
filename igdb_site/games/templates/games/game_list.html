@@ -7,20 +7,15 @@
 {% block extra_css %}
     <link rel="stylesheet" href="{% static 'games/css/game_list/filters.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/game_list/date_filter.css' %}">
-    <!-- Убрали ссылку на sticky-button.css -->
-    <link rel="stylesheet" href="{% static 'games/css/components/cards.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/game_list/keywords_pagination.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/game_list/games_pagination.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/game_list.css' %}">
-    <!-- Подключаем стили для заглушки фильтров -->
     <link rel="stylesheet" href="{% static 'games/css/game_list/filters-skeleton.css' %}">
-    <!-- Стили для вкладок -->
     <link rel="stylesheet" href="{% static 'games/css/game_list/filter-tabs.css' %}">
 {% endblock %}
 
 {% block content %}
     <div class="container">
-        <!-- ЗАГОЛОВОК -->
         <div class="row mb-4">
             <div class="col-12">
                 <h1>🎮 Browse Games</h1>
@@ -28,12 +23,9 @@
             </div>
         </div>
 
-        <!-- Форма фильтров -->
         {% include 'games/game_list/_filters_form.html' %}
 
-        <!-- Результаты - пустой контейнер, будет заполнен через AJAX -->
         <div id="games-results-container">
-            <!-- Скрытые поля с параметрами для JS -->
             <div style="display: none;">
                 <input type="hidden" id="server-current-page" value="1">
                 <input type="hidden" id="server-total-pages" value="1">
@@ -50,10 +42,8 @@
                 {% endif %}
             </div>
 
-            <!-- Индикатор загрузки (виден сразу) -->
             <div class="games-container loading-visible">
                 <div class="loading-text" style="display: block;">Loading games...</div>
-                <!-- Пустой контейнер для игр -->
                 <div class="row" id="games-grid-row"></div>
             </div>
         </div>

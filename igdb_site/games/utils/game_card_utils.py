@@ -9,7 +9,7 @@ from django.db.models import Prefetch
 from typing import List, Dict, Any, Optional, Tuple
 import logging
 
-from games.models import Game, GameCardCache, Genre, Platform, PlayerPerspective, Keyword, Theme, GameMode
+from games.models import Game, GameCardCache, Genre, Platform, PlayerPerspective, Keyword, Theme, GameMode, Screenshot
 
 logger = logging.getLogger(__name__)
 
@@ -32,33 +32,27 @@ class GameCardCreator:
         Returns:
             Tuple of (card object, created_new)
         """
-        # Проверяем существующую карточку (только по game_id)
         existing_card = GameCardCache.get_card_for_game(game.id)
 
-        # Если карточка существует, не пересоздаем (если только force=True)
         if existing_card and not force:
             return existing_card, False
 
-        # Load game with all related data
         game_with_data = cls._load_game_with_data(game.id)
         if not game_with_data:
             return None, False
 
-        # Render card
         rendered_card = cls._render_card_html(
             game_with_data, show_similarity, similarity_percent
         )
 
-        # Extract related data
         related_data = cls._extract_related_data(game_with_data)
 
-        # Create or update card cache
         try:
             with transaction.atomic():
                 card, created = GameCardCache.get_or_create_card(
                     game=game_with_data,
                     rendered_card=rendered_card,
-                    **related_data  # Убираем show_similarity, similarity_percent, card_size
+                    **related_data
                 )
 
             logger.info(f"{'Created' if created else 'Updated'} card cache for game {game.id} ({game.name})")
@@ -82,7 +76,6 @@ class GameCardCreator:
         Returns:
             Dictionary with creation statistics
         """
-        # Load all games with data
         games_dict = cls._load_games_with_data(game_ids)
 
         batch_cards = []
@@ -92,20 +85,15 @@ class GameCardCreator:
             if not game:
                 continue
 
-            # Render card
             rendered_card = cls._render_card_html(game, show_similarity)
-
-            # Extract related data
             related_data = cls._extract_related_data(game)
 
-            # Убираем show_similarity, similarity_percent, card_size из данных
             batch_cards.append((
                 game,
                 rendered_card,
                 related_data
             ))
 
-        # Bulk create or update
         if batch_cards:
             try:
                 stats = GameCardCache.bulk_create_or_update_cards(
@@ -146,9 +134,8 @@ class GameCardCreator:
 
     @classmethod
     def _load_game_with_data(cls, game_id: int) -> Optional[Game]:
-        """Load game with all required prefetched data."""
+        """Load game with all required prefetched data including screenshots."""
         try:
-            # Create prefetch objects
             genre_prefetch = Prefetch('genres', queryset=Genre.objects.only('id', 'name'))
             platform_prefetch = Prefetch('platforms', queryset=Platform.objects.only('id', 'name', 'slug'))
             perspective_prefetch = Prefetch('player_perspectives',
@@ -164,14 +151,20 @@ class GameCardCreator:
             theme_prefetch = Prefetch('themes', queryset=Theme.objects.only('id', 'name'))
             game_mode_prefetch = Prefetch('game_modes', queryset=GameMode.objects.only('id', 'name'))
 
-            # Load game
+            # Убираем slice из prefetch - берем все скриншоты
+            screenshot_prefetch = Prefetch(
+                'screenshots',
+                queryset=Screenshot.objects.only('id', 'url', 'game_id').order_by('id')
+            )
+
             game = Game.objects.filter(id=game_id).prefetch_related(
                 genre_prefetch,
                 platform_prefetch,
                 perspective_prefetch,
                 keyword_prefetch,
                 theme_prefetch,
-                game_mode_prefetch
+                game_mode_prefetch,
+                screenshot_prefetch
             ).only(
                 'id', 'name', 'rating', 'rating_count',
                 'first_release_date', 'cover_url', 'game_type'
@@ -185,9 +178,8 @@ class GameCardCreator:
 
     @classmethod
     def _load_games_with_data(cls, game_ids: List[int]) -> Dict[int, Game]:
-        """Load multiple games with all required data."""
+        """Load multiple games with all required data including screenshots."""
         try:
-            # Create prefetch objects
             genre_prefetch = Prefetch('genres', queryset=Genre.objects.only('id', 'name'))
             platform_prefetch = Prefetch('platforms', queryset=Platform.objects.only('id', 'name', 'slug'))
             perspective_prefetch = Prefetch('player_perspectives',
@@ -203,14 +195,20 @@ class GameCardCreator:
             theme_prefetch = Prefetch('themes', queryset=Theme.objects.only('id', 'name'))
             game_mode_prefetch = Prefetch('game_modes', queryset=GameMode.objects.only('id', 'name'))
 
-            # Load games
+            # Убираем slice из prefetch - берем все скриншоты
+            screenshot_prefetch = Prefetch(
+                'screenshots',
+                queryset=Screenshot.objects.only('id', 'url', 'game_id').order_by('id')
+            )
+
             games = Game.objects.filter(id__in=game_ids).prefetch_related(
                 genre_prefetch,
                 platform_prefetch,
                 perspective_prefetch,
                 keyword_prefetch,
                 theme_prefetch,
-                game_mode_prefetch
+                game_mode_prefetch,
+                screenshot_prefetch
             ).only(
                 'id', 'name', 'rating', 'rating_count',
                 'first_release_date', 'cover_url', 'game_type'
@@ -246,7 +244,11 @@ class GameCardCreator:
 
     @staticmethod
     def _extract_related_data(game: Game) -> Dict[str, List[Dict]]:
-        """Extract related data from game."""
+        """Extract related data from game including screenshots (limited to 8)."""
+        # Получаем все скриншоты, но сохраняем только первые 8
+        all_screenshots = list(game.screenshots.all())
+        limited_screenshots = all_screenshots[:8]
+
         return {
             'genres': [
                 {'id': genre.id, 'name': genre.name}
@@ -276,5 +278,9 @@ class GameCardCreator:
             'game_modes': [
                 {'id': game_mode.id, 'name': game_mode.name}
                 for game_mode in game.game_modes.all()
+            ],
+            'screenshots': [
+                {'id': screenshot.id, 'url': screenshot.url}
+                for screenshot in limited_screenshots
             ],
         }
