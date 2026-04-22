@@ -1,4 +1,5 @@
 // games/static/games/js/game_detail/gallery.js
+
 console.log('🎯 GALLERY SCRIPT LOADED');
 
 let galleryInitialized = false;
@@ -28,8 +29,10 @@ window.initInlineGallery = function() {
     // Очищаем предыдущие данные
     galleryImages = [];
 
-    // 1. Находим ВСЕ изображения галереи на странице
-    galleryImages = Array.from(document.querySelectorAll('img.gallery-img, img[data-image]'));
+    // 1. Находим ВСЕ изображения галереи на странице с расширенным селектором
+    galleryImages = Array.from(document.querySelectorAll(
+        'img.gallery-img, img[data-image], .screenshot-image-fixed, .screenshot-image, .screenshot-container-fixed img, .screenshot-container img'
+    ));
 
     console.log(`📸 Found ${galleryImages.length} gallery images total on page`);
 
@@ -47,19 +50,9 @@ window.initInlineGallery = function() {
         totalCountEl.textContent = ` / ${galleryImages.length}`;
     }
 
-    // 4. Настраиваем обработчики кликов
-    galleryImages.forEach((img, index) => {
-        if (!img) return;
-
-        const newImg = img.cloneNode(true);
-        img.parentNode.replaceChild(newImg, img);
-        img = newImg;
-
-        img.addEventListener('click', handleImageClick);
-        img.style.cursor = 'pointer';
-        img.style.transition = 'all 0.3s ease';
-        img.setAttribute('data-gallery-index', index);
-    });
+    // 4. Настраиваем обработчики кликов с использованием делегирования событий
+    // Это решает проблему с динамически созданными элементами
+    setupClickDelegation();
 
     // 5. Инициализируем модальное окно если еще не инициализировано
     initModal();
@@ -68,6 +61,82 @@ window.initInlineGallery = function() {
     console.log(`✅ Gallery initialized with ${galleryImages.length} images`);
 };
 
+// Новая функция для делегирования событий - более надежный подход
+function setupClickDelegation() {
+    // Находим контейнер галереи
+    const galleryContainer = document.querySelector('.screenshots-gallery, #screenshots');
+
+    if (!galleryContainer) {
+        console.warn('⚠️ Gallery container not found, using document delegation');
+        // Используем document как fallback
+        document.body.addEventListener('click', function(e) {
+            const img = e.target.closest('.screenshot-image-fixed, .screenshot-image, .gallery-img, img[data-image]');
+            if (img && !img.closest('#screenshotModal')) {
+                e.preventDefault();
+                e.stopPropagation();
+                handleImageClickDelegated(img);
+            }
+        });
+        return;
+    }
+
+    // Удаляем старые обработчики если есть
+    if (galleryContainer._clickHandler) {
+        galleryContainer.removeEventListener('click', galleryContainer._clickHandler);
+    }
+
+    // Создаем новый обработчик с делегированием
+    const clickHandler = function(e) {
+        const img = e.target.closest('.screenshot-image-fixed, .screenshot-image, .gallery-img, img[data-image]');
+        if (img && !img.closest('#screenshotModal')) {
+            e.preventDefault();
+            e.stopPropagation();
+            handleImageClickDelegated(img);
+        }
+    };
+
+    galleryContainer.addEventListener('click', clickHandler);
+    galleryContainer._clickHandler = clickHandler;
+    console.log('✅ Click delegation set up on gallery container');
+}
+
+// Обработчик клика с делегированием
+function handleImageClickDelegated(img) {
+    // Получаем или устанавливаем индекс
+    let index = parseInt(img.getAttribute('data-gallery-index'));
+
+    if (isNaN(index)) {
+        // Если индекс не установлен, находим в массиве galleryImages
+        const imgSrc = img.getAttribute('data-image') || img.src;
+        index = galleryImages.findIndex(item => {
+            const itemSrc = item.getAttribute('data-image') || item.src;
+            return itemSrc === imgSrc;
+        });
+
+        if (index === -1) {
+            // Если не нашли, пробуем найти по позиции в DOM
+            const allImages = Array.from(document.querySelectorAll(
+                '.screenshot-image-fixed, .screenshot-image, .gallery-img, img[data-image]'
+            ));
+            index = allImages.indexOf(img);
+        }
+
+        if (index !== -1) {
+            img.setAttribute('data-gallery-index', index);
+        }
+    }
+
+    console.log(`🎯 Click on image with index ${index}`);
+
+    if (index !== -1 && index < galleryImages.length) {
+        openGalleryModal(index);
+    } else if (galleryImages.length > 0) {
+        // Fallback - открываем первое изображение
+        console.warn(`Index ${index} out of range, opening first image`);
+        openGalleryModal(0);
+    }
+}
+
 // Функция для установки размеров
 function setScreenshotSizesNoBorders() {
     console.log(`🎯 Setting screenshot sizes`);
@@ -75,7 +144,18 @@ function setScreenshotSizesNoBorders() {
     galleryImages.forEach((img, index) => {
         if (!img) return;
 
-        img.classList.add('screenshot-image-fixed');
+        // Убеждаемся что классы установлены
+        if (!img.classList.contains('screenshot-image-fixed')) {
+            img.classList.add('screenshot-image-fixed');
+        }
+
+        // Устанавливаем атрибут индекса
+        img.setAttribute('data-gallery-index', index);
+
+        // Убеждаемся что data-image установлен
+        if (!img.getAttribute('data-image') && img.src) {
+            img.setAttribute('data-image', img.src);
+        }
 
         let container = img.closest('.screenshot-container-fixed');
         if (!container) {
@@ -83,6 +163,9 @@ function setScreenshotSizesNoBorders() {
         }
         if (!container) {
             container = img.closest('.position-relative');
+        }
+        if (!container) {
+            container = img.closest('.col-md-6, .col-lg-4, .col-xl-3');
         }
         if (!container) {
             container = document.createElement('div');
@@ -137,12 +220,12 @@ function calculateAndSetImageSizeNoBorder(img, container) {
     // Определяем формат исходного изображения
     const getClosestFormat = (ratio) => {
         const formatRatios = {
-            '9:16': 9/16,    // 0.5625
-            '1:1': 1,        // 1.0
-            '4:3': 4/3,      // 1.3333
-            '3:2': 3/2,      // 1.5
-            '16:9': 16/9,    // 1.7778
-            '21:9': 21/9     // 2.3333
+            '9:16': 9/16,
+            '1:1': 1,
+            '4:3': 4/3,
+            '3:2': 3/2,
+            '16:9': 16/9,
+            '21:9': 21/9
         };
 
         let closestFormat = '16:9';
@@ -167,26 +250,21 @@ function calculateAndSetImageSizeNoBorder(img, container) {
     if (originalWidth < targetSize.width || originalHeight < targetSize.height) {
         console.log(`📈 Small image detected, scaling up`);
 
-        // Рассчитываем масштаб для соответствия минимальным размерам выбранного формата
         const widthScale = targetSize.width / originalWidth;
         const heightScale = targetSize.height / originalHeight;
         const scaleFactor = Math.min(MAX_SCALE, Math.max(widthScale, heightScale));
 
-        // Рассчитываем целевые размеры с сохранением пропорций исходного изображения
         let targetWidth = originalWidth * scaleFactor;
         let targetHeight = originalHeight * scaleFactor;
 
-        // Гарантируем минимальные размеры выбранного формата
         targetWidth = Math.max(targetSize.width, targetWidth);
         targetHeight = Math.max(targetSize.height, targetHeight);
 
         console.log(`🔍 Scaling from ${originalWidth}x${originalHeight} to ${Math.round(targetWidth)}x${Math.round(targetHeight)} (scale: ${scaleFactor.toFixed(2)}x)`);
 
-        // Устанавливаем размеры
         img.style.width = `${targetWidth}px`;
         img.style.height = `${targetHeight}px`;
 
-        // Для очень маленьких изображений применяем дополнительное масштабирование
         if (originalWidth < 200 || originalHeight < 150) {
             const extraScale = Math.min(3, targetSize.width / originalWidth, targetSize.height / originalHeight);
             img.style.transform = `scale(${extraScale})`;
@@ -197,7 +275,6 @@ function calculateAndSetImageSizeNoBorder(img, container) {
         img.style.objectFit = 'scale-down';
 
     } else {
-        // Изображение уже достаточно большое
         if (originalRatio > ASPECT_RATIO) {
             img.style.width = '100%';
             img.style.height = 'auto';
@@ -219,7 +296,6 @@ function calculateAndSetImageSizeNoBorder(img, container) {
 function handleImageErrorNoBorder(img, container) {
     console.error('❌ Failed to load image');
 
-    // Показываем сообщение с минимальными размерами
     img.style.width = '100%';
     img.style.height = `${FIXED_HEIGHT}px`;
     img.style.backgroundColor = '#2a2a2a';
@@ -243,7 +319,7 @@ function handleImageErrorNoBorder(img, container) {
     `;
 }
 
-// Обработчик клика по изображению
+// Обработчик клика по изображению (оригинальный, оставлен для совместимости)
 function handleImageClick(e) {
     e.preventDefault();
     e.stopPropagation();
@@ -309,7 +385,6 @@ function updateModalContent() {
     modalImg.onload = null;
     modalImg.onerror = null;
 
-    // Обновленная функция для модального окна
     modalImg.onload = function() {
         console.log(`✅ Modal image loaded: ${this.naturalWidth}x${this.naturalHeight}`);
 
@@ -325,7 +400,6 @@ function updateModalContent() {
         this.style.border = 'none';
         this.style.padding = '0';
 
-        // Определяем формат изображения
         const getClosestFormat = (ratio) => {
             const formatRatios = {
                 '9:16': 9/16,
@@ -356,26 +430,21 @@ function updateModalContent() {
         console.log(`🎯 Modal image format: ${imageFormat}, target size: ${targetSize.width}x${targetSize.height}`);
 
         if (originalWidth < targetSize.width || originalHeight < targetSize.height) {
-            // Рассчитываем масштаб для модального окна
             const widthScale = targetSize.width / originalWidth;
             const heightScale = targetSize.height / originalHeight;
-            const scaleFactor = Math.min(3.0, Math.max(widthScale, heightScale));  // Увеличено до 3.0
+            const scaleFactor = Math.min(3.0, Math.max(widthScale, heightScale));
 
             console.log(`📊 Modal scaling from ${originalWidth}x${originalHeight} to ${Math.round(originalWidth * scaleFactor)}x${Math.round(originalHeight * scaleFactor)} (${scaleFactor.toFixed(2)}x)`);
 
-            // Устанавливаем исходные размеры изображения
             this.style.width = `${originalWidth}px`;
             this.style.height = `${originalHeight}px`;
-
-            // Применяем трансформацию масштаба
             this.style.transform = `scale(${scaleFactor})`;
             this.style.transformOrigin = 'center center';
             this.style.objectFit = 'contain';
 
         } else {
-            // Изображение уже достаточно большое
-            this.style.maxWidth = '95vw';      // Увеличено с 90vw
-            this.style.maxHeight = '85vh';     // Увеличено с 85vh
+            this.style.maxWidth = '95vw';
+            this.style.maxHeight = '85vh';
             this.style.objectFit = 'contain';
             console.log(`✅ Modal image already meets minimum size`);
         }
