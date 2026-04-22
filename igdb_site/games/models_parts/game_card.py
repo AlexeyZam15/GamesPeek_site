@@ -11,8 +11,7 @@ import hashlib
 class GameCardCache(models.Model):
     """Model for caching pre-rendered game cards with all related data."""
 
-    # Константа версии кэша карточек - увеличивать при изменении структуры HTML
-    CARD_CACHE_VERSION = 'v1'
+    CARD_CACHE_VERSION = 'v2'
 
     game = models.OneToOneField(
         'Game',
@@ -22,17 +21,14 @@ class GameCardCache(models.Model):
         verbose_name="Game"
     )
 
-    # Main card data
     rendered_card = models.TextField(verbose_name="Rendered HTML card")
     compressed_card = models.BinaryField(null=True, blank=True, verbose_name="Compressed card data")
 
-    # Cached game data for quick access
     game_name = models.CharField(max_length=255, db_index=True, verbose_name="Game name")
     game_rating = models.FloatField(null=True, blank=True, db_index=True, verbose_name="Game rating")
     game_cover_url = models.URLField(max_length=500, blank=True, null=True, verbose_name="Cover URL")
     game_type = models.IntegerField(null=True, blank=True, db_index=True, verbose_name="Game type")
 
-    # Cached related data (as JSON)
     genres_json = models.JSONField(default=list, verbose_name="Genres JSON")
     platforms_json = models.JSONField(default=list, verbose_name="Platforms JSON")
     perspectives_json = models.JSONField(default=list, verbose_name="Perspectives JSON")
@@ -40,14 +36,13 @@ class GameCardCache(models.Model):
     themes_json = models.JSONField(default=list, verbose_name="Themes JSON")
     game_modes_json = models.JSONField(default=list, verbose_name="Game modes JSON")
 
-    # Cache metadata
+    screenshots_json = models.JSONField(default=list, verbose_name="Screenshots JSON")
+
     is_active = models.BooleanField(default=True, db_index=True, verbose_name="Active")
     cache_key = models.CharField(max_length=64, unique=True, db_index=True, verbose_name="Cache key")
     card_hash = models.CharField(max_length=64, db_index=True, verbose_name="Card hash")
-    # Новое поле для хранения версии шаблона
     template_version = models.CharField(max_length=10, default=CARD_CACHE_VERSION, verbose_name="Template version")
 
-    # Statistics
     hit_count = models.IntegerField(default=0, verbose_name="Hit count")
     last_accessed = models.DateTimeField(auto_now=True, verbose_name="Last accessed")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created at")
@@ -63,7 +58,6 @@ class GameCardCache(models.Model):
             models.Index(fields=['game_rating', 'is_active']),
             models.Index(fields=['created_at', 'is_active']),
             models.Index(fields=['hit_count', 'is_active']),
-            # Новый индекс для быстрого поиска по версии шаблона
             models.Index(fields=['template_version', 'is_active']),
         ]
 
@@ -71,62 +65,37 @@ class GameCardCache(models.Model):
         return f"Card cache for {self.game_name}"
 
     def save(self, *args, **kwargs) -> None:
-        """Сохраняет карточку игры - всегда только одна запись на игру."""
-        # Генерируем ключ кэша если его нет
         if not self.cache_key:
             self.cache_key = self.generate_cache_key()
-
-        # Генерируем хэш если его нет
         if not self.card_hash:
             self.card_hash = self.generate_card_hash()
-
-        # Устанавливаем версию шаблона, если она не задана
         if not self.template_version:
             self.template_version = self.CARD_CACHE_VERSION
-
         self.updated_at = timezone.now()
-
-        # Всегда только одна запись на игру
         super().save(*args, **kwargs)
 
     @classmethod
     def get_card_for_game(cls, game_id: int, game=None) -> Optional['GameCardCache']:
-        """
-        Get cached card for game.
-
-        Args:
-            game_id: ID of the game
-            game: Optional game object with prefetched data
-
-        Returns:
-            GameCardCache object or None if not found or outdated
-        """
         try:
             card = cls.objects.select_related('game').get(
                 game_id=game_id,
                 is_active=True
             )
 
-            # Проверяем версию шаблона
             if card.template_version != cls.CARD_CACHE_VERSION:
-                # Карточка создана для старой версии шаблона - деактивируем
                 card.is_active = False
                 card.save(update_fields=['is_active'])
                 return None
 
-            # Если передан game объект, проверяем актуальность данных
             if game:
-                # Проверяем основные поля игры
                 if (card.game_name != game.name or
                         card.game_rating != getattr(game, 'rating', None) or
                         card.game_cover_url != getattr(game, 'cover_url', None) or
                         card.game_type != getattr(game, 'game_type', None)):
-                    # Данные игры изменились - карточка устарела
                     card.is_active = False
                     card.save(update_fields=['is_active'])
                     return None
 
-                # Проверяем связанные данные (если есть доступ к prefetch)
                 from games.utils.game_card_utils import GameCardCreator
                 current_related_data = GameCardCreator._extract_related_data(game)
 
@@ -135,8 +104,8 @@ class GameCardCache(models.Model):
                         card.perspectives_json != current_related_data.get('perspectives', []) or
                         card.keywords_json != current_related_data.get('keywords', []) or
                         card.themes_json != current_related_data.get('themes', []) or
-                        card.game_modes_json != current_related_data.get('game_modes', [])):
-                    # Связанные данные изменились - карточка устарела
+                        card.game_modes_json != current_related_data.get('game_modes', []) or
+                        card.screenshots_json != current_related_data.get('screenshots', [])):
                     card.is_active = False
                     card.save(update_fields=['is_active'])
                     return None
@@ -146,14 +115,7 @@ class GameCardCache(models.Model):
             return None
 
     @classmethod
-    def bulk_create_or_update_cards(
-            cls,
-            cards_data: List[Tuple],
-            batch_size: int = 100
-    ) -> Dict[str, int]:
-        """
-        Массовое обновление карточек игр.
-        """
+    def bulk_create_or_update_cards(cls, cards_data: List[Tuple], batch_size: int = 100) -> Dict[str, int]:
         import logging
         logger = logging.getLogger(__name__)
 
@@ -187,7 +149,10 @@ class GameCardCache(models.Model):
 
                     new_card_hash = cls._calculate_card_hash(rendered_card)
 
-                    if card.card_hash != new_card_hash or card.template_version != current_template_version:
+                    if (card.card_hash != new_card_hash or
+                            card.template_version != current_template_version or
+                            card.screenshots_json != related_data.get('screenshots', [])):
+
                         card.rendered_card = rendered_card
                         card.card_hash = new_card_hash
                         card.template_version = current_template_version
@@ -201,6 +166,7 @@ class GameCardCache(models.Model):
                         card.keywords_json = related_data.get('keywords', [])
                         card.themes_json = related_data.get('themes', [])
                         card.game_modes_json = related_data.get('game_modes', [])
+                        card.screenshots_json = related_data.get('screenshots', [])
                         card.cache_key = expected_key
                         card.updated_at = timezone.now()
                         card.is_active = True
@@ -227,6 +193,7 @@ class GameCardCache(models.Model):
                         keywords_json=related_data.get('keywords', []),
                         themes_json=related_data.get('themes', []),
                         game_modes_json=related_data.get('game_modes', []),
+                        screenshots_json=related_data.get('screenshots', []),
                         cache_key=expected_key,
                         template_version=current_template_version,
                         is_active=True
@@ -247,19 +214,10 @@ class GameCardCache(models.Model):
                 stats['errors'] += 1
 
         print(f"=== BULK CREATE/UPDATE CARDS COMPLETE: {stats} ===\n")
-
         return stats
 
     @classmethod
-    def get_or_create_card(
-            cls,
-            game,
-            rendered_card: str,
-            **related_data
-    ) -> Tuple['GameCardCache', bool]:
-        """
-        Получает существующую карточку или создает новую.
-        """
+    def get_or_create_card(cls, game, rendered_card: str, **related_data) -> Tuple['GameCardCache', bool]:
         from django.db import transaction
 
         cache_key = cls.generate_cache_key_for_game(game.id)
@@ -317,6 +275,9 @@ class GameCardCache(models.Model):
                 if card.game_modes_json != related_data.get('game_modes', []):
                     card.game_modes_json = related_data.get('game_modes', [])
                     update_fields.append('game_modes_json')
+                if card.screenshots_json != related_data.get('screenshots', []):
+                    card.screenshots_json = related_data.get('screenshots', [])
+                    update_fields.append('screenshots_json')
 
                 if card.cache_key != cache_key:
                     card.cache_key = cache_key
@@ -345,6 +306,7 @@ class GameCardCache(models.Model):
                     keywords_json=related_data.get('keywords', []),
                     themes_json=related_data.get('themes', []),
                     game_modes_json=related_data.get('game_modes', []),
+                    screenshots_json=related_data.get('screenshots', []),
                     cache_key=cache_key,
                     template_version=current_template_version,
                     is_active=True
@@ -357,16 +319,12 @@ class GameCardCache(models.Model):
 
     @classmethod
     def generate_cache_key_for_game(cls, game_id: int) -> str:
-        """Генерирует постоянный ключ кэша для игры. Версия больше не влияет на ключ."""
         return f"game_card_{game_id}"
 
     def generate_cache_key(self) -> str:
-        """Генерирует постоянный ключ кэша."""
         return self.generate_cache_key_for_game(self.game_id)
 
     def generate_card_hash(self) -> str:
-        """Generate hash of card content for change detection."""
-        # Хэш теперь зависит только от контента карточки
         content = (self.rendered_card or "")
         if self.compressed_card:
             content += str(self.compressed_card)
@@ -374,12 +332,10 @@ class GameCardCache(models.Model):
 
     @staticmethod
     def _calculate_card_hash(rendered_card: str) -> str:
-        """Calculate hash for rendered card content."""
         content = rendered_card or ""
         return hashlib.md5(content.encode()).hexdigest()
 
     def increment_hit(self) -> None:
-        """Increment hit count and update last accessed time."""
         self.hit_count += 1
         self.last_accessed = timezone.now()
         GameCardCache.objects.filter(id=self.id).update(
@@ -405,9 +361,11 @@ class GameCardCache(models.Model):
     def get_game_modes(self) -> List[Dict]:
         return self.game_modes_json or []
 
+    def get_screenshots(self) -> List[Dict]:
+        return self.screenshots_json or []
+
     @classmethod
     def create_card(cls, game, rendered_card: str, **related_data) -> 'GameCardCache':
-        """Create new card cache entry."""
         cache_key = cls.generate_cache_key_for_game(game.id)
 
         card, _ = cls.get_or_create_card(
@@ -419,13 +377,11 @@ class GameCardCache(models.Model):
 
     @classmethod
     def invalidate_game_cards(cls, game_id: int) -> int:
-        """Invalidate card cache for a game."""
         updated = cls.objects.filter(game_id=game_id, is_active=True).update(
             is_active=False,
             updated_at=timezone.now()
         )
 
-        # Clear related cache keys
         cache_keys = cls.objects.filter(game_id=game_id).values_list('cache_key', flat=True)
         for cache_key in cache_keys:
             cache.delete(cache_key)
@@ -434,7 +390,6 @@ class GameCardCache(models.Model):
 
     @classmethod
     def cleanup_old_cards(cls, days_old: int = 30) -> int:
-        """Cleanup old inactive card caches."""
         cutoff_date = timezone.now() - timezone.timedelta(days=days_old)
         old_cards = cls.objects.filter(
             is_active=False,
@@ -446,27 +401,13 @@ class GameCardCache(models.Model):
 
     @classmethod
     def bump_cache_version(cls, new_version: str = None) -> str:
-        """
-        Увеличивает версию кэша карточек.
-        Использовать после изменений в структуре HTML карточек.
-
-        Args:
-            new_version: Новая версия (если не указана, увеличивает текущую)
-
-        Returns:
-            Новая версия кэша
-        """
         if new_version:
             cls.CARD_CACHE_VERSION = new_version
         else:
-            # Парсим текущую версию и увеличиваем номер
             current = cls.CARD_CACHE_VERSION
             if current.startswith('v') and current[1:].isdigit():
                 num = int(current[1:]) + 1
                 cls.CARD_CACHE_VERSION = f'v{num}'
             else:
-                cls.CARD_CACHE_VERSION = f'v2'  # Если не в формате v1, ставим v2
-
-        # Здесь мы НЕ меняем существующие карточки. Они будут деактивированы
-        # при следующем обращении к get_card_for_game из-за несовпадения template_version.
+                cls.CARD_CACHE_VERSION = 'v2'
         return cls.CARD_CACHE_VERSION
