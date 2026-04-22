@@ -5,66 +5,21 @@
 {% block title %}{{ game.name }} - GamesPeek{% endblock %}
 
 {% block extra_css %}
-    <!-- Подключаем стили для конкретной страницы -->
     <link rel="stylesheet" href="{% static 'games/css/game_detail.css' %}">
-    <!-- Подключаем компоненты -->
-    <link rel="stylesheet" href="{% static 'games/css/game_detail/gallery.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/game_detail/tabs.css' %}">
-    <!-- ВАЖНО: стили карточек где определены platform-badge -->
-    <link rel="stylesheet" href="{% static 'games/css/components/cards.css' %}">
+    <link rel="stylesheet" href="{% static 'games/css/game_detail/gallery.css' %}">
 {% endblock %}
 
 {% block content %}
-    <div class="container-fluid py-4">
-        <!-- Хедер с основной информацией -->
-        <div class="row mb-4">
-            <div class="col-12">
-                {% include 'games/game_detail/header.html' %}
-            </div>
-        </div>
-
-        <!-- Табы для основного контента -->
-        <div class="game-tabs">
-            {% include 'games/game_detail/tabs_content.html' %}
-        </div>
-    </div>
-
-    <!-- МОДАЛЬНОЕ ОКНО ГАЛЕРЕИ -->
-    <div class="modal fade" id="screenshotModal" tabindex="-1" aria-labelledby="screenshotModalLabel"
-         aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered modal-xl">
-            <div class="modal-content">
-                <div class="modal-body p-0 position-relative">
-                    <img id="modalImage" class="screenshot-full" src="" alt="">
-
-                    <!-- Кнопка закрытия -->
-                    <button type="button" class="btn screenshot-close" data-bs-dismiss="modal" aria-label="Close">
-                        <i class="bi bi-x-lg"></i>
-                    </button>
-
-                    <!-- Стрелки -->
-                    <button id="prevBtn" class="btn nav-arrow prev-arrow">
-                        <i class="bi bi-chevron-left"></i>
-                    </button>
-
-                    <button id="nextBtn" class="btn nav-arrow next-arrow">
-                        <i class="bi bi-chevron-right"></i>
-                    </button>
-
-                    <!-- Счетчик -->
-                    <div class="screenshot-counter">
-                        <span id="currentNum">1</span>
-                        <span id="totalCount"> / 0</span>
-                    </div>
-                </div>
-            </div>
-        </div>
+    <div class="container">
+        {% include 'games/game_detail/header.html' %}
+        {% include 'games/game_detail/tabs_content.html' %}
     </div>
 {% endblock %}
 
 {% block extra_js %}
-    <!-- Подключаем все необходимые JS файлы -->
+    <script src="{% static 'games/js/game_detail/header.js' %}"></script>
     <script src="{% static 'games/js/game_detail/gallery.js' %}"></script>
     <script src="{% static 'games/js/game_detail/game_detail.js' %}"></script>
-    <script src="{% static 'games/js/game_detail/header.js' %}"></script>
+    <script src="{% static 'games/js/game_detail/main.js' %}"></script>
 {% endblock %}
