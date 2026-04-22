@@ -19,7 +19,7 @@ from .base_views import (
     _format_similar_games_data, _sort_similar_games,
     SimpleSourceGame, GameSimilarity, VirtualGame,
     Game, Genre, Platform, PlayerPerspective, Keyword, Theme, Company, GameMode,
-    GameTypeEnum, cache
+    GameTypeEnum, cache, GameEngine  # Добавлен GameEngine
 )
 from ..utils.filter_renderer import FilterRenderer
 
@@ -27,242 +27,16 @@ from ..utils.filter_renderer import FilterRenderer
 ITEMS_PER_PAGE = 16
 
 
-def ajax_load_filters(request: HttpRequest) -> HttpResponse:
-    """
-    Load filters HTML via AJAX after page loads.
-    This prevents filter rendering from blocking initial page load.
-    """
-    from django.template.loader import render_to_string
-
-    params = extract_request_params(request)
-    selected_criteria = convert_params_to_lists(params)
-    years_range = _get_cached_years_range()
-    filter_data = _get_optimized_filter_data()
-
-    find_similar = params.get('find_similar') == '1'
-    source_game_obj = None
-    if params.get('source_game'):
-        try:
-            source_game_obj = _get_cached_game(params['source_game'])
-        except (Game.DoesNotExist, ValueError):
-            pass
-
-    search_selected = {
-        'genres': [],
-        'keywords': [],
-        'platforms': [],
-        'themes': [],
-        'perspectives': [],
-        'game_modes': [],
-        'game_types': [],
-        'engines': [],
-        'release_year_start': selected_criteria['release_year_start'],
-        'release_year_end': selected_criteria['release_year_end'],
-    }
-
-    similarity_selected = {
-        'genres': selected_criteria['genres'],
-        'keywords': selected_criteria['keywords'],
-        'platforms': selected_criteria['platforms'],
-        'themes': selected_criteria['themes'],
-        'perspectives': selected_criteria['perspectives'],
-        'game_modes': selected_criteria['game_modes'],
-        'game_types': selected_criteria['game_types'],
-        'engines': selected_criteria.get('engines', []),
-        'developers': selected_criteria.get('developers', []),
-    }
-
-    if find_similar and source_game_obj:
-        if not any(similarity_selected.values()):
-            similarity_selected['genres'] = [g.id for g in source_game_obj.genres.all()]
-            similarity_selected['keywords'] = [k.id for k in source_game_obj.keywords.all()]
-            similarity_selected['themes'] = [t.id for t in source_game_obj.themes.all()]
-            similarity_selected['perspectives'] = [p.id for p in source_game_obj.player_perspectives.all()]
-            similarity_selected['engines'] = [e.id for e in source_game_obj.engines.all()]
-
-    render_context = {
-        'genres': _get_cached_genres_list(),
-        'themes': filter_data['themes'],
-        'perspectives': filter_data['perspectives'],
-        'game_modes': filter_data['game_modes'],
-        'keywords': filter_data['keywords'],
-        'platforms': filter_data['platforms'],
-        'engines': filter_data.get('engines', []),
-        'game_types': GameTypeEnum.CHOICES,
-        'years_range': years_range,
-        'current_year': timezone.now().year,
-
-        'search_selected_genres': search_selected['genres'],
-        'search_selected_keywords': search_selected['keywords'],
-        'search_selected_platforms': search_selected['platforms'],
-        'search_selected_themes': search_selected['themes'],
-        'search_selected_perspectives': search_selected['perspectives'],
-        'search_selected_game_modes': search_selected['game_modes'],
-        'search_selected_game_types': search_selected['game_types'],
-        'search_selected_engines': search_selected['engines'],
-        'search_selected_release_year_start': search_selected['release_year_start'],
-        'search_selected_release_year_end': search_selected['release_year_end'],
-
-        'similarity_selected_genres': similarity_selected['genres'],
-        'similarity_selected_keywords': similarity_selected['keywords'],
-        'similarity_selected_platforms': similarity_selected['platforms'],
-        'similarity_selected_themes': similarity_selected['themes'],
-        'similarity_selected_perspectives': similarity_selected['perspectives'],
-        'similarity_selected_game_modes': similarity_selected['game_modes'],
-        'similarity_selected_game_types': similarity_selected['game_types'],
-        'similarity_selected_engines': similarity_selected.get('engines', []),
-    }
-
-    cached_sections = _render_filters_with_cache(render_context)
-
-    html = render_to_string('games/game_list/_real_filters.html', {
-        'cached_filter_sections': cached_sections,
-        'genres': _get_cached_genres_list(),
-        'themes': filter_data['themes'],
-        'perspectives': filter_data['perspectives'],
-        'game_modes': filter_data['game_modes'],
-        'keywords': filter_data['keywords'],
-        'platforms': filter_data['platforms'],
-        'engines': filter_data.get('engines', []),
-        'game_types': GameTypeEnum.CHOICES,
-        'years_range': years_range,
-        'current_year': timezone.now().year,
-        'search_selected_genres': search_selected['genres'],
-        'search_selected_keywords': search_selected['keywords'],
-        'search_selected_platforms': search_selected['platforms'],
-        'search_selected_themes': search_selected['themes'],
-        'search_selected_perspectives': search_selected['perspectives'],
-        'search_selected_game_modes': search_selected['game_modes'],
-        'search_selected_game_types': search_selected['game_types'],
-        'search_selected_engines': search_selected['engines'],
-        'search_selected_release_year_start': search_selected['release_year_start'],
-        'search_selected_release_year_end': search_selected['release_year_end'],
-        'similarity_selected_genres': similarity_selected['genres'],
-        'similarity_selected_keywords': similarity_selected['keywords'],
-        'similarity_selected_platforms': similarity_selected['platforms'],
-        'similarity_selected_themes': similarity_selected['themes'],
-        'similarity_selected_perspectives': similarity_selected['perspectives'],
-        'similarity_selected_game_modes': similarity_selected['game_modes'],
-        'similarity_selected_game_types': similarity_selected['game_types'],
-        'similarity_selected_engines': similarity_selected.get('engines', []),
-        'current_sort': params.get('sort', ''),
-        'find_similar': find_similar,
-        'source_game_obj': source_game_obj,
-    })
-
-    response = HttpResponse(html)
-    response['Content-Type'] = 'text/html; charset=utf-8'
-    return response
-
-def _render_filters_with_cache(context: Dict) -> Dict[str, str]:
-    """
-    Рендерит все секции фильтров с использованием кэша.
-
-    Args:
-        context: Контекст шаблона с данными для фильтров
-
-    Returns:
-        Словарь с HTML каждой секции
-    """
-    from ..utils.filter_renderer import FilterRenderer
-
-    renderer = FilterRenderer()
-    result = {}
-
-    # Search Filters
-    result['search_platforms'] = renderer.render_search_platforms(
-        context.get('platforms', []),
-        context.get('search_selected_platforms', [])
-    )
-
-    # Search Game Types - ЭТОТ ВЫЗОВ БЫЛ ПРОПУЩЕН
-    result['search_game_types'] = renderer.render_search_game_types(
-        context.get('game_types', []),
-        context.get('search_selected_game_types', [])
-    )
-
-    result['search_genres'] = renderer.render_search_genres(
-        context.get('genres', []),
-        context.get('search_selected_genres', [])
-    )
-
-    result['search_keywords'] = renderer.render_search_keywords(
-        context.get('keywords', []),
-        context.get('search_selected_keywords', [])
-    )
-
-    result['search_themes'] = renderer.render_search_themes(
-        context.get('themes', []),
-        context.get('search_selected_themes', [])
-    )
-
-    result['search_perspectives'] = renderer.render_search_perspectives(
-        context.get('perspectives', []),
-        context.get('search_selected_perspectives', [])
-    )
-
-    result['search_game_modes'] = renderer.render_search_game_modes(
-        context.get('game_modes', []),
-        context.get('search_selected_game_modes', [])
-    )
-
-    result['search_engines'] = renderer.render_search_engines(
-        context.get('engines', []),
-        context.get('search_selected_engines', [])
-    )
-
-    result['search_date'] = renderer.render_search_date_filter(
-        context.get('search_selected_release_year_start'),
-        context.get('search_selected_release_year_end'),
-        context.get('years_range', {}).get('min_year', 1970),
-        context.get('years_range', {}).get('max_year', 2024),
-        context.get('current_year', 2024)
-    )
-
-    # Similarity Filters
-    result['similarity_genres'] = renderer.render_similarity_genres(
-        context.get('genres', []),
-        context.get('similarity_selected_genres', [])
-    )
-
-    result['similarity_keywords'] = renderer.render_similarity_keywords(
-        context.get('keywords', []),
-        context.get('similarity_selected_keywords', [])
-    )
-
-    result['similarity_themes'] = renderer.render_similarity_themes(
-        context.get('themes', []),
-        context.get('similarity_selected_themes', [])
-    )
-
-    result['similarity_perspectives'] = renderer.render_similarity_perspectives(
-        context.get('perspectives', []),
-        context.get('similarity_selected_perspectives', [])
-    )
-
-    result['similarity_game_modes'] = renderer.render_similarity_game_modes(
-        context.get('game_modes', []),
-        context.get('similarity_selected_game_modes', [])
-    )
-
-    result['similarity_engines'] = renderer.render_similarity_engines(
-        context.get('engines', []),
-        context.get('similarity_selected_engines', [])
-    )
-
-    return result
-
-
 def game_list(request: HttpRequest) -> HttpResponse:
     """
-    Main game list function - returns empty container for AJAX to populate.
-    Filters are loaded via separate AJAX call after page loads.
+    Main game list function - renders filters on server with aggressive caching.
+    Filters are rendered server-side, not via AJAX.
     """
     start_time = time.time()
 
     params = extract_request_params(request)
     selected_criteria = convert_params_to_lists(params)
-    selected_criteria_objects = _get_selected_criteria_objects(selected_criteria)
+
     years_range = _get_cached_years_range()
 
     find_similar = params.get('find_similar') == '1'
@@ -275,39 +49,49 @@ def game_list(request: HttpRequest) -> HttpResponse:
 
     filter_data = _get_optimized_filter_data()
 
-    search_selected = {
-        'genres': [],
-        'keywords': [],
-        'platforms': [],
-        'themes': [],
-        'perspectives': [],
-        'game_modes': [],
-        'game_types': [],
-        'engines': [],
-        'release_year_start': selected_criteria['release_year_start'],
-        'release_year_end': selected_criteria['release_year_end'],
-    }
-    search_selected_objects = {}
+    # Извлекаем search_* параметры из запроса
+    search_genres = request.GET.get('search_g', '')
+    search_keywords = request.GET.get('search_k', '')
+    search_platforms = request.GET.get('search_p', '')
+    search_themes = request.GET.get('search_t', '')
+    search_perspectives = request.GET.get('search_pp', '')
+    search_game_modes = request.GET.get('search_gm', '')
+    search_game_types = request.GET.get('search_gt', '')
+    search_engines = request.GET.get('search_e', '')
+    search_year_start = request.GET.get('search_ys', '')
+    search_year_end = request.GET.get('search_ye', '')
 
+    # Преобразуем строки в списки ID
+    search_selected = {
+        'genres': [int(x) for x in search_genres.split(',') if x.isdigit()] if search_genres else [],
+        'keywords': [int(x) for x in search_keywords.split(',') if x.isdigit()] if search_keywords else [],
+        'platforms': [int(x) for x in search_platforms.split(',') if x.isdigit()] if search_platforms else [],
+        'themes': [int(x) for x in search_themes.split(',') if x.isdigit()] if search_themes else [],
+        'perspectives': [int(x) for x in search_perspectives.split(',') if x.isdigit()] if search_perspectives else [],
+        'game_modes': [int(x) for x in search_game_modes.split(',') if x.isdigit()] if search_game_modes else [],
+        'game_types': [int(x) for x in search_game_types.split(',') if x.isdigit()] if search_game_types else [],
+        'engines': [int(x) for x in search_engines.split(',') if x.isdigit()] if search_engines else [],
+        'release_year_start': int(search_year_start) if search_year_start and search_year_start.isdigit() else None,
+        'release_year_end': int(search_year_end) if search_year_end and search_year_end.isdigit() else None,
+    }
+
+    search_selected_objects = _get_selected_criteria_objects(search_selected)
+
+    # similarity_selected использует selected_criteria (из URL параметров без search_ префикса)
     similarity_selected = {
-        'genres': selected_criteria['genres'],
-        'keywords': selected_criteria['keywords'],
-        'platforms': selected_criteria['platforms'],
-        'themes': selected_criteria['themes'],
-        'perspectives': selected_criteria['perspectives'],
-        'game_modes': selected_criteria['game_modes'],
-        'game_types': selected_criteria['game_types'],
+        'genres': selected_criteria.get('genres', []),
+        'keywords': selected_criteria.get('keywords', []),
+        'platforms': selected_criteria.get('platforms', []),
+        'themes': selected_criteria.get('themes', []),
+        'perspectives': selected_criteria.get('perspectives', []),
+        'game_modes': selected_criteria.get('game_modes', []),
+        'game_types': selected_criteria.get('game_types', []),
         'engines': selected_criteria.get('engines', []),
         'developers': selected_criteria.get('developers', []),
     }
 
     if find_similar and source_game_obj:
-        print("DEBUG game_list: Source game detected, populating search filters from source game")
-
-        search_selected_objects = _get_selected_criteria_objects(search_selected)
-
-        if not any(similarity_selected.values()):
-            print("DEBUG game_list: Populating similarity filters from source game")
+        if not any(v for k, v in similarity_selected.items() if k != 'developers'):
             similarity_selected['genres'] = [g.id for g in source_game_obj.genres.all()]
             similarity_selected['keywords'] = [k.id for k in source_game_obj.keywords.all()]
             similarity_selected['themes'] = [t.id for t in source_game_obj.themes.all()]
@@ -316,8 +100,18 @@ def game_list(request: HttpRequest) -> HttpResponse:
 
     similarity_selected_objects = _get_selected_criteria_objects(similarity_selected)
 
-    # Don't render filters here - they will be loaded via AJAX
-    # Just pass the data needed for initial page
+    # Генерируем хеш параметров для кэширования фильтров
+    params_hash = _get_params_hash_from_request(request)
+
+    # Рендерим фильтры на сервере с кэшированием - передаем similarity_selected с engines
+    cached_filter_sections = _render_filters_with_cache(
+        params_hash,
+        filter_data,
+        years_range,
+        search_selected,
+        similarity_selected,
+        params.get('sort', '')
+    )
 
     context = {
         'games': [],
@@ -350,8 +144,7 @@ def game_list(request: HttpRequest) -> HttpResponse:
         'years_range': years_range,
         'current_year': timezone.now().year,
 
-        # Empty filter sections - will be loaded via AJAX
-        'cached_filter_sections': {},
+        'cached_filter_sections': cached_filter_sections,
 
         'search_selected_genres': search_selected['genres'],
         'search_selected_keywords': search_selected['keywords'],
@@ -417,8 +210,8 @@ def game_list(request: HttpRequest) -> HttpResponse:
         'execution_time': round(time.time() - start_time, 3),
 
         'debug_info': {
-            'mode': 'ajax_only',
-            'message': 'Initial page load - filters and games will be loaded via AJAX',
+            'mode': 'server_rendered_filters',
+            'message': 'Filters rendered on server with caching',
             'find_similar': find_similar,
             'has_source_game': source_game_obj is not None,
             'engines_count': len(filter_data.get('engines', [])),
@@ -445,6 +238,359 @@ def game_list(request: HttpRequest) -> HttpResponse:
         )
 
     return render(request, 'games/game_list.html', context)
+
+
+def _get_params_hash_from_request(request: HttpRequest) -> str:
+    """
+    Генерирует хеш параметров запроса для инвалидации кэша фильтров.
+
+    Args:
+        request: HTTP request object
+
+    Returns:
+        MD5 хеш параметров, влияющих на отображение фильтров
+    """
+    import hashlib
+    import json
+
+    filter_params = {}
+    param_keys = ['g', 'k', 'p', 't', 'pp', 'gm', 'gt', 'e', 'ys', 'ye', 'source_game', 'find_similar', 'sort']
+
+    for key in param_keys:
+        value = request.GET.get(key, '')
+        if value:
+            filter_params[key] = value
+
+    param_string = json.dumps(filter_params, sort_keys=True)
+    return hashlib.md5(param_string.encode()).hexdigest()
+
+
+def _render_filters_with_cache(
+        params_hash: str,
+        filter_data: Dict,
+        years_range: Dict,
+        search_selected: Dict,
+        similarity_selected: Dict,
+        current_sort: str
+) -> Dict[str, str]:
+    """
+    Рендерит все секции фильтров с использованием модели FilterSectionCache.
+    """
+    from ..models_parts.filter_cache import FilterSectionCache
+    from ..utils.filter_renderer import FilterRenderer
+    from ..models import Genre, GameTypeEnum
+
+    # ОТЛАДКА - проверяем что пришло в filter_data
+    print("=" * 60)
+    print("DEBUG _render_filters_with_cache:")
+    print(f"filter_data keys: {list(filter_data.keys())}")
+    print(f"filter_data has 'genres': {'genres' in filter_data}")
+    print(f"filter_data genres count: {len(filter_data.get('genres', []))}")
+    print(f"filter_data has 'game_types': {'game_types' in filter_data}")
+    print(f"filter_data has 'platforms': {'platforms' in filter_data}")
+    print(f"filter_data has 'keywords': {'keywords' in filter_data}")
+    print(f"filter_data has 'themes': {'themes' in filter_data}")
+    print(f"filter_data has 'perspectives': {'perspectives' in filter_data}")
+    print(f"filter_data has 'game_modes': {'game_modes' in filter_data}")
+    print(f"filter_data has 'engines': {'engines' in filter_data}")
+    print("=" * 60)
+
+    result = {}
+    renderer = FilterRenderer()
+
+    # Получаем списки напрямую из базы данных
+    genres_list = list(Genre.objects.all().only('id', 'name').order_by('name'))
+    game_types_list = GameTypeEnum.CHOICES
+
+    print(f"Direct DB query - genres count: {len(genres_list)}")
+    print(f"Direct DB query - game types count: {len(game_types_list)}")
+    print(f"search_selected genres: {search_selected.get('genres', [])}")
+    print(f"similarity_selected genres: {similarity_selected.get('genres', [])}")
+    print("=" * 60)
+
+    # Search Filters
+    result['search_platforms'] = FilterSectionCache.get_or_render(
+        'search_platforms',
+        params_hash,
+        lambda: renderer.render_search_platforms(
+            filter_data.get('platforms', []),
+            search_selected.get('platforms', [])
+        ),
+        selected_ids=search_selected.get('platforms', [])
+    )
+
+    result['search_game_types'] = FilterSectionCache.get_or_render(
+        'search_game_types',
+        params_hash,
+        lambda: renderer.render_search_game_types(
+            game_types_list,
+            search_selected.get('game_types', [])
+        ),
+        selected_ids=search_selected.get('game_types', [])
+    )
+
+    result['search_genres'] = FilterSectionCache.get_or_render(
+        'search_genres',
+        params_hash,
+        lambda: renderer.render_search_genres(
+            genres_list,
+            search_selected.get('genres', [])
+        ),
+        selected_ids=search_selected.get('genres', [])
+    )
+
+    result['search_keywords'] = FilterSectionCache.get_or_render(
+        'search_keywords',
+        params_hash,
+        lambda: renderer.render_search_keywords(
+            filter_data.get('keywords', []),
+            search_selected.get('keywords', [])
+        ),
+        selected_ids=search_selected.get('keywords', [])
+    )
+
+    result['search_themes'] = FilterSectionCache.get_or_render(
+        'search_themes',
+        params_hash,
+        lambda: renderer.render_search_themes(
+            filter_data.get('themes', []),
+            search_selected.get('themes', [])
+        ),
+        selected_ids=search_selected.get('themes', [])
+    )
+
+    result['search_perspectives'] = FilterSectionCache.get_or_render(
+        'search_perspectives',
+        params_hash,
+        lambda: renderer.render_search_perspectives(
+            filter_data.get('perspectives', []),
+            search_selected.get('perspectives', [])
+        ),
+        selected_ids=search_selected.get('perspectives', [])
+    )
+
+    result['search_game_modes'] = FilterSectionCache.get_or_render(
+        'search_game_modes',
+        params_hash,
+        lambda: renderer.render_search_game_modes(
+            filter_data.get('game_modes', []),
+            search_selected.get('game_modes', [])
+        ),
+        selected_ids=search_selected.get('game_modes', [])
+    )
+
+    result['search_engines'] = FilterSectionCache.get_or_render(
+        'search_engines',
+        params_hash,
+        lambda: renderer.render_search_engines(
+            filter_data.get('engines', []),
+            search_selected.get('engines', [])
+        ),
+        selected_ids=search_selected.get('engines', [])
+    )
+
+    # Date filter
+    date_context = {
+        'release_year_start': search_selected.get('release_year_start'),
+        'release_year_end': search_selected.get('release_year_end'),
+    }
+    result['search_date'] = FilterSectionCache.get_or_render(
+        'search_date',
+        params_hash,
+        lambda: renderer.render_search_date_filter(
+            search_selected.get('release_year_start'),
+            search_selected.get('release_year_end'),
+            years_range.get('min_year', 1970),
+            years_range.get('max_year', 2024),
+            years_range.get('current_year', 2024)
+        ),
+        context_data=date_context
+    )
+
+    # Similarity Filters
+    result['similarity_genres'] = FilterSectionCache.get_or_render(
+        'similarity_genres',
+        params_hash,
+        lambda: renderer.render_similarity_genres(
+            genres_list,
+            similarity_selected.get('genres', [])
+        ),
+        selected_ids=similarity_selected.get('genres', [])
+    )
+
+    result['similarity_keywords'] = FilterSectionCache.get_or_render(
+        'similarity_keywords',
+        params_hash,
+        lambda: renderer.render_similarity_keywords(
+            filter_data.get('keywords', []),
+            similarity_selected.get('keywords', [])
+        ),
+        selected_ids=similarity_selected.get('keywords', [])
+    )
+
+    result['similarity_themes'] = FilterSectionCache.get_or_render(
+        'similarity_themes',
+        params_hash,
+        lambda: renderer.render_similarity_themes(
+            filter_data.get('themes', []),
+            similarity_selected.get('themes', [])
+        ),
+        selected_ids=similarity_selected.get('themes', [])
+    )
+
+    result['similarity_perspectives'] = FilterSectionCache.get_or_render(
+        'similarity_perspectives',
+        params_hash,
+        lambda: renderer.render_similarity_perspectives(
+            filter_data.get('perspectives', []),
+            similarity_selected.get('perspectives', [])
+        ),
+        selected_ids=similarity_selected.get('perspectives', [])
+    )
+
+    result['similarity_game_modes'] = FilterSectionCache.get_or_render(
+        'similarity_game_modes',
+        params_hash,
+        lambda: renderer.render_similarity_game_modes(
+            filter_data.get('game_modes', []),
+            similarity_selected.get('game_modes', [])
+        ),
+        selected_ids=similarity_selected.get('game_modes', [])
+    )
+
+
+    result['similarity_engines'] = FilterSectionCache.get_or_render(
+        'similarity_engines',
+        params_hash,
+        lambda: renderer.render_similarity_engines(
+            filter_data.get('engines', []),
+            similarity_selected.get('engines', [])
+        ),
+        selected_ids=similarity_selected.get('engines', [])
+    )
+
+    print(f"DEBUG _render_filters_with_cache: result keys = {list(result.keys())}")
+    print("=" * 60)
+
+    return result
+
+
+def _get_or_render_section(cache_key: str, render_func: callable, timeout: int) -> str:
+    """
+    Получает секцию фильтра из кэша или рендерит и сохраняет.
+
+    Args:
+        cache_key: Ключ кэша
+        render_func: Функция для рендеринга
+        timeout: Время жизни кэша в секундах
+
+    Returns:
+        HTML секции
+    """
+    cached_html = cache.get(cache_key)
+    if cached_html:
+        return cached_html
+
+    html = render_func()
+    cache.set(cache_key, html, timeout)
+    return html
+
+
+def ajax_load_filters(request: HttpRequest) -> HttpResponse:
+    """
+    Load filters HTML via AJAX - используется только для динамических обновлений.
+    При первом рендеринге фильтры уже есть на странице.
+    """
+    from django.template.loader import render_to_string
+
+    params_hash = _get_params_hash_from_request(request)
+    params = extract_request_params(request)
+    selected_criteria = convert_params_to_lists(params)
+    years_range = _get_cached_years_range()
+    filter_data = _get_optimized_filter_data()
+
+    find_similar = params.get('find_similar') == '1'
+    source_game_obj = None
+    if params.get('source_game'):
+        try:
+            source_game_obj = _get_cached_game(params['source_game'])
+        except (Game.DoesNotExist, ValueError):
+            pass
+
+    search_selected = {
+        'genres': [],
+        'keywords': [],
+        'platforms': [],
+        'themes': [],
+        'perspectives': [],
+        'game_modes': [],
+        'game_types': [],
+        'engines': [],
+        'release_year_start': selected_criteria['release_year_start'],
+        'release_year_end': selected_criteria['release_year_end'],
+    }
+
+    similarity_selected = {
+        'genres': selected_criteria['genres'],
+        'keywords': selected_criteria['keywords'],
+        'platforms': selected_criteria['platforms'],
+        'themes': selected_criteria['themes'],
+        'perspectives': selected_criteria['perspectives'],
+        'game_modes': selected_criteria['game_modes'],
+        'game_types': selected_criteria['game_types'],
+        'engines': selected_criteria.get('engines', []),
+        'developers': selected_criteria.get('developers', []),
+    }
+
+    # Используем кэшированный рендеринг
+    cached_sections = _render_filters_with_cache(
+        params_hash,
+        filter_data,
+        years_range,
+        search_selected,
+        similarity_selected,
+        params.get('sort', '')
+    )
+
+    html = render_to_string('games/game_list/_real_filters.html', {
+        'cached_filter_sections': cached_sections,
+        'genres': _get_cached_genres_list(),
+        'themes': filter_data['themes'],
+        'perspectives': filter_data['perspectives'],
+        'game_modes': filter_data['game_modes'],
+        'keywords': filter_data['keywords'],
+        'platforms': filter_data['platforms'],
+        'engines': filter_data.get('engines', []),
+        'game_types': GameTypeEnum.CHOICES,
+        'years_range': years_range,
+        'current_year': timezone.now().year,
+        'search_selected_genres': search_selected['genres'],
+        'search_selected_keywords': search_selected['keywords'],
+        'search_selected_platforms': search_selected['platforms'],
+        'search_selected_themes': search_selected['themes'],
+        'search_selected_perspectives': search_selected['perspectives'],
+        'search_selected_game_modes': search_selected['game_modes'],
+        'search_selected_game_types': search_selected['game_types'],
+        'search_selected_engines': search_selected['engines'],
+        'search_selected_release_year_start': search_selected['release_year_start'],
+        'search_selected_release_year_end': search_selected['release_year_end'],
+        'similarity_selected_genres': similarity_selected['genres'],
+        'similarity_selected_keywords': similarity_selected['keywords'],
+        'similarity_selected_platforms': similarity_selected['platforms'],
+        'similarity_selected_themes': similarity_selected['themes'],
+        'similarity_selected_perspectives': similarity_selected['perspectives'],
+        'similarity_selected_game_modes': similarity_selected['game_modes'],
+        'similarity_selected_game_types': similarity_selected['game_types'],
+        'similarity_selected_engines': similarity_selected.get('engines', []),
+        'current_sort': params.get('sort', ''),
+        'find_similar': find_similar,
+        'source_game_obj': source_game_obj,
+    })
+
+    response = HttpResponse(html)
+    response['Content-Type'] = 'text/html; charset=utf-8'
+    return response
+
 
 def _get_cached_card_html(game: Game, show_similarity: bool = False,
                           similarity_percent: float = None) -> Optional[str]:
@@ -1663,37 +1809,37 @@ def _get_selected_criteria_objects(selected_criteria: Dict[str, List[int]]) -> D
     """Получаем объекты для всех выбранных критериев."""
     selected_objects = {}
 
-    if selected_criteria['genres']:
+    if selected_criteria.get('genres'):
         selected_objects['genres'] = list(Genre.objects.filter(
             id__in=selected_criteria['genres']
         ).only('id', 'name'))
 
-    if selected_criteria['keywords']:
+    if selected_criteria.get('keywords'):
         selected_objects['keywords'] = list(Keyword.objects.filter(
             id__in=selected_criteria['keywords']
         ).only('id', 'name'))
 
-    if selected_criteria['platforms']:
+    if selected_criteria.get('platforms'):
         selected_objects['platforms'] = list(Platform.objects.filter(
             id__in=selected_criteria['platforms']
         ).only('id', 'name'))
 
-    if selected_criteria['themes']:
+    if selected_criteria.get('themes'):
         selected_objects['themes'] = list(Theme.objects.filter(
             id__in=selected_criteria['themes']
         ).only('id', 'name'))
 
-    if selected_criteria['perspectives']:
+    if selected_criteria.get('perspectives'):
         selected_objects['perspectives'] = list(PlayerPerspective.objects.filter(
             id__in=selected_criteria['perspectives']
         ).only('id', 'name'))
 
-    if selected_criteria['game_modes']:
+    if selected_criteria.get('game_modes'):
         selected_objects['game_modes'] = list(GameMode.objects.filter(
             id__in=selected_criteria['game_modes']
         ).only('id', 'name'))
 
-    if selected_criteria['engines']:
+    if selected_criteria.get('engines'):
         selected_objects['engines'] = list(GameEngine.objects.filter(
             id__in=selected_criteria['engines']
         ).only('id', 'name'))

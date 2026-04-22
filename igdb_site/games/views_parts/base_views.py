@@ -273,8 +273,9 @@ def extract_request_params(request: HttpRequest) -> Dict[str, str]:
     get_params = request.GET
 
     params = {}
+    # Добавьте 'e' в список параметров
     for key in ['find_similar', 'g', 'k', 'p', 't', 'pp', 'd', 'gm', 'gt', 'yr', 'ys', 'ye', 'source_game', 'sort',
-                'page']:
+                'page', 'e']:
         value = get_params.get(key, '')
         params[key] = value
 
@@ -327,13 +328,8 @@ def convert_params_to_lists(params_dict: Dict[str, str]) -> Dict[str, List[int]]
         except ValueError:
             pass
 
-    # ОТЛАДКА: проверяем параметр 'e'
-    engines_param = params_dict.get('e', '')
-    print(f"DEBUG convert_params_to_lists: engines param raw = '{engines_param}'")
-    engines_list = parse_int_list(engines_param)
-    print(f"DEBUG convert_params_to_lists: engines_list = {engines_list}")
-
-    return {
+    # Parse all parameters
+    result = {
         'genres': parse_int_list(params_dict.get('g')),
         'keywords': parse_int_list(params_dict.get('k')),
         'platforms': parse_int_list(params_dict.get('p')),
@@ -342,11 +338,17 @@ def convert_params_to_lists(params_dict: Dict[str, str]) -> Dict[str, List[int]]
         'developers': parse_int_list(params_dict.get('d')),
         'game_modes': parse_int_list(params_dict.get('gm')),
         'game_types': parse_int_list(params_dict.get('gt')),
-        'engines': engines_list,  # ИЗМЕНЕНО: используем переменную с отладкой
+        'engines': parse_int_list(params_dict.get('e')),  # Параметр 'e' для движков
         'release_years': [],
         'release_year_start': release_year_start,
         'release_year_end': release_year_end,
     }
+
+    # Отладка
+    print(f"DEBUG convert_params_to_lists: e = '{params_dict.get('e')}'")
+    print(f"DEBUG convert_params_to_lists: engines result = {result['engines']}")
+
+    return result
 
 
 def _apply_filters(queryset: models.QuerySet, selected_criteria: Dict[str, List[int]]) -> models.QuerySet:
@@ -421,6 +423,7 @@ def _apply_search_filters(queryset: models.QuerySet, search_filters: Dict[str, L
     Example: platforms OR, engines AND, genres AND, text search
     Result: (platforms) AND (engines) AND (genres) AND (name contains text)
     """
+
     # Собираем Q объекты для каждой группы фильтров
     filter_groups = []
 

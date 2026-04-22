@@ -7,7 +7,7 @@
                 <button type="button"
                         class="btn btn-sm search-clear-game-types-btn btn-outline-secondary"
                         style="font-weight: 700; padding: 0.4rem 1rem; border-radius: 20px; border-width: 2px;"
-                        data-param="gt">
+                        data-param="search_gt">
                     <i class="bi bi-x-circle me-1"></i>Clear All
                 </button>
                 <small class="text-muted" style="font-weight: 500;">
@@ -46,7 +46,7 @@
                            type="checkbox"
                            value="{{ type_id }}"
                            id="search_game_type_{{ type_id }}"
-                           {% if type_id|stringformat:"s" in search_selected_game_types %}checked{% endif %}>
+                           {% if type_id|stringformat:"s" in search_selected_game_types|stringformat:"s" or type_id in search_selected_game_types %}checked{% endif %}>
                     <label class="form-check-label small" for="search_game_type_{{ type_id }}">
                         {{ type_name }}
                     </label>
