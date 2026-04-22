@@ -634,3 +634,11 @@
     position: relative;
     z-index: 999 !important;
 }
+
+/* ===== СВЕРНУТЫЕ СЕКЦИИ ПО УМОЛЧАНИЮ ===== */
+
+/* Скрываем содержимое главных секций при загрузке страницы */
+#search-filters-content,
+#similarity-filters-content {
+    display: none;
+}

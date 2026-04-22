@@ -87,35 +87,59 @@ class FilterSectionCache(models.Model):
         return f"Filter cache: {self.section_key}"
 
     @classmethod
-    def get_section_key(cls, section_type: str, selected_ids: List[int] = None,
-                        context_data: Dict = None) -> str:
+    def get_or_render(
+            cls,
+            section_type: str,
+            params_hash: str,
+            render_func: callable,
+            selected_ids: List[int] = None,
+            context_data: Dict = None
+    ) -> str:
         """
-        Генерирует уникальный ключ для секции фильтра.
-
-        Args:
-            section_type: Тип секции
-            selected_ids: Список выбранных ID
-            context_data: Дополнительные данные контекста (годы, и т.д.)
-
-        Returns:
-            Уникальный ключ для кэша
+        Получает закэшированную секцию из memory cache или создает новую.
+        При рестарте сервера кэш полностью сбрасывается через filter_cache_version.
         """
-        key_parts = [section_type, cls.FILTER_CACHE_VERSION]
+        from django.core.cache import cache
+        import hashlib
+
+        # Получаем текущую версию кэша (устанавливается в apps.py при рестарте)
+        cache_version = cache.get('filter_cache_version', 'v1')
+
+        # Генерируем ключ с учётом версии
+        key_parts = [section_type, params_hash, cache_version]
 
         if selected_ids:
-            # Сортируем для консистентности
             sorted_ids = sorted(selected_ids) if selected_ids else []
             key_parts.append(','.join(str(i) for i in sorted_ids))
 
         if context_data:
-            # Добавляем даты, если есть
             year_start = context_data.get('release_year_start')
             year_end = context_data.get('release_year_end')
             if year_start or year_end:
                 key_parts.append(f"years_{year_start}_{year_end}")
 
         key_str = '_'.join(str(p) for p in key_parts)
-        return hashlib.md5(key_str.encode()).hexdigest()
+        section_key = hashlib.md5(key_str.encode()).hexdigest()
+        memory_cache_key = f"filter_section_{section_key}"
+
+        # Пытаемся получить из memory cache
+        try:
+            cached_html = cache.get(memory_cache_key)
+            if cached_html is not None:
+                return cached_html
+        except Exception as e:
+            print(f"Cache get error: {e}")
+
+        # Рендерим новую секцию
+        html = render_func()
+
+        # Сохраняем в memory cache
+        try:
+            cache.set(memory_cache_key, html, 86400)
+        except Exception as e:
+            print(f"Cache set error: {e}")
+
+        return html
 
     @classmethod
     def get_or_create_section(
@@ -127,61 +151,88 @@ class FilterSectionCache(models.Model):
             force_refresh: bool = False
     ) -> Tuple[str, bool]:
         """
-        Получает закэшированную секцию или создает новую.
-        Всегда перезаписывает существующую запись для данного ключа.
-
-        Args:
-            section_type: Тип секции
-            render_func: Функция для рендеринга HTML
-            selected_ids: Список выбранных ID
-            context_data: Дополнительные данные контекста
-            force_refresh: Принудительное обновление
-
-        Returns:
-            Tuple (HTML, was_cached)
+        Получает закэшированную секцию из memory cache или создает новую.
+        При рестарте сервера кэш полностью сбрасывается.
         """
+        from django.core.cache import cache
+
         section_key = cls.get_section_key(section_type, selected_ids, context_data)
+        memory_cache_key = f"filter_section_{section_key}"
 
         if not force_refresh:
             try:
-                cached = cls.objects.get(
-                    section_key=section_key,
-                    template_version=cls.FILTER_CACHE_VERSION
-                )
-                cached.hit_count += 1
-                cached.last_accessed = timezone.now()
-                cached.save(update_fields=['hit_count', 'last_accessed'])
-                return cached.rendered_html, True
-            except cls.DoesNotExist:
-                pass
+                cached_html = cache.get(memory_cache_key)
+                if cached_html is not None:
+                    return cached_html, True
+            except Exception as e:
+                print(f"Cache get error: {e}")
 
         # Рендерим новую секцию
         html = render_func()
 
-        # Вычисляем хэш данных
-        data_for_hash = {
-            'section_type': section_type,
-            'selected_ids': selected_ids or [],
-            'context_data': context_data or {}
-        }
-        data_hash = hashlib.md5(
-            json.dumps(data_for_hash, sort_keys=True).encode()
-        ).hexdigest()
-
-        # Перезаписываем существующую запись или создаем новую
-        section, created = cls.objects.update_or_create(
-            section_key=section_key,
-            defaults={
-                'section_type': section_type,
-                'rendered_html': html,
-                'data_hash': data_hash,
-                'template_version': cls.FILTER_CACHE_VERSION,
-                'is_active': True,
-                'hit_count': 0
-            }
-        )
+        # Сохраняем в memory cache
+        try:
+            cache.set(memory_cache_key, html, 86400)
+        except Exception as e:
+            print(f"Cache set error: {e}")
 
         return html, False
+
+    @classmethod
+    def get_section_key(cls, section_type: str, selected_ids: List[int] = None,
+                        context_data: Dict = None) -> str:
+        """
+        Генерирует уникальный ключ для секции фильтра с учетом версии кэша.
+
+        Args:
+            section_type: Тип секции
+            selected_ids: Список выбранных ID
+            context_data: Дополнительные данные контекста (годы, и т.д.)
+
+        Returns:
+            Уникальный ключ для кэша
+        """
+        from django.core.cache import cache
+
+        key_parts = [section_type]
+
+        if selected_ids:
+            sorted_ids = sorted(selected_ids) if selected_ids else []
+            key_parts.append(','.join(str(i) for i in sorted_ids))
+
+        if context_data:
+            year_start = context_data.get('release_year_start')
+            year_end = context_data.get('release_year_end')
+            if year_start or year_end:
+                key_parts.append(f"years_{year_start}_{year_end}")
+
+        # Добавляем версию кэша из memory cache
+        version_key = 'filter_cache_version'
+        cache_version = cache.get(version_key, 1)
+        key_parts.append(f"v{cache_version}")
+
+        key_str = '_'.join(str(p) for p in key_parts)
+        return hashlib.md5(key_str.encode()).hexdigest()
+
+
+    @classmethod
+    def invalidate_all_filters(cls) -> int:
+        """
+        Инвалидирует все кэши фильтров в memory cache.
+        При рестарте сервера этот метод можно не вызывать - кэш сбросится сам.
+
+        Returns:
+            Количество инвалидированных записей (всегда возвращает 0 для memory cache)
+        """
+        from django.core.cache import cache
+
+        # Увеличиваем версию кэша фильтров
+        version_key = 'filter_cache_version'
+        current_version = cache.get(version_key, 0)
+        cache.set(version_key, current_version + 1, 86400)
+
+        logger.info(f"Filter cache version incremented to {current_version + 1}")
+        return 0
 
     @classmethod
     def invalidate_section_type(cls, section_type: str) -> int:
@@ -198,15 +249,6 @@ class FilterSectionCache(models.Model):
             section_type=section_type,
             is_active=True
         ).update(is_active=False, updated_at=timezone.now())
-        return updated
-
-    @classmethod
-    def invalidate_all_filters(cls) -> int:
-        """Инвалидирует все кэши фильтров."""
-        updated = cls.objects.filter(is_active=True).update(
-            is_active=False,
-            updated_at=timezone.now()
-        )
         return updated
 
     @classmethod

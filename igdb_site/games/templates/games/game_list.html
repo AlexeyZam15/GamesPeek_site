@@ -61,18 +61,8 @@
 {% endblock %}
 
 {% block extra_js %}
-    <!-- Основной скрипт фильтров -->
-    <script type="module" src="{% static 'games/js/game_list.js' %}"></script>
-
-    <!-- AJAX ПАГИНАЦИЯ -->
+    <script src="{% static 'games/js/game_list.js' %}"></script>
     <script src="{% static 'games/js/game_list/ajax-pagination.js' %}"></script>
-
-    <!-- APPLY FILTERS AJAX -->
-    <script src="{% static 'games/js/game_list/apply-filters-ajax.js' %}"></script>
-
-    <!-- SIMILARITY COMPARE BUTTONS -->
     <script src="{% static 'games/js/game_list/similarity-compare.js' %}"></script>
-
-    <!-- SIMILARITY DISPLAY -->
     <script src="{% static 'games/js/game_list/similarity-display.js' %}"></script>
 {% endblock %}
