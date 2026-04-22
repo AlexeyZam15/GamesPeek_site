@@ -1,0 +1,430 @@
+/* games/static/games/css/components/card_carousel.css */
+
+/* ===== КАРУСЕЛЬ СКРИНШОТОВ В КАРТОЧКЕ ИГРЫ ===== */
+
+/* Контейнер карусели полностью заменяет стандартный card-img-top-container */
+.game-screenshot-carousel {
+    position: relative;
+    width: 100%;
+    background: #0a0a0a;
+    overflow: hidden;
+    height: var(--cover-height);
+}
+
+.game-screenshot-carousel .carousel-inner {
+    height: 100%;
+    background: #0a0a0a;
+}
+
+.game-screenshot-carousel .carousel-item {
+    height: 100%;
+    background: #0a0a0a;
+}
+
+/* Изображения в карусели */
+.game-carousel-cover,
+.game-carousel-screenshot {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center 20%;
+    cursor: pointer;
+    transition: transform 0.3s ease, filter 0.3s ease;
+    filter: grayscale(0.2);
+}
+
+.game-card:hover .game-carousel-cover,
+.game-card:hover .game-carousel-screenshot {
+    transform: scale(1.08);
+    filter: grayscale(0);
+    object-position: center 35%;
+}
+
+/* Кнопки навигации карусели */
+.game-screenshot-carousel .carousel-control-prev,
+.game-screenshot-carousel .carousel-control-next {
+    width: 10%;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    background: linear-gradient(90deg, rgba(0,0,0,0.6) 0%, transparent 100%);
+    z-index: 15;
+}
+
+.game-screenshot-carousel .carousel-control-next {
+    background: linear-gradient(270deg, rgba(0,0,0,0.6) 0%, transparent 100%);
+}
+
+.game-screenshot-carousel:hover .carousel-control-prev,
+.game-screenshot-carousel:hover .carousel-control-next {
+    opacity: 1;
+}
+
+/* Иконки кнопок */
+.game-screenshot-carousel .carousel-control-prev-icon,
+.game-screenshot-carousel .carousel-control-next-icon {
+    width: 32px;
+    height: 32px;
+    background-size: 32px 32px;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+}
+
+/* Индикаторы (точки) карусели */
+.game-screenshot-carousel .carousel-indicators {
+    bottom: 8px;
+    margin-bottom: 0;
+    z-index: 15;
+}
+
+.game-screenshot-carousel .carousel-indicators button {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin: 0 4px;
+    background-color: rgba(255,255,255,0.6);
+    border: none;
+    transition: all 0.2s ease;
+}
+
+.game-screenshot-carousel .carousel-indicators button.active {
+    background-color: var(--secondary-color);
+    transform: scale(1.2);
+}
+
+.game-screenshot-carousel .carousel-indicators button:hover {
+    background-color: var(--secondary-color);
+    transform: scale(1.1);
+}
+
+/* ===== НАЛОЖЕНИЯ ПОВЕРХ КАРУСЕЛИ ===== */
+
+/* Общий контейнер для наложений */
+.card-img-top-container {
+    position: relative;
+    height: var(--cover-height);
+    width: 100%;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+/* Все наложения должны быть поверх карусели */
+.card-img-top-container .position-absolute {
+    z-index: 20 !important;
+    pointer-events: auto !important;
+}
+
+/* Рейтинг на обложке */
+.rating-overlay-card,
+.no-rating-container-card {
+    z-index: 20 !important;
+    pointer-events: auto !important;
+}
+
+.rating-overlay-card > div,
+.no-rating-container-card > svg {
+    filter: drop-shadow(2px 2px 4px rgba(0,0,0,0.8));
+}
+
+/* Контейнер для отсутствующего рейтинга */
+.no-rating-container-card {
+    cursor: help;
+    transition: all 0.3s ease;
+    width: var(--rating-size);
+    height: var(--rating-size);
+    position: relative;
+    background: rgba(0, 0, 0, 0.6);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.no-rating-container-card:hover {
+    background: rgba(0, 0, 0, 0.8);
+    transform: scale(1.1);
+}
+
+.no-rating-container-card svg {
+    width: var(--rating-size);
+    height: var(--rating-size);
+}
+
+.no-rating-container-card path {
+    fill: none;
+    stroke: #6c757d;
+    stroke-width: 2;
+}
+
+.no-rating-container-card text {
+    text-anchor: middle;
+    fill: #6c757d;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+/* Процент схожести */
+.similarity-container {
+    z-index: 20 !important;
+    pointer-events: auto !important;
+}
+
+.similarity-container img {
+    filter: drop-shadow(2px 2px 4px rgba(0,0,0,0.8));
+    transition: transform 0.3s ease;
+}
+
+.game-card:hover .similarity-container img {
+    transform: scale(1.1);
+}
+
+/* Платформы поверх карусели */
+.platforms-overlay {
+    z-index: 20 !important;
+    pointer-events: auto !important;
+    padding: 0.5rem !important;
+    max-width: calc(100% - 70px);
+    bottom: 8px !important;
+    background: none !important;
+}
+
+.platforms-overlay .d-flex.flex-wrap {
+    gap: 2px !important;
+}
+
+/* Бейджи платформ на карусели */
+.game-screenshot-carousel .platform-badge {
+    filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.9));
+}
+
+/* Тип игры на карусели */
+.game-type-badge {
+    z-index: 20 !important;
+    filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.5));
+}
+
+/* ===== МОДАЛЬНОЕ ОКНО ДЛЯ ПОЛНОЭКРАННОЙ ГАЛЕРЕИ ===== */
+
+#cardGalleryModal.modal {
+    background: rgba(0, 0, 0, 0.95);
+    backdrop-filter: blur(10px);
+    z-index: 10000;
+}
+
+#cardGalleryModal .modal-dialog {
+    max-width: 95vw;
+    max-height: 95vh;
+    margin: 2rem auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#cardGalleryModal .modal-content {
+    background: rgba(17, 24, 28, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+#cardGalleryModal .modal-header {
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 30;
+    border: none;
+    padding: 1rem;
+}
+
+#cardGalleryModal .btn-close-white {
+    background-color: rgba(255, 107, 53, 0.9);
+    border-radius: 50%;
+    padding: 0.75rem;
+    opacity: 1;
+    transition: all 0.3s ease;
+}
+
+#cardGalleryModal .btn-close-white:hover {
+    background-color: rgba(255, 140, 0, 0.9);
+    transform: scale(1.1);
+}
+
+#cardGalleryModal .modal-body {
+    padding: 0;
+    min-height: 85vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Карусель внутри модального окна */
+#cardGalleryCarousel {
+    width: 100%;
+    height: 85vh;
+}
+
+#cardGalleryCarousel .carousel-inner {
+    height: 100%;
+    display: flex;
+    align-items: center;
+}
+
+#cardGalleryCarousel .carousel-item {
+    height: 100%;
+    text-align: center;
+}
+
+#cardGalleryCarousel .carousel-item img {
+    max-width: 95vw;
+    max-height: 80vh;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    margin: 0 auto;
+    border-radius: 8px;
+}
+
+/* Кнопки навигации в модальном окне */
+#cardGalleryCarousel .carousel-control-prev,
+#cardGalleryCarousel .carousel-control-next {
+    width: 10%;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+#cardGalleryModal:hover #cardGalleryCarousel .carousel-control-prev,
+#cardGalleryModal:hover #cardGalleryCarousel .carousel-control-next {
+    opacity: 1;
+}
+
+#cardGalleryCarousel .carousel-control-prev-icon,
+#cardGalleryCarousel .carousel-control-next-icon {
+    width: 48px;
+    height: 48px;
+    background-size: 48px 48px;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+}
+
+/* Индикаторы в модальном окне */
+#cardGalleryCarousel .carousel-indicators {
+    bottom: 20px;
+    margin-bottom: 0;
+}
+
+#cardGalleryCarousel .carousel-indicators button {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin: 0 6px;
+    background-color: rgba(255,255,255,0.5);
+    border: none;
+}
+
+#cardGalleryCarousel .carousel-indicators button.active {
+    background-color: var(--secondary-color);
+    transform: scale(1.2);
+}
+
+/* ===== АДАПТИВНОСТЬ ===== */
+
+@media (max-width: 992px) {
+    .game-screenshot-carousel {
+        height: var(--cover-height-md);
+    }
+
+    .card-img-top-container {
+        height: var(--cover-height-md);
+    }
+
+    .game-screenshot-carousel .carousel-control-prev-icon,
+    .game-screenshot-carousel .carousel-control-next-icon {
+        width: 28px;
+        height: 28px;
+        background-size: 28px 28px;
+    }
+
+    .platforms-overlay {
+        max-width: calc(100% - 60px);
+        padding: 0.4rem !important;
+    }
+}
+
+@media (max-width: 768px) {
+    .game-screenshot-carousel {
+        height: var(--cover-height-sm);
+    }
+
+    .card-img-top-container {
+        height: var(--cover-height-sm);
+    }
+
+    .game-screenshot-carousel .carousel-control-prev-icon,
+    .game-screenshot-carousel .carousel-control-next-icon {
+        width: 24px;
+        height: 24px;
+        background-size: 24px 24px;
+    }
+
+    .game-screenshot-carousel .carousel-indicators button {
+        width: 6px;
+        height: 6px;
+        margin: 0 3px;
+    }
+
+    .platforms-overlay {
+        max-width: calc(100% - 50px);
+        padding: 0.3rem !important;
+    }
+
+    #cardGalleryCarousel .carousel-control-prev-icon,
+    #cardGalleryCarousel .carousel-control-next-icon {
+        width: 36px;
+        height: 36px;
+        background-size: 36px 36px;
+    }
+
+    #cardGalleryCarousel .carousel-item img {
+        max-height: 70vh;
+    }
+}
+
+@media (max-width: 576px) {
+    .game-screenshot-carousel {
+        height: var(--cover-height-xs);
+    }
+
+    .card-img-top-container {
+        height: var(--cover-height-xs);
+    }
+
+    .game-screenshot-carousel .carousel-control-prev-icon,
+    .game-screenshot-carousel .carousel-control-next-icon {
+        width: 20px;
+        height: 20px;
+        background-size: 20px 20px;
+    }
+
+    .platforms-overlay {
+        max-width: calc(100% - 40px);
+        padding: 0.2rem !important;
+    }
+
+    .platforms-overlay .d-flex.flex-wrap {
+        gap: 1px !important;
+    }
+
+    #cardGalleryCarousel .carousel-control-prev-icon,
+    #cardGalleryCarousel .carousel-control-next-icon {
+        width: 30px;
+        height: 30px;
+        background-size: 30px 30px;
+    }
+
+    #cardGalleryCarousel .carousel-item img {
+        max-height: 60vh;
+    }
+
+    #cardGalleryCarousel .carousel-indicators button {
+        width: 8px;
+        height: 8px;
+        margin: 0 4px;
+    }
+}
