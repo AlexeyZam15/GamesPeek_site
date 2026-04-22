@@ -1,4 +1,5 @@
 <!-- games/templates/games/game_detail.html -->
+
 {% extends 'base.html' %}
 {% load static %}
 
@@ -14,6 +15,40 @@
     <div class="container">
         {% include 'games/game_detail/header.html' %}
         {% include 'games/game_detail/tabs_content.html' %}
+    </div>
+
+    <!-- МОДАЛЬНОЕ ОКНО ДЛЯ ГАЛЕРЕИ СКРИНШОТОВ -->
+    <div class="modal fade" id="screenshotModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-xl">
+            <div class="modal-content">
+                <div class="modal-body p-0 position-relative">
+                    <!-- Кнопка закрытия -->
+                    <button type="button" class="screenshot-close" data-bs-dismiss="modal" aria-label="Close">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+
+                    <!-- Левая стрелка -->
+                    <button type="button" class="nav-arrow prev-arrow" id="prevBtn">
+                        <i class="bi bi-chevron-left"></i>
+                    </button>
+
+                    <!-- Правая стрелка -->
+                    <button type="button" class="nav-arrow next-arrow" id="nextBtn">
+                        <i class="bi bi-chevron-right"></i>
+                    </button>
+
+                    <!-- Изображение -->
+                    <div class="d-flex align-items-center justify-content-center w-100 h-100">
+                        <img id="modalImage" class="screenshot-full" alt="Screenshot">
+                    </div>
+
+                    <!-- Счетчик -->
+                    <div class="screenshot-counter">
+                        <span id="currentNum">1</span><span id="totalCount"> / 0</span>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 {% endblock %}
 
