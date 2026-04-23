@@ -1,0 +1,131 @@
+/* games/static/games/css/game_list/mobile-carousel.css */
+
+/* ===== МОБИЛЬНАЯ КАРУСЕЛЬ ДЛЯ СПИСКА ИГР ===== */
+/* Только для экранов шириной 576px и меньше */
+
+@media (max-width: 576px) {
+
+    /* Контейнер с играми */
+    .games-container {
+        overflow: visible;
+        position: relative;
+    }
+
+    /* Превращаем ряд в горизонтальную карусель */
+    .games-container #games-grid-row {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        overflow-x: auto !important;
+        overflow-y: hidden !important;
+        scroll-snap-type: x mandatory !important;
+        -webkit-overflow-scrolling: touch !important;
+        gap: 1rem !important;
+        padding: 0.5rem 0.75rem !important;
+        margin: 0 -0.75rem !important;
+        scrollbar-width: thin;
+    }
+
+    /* Каждая карточка занимает 85% ширины экрана */
+    .games-container #games-grid-row .game-card-container {
+        flex: 0 0 85% !important;
+        width: 85% !important;
+        min-width: 85% !important;
+        scroll-snap-align: start !important;
+        margin-bottom: 0 !important;
+    }
+
+    /* Скрываем стандартные колонки Bootstrap */
+    .games-container #games-grid-row [class*="col-"] {
+        flex: 0 0 auto !important;
+        width: auto !important;
+        min-width: auto !important;
+        padding: 0 !important;
+    }
+
+    /* Стилизованный скроллбар */
+    .games-container #games-grid-row::-webkit-scrollbar {
+        height: 4px;
+    }
+
+    .games-container #games-grid-row::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 2px;
+    }
+
+    .games-container #games-grid-row::-webkit-scrollbar-thumb {
+        background: var(--secondary-color);
+        border-radius: 2px;
+    }
+
+    /* Кнопки навигации */
+    .mobile-carousel-btn {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0.7);
+        backdrop-filter: blur(4px);
+        border: 1px solid var(--secondary-color);
+        color: var(--secondary-color);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        z-index: 10;
+        transition: all 0.2s ease;
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    .games-container:hover .mobile-carousel-btn {
+        opacity: 0.7;
+        pointer-events: auto;
+    }
+
+    .mobile-carousel-btn:hover {
+        opacity: 1 !important;
+        transform: translateY(-50%) scale(1.1);
+        background: var(--secondary-color);
+        color: white;
+    }
+
+    .mobile-carousel-btn.left {
+        left: 0;
+    }
+
+    .mobile-carousel-btn.right {
+        right: 0;
+    }
+
+    /* Индикаторы (точки) */
+    .mobile-carousel-indicators {
+        display: flex;
+        justify-content: center;
+        gap: 0.5rem;
+        margin-top: 1rem;
+        padding-bottom: 0.5rem;
+    }
+
+    .mobile-carousel-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--border);
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
+
+    .mobile-carousel-dot:hover {
+        background: var(--secondary-color);
+        transform: scale(1.2);
+    }
+
+    .mobile-carousel-dot.active {
+        width: 24px;
+        border-radius: 4px;
+        background: var(--secondary-color);
+    }
+}

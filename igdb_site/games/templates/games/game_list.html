@@ -1,4 +1,5 @@
 <!-- games/templates/games/game_list.html -->
+
 {% extends 'base.html' %}
 {% load static %}
 
@@ -12,6 +13,7 @@
     <link rel="stylesheet" href="{% static 'games/css/game_list.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/game_list/filters-skeleton.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/game_list/filter-tabs.css' %}">
+    <link rel="stylesheet" href="{% static 'games/css/game_list/mobile-carousel.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -53,6 +55,7 @@
 {% block extra_js %}
     <script src="{% static 'games/js/game_list.js' %}"></script>
     <script src="{% static 'games/js/game_list/ajax-pagination.js' %}"></script>
+    <script src="{% static 'games/js/game_list/mobile-carousel.js' %}"></script>
     <script src="{% static 'games/js/game_list/similarity-compare.js' %}"></script>
     <script src="{% static 'games/js/game_list/similarity-display.js' %}"></script>
 {% endblock %}
