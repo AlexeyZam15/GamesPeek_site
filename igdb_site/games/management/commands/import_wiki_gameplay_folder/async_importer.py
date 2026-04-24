@@ -164,22 +164,27 @@ class AsyncWikiImporter:
         return None
 
     async def search_wikipedia_titles(self, game_name: str, year: int = None) -> List[str]:
-        """Поиск заголовков страниц"""
+        """Поиск заголовков страниц с точным совпадением в приоритете"""
         cache_key = f"search:{game_name}:{year if year else 'no_year'}"
 
         cached = await self.get_from_cache('search', cache_key)
         if cached:
             return cached.split('|') if cached else []
 
+        # Сначала ищем точное совпадение с кавычками (фразовый поиск)
         search_variants = []
         if year:
             search_variants = [
-                f'"{game_name}" ({year} video game)',
-                f'"{game_name}" video game',
+                f'"{game_name}" ({year} video game)',  # Точное название + год
+                f'"{game_name}" video game',  # Точное название
+                f'{game_name} ({year} video game)',
                 f'{game_name} video game'
             ]
         else:
-            search_variants = [f'"{game_name}" video game', f'{game_name} video game']
+            search_variants = [
+                f'"{game_name}" video game',
+                f'{game_name} video game'
+            ]
 
         all_results = []
 
@@ -191,7 +196,8 @@ class AsyncWikiImporter:
                 'srsearch': search_query,
                 'format': 'json',
                 'srlimit': 5,
-                'srprop': 'snippet'
+                'srprop': 'snippet',
+                'srwhat': 'title'  # Важно! Искать только в заголовках, а не в полном тексте
             }
 
             data = await self.fetch_with_retry(url, params)
@@ -202,8 +208,22 @@ class AsyncWikiImporter:
                     if title not in all_results:
                         all_results.append(title)
 
+            # Если нашли точное совпадение (название полностью совпадает), выходим
+            if all_results and any(r.lower() == game_name.lower() for r in all_results):
+                break
+
             if len(all_results) >= 3:
                 break
+
+        # Сортируем: точные совпадения выше
+        def sort_key(title):
+            if title.lower() == game_name.lower():
+                return 0
+            if game_name.lower() in title.lower():
+                return 1
+            return 2
+
+        all_results.sort(key=sort_key)
 
         if all_results and cache_key:
             await self.set_to_cache('search', cache_key, '|'.join(all_results[:5]))
@@ -339,27 +359,29 @@ class AsyncWikiImporter:
         return result
 
     async def get_game_description(self, game_name: str, game_year: int = None) -> Optional[str]:
-        """Получить описание игры с учетом года выпуска"""
+        """Получить описание игры только по точному названию"""
         try:
-            # Пробуем прямой доступ по точному названию
-            exact_title = game_name.replace(' ', '_')
-            content = await self.get_page_content(exact_title, get_full_text=True)
+            # Варианты точных названий для поиска
+            exact_variants = [
+                game_name,
+                game_name.replace(' ', '_'),
+                f"{game_name} (video game)",
+                f"{game_name}_video_game",
+                f"{game_name.replace(' ', '_')}_video_game",
+            ]
 
-            if content:
-                description = self.extract_gameplay_fast(content)
-                if description:
-                    return description
+            # Убираем дубликаты
+            exact_variants = list(dict.fromkeys(exact_variants))
 
-            # Поиск через API
-            search_titles = await self.search_wikipedia_titles(game_name, game_year)
-
-            for title in search_titles:
-                content = await self.get_page_content(title.replace(' ', '_'), get_full_text=True)
+            # Пробуем только точные названия
+            for exact_title in exact_variants:
+                content = await self.get_page_content(exact_title, get_full_text=True)
                 if content:
                     description = self.extract_gameplay_fast(content)
                     if description:
                         return description
 
+            # Ничего не найдено - возвращаем None
             return None
 
         except Exception as e:
