@@ -1,4 +1,5 @@
 # games\management\commands\import_wiki_gameplay.py
+
 """
 Главный файл команды импорта Wikipedia описаний
 """
@@ -7,6 +8,10 @@ import os
 import sys
 import django
 from django.core.management.base import BaseCommand
+from dotenv import load_dotenv
+
+# Загружаем .env
+load_dotenv()
 
 # Добавляем путь к модулям
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -113,9 +118,71 @@ class Command(BaseCommand):
             default=False,
             help='Режим отладки - показывает все детальные логи'
         )
+        parser.add_argument(
+            '--clear-all',
+            action='store_true',
+            default=False,
+            help='ОЧИСТИТЬ ВСЕ wiki_description в базе данных перед импортом'
+        )
+        parser.add_argument(
+            '--wiki-user',
+            type=str,
+            default=os.getenv('WIKI_USER'),
+            help='Имя пользователя Wikipedia для аутентификации (из .env если не указан)'
+        )
+        parser.add_argument(
+            '--wiki-password',
+            type=str,
+            default=os.getenv('WIKI_PASSWORD'),
+            help='Пароль Wikipedia для аутентификации (из .env если не указан)'
+        )
 
     def handle(self, *args, **options):
         """Обработать поиск по имени и делегировать выполнение"""
+
+        # Проверяем флаг очистки всех описаний
+        if options.get('clear_all'):
+            self.stdout.write(
+                self.style.WARNING("\n⚠️  ВНИМАНИЕ! Вы собираетесь очистить ВСЕ Wikipedia описания в базе данных"))
+            self.stdout.write(self.style.WARNING(f"   Будет очищено поле wiki_description у ВСЕХ игр"))
+            self.stdout.write("")
+
+            # Запрашиваем подтверждение
+            confirm = input("   Для подтверждения введите 'YES' (полностью заглавными): ")
+
+            if confirm != "YES":
+                self.stdout.write(self.style.ERROR("\n❌ Операция отменена"))
+                return
+
+            self.stdout.write("")
+            self.stdout.write("🔄 Очистка Wikipedia описаний...")
+
+            # Настраиваем Django
+            os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'igdb_site.settings')
+            django.setup()
+
+            from games.models import Game
+            updated_count = Game.objects.filter(wiki_description__isnull=False).update(wiki_description=None)
+
+            self.stdout.write(self.style.SUCCESS(f"✅ Очищено {updated_count:,} описаний"))
+            self.stdout.write("")
+
+            # Спрашиваем про файл ошибок
+            clear_failed = input("   Очистить файл неудачных игр? (y/n): ").lower()
+            if clear_failed == 'y':
+                failed_file = options.get('failed_file', "failed_wiki_games.csv")
+                if os.path.exists(failed_file):
+                    os.remove(failed_file)
+                    self.stdout.write(self.style.SUCCESS(f"✅ Файл {failed_file} удален"))
+                else:
+                    self.stdout.write(f"ℹ️  Файл {failed_file} не найден")
+
+            self.stdout.write("")
+            self.stdout.write("💡 Теперь можно запустить импорт командой:")
+            self.stdout.write(f"   python manage.py import_wiki_gameplay --force-update --skip-failed")
+            self.stdout.write("")
+            return
+
         game_name = options.get('game_name')
 
         if game_name:
