@@ -171,3 +171,29 @@
     width: 100%;
   }
 }
+
+/* ===== GENRE BADGES FOR SEO SECTION ===== */
+
+a.genre-badge,
+.genre-badge {
+    display: inline-flex !important;
+    align-items: center;
+    padding: 0.4rem 0.9rem;
+    background: linear-gradient(135deg, #ff6b35, #ff8c00) !important;
+    color: white !important;
+    text-decoration: none !important;
+    font-weight: 600;
+    font-size: 0.85rem;
+    border-radius: 20px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border: none;
+}
+
+a.genre-badge:hover,
+.genre-badge:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(255, 107, 53, 0.4);
+    color: white !important;
+    text-decoration: none !important;
+    background: linear-gradient(135deg, #ff6b35, #ff8c00) !important;
+}
