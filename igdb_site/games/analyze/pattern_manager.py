@@ -211,9 +211,39 @@ class PatternManager:
             r'\bsandbox\w*\b',
         ],
         'Shooter': [
-            r'\bshooter(?:\s+(?:game|title|genre|experience))?\b',
-            r'\b(?:fps|tps)\s+(?:game|shooter)\b',
-            r'\b(?:first|third)-person\s+shooter\b',
+            r'\bshooter\b',
+            # # Из ТОП-20 фраз: 'first-person shooter' (124 вхождения)
+            # r'\bfirst-person\s+(?:(?!\.|\!|\?|\n).){0,25}?\bshooter\b',
+            #
+            # # Из ТОП-20 слов: 'third-person' (114 вхождений)
+            # r'\bthird-person\s+(?:(?!\.|\!|\?|\n).){0,25}?\bshooter\b',
+            #
+            # # Из ТОП-20 слов: 'multiplayer' (178 вхождений)
+            # r'\bmultiplayer\s+(?:(?!\.|\!|\?|\n).){0,25}?\bshooter\b',
+            #
+            # # Из ТОП-20 слов: 'extraction' (40 вхождений)
+            # r'\bextraction\s+(?:(?!\.|\!|\?|\n).){0,25}?\bshooter\b',
+            #
+            # # Из ТОП-20 слов: 'hero' (106 вхождений)
+            # r'\bhero\s+(?:(?!\.|\!|\?|\n).){0,25}?\bshooter\b',
+            #
+            # # Из ТОП-20 слов: 'tactical' (81 вхождение)
+            # r'\btactical\s+(?:(?!\.|\!|\?|\n).){0,25}?\bshooter\b',
+            #
+            # # Из ТОП-20 слов: 'arena' (73 вхождения)
+            # r'\barena\s+(?:(?!\.|\!|\?|\n).){0,25}?\bshooter\b',
+            #
+            # # Из ТОП-20 слов: 'survival' (122 вхождения)
+            # r'\bsurvival\s+(?:(?!\.|\!|\?|\n).){0,25}?\bshooter\b',
+            # r'\bshooter\s+(?:(?!\.|\!|\?|\n).){0,25}?\bsurvival\b',
+            #
+            # # Из ТОП-20 слов: 'action' (223 вхождения)
+            # r'\baction\s+(?:(?!\.|\!|\?|\n).){0,25}?\bshooter\b',
+            # r'\bshooter\s+(?:(?!\.|\!|\?|\n).){0,25}?\baction\b',
+            #
+            # # Shooter + Game (из контекста анализа: 'shooter game' встречается)
+            # r'\bshooter\s+(?:(?!\.|\!|\?|\n).){0,25}?\bgame\b',
+            # r'\bgame\s+(?:(?!\.|\!|\?|\n).){0,25}?\bshooter\b',
         ],
         'Simulator': [
             # Прямые жанровые маркеры (X simulator / X simulation)
