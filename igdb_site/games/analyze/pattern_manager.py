@@ -53,7 +53,7 @@ class PatternManager:
             r'\baction\b(?:(?!\.|\!|\?|\n).){0,30}?\bgames?\b',
             r'\baction(?!-)\b(?:(?!\.|\!|\?|\n).){0,30}?\b(?:adventure|thriller|rpg|strategy|puzzle|platformer|shooter|horror|survival|stealth|racing|fighting|simulation|casual|indie|sports|MMO|role-playing?)\b',
             r'\b(?:instant|real-time|fast|rapid|sudden)(?:(?!\.|\!|\?|\n).){0,30}?\baction(?!-)\b',
-            # r'\baction\b',
+            r'\baction\b',
         ],
         # 'Adventure': [
         #     # Core genre markers for 'adventure' (from frequency analysis)
@@ -261,6 +261,9 @@ class PatternManager:
             # r'\bgame\s+(?:(?!\.|\!|\?|\n).){0,25}?\bshooter\b',
         ],
         'Simulator': [
+            # features simulation
+            r'\bfeatures?\s+(?:(?!\.|\!|\?|\n).){0,25}?\bsimulation\b',
+            r'\bsimulation\s+(?:(?!\.|\!|\?|\n).){0,25}?\bfeatures?\b',
             # Прямые жанровые маркеры (X simulator / X simulation)
             r'(?i)\b(?:life|farming|flight|truck|business|construction|police|wolf|animal|driving|combat|space|social|dating|city)\s+simulat(?:ion|or)\b',
         ],
