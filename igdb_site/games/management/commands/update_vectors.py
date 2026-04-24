@@ -17,6 +17,12 @@ class Command(BaseCommand):
 
         self._check_and_clear_locks()
 
+        # КРИТИЧЕСКИ ВАЖНО: увеличиваем work_mem для этой сессии
+        with connection.cursor() as cursor:
+            cursor.execute("SET work_mem = '1GB'")
+            cursor.execute("SET maintenance_work_mem = '2GB'")
+            self.stdout.write(self.style.WARNING('   ⚙️ work_mem = 1GB, maintenance_work_mem = 2GB'))
+
         with connection.cursor() as cursor:
             cursor.execute("SELECT COUNT(*) FROM games_game")
             total_games = cursor.fetchone()[0]
@@ -53,88 +59,131 @@ class Command(BaseCommand):
             non_empty_stats = cursor.fetchone()
 
         self.stdout.write(self.style.WARNING(f'\n📊 Статистика ДО обновления:'))
-        self.stdout.write(f'   Всего игр в базе: {total_games}')
-        self.stdout.write(f'   Игр с непустыми векторами: {non_empty_stats[0] if non_empty_stats else 0}')
-        self.stdout.write(f'   Пустые genre_ids: {empty_stats[0]}')
-        self.stdout.write(f'   Пустые keyword_ids: {empty_stats[1]}')
-        self.stdout.write(f'   Пустые theme_ids: {empty_stats[2]}')
-        self.stdout.write(f'   Пустые perspective_ids: {empty_stats[3]}')
-        self.stdout.write(f'   Пустые developer_ids: {empty_stats[4]}')
-        self.stdout.write(f'   Пустые game_mode_ids: {empty_stats[5]}')
-        self.stdout.write(f'   Пустые engine_ids: {empty_stats[6]}')
+        self.stdout.write(f'   Всего игр в базе: {total_games:,}')
+        self.stdout.write(f'   Игр с непустыми векторами: {non_empty_stats[0] if non_empty_stats else 0:,}')
+        self.stdout.write(f'   Пустые genre_ids: {empty_stats[0]:,}')
+        self.stdout.write(f'   Пустые keyword_ids: {empty_stats[1]:,}')
+        self.stdout.write(f'   Пустые theme_ids: {empty_stats[2]:,}')
+        self.stdout.write(f'   Пустые perspective_ids: {empty_stats[3]:,}')
+        self.stdout.write(f'   Пустые developer_ids: {empty_stats[4]:,}')
+        self.stdout.write(f'   Пустые game_mode_ids: {empty_stats[5]:,}')
+        self.stdout.write(f'   Пустые engine_ids: {empty_stats[6]:,}')
 
         self.stdout.write(self.style.WARNING(f'\n🔄 Начинаю обновление векторов...'))
 
+        # ОПТИМИЗИРОВАННОЕ ОБНОВЛЕНИЕ С БАТЧИНГОМ
+        batch_size = 5000
+        total_updated = 0
+        total_cleaned = 0
+
+        # Получаем список ID игр
         with connection.cursor() as cursor:
-            self.stdout.write('   📦 Оптимизированное обновление через CTE...')
+            cursor.execute("SELECT id FROM games_game ORDER BY id")
+            game_ids = [row[0] for row in cursor.fetchall()]
 
-            cursor.execute("""
-                           WITH all_relations AS (SELECT game_id, 'genre' as rel_type, genre_id as rel_id
-                                                  FROM games_game_genres
-                                                  UNION ALL
-                                                  SELECT game_id, 'keyword', keyword_id
-                                                  FROM games_game_keywords
-                                                  UNION ALL
-                                                  SELECT game_id, 'theme', theme_id
-                                                  FROM games_game_themes
-                                                  UNION ALL
-                                                  SELECT game_id, 'perspective', playerperspective_id
-                                                  FROM games_game_player_perspectives
-                                                  UNION ALL
-                                                  SELECT game_id, 'developer', company_id
-                                                  FROM games_game_developers
-                                                  UNION ALL
-                                                  SELECT game_id, 'gamemode', gamemode_id
-                                                  FROM games_game_game_modes
-                                                  UNION ALL
-                                                  SELECT game_id, 'engine', gameengine_id
-                                                  FROM games_game_engines),
-                                aggregated AS (SELECT game_id,
-                                                      array_agg(DISTINCT CASE WHEN rel_type = 'genre' THEN rel_id END) FILTER (WHERE rel_type = 'genre') as genre_ids, array_agg(DISTINCT CASE WHEN rel_type = 'keyword' THEN rel_id END) FILTER (WHERE rel_type = 'keyword') as keyword_ids, array_agg(DISTINCT CASE WHEN rel_type = 'theme' THEN rel_id END) FILTER (WHERE rel_type = 'theme') as theme_ids, array_agg(DISTINCT CASE WHEN rel_type = 'perspective' THEN rel_id END) FILTER (WHERE rel_type = 'perspective') as perspective_ids, array_agg(DISTINCT CASE WHEN rel_type = 'developer' THEN rel_id END) FILTER (WHERE rel_type = 'developer') as developer_ids, array_agg(DISTINCT CASE WHEN rel_type = 'gamemode' THEN rel_id END) FILTER (WHERE rel_type = 'gamemode') as game_mode_ids, array_agg(DISTINCT CASE WHEN rel_type = 'engine' THEN rel_id END) FILTER (WHERE rel_type = 'engine') as engine_ids
-                                               FROM all_relations
-                                               GROUP BY game_id)
-                           UPDATE games_game g
-                           SET genre_ids       = COALESCE(a.genre_ids, ARRAY[]::integer[]),
-                               keyword_ids     = COALESCE(a.keyword_ids, ARRAY[]::integer[]),
-                               theme_ids       = COALESCE(a.theme_ids, ARRAY[]::integer[]),
-                               perspective_ids = COALESCE(a.perspective_ids, ARRAY[]::integer[]),
-                               developer_ids   = COALESCE(a.developer_ids, ARRAY[]::integer[]),
-                               game_mode_ids   = COALESCE(a.game_mode_ids, ARRAY[]::integer[]),
-                               engine_ids      = COALESCE(a.engine_ids, ARRAY[]::integer[]) FROM aggregated a
-                           WHERE g.id = a.game_id
-                           """)
+        self.stdout.write(f'   📦 Обновление батчами по {batch_size} игр...')
 
-            updated_with_relations = cursor.rowcount
+        for i in range(0, len(game_ids), batch_size):
+            batch_ids = game_ids[i:i + batch_size]
+            ids_str = ','.join(str(id) for id in batch_ids)
 
-            cursor.execute("""
-                           UPDATE games_game
-                           SET genre_ids = ARRAY[]::integer[],
-                    keyword_ids = ARRAY[]::integer[],
-                    theme_ids = ARRAY[]::integer[],
-                    perspective_ids = ARRAY[]::integer[],
-                    developer_ids = ARRAY[]::integer[],
-                    game_mode_ids = ARRAY[]::integer[],
-                    engine_ids = ARRAY[]::integer[]
-                           WHERE id NOT IN (SELECT DISTINCT game_id FROM (
-                               SELECT game_id FROM games_game_genres UNION
-                               SELECT game_id FROM games_game_keywords UNION
-                               SELECT game_id FROM games_game_themes UNION
-                               SELECT game_id FROM games_game_player_perspectives UNION
-                               SELECT game_id FROM games_game_developers UNION
-                               SELECT game_id FROM games_game_game_modes UNION
-                               SELECT game_id FROM games_game_engines
-                               ) t)
-                           """)
+            with connection.cursor() as cursor:
+                # ОБНОВЛЕНИЕ С ИСПРАВЛЕННЫМИ igdb_id
+                cursor.execute(f"""
+                    WITH all_relations AS (
+                        SELECT game_id, 'genre' as rel_type, g.igdb_id as rel_id
+                        FROM games_game_genres gg
+                        JOIN games_genre g ON gg.genre_id = g.id
+                        WHERE gg.game_id IN ({ids_str})
+                        UNION ALL
+                        SELECT game_id, 'keyword', k.igdb_id
+                        FROM games_game_keywords gk
+                        JOIN games_keyword k ON gk.keyword_id = k.id
+                        WHERE gk.game_id IN ({ids_str})
+                        UNION ALL
+                        SELECT game_id, 'theme', t.igdb_id
+                        FROM games_game_themes gt
+                        JOIN games_theme t ON gt.theme_id = t.id
+                        WHERE gt.game_id IN ({ids_str})
+                        UNION ALL
+                        SELECT game_id, 'perspective', pp.igdb_id
+                        FROM games_game_player_perspectives gpp
+                        JOIN games_playerperspective pp ON gpp.playerperspective_id = pp.id
+                        WHERE gpp.game_id IN ({ids_str})
+                        UNION ALL
+                        SELECT game_id, 'developer', c.igdb_id
+                        FROM games_game_developers gd
+                        JOIN games_company c ON gd.company_id = c.id
+                        WHERE gd.game_id IN ({ids_str})
+                        UNION ALL
+                        SELECT game_id, 'gamemode', gm.igdb_id
+                        FROM games_game_game_modes ggm
+                        JOIN games_gamemode gm ON ggm.gamemode_id = gm.id
+                        WHERE ggm.game_id IN ({ids_str})
+                        UNION ALL
+                        SELECT game_id, 'engine', ge.igdb_id
+                        FROM games_game_engines gge
+                        JOIN games_gameengine ge ON gge.gameengine_id = ge.id
+                        WHERE gge.game_id IN ({ids_str})
+                    ),
+                    aggregated AS (
+                        SELECT game_id,
+                               array_agg(DISTINCT rel_id) FILTER (WHERE rel_type = 'genre') as genre_ids,
+                               array_agg(DISTINCT rel_id) FILTER (WHERE rel_type = 'keyword') as keyword_ids,
+                               array_agg(DISTINCT rel_id) FILTER (WHERE rel_type = 'theme') as theme_ids,
+                               array_agg(DISTINCT rel_id) FILTER (WHERE rel_type = 'perspective') as perspective_ids,
+                               array_agg(DISTINCT rel_id) FILTER (WHERE rel_type = 'developer') as developer_ids,
+                               array_agg(DISTINCT rel_id) FILTER (WHERE rel_type = 'gamemode') as game_mode_ids,
+                               array_agg(DISTINCT rel_id) FILTER (WHERE rel_type = 'engine') as engine_ids
+                        FROM all_relations
+                        GROUP BY game_id
+                    )
+                    UPDATE games_game g
+                    SET genre_ids = COALESCE(a.genre_ids, ARRAY[]::integer[]),
+                        keyword_ids = COALESCE(a.keyword_ids, ARRAY[]::integer[]),
+                        theme_ids = COALESCE(a.theme_ids, ARRAY[]::integer[]),
+                        perspective_ids = COALESCE(a.perspective_ids, ARRAY[]::integer[]),
+                        developer_ids = COALESCE(a.developer_ids, ARRAY[]::integer[]),
+                        game_mode_ids = COALESCE(a.game_mode_ids, ARRAY[]::integer[]),
+                        engine_ids = COALESCE(a.engine_ids, ARRAY[]::integer[])
+                    FROM aggregated a
+                    WHERE g.id = a.game_id
+                """)
+                total_updated += cursor.rowcount
 
-            updated_without_relations = cursor.rowcount
+            # Очистка игр без связей в этом батче
+            with connection.cursor() as cursor:
+                cursor.execute(f"""
+                    UPDATE games_game
+                    SET genre_ids = ARRAY[]::integer[],
+                        keyword_ids = ARRAY[]::integer[],
+                        theme_ids = ARRAY[]::integer[],
+                        perspective_ids = ARRAY[]::integer[],
+                        developer_ids = ARRAY[]::integer[],
+                        game_mode_ids = ARRAY[]::integer[],
+                        engine_ids = ARRAY[]::integer[]
+                    WHERE id IN ({ids_str})
+                      AND id NOT IN (
+                          SELECT DISTINCT game_id FROM (
+                              SELECT game_id FROM games_game_genres WHERE game_id IN ({ids_str}) UNION
+                              SELECT game_id FROM games_game_keywords WHERE game_id IN ({ids_str}) UNION
+                              SELECT game_id FROM games_game_themes WHERE game_id IN ({ids_str}) UNION
+                              SELECT game_id FROM games_game_player_perspectives WHERE game_id IN ({ids_str}) UNION
+                              SELECT game_id FROM games_game_developers WHERE game_id IN ({ids_str}) UNION
+                              SELECT game_id FROM games_game_game_modes WHERE game_id IN ({ids_str}) UNION
+                              SELECT game_id FROM games_game_engines WHERE game_id IN ({ids_str})
+                          ) t
+                      )
+                """)
+                total_cleaned += cursor.rowcount
 
-            self.stdout.write(f'   ✅ Обновлено игр со связями: {updated_with_relations:,}')
-            self.stdout.write(f'   ✅ Очищено игр без связей: {updated_without_relations:,}')
+            # Прогресс
+            progress = (i + len(batch_ids)) / len(game_ids) * 100
+            self.stdout.write(
+                f'   📍 Батч {i // batch_size + 1}/{(len(game_ids) - 1) // batch_size + 1}: {progress:.1f}% | Обновлено: {total_updated:,} | Очищено: {total_cleaned:,}')
 
         cache.clear()
-
         self._clear_game_card_cache()
-
         self._clear_filter_section_cache()
 
         with connection.cursor() as cursor:
@@ -152,8 +201,9 @@ class Command(BaseCommand):
 
         total_time = time.time() - start_time
 
-        self.stdout.write(
-            self.style.SUCCESS(f'\n✅ Обновлено записей: {updated_with_relations + updated_without_relations}'))
+        self.stdout.write(self.style.SUCCESS(f'\n✅ Обновлено записей: {total_updated + total_cleaned:,}'))
+        self.stdout.write(self.style.SUCCESS(f'✅ Из них обновлено со связями: {total_updated:,}'))
+        self.stdout.write(self.style.SUCCESS(f'✅ Из них очищено без связей: {total_cleaned:,}'))
         self.stdout.write(self.style.SUCCESS(f'✅ Кэш Django очищен'))
         self.stdout.write(self.style.SUCCESS(f'✅ Кэш карточек игр очищен'))
         self.stdout.write(self.style.SUCCESS(f'✅ Кэш секций фильтров очищен'))
@@ -207,6 +257,37 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f'\n{"=" * 60}'))
         self.stdout.write(self.style.SUCCESS('ОБНОВЛЕНИЕ ЗАВЕРШЕНО'))
         self.stdout.write(self.style.SUCCESS(f'{"=" * 60}\n'))
+
+    def _ensure_gin_indexes(self):
+        """
+        Создает GIN индексы для полей-массивов для ускорения поиска похожих игр.
+        GIN индексы эффективнее B-tree для операторов && (пересечение) и @> (содержит).
+        """
+        self.stdout.write(self.style.WARNING('\n🔍 Проверка GIN индексов для массивов...'))
+
+        gin_indexes = [
+            ("idx_game_genre_ids_gin", "genre_ids", "gin__int_ops"),
+            ("idx_game_keyword_ids_gin", "keyword_ids", "gin__int_ops"),
+            ("idx_game_theme_ids_gin", "theme_ids", "gin__int_ops"),
+            ("idx_game_perspective_ids_gin", "perspective_ids", "gin__int_ops"),
+            ("idx_game_developer_ids_gin", "developer_ids", "gin__int_ops"),
+            ("idx_game_game_mode_ids_gin", "game_mode_ids", "gin__int_ops"),
+            ("idx_game_engine_ids_gin", "engine_ids", "gin__int_ops"),
+        ]
+
+        with connection.cursor() as cursor:
+            for index_name, column, opclass in gin_indexes:
+                try:
+                    cursor.execute(f"""
+                        CREATE INDEX CONCURRENTLY IF NOT EXISTS {index_name}
+                        ON games_game USING gin ({column} {opclass})
+                    """)
+                    self.stdout.write(self.style.SUCCESS(f'   ✅ Создан индекс {index_name}'))
+                except Exception as e:
+                    if 'already exists' not in str(e).lower():
+                        self.stdout.write(self.style.WARNING(f'   ⚠️ {index_name}: {e}'))
+
+        self.stdout.write(self.style.SUCCESS('   ✅ Проверка GIN индексов завершена'))
 
     def _clear_filter_section_cache(self):
         """Очищает кэш секций фильтров."""

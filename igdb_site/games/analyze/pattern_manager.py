@@ -208,15 +208,42 @@ class PatternManager:
             r'\b(?:skill\w*|class|classes|abilit\w*|stat|stats|attribut\w*|trait|traits|equip\w*)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:system\w*|tree\w*|progression\w*|point\w*|slot\w*|inventory\w*|loadout\w*|abilit\w*|skill\w*|unit\w*|class|classes|stat|stats|perk\w*|trait|traits|upgrad\w*|craft\w*)\b',
         ],
         'Sandbox': [
-            r'\bsandbox(?:\s+(?:game|experience|environment|world|mode|gameplay))?\b',
-            r'\bsandbox-style\s+(?:gameplay|progression|design)\b',
-            r'\b(?:emergent|player-driven)\s+(?:gameplay|systems|narrative)\b',
-            r'\b(?:create|build|shape|manipulate)\s+(?:the\s+)?(?:world|environment|everything)\s+as\s+you\s+see\s+fit\b',
+            r'\bsandbox\w*\b',
         ],
         'Shooter': [
-            r'\bshooter(?:\s+(?:game|title|genre|experience))?\b',
-            r'\b(?:fps|tps)\s+(?:game|shooter)\b',
-            r'\b(?:first|third)-person\s+shooter\b',
+            r'\bshooter\b',
+            # # Из ТОП-20 фраз: 'first-person shooter' (124 вхождения)
+            # r'\bfirst-person\s+(?:(?!\.|\!|\?|\n).){0,25}?\bshooter\b',
+            #
+            # # Из ТОП-20 слов: 'third-person' (114 вхождений)
+            # r'\bthird-person\s+(?:(?!\.|\!|\?|\n).){0,25}?\bshooter\b',
+            #
+            # # Из ТОП-20 слов: 'multiplayer' (178 вхождений)
+            # r'\bmultiplayer\s+(?:(?!\.|\!|\?|\n).){0,25}?\bshooter\b',
+            #
+            # # Из ТОП-20 слов: 'extraction' (40 вхождений)
+            # r'\bextraction\s+(?:(?!\.|\!|\?|\n).){0,25}?\bshooter\b',
+            #
+            # # Из ТОП-20 слов: 'hero' (106 вхождений)
+            # r'\bhero\s+(?:(?!\.|\!|\?|\n).){0,25}?\bshooter\b',
+            #
+            # # Из ТОП-20 слов: 'tactical' (81 вхождение)
+            # r'\btactical\s+(?:(?!\.|\!|\?|\n).){0,25}?\bshooter\b',
+            #
+            # # Из ТОП-20 слов: 'arena' (73 вхождения)
+            # r'\barena\s+(?:(?!\.|\!|\?|\n).){0,25}?\bshooter\b',
+            #
+            # # Из ТОП-20 слов: 'survival' (122 вхождения)
+            # r'\bsurvival\s+(?:(?!\.|\!|\?|\n).){0,25}?\bshooter\b',
+            # r'\bshooter\s+(?:(?!\.|\!|\?|\n).){0,25}?\bsurvival\b',
+            #
+            # # Из ТОП-20 слов: 'action' (223 вхождения)
+            # r'\baction\s+(?:(?!\.|\!|\?|\n).){0,25}?\bshooter\b',
+            # r'\bshooter\s+(?:(?!\.|\!|\?|\n).){0,25}?\baction\b',
+            #
+            # # Shooter + Game (из контекста анализа: 'shooter game' встречается)
+            # r'\bshooter\s+(?:(?!\.|\!|\?|\n).){0,25}?\bgame\b',
+            # r'\bgame\s+(?:(?!\.|\!|\?|\n).){0,25}?\bshooter\b',
         ],
         'Simulator': [
             # Прямые жанровые маркеры (X simulator / X simulation)
@@ -278,9 +305,73 @@ class PatternManager:
             r'\b(?:dialogue|conversation)\s+(?:choices?|options?|system)\b',
             r'\b(?:read|experience)\s+(?:a\s+)?(?:story|narrative)\s+with\s+(?:multiple\s+)?endings\b',
         ],
+        'Built-in Editors': [
+            r'\b(?:level\w*|map\w*|mission\w*|scenario\w*|campaign\w*|world\w*|terrain\w*|character\w*|item\w*|weapon\w*|spell\w*|script\w*|built-in\w*|in-game\w*|design\w*|build\w*|mak\w*|shar\w*|steam)\s+(?:(?!\.|\!|\?|\n).){0,25}?\beditor\w*\b',
+        ],
     }
 
     THEME_PATTERNS = {
+        'Modding': [
+            r'\b(?:mods?|modding)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:support|tools?|system|community|workshop|content)\b',
+
+            r'\bsteam\s+(?:(?!\.|\!|\?|\n).){0,25}?\bworkshop\b',
+            r'\bworkshop\s+(?:(?!\.|\!|\?|\n).){0,25}?\bsupport\b',
+
+            r'\b(?:creat\w*|mak\w*|build\w*|design\w*|add\w*|install\w*|use\w*)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:mods?|modding)\b',
+        ],
+        'Procedural Generation': [
+            # procedurally + world/worlds
+            r'\bprocedurall?y\s+(?:(?!\.|\!|\?|\n).){0,25}?\bworld(?:s)?\b',
+            r'\bworld(?:s)?\s+(?:(?!\.|\!|\?|\n).){0,25}?\bprocedurall?y\b',
+
+            # procedurally + dungeon(s)
+            r'\bprocedurall?y\s+(?:(?!\.|\!|\?|\n).){0,25}?\bdungeon(?:s)?\b',
+            r'\bdungeon(?:s)?\s+(?:(?!\.|\!|\?|\n).){0,25}?\bprocedurall?y\b',
+
+            # procedurally + level(s)
+            r'\bprocedurall?y\s+(?:(?!\.|\!|\?|\n).){0,25}?\blevel(?:s)?\b',
+            r'\blevel(?:s)?\s+(?:(?!\.|\!|\?|\n).){0,25}?\bprocedurall?y\b',
+
+            # procedurally + map(s)
+            r'\bprocedurall?y\s+(?:(?!\.|\!|\?|\n).){0,25}?\bmap(?:s)?\b',
+            r'\bmap(?:s)?\s+(?:(?!\.|\!|\?|\n).){0,25}?\bprocedurall?y\b',
+
+            # # randomly + generated (основная коллокация)
+            # r'\brandomly\s+(?:(?!\.|\!|\?|\n).){0,25}?\bgenerat(?:ed|ing|es)?\b',
+            # r'\bgenerat(?:ed|ing|es)?\s+(?:(?!\.|\!|\?|\n).){0,25}?\brandomly\b',
+
+            # # random + generation
+            # r'\brandom(?:ly)?\s+(?:(?!\.|\!|\?|\n).){0,25}?\bgenerat(?:ion|ed|ing|es)?\b',
+            # r'\bgenerat(?:ion|ed|ing|es)?\s+(?:(?!\.|\!|\?|\n).){0,25}?\brandom(?:ly)?\b',
+
+            # procedural + generation
+            r'\bprocedural\s+(?:(?!\.|\!|\?|\n).){0,25}?\bgenerat(?:ion|ed|ing|es)?\b',
+
+            # dungeon + generation
+            r'\bdungeon(?:s)?\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:generation)\b',
+            r'\b(?:generation)\s+(?:(?!\.|\!|\?|\n).){0,25}?\bdungeon(?:s)?\b',
+
+            # world + generation
+            r'\bworld(?:s)?\s+(?:(?!\.|\!|\?|\n).){0,25}?\bgenerat(?:ion|ed|ing|es)?\b',
+            r'\bgenerat(?:ion|ed|ing|es)?\s+(?:(?!\.|\!|\?|\n).){0,25}?\bworld(?:s)?\b',
+
+            # level + generation + procedural (упрощенная версия двух ключевых слов)
+            r'\blevel(?:s)?\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:procedural|random|generat(?:ed|ion)?)\b',
+            r'\b(?:procedural|random|generat(?:ed|ion)?)\s+(?:(?!\.|\!|\?|\n).){0,25}?\blevel(?:s)?\b',
+
+            # # enemy + generation
+            # r'\bgenerat(?:ed|ion|ing)?\s+(?:(?!\.|\!|\?|\n).){0,25}?\benemi(?:es|e?s)\b',
+            #
+            # # loot + generation
+            # r'\bgenerat(?:ed|ion|ing)?\s+(?:(?!\.|\!|\?|\n).){0,25}?\bloot\b',
+
+            # randomly + level(s)
+            r'\brandomly\s+(?:(?!\.|\!|\?|\n).){0,25}?\blevel(?:s)?\b',
+            r'\blevel(?:s)?\s+(?:(?!\.|\!|\?|\n).){0,25}?\brandomly\b',
+
+            # dynamically + generation/levels
+            r'\bdynamicall?y\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:generat(?:e|ed|ion|ing)|levels?)\b',
+        ],
         '4X (explore, expand, exploit, and exterminate)': [
             r'\b4x(?:\s+(?:game|strategy))?\b',
             r'\b(?:explore|expand|exploit|exterminate)\b.*\b(?:explore|expand|exploit|exterminate)\b',

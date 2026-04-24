@@ -2,13 +2,21 @@
 {% extends 'base.html' %}
 {% load static %}
 
-{% block title %}GamesPeek - Discover Amazing Games{% endblock %}
+{% block title %}GamesPeek - Discover Amazing Games. Search and Compare Video Games{% endblock %}
+
+{% block meta_tags %}
+    <meta name="description"
+          content="GamesPeek - video game discovery platform with intelligent similar game search, comparison tools, and extensive database of thousands of games across all platforms.">
+    <meta name="keywords"
+          content="video games, game search, similar games, game comparison, game database, IGDB, game recommendations, find games">
+    <meta name="robots" content="index, follow">
+{% endblock %}
 
 {% block extra_css %}
     <link rel="stylesheet" href="{% static 'games/css/home/hero.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/home/quick-filters.css' %}">
-    <link rel="stylesheet" href="{% static 'games/css/home/how-it-works.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/home/carousel.css' %}">
+    <link rel="stylesheet" href="{% static 'games/css/home/how-it-works.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -94,6 +102,51 @@
         </div>
     </div>
 
+    <!-- SEO Text Block - Added for Google Indexing -->
+    <div class="seo-content" style="padding: 2rem 0; border-top: 1px solid var(--border); margin-top: 2rem;">
+        <div class="container">
+            <h2 style="font-size: 1.8rem; margin-bottom: 1.5rem;">About GamesPeek</h2>
+            <p style="margin-bottom: 1rem; line-height: 1.6;">
+                GamesPeek is a comprehensive video game discovery platform powered by the IGDB API.
+                Our database contains thousands of games across all major platforms including PC,
+                PlayStation, Xbox, Nintendo Switch, and mobile devices.
+            </p>
+            <p style="margin-bottom: 1rem; line-height: 1.6;">
+                Whether you're looking for similar games to your favorites, want to compare game
+                features side by side, or simply browse the latest releases - GamesPeek provides
+                powerful search and filtering tools to help you find your next gaming adventure.
+            </p>
+
+            <h3 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">Key Features</h3>
+            <ul style="margin-bottom: 1.5rem; padding-left: 1.5rem;">
+                <li style="margin-bottom: 0.5rem;">Search games by title, genres, platforms, themes, and keywords</li>
+                <li style="margin-bottom: 0.5rem;">Intelligent similar game algorithm based on multiple criteria</li>
+                <li style="margin-bottom: 0.5rem;">Compare game specifications, ratings, and features</li>
+                <li style="margin-bottom: 0.5rem;">Filter by release year, rating, popularity, and many more
+                    parameters
+                </li>
+                <li style="margin-bottom: 0.5rem;">Detailed information including system requirements, developers,
+                    publishers
+                </li>
+            </ul>
+
+            <h3 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">Popular Game Categories</h3>
+            <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem;">
+                {% for keyword in popular_keywords|slice:":12" %}
+                    <a href="{% url 'game_list' %}?k={{ keyword.id }}"
+                       style="display: inline-block; padding: 0.3rem 0.8rem; background: var(--surface); border: 1px solid var(--border); border-radius: 20px; text-decoration: none; color: var(--text-dark); font-size: 0.85rem;">
+                        {{ keyword.name }}
+                    </a>
+                {% endfor %}
+            </div>
+
+            <p style="margin-bottom: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">
+                GamesPeek helps gamers discover titles similar to their favorites through advanced
+                matching algorithms that analyze genres, themes, gameplay mechanics, and player perspectives.
+            </p>
+        </div>
+    </div>
+
     <!-- How It Works Section -->
     <div class="how-it-works">
         <h3>How It Works</h3>
@@ -123,89 +176,5 @@
 {% endblock %}
 
 {% block extra_js %}
-    <script>
-        function moveCarousel(trackId, direction) {
-            const track = document.getElementById(trackId);
-            if (!track) return;
-
-            const slides = track.children;
-            if (slides.length === 0) return;
-
-            const slideWidth = slides[0]?.offsetWidth || 0;
-            const gap = 24;
-            const visibleSlides = window.innerWidth <= 576 ? 1 : window.innerWidth <= 992 ? 2 : 4;
-            const scrollAmount = (slideWidth + gap) * visibleSlides;
-
-            let currentTransform = track.style.transform;
-            let currentTranslate = 0;
-            if (currentTransform) {
-                const match = currentTransform.match(/translateX\(([-\d.]+)px\)/);
-                if (match) currentTranslate = parseFloat(match[1]);
-            }
-
-            let newTranslate = currentTranslate - (direction * scrollAmount);
-            const maxTranslate = 0;
-            const minTranslate = -((slides.length - visibleSlides) * (slideWidth + gap));
-            newTranslate = Math.max(minTranslate, Math.min(maxTranslate, newTranslate));
-
-            track.style.transform = `translateX(${newTranslate}px)`;
-
-            const currentIndex = Math.abs(Math.round(newTranslate / (slideWidth + gap)));
-            updateIndicators(trackId.replace('CarouselTrack', 'CarouselIndicators'), currentIndex, slides.length);
-        }
-
-        function updateIndicators(indicatorsId, currentIndex, totalSlides) {
-            const indicators = document.getElementById(indicatorsId);
-            if (!indicators) return;
-
-            indicators.innerHTML = '';
-            for (let i = 0; i < totalSlides; i++) {
-                const dot = document.createElement('span');
-                dot.className = `carousel-dot ${i === currentIndex ? 'active' : ''}`;
-                dot.onclick = (function(idx) {
-                    return function() { goToSlide(indicatorsId.replace('CarouselIndicators', 'CarouselTrack'), idx); };
-                })(i);
-                indicators.appendChild(dot);
-            }
-        }
-
-        function goToSlide(trackId, slideIndex) {
-            const track = document.getElementById(trackId);
-            if (!track) return;
-
-            const slides = track.children;
-            if (slides.length === 0) return;
-
-            const slideWidth = slides[0]?.offsetWidth || 0;
-            const gap = 24;
-            const visibleSlides = window.innerWidth <= 576 ? 1 : window.innerWidth <= 992 ? 2 : 4;
-            const maxIndex = slides.length - visibleSlides;
-            const targetIndex = Math.max(0, Math.min(slideIndex, maxIndex));
-            const newTranslate = -(targetIndex * (slideWidth + gap));
-
-            track.style.transform = `translateX(${newTranslate}px)`;
-            updateIndicators(trackId.replace('CarouselTrack', 'CarouselIndicators'), targetIndex, slides.length);
-        }
-
-        function initHomeCarousels() {
-            const popularTrack = document.getElementById('popularCarouselTrack');
-            const recentTrack = document.getElementById('recentCarouselTrack');
-
-            if (popularTrack && popularTrack.children.length > 0) {
-                updateIndicators('popularCarouselIndicators', 0, popularTrack.children.length);
-            }
-            if (recentTrack && recentTrack.children.length > 0) {
-                updateIndicators('recentCarouselIndicators', 0, recentTrack.children.length);
-            }
-        }
-
-        document.addEventListener('DOMContentLoaded', initHomeCarousels);
-        window.addEventListener('resize', function() {
-            initHomeCarousels();
-            const popularTrack = document.getElementById('popularCarouselTrack');
-            const recentTrack = document.getElementById('recentCarouselTrack');
-            if (popularTrack) goToSlide('popularCarouselTrack', 0);
-            if (recentTrack) goToSlide('recentCarouselTrack', 0);
-        });
-    </script>
+    <script src="{% static 'games/js/home/carousel.js' %}"></script>
 {% endblock %}
