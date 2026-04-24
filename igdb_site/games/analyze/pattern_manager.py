@@ -102,10 +102,25 @@ class PatternManager:
             r'\bturn-based\s+(?:board|card)\s+(?:game|combat|strategy)\b',
         ],
         'Engineering': [
-            r'\b(?:build|operate|maintain|manage)\s+(?:(?!\.|\!|\?|\n).){0,30}?\b(?:reactor|engine|wiring|circuits?|hull|submarine|vessel|sonar|pumps?|machinery)\b',
-            r'\b(?:design|build|construct)\s+(?:(?!\.|\!|\?|\n).){0,30}?\b(?:machines?|vehicles?|devices?|contraptions?|submarines?|vessels?)\b',
-            r'\b(?:nuclear\s+reactor|wiring\s+system|power\s+grid|engine\s+control)\s+(?:operation|management|mechanics)\b',
-            r'\b(?:operate|repair|fix|maintain)\s+(?:(?!\.|\!|\?|\n).){0,30}?\b(?:submarine|reactor|engine|pump|sonar|hull|wiring|circuit|machinery|on-board\s+systems?)\b',
+            # r'\b(?:build\w*|maintain\w*)\s+(?:(?!\.|\!|\?|\n).){0,30}?\b(?:reactors?|wiring|circuits?|submarines?|sonars?|pumps?|machinery)\b',
+            # r'\b(?:build\w*|construct\w*)\s+(?:(?!\.|\!|\?|\n).){0,30}?\b(?:machines?|vehicles?|devices?|contraptions?|submarines??)\b',
+            # r'\b(?:repair\w*|fix\w*|maintain\w*)\s+(?:(?!\.|\!|\?|\n).){0,30}?\b(?:submarines?|reactors?|engines?|pumpS?|sonars?|wiring|circuits?|machinery|on-board)\b',
+
+            # wiring + system
+            r'\bwiring\s+(?:(?!\.|\!|\?|\n).){0,25}?\bsystems?\b',
+
+            # machines + mechanical (на основе: 'War machines, mechanical puzzles')
+            r'\bmechanical\s+(?:(?!\.|\!|\?|\n).){0,25}?\bmachines?\b',
+
+            # mechanical + systems (на основе: 'mechanical systems')
+            r'\bmechanical\s+(?:(?!\.|\!|\?|\n).){0,25}?\bsystems?\b',
+
+            # circuit + system
+            r'\bcircuit\s+(?:(?!\.|\!|\?|\n).){0,25}?\bsystems?\b',
+            r'\bsystems?\s+(?:(?!\.|\!|\?|\n).){0,25}?\bcircuit\b',
+
+            # circuit + design
+            r'\bcircuit\s+(?:(?!\.|\!|\?|\n).){0,25}?\bdesign\b',
         ],
         'Grid-Based': [
             r'\b\d+\s*[x×]\s*\d+\s+grid(?:-shaped)?\b',
