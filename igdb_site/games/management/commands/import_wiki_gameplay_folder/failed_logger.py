@@ -92,6 +92,11 @@ class FailedGamesLogger:
                             failed_ids.add(game_id)
                         except ValueError:
                             continue
+
+            # Добавляем вывод для отладки
+            if failed_ids:
+                print(f"📋 Загружено {len(failed_ids)} ID из файла {self.filename}")
+
         except Exception as e:
             print(f"⚠️  Ошибка чтения файла ошибок: {e}")
 

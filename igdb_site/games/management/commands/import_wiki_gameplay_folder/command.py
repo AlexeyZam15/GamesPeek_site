@@ -29,6 +29,15 @@ class Command(BaseCommand):
 
     async def async_handle(self, *args, **options):
         """Асинхронный обработчик команды"""
+
+        # Включаем debug логирование если нужно
+        if options.get('debug'):
+            import logging
+            logging.basicConfig(level=logging.DEBUG)
+            logger = logging.getLogger(__name__)
+            logger.setLevel(logging.DEBUG)
+            print(f"🐛 РЕЖИМ ОТЛАДКИ ВКЛЮЧЕН\n")
+
         self.show_header()
 
         # Определяем лимит
@@ -155,7 +164,9 @@ class Command(BaseCommand):
 
         async with AsyncWikiImporter(
                 lang=options.get('lang', 'en'),
-                max_concurrent=options.get('max_concurrent', 50)
+                max_concurrent=options.get('max_concurrent', 3),  # По умолчанию 3 вместо 50
+                username=options.get('wiki_user'),
+                password=options.get('wiki_password')
         ) as importer:
 
             results = {}
@@ -398,8 +409,11 @@ class Command(BaseCommand):
         not_found_ids = set()
         if not include_not_found:
             not_found_ids = failed_logger.get_failed_ids_from_file()
-            if not_found_ids and debug_mode:
+            # Всегда показываем сообщение, не только в debug режиме
+            if not_found_ids:
                 print(f"⏭️  Пропускаем {len(not_found_ids):,} игр из файла ненайденных")
+            elif debug_mode:
+                print(f"ℹ️  Файл ошибок пуст, ничего не пропускается")
         elif debug_mode:
             print(f"⚠️  Включены игры из файла ненайденных (--include-not-found)")
 
