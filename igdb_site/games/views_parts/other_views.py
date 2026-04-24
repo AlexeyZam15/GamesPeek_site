@@ -245,12 +245,19 @@ def _get_home_context() -> Dict:
             cached_usage_count__gt=0
         ).only('id', 'name').order_by('-cached_usage_count')[:20])
 
+        popular_genres = list(Genre.objects.annotate(
+            total_game_count=Count('game')
+        ).filter(
+            total_game_count__gt=0
+        ).order_by('-total_game_count', 'name').only('id', 'name')[:20])
+
         query_count = len(connection.queries)
 
         context = {
             'popular_cards': popular_cards,
             'recent_cards': recent_cards,
             'popular_keywords': popular_keywords,
+            'popular_genres': popular_genres,
             'execution_time': round(time.time() - start_time, 3),
             'query_count': query_count,
             'cached': False,
@@ -275,6 +282,7 @@ def _get_home_context() -> Dict:
             'popular_cards': [],
             'recent_cards': [],
             'popular_keywords': [],
+            'popular_genres': [],
             'show_similarity': False,
             'source_game': None,
             'selected_genres': [],
