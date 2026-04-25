@@ -44,6 +44,18 @@ class Command(BaseCommand):
             help='Путь к файлу для сохранения ошибок (по умолчанию: add_new_keywords_errors.txt)'
         )
         parser.add_argument(
+            '--found-output',
+            type=str,
+            default='add_new_keywords_found.txt',
+            help='Путь к файлу для сохранения найденных ключевых слов (по умолчанию: add_new_keywords_found.txt)'
+        )
+        parser.add_argument(
+            '--skipped-output',
+            type=str,
+            default='add_new_keywords_skipped.txt',
+            help='Путь к файлу для сохранения пропущенных ключевых слов (по умолчанию: add_new_keywords_skipped.txt)'
+        )
+        parser.add_argument(
             '--dry-run',
             action='store_true',
             help='Режим просмотра: найти ключевые слова, но не добавлять в БД (файл сохраняется)'
@@ -103,6 +115,11 @@ class Command(BaseCommand):
             action='store_true',
             help='Пропустить этап анализа (использовать ранее сохранённые данные)'
         )
+        parser.add_argument(
+            '--delete-stopwords',
+            action='store_true',
+            help='Удалить из БД все ключевые слова, которые входят в список стоп-слов'
+        )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -154,6 +171,8 @@ class Command(BaseCommand):
         # Сохраняем опции
         self.output_path = options['output']
         self.errors_output_path = options['errors_output']
+        self.found_output_path = options.get('found_output', 'add_new_keywords_found.txt')
+        self.skipped_output_path = options.get('skipped_output', 'add_new_keywords_skipped.txt')
         self.dry_run = options['dry_run']
         self.game_name = options.get('game_name')
         self.limit = options.get('limit')
@@ -164,8 +183,14 @@ class Command(BaseCommand):
         self.no_progress = options.get('no_progress', False)
         self.clear_cache = options.get('clear_cache', False)
         self.skip_analysis = options.get('skip_analysis', False)
+        self.delete_stopwords = options.get('delete_stopwords', False)
 
         try:
+            # Если нужно удалить стоп-слова, выполняем только эту операцию
+            if self.delete_stopwords:
+                self._delete_stopwords_from_db()
+                return
+
             self.stdout.write("=" * 70)
             self.stdout.write("🔍 ДОБАВЛЕНИЕ НОВЫХ КЛЮЧЕВЫХ СЛОВ ИЗ ОПИСАНИЙ ИГР")
             self.stdout.write("=" * 70)
@@ -175,6 +200,8 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING("   Ключевые слова НЕ будут добавлены в БД"))
 
             self.stdout.write(f"📁 Результаты будут сохранены в файл: {self.output_path}")
+            self.stdout.write(f"📁 Найденные ключевые слова: {self.found_output_path}")
+            self.stdout.write(f"📁 Пропущенные ключевые слова: {self.skipped_output_path}")
             self.stdout.write(f"📁 Ошибки будут сохранены в файл: {self.errors_output_path}")
             self.stdout.write(f"📚 Источник текста: Комбинированные описания (IGDB, Wikipedia, RAWG, Storyline)")
             self.stdout.write(f"📏 Мин. длина слова: {self.min_word_length}")
@@ -225,7 +252,6 @@ class Command(BaseCommand):
                 self.stdout.write("=" * 70)
                 self.stdout.write("")
 
-                # Выводим легенду значков для этапа анализа
                 if not self.no_progress:
                     self.stdout.write("📊 ЛЕГЕНДА СТАТИСТИКИ (ЭТАП АНАЛИЗА):")
                     self.stdout.write("  📝 = игры с текстом")
@@ -239,6 +265,9 @@ class Command(BaseCommand):
 
                 self._print_analysis_stats()
                 self._save_analysis_results()
+
+                # СОХРАНЯЕМ НАЙДЕННЫЕ И ПРОПУЩЕННЫЕ СЛОВА В ОТДЕЛЬНЫЕ ФАЙЛЫ
+                self._save_found_and_skipped_words()
 
                 if self.analysis_stats['errors']:
                     self._save_errors_to_file(self.analysis_stats['errors'], "analysis")
@@ -255,7 +284,6 @@ class Command(BaseCommand):
                 self.stdout.write("=" * 70)
                 self.stdout.write("")
 
-                # Выводим легенду значков для этапа создания
                 if not self.no_progress:
                     self.stdout.write("📊 ЛЕГЕНДА СТАТИСТИКИ (ЭТАП СОЗДАНИЯ):")
                     self.stdout.write("  📚 = существующие ключевые слова")
@@ -289,6 +317,171 @@ class Command(BaseCommand):
                 import traceback
                 traceback.print_exc()
             raise
+
+    def _save_found_and_skipped_words(self):
+        """Сохраняет найденные и пропущенные ключевые слова в отдельные файлы в той же директории, что и output_path"""
+        try:
+            # Получаем директорию из output_path (если есть путь, иначе текущая директория)
+            output_dir = os.path.dirname(os.path.abspath(self.output_path))
+
+            # Формируем полные пути для файлов
+            found_path = os.path.join(output_dir, os.path.basename(self.found_output_path))
+            skipped_path = os.path.join(output_dir, os.path.basename(self.skipped_output_path))
+
+            # Сохраняем найденные ключевые слова
+            if self.analysis_stats['words_found']:
+                os.makedirs(output_dir, exist_ok=True)
+                with open(found_path, 'w', encoding='utf-8') as f:
+                    f.write("=" * 80 + "\n")
+                    f.write("НАЙДЕННЫЕ КЛЮЧЕВЫЕ СЛОВА\n")
+                    f.write(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"Всего найдено: {len(self.analysis_stats['words_found'])}\n")
+                    f.write("=" * 80 + "\n\n")
+                    f.write(", ".join(sorted(self.analysis_stats['words_found'])) + "\n")
+
+                if self.verbose:
+                    self.stdout.write(self.style.SUCCESS(f"✅ Найденные слова сохранены: {found_path}"))
+
+            # Сохраняем пропущенные ключевые слова (стоп-слова и слова не из WordNet)
+            skipped_words = set()
+            skipped_words.update(self.analysis_stats['stop_words_found'])
+            skipped_words.update(self.analysis_stats['words_not_in_wordnet'])
+
+            if skipped_words:
+                os.makedirs(output_dir, exist_ok=True)
+                with open(skipped_path, 'w', encoding='utf-8') as f:
+                    f.write("=" * 80 + "\n")
+                    f.write("ПРОПУЩЕННЫЕ КЛЮЧЕВЫЕ СЛОВА\n")
+                    f.write(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"Всего пропущено: {len(skipped_words)}\n")
+                    f.write(f"  - Стоп-слова: {len(self.analysis_stats['stop_words_found'])}\n")
+                    f.write(f"  - Слова не из WordNet: {len(self.analysis_stats['words_not_in_wordnet'])}\n")
+                    f.write("=" * 80 + "\n\n")
+
+                    if self.analysis_stats['stop_words_found']:
+                        f.write("СТОП-СЛОВА:\n")
+                        f.write("-" * 40 + "\n")
+                        f.write(", ".join(sorted(self.analysis_stats['stop_words_found'])) + "\n\n")
+
+                    if self.analysis_stats['words_not_in_wordnet']:
+                        f.write("СЛОВА НЕ ИЗ WORDNET:\n")
+                        f.write("-" * 40 + "\n")
+                        f.write(", ".join(sorted(self.analysis_stats['words_not_in_wordnet'])) + "\n")
+
+                if self.verbose:
+                    self.stdout.write(self.style.SUCCESS(f"✅ Пропущенные слова сохранены: {skipped_path}"))
+
+        except Exception as e:
+            self.stderr.write(self.style.ERROR(f"❌ Ошибка при сохранении файлов слов: {e}"))
+
+    def _delete_stopwords_from_db(self):
+        """Удаляет из базы данных все ключевые слова, которые входят в список стоп-слов"""
+        self.stdout.write("=" * 70)
+        self.stdout.write(self.style.WARNING("🗑️ УДАЛЕНИЕ СТОП-СЛОВ ИЗ БАЗЫ ДАННЫХ"))
+        self.stdout.write("=" * 70)
+
+        if self.dry_run:
+            self.stdout.write(self.style.WARNING("🔧 РЕЖИМ ПРОСМОТРА (--dry-run)"))
+
+        stop_words = self._get_stop_words()
+        self.stdout.write(f"📚 Загружено стоп-слов: {len(stop_words)}")
+        self.stdout.write("")
+
+        # Преобразуем стоп-слова в список для SQL запроса
+        stop_words_list = list(stop_words)
+
+        if not stop_words_list:
+            self.stdout.write(self.style.SUCCESS("✅ Нет стоп-слов для удаления"))
+            return
+
+        # Используем сырой SQL для подсчета и удаления, чтобы избежать ошибок кэширования
+        with connection.cursor() as cursor:
+            # Сначала подсчитываем количество ключевых слов для удаления
+            cursor.execute("""
+                           SELECT COUNT(*)
+                           FROM games_keyword
+                           WHERE name = ANY (%s)
+                           """, [stop_words_list])
+            count = cursor.fetchone()[0]
+
+            if count == 0:
+                self.stdout.write(self.style.SUCCESS("✅ Стоп-слова не найдены в базе данных"))
+                return
+
+            self.stdout.write(f"📊 Найдено ключевых слов-стоп-слов: {count}")
+
+            if self.verbose and count > 0:
+                self.stdout.write("\n📌 СПИСОК НАЙДЕННЫХ СТОП-СЛОВ:")
+                self.stdout.write("-" * 50)
+                cursor.execute("""
+                               SELECT id,
+                                      name,
+                                      (SELECT COUNT(*)
+                                       FROM games_game_keywords
+                                       WHERE keyword_id = games_keyword.id) as games_count
+                               FROM games_keyword
+                               WHERE name = ANY (%s)
+                               ORDER BY name LIMIT 20
+                               """, [stop_words_list])
+                rows = cursor.fetchall()
+                for row in rows:
+                    self.stdout.write(f"  • '{row[1]}' (ID: {row[0]}, игр: {row[2]})")
+                if count > 20:
+                    self.stdout.write(f"  ... и еще {count - 20} слов")
+
+            # Подсчитываем общее количество связей с играми
+            cursor.execute("""
+                           SELECT COUNT(*)
+                           FROM games_game_keywords
+                           WHERE keyword_id IN (SELECT id FROM games_keyword WHERE name = ANY (%s))
+                           """, [stop_words_list])
+            total_connections = cursor.fetchone()[0]
+
+            if total_connections > 0:
+                self.stdout.write(
+                    self.style.WARNING(f"\n⚠️ ВНИМАНИЕ: Будет удалено {total_connections} связей с играми!"))
+
+                if not self.dry_run:
+                    response = input("   Продолжить? (yes/no): ")
+                    if response.lower() != 'yes':
+                        self.stdout.write(self.style.WARNING("   Операция отменена"))
+                        return
+
+            if not self.dry_run:
+                self.stdout.write("\n🗑️ Удаление стоп-слов...")
+
+                # Отключаем проверки внешних ключей временно для скорости
+                cursor.execute("SET CONSTRAINTS ALL DEFERRED")
+
+                # Сначала удаляем связи из промежуточной таблицы
+                cursor.execute("""
+                               DELETE
+                               FROM games_game_keywords
+                               WHERE keyword_id IN (SELECT id FROM games_keyword WHERE name = ANY (%s))
+                               """, [stop_words_list])
+                deleted_connections = cursor.rowcount
+
+                # Затем удаляем сами ключевые слова
+                cursor.execute("""
+                               DELETE
+                               FROM games_keyword
+                               WHERE name = ANY (%s)
+                               """, [stop_words_list])
+                deleted_keywords = cursor.rowcount
+
+                self.stdout.write(self.style.SUCCESS(f"✅ Удалено связей с играми: {deleted_connections}"))
+                self.stdout.write(self.style.SUCCESS(f"✅ Удалено ключевых слов: {deleted_keywords}"))
+
+                try:
+                    from games.analyze.keyword_trie import KeywordTrieManager
+                    KeywordTrieManager().clear_cache()
+                    self.stdout.write(self.style.SUCCESS("✅ Кэш Trie очищен"))
+                except ImportError:
+                    pass
+            else:
+                self.stdout.write(self.style.WARNING("\n🔧 РЕЖИМ ПРОСМОТРА - ничего не удалено"))
+
+        self.stdout.write("\n" + "=" * 70)
 
     def _analyze_games_phase(self, games_queryset, total_games):
         """ЭТАП 1: Анализ игр и сбор уникальных ключевых слов"""
@@ -632,31 +825,28 @@ class Command(BaseCommand):
                                 len(self.analysis_stats['stop_words_found']))
                 f.write(f"🔑 Всего уникальных слов обработано: {total_unique}\n\n")
 
-                # Все найденные ключевые слова
+                # Все найденные ключевые слова (в одну строку через запятую)
                 if self.analysis_stats['words_found']:
                     f.write("🔑 НАЙДЕННЫЕ УНИКАЛЬНЫЕ КЛЮЧЕВЫЕ СЛОВА\n")
                     f.write("-" * 40 + "\n")
                     f.write(f"Всего: {len(self.analysis_stats['words_found'])}\n")
-                    for word in sorted(self.analysis_stats['words_found']):
-                        f.write(f"  ✨ {word}\n")
+                    f.write(", ".join(sorted(self.analysis_stats['words_found'])) + "\n")
                     f.write("\n")
 
-                # Стоп-слова
+                # Стоп-слова (в одну строку через запятую)
                 if self.analysis_stats['stop_words_found']:
                     f.write("⏹️ СТОП-СЛОВА (ПРОПУЩЕНЫ)\n")
                     f.write("-" * 40 + "\n")
                     f.write(f"Всего: {len(self.analysis_stats['stop_words_found'])}\n")
-                    for word in sorted(self.analysis_stats['stop_words_found']):
-                        f.write(f"  ⚪ {word}\n")
+                    f.write(", ".join(sorted(self.analysis_stats['stop_words_found'])) + "\n")
                     f.write("\n")
 
-                # Слова не из WordNet
+                # Слова не из WordNet (в одну строку через запятую)
                 if self.analysis_stats['words_not_in_wordnet']:
                     f.write("⚪ СЛОВА НЕ ИЗ WORDNET (ПРОПУЩЕНЫ)\n")
                     f.write("-" * 40 + "\n")
                     f.write(f"Всего: {len(self.analysis_stats['words_not_in_wordnet'])}\n")
-                    for word in sorted(self.analysis_stats['words_not_in_wordnet']):
-                        f.write(f"  ⚪ {word}\n")
+                    f.write(", ".join(sorted(self.analysis_stats['words_not_in_wordnet'])) + "\n")
                     f.write("\n")
 
                 f.write("=" * 80 + "\n")
@@ -712,6 +902,7 @@ class Command(BaseCommand):
         """Сохраняет результаты при прерывании"""
         self.stdout.write("\n💾 Сохранение промежуточных результатов...")
         self._save_analysis_results()
+        self._save_found_and_skipped_words()
         if self.analysis_stats['errors']:
             self._save_errors_to_file(self.analysis_stats['errors'], "analysis_interrupted")
         self.stdout.write("✅ Промежуточные результаты сохранены")
@@ -738,6 +929,7 @@ class Command(BaseCommand):
     def _get_stop_words(self) -> Set[str]:
         """Возвращает множество стоп-слов"""
         return {
+            # Существующие стоп-слова
             'a', 'an', 'the', 'this', 'that', 'these', 'those',
             'about', 'above', 'across', 'after', 'against', 'along', 'among', 'around', 'at',
             'before', 'behind', 'below', 'beneath', 'beside', 'between', 'beyond', 'by',
@@ -751,10 +943,10 @@ class Command(BaseCommand):
             'me', 'him', 'her', 'us', 'them',
             'my', 'your', 'his', 'its', 'our', 'their',
             'who', 'whom', 'whose', 'which', 'what',
-            'be', 'am', 'is', 'are', 'was', 'were', 'been',
-            'have', 'has', 'had',
-            'do', 'does', 'did',
-            'will', 'would', 'can', 'could', 'may', 'might', 'must',
+            'be', 'am', 'is', 'are', 'was', 'were', 'been', 'being',
+            'have', 'has', 'had', 'having',
+            'do', 'does', 'did', 'doing',
+            'will', 'would', 'can', 'could', 'may', 'might', 'must', 'shall', 'should',
             'both', 'each', 'every', 'either', 'neither', 'any', 'some', 'all',
             'much', 'many', 'few', 'little', 'most', 'more', 'less',
             'other', 'another', 'such', 'same',
@@ -767,6 +959,43 @@ class Command(BaseCommand):
             'also', 'too', 'as', 'well', 'either',
             'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
             'first', 'second', 'third', 'fourth', 'fifth',
+
+            # === НОВЫЕ ДОБАВЛЕННЫЕ СТОП-СЛОВА ===
+
+            # Местоимения и указательные слова
+            'nobody', 'nothing', 'nowhere', 'anybody', 'anything', 'anywhere',
+            'somebody', 'something', 'somewhere', 'everybody', 'everything', 'everywhere',
+            'whatsoever', 'whereby', 'wherein', 'whereupon', 'wherever', 'whenever',
+            'whichever', 'whoever', 'whomever', 'whosever', 'notwithstanding',
+            'whereas', 'thence', 'thenceforth', 'therefor', 'therein', 'thereof',
+            'thereon', 'thereto', 'thereunder', 'thereupon', 'therewith', 'herein',
+            'hereof', 'hereon', 'hereto', 'hereunder', 'hereupon', 'herewith',
+
+            # Разговорные сокращения
+            'ain\'t', 'gonna', 'wanna', 'gotta', 'kinda', 'sorta', 'lemme', 'gimme',
+
+            # Модальные глаголы и связки
+            'ought', 'used', 'need', 'dare',
+
+            # Числительные и порядковые
+            'zero', 'hundreds', 'thousands', 'millions', 'dozen', 'half', 'quarter',
+            'sixth', 'seventh', 'eighth', 'ninth', 'tenth', 'eleventh', 'twelfth',
+            'thirteenth', 'fourteenth', 'fifteenth', 'sixteenth', 'seventeenth',
+            'eighteenth', 'nineteenth', 'twentieth', 'thirtieth', 'fortieth', 'fiftieth',
+            'sixtieth', 'seventieth', 'eightieth', 'ninetieth', 'hundredth', 'thousandth',
+
+            # Вспомогательные глаголы
+            'being', 'become', 'becomes', 'became', 'seem', 'seems', 'seemed', 'seeming',
+            'appear', 'appears', 'appeared', 'appearing',
+
+            # Сравнительные и превосходные степени
+            'lesser', 'greater', 'further', 'furthermore', 'moreover', 'likewise',
+            'otherwise', 'hence', 'henceforth', 'hitherto', 'thereafter', 'hereafter',
+            'whereafter',
+
+            # Союзы и частицы
+            'lest', 'albeit', 'provided', 'providing', 'seeing', 'granted',
+            'wherewith', 'wherewithal',
         }
 
     def _create_text_preparer(self):
