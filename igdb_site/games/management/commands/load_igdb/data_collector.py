@@ -57,7 +57,7 @@ class DataCollector:
 
     def load_games_by_names(self, game_names_str, debug=False, limit=0, offset=0, min_rating_count=0,
                             skip_existing=True, count_only=False, game_types_str='0,1,2,4,5,8,9,10,11'):
-        """Загрузка САМОЙ ПОПУЛЯРНОЙ игры по точному названию - ВСЕГДА возвращает найденную игру"""
+        """Загрузка игр по точным названиям - обрабатывает ВСЕ имена из списка"""
         game_names = [name.strip() for name in game_names_str.split(',') if name.strip()]
 
         if not game_names:
@@ -65,26 +65,106 @@ class DataCollector:
             return self.empty_result()
 
         if debug:
-            self.stdout.write(f'🔍 Поиск САМОЙ ПОПУЛЯРНОЙ игры по имени: "{game_names[0]}"')
+            self.stdout.write(
+                f'🔍 Поиск игр по {len(game_names)} именам: {", ".join(game_names[:5])}{"..." if len(game_names) > 5 else ""}')
 
-        where_clause = f'name = "{game_names[0]}"'
+        all_new_games = []
+        all_found_games = []
+        total_checked = 0
+        existing_skipped = 0
+        last_offset = 0
+        limit_reached = False
+        limit_reached_at_offset = None
 
-        if min_rating_count > 0:
-            where_clause = f'{where_clause} & rating_count >= {min_rating_count}'
+        from games.models import Game
+        existing_game_ids = set()
+        if skip_existing:
+            existing_game_ids = set(Game.objects.values_list('igdb_id', flat=True))
+            if debug:
+                self.stdout.write(f'   📊 Игр в базе для фильтрации: {len(existing_game_ids)}')
 
-        if game_types_str:
+        for idx, game_name in enumerate(game_names):
+            if debug:
+                self.stdout.write(f'\n   🔍 [{idx + 1}/{len(game_names)}] Поиск: "{game_name}"')
+
+            where_clause = f'name ~ *"{game_name}"*'
+
+            if min_rating_count > 0:
+                where_clause = f'{where_clause} & rating_count >= {min_rating_count}'
+
+            if game_types_str:
+                try:
+                    game_types = [int(gt.strip()) for gt in game_types_str.split(',') if gt.strip()]
+                    if game_types:
+                        game_types_str_query = ','.join(map(str, game_types))
+                        where_clause = f'{where_clause} & game_type = ({game_types_str_query})'
+                except ValueError:
+                    self.stderr.write(f'   ⚠️  Ошибка парсинга game-types: "{game_types_str}"')
+
+            query = f'''
+                fields id,name,summary,storyline,genres,keywords,rating,rating_count,first_release_date,platforms,cover,game_type,screenshots,game_engines;
+                where {where_clause};
+                sort rating_count desc;
+                limit 1;
+            '''.strip()
+
             try:
-                game_types = [int(gt.strip()) for gt in game_types_str.split(',') if gt.strip()]
-                if game_types:
-                    game_types_str_query = ','.join(map(str, game_types))
-                    where_clause = f'{where_clause} & game_type = ({game_types_str_query})'
-            except ValueError:
-                self.stderr.write(f'   ⚠️  Ошибка парсинга game-types: "{game_types_str}"')
+                games = make_igdb_request('games', query, debug=False)
+
+                if not games:
+                    if debug:
+                        self.stdout.write(f'   ❌ Игра "{game_name}" не найдена в IGDB')
+                    continue
+
+                game = games[0]
+                game_id = game.get('id')
+
+                if debug:
+                    self.stdout.write(
+                        f'   ✅ Найдена игра: "{game.get("name")}" (ID: {game_id}, rating_count: {game.get("rating_count", 0)})')
+
+                total_checked += 1
+                all_found_games.append(game)
+
+                if skip_existing and game_id in existing_game_ids:
+                    existing_skipped += 1
+                    if debug:
+                        self.stdout.write(f'   ⏭️  Игра уже есть в базе, пропускаем')
+                    continue
+
+                all_new_games.append(game)
+
+                if limit > 0 and len(all_new_games) >= limit:
+                    limit_reached = True
+                    limit_reached_at_offset = total_checked
+                    if debug:
+                        self.stdout.write(f'\n   🎯 Достигнут лимит {limit} новых игр')
+                    break
+
+            except Exception as e:
+                if debug:
+                    self.stderr.write(f'   ❌ Ошибка при запросе игры "{game_name}": {str(e)}')
+                continue
+
+        last_offset = total_checked
 
         if debug:
-            self.stdout.write(f'🎯 Условие поиска (точное название): {where_clause}')
+            self.stdout.write(f'\n📊 ИТОГ ПОИСКА ПО ИМЕНАМ:')
+            self.stdout.write(f'   • Найдено в IGDB: {len(all_found_games)}/{len(game_names)} игр')
+            self.stdout.write(f'   • Новых игр (нет в БД): {len(all_new_games)}')
+            self.stdout.write(f'   • Уже в БД: {existing_skipped}')
 
-        return self._load_single_game_by_exact_name(where_clause, debug, skip_existing, count_only)
+        return {
+            'new_games': all_new_games,
+            'all_found_games': all_found_games,
+            'total_games_checked': total_checked,
+            'new_games_count': len(all_new_games),
+            'existing_games_skipped': existing_skipped,
+            'last_checked_offset': last_offset,
+            'limit_reached': limit_reached,
+            'limit_reached_at_offset': limit_reached_at_offset,
+            'interrupted': False,
+        }
 
     def _load_single_game_by_exact_name(self, where_clause, debug=False, skip_existing=True, count_only=False):
         """Загружает САМУЮ ПОПУЛЯРНУЮ игру по точному имени С СОБИРАНИЕМ ID СКРИНШОТОВ"""
@@ -650,7 +730,7 @@ class DataCollector:
         }
 
     def collect_all_data_ids(self, all_games_data, debug=False):
-        """Собирает все ID для последующей загрузки"""
+        """Собирает все ID для последующей загрузки (keywords отключены)"""
         all_game_ids = []
         all_cover_ids = []
         all_genre_ids = set()
@@ -681,8 +761,9 @@ class DataCollector:
             if game_data.get('platforms'):
                 all_platform_ids.update(game_data['platforms'])
 
-            if game_data.get('keywords'):
-                all_keyword_ids.update(game_data['keywords'])
+            # КЛЮЧЕВЫЕ СЛОВА ОТКЛЮЧЕНЫ - НЕ СОБИРАЕМ
+            # if game_data.get('keywords'):
+            #     all_keyword_ids.update(game_data['keywords'])
 
             engines_data = game_data.get('game_engines')
             if engines_data:
@@ -704,7 +785,7 @@ class DataCollector:
             self.stdout.write(f'      • Обложек: {len(set(all_cover_ids))}')
             self.stdout.write(f'      • Жанров: {len(all_genre_ids)}')
             self.stdout.write(f'      • Платформ: {len(all_platform_ids)}')
-            self.stdout.write(f'      • Ключевых слов: {len(all_keyword_ids)}')
+            self.stdout.write(f'      • КЛЮЧЕВЫХ СЛОВ: 0 (отключено)')
             self.stdout.write(f'      • Движков: {len(all_engine_ids)}')
             games_with_screenshots = len([v for v in screenshots_info.values() if v > 0])
             self.stdout.write(f'      • Игр со скриншотами: {games_with_screenshots}')
@@ -715,7 +796,7 @@ class DataCollector:
             'all_cover_ids': list(set(all_cover_ids)),
             'all_genre_ids': list(all_genre_ids),
             'all_platform_ids': list(all_platform_ids),
-            'all_keyword_ids': list(all_keyword_ids),
+            'all_keyword_ids': [],  # ВСЕГДА ПУСТОЙ СПИСОК
             'all_engine_ids': list(all_engine_ids),
             'all_screenshot_games': all_game_ids,
             'screenshots_info': screenshots_info,
