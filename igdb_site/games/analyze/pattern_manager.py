@@ -53,7 +53,7 @@ class PatternManager:
             r'\baction\b(?:(?!\.|\!|\?|\n).){0,30}?\bgames?\b',
             r'\baction(?!-)\b(?:(?!\.|\!|\?|\n).){0,30}?\b(?:adventure|thriller|rpg|strategy|puzzle|platformer|shooter|horror|survival|stealth|racing|fighting|simulation|casual|indie|sports|MMO|role-playing?)\b',
             r'\b(?:instant|real-time|fast|rapid|sudden)(?:(?!\.|\!|\?|\n).){0,30}?\baction(?!-)\b',
-            r'\baction\b',
+            # r'\baction\b',
         ],
         # 'Adventure': [
         #     # Core genre markers for 'adventure' (from frequency analysis)
@@ -96,31 +96,110 @@ class PatternManager:
             # r'(?<!-)\b(?:build\w*|rebuild\w*)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:base|bases)\b',
         ],
         'Card & Board Game': [
-            r'\b(?:is|as|this|digital|electronic|video)\s+(board|card)\s+game\b',
-            r'\b(?:play|gameplay|mechanics|styled|inspired)\s+(?:like|resembles|of)\s+(?:a\s+)?(board|card)\s+game\b',
-            r'\b(?:deck|hand|draw|discard|shuffle)\s+(?:building|management|mechanics)\b',
-            r'\bturn-based\s+(?:board|card)\s+(?:game|combat|strategy)\b',
+            # === card + game/collecting ===
+            # r'\bcard\s+(?:(?!\.|\!|\?|\n).){0,25}?\bgame\b',
+
+            # r'\bcard\s+(?:(?!\.|\!|\?|\n).){0,25}?\bcollecting\s+(?:(?!\.|\!|\?|\n).){0,25}?\bgame\b',
+
+            r'(?s)\b(?:card\s+(?:battlers?|battles?|games?|duels?)|tcg|ccg)\b(?!.*?(?:mini-?game|minigame|optional|not\s+a\s+card\s+game|cash\s+card|shark\s+card|gift\s+card|memory\s+card|matching\s+card|solitaire|poker|blackjack|gwent|arcomage|war\s+card\s+game|fishing|racing|horse\s+racing|match-3|puzzle|platformer|stealth|shoot\s+em\s+up|action\s+rpg|turn-based\s+strategy|4x|rts|mmorpg|moba|erotic|hentai|adult|nsfw|visual\s+novel|dating\s+sim|otome|train\s+simulation|business\s+simulation|tycoon|management|survival|idle|clicker|incremental|open\s+world|sandbox|dungeon\s+crawler|hack\s+and\s+slash|beat\s+em\s+up))',
+
+            r'(?s)\bcollectible\s+card\s+game\b(?!.*?(?:mini-?game|minigame|optional|not\s+a\s+card\s+game|erotic|adult|nsfw))',
+
+            r'(?s)\broguelik\w*\s+card\s+(?:battlers?|games?)\b(?!.*?(?:mini-?game|minigame|optional|not\s+a\s+card\s+game|erotic|adult|nsfw))',
+
+            # # === card + battle/combat/duel ===
+            # r'\bcard\s+(?:(?!\.|\!|\?|\n).){0,25}?\bbattl\w*\b',
+            # r'\bcard\s+(?:(?!\.|\!|\?|\n).){0,25}?\bcombat\b',
+            #
+            # # === deck + battle/combat (оба порядка) ===
+            # r'\bdeck\s+(?:(?!\.|\!|\?|\n).){0,25}?\bbattl\w*\b',
+            # r'\bdeck\s+(?:(?!\.|\!|\?|\n).){0,25}?\bcombat\b',
+            # r'\bbattl\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bdeck\b',
+            # r'\bcombat\s+(?:(?!\.|\!|\?|\n).){0,25}?\bdeck\b',
+            #
+            # # === deck + building/builder/build ===
+            # r'\bdeck\s+(?:(?!\.|\!|\?|\n).){0,25}?\bbuilding\b',
+            # r'\bdeck\s+(?:(?!\.|\!|\?|\n).){0,25}?\bbuilder\b',
+            # r'\bdeck\s+(?:(?!\.|\!|\?|\n).){0,25}?\bbuild\b',
+            #
+            # # === collectible/trading + card ===
+            # r'\bcollectible\s+(?:(?!\.|\!|\?|\n).){0,25}?\bcard\b',
+            # r'\btrading\s+(?:(?!\.|\!|\?|\n).){0,25}?\bcard\b',
+            #
+            # # === roguelike + card (оба порядка) ===
+            # r'\broguelike\s+(?:(?!\.|\!|\?|\n).){0,25}?\bcard\b',
+            # r'\bcard\s+(?:(?!\.|\!|\?|\n).){0,25}?\broguelike\b',
+
         ],
         'Engineering': [
+            # 1. Строительство кораблей — сужаем до космических/подводных с инженерными компонентами
+            r'(?s)\b(?:build|construct|design|create)\s+(?:(?!\.|\!|\?|\n).){0,100}?\b(?:spaceship|submarine|vessel|spacecraft|starship)\s+(?:(?!\.|\!|\?|\n).){0,80}?\b(?:from\s+scratch|custom|module|component|piece\s+by\s+piece|block|part|blueprint)\b|\b(?:build|construct|design|create)\s+(?:(?!\.|\!|\?|\n).){0,100}?\b(?:ship|vehicle|craft)\s+(?:(?!\.|\!|\?|\n).){0,60}?\b(?:engine|reactor|weapon|cannon|shield|thruster|module|component|conveyor|pipe|wire|circuit)\b(?!.*?(?:esports|e?sports|tycoon|management|simulator|rpg|strategy|mmo))',
+
+            # 3. Конвейеры, трубы, проводка
+            r'\b(?:wire|wiring|pipe|conveyor|circuit|cable|tube|fluid|logistics|transport\s+belt)\s+(?:(?!\.|\!|\?|\n).){0,100}?\b(?:system|network|grid|line|chain)\s+(?:(?!\.|\!|\?|\n).){0,80}?\b(?:build|design|create|construct|automate|connect|place)\b',
+
+            # 6. Установка инженерных блоков — исключаем ложные engine (cards engine, game engine, rpg engine)
+            r'\b(?:build|place|construct)\s+(?:(?!\.|\!|\?|\n).){0,60}?\b(?:generator|reactor|conveyor|pump|engine(?!.*(?:cards|card|game|rpg|simulation|tabletop|virtual|modding))|thruster|gyroscope|landing\s+gear|oxygen\s+generator|hydrogen\s+tank|nuclear\s+reactor)\b',
+
+            # 8. Модульное/компонентное строительство
+            r'\b(?:modular|component|module|voxel)\s+(?:(?!\.|\!|\?|\n).){0,80}?\b(?:building|construction|design|system)\s+(?:(?!\.|\!|\?|\n).){0,60}?\b(?:ship|base|spaceship|submarine|station|settlement)\b',
+
+            # 10. Энергетические сети
+            r'\b(?:power\s+grid|energy\s+grid|electrical\s+system|power\s+distribution|electricity)\s+(?:(?!\.|\!|\?|\n).){0,80}?\b(?:build|design|construct|set\s+up|manage|simulation)\b',
+
+            # 11. Строительство с нуля (только космические/подводные)
+            r'\b(?:build\s+from\s+scratch|design\s+and\s+build|create\s+your\s+own)\s+(?:(?!\.|\!|\?|\n).){0,100}?\b(?:spaceship|submarine|factory|space\s+station|starship)\b',
+
+            # 14. Инженерные игровые фразы
+            r'\b(?:build\s+and\s+maintain|construct\s+and\s+manage|design\s+and\s+build|engineering\s+game|sandbox\s+engineering)\s+(?:(?!\.|\!|\?|\n).){0,80}?\b(?:factory|ship|station|vehicle|spaceship|submarine)\b',
+
+            # 15. Программирование и скриптинг
+            r'\b(?:programmable|scripting|lua|visual\s+scripting|logic\s+system)\s+(?:(?!\.|\!|\?|\n).){0,80}?\b(?:block|chip|module|controller|automation)\b',
+
+            # 16. Ключевые инженерные фразы
+            r'\b(?:build\s+and\s+maintain\s+factories|physics\s+building\s+game|damage\s+simulations|customizable\s+components)\b',
+
+            # 17. Симуляция физики
+            r'\b(?:damage\s+simulation|volumetric\s+physics|buoyancy|sealed\s+compartments|inertia\s+tensor)\s+(?:(?!\.|\!|\?|\n).){0,60}?\b(?:engine|system|game)\b',
+
+            # 18. Логистические системы и конвейеры (Mindustry, Factorio, Satisfactory)
+            r'\b(?:conveyor|supply\s+chain|logistics|production\s+block|assembly\s+line|resource\s+distribution|factory\s+block|production\s+chain)\s+(?:(?!\.|\!|\?|\n).){0,100}?\b(?:design|create|manage|optimize|automate|set\s+up)\b',
+
+
+            # 19. Строительство с нуля (альтернативные фразы) — только космические/станции
+            r'\b(?:(?:assemble|build|construct)\s+your\s+own)\s+(?:(?!\.|\!|\?|\n).){0,60}?\b(?:spaceship|submarine|space\s+station)\b(?!.*(?:team|card|deck))',
+
+            # 20. Ремонт и обслуживание корабля (Barotrauma, FTL)
+            r'\b(?:maintain|repair|operate)\s+(?:(?!\.|\!|\?|\n).){0,80}?\b(?:submarine|ship|vessel|spaceship)\s+(?:(?!\.|\!|\?|\n).){0,80}?\b(?:systems|life\s+support|reactor|wiring|hull|integrity|oxygen|pressure)\b',
+
+            # 22. Barotrauma — уникальные инженерные термины (on-board wiring, nuclear reactor, barotrauma)
+            r'\b(?:on-board\s+wiring|complex\s+(?:on-board\s+)?systems?\s+(?:simulation|management)|(?:maintain|repair|operate)\s+(?:nuclear\s+)?reactor|oxygen\s+generator|(?:hull\s+integrity|water\s+pressure)\s+(?:simulation|system))\b',
+
+            # 25. Без gear trains
+            r'\b(?:mechanical\s+(?:energy|power)|(?:cogs|gears?)\s+(?:and\s+)?belts?|mechanical\s+systems?)\s+(?:(?!\.|\!|\?|\n).){0,80}?\b(?:build|design|construct|automate|power)\b|\b(?:build|design|construct|automate|power)\s+(?:(?!\.|\!|\?|\n).){0,80}?\b(?:mechanical\s+(?:energy|power)|(?:cogs|gears?)\s+(?:and\s+)?belts?|mechanical\s+systems?)\b',
+
+            # 26. Конвейеры для транспортировки предметов
+            r'\b(?:pipe\s+conveyors?|conveyors?\s+to\s+transport|transport\s+items?\s+(?:through|via))\b',
+
             # r'\b(?:build\w*|maintain\w*)\s+(?:(?!\.|\!|\?|\n).){0,30}?\b(?:reactors?|wiring|circuits?|submarines?|sonars?|pumps?|machinery)\b',
             # r'\b(?:build\w*|construct\w*)\s+(?:(?!\.|\!|\?|\n).){0,30}?\b(?:machines?|vehicles?|devices?|contraptions?|submarines??)\b',
             # r'\b(?:repair\w*|fix\w*|maintain\w*)\s+(?:(?!\.|\!|\?|\n).){0,30}?\b(?:submarines?|reactors?|engines?|pumpS?|sonars?|wiring|circuits?|machinery|on-board)\b',
 
-            # wiring + system
-            r'\bwiring\s+(?:(?!\.|\!|\?|\n).){0,25}?\bsystems?\b',
-
-            # machines + mechanical (на основе: 'War machines, mechanical puzzles')
-            r'\bmechanical\s+(?:(?!\.|\!|\?|\n).){0,25}?\bmachines?\b',
-
-            # mechanical + systems (на основе: 'mechanical systems')
-            r'\bmechanical\s+(?:(?!\.|\!|\?|\n).){0,25}?\bsystems?\b',
-
-            # circuit + system
-            r'\bcircuit\s+(?:(?!\.|\!|\?|\n).){0,25}?\bsystems?\b',
-            r'\bsystems?\s+(?:(?!\.|\!|\?|\n).){0,25}?\bcircuit\b',
-
-            # circuit + design
-            r'\bcircuit\s+(?:(?!\.|\!|\?|\n).){0,25}?\bdesign\b',
+            # # wiring + system
+            # r'\bwiring\s+(?:(?!\.|\!|\?|\n).){0,25}?\bsystems?\b',
+            #
+            # # machines + mechanical (на основе: 'War machines, mechanical puzzles')
+            # r'\bmechanical\s+(?:(?!\.|\!|\?|\n).){0,25}?\bmachines?\b',
+            #
+            # # mechanical + systems (на основе: 'mechanical systems')
+            # r'\bmechanical\s+(?:(?!\.|\!|\?|\n).){0,25}?\bsystems?\b',
+            #
+            # # circuit + system
+            # r'\bcircuit\s+(?:(?!\.|\!|\?|\n).){0,25}?\bsystems?\b',
+            # r'\bsystems?\s+(?:(?!\.|\!|\?|\n).){0,25}?\bcircuit\b',
+            #
+            # # circuit + design
+            # r'\bcircuit\s+(?:(?!\.|\!|\?|\n).){0,25}?\bdesign\b',
         ],
         'Grid-Based': [
             r'\b\d+\s*[x×]\s*\d+\s+grid(?:-shaped)?\b',
