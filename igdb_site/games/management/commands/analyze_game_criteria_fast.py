@@ -67,7 +67,8 @@ class Command(BaseCommand):
         self._interrupted = False
 
     def _output_results_grouped_by_pattern(self, results: List[Dict]):
-        """Вывод результатов с группировкой по паттернам в формате Markdown"""
+        """Вывод результатов с группировкой по паттернам в формате Markdown, включая стоп-слова (один раз на жанр)"""
+
         if not self.output_file:
             return
 
@@ -89,9 +90,16 @@ class Command(BaseCommand):
                 crit_type = p['type']
                 name = p['name']
                 pattern_str = p['pattern_str']
+                stop_words = p.get('stop_words', [])
 
                 if crit_type not in patterns_by_type:
-                    patterns_by_type[crit_type] = []
+                    patterns_by_type[crit_type] = {}
+
+                if name not in patterns_by_type[crit_type]:
+                    patterns_by_type[crit_type][name] = {
+                        'stop_words': stop_words,
+                        'patterns': []
+                    }
 
                 # Получаем количество срабатываний из счетчиков (если есть)
                 new_count = 0
@@ -105,7 +113,12 @@ class Command(BaseCommand):
 
                 total_count = new_count + existing_count
 
-                patterns_by_type[crit_type].append((name, pattern_str, new_count, existing_count, total_count))
+                patterns_by_type[crit_type][name]['patterns'].append({
+                    'pattern_str': pattern_str,
+                    'new_count': new_count,
+                    'existing_count': existing_count,
+                    'total_count': total_count
+                })
 
             type_display_names = {
                 'genres': 'Жанры',
@@ -116,6 +129,7 @@ class Command(BaseCommand):
 
             total_new_matches = 0
             total_existing_matches = 0
+            total_patterns_count = 0
 
             # Выводим в порядке: жанры, темы, перспективы, режимы игры
             for crit_type in ['genres', 'themes', 'perspectives', 'game_modes']:
@@ -125,15 +139,23 @@ class Command(BaseCommand):
                 display_name = type_display_names.get(crit_type, crit_type)
                 self.output_file.write(f"### {display_name}\n\n")
 
-                for name, pattern_str, new_count, existing_count, total_count in patterns_by_type[crit_type]:
-                    self.output_file.write(f"**{name}**\n\n")
-                    self.output_file.write(f"- Паттерн: `{pattern_str}`\n")
-                    self.output_file.write(f"- Срабатываний (НОВЫЕ критерии): {new_count}\n")
-                    self.output_file.write(f"- Срабатываний (СУЩЕСТВУЮЩИЕ критерии): {existing_count}\n")
-                    self.output_file.write(f"- Всего срабатываний: {total_count}\n\n")
+                for name, data in patterns_by_type[crit_type].items():
+                    stop_words = data.get('stop_words', [])
+                    patterns = data.get('patterns', [])
 
-                    total_new_matches += new_count
-                    total_existing_matches += existing_count
+                    self.output_file.write(f"#### {name}\n\n")
+                    if stop_words:
+                        self.output_file.write(f"🛑 Стоп-слова: `{', '.join(stop_words)}`\n\n")
+
+                    for pattern in patterns:
+                        self.output_file.write(f"- Паттерн: `{pattern['pattern_str']}`\n")
+                        self.output_file.write(f"- Срабатываний (НОВЫЕ критерии): {pattern['new_count']}\n")
+                        self.output_file.write(f"- Срабатываний (СУЩЕСТВУЮЩИЕ критерии): {pattern['existing_count']}\n")
+                        self.output_file.write(f"- Всего срабатываний: {pattern['total_count']}\n\n")
+
+                        total_new_matches += pattern['new_count']
+                        total_existing_matches += pattern['existing_count']
+                        total_patterns_count += 1
 
             total_matches = total_new_matches + total_existing_matches
 
@@ -141,12 +163,11 @@ class Command(BaseCommand):
             self.output_file.write(f"- Всего срабатываний (НОВЫЕ): {total_new_matches}\n")
             self.output_file.write(f"- Всего срабатываний (СУЩЕСТВУЮЩИЕ): {total_existing_matches}\n")
             self.output_file.write(f"- Всего срабатываний (ОБЩЕЕ): {total_matches}\n")
-            self.output_file.write(f"- Уникальных паттернов: {len(self.compiled_patterns)}\n\n")
+            self.output_file.write(f"- Уникальных паттернов: {total_patterns_count}\n\n")
 
         self.output_file.write("---\n\n")
         self.output_file.write("## 📊 РЕЗУЛЬТАТЫ ПО ПАТТЕРНАМ\n\n")
 
-        # ... остальная часть метода (сбор и вывод вхождений по играм) остается без изменений ...
         # Собираем все срабатывания паттернов по играм
         pattern_to_occurrences = {}
 
@@ -206,7 +227,7 @@ class Command(BaseCommand):
                 criteria_groups[group_key] = []
             criteria_groups[group_key].append((pattern_str, occurrences))
 
-        # Сортируем группы
+        # Выводим группы
         for group_key in sorted(criteria_groups.keys(), key=lambda x: (x[0], x[1])):
             crit_type, crit_name = group_key
             display_name = type_display_names.get(crit_type, crit_type)
