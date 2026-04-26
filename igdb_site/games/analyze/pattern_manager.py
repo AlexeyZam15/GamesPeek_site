@@ -370,13 +370,92 @@ class PatternManager:
             r'\bclick\w*\s*[-–—]\s*point\b',
         ],
         'Precision Combat': {
-            'stop_words': [],
+            'stop_words': [
+                # === ИСХОДНЫЕ СТОП-СЛОВА ===
+                'dice', 'd20', 'roll', 'tabletop', 'pinball', 'flippers', 'tilt',
+                'lacrosse', 'dodgeball', 'soccer', 'tennis', 'hockey',
+                'trading card', 'tcg', 'ccg', 'draw a card', 'deckbuilder',
+                'visual novel', 'cg images', 'rpgmaker',
+                'strategic map', 'turn-based', 'grid layout',
+                'simulation', 'match-3',
+                'strategy rpg', r'\bstrategic\b(?:(?!\.|\!|\?|\n).){0,60}?\bgame\b',
+
+                # === НАСТОЛЬНЫЕ ИГРЫ ===
+                r'\bboard\s+game\b',
+
+                # === MMORPG ===
+                r'\bmmorpg\b',
+                r'\bmultiplayer\s+online\s+role-playing\s+game\b',
+
+                # === SRPG / TACTICAL RPG ===
+                r'\bsrpg\b',
+                r'\bsrpgs\b',
+                r'\b(?:strategy|tactical)\s+rpg\b',
+
+                # === RTS ===
+                r'\brts\b',
+                r'\breal[-]?time\s+strategy\b',
+                r'\breal\s+time\s+strategy\b',
+
+                # === ПОШАГОВЫЕ МЕХАНИКИ ===
+                r'\b(?:turn|round|phase)\s+(?:based|by\s+turn)\b',
+
+                # === КАРТОЧНЫЕ ИГРЫ ===
+                r'\b(?:card|deck|tcg|ccg|collectible\s+card)\s+(?:game|battle|combat|duel)\b',
+                r'\b(?:match|pair)\s+(?:cards|pairs|tiles)\b',
+
+                # === АВТОМАТИЧЕСКИЙ БОЙ ===
+                r'\bauto[-]?aim\b',
+                r'\bauto[-]?attack\b',
+                r'\bauto[-]?battle\b',
+
+                # === IDLE / AFK ===
+                r'\bidle\s+(?:game|rpg|clicker)\b',
+                r'\b(?:afk|auto[-]?battle)\s+rewards?\b',
+
+                # === ГОЛЬФ ===
+                r'\bgolf\s+(?:game|games|simulator)\b',
+
+                # === ТАЙПИНГ ===
+                r'\btyping\s+(?:game|combat|battle)\b',
+
+                # === МОНСТРЫ (СИМУЛЯТОРЫ) ===
+                r'\bmonster\s+(?:raising|breeding|training|fighting)\b',
+                r'\b(?:raise|breed|train)\s+monsters?\b',
+
+                # === УПРАВЛЕНИЕ ОТРЯДОМ ===
+                r'\bsquad[-]?based\b',
+                r'\b(?:squad|party|team)\s+(?:management|control|tactics)\b',
+
+                # === СТРАТЕГИЯ ===
+                r'\bstrategy\s+game\b',
+
+                # === СИМУЛЯТОР ЗАМКА ===
+                r'\bcastle\s+sim\b',
+                r'\bcastle\s+simulator\b',
+            ],
             'patterns': [
-                r'\b(?:dodge|evade|avoid)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:attack|strike|hit|damage)\b',
-                r'\b(?:attack|strike|hit|damage)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:dodge|evade|avoid)\b',
-                r'\b(?:precis\w*|accura\w*)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:strike|shot|hit|combat)\b',
-                r'\b(?:strike|shot|hit|combat)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:precis\w*|accura\w*)\b',
-            ]
+                # Уклонение + атака/урон (dodge/evade/avoid/dash/roll <-> attack/strike/hit/damage/shoot)
+                r'\b(?:dodge|evade|avoid|dash|roll)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:attack|strike|hit|damage|shoot)\b',
+                r'\b(?:attack|strike|damage|shoot)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:dodge|evade|avoid|dash|roll)\b',
+
+                # Точность + удар/бой/стрельба (precis*/accura*/aim* <-> strike/shot/hit/combat/shoot/attack)
+                r'\b(?:precis\w*|accura\w*|aim\w*)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:strike|shot|hit|combat|shoot|attack)\b',
+                r'\b(?:strike|shot|hit|combat|shoot|attack)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:precis\w*|accura\w*|aim\w*)\b',
+
+                # Тайминг + уклонение/атака (timing/reflex/reaction <-> dodge/evade/attack/strike/hit)
+                r'\b(?:timing|reflex|reaction)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:dodge|evade|attack|strike|hit)\b',
+                r'\b(?:dodge|evade|attack|strike|hit)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:timing|reflex|reaction)\b',
+
+                # Парирование/блок + атака (parry/block/deflect <-> attack/strike/hit)
+                r'\b(?:parry|block|deflect)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:attack|strike|hit)\b',
+                r'\b(?:attack|strike|hit)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:parry|block|deflect)\b',
+
+                # Контратака + атака (counter/riposte <-> attack/strike/hit)
+                r'\b(?:counter|riposte)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:attack|strike|hit)\b',
+                r'\b(?:attack|strike)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:counter|riposte)\b',
+                r'\b(?:hit)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:counter(?!-)|riposte)\b',
+            ],
         },
         'Puzzle': [
             r'\bpuzzle(?:\s+(?:game|title|genre|experience|adventure|platformer|rpg))?\b',
