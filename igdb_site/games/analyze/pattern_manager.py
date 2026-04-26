@@ -212,45 +212,108 @@ class PatternManager:
         'MOBA': [
             r'\bmoba\b',
             r'\bmultiplayer\s+online\s+battle\s+arena\b',
-            r'\b(?:5v5|3v3|team-based)\s+(?:arena)\b',
-            r'\b(?:lane|jungle|tower|creep|minion|turret)\s+(?:pushing|defense|control)\b',
+            # r'\b(?:5v5|3v3|team-based)\s+(?:arena)\b',
         ],
         'Music': [
-            r'\b(?:music|rhythm|dance|beat|audio)\s+(?:game|action|experience)\b',
+            r'\b(?:music|rhythm|dance|beat|audio)\s+(?:game|action)\b',
             r'\brhythm[-\s]?(?:based|gameplay|mechanics)\b',
-            r'\b(?:timing|sync|match\s+the\s+beat)\s+(?:based|mechanic|gameplay)\b',
             r'\b(?:press|hit|tap|hold)\s+notes?\s+in\s+time\s+with\s+the\s+music\b',
         ],
         'Open World': [
-            r'\bopen[-\s]?world(?:\s+(?:game|title|experience|environment|setting|adventure|exploration|rpg|action|sandbox|gameplay|mechanics|design|map))?\b',
-            r'\b(?:seamless|vast|expansive|living|dynamic)\s+open\s+world\b',
-            r'\b(?:explore|roam|traverse)\s+(?:freely|at\s+your\s+own\s+pace)\s+(?:the\s+)?(?:world|map|environment)\b',
-            r'\b(?:non-linear|branching)\s+(?:story|quests|narrative|progression)\b',
+            r'\bopen[-\s]?world\b',
         ],
         'Pinball': [
             r'\bpinball\b',
-            r'\bpin\s+ball\b',
-            r'\b(?:flipper|bumper|plunger)\s+(?:physics|mechanics|action)\b',
         ],
         'Platform': [
-            r'\bplatform(?:\s+(?:game|title|genre|experience|puzzle|action))?\b',
             r'\bplatformer\b',
-            r'\b(?:2d|3d)\s+platformer\b',
-            r'\b(?:jump|double\s+jump|wall\s+jump|dash|glide|climb)\s+(?:based|mechanics|gameplay)\b',
-            r'\bprecision\s+(?:jumping|platforming)\b',
+
+            # 1. Platform + Action (83 и 204 срабатывания)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\baction\b',
+            r'\baction\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 2. Platform + Adventure (67 и 77 срабатываний)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\badventure\b',
+            r'\badventure\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 3. Platform + Puzzle (57 и 74 срабатывания)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bpuzzl\w*\b',
+            r'\bpuzzl\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 4. Platform + Combat (58 и 26 срабатываний)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bcombat\b',
+            r'\bcombat\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 5. Platform + Fight (23 и 15 срабатываний)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bfight\w*\b',
+            r'\bfight\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 6. Platform + RPG (101 и 47 срабатываний)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\brpg\b',
+            r'\brpg\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 7. Platform + Metroidvania (9 и 9 срабатываний)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bmetroidvania\b',
+            r'\bmetroidvania\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 8. Platform + Scrolling (74 срабатывания)
+            r'\bscroll\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 9. Platform + Jump (32 и 28 срабатываний)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bjump\w*\b',
+            r'\bjump\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 10. Platform + Precision (15 срабатываний)
+            r'\bprecision\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 11. Platform + Elements (40 и 10 срабатываний)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\belement\w*\b',
+            r'\belement\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 12. Platform + Features (25 и 36 срабатываний)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bfeatur\w*\b',
+            r'\bfeatur\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 13. Platform + Challenges (28 и 39 срабатываний)
+            r'\bchalleng\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bchalleng\w*\b',
+
+            # 14. Platform + Level (21 и 13 срабатываний)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\blevel\w*\b',
+            r'\blevel\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 15. Platform + World (19 и 32 срабатывания)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bworld\w*\b',
+            r'\bworld\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 16. Platform + Mechanics (15 и 6 срабатываний)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bmechanic\w*\b',
+            r'\bmechanic\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 17. Platform + Shoot (12 и 8 срабатываний)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bshoot\w*\b',
+            r'\bshoot\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 18. Platform + Hack and Slash (5 срабатываний)
+            r'\bhack and slash\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 19. Action-Platformer (50 срабатываний)
+            r'\baction[- ]platform\w*\b',
+
+            # 20. Souls-like (2 срабатывания)
+            r'\bsouls[- ]?(?:like|lite)\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
         ],
         'Point-and-click': [
-            r'\bpoint(?:\s+)?and(?:\s+)?click\b',
-            r'\bp&c\b',
-            r'\b(?:adventure|puzzle)\s+game\s+with\s+point-and-click\s+(?:controls|interface|mechanics)\b',
-            r'\b(?:interact|examine|combine)\s+(?:with|using)\s+(?:the\s+)?(?:cursor|mouse)\b',
+            r'\bpoint\s+(?:and\s+|&\s+|&amp;\s+|[n’\']\s?n?\s?\'?\s*|a\s+)?click\w*\b',
+            r'\bclick\w*\s+(?:and\s+|&\s+|&amp;\s+|[n’\']\s?n?\s?\'?\s*|a\s+)?point\b',
+            r'\bpoint\s*[-–—]\s*click\w*\b',
+            r'\bclick\w*\s*[-–—]\s*point\b',
         ],
         'Precision Combat': [
-            r'\b(?:aiming|targeting)\s+(?:mechanics|system|based)\s+requires\s+(?:precision|skill|accuracy)\b',
-            r'\b(?:manual|direct|cursor-based|skill-based)\s+(?:aiming|targeting|combat)\b',
-            r'\b(?:no\s+auto-aim|no\s+aim\s+assist|requires\s+precise\s+aim)\b',
-            r'\b(?:twin-stick|wasd|cursor)\s+(?:controls|movement|combat)\b',
-            r'\b(?:projectile|bullet)\s+(?:physics|travel\s+time|drop|dodging)\b',
+            r'\b(?:dodge|evade|avoid)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:attack|strike|hit|damage)\b(?!.*?(?:turn\s*[- ]?based|hit\s+points|golf|archery|note|cards?|strategy|tactics|grid|mech|pause|rts|upgrade|simulator|crpg|role\s*playing|dodgeball|sports|sniper|flappy|bird|bomb|fruit|formation|issue\s+commands|grid\s+layout))',
+            r'\b(?:attack|strike|hit|damage)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:dodge|evade|avoid)\b(?!.*?(?:turn\s*[- ]?based|hit\s+points|golf|archery|note|cards?|strategy|tactics|grid|mech|pause|rts|upgrade|simulator|crpg|role\s*playing|dodgeball|sports|sniper|flappy|bird|bomb|fruit|formation|issue\s+commands|grid\s+layout))',
+            r'\b(?:precis\w*|accura\w*)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:strike|shot|hit|combat)\b(?!.*?(?:turn\s*[- ]?based|hit\s+points|golf|archery|note|cards?|strategy|tactics|grid|mech|pause|rts|upgrade|simulator|crpg|role\s*playing|dodgeball|sports|sniper|flappy|bird|bomb|fruit|formation|issue\s+commands|grid\s+layout))',
+            r'\b(?:strike|shot|hit|combat)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:precis\w*|accura\w*)\b(?!.*?(?:turn\s*[- ]?based|hit\s+points|golf|archery|note|cards?|strategy|tactics|grid|mech|pause|rts|upgrade|simulator|crpg|role\s*playing|dodgeball|sports|sniper|flappy|bird|bomb|fruit|formation|issue\s+commands|grid\s+layout))',
         ],
         'Puzzle': [
             r'\bpuzzle(?:\s+(?:game|title|genre|experience|adventure|platformer|rpg))?\b',
