@@ -1,27 +1,85 @@
 # games/analyze/pattern_manager.py
 import re
-from typing import Dict, List
+from typing import Dict, List, Any, Union
 
 
 class PatternManager:
     """Менеджер для работы с паттернами - только статические паттерны"""
 
     @classmethod
-    def get_all_patterns(cls) -> Dict[str, Dict[str, List[re.Pattern]]]:
-        """Возвращает ВСЕ скомпилированные паттерны БЕЗ кэширования"""
-        return {
-            'genres': cls._compile_patterns_dict(cls.GENRE_PATTERNS),
-            'themes': cls._compile_patterns_dict(cls.THEME_PATTERNS),
-            'perspectives': cls._compile_patterns_dict(cls.PERSPECTIVE_PATTERNS),
-            'game_modes': cls._compile_patterns_dict(cls.MODE_PATTERNS),
+    def get_all_patterns(cls) -> Dict[str, Dict[str, Dict[str, Any]]]:
+        """
+        Возвращает ВСЕ скомпилированные паттерны и стоп-слова
+
+        Возвращает структуру:
+        {
+            'genres': {
+                'Action': {'patterns': [re.Pattern, ...], 'stop_words': []},
+                'Precision Combat': {'patterns': [re.Pattern, ...], 'stop_words': [...]},
+                ...
+            },
+            'themes': {...},
+            'perspectives': {...},
+            'game_modes': {...}
         }
+        """
+        result = {}
+
+        for category, patterns_dict in [
+            ('genres', cls.GENRE_PATTERNS),
+            ('themes', cls.THEME_PATTERNS),
+            ('perspectives', cls.PERSPECTIVE_PATTERNS),
+            ('game_modes', cls.MODE_PATTERNS)
+        ]:
+            result[category] = {}
+
+            for name, value in patterns_dict.items():
+                # Определяем patterns и stop_words
+                if isinstance(value, dict) and 'patterns' in value:
+                    patterns = value['patterns']
+                    stop_words = value.get('stop_words', [])
+                else:
+                    patterns = value
+                    stop_words = []
+
+                # Компилируем паттерны
+                compiled_patterns = []
+                for pattern_str in patterns:
+                    try:
+                        if pattern_str.startswith('(?c)'):
+                            actual_pattern = pattern_str[4:].lstrip()
+                            compiled_patterns.append(re.compile(actual_pattern, re.UNICODE))
+                        else:
+                            compiled_patterns.append(re.compile(pattern_str, re.IGNORECASE | re.UNICODE))
+                    except re.error as e:
+                        print(f"⚠️ Ошибка компиляции паттерна '{pattern_str}': {e}")
+
+                result[category][name] = {
+                    'patterns': compiled_patterns,
+                    'stop_words': stop_words
+                }
+
+        return result
 
     @staticmethod
-    def _compile_patterns_dict(patterns_dict: Dict[str, List[str]]) -> Dict[str, List[re.Pattern]]:
-        """Компилирует словарь паттернов с поддержкой регистра через префикс (?c)"""
+    def _compile_patterns_dict(patterns_dict: Dict[str, Union[List[str], Dict]]) -> Dict[str, List[re.Pattern]]:
+        """
+        Компилирует словарь паттернов с поддержкой:
+        - простого списка строк: {'name': ['pattern1', 'pattern2']}
+        - словаря с ключами 'patterns' и 'exclude': {'name': {'patterns': [...], 'exclude': [...]}}
+        """
         compiled = {}
-        for name, patterns in patterns_dict.items():
+        for name, value in patterns_dict.items():
             compiled_patterns = []
+
+            # Определяем список паттернов
+            if isinstance(value, dict) and 'patterns' in value:
+                patterns = value['patterns']
+                # stop_words не нужны здесь, они будут использоваться в analyze_game_criteria_fast.py
+                # Но сохраняем их отдельно? Нет, они не нужны в скомпилированном виде
+            else:
+                patterns = value
+
             for pattern_str in patterns:
                 try:
                     if pattern_str.startswith('(?c)'):
@@ -31,7 +89,9 @@ class PatternManager:
                         compiled_patterns.append(re.compile(pattern_str, re.IGNORECASE | re.UNICODE))
                 except re.error as e:
                     print(f"⚠️ Ошибка компиляции паттерна '{pattern_str}': {e}")
+
             compiled[name] = compiled_patterns
+
         return compiled
 
     @staticmethod
@@ -309,12 +369,15 @@ class PatternManager:
             r'\bpoint\s*[-–—]\s*click\w*\b',
             r'\bclick\w*\s*[-–—]\s*point\b',
         ],
-        'Precision Combat': [
-            r'\b(?:dodge|evade|avoid)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:attack|strike|hit|damage)\b(?!.*?(?:turn\s*[- ]?based|hit\s+points|golf|archery|note|cards?|strategy|tactics|grid|mech|pause|rts|upgrade|simulator|crpg|role\s*playing|dodgeball|sports|sniper|flappy|bird|bomb|fruit|formation|issue\s+commands|grid\s+layout))',
-            r'\b(?:attack|strike|hit|damage)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:dodge|evade|avoid)\b(?!.*?(?:turn\s*[- ]?based|hit\s+points|golf|archery|note|cards?|strategy|tactics|grid|mech|pause|rts|upgrade|simulator|crpg|role\s*playing|dodgeball|sports|sniper|flappy|bird|bomb|fruit|formation|issue\s+commands|grid\s+layout))',
-            r'\b(?:precis\w*|accura\w*)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:strike|shot|hit|combat)\b(?!.*?(?:turn\s*[- ]?based|hit\s+points|golf|archery|note|cards?|strategy|tactics|grid|mech|pause|rts|upgrade|simulator|crpg|role\s*playing|dodgeball|sports|sniper|flappy|bird|bomb|fruit|formation|issue\s+commands|grid\s+layout))',
-            r'\b(?:strike|shot|hit|combat)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:precis\w*|accura\w*)\b(?!.*?(?:turn\s*[- ]?based|hit\s+points|golf|archery|note|cards?|strategy|tactics|grid|mech|pause|rts|upgrade|simulator|crpg|role\s*playing|dodgeball|sports|sniper|flappy|bird|bomb|fruit|formation|issue\s+commands|grid\s+layout))',
-        ],
+        'Precision Combat': {
+            'stop_words': [],
+            'patterns': [
+                r'\b(?:dodge|evade|avoid)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:attack|strike|hit|damage)\b',
+                r'\b(?:attack|strike|hit|damage)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:dodge|evade|avoid)\b',
+                r'\b(?:precis\w*|accura\w*)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:strike|shot|hit|combat)\b',
+                r'\b(?:strike|shot|hit|combat)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:precis\w*|accura\w*)\b',
+            ]
+        },
         'Puzzle': [
             r'\bpuzzle(?:\s+(?:game|title|genre|experience|adventure|platformer|rpg))?\b',
             r'\b(?:logic|brain|mind)\s+(?:puzzle|teaser|challenge)\b',

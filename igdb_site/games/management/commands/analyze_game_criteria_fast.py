@@ -559,7 +559,7 @@ class Command(BaseCommand):
                     # ВАЖНО: берем ВСЕ паттерны для этого имени (включая все варианты)
                     patterns_dict = {matched_name: type_patterns[matched_name]}
                     sys.stderr.write(
-                        f"   🔍 Найдены паттерны для '{matched_name}': {len(type_patterns[matched_name])} шт.\n")
+                        f"   🔍 Найдены паттерны для '{matched_name}': {len(type_patterns[matched_name]['patterns'])} шт.\n")
                     sys.stderr.flush()
                 else:
                     patterns_dict = {}
@@ -575,37 +575,42 @@ class Command(BaseCommand):
 
                 patterns_dict = dict(patterns_dict)
                 if filter_name in patterns_dict:
-                    if self.custom_pattern not in patterns_dict[filter_name]:
-                        patterns_dict[filter_name] = list(patterns_dict[filter_name]) + [self.custom_pattern]
+                    if self.custom_pattern not in [getattr(p, 'pattern', str(p)) for p in
+                                                   patterns_dict[filter_name]['patterns']]:
+                        new_pattern = re.compile(self.custom_pattern, re.IGNORECASE | re.UNICODE)
+                        patterns_dict[filter_name]['patterns'].append(new_pattern)
                 else:
-                    patterns_dict[filter_name] = [self.custom_pattern]
+                    patterns_dict[filter_name] = {
+                        'patterns': [re.compile(self.custom_pattern, re.IGNORECASE | re.UNICODE)],
+                        'stop_words': []
+                    }
 
             # Компилируем паттерны - ДЛЯ КАЖДОГО ПАТТЕРНА СОЗДАЕМ ОТДЕЛЬНУЮ ЗАПИСЬ
-            for name, patterns in patterns_dict.items():
+            for name, pattern_data in patterns_dict.items():
                 name_lower = name.lower()
                 criteria_id = self.criteria_by_name.get(criteria_type, {}).get(name_lower)
                 if criteria_id:
-                    for pattern_str in patterns:
+                    patterns = pattern_data.get('patterns', [])
+                    stop_words = pattern_data.get('stop_words', [])
+
+                    for compiled_pattern in patterns:
                         try:
-                            if hasattr(pattern_str, 'search'):
-                                compiled = pattern_str
-                                is_case_sensitive = compiled.flags & re.IGNORECASE == 0
+                            # Определяем регистрозависимость
+                            if hasattr(compiled_pattern, 'flags'):
+                                is_case_sensitive = (compiled_pattern.flags & re.IGNORECASE == 0)
                             else:
-                                if isinstance(pattern_str, str) and pattern_str.startswith('(?c)'):
-                                    actual_pattern = pattern_str[4:].lstrip()
-                                    compiled = re.compile(actual_pattern, re.UNICODE)
-                                    is_case_sensitive = True
-                                else:
-                                    compiled = re.compile(pattern_str, re.IGNORECASE | re.UNICODE)
-                                    is_case_sensitive = False
+                                is_case_sensitive = False
 
                             self.compiled_patterns.append({
                                 'type': criteria_type,
                                 'id': criteria_id,
                                 'name': name,
-                                'pattern': compiled,
-                                'pattern_str': pattern_str if isinstance(pattern_str, str) else pattern_str.pattern,
-                                'is_case_sensitive': is_case_sensitive
+                                'pattern': compiled_pattern,
+                                'pattern_str': compiled_pattern.pattern if hasattr(compiled_pattern,
+                                                                                   'pattern') else str(
+                                    compiled_pattern),
+                                'is_case_sensitive': is_case_sensitive,
+                                'stop_words': stop_words  # Сохраняем стоп-слова в каждом паттерне
                             })
                         except Exception as e:
                             continue
@@ -618,6 +623,7 @@ class Command(BaseCommand):
             sys.stderr.write(f"   🔍 Найдено паттернов для '{self.criteria_name}': {len(action_patterns)}\n")
             for p in action_patterns:
                 sys.stderr.write(f"      - {p['pattern_str']}\n")
+                sys.stderr.write(f"      - Стоп-слова: {p.get('stop_words', [])}\n")
         sys.stderr.flush()
 
     def _get_games_to_analyze(self) -> List[Dict]:
@@ -752,7 +758,8 @@ class Command(BaseCommand):
         return game.summary or game.storyline or game.rawg_description or game.wiki_description or ''
 
     def _analyze_game_fast(self, game_dict: Dict, existing_relations: Dict[str, set] = None) -> Dict[str, Any]:
-        """Максимально быстрый анализ одной игры"""
+        """Максимально быстрый анализ одной игры с пост-фильтрацией по стоп-словам"""
+
         if self.combine_all_texts:
             summary = game_dict.get('summary', '') or ''
             storyline = game_dict.get('storyline', '') or ''
@@ -852,12 +859,35 @@ class Command(BaseCommand):
                     return True
             return False
 
+        def has_stop_word_in_text(full_text_lower: str, stop_words: list) -> bool:
+            """Проверяет, содержит ли текст хотя бы одно стоп-слово"""
+            if not stop_words:
+                return False
+            for stop_word in stop_words:
+                if stop_word in full_text_lower:
+                    return True
+            return False
+
+        # Предварительная проверка текста на глобальные стоп-слова для каждого критерия
+        # Кэшируем результат проверки для каждого уникального набора стоп-слов
+        stop_word_cache = {}
+
         for p in self.compiled_patterns:
             try:
                 is_case_sensitive = p.get('is_case_sensitive', False)
                 crit_type = p['type']
                 crit_id = p['id']
                 crit_name = p['name']
+                stop_words = p.get('stop_words', [])
+
+                # Проверяем наличие стоп-слов в тексте (кэшируем результат)
+                stop_words_key = tuple(sorted(stop_words))
+                if stop_words_key not in stop_word_cache:
+                    stop_word_cache[stop_words_key] = has_stop_word_in_text(text_lower, stop_words)
+
+                if stop_word_cache[stop_words_key]:
+                    # Текст содержит стоп-слова - пропускаем все паттерны с этим набором стоп-слов
+                    continue
 
                 if not self.collect_all_patterns and crit_id in processed_criteria[crit_type]:
                     continue
