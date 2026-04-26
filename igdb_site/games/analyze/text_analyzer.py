@@ -494,11 +494,67 @@ class TextAnalyzer:
 
             # Функция проверки стоп-слов
             def has_stop_word(text_lower: str, stop_words: list) -> bool:
+                """
+                Проверяет, содержит ли текст стоп-слова.
+                Поддерживает:
+                - простые строки (проверка через 'in')
+                - регулярные выражения (автоопределение по спецсимволам)
+
+                Args:
+                    text_lower: текст в нижнем регистре для проверки
+                    stop_words: список стоп-слов (могут быть простыми строками или regex-паттернами)
+
+                Returns:
+                    True если найдено хотя бы одно стоп-слово/паттерн, иначе False
+                """
+                import re
+
                 if not stop_words:
                     return False
+
+                # Локальный кэш скомпилированных паттернов
+                if not hasattr(has_stop_word, '_pattern_cache'):
+                    has_stop_word._pattern_cache = {}
+
                 for stop_word in stop_words:
-                    if stop_word in text_lower:
-                        return True
+                    # Определяем, является ли stop_word регулярным выражением
+                    is_regex = False
+
+                    # Признаки regex:
+                    # 1. Содержит спецсимволы regex
+                    # 2. Начинается с '(?'
+                    # 3. Содержит \b, \s, \d, \w
+                    if any(regex_char in stop_word for regex_char in r'\.*+?{}[]()|^$\\'):
+                        if stop_word not in has_stop_word._pattern_cache:
+                            try:
+                                re.compile(stop_word)
+                                is_regex = True
+                            except re.error:
+                                is_regex = False
+                    elif stop_word.startswith('(?') or stop_word.startswith('(\\?'):
+                        is_regex = True
+                    elif '\\b' in stop_word or '\\s' in stop_word or '\\d' in stop_word or '\\w' in stop_word:
+                        is_regex = True
+
+                    if is_regex:
+                        # Получаем или компилируем паттерн
+                        if stop_word not in has_stop_word._pattern_cache:
+                            try:
+                                has_stop_word._pattern_cache[stop_word] = re.compile(
+                                    stop_word,
+                                    re.IGNORECASE | re.UNICODE
+                                )
+                            except re.error:
+                                has_stop_word._pattern_cache[stop_word] = None
+
+                        compiled = has_stop_word._pattern_cache.get(stop_word)
+                        if compiled and compiled.search(text_lower):
+                            return True
+                    else:
+                        # Обычная строка — быстрое сравнение
+                        if stop_word in text_lower:
+                            return True
+
                 return False
 
             # Кэш проверки стоп-слов для каждого набора
