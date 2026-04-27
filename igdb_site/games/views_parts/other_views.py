@@ -381,6 +381,8 @@ def send_feedback(request: HttpRequest) -> JsonResponse:
     """
     Send feedback email to gamespeek@mail.ru.
     """
+    logger = logging.getLogger(__name__)
+
     try:
         data = json.loads(request.body)
         message_text = data.get('message', '').strip()
@@ -394,6 +396,10 @@ def send_feedback(request: HttpRequest) -> JsonResponse:
         subject = f"GamesPeek Feedback"
         body = f"Message: {message_text}\n\nFrom IP: {request.META.get('REMOTE_ADDR', 'Unknown')}\nUser Agent: {request.META.get('HTTP_USER_AGENT', 'Unknown')}"
 
+        logger.info(f"Attempting to send feedback email to gamespeek@mail.ru")
+        logger.info(f"EMAIL_HOST_USER: {settings.EMAIL_HOST_USER}")
+        logger.info(f"EMAIL_HOST_PASSWORD set: {bool(settings.EMAIL_HOST_PASSWORD)}")
+
         send_mail(
             subject=subject,
             message=body,
@@ -402,13 +408,12 @@ def send_feedback(request: HttpRequest) -> JsonResponse:
             fail_silently=False,
         )
 
+        logger.info(f"Feedback email sent successfully")
         return JsonResponse({'status': 'success', 'message': 'Feedback sent successfully!'})
 
-    except json.JSONDecodeError:
-        return JsonResponse({'status': 'error', 'message': 'Invalid JSON'}, status=400)
     except Exception as e:
-        logger.error(f"Feedback error: {str(e)}")
-        return JsonResponse({'status': 'error', 'message': 'Failed to send feedback'}, status=500)
+        logger.error(f"Feedback error: {str(e)}", exc_info=True)
+        return JsonResponse({'status': 'error', 'message': f'Failed to send feedback: {str(e)}'}, status=500)
 
 def auto_login_admin(request: HttpRequest) -> JsonResponse:
     """Автоматическая авторизация в админке."""
