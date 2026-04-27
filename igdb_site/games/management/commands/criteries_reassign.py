@@ -11,6 +11,10 @@ import sys
 class Command(BaseCommand):
     help = 'Перенести темы в жанры и ключевые слова в темы'
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._removal_results = {}
+
     def add_arguments(self, parser):
         parser.add_argument(
             '--dry-run',
@@ -28,6 +32,147 @@ class Command(BaseCommand):
             action='store_true',
             help='Не удалять старые критерии'
         )
+
+    def get_genres_to_remove(self):
+        """
+        Возвращает список названий жанров, которые нужно полностью удалить из базы данных.
+        """
+        return [
+            'Real-time Combat',
+            'Hack and slash/Beat \'em up',
+        ]
+
+    def _delete_genres_batch(self, genre_names, dry_run, batch_size, keep_old):
+        """
+        Удаляет список жанров и все связи с ними.
+
+        Аргументы:
+            genre_names: список названий жанров для удаления
+            dry_run: если True, только показывает что будет удалено
+            batch_size: размер батча для обработки
+            keep_old: если True, не удаляет связи (но в данном случае игнорируется)
+
+        Возвращает:
+            dict: словарь с результатами удаления для каждого жанра
+        """
+        self.stdout.write('\n=== ПАКЕТНОЕ УДАЛЕНИЕ ЖАНРОВ ===')
+
+        results = {}
+
+        for genre_name in genre_names:
+            self.stdout.write(f'\n--- Обработка жанра: "{genre_name}" ---')
+
+            try:
+                # Поиск жанра по точному совпадению без учета регистра
+                genre = Genre.objects.filter(name__iexact=genre_name).first()
+
+                if not genre:
+                    self.stdout.write(self.style.WARNING(f'Жанр "{genre_name}" не найден в базе данных'))
+                    results[genre_name] = {
+                        'found': False,
+                        'relations_removed': 0,
+                        'games_affected': 0,
+                        'removed': False
+                    }
+                    continue
+
+                self.stdout.write(f'Найден жанр: "{genre.name}" (ID: {genre.id})')
+
+                # Получаем количество игр с этим жанром
+                games_with_genre = Game.objects.filter(genres=genre)
+                games_count = games_with_genre.count()
+
+                if games_count > 0:
+                    self.stdout.write(f'Жанр "{genre.name}" используется в {games_count} играх')
+
+                    if not dry_run:
+                        # Получаем ID всех игр с этим жанром
+                        game_ids = list(games_with_genre.values_list('id', flat=True))
+                        total_removed_relations = 0
+
+                        # Удаляем связи батчами
+                        for i in range(0, len(game_ids), batch_size):
+                            batch_ids = game_ids[i:i + batch_size]
+
+                            # Удаляем связи жанра с играми
+                            relations_deleted, _ = Game.genres.through.objects.filter(
+                                game_id__in=batch_ids,
+                                genre_id=genre.id
+                            ).delete()
+
+                            total_removed_relations += relations_deleted
+
+                            current = min(i + batch_size, len(game_ids))
+                            self.print_progress_bar(
+                                current, len(game_ids),
+                                prefix=f'Удаление связей жанра "{genre.name}"',
+                                suffix=f'Удалено связей: {total_removed_relations}'
+                            )
+
+                        print()
+                        self.stdout.write(
+                            self.style.SUCCESS(
+                                f'Удалено {total_removed_relations} связей жанра "{genre.name}" с играми')
+                        )
+
+                        # Удаляем сам жанр
+                        genre.delete()
+                        self.stdout.write(self.style.SUCCESS(f'Жанр "{genre.name}" полностью удален из базы данных'))
+
+                        results[genre_name] = {
+                            'found': True,
+                            'relations_removed': total_removed_relations,
+                            'games_affected': games_count,
+                            'removed': True
+                        }
+                    else:
+                        # Режим dry-run
+                        self.stdout.write(
+                            self.style.WARNING(f'[DRY-RUN] Будет удалено {games_count} связей жанра "{genre.name}"')
+                        )
+                        self.stdout.write(self.style.WARNING(f'[DRY-RUN] Будет удален жанр "{genre.name}"'))
+
+                        results[genre_name] = {
+                            'found': True,
+                            'relations_removed': 0,
+                            'games_affected': games_count,
+                            'removed': True
+                        }
+                else:
+                    # Жанр не используется
+                    self.stdout.write(f'Жанр "{genre.name}" не используется ни в одной игре')
+
+                    if not dry_run:
+                        genre.delete()
+                        self.stdout.write(self.style.SUCCESS(f'Жанр "{genre.name}" удален (не использовался)'))
+
+                        results[genre_name] = {
+                            'found': True,
+                            'relations_removed': 0,
+                            'games_affected': 0,
+                            'removed': True
+                        }
+                    else:
+                        self.stdout.write(self.style.WARNING(f'[DRY-RUN] Будет удален жанр "{genre.name}"'))
+
+                        results[genre_name] = {
+                            'found': True,
+                            'relations_removed': 0,
+                            'games_affected': 0,
+                            'removed': True
+                        }
+
+            except Exception as e:
+                self.stdout.write(self.style.ERROR(f'Ошибка при удалении жанра "{genre_name}": {e}'))
+                results[genre_name] = {
+                    'found': False,
+                    'relations_removed': 0,
+                    'games_affected': 0,
+                    'removed': False,
+                    'error': str(e)
+                }
+
+        return results
 
     def _rename_genre(self, old_name, new_name, dry_run, batch_size):
         """
@@ -155,6 +300,7 @@ class Command(BaseCommand):
         """
         Перенос тем в жанры.
         При keep_old=False полностью удаляет темы и все их связи с играми.
+        При обнаружении дублирующихся жанров объединяет их в один.
         """
         self.stdout.write('=== ПЕРЕНОС ТЕМ В ЖАНРЫ ===')
 
@@ -182,18 +328,69 @@ class Command(BaseCommand):
         if not themes_to_process:
             self.stdout.write(self.style.WARNING('Не найдено ни одной темы для переноса'))
 
-        # Кешируем все жанры заранее
+        # Кешируем все жанры заранее с объединением дубликатов
         genres_cache = {}
         for theme_name, genre_name in theme_to_genre_mapping.items():
-            genre, created = Genre.objects.get_or_create(
-                name=genre_name,
-                defaults={'igdb_id': -abs(hash(genre_name)) % 1000000}
-            )
-            genres_cache[theme_name] = genre
-            if created:
-                self.stdout.write(f'Создан новый жанр: "{genre_name}" (ID: {genre.id})')
-            else:
+            # Находим все жанры с таким именем
+            existing_genres = list(Genre.objects.filter(name=genre_name))
+            existing_genres_count = len(existing_genres)
+
+            if existing_genres_count == 0:
+                # Жанр не существует - создаем новый
+                genre, created = Genre.objects.get_or_create(
+                    name=genre_name,
+                    defaults={'igdb_id': -abs(hash(genre_name)) % 1000000}
+                )
+                if created:
+                    self.stdout.write(f'Создан новый жанр: "{genre_name}" (ID: {genre.id})')
+                else:
+                    self.stdout.write(f'Используется существующий жанр: "{genre_name}" (ID: {genre.id})')
+
+            elif existing_genres_count == 1:
+                # Ровно один жанр - используем его
+                genre = existing_genres[0]
                 self.stdout.write(f'Используется существующий жанр: "{genre_name}" (ID: {genre.id})')
+
+            else:
+                # Несколько жанров - объединяем их в первый
+                self.stdout.write(
+                    self.style.WARNING(
+                        f'Найдено {existing_genres_count} жанров с именем "{genre_name}". '
+                        f'Выполняется объединение в один жанр'
+                    )
+                )
+
+                # Первый жанр будет основным
+                main_genre = existing_genres[0]
+                self.stdout.write(f'  Основной жанр: ID {main_genre.id}')
+
+                # Объединяем все остальные жанры с основным
+                for duplicate_genre in existing_genres[1:]:
+                    self.stdout.write(f'  Объединение дубликата ID {duplicate_genre.id} -> {main_genre.id}')
+
+                    if not dry_run:
+                        # Переназначаем все связи от дубликата к основному жанру
+                        # Используем update для массового обновления связей
+                        updated_count = Game.genres.through.objects.filter(
+                            genre_id=duplicate_genre.id
+                        ).update(genre_id=main_genre.id)
+
+                        if updated_count > 0:
+                            self.stdout.write(f'    Переназначено {updated_count} связей с игр')
+
+                        # Удаляем дубликат
+                        duplicate_genre.delete()
+                        self.stdout.write(f'    Дубликат жанра "{genre_name}" удален')
+                    else:
+                        self.stdout.write(
+                            self.style.WARNING(
+                                f'    [DRY-RUN] Будет переназначено связей и удален дубликат'
+                            )
+                        )
+
+                genre = main_genre
+
+            genres_cache[theme_name] = genre
 
         total_added_genres = 0
         total_removed_themes = 0
@@ -819,7 +1016,13 @@ class Command(BaseCommand):
         self.stdout.write(f'\n=== УДАЛЕНИЕ ЖАНРА "{genre_name}" ===')
 
         try:
+            # Экранируем специальные символы в названии для поиска
+            # Используем iexact для регистронезависимого поиска
             genre = Genre.objects.filter(name__iexact=genre_name).first()
+
+            if not genre:
+                # Пробуем найти по точному совпадению без учета регистра, но с экранированием
+                genre = Genre.objects.filter(name__icontains=genre_name).first()
 
             if not genre:
                 self.stdout.write(self.style.WARNING(f'Жанр "{genre_name}" не найден в базе данных'))
@@ -832,7 +1035,7 @@ class Command(BaseCommand):
             games_count = games_with_genre.count()
 
             if games_count > 0:
-                self.stdout.write(f'Жанр "{genre_name}" используется в {games_count} играх')
+                self.stdout.write(f'Жанр "{genre.name}" используется в {games_count} играх')
 
                 if not dry_run:
                     # Получаем ID всех игр с этим жанром
@@ -855,35 +1058,35 @@ class Command(BaseCommand):
                         current = min(i + batch_size, len(game_ids))
                         self.print_progress_bar(
                             current, len(game_ids),
-                            prefix=f'Удаление связей жанра "{genre_name}"',
+                            prefix=f'Удаление связей жанра "{genre.name}"',
                             suffix=f'Удалено связей: {total_removed_relations}'
                         )
 
                     print()
                     self.stdout.write(
-                        self.style.SUCCESS(f'Удалено {total_removed_relations} связей жанра "{genre_name}" с играми'))
+                        self.style.SUCCESS(f'Удалено {total_removed_relations} связей жанра "{genre.name}" с играми'))
 
                     # Удаляем сам жанр
                     genre.delete()
-                    self.stdout.write(self.style.SUCCESS(f'Жанр "{genre_name}" полностью удален из базы данных'))
+                    self.stdout.write(self.style.SUCCESS(f'Жанр "{genre.name}" полностью удален из базы данных'))
 
                     return total_removed_relations, games_count, True
                 else:
                     # Режим dry-run: показываем что будет удалено
                     self.stdout.write(
-                        self.style.WARNING(f'[DRY-RUN] Будет удалено {games_count} игр из жанра "{genre_name}"'))
-                    self.stdout.write(self.style.WARNING(f'[DRY-RUN] Будет удален жанр "{genre_name}"'))
+                        self.style.WARNING(f'[DRY-RUN] Будет удалено {games_count} игр из жанра "{genre.name}"'))
+                    self.stdout.write(self.style.WARNING(f'[DRY-RUN] Будет удален жанр "{genre.name}"'))
                     return 0, games_count, True
             else:
                 # Жанр не используется, можно удалить сразу
-                self.stdout.write(f'Жанр "{genre_name}" не используется ни в одной игре')
+                self.stdout.write(f'Жанр "{genre.name}" не используется ни в одной игре')
 
                 if not dry_run:
                     genre.delete()
-                    self.stdout.write(self.style.SUCCESS(f'Жанр "{genre_name}" удален (не использовался)'))
+                    self.stdout.write(self.style.SUCCESS(f'Жанр "{genre.name}" удален (не использовался)'))
                     return 0, 0, True
                 else:
-                    self.stdout.write(self.style.WARNING(f'[DRY-RUN] Будет удален жанр "{genre_name}"'))
+                    self.stdout.write(self.style.WARNING(f'[DRY-RUN] Будет удален жанр "{genre.name}"'))
                     return 0, 0, True
 
         except Exception as e:
@@ -1099,18 +1302,6 @@ class Command(BaseCommand):
         created_genres_count = 0
         created_themes_count = 0
 
-        # Переменные для отслеживания удаления жанра Real-time Combat
-        genre_to_remove = 'Real-time Combat'
-        relations_removed = 0
-        games_affected = 0
-        genre_removed = False
-
-        # Переменные для отслеживания удаления жанра Hack and slash/Beat 'em up
-        genre_hack_and_slash_to_remove = 'Hack and slash/Beat \'em up'
-        hack_and_slash_relations_removed = 0
-        hack_and_slash_games_affected = 0
-        hack_and_slash_genre_removed = False
-
         with transaction.atomic():
             if dry_run:
                 savepoint = transaction.savepoint()
@@ -1150,24 +1341,25 @@ class Command(BaseCommand):
                 total_added_themes_from_genres += added_themes_from_genres
                 total_removed_genres += removed_genres
 
-                # 6. Удаление жанра "Real-time Combat" (только если keep_old=False)
+                # 6. Удаление жанров из списка get_genres_to_remove() (только если keep_old=False)
                 if not keep_old:
-                    relations_removed, games_affected, genre_removed = self._delete_genre_by_name(
-                        genre_to_remove, dry_run, batch_size, keep_old
-                    )
-                else:
-                    self.stdout.write(
-                        self.style.WARNING(f'\n=== ЖАНР "{genre_to_remove}" НЕ УДАЛЯЕТСЯ (опция --keep-old) ==='))
+                    genres_to_remove = self.get_genres_to_remove()
+                    if genres_to_remove:
+                        removal_results = self._delete_genres_batch(genres_to_remove, dry_run, batch_size, keep_old)
 
-                # 7. Удаление жанра "Hack and slash/Beat 'em up" (только если keep_old=False)
-                if not keep_old:
-                    hack_and_slash_relations_removed, hack_and_slash_games_affected, hack_and_slash_genre_removed = self._delete_genre_by_name(
-                        genre_hack_and_slash_to_remove, dry_run, batch_size, keep_old
-                    )
+                        # Сохраняем результаты для итогового вывода
+                        self._removal_results = removal_results
+                    else:
+                        self._removal_results = {}
                 else:
-                    self.stdout.write(
-                        self.style.WARNING(
-                            f'\n=== ЖАНР "{genre_hack_and_slash_to_remove}" НЕ УДАЛЯЕТСЯ (опция --keep-old) ==='))
+                    genres_to_remove = self.get_genres_to_remove()
+                    if genres_to_remove:
+                        self.stdout.write(
+                            self.style.WARNING(
+                                f'\n=== ЖАНРЫ {genres_to_remove} НЕ УДАЛЯЮТСЯ (опция --keep-old) ==='
+                            )
+                        )
+                    self._removal_results = {}
 
                 if dry_run:
                     transaction.savepoint_rollback(savepoint)
@@ -1187,47 +1379,57 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f'ИТОГО обработано:'))
 
         self.stdout.write(self.style.SUCCESS(
-            f'  • Создание жанров из PatternManager: {"создано" if not dry_run else "будет создано"} {created_genres_count} жанров'))
+            f'  • Создание жанров из PatternManager: {"создано" if not dry_run else "будет создано"} {created_genres_count} жанров'
+        ))
         self.stdout.write(self.style.SUCCESS(
-            f'  • Создание тем из PatternManager: {"создано" if not dry_run else "будет создано"} {created_themes_count} тем'))
+            f'  • Создание тем из PatternManager: {"создано" if not dry_run else "будет создано"} {created_themes_count} тем'
+        ))
 
         self.stdout.write(
             self.style.SUCCESS(
-                f'  • Темы -> жанры: добавлено {total_added_genres}, удалено тем {total_removed_themes}'))
+                f'  • Темы -> жанры: добавлено {total_added_genres}, удалено тем {total_removed_themes}'
+            )
+        )
         self.stdout.write(self.style.SUCCESS(
-            f'  • Ключ.слова -> темы: добавлено {total_added_themes}, удалено ключ.слов {total_removed_keywords}'))
+            f'  • Ключ.слова -> темы: добавлено {total_added_themes}, удалено ключ.слов {total_removed_keywords}'
+        ))
         self.stdout.write(self.style.SUCCESS(
-            f'  • Темы -> ключ.слова: добавлено {total_added_keywords}, удалено тем {total_removed_themes_to_keywords}'))
+            f'  • Темы -> ключ.слова: добавлено {total_added_keywords}, удалено тем {total_removed_themes_to_keywords}'
+        ))
         self.stdout.write(self.style.SUCCESS(
-            f'  • Жанры -> темы: добавлено {total_added_themes_from_genres}, удалено жанров {total_removed_genres}'))
+            f'  • Жанры -> темы: добавлено {total_added_themes_from_genres}, удалено жанров {total_removed_genres}'
+        ))
 
-        # Вывод информации об удалении жанра Real-time Combat (только если keep_old=False)
-        if not keep_old:
-            if genre_removed:
-                if games_affected > 0:
-                    self.stdout.write(self.style.SUCCESS(
-                        f'  • Удаление жанра "{genre_to_remove}": удалено связей {relations_removed}, '
-                        f'затронуто игр {games_affected}'))
-                else:
-                    self.stdout.write(self.style.SUCCESS(
-                        f'  • Удаление жанра "{genre_to_remove}": жанр удален (не использовался)'))
-            elif not dry_run:
-                self.stdout.write(self.style.WARNING(
-                    f'  • Жанр "{genre_to_remove}" не был удален (возможно, не найден)'))
-
-        # Вывод информации об удалении жанра Hack and slash/Beat 'em up (только если keep_old=False)
-        if not keep_old:
-            if hack_and_slash_genre_removed:
-                if hack_and_slash_games_affected > 0:
-                    self.stdout.write(self.style.SUCCESS(
-                        f'  • Удаление жанра "{genre_hack_and_slash_to_remove}": удалено связей {hack_and_slash_relations_removed}, '
-                        f'затронуто игр {hack_and_slash_games_affected}'))
-                else:
-                    self.stdout.write(self.style.SUCCESS(
-                        f'  • Удаление жанра "{genre_hack_and_slash_to_remove}": жанр удален (не использовался)'))
-            elif not dry_run:
-                self.stdout.write(self.style.WARNING(
-                    f'  • Жанр "{genre_hack_and_slash_to_remove}" не был удален (возможно, не найден)'))
+        # Вывод результатов удаления жанров из списка get_genres_to_remove()
+        if hasattr(self, '_removal_results') and self._removal_results:
+            self.stdout.write('\n=== РЕЗУЛЬТАТЫ УДАЛЕНИЯ ЖАНРОВ ===')
+            for genre_name, result in self._removal_results.items():
+                if result.get('found') and result.get('removed'):
+                    if result.get('games_affected', 0) > 0:
+                        self.stdout.write(
+                            self.style.SUCCESS(
+                                f'  • Жанр "{genre_name}": удалено связей {result["relations_removed"]}, '
+                                f'затронуто игр {result["games_affected"]}'
+                            )
+                        )
+                    else:
+                        self.stdout.write(
+                            self.style.SUCCESS(
+                                f'  • Жанр "{genre_name}": удален (не использовался)'
+                            )
+                        )
+                elif not result.get('found'):
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f'  • Жанр "{genre_name}": не найден в базе данных'
+                        )
+                    )
+                elif result.get('error'):
+                    self.stdout.write(
+                        self.style.ERROR(
+                            f'  • Жанр "{genre_name}": ошибка - {result["error"]}'
+                        )
+                    )
 
         if keep_old:
             self.stdout.write(self.style.WARNING('СТАРЫЕ КРИТЕРИИ СОХРАНЕНЫ (опция --keep-old)'))

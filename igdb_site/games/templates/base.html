@@ -1,7 +1,9 @@
 <!-- games/templates/base.html -->
+
 {% load static %}
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -15,6 +17,7 @@
     <link rel="stylesheet" href="{% static 'games/css/components/card_carousel.css' %}">
     {% block extra_css %}{% endblock %}
 </head>
+
 <body>
 <nav class="navbar navbar-expand-lg navbar-dark">
     <div class="container">
@@ -30,6 +33,9 @@
             <div class="navbar-nav me-auto">
                 <a class="nav-link" href="{% url 'game_list' %}">
                     <i class="bi bi-controller"></i> Browse Games
+                </a>
+                <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#feedbackModal">
+                    <i class="bi bi-chat-dots"></i> Feedback
                 </a>
             </div>
 
@@ -49,8 +55,7 @@
                         <button onclick="autoLoginAndOpenAdmin()"
                                 class="nav-link d-flex align-items-center gap-2 py-1 px-3"
                                 style="color: var(--secondary-color) !important; font-weight: 600; font-size: 0.95rem; border-radius: 6px; background: rgba(255, 107, 53, 0.1); border: 1px solid rgba(255, 107, 53, 0.3); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); cursor: pointer;"
-                                data-bs-toggle="tooltip"
-                                data-bs-placement="bottom"
+                                data-bs-toggle="tooltip" data-bs-placement="bottom"
                                 title="Автоматическая авторизация и открытие админки в новой вкладке">
                             <i class="bi bi-shield-lock" style="font-size: 0.9rem;"></i>
                             <span class="d-none d-md-inline">Admin Login</span>
@@ -86,8 +91,33 @@
     </div>
 </footer>
 
+<!-- Feedback Modal -->
+<div class="modal fade" id="feedbackModal" tabindex="-1" aria-labelledby="feedbackModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content bg-dark text-light">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title" id="feedbackModalLabel">
+                    <i class="bi bi-chat-dots me-2"></i>Send Feedback
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
+                        aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                    <textarea id="feedbackMessage" class="form-control bg-dark text-light border-secondary"
+                              rows="5"
+                              placeholder="Share your thoughts, report issues, or suggest features..."></textarea>
+                <div id="feedbackCharCount" class="text-muted mt-1 small text-end">0 / 5000</div>
+            </div>
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="sendFeedback()">Send Feedback</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', function () {
         var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
         tooltipTriggerList.map(function (tooltipTriggerEl) {
             return new bootstrap.Tooltip(tooltipTriggerEl);
@@ -95,16 +125,31 @@
 
         var adminBtn = document.querySelector('button[onclick="autoLoginAndOpenAdmin()"]');
         if (adminBtn) {
-            adminBtn.addEventListener('mouseenter', function() {
+            adminBtn.addEventListener('mouseenter', function () {
                 this.style.background = 'rgba(255, 107, 53, 0.2)';
                 this.style.transform = 'translateY(-1px)';
                 this.style.boxShadow = '0 4px 12px rgba(255, 107, 53, 0.2)';
             });
 
-            adminBtn.addEventListener('mouseleave', function() {
+            adminBtn.addEventListener('mouseleave', function () {
                 this.style.background = 'rgba(255, 107, 53, 0.1)';
                 this.style.transform = 'translateY(0)';
                 this.style.boxShadow = 'none';
+            });
+        }
+
+        // Character counter for feedback textarea
+        const feedbackTextarea = document.getElementById('feedbackMessage');
+        if (feedbackTextarea) {
+            feedbackTextarea.addEventListener('input', function () {
+                const count = this.value.length;
+                const charCountSpan = document.getElementById('feedbackCharCount');
+                charCountSpan.textContent = count + ' / 5000';
+                if (count > 5000) {
+                    charCountSpan.classList.add('text-danger');
+                } else {
+                    charCountSpan.classList.remove('text-danger');
+                }
             });
         }
     });
@@ -117,61 +162,125 @@
         btn.disabled = true;
 
         fetch('{% url "auto_login_admin" %}', {
-            method: 'GET',
-            credentials: 'same-origin',
-            headers: {
-                'Accept': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest'
-            }
-        })
-        .then(response => {
-            const contentType = response.headers.get("content-type");
-            if (!contentType || !contentType.includes("application/json")) {
-                return response.text().then(text => {
-                    console.error('Received non-JSON response:', text.substring(0, 200));
-                    throw new Error(`Expected JSON but got HTML. Check if URL '{% url "auto_login_admin" %}' exists.`);
-                });
-            }
-            return response.json();
-        })
-        .then(data => {
-            console.log('Login response:', data);
-            if (data.status === 'success') {
-                var adminWindow = window.open('/admin/', '_blank');
-                btn.innerHTML = '<i class="bi bi-check-circle me-1"></i> Logged in!';
-                function checkAdminWindowClosed() {
-                    if (adminWindow && !adminWindow.closed) {
-                        setTimeout(checkAdminWindowClosed, 2000);
-                    } else {
-                        setTimeout(function() {
-                            window.location.reload();
-                        }, 500);
+                method: 'GET',
+                credentials: 'same-origin',
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+                .then(response => {
+                    const contentType = response.headers.get("content-type");
+                    if (!contentType || !contentType.includes("application/json")) {
+                        return response.text().then(text => {
+                            console.error('Received non-JSON response:', text.substring(0, 200));
+                            throw new Error(`Expected JSON but got HTML. Check if URL '{% url "auto_login_admin" %}' exists.`);
+                        });
                     }
-                }
-                if (adminWindow) {
-                    setTimeout(checkAdminWindowClosed, 3000);
-                } else {
-                    setTimeout(function() {
-                        window.location.reload();
-                    }, 1000);
-                }
-                setTimeout(() => {
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Login response:', data);
+                    if (data.status === 'success') {
+                        var adminWindow = window.open('/admin/', '_blank');
+                        btn.innerHTML = '<i class="bi bi-check-circle me-1"></i> Logged in!';
+                        function checkAdminWindowClosed() {
+                            if (adminWindow && !adminWindow.closed) {
+                                setTimeout(checkAdminWindowClosed, 2000);
+                            } else {
+                                setTimeout(function () {
+                                    window.location.reload();
+                                }, 500);
+                            }
+                        }
+                        if (adminWindow) {
+                            setTimeout(checkAdminWindowClosed, 3000);
+                        } else {
+                            setTimeout(function () {
+                                window.location.reload();
+                            }, 1000);
+                        }
+                        setTimeout(() => {
+                            btn.innerHTML = originalHtml;
+                            btn.disabled = false;
+                        }, 3000);
+                    } else {
+                        alert('Ошибка: ' + data.message);
+                        btn.innerHTML = originalHtml;
+                        btn.disabled = false;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Ошибка: ' + error.message + '\nПроверьте консоль для подробностей.');
                     btn.innerHTML = originalHtml;
                     btn.disabled = false;
-                }, 3000);
-            } else {
-                alert('Ошибка: ' + data.message);
-                btn.innerHTML = originalHtml;
-                btn.disabled = false;
+                });
+        }
+
+        function sendFeedback() {
+            const message = document.getElementById('feedbackMessage').value.trim();
+            const sendBtn = document.querySelector('#feedbackModal .btn-primary');
+            const originalText = sendBtn.innerHTML;
+
+            if (!message) {
+                alert('Please enter your feedback message');
+                return;
             }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            alert('Ошибка: ' + error.message + '\nПроверьте консоль для подробностей.');
-            btn.innerHTML = originalHtml;
-            btn.disabled = false;
-        });
-    }
+
+            if (message.length > 5000) {
+                alert('Message is too long (maximum 5000 characters)');
+                return;
+            }
+
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Sending...';
+
+            // Get CSRF token from cookie
+            function getCookie(name) {
+                let cookieValue = null;
+                if (document.cookie && document.cookie !== '') {
+                    const cookies = document.cookie.split(';');
+                    for (let i = 0; i < cookies.length; i++) {
+                        const cookie = cookies[i].trim();
+                        if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                            break;
+                        }
+                    }
+                }
+                return cookieValue;
+            }
+
+            fetch('{% url "send_feedback" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken'),
+                },
+                body: JSON.stringify({ message: message })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        document.getElementById('feedbackMessage').value = '';
+                        document.getElementById('feedbackCharCount').textContent = '0 / 5000';
+                        const modal = bootstrap.Modal.getInstance(document.getElementById('feedbackModal'));
+                        modal.hide();
+                        alert('✓ ' + data.message);
+                    } else {
+                        alert('✗ ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('✗ Failed to send feedback. Please try again later.');
+                })
+                .finally(() => {
+                    sendBtn.disabled = false;
+                    sendBtn.innerHTML = originalText;
+                });
+        }
 </script>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -179,4 +288,5 @@
 <script src="{% static 'games/js/components/card-carousel.js' %}"></script>
 {% block extra_js %}{% endblock %}
 </body>
+
 </html>

@@ -184,7 +184,7 @@ class RelationsHandler:
         return results
 
     def prepare_game_relations(self, game_basic_map, game_data_map, additional_data_map, data_maps, debug=False):
-        """Подготавливает связи для игр с учетом M2M для series"""
+        """Подготавливает связи для игр (keywords отключены)"""
         if debug:
             self.stdout.write('\n📋 ПОДГОТОВКА СВЯЗЕЙ ДЛЯ ИГР...')
 
@@ -222,7 +222,7 @@ class RelationsHandler:
                 'game_id': game_id,
                 'genres': [],
                 'platforms': [],
-                'keywords': [],
+                'keywords': [],  # ВСЕГДА ПУСТОЙ СПИСОК
                 'engines': [],
                 'series': [],
                 'developers': [],
@@ -240,9 +240,10 @@ class RelationsHandler:
                 if pid in data_maps.get('platform_map', {}):
                     relations['platforms'].append(data_maps['platform_map'][pid])
 
-            for kid in game_data.get('keywords', []):
-                if kid in data_maps.get('keyword_map', {}):
-                    relations['keywords'].append(data_maps['keyword_map'][kid])
+            # КЛЮЧЕВЫЕ СЛОВА ОТКЛЮЧЕНЫ - НЕ ДОБАВЛЯЕМ
+            # for kid in game_data.get('keywords', []):
+            #     if kid in data_maps.get('keyword_map', {}):
+            #         relations['keywords'].append(data_maps['keyword_map'][kid])
 
             for engine_data in game_data.get('game_engines', []):
                 if isinstance(engine_data, dict):
@@ -283,7 +284,6 @@ class RelationsHandler:
             has_relations = any([
                 relations['genres'],
                 relations['platforms'],
-                relations['keywords'],
                 relations['engines'],
                 relations['series'],
                 relations['developers'],
@@ -307,7 +307,6 @@ class RelationsHandler:
                 stats = {
                     'genres': 0,
                     'platforms': 0,
-                    'keywords': 0,
                     'engines': 0,
                     'series': 0,
                     'developers': 0,
@@ -321,7 +320,7 @@ class RelationsHandler:
                     for key in stats.keys():
                         stats[key] += len(rel[key])
 
-                self.stdout.write(f'   📈 Статистика связей:')
+                self.stdout.write(f'   📈 Статистика связей (keywords отключены):')
                 for key, count in stats.items():
                     if count > 0:
                         self.stdout.write(f'      • {key}: {count}')

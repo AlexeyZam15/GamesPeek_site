@@ -424,7 +424,7 @@ class DataLoader:
         return result_map
 
     def load_all_data_types_sequentially(self, collected_data, debug=False):
-        """Последовательно загружает все типы данных"""
+        """Последовательно загружает все типы данных (keywords отключены)"""
         if self.is_interrupted():
             if debug:
                 self.stdout.write('⏹️  Прерывание: пропускаем загрузку всех типов данных')
@@ -450,8 +450,9 @@ class DataLoader:
                 collected_data['all_genre_ids'], 'genres', Genre, '🎭', 'жанров', debug), 'genre_map'),
             ('🖥️  Платформы', 'platforms', lambda: self.load_data_parallel_generic(
                 collected_data['all_platform_ids'], 'platforms', Platform, '🖥️', 'платформ', debug), 'platform_map'),
-            ('🔑 Ключевые слова', 'keywords', lambda: self.load_keywords_parallel_with_weights(
-                collected_data['all_keyword_ids'], debug), 'keyword_map'),
+            # КЛЮЧЕВЫЕ СЛОВА ПОЛНОСТЬЮ ОТКЛЮЧЕНЫ
+            # ('🔑 Ключевые слова', 'keywords', lambda: self.load_keywords_parallel_with_weights(
+            #     collected_data['all_keyword_ids'], debug), 'keyword_map'),
             ('⚙️ Движки', 'engines', lambda: self.load_engines_parallel(
                 collected_data.get('all_engine_ids', []), debug), 'engine_map'),
         ]
@@ -466,7 +467,13 @@ class DataLoader:
                 self.stdout.write(f'\n{i}️⃣  {display_name}...')
 
             start_step = time.time()
-            data_maps[map_key] = load_func()
+
+            # Для ключевых слов возвращаем пустой словарь
+            if map_key == 'keyword_map':
+                data_maps[map_key] = {}
+            else:
+                data_maps[map_key] = load_func()
+
             step_times[key] = time.time() - start_step
 
             if debug and map_key in data_maps:
@@ -483,8 +490,7 @@ class DataLoader:
                     collected_data.get('all_theme_ids', []), 'themes', Theme, '🎨', 'тем', debug), 'theme_map'),
                 ('👁️  Перспективы', 'perspectives', lambda: self.load_data_parallel_generic(
                     collected_data.get('all_perspective_ids', []), 'player_perspectives', PlayerPerspective, '👁️',
-                    'перспектив',
-                    debug), 'perspective_map'),
+                    'перспектив', debug), 'perspective_map'),
                 ('🎮 Режимы', 'modes', lambda: self.load_data_parallel_generic(
                     collected_data.get('all_mode_ids', []), 'game_modes', GameMode, '🎮', 'режимов', debug), 'mode_map'),
             ]
@@ -1034,26 +1040,41 @@ class DataLoader:
                     if not game_obj:
                         return (game_id, 0)
 
+                    # Получаем существующие URL скриншотов из БД для этой игры
                     with self._db_lock:
-                        existing_ids = set(Screenshot.objects.filter(
-                            game=game_obj,
-                            igdb_id__in=[s.get('id') for s in screenshots_data if s.get('id')]
-                        ).values_list('igdb_id', flat=True))
+                        existing_urls = set(
+                            Screenshot.objects.filter(
+                                game=game_obj
+                            ).values_list('url', flat=True)
+                        )
 
-                    screenshots_to_create = [
-                        Screenshot(
-                            game=game_obj,
-                            igdb_id=s.get('id'),
-                            image_url=f"https://images.igdb.com/igdb/image/upload/t_original/{s.get('image_id')}.jpg",
-                            width=s.get('width') or 0,
-                            height=s.get('height') or 0
-                        ) for s in screenshots_data
-                        if s.get('id') and s.get('image_id') and s.get('id') not in existing_ids
-                    ]
+                    screenshots_to_create = []
+                    for s in screenshots_data:
+                        screenshot_id = s.get('id')
+                        image_id = s.get('image_id')
+
+                        if not screenshot_id or not image_id:
+                            continue
+
+                        image_url = f"https://images.igdb.com/igdb/image/upload/t_original/{image_id}.jpg"
+
+                        # Проверяем, существует ли уже скриншот с таким URL
+                        if image_url in existing_urls:
+                            continue
+
+                        screenshots_to_create.append(
+                            Screenshot(
+                                game=game_obj,
+                                url=image_url,
+                                w=s.get('width') or 1920,
+                                h=s.get('height') or 1080,
+                                primary=False
+                            )
+                        )
 
                     if screenshots_to_create:
                         with self._db_lock:
-                            Screenshot.objects.bulk_create(screenshots_to_create, batch_size=10)
+                            Screenshot.objects.bulk_create(screenshots_to_create, batch_size=10, ignore_conflicts=True)
                         return (game_id, len(screenshots_to_create))
                     else:
                         return (game_id, 0)
