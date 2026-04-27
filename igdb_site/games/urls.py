@@ -25,6 +25,7 @@ urlpatterns = [
     path('games/<int:game_id>/analyze/ajax/', views.analyze_game_ajax, name='analyze_game_ajax'),
     path('games/<int:game_id>/remove-theme/<int:theme_id>/', views.remove_theme_from_game,
          name='remove_theme_from_game'),
+    path('send-feedback/', views.send_feedback, name='send_feedback'),
 ]
 
 if settings.DEBUG:
