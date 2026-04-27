@@ -67,7 +67,8 @@ class Command(BaseCommand):
         self._interrupted = False
 
     def _output_results_grouped_by_pattern(self, results: List[Dict]):
-        """Вывод результатов с группировкой по паттернам в формате Markdown"""
+        """Вывод результатов с группировкой по паттернам в формате Markdown, включая стоп-слова (один раз на жанр)"""
+
         if not self.output_file:
             return
 
@@ -89,9 +90,16 @@ class Command(BaseCommand):
                 crit_type = p['type']
                 name = p['name']
                 pattern_str = p['pattern_str']
+                stop_words = p.get('stop_words', [])
 
                 if crit_type not in patterns_by_type:
-                    patterns_by_type[crit_type] = []
+                    patterns_by_type[crit_type] = {}
+
+                if name not in patterns_by_type[crit_type]:
+                    patterns_by_type[crit_type][name] = {
+                        'stop_words': stop_words,
+                        'patterns': []
+                    }
 
                 # Получаем количество срабатываний из счетчиков (если есть)
                 new_count = 0
@@ -105,7 +113,12 @@ class Command(BaseCommand):
 
                 total_count = new_count + existing_count
 
-                patterns_by_type[crit_type].append((name, pattern_str, new_count, existing_count, total_count))
+                patterns_by_type[crit_type][name]['patterns'].append({
+                    'pattern_str': pattern_str,
+                    'new_count': new_count,
+                    'existing_count': existing_count,
+                    'total_count': total_count
+                })
 
             type_display_names = {
                 'genres': 'Жанры',
@@ -116,6 +129,7 @@ class Command(BaseCommand):
 
             total_new_matches = 0
             total_existing_matches = 0
+            total_patterns_count = 0
 
             # Выводим в порядке: жанры, темы, перспективы, режимы игры
             for crit_type in ['genres', 'themes', 'perspectives', 'game_modes']:
@@ -125,15 +139,23 @@ class Command(BaseCommand):
                 display_name = type_display_names.get(crit_type, crit_type)
                 self.output_file.write(f"### {display_name}\n\n")
 
-                for name, pattern_str, new_count, existing_count, total_count in patterns_by_type[crit_type]:
-                    self.output_file.write(f"**{name}**\n\n")
-                    self.output_file.write(f"- Паттерн: `{pattern_str}`\n")
-                    self.output_file.write(f"- Срабатываний (НОВЫЕ критерии): {new_count}\n")
-                    self.output_file.write(f"- Срабатываний (СУЩЕСТВУЮЩИЕ критерии): {existing_count}\n")
-                    self.output_file.write(f"- Всего срабатываний: {total_count}\n\n")
+                for name, data in patterns_by_type[crit_type].items():
+                    stop_words = data.get('stop_words', [])
+                    patterns = data.get('patterns', [])
 
-                    total_new_matches += new_count
-                    total_existing_matches += existing_count
+                    self.output_file.write(f"#### {name}\n\n")
+                    if stop_words:
+                        self.output_file.write(f"🛑 Стоп-слова: `{', '.join(stop_words)}`\n\n")
+
+                    for pattern in patterns:
+                        self.output_file.write(f"- Паттерн: `{pattern['pattern_str']}`\n")
+                        self.output_file.write(f"- Срабатываний (НОВЫЕ критерии): {pattern['new_count']}\n")
+                        self.output_file.write(f"- Срабатываний (СУЩЕСТВУЮЩИЕ критерии): {pattern['existing_count']}\n")
+                        self.output_file.write(f"- Всего срабатываний: {pattern['total_count']}\n\n")
+
+                        total_new_matches += pattern['new_count']
+                        total_existing_matches += pattern['existing_count']
+                        total_patterns_count += 1
 
             total_matches = total_new_matches + total_existing_matches
 
@@ -141,12 +163,11 @@ class Command(BaseCommand):
             self.output_file.write(f"- Всего срабатываний (НОВЫЕ): {total_new_matches}\n")
             self.output_file.write(f"- Всего срабатываний (СУЩЕСТВУЮЩИЕ): {total_existing_matches}\n")
             self.output_file.write(f"- Всего срабатываний (ОБЩЕЕ): {total_matches}\n")
-            self.output_file.write(f"- Уникальных паттернов: {len(self.compiled_patterns)}\n\n")
+            self.output_file.write(f"- Уникальных паттернов: {total_patterns_count}\n\n")
 
         self.output_file.write("---\n\n")
         self.output_file.write("## 📊 РЕЗУЛЬТАТЫ ПО ПАТТЕРНАМ\n\n")
 
-        # ... остальная часть метода (сбор и вывод вхождений по играм) остается без изменений ...
         # Собираем все срабатывания паттернов по играм
         pattern_to_occurrences = {}
 
@@ -206,7 +227,7 @@ class Command(BaseCommand):
                 criteria_groups[group_key] = []
             criteria_groups[group_key].append((pattern_str, occurrences))
 
-        # Сортируем группы
+        # Выводим группы
         for group_key in sorted(criteria_groups.keys(), key=lambda x: (x[0], x[1])):
             crit_type, crit_name = group_key
             display_name = type_display_names.get(crit_type, crit_type)
@@ -559,7 +580,7 @@ class Command(BaseCommand):
                     # ВАЖНО: берем ВСЕ паттерны для этого имени (включая все варианты)
                     patterns_dict = {matched_name: type_patterns[matched_name]}
                     sys.stderr.write(
-                        f"   🔍 Найдены паттерны для '{matched_name}': {len(type_patterns[matched_name])} шт.\n")
+                        f"   🔍 Найдены паттерны для '{matched_name}': {len(type_patterns[matched_name]['patterns'])} шт.\n")
                     sys.stderr.flush()
                 else:
                     patterns_dict = {}
@@ -575,37 +596,42 @@ class Command(BaseCommand):
 
                 patterns_dict = dict(patterns_dict)
                 if filter_name in patterns_dict:
-                    if self.custom_pattern not in patterns_dict[filter_name]:
-                        patterns_dict[filter_name] = list(patterns_dict[filter_name]) + [self.custom_pattern]
+                    if self.custom_pattern not in [getattr(p, 'pattern', str(p)) for p in
+                                                   patterns_dict[filter_name]['patterns']]:
+                        new_pattern = re.compile(self.custom_pattern, re.IGNORECASE | re.UNICODE)
+                        patterns_dict[filter_name]['patterns'].append(new_pattern)
                 else:
-                    patterns_dict[filter_name] = [self.custom_pattern]
+                    patterns_dict[filter_name] = {
+                        'patterns': [re.compile(self.custom_pattern, re.IGNORECASE | re.UNICODE)],
+                        'stop_words': []
+                    }
 
             # Компилируем паттерны - ДЛЯ КАЖДОГО ПАТТЕРНА СОЗДАЕМ ОТДЕЛЬНУЮ ЗАПИСЬ
-            for name, patterns in patterns_dict.items():
+            for name, pattern_data in patterns_dict.items():
                 name_lower = name.lower()
                 criteria_id = self.criteria_by_name.get(criteria_type, {}).get(name_lower)
                 if criteria_id:
-                    for pattern_str in patterns:
+                    patterns = pattern_data.get('patterns', [])
+                    stop_words = pattern_data.get('stop_words', [])
+
+                    for compiled_pattern in patterns:
                         try:
-                            if hasattr(pattern_str, 'search'):
-                                compiled = pattern_str
-                                is_case_sensitive = compiled.flags & re.IGNORECASE == 0
+                            # Определяем регистрозависимость
+                            if hasattr(compiled_pattern, 'flags'):
+                                is_case_sensitive = (compiled_pattern.flags & re.IGNORECASE == 0)
                             else:
-                                if isinstance(pattern_str, str) and pattern_str.startswith('(?c)'):
-                                    actual_pattern = pattern_str[4:].lstrip()
-                                    compiled = re.compile(actual_pattern, re.UNICODE)
-                                    is_case_sensitive = True
-                                else:
-                                    compiled = re.compile(pattern_str, re.IGNORECASE | re.UNICODE)
-                                    is_case_sensitive = False
+                                is_case_sensitive = False
 
                             self.compiled_patterns.append({
                                 'type': criteria_type,
                                 'id': criteria_id,
                                 'name': name,
-                                'pattern': compiled,
-                                'pattern_str': pattern_str if isinstance(pattern_str, str) else pattern_str.pattern,
-                                'is_case_sensitive': is_case_sensitive
+                                'pattern': compiled_pattern,
+                                'pattern_str': compiled_pattern.pattern if hasattr(compiled_pattern,
+                                                                                   'pattern') else str(
+                                    compiled_pattern),
+                                'is_case_sensitive': is_case_sensitive,
+                                'stop_words': stop_words  # Сохраняем стоп-слова в каждом паттерне
                             })
                         except Exception as e:
                             continue
@@ -618,6 +644,7 @@ class Command(BaseCommand):
             sys.stderr.write(f"   🔍 Найдено паттернов для '{self.criteria_name}': {len(action_patterns)}\n")
             for p in action_patterns:
                 sys.stderr.write(f"      - {p['pattern_str']}\n")
+                sys.stderr.write(f"      - Стоп-слова: {p.get('stop_words', [])}\n")
         sys.stderr.flush()
 
     def _get_games_to_analyze(self) -> List[Dict]:
@@ -752,7 +779,8 @@ class Command(BaseCommand):
         return game.summary or game.storyline or game.rawg_description or game.wiki_description or ''
 
     def _analyze_game_fast(self, game_dict: Dict, existing_relations: Dict[str, set] = None) -> Dict[str, Any]:
-        """Максимально быстрый анализ одной игры"""
+        """Максимально быстрый анализ одной игры с пост-фильтрацией по стоп-словам"""
+
         if self.combine_all_texts:
             summary = game_dict.get('summary', '') or ''
             storyline = game_dict.get('storyline', '') or ''
@@ -852,12 +880,91 @@ class Command(BaseCommand):
                     return True
             return False
 
+        def has_stop_word_in_text(full_text_lower: str, stop_words: list) -> bool:
+            """
+            Проверяет, содержит ли текст хотя бы одно стоп-слово.
+            Поддерживает:
+            - простые строки (проверка через 'in')
+            - регулярные выражения (автоопределение по спецсимволам)
+
+            Args:
+                full_text_lower: текст в нижнем регистре для проверки
+                stop_words: список стоп-слов (могут быть простыми строками или regex-паттернами)
+
+            Returns:
+                True если найдено хотя бы одно стоп-слово/паттерн, иначе False
+            """
+            import re
+
+            if not stop_words:
+                return False
+
+            # Локальный кэш скомпилированных паттернов для этого вызова
+            if not hasattr(has_stop_word_in_text, '_pattern_cache'):
+                has_stop_word_in_text._pattern_cache = {}
+
+            for stop_word in stop_words:
+                # Определяем, является ли stop_word регулярным выражением
+                is_regex = False
+
+                # Признаки regex:
+                # 1. Содержит спецсимволы regex: \b, \d, \w, \s, ., *, +, ?, {, }, [, (, ), |, ^, $
+                # 2. Начинается с '(?'
+                # 3. Содержит \\ (экранированный бэкслэш)
+                if any(regex_char in stop_word for regex_char in r'\.*+?{}[]()|^$\\'):
+                    # Проверяем, валидный ли это regex
+                    if stop_word not in has_stop_word_in_text._pattern_cache:
+                        try:
+                            re.compile(stop_word)
+                            is_regex = True
+                        except re.error:
+                            is_regex = False
+                elif stop_word.startswith('(?') or stop_word.startswith('(\\?'):
+                    is_regex = True
+                elif '\\b' in stop_word or '\\s' in stop_word or '\\d' in stop_word or '\\w' in stop_word:
+                    is_regex = True
+
+                if is_regex:
+                    # Получаем или компилируем паттерн
+                    if stop_word not in has_stop_word_in_text._pattern_cache:
+                        try:
+                            has_stop_word_in_text._pattern_cache[stop_word] = re.compile(
+                                stop_word,
+                                re.IGNORECASE | re.UNICODE
+                            )
+                        except re.error:
+                            has_stop_word_in_text._pattern_cache[stop_word] = None
+
+                    compiled = has_stop_word_in_text._pattern_cache.get(stop_word)
+                    if compiled and compiled.search(full_text_lower):
+                        return True
+                else:
+                    # Обычная строка — быстрое сравнение
+                    if stop_word in full_text_lower:
+                        return True
+
+            return False
+
+        # Предварительная проверка текста на глобальные стоп-слова для каждого критерия
+        # Кэшируем результат проверки для каждого уникального набора стоп-слов
+        stop_word_cache = {}
+
         for p in self.compiled_patterns:
             try:
                 is_case_sensitive = p.get('is_case_sensitive', False)
                 crit_type = p['type']
                 crit_id = p['id']
                 crit_name = p['name']
+                stop_words = p.get('stop_words', [])
+
+                # Проверяем наличие стоп-слов в тексте (кэшируем результат)
+                stop_words_key = tuple(sorted(stop_words))
+                if stop_words_key not in stop_word_cache:
+                    stop_word_cache[stop_words_key] = has_stop_word_in_text(text_lower, stop_words)
+
+                if stop_word_cache[stop_words_key]:
+                    # Текст содержит стоп-слова - пропускаем все паттерны с этим набором стоп-слов
+                    continue
 
                 if not self.collect_all_patterns and crit_id in processed_criteria[crit_type]:
                     continue

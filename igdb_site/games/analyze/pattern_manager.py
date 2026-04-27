@@ -1,27 +1,85 @@
 # games/analyze/pattern_manager.py
 import re
-from typing import Dict, List
+from typing import Dict, List, Any, Union
 
 
 class PatternManager:
     """Менеджер для работы с паттернами - только статические паттерны"""
 
     @classmethod
-    def get_all_patterns(cls) -> Dict[str, Dict[str, List[re.Pattern]]]:
-        """Возвращает ВСЕ скомпилированные паттерны БЕЗ кэширования"""
-        return {
-            'genres': cls._compile_patterns_dict(cls.GENRE_PATTERNS),
-            'themes': cls._compile_patterns_dict(cls.THEME_PATTERNS),
-            'perspectives': cls._compile_patterns_dict(cls.PERSPECTIVE_PATTERNS),
-            'game_modes': cls._compile_patterns_dict(cls.MODE_PATTERNS),
+    def get_all_patterns(cls) -> Dict[str, Dict[str, Dict[str, Any]]]:
+        """
+        Возвращает ВСЕ скомпилированные паттерны и стоп-слова
+
+        Возвращает структуру:
+        {
+            'genres': {
+                'Action': {'patterns': [re.Pattern, ...], 'stop_words': []},
+                'Precision Combat': {'patterns': [re.Pattern, ...], 'stop_words': [...]},
+                ...
+            },
+            'themes': {...},
+            'perspectives': {...},
+            'game_modes': {...}
         }
+        """
+        result = {}
+
+        for category, patterns_dict in [
+            ('genres', cls.GENRE_PATTERNS),
+            ('themes', cls.THEME_PATTERNS),
+            ('perspectives', cls.PERSPECTIVE_PATTERNS),
+            ('game_modes', cls.MODE_PATTERNS)
+        ]:
+            result[category] = {}
+
+            for name, value in patterns_dict.items():
+                # Определяем patterns и stop_words
+                if isinstance(value, dict) and 'patterns' in value:
+                    patterns = value['patterns']
+                    stop_words = value.get('stop_words', [])
+                else:
+                    patterns = value
+                    stop_words = []
+
+                # Компилируем паттерны
+                compiled_patterns = []
+                for pattern_str in patterns:
+                    try:
+                        if pattern_str.startswith('(?c)'):
+                            actual_pattern = pattern_str[4:].lstrip()
+                            compiled_patterns.append(re.compile(actual_pattern, re.UNICODE))
+                        else:
+                            compiled_patterns.append(re.compile(pattern_str, re.IGNORECASE | re.UNICODE))
+                    except re.error as e:
+                        print(f"⚠️ Ошибка компиляции паттерна '{pattern_str}': {e}")
+
+                result[category][name] = {
+                    'patterns': compiled_patterns,
+                    'stop_words': stop_words
+                }
+
+        return result
 
     @staticmethod
-    def _compile_patterns_dict(patterns_dict: Dict[str, List[str]]) -> Dict[str, List[re.Pattern]]:
-        """Компилирует словарь паттернов с поддержкой регистра через префикс (?c)"""
+    def _compile_patterns_dict(patterns_dict: Dict[str, Union[List[str], Dict]]) -> Dict[str, List[re.Pattern]]:
+        """
+        Компилирует словарь паттернов с поддержкой:
+        - простого списка строк: {'name': ['pattern1', 'pattern2']}
+        - словаря с ключами 'patterns' и 'exclude': {'name': {'patterns': [...], 'exclude': [...]}}
+        """
         compiled = {}
-        for name, patterns in patterns_dict.items():
+        for name, value in patterns_dict.items():
             compiled_patterns = []
+
+            # Определяем список паттернов
+            if isinstance(value, dict) and 'patterns' in value:
+                patterns = value['patterns']
+                # stop_words не нужны здесь, они будут использоваться в analyze_game_criteria_fast.py
+                # Но сохраняем их отдельно? Нет, они не нужны в скомпилированном виде
+            else:
+                patterns = value
+
             for pattern_str in patterns:
                 try:
                     if pattern_str.startswith('(?c)'):
@@ -31,7 +89,9 @@ class PatternManager:
                         compiled_patterns.append(re.compile(pattern_str, re.IGNORECASE | re.UNICODE))
                 except re.error as e:
                     print(f"⚠️ Ошибка компиляции паттерна '{pattern_str}': {e}")
+
             compiled[name] = compiled_patterns
+
         return compiled
 
     @staticmethod
@@ -53,7 +113,7 @@ class PatternManager:
             r'\baction\b(?:(?!\.|\!|\?|\n).){0,30}?\bgames?\b',
             r'\baction(?!-)\b(?:(?!\.|\!|\?|\n).){0,30}?\b(?:adventure|thriller|rpg|strategy|puzzle|platformer|shooter|horror|survival|stealth|racing|fighting|simulation|casual|indie|sports|MMO|role-playing?)\b',
             r'\b(?:instant|real-time|fast|rapid|sudden)(?:(?!\.|\!|\?|\n).){0,30}?\baction(?!-)\b',
-            r'\baction\b',
+            # r'\baction\b',
         ],
         # 'Adventure': [
         #     # Core genre markers for 'adventure' (from frequency analysis)
@@ -96,31 +156,110 @@ class PatternManager:
             # r'(?<!-)\b(?:build\w*|rebuild\w*)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:base|bases)\b',
         ],
         'Card & Board Game': [
-            r'\b(?:is|as|this|digital|electronic|video)\s+(board|card)\s+game\b',
-            r'\b(?:play|gameplay|mechanics|styled|inspired)\s+(?:like|resembles|of)\s+(?:a\s+)?(board|card)\s+game\b',
-            r'\b(?:deck|hand|draw|discard|shuffle)\s+(?:building|management|mechanics)\b',
-            r'\bturn-based\s+(?:board|card)\s+(?:game|combat|strategy)\b',
+            # === card + game/collecting ===
+            # r'\bcard\s+(?:(?!\.|\!|\?|\n).){0,25}?\bgame\b',
+
+            # r'\bcard\s+(?:(?!\.|\!|\?|\n).){0,25}?\bcollecting\s+(?:(?!\.|\!|\?|\n).){0,25}?\bgame\b',
+
+            r'(?s)\b(?:card\s+(?:battlers?|battles?|games?|duels?)|tcg|ccg)\b(?!.*?(?:mini-?game|minigame|optional|not\s+a\s+card\s+game|cash\s+card|shark\s+card|gift\s+card|memory\s+card|matching\s+card|solitaire|poker|blackjack|gwent|arcomage|war\s+card\s+game|fishing|racing|horse\s+racing|match-3|puzzle|platformer|stealth|shoot\s+em\s+up|action\s+rpg|turn-based\s+strategy|4x|rts|mmorpg|moba|erotic|hentai|adult|nsfw|visual\s+novel|dating\s+sim|otome|train\s+simulation|business\s+simulation|tycoon|management|survival|idle|clicker|incremental|open\s+world|sandbox|dungeon\s+crawler|hack\s+and\s+slash|beat\s+em\s+up))',
+
+            r'(?s)\bcollectible\s+card\s+game\b(?!.*?(?:mini-?game|minigame|optional|not\s+a\s+card\s+game|erotic|adult|nsfw))',
+
+            r'(?s)\broguelik\w*\s+card\s+(?:battlers?|games?)\b(?!.*?(?:mini-?game|minigame|optional|not\s+a\s+card\s+game|erotic|adult|nsfw))',
+
+            # # === card + battle/combat/duel ===
+            # r'\bcard\s+(?:(?!\.|\!|\?|\n).){0,25}?\bbattl\w*\b',
+            # r'\bcard\s+(?:(?!\.|\!|\?|\n).){0,25}?\bcombat\b',
+            #
+            # # === deck + battle/combat (оба порядка) ===
+            # r'\bdeck\s+(?:(?!\.|\!|\?|\n).){0,25}?\bbattl\w*\b',
+            # r'\bdeck\s+(?:(?!\.|\!|\?|\n).){0,25}?\bcombat\b',
+            # r'\bbattl\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bdeck\b',
+            # r'\bcombat\s+(?:(?!\.|\!|\?|\n).){0,25}?\bdeck\b',
+            #
+            # # === deck + building/builder/build ===
+            # r'\bdeck\s+(?:(?!\.|\!|\?|\n).){0,25}?\bbuilding\b',
+            # r'\bdeck\s+(?:(?!\.|\!|\?|\n).){0,25}?\bbuilder\b',
+            # r'\bdeck\s+(?:(?!\.|\!|\?|\n).){0,25}?\bbuild\b',
+            #
+            # # === collectible/trading + card ===
+            # r'\bcollectible\s+(?:(?!\.|\!|\?|\n).){0,25}?\bcard\b',
+            # r'\btrading\s+(?:(?!\.|\!|\?|\n).){0,25}?\bcard\b',
+            #
+            # # === roguelike + card (оба порядка) ===
+            # r'\broguelike\s+(?:(?!\.|\!|\?|\n).){0,25}?\bcard\b',
+            # r'\bcard\s+(?:(?!\.|\!|\?|\n).){0,25}?\broguelike\b',
+
         ],
         'Engineering': [
+            # 1. Строительство кораблей — сужаем до космических/подводных с инженерными компонентами
+            r'(?s)\b(?:build|construct|design|create)\s+(?:(?!\.|\!|\?|\n).){0,100}?\b(?:spaceship|submarine|vessel|spacecraft|starship)\s+(?:(?!\.|\!|\?|\n).){0,80}?\b(?:from\s+scratch|custom|module|component|piece\s+by\s+piece|block|part|blueprint)\b|\b(?:build|construct|design|create)\s+(?:(?!\.|\!|\?|\n).){0,100}?\b(?:ship|vehicle|craft)\s+(?:(?!\.|\!|\?|\n).){0,60}?\b(?:engine|reactor|weapon|cannon|shield|thruster|module|component|conveyor|pipe|wire|circuit)\b(?!.*?(?:esports|e?sports|tycoon|management|simulator|rpg|strategy|mmo))',
+
+            # 3. Конвейеры, трубы, проводка
+            r'\b(?:wire|wiring|pipe|conveyor|circuit|cable|tube|fluid|logistics|transport\s+belt)\s+(?:(?!\.|\!|\?|\n).){0,100}?\b(?:system|network|grid|line|chain)\s+(?:(?!\.|\!|\?|\n).){0,80}?\b(?:build|design|create|construct|automate|connect|place)\b',
+
+            # 6. Установка инженерных блоков — исключаем ложные engine (cards engine, game engine, rpg engine)
+            r'\b(?:build|place|construct)\s+(?:(?!\.|\!|\?|\n).){0,60}?\b(?:generator|reactor|conveyor|pump|engine(?!.*(?:cards|card|game|rpg|simulation|tabletop|virtual|modding))|thruster|gyroscope|landing\s+gear|oxygen\s+generator|hydrogen\s+tank|nuclear\s+reactor)\b',
+
+            # 8. Модульное/компонентное строительство
+            r'\b(?:modular|component|module|voxel)\s+(?:(?!\.|\!|\?|\n).){0,80}?\b(?:building|construction|design|system)\s+(?:(?!\.|\!|\?|\n).){0,60}?\b(?:ship|base|spaceship|submarine|station|settlement)\b',
+
+            # 10. Энергетические сети
+            r'\b(?:power\s+grid|energy\s+grid|electrical\s+system|power\s+distribution|electricity)\s+(?:(?!\.|\!|\?|\n).){0,80}?\b(?:build|design|construct|set\s+up|manage|simulation)\b',
+
+            # 11. Строительство с нуля (только космические/подводные)
+            r'\b(?:build\s+from\s+scratch|design\s+and\s+build|create\s+your\s+own)\s+(?:(?!\.|\!|\?|\n).){0,100}?\b(?:spaceship|submarine|factory|space\s+station|starship)\b',
+
+            # 14. Инженерные игровые фразы
+            r'\b(?:build\s+and\s+maintain|construct\s+and\s+manage|design\s+and\s+build|engineering\s+game|sandbox\s+engineering)\s+(?:(?!\.|\!|\?|\n).){0,80}?\b(?:factory|ship|station|vehicle|spaceship|submarine)\b',
+
+            # 15. Программирование и скриптинг
+            r'\b(?:programmable|scripting|lua|visual\s+scripting|logic\s+system)\s+(?:(?!\.|\!|\?|\n).){0,80}?\b(?:block|chip|module|controller|automation)\b',
+
+            # 16. Ключевые инженерные фразы
+            r'\b(?:build\s+and\s+maintain\s+factories|physics\s+building\s+game|damage\s+simulations|customizable\s+components)\b',
+
+            # 17. Симуляция физики
+            r'\b(?:damage\s+simulation|volumetric\s+physics|buoyancy|sealed\s+compartments|inertia\s+tensor)\s+(?:(?!\.|\!|\?|\n).){0,60}?\b(?:engine|system|game)\b',
+
+            # 18. Логистические системы и конвейеры (Mindustry, Factorio, Satisfactory)
+            r'\b(?:conveyor|supply\s+chain|logistics|production\s+block|assembly\s+line|resource\s+distribution|factory\s+block|production\s+chain)\s+(?:(?!\.|\!|\?|\n).){0,100}?\b(?:design|create|manage|optimize|automate|set\s+up)\b',
+
+
+            # 19. Строительство с нуля (альтернативные фразы) — только космические/станции
+            r'\b(?:(?:assemble|build|construct)\s+your\s+own)\s+(?:(?!\.|\!|\?|\n).){0,60}?\b(?:spaceship|submarine|space\s+station)\b(?!.*(?:team|card|deck))',
+
+            # 20. Ремонт и обслуживание корабля (Barotrauma, FTL)
+            r'\b(?:maintain|repair|operate)\s+(?:(?!\.|\!|\?|\n).){0,80}?\b(?:submarine|ship|vessel|spaceship)\s+(?:(?!\.|\!|\?|\n).){0,80}?\b(?:systems|life\s+support|reactor|wiring|hull|integrity|oxygen|pressure)\b',
+
+            # 22. Barotrauma — уникальные инженерные термины (on-board wiring, nuclear reactor, barotrauma)
+            r'\b(?:on-board\s+wiring|complex\s+(?:on-board\s+)?systems?\s+(?:simulation|management)|(?:maintain|repair|operate)\s+(?:nuclear\s+)?reactor|oxygen\s+generator|(?:hull\s+integrity|water\s+pressure)\s+(?:simulation|system))\b',
+
+            # 25. Без gear trains
+            r'\b(?:mechanical\s+(?:energy|power)|(?:cogs|gears?)\s+(?:and\s+)?belts?|mechanical\s+systems?)\s+(?:(?!\.|\!|\?|\n).){0,80}?\b(?:build|design|construct|automate|power)\b|\b(?:build|design|construct|automate|power)\s+(?:(?!\.|\!|\?|\n).){0,80}?\b(?:mechanical\s+(?:energy|power)|(?:cogs|gears?)\s+(?:and\s+)?belts?|mechanical\s+systems?)\b',
+
+            # 26. Конвейеры для транспортировки предметов
+            r'\b(?:pipe\s+conveyors?|conveyors?\s+to\s+transport|transport\s+items?\s+(?:through|via))\b',
+
             # r'\b(?:build\w*|maintain\w*)\s+(?:(?!\.|\!|\?|\n).){0,30}?\b(?:reactors?|wiring|circuits?|submarines?|sonars?|pumps?|machinery)\b',
             # r'\b(?:build\w*|construct\w*)\s+(?:(?!\.|\!|\?|\n).){0,30}?\b(?:machines?|vehicles?|devices?|contraptions?|submarines??)\b',
             # r'\b(?:repair\w*|fix\w*|maintain\w*)\s+(?:(?!\.|\!|\?|\n).){0,30}?\b(?:submarines?|reactors?|engines?|pumpS?|sonars?|wiring|circuits?|machinery|on-board)\b',
 
-            # wiring + system
-            r'\bwiring\s+(?:(?!\.|\!|\?|\n).){0,25}?\bsystems?\b',
-
-            # machines + mechanical (на основе: 'War machines, mechanical puzzles')
-            r'\bmechanical\s+(?:(?!\.|\!|\?|\n).){0,25}?\bmachines?\b',
-
-            # mechanical + systems (на основе: 'mechanical systems')
-            r'\bmechanical\s+(?:(?!\.|\!|\?|\n).){0,25}?\bsystems?\b',
-
-            # circuit + system
-            r'\bcircuit\s+(?:(?!\.|\!|\?|\n).){0,25}?\bsystems?\b',
-            r'\bsystems?\s+(?:(?!\.|\!|\?|\n).){0,25}?\bcircuit\b',
-
-            # circuit + design
-            r'\bcircuit\s+(?:(?!\.|\!|\?|\n).){0,25}?\bdesign\b',
+            # # wiring + system
+            # r'\bwiring\s+(?:(?!\.|\!|\?|\n).){0,25}?\bsystems?\b',
+            #
+            # # machines + mechanical (на основе: 'War machines, mechanical puzzles')
+            # r'\bmechanical\s+(?:(?!\.|\!|\?|\n).){0,25}?\bmachines?\b',
+            #
+            # # mechanical + systems (на основе: 'mechanical systems')
+            # r'\bmechanical\s+(?:(?!\.|\!|\?|\n).){0,25}?\bsystems?\b',
+            #
+            # # circuit + system
+            # r'\bcircuit\s+(?:(?!\.|\!|\?|\n).){0,25}?\bsystems?\b',
+            # r'\bsystems?\s+(?:(?!\.|\!|\?|\n).){0,25}?\bcircuit\b',
+            #
+            # # circuit + design
+            # r'\bcircuit\s+(?:(?!\.|\!|\?|\n).){0,25}?\bdesign\b',
         ],
         'Grid-Based': [
             r'\b\d+\s*[x×]\s*\d+\s+grid(?:-shaped)?\b',
@@ -133,46 +272,191 @@ class PatternManager:
         'MOBA': [
             r'\bmoba\b',
             r'\bmultiplayer\s+online\s+battle\s+arena\b',
-            r'\b(?:5v5|3v3|team-based)\s+(?:arena)\b',
-            r'\b(?:lane|jungle|tower|creep|minion|turret)\s+(?:pushing|defense|control)\b',
+            # r'\b(?:5v5|3v3|team-based)\s+(?:arena)\b',
         ],
         'Music': [
-            r'\b(?:music|rhythm|dance|beat|audio)\s+(?:game|action|experience)\b',
+            r'\b(?:music|rhythm|dance|beat|audio)\s+(?:game|action)\b',
             r'\brhythm[-\s]?(?:based|gameplay|mechanics)\b',
-            r'\b(?:timing|sync|match\s+the\s+beat)\s+(?:based|mechanic|gameplay)\b',
             r'\b(?:press|hit|tap|hold)\s+notes?\s+in\s+time\s+with\s+the\s+music\b',
         ],
         'Open World': [
-            r'\bopen[-\s]?world(?:\s+(?:game|title|experience|environment|setting|adventure|exploration|rpg|action|sandbox|gameplay|mechanics|design|map))?\b',
-            r'\b(?:seamless|vast|expansive|living|dynamic)\s+open\s+world\b',
-            r'\b(?:explore|roam|traverse)\s+(?:freely|at\s+your\s+own\s+pace)\s+(?:the\s+)?(?:world|map|environment)\b',
-            r'\b(?:non-linear|branching)\s+(?:story|quests|narrative|progression)\b',
+            r'\bopen[-\s]?world\b',
         ],
         'Pinball': [
             r'\bpinball\b',
-            r'\bpin\s+ball\b',
-            r'\b(?:flipper|bumper|plunger)\s+(?:physics|mechanics|action)\b',
         ],
         'Platform': [
-            r'\bplatform(?:\s+(?:game|title|genre|experience|puzzle|action))?\b',
             r'\bplatformer\b',
-            r'\b(?:2d|3d)\s+platformer\b',
-            r'\b(?:jump|double\s+jump|wall\s+jump|dash|glide|climb)\s+(?:based|mechanics|gameplay)\b',
-            r'\bprecision\s+(?:jumping|platforming)\b',
+
+            # 1. Platform + Action (83 и 204 срабатывания)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\baction\b',
+            r'\baction\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 2. Platform + Adventure (67 и 77 срабатываний)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\badventure\b',
+            r'\badventure\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 3. Platform + Puzzle (57 и 74 срабатывания)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bpuzzl\w*\b',
+            r'\bpuzzl\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 4. Platform + Combat (58 и 26 срабатываний)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bcombat\b',
+            r'\bcombat\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 5. Platform + Fight (23 и 15 срабатываний)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bfight\w*\b',
+            r'\bfight\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 6. Platform + RPG (101 и 47 срабатываний)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\brpg\b',
+            r'\brpg\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 7. Platform + Metroidvania (9 и 9 срабатываний)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bmetroidvania\b',
+            r'\bmetroidvania\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 8. Platform + Scrolling (74 срабатывания)
+            r'\bscroll\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 9. Platform + Jump (32 и 28 срабатываний)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bjump\w*\b',
+            r'\bjump\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 10. Platform + Precision (15 срабатываний)
+            r'\bprecision\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 11. Platform + Elements (40 и 10 срабатываний)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\belement\w*\b',
+            r'\belement\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 12. Platform + Features (25 и 36 срабатываний)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bfeatur\w*\b',
+            r'\bfeatur\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 13. Platform + Challenges (28 и 39 срабатываний)
+            r'\bchalleng\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bchalleng\w*\b',
+
+            # 14. Platform + Level (21 и 13 срабатываний)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\blevel\w*\b',
+            r'\blevel\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 15. Platform + World (19 и 32 срабатывания)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bworld\w*\b',
+            r'\bworld\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 16. Platform + Mechanics (15 и 6 срабатываний)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bmechanic\w*\b',
+            r'\bmechanic\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 17. Platform + Shoot (12 и 8 срабатываний)
+            r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bshoot\w*\b',
+            r'\bshoot\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 18. Platform + Hack and Slash (5 срабатываний)
+            r'\bhack and slash\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+            # 19. Action-Platformer (50 срабатываний)
+            r'\baction[- ]platform\w*\b',
+
+            # 20. Souls-like (2 срабатывания)
+            r'\bsouls[- ]?(?:like|lite)\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
         ],
         'Point-and-click': [
-            r'\bpoint(?:\s+)?and(?:\s+)?click\b',
-            r'\bp&c\b',
-            r'\b(?:adventure|puzzle)\s+game\s+with\s+point-and-click\s+(?:controls|interface|mechanics)\b',
-            r'\b(?:interact|examine|combine)\s+(?:with|using)\s+(?:the\s+)?(?:cursor|mouse)\b',
+            r'\bpoint\s+(?:and\s+|&\s+|&amp;\s+|[n’\']\s?n?\s?\'?\s*|a\s+)?click\w*\b',
+            r'\bclick\w*\s+(?:and\s+|&\s+|&amp;\s+|[n’\']\s?n?\s?\'?\s*|a\s+)?point\b',
+            r'\bpoint\s*[-–—]\s*click\w*\b',
+            r'\bclick\w*\s*[-–—]\s*point\b',
         ],
-        'Precision Combat': [
-            r'\b(?:aiming|targeting)\s+(?:mechanics|system|based)\s+requires\s+(?:precision|skill|accuracy)\b',
-            r'\b(?:manual|direct|cursor-based|skill-based)\s+(?:aiming|targeting|combat)\b',
-            r'\b(?:no\s+auto-aim|no\s+aim\s+assist|requires\s+precise\s+aim)\b',
-            r'\b(?:twin-stick|wasd|cursor)\s+(?:controls|movement|combat)\b',
-            r'\b(?:projectile|bullet)\s+(?:physics|travel\s+time|drop|dodging)\b',
-        ],
+        'Precision Combat': {
+            'stop_words': [
+                # === ИСХОДНЫЕ СТОП-СЛОВА ===
+                'dice', 'd20', 'roll', 'tabletop', 'pinball', 'flippers', 'tilt',
+                'lacrosse', 'dodgeball', 'soccer', 'tennis', 'hockey',
+                'trading card', 'tcg', 'ccg', 'draw a card', 'deckbuilder',
+                'visual novel', 'cg images', 'rpgmaker',
+                'strategic map', 'turn-based', 'grid layout',
+                'simulation', 'match-3',
+                'strategy rpg', r'\bstrategic\b(?:(?!\.|\!|\?|\n).){0,60}?\bgame\b',
+
+                # === НАСТОЛЬНЫЕ ИГРЫ ===
+                r'\bboard\s+game\b',
+
+                # === MMORPG ===
+                r'\bmmorpg\b',
+                r'\bmultiplayer\s+online\s+role-playing\s+game\b',
+
+                # === SRPG / TACTICAL RPG ===
+                r'\bsrpg\b',
+                r'\bsrpgs\b',
+                r'\b(?:strategy|tactical)\s+rpg\b',
+
+                # === RTS ===
+                r'\brts\b',
+                r'\breal[-]?time\s+strategy\b',
+                r'\breal\s+time\s+strategy\b',
+
+                # === ПОШАГОВЫЕ МЕХАНИКИ ===
+                r'\b(?:turn|round|phase)\s+(?:based|by\s+turn)\b',
+
+                # === КАРТОЧНЫЕ ИГРЫ ===
+                r'\b(?:card|deck|tcg|ccg|collectible\s+card)\s+(?:game|battle|combat|duel)\b',
+                r'\b(?:match|pair)\s+(?:cards|pairs|tiles)\b',
+
+                # === АВТОМАТИЧЕСКИЙ БОЙ ===
+                r'\bauto[-]?aim\b',
+                r'\bauto[-]?attack\b',
+                r'\bauto[-]?battle\b',
+
+                # === IDLE / AFK ===
+                r'\bidle\s+(?:game|rpg|clicker)\b',
+                r'\b(?:afk|auto[-]?battle)\s+rewards?\b',
+
+                # === ГОЛЬФ ===
+                r'\bgolf\s+(?:game|games|simulator)\b',
+
+                # === ТАЙПИНГ ===
+                r'\btyping\s+(?:game|combat|battle)\b',
+
+                # === МОНСТРЫ (СИМУЛЯТОРЫ) ===
+                r'\bmonster\s+(?:raising|breeding|training|fighting)\b',
+                r'\b(?:raise|breed|train)\s+monsters?\b',
+
+                # === УПРАВЛЕНИЕ ОТРЯДОМ ===
+                r'\bsquad[-]?based\b',
+                r'\b(?:squad|party|team)\s+(?:management|control|tactics)\b',
+
+                # === СТРАТЕГИЯ ===
+                r'\bstrategy\s+game\b',
+
+                # === СИМУЛЯТОР ЗАМКА ===
+                r'\bcastle\s+sim\b',
+                r'\bcastle\s+simulator\b',
+            ],
+            'patterns': [
+                # Уклонение + атака/урон (dodge/evade/avoid/dash/roll <-> attack/strike/hit/damage/shoot)
+                r'\b(?:dodge|evade|avoid|dash|roll)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:attack|strike|hit|damage|shoot)\b',
+                r'\b(?:attack|strike|damage|shoot)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:dodge|evade|avoid|dash|roll)\b',
+
+                # Точность + удар/бой/стрельба (precis*/accura*/aim* <-> strike/shot/hit/combat/shoot/attack)
+                r'\b(?:precis\w*|accura\w*|aim\w*)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:strike|shot|hit|combat|shoot|attack)\b',
+                r'\b(?:strike|shot|hit|combat|shoot|attack)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:precis\w*|accura\w*|aim\w*)\b',
+
+                # Тайминг + уклонение/атака (timing/reflex/reaction <-> dodge/evade/attack/strike/hit)
+                r'\b(?:timing|reflex|reaction)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:dodge|evade|attack|strike|hit)\b',
+                r'\b(?:dodge|evade|attack|strike|hit)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:timing|reflex|reaction)\b',
+
+                # Парирование/блок + атака (parry/block/deflect <-> attack/strike/hit)
+                r'\b(?:parry|block|deflect)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:attack|strike|hit)\b',
+                r'\b(?:attack|strike|hit)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:parry|block|deflect)\b',
+
+                # Контратака + атака (counter/riposte <-> attack/strike/hit)
+                r'\b(?:counter|riposte)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:attack|strike|hit)\b',
+                r'\b(?:attack|strike)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:counter|riposte)\b',
+                r'\b(?:hit)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:counter(?!-)|riposte)\b',
+            ],
+        },
         'Puzzle': [
             r'\bpuzzle(?:\s+(?:game|title|genre|experience|adventure|platformer|rpg))?\b',
             r'\b(?:logic|brain|mind)\s+(?:puzzle|teaser|challenge)\b',

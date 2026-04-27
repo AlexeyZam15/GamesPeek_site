@@ -422,8 +422,17 @@ class TextAnalyzer:
             exclude_existing: bool = False
     ) -> Dict[str, Any]:
         """
-        Основной метод анализа
-        ИСПРАВЛЕНО: для ключевых слов всегда используем _analyze_keywords_for_highlight
+        Основной метод анализа с поддержкой стоп-слов для критериев
+
+        Args:
+            text: Текст для анализа
+            analyze_keywords: Анализировать ключевые слова (True) или критерии (False)
+            existing_game: Существующий объект игры для исключения уже имеющихся элементов
+            detailed_patterns: Собирать детальную информацию о паттернах
+            exclude_existing: Исключать уже существующие у игры элементы
+
+        Returns:
+            Результат анализа
         """
         start_time = time.time()
 
@@ -459,19 +468,19 @@ class TextAnalyzer:
                     'has_results': total_found > 0,
                     'mode': 'keywords_only'
                 },
-                'pattern_info': keywords_patterns,  # Всегда возвращаем pattern_info
+                'pattern_info': keywords_patterns,
                 'processing_time': time.time() - start_time,
                 'has_results': total_found > 0
             }
 
             return result
         else:
-            # Анализ критериев
-            patterns = self._get_patterns()
+            # Анализ критериев с поддержкой стоп-слов
+            patterns_data = self._get_patterns()  # Возвращает {'patterns': [...], 'stop_words': [...]}
             text_lower = text.lower()
 
             results = {}
-            pattern_info = {}  # СЛОВАРЬ для хранения информации о паттернах
+            pattern_info = {}
             total_found = 0
 
             existing_items = {}
@@ -483,21 +492,112 @@ class TextAnalyzer:
                     'game_modes': set(existing_game.game_modes.values_list('name', flat=True))
                 }
 
+            # Функция проверки стоп-слов
+            def has_stop_word(text_lower: str, stop_words: list) -> bool:
+                """
+                Проверяет, содержит ли текст стоп-слова.
+                Поддерживает:
+                - простые строки (проверка через 'in')
+                - регулярные выражения (автоопределение по спецсимволам)
+
+                Args:
+                    text_lower: текст в нижнем регистре для проверки
+                    stop_words: список стоп-слов (могут быть простыми строками или regex-паттернами)
+
+                Returns:
+                    True если найдено хотя бы одно стоп-слово/паттерн, иначе False
+                """
+                import re
+
+                if not stop_words:
+                    return False
+
+                # Локальный кэш скомпилированных паттернов
+                if not hasattr(has_stop_word, '_pattern_cache'):
+                    has_stop_word._pattern_cache = {}
+
+                for stop_word in stop_words:
+                    # Определяем, является ли stop_word регулярным выражением
+                    is_regex = False
+
+                    # Признаки regex:
+                    # 1. Содержит спецсимволы regex
+                    # 2. Начинается с '(?'
+                    # 3. Содержит \b, \s, \d, \w
+                    if any(regex_char in stop_word for regex_char in r'\.*+?{}[]()|^$\\'):
+                        if stop_word not in has_stop_word._pattern_cache:
+                            try:
+                                re.compile(stop_word)
+                                is_regex = True
+                            except re.error:
+                                is_regex = False
+                    elif stop_word.startswith('(?') or stop_word.startswith('(\\?'):
+                        is_regex = True
+                    elif '\\b' in stop_word or '\\s' in stop_word or '\\d' in stop_word or '\\w' in stop_word:
+                        is_regex = True
+
+                    if is_regex:
+                        # Получаем или компилируем паттерн
+                        if stop_word not in has_stop_word._pattern_cache:
+                            try:
+                                has_stop_word._pattern_cache[stop_word] = re.compile(
+                                    stop_word,
+                                    re.IGNORECASE | re.UNICODE
+                                )
+                            except re.error:
+                                has_stop_word._pattern_cache[stop_word] = None
+
+                        compiled = has_stop_word._pattern_cache.get(stop_word)
+                        if compiled and compiled.search(text_lower):
+                            return True
+                    else:
+                        # Обычная строка — быстрое сравнение
+                        if stop_word in text_lower:
+                            return True
+
+                return False
+
+            # Кэш проверки стоп-слов для каждого набора
+            stop_word_cache = {}
+
             for criteria_type in ['genres', 'themes', 'perspectives', 'game_modes']:
                 model = self._get_model_for_criteria(criteria_type)
                 found_items = []
-                patterns_for_type = patterns[criteria_type]
+                patterns_for_type = patterns_data.get(criteria_type, {})
 
-                # Инициализируем список для этого типа критериев
                 pattern_info[criteria_type] = []
 
-                for name, pattern_list in patterns_for_type.items():
+                for name, pattern_data in patterns_for_type.items():
+                    # Проверка стоп-слов
+                    stop_words = pattern_data.get('stop_words', [])
+
+                    # Кэшируем проверку стоп-слов
+                    stop_words_key = tuple(sorted(stop_words))
+                    if stop_words_key not in stop_word_cache:
+                        stop_word_cache[stop_words_key] = has_stop_word(text_lower, stop_words)
+
+                    if stop_word_cache[stop_words_key]:
+                        # Текст содержит стоп-слова - пропускаем этот критерий
+                        pattern_info[criteria_type].append({
+                            'name': name,
+                            'status': 'skipped',
+                            'reason': 'stop_words_found_in_text'
+                        })
+                        continue
+
                     if exclude_existing:
                         existing_names_lower = {n.lower() for n in existing_items.get(criteria_type, set())}
                         if name.lower() in existing_names_lower:
+                            pattern_info[criteria_type].append({
+                                'name': name,
+                                'status': 'skipped',
+                                'reason': 'already_exists_in_game'
+                            })
                             continue
 
-                    for pattern in pattern_list:
+                    patterns = pattern_data.get('patterns', [])
+
+                    for pattern in patterns:
                         if pattern.search(text_lower):
                             try:
                                 obj = model.objects.filter(name__iexact=name).first()
@@ -539,7 +639,7 @@ class TextAnalyzer:
                     'has_results': total_found > 0,
                     'mode': 'criteria_only'
                 },
-                'pattern_info': pattern_info,  # Всегда возвращаем словарь pattern_info
+                'pattern_info': pattern_info,
                 'processing_time': processing_time,
                 'has_results': total_found > 0
             }
@@ -718,7 +818,18 @@ class TextAnalyzer:
     # ============== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ==============
 
     def _get_patterns(self) -> Dict:
-        """Загружает паттерны (с кэшированием)"""
+        """
+        Загружает паттерны с поддержкой стоп-слов
+
+        Returns:
+            Структура: {
+                'genres': {
+                    'Action': {'patterns': [re.Pattern, ...], 'stop_words': []},
+                    ...
+                },
+                ...
+            }
+        """
         if self._patterns is None:
             self._patterns = PatternManager.get_all_patterns()
         return self._patterns
