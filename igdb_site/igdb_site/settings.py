@@ -586,6 +586,24 @@ USE_POSTGRES_TRGM = True
 USE_POSTGRES_GIN = True
 
 # ============================================
+# НАСТРОЙКИ ПОЧТЫ ДЛЯ FEEDBACK
+# ============================================
+
+# Email configuration for sending feedback to gamespeek@mail.ru
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.mail.ru'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = 'gamespeek@mail.ru'
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL = 'gamespeek@mail.ru'
+
+# For development/testing - print emails to console instead of sending
+if DEBUG and not IS_DESKTOP:
+    # EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+    pass
+
+# ============================================
 # НАСТРОЙКИ ПРИЛОЖЕНИЯ GAMES
 # ============================================
 

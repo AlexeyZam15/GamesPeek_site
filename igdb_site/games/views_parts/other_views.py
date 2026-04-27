@@ -1,7 +1,5 @@
 """Other views (home, search, platforms, etc.)."""
 
-"""Other views (home, search, platforms, etc.)."""
-
 import time
 from datetime import timedelta
 from typing import Dict, List
@@ -15,6 +13,11 @@ from django.conf import settings
 from django.contrib import messages
 from django.urls import reverse
 from django.contrib.admin.views.decorators import staff_member_required
+from django.core.mail import send_mail
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
+import json
+import logging
 
 from ..models import (
     Game, Genre, Platform, Keyword, KeywordCategory,
@@ -23,6 +26,8 @@ from ..models import (
 from ..models_parts.game_card import GameCardCache
 from ..utils.game_card_utils import GameCardCreator
 from .base_views import cache_get_or_set, get_cache_key, CACHE_TIMES
+
+logger = logging.getLogger(__name__)
 
 
 @staff_member_required
@@ -369,6 +374,41 @@ def game_search(request: HttpRequest) -> HttpResponse:
 
     return redirect(redirect_url)
 
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def send_feedback(request: HttpRequest) -> JsonResponse:
+    """
+    Send feedback email to gamespeek@mail.ru.
+    """
+    try:
+        data = json.loads(request.body)
+        message_text = data.get('message', '').strip()
+
+        if not message_text:
+            return JsonResponse({'status': 'error', 'message': 'Please enter your feedback'}, status=400)
+
+        if len(message_text) < 5:
+            return JsonResponse({'status': 'error', 'message': 'Message too short (min 5 chars)'}, status=400)
+
+        subject = f"GamesPeek Feedback"
+        body = f"Message: {message_text}\n\nFrom IP: {request.META.get('REMOTE_ADDR', 'Unknown')}\nUser Agent: {request.META.get('HTTP_USER_AGENT', 'Unknown')}"
+
+        send_mail(
+            subject=subject,
+            message=body,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=['gamespeek@mail.ru'],
+            fail_silently=False,
+        )
+
+        return JsonResponse({'status': 'success', 'message': 'Feedback sent successfully!'})
+
+    except json.JSONDecodeError:
+        return JsonResponse({'status': 'error', 'message': 'Invalid JSON'}, status=400)
+    except Exception as e:
+        logger.error(f"Feedback error: {str(e)}")
+        return JsonResponse({'status': 'error', 'message': 'Failed to send feedback'}, status=500)
 
 def auto_login_admin(request: HttpRequest) -> JsonResponse:
     """Автоматическая авторизация в админке."""
