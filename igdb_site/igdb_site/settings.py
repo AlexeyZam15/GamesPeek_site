@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'django.contrib.sitemaps',
     'debug_toolbar',
+    'analytical',  # Добавлено для Яндекс.Метрики
     'games',
 ]
 
@@ -624,6 +625,29 @@ CACHE_TIMES = {
     'full_page': 300,
     'filter_data': 3600,
 }
+
+# ============================================
+# YANDEX METRICA CONFIGURATION
+# ============================================
+
+# ID счетчика Яндекс.Метрики
+YANDEX_METRICA_COUNTER_ID = '108862390'
+
+# Включаем Webvisor для записи действий пользователей
+YANDEX_METRICA_WEBVISOR = True
+
+# Включаем отслеживание хешей в URL (для SPA-навигации)
+YANDEX_METRICA_TRACKHASH = True
+
+# Отключаем автоиндексацию (оставляем на усмотрение поисковиков)
+YANDEX_METRICA_NOINDEX = False
+
+# Включаем ecommerce для отслеживания电子商务 событий
+YANDEX_METRICA_ECOMMERCE = True
+
+# В режиме разработки не отслеживаем свои визиты
+if DEBUG:
+    YANDEX_METRICA_INTERNAL_IPS = ['127.0.0.1', 'localhost']
 
 # ============================================
 # ФИНАЛЬНЫЕ СООБЩЕНИЯ ПРИ ЗАПУСКЕ
