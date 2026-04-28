@@ -379,13 +379,14 @@ def game_search(request: HttpRequest) -> HttpResponse:
 @require_http_methods(["POST"])
 def send_feedback(request: HttpRequest) -> JsonResponse:
     """
-    Send feedback email to gamespeek@mail.ru.
+    Send feedback email to gamespeek@mail.ru with optional user email for reply.
     """
     logger = logging.getLogger(__name__)
 
     try:
         data = json.loads(request.body)
         message_text = data.get('message', '').strip()
+        user_email = data.get('email', '').strip()
 
         if not message_text:
             return JsonResponse({'status': 'error', 'message': 'Please enter your feedback'}, status=400)
@@ -393,8 +394,25 @@ def send_feedback(request: HttpRequest) -> JsonResponse:
         if len(message_text) < 5:
             return JsonResponse({'status': 'error', 'message': 'Message too short (min 5 chars)'}, status=400)
 
+        # Validate email format if provided
+        if user_email:
+            from django.core.validators import validate_email
+            from django.core.exceptions import ValidationError
+            try:
+                validate_email(user_email)
+            except ValidationError:
+                return JsonResponse({'status': 'error', 'message': 'Please enter a valid email address'}, status=400)
+
         subject = f"GamesPeek Feedback"
-        body = f"Message: {message_text}\n\nFrom IP: {request.META.get('REMOTE_ADDR', 'Unknown')}\nUser Agent: {request.META.get('HTTP_USER_AGENT', 'Unknown')}"
+
+        # Build email body with user email if provided
+        body = f"Message: {message_text}\n\n"
+        if user_email:
+            body += f"From Email: {user_email}\n"
+        else:
+            body += f"From Email: Not provided (anonymous feedback)\n"
+        body += f"From IP: {request.META.get('REMOTE_ADDR', 'Unknown')}\n"
+        body += f"User Agent: {request.META.get('HTTP_USER_AGENT', 'Unknown')}"
 
         logger.info(f"Attempting to send feedback email to gamespeek@mail.ru")
         logger.info(f"EMAIL_HOST_USER: {settings.EMAIL_HOST_USER}")

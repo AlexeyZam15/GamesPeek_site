@@ -9,6 +9,7 @@ from django.conf.urls.static import static
 urlpatterns = [
     path('', views.home, name='home'),
     path('games/', views.game_list, name='game_list'),
+    path('search/', views.search_results, name='search_results'),
     path('games/<int:pk>/', views.game_detail, name='game_detail'),
     path('games/<int:game_id>/analyze/', views.analyze_single_game, name='analyze_game'),
     path('games/<int:game_id>/analyze/clear/', views.clear_analysis_results, name='clear_analysis_results'),
