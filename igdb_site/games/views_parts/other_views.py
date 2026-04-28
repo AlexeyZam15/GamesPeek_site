@@ -71,7 +71,7 @@ def home(request: HttpRequest) -> HttpResponse:
 
 
 def _get_home_context() -> Dict:
-    """Get context for home page with cached game cards."""
+    """Get context for home page with cached game cards and extended SEO data."""
     start_time = time.time()
 
     try:
@@ -83,10 +83,14 @@ def _get_home_context() -> Dict:
         ).only('id').order_by('-rating_count', '-rating')[:20].values_list('id', flat=True))
 
         two_years_ago = timezone.now() - timedelta(days=730)
-        recent_games_ids = list(Game.objects.filter(
+        recent_release_ids = list(Game.objects.filter(
             first_release_date__gte=two_years_ago,
             first_release_date__lte=timezone.now()
         ).only('id').order_by('-first_release_date')[:20].values_list('id', flat=True))
+
+        recently_added_ids = list(Game.objects.filter(
+            rating_count__gt=0
+        ).only('id').order_by('-id')[:20].values_list('id', flat=True))
 
         popular_games = []
         if popular_games_ids:
@@ -102,10 +106,10 @@ def _get_home_context() -> Dict:
             game_dict = {game.id: game for game in popular_games}
             popular_games = [game_dict[game_id] for game_id in popular_games_ids if game_id in game_dict]
 
-        recent_games = []
-        if recent_games_ids:
-            recent_games = list(Game.objects.filter(
-                id__in=recent_games_ids
+        recent_release_games = []
+        if recent_release_ids:
+            recent_release_games = list(Game.objects.filter(
+                id__in=recent_release_ids
             ).prefetch_related(
                 'genres', 'platforms', 'player_perspectives'
             ).only(
@@ -113,10 +117,24 @@ def _get_home_context() -> Dict:
                 'first_release_date', 'cover_url', 'game_type'
             ))
 
-            game_dict = {game.id: game for game in recent_games}
-            recent_games = [game_dict[game_id] for game_id in recent_games_ids if game_id in game_dict]
+            game_dict = {game.id: game for game in recent_release_games}
+            recent_release_games = [game_dict[game_id] for game_id in recent_release_ids if game_id in game_dict]
 
-        all_game_ids = list(set(popular_games_ids + recent_games_ids))
+        recently_added_games = []
+        if recently_added_ids:
+            recently_added_games = list(Game.objects.filter(
+                id__in=recently_added_ids
+            ).prefetch_related(
+                'genres', 'platforms', 'player_perspectives'
+            ).only(
+                'id', 'name', 'rating', 'rating_count',
+                'first_release_date', 'cover_url', 'game_type'
+            ))
+
+            game_dict = {game.id: game for game in recently_added_games}
+            recently_added_games = [game_dict[game_id] for game_id in recently_added_ids if game_id in game_dict]
+
+        all_game_ids = list(set(popular_games_ids + recent_release_ids + recently_added_ids))
 
         if all_game_ids:
             from ..utils.game_card_utils import GameCardCreator
@@ -187,14 +205,14 @@ def _get_home_context() -> Dict:
 
                         popular_cards.append(SimpleCard(rendered_card))
 
-        recent_cards = []
-        if recent_games:
+        recent_release_cards = []
+        if recent_release_games:
             from ..models_parts.game_card import GameCardCache
 
             cards = {}
             try:
                 card_objects = GameCardCache.objects.filter(
-                    game_id__in=recent_games_ids,
+                    game_id__in=recent_release_ids,
                     is_active=True
                 )
 
@@ -211,9 +229,9 @@ def _get_home_context() -> Dict:
                 logger = logging.getLogger(__name__)
                 logger.error(f"Error batch loading card caches: {str(e)}")
 
-            for idx, game in enumerate(recent_games):
+            for idx, game in enumerate(recent_release_games):
                 if game.id in cards:
-                    recent_cards.append(cards[game.id])
+                    recent_release_cards.append(cards[game.id])
                 else:
                     from django.template.loader import render_to_string
                     card_context = {
@@ -238,13 +256,72 @@ def _get_home_context() -> Dict:
                             card_size='normal',
                             **related_data
                         )
-                        recent_cards.append(card_cache)
+                        recent_release_cards.append(card_cache)
                     except Exception as e:
                         class SimpleCard:
                             def __init__(self, rendered):
                                 self.rendered_card = rendered
 
-                        recent_cards.append(SimpleCard(rendered_card))
+                        recent_release_cards.append(SimpleCard(rendered_card))
+
+        recently_added_cards = []
+        if recently_added_games:
+            from ..models_parts.game_card import GameCardCache
+
+            cards = {}
+            try:
+                card_objects = GameCardCache.objects.filter(
+                    game_id__in=recently_added_ids,
+                    is_active=True
+                )
+
+                for card in card_objects:
+                    expected_key = GameCardCache.generate_cache_key_for_game(card.game_id)
+                    if card.cache_key == expected_key:
+                        cards[card.game_id] = card
+                    else:
+                        card.is_active = False
+                        card.save(update_fields=['is_active'])
+
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Error batch loading card caches: {str(e)}")
+
+            for idx, game in enumerate(recently_added_games):
+                if game.id in cards:
+                    recently_added_cards.append(cards[game.id])
+                else:
+                    from django.template.loader import render_to_string
+                    card_context = {
+                        'game': game,
+                        'show_similarity': False,
+                        'source_game': None,
+                        'current_page': 1,
+                        'game_index': idx,
+                        'game_index_offset': idx,
+                        'forloop': {'counter0': idx, 'counter': idx + 1},
+                    }
+                    rendered_card = render_to_string('games/partials/_game_card.html', card_context)
+
+                    related_data = GameCardCreator._extract_related_data(game)
+
+                    try:
+                        card_cache, created = GameCardCache.get_or_create_card(
+                            game=game,
+                            rendered_card=rendered_card,
+                            show_similarity=False,
+                            similarity_percent=None,
+                            card_size='normal',
+                            **related_data
+                        )
+                        recently_added_cards.append(card_cache)
+                    except Exception as e:
+                        class SimpleCard:
+                            def __init__(self, rendered):
+                                self.rendered_card = rendered
+
+                        recently_added_cards.append(SimpleCard(rendered_card))
 
         popular_keywords = list(Keyword.objects.filter(
             cached_usage_count__gt=0
@@ -256,13 +333,21 @@ def _get_home_context() -> Dict:
             total_game_count__gt=0
         ).order_by('-total_game_count', 'name').only('id', 'name')[:20])
 
+        popular_platforms = list(Platform.objects.annotate(
+            game_count=Count('game', distinct=True)
+        ).filter(
+            game_count__gt=0
+        ).order_by('-game_count', 'name').only('id', 'name', 'slug')[:12])
+
         query_count = len(connection.queries)
 
         context = {
             'popular_cards': popular_cards,
-            'recent_cards': recent_cards,
+            'recent_release_cards': recent_release_cards,
+            'recently_added_cards': recently_added_cards,
             'popular_keywords': popular_keywords,
             'popular_genres': popular_genres,
+            'popular_platforms': popular_platforms,
             'execution_time': round(time.time() - start_time, 3),
             'query_count': query_count,
             'cached': False,
@@ -285,9 +370,11 @@ def _get_home_context() -> Dict:
 
         return {
             'popular_cards': [],
-            'recent_cards': [],
+            'recent_release_cards': [],
+            'recently_added_cards': [],
             'popular_keywords': [],
             'popular_genres': [],
+            'popular_platforms': [],
             'show_similarity': False,
             'source_game': None,
             'selected_genres': [],

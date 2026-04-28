@@ -1,15 +1,26 @@
 <!-- games/templates/games/home.html -->
+
 {% extends 'base.html' %}
+
 {% load static %}
 
 {% block title %}GamesPeek - Discover Amazing Games. Search and Compare Video Games{% endblock %}
 
 {% block meta_tags %}
     <meta name="description"
-          content="GamesPeek - video game discovery platform with intelligent similar game search, comparison tools, and extensive database of thousands of games across all platforms.">
+          content="GamesPeek - find games similar to your favorites. Search thousands of games, compare features, and discover hidden gems using our intelligent similarity algorithm. Free game discovery platform.">
     <meta name="keywords"
-          content="video games, game search, similar games, game comparison, game database, IGDB, game recommendations, find games">
+          content="find similar games, game discovery, video game database, game comparison, similar games to, game recommendations, find new games, PC games, PlayStation games, Xbox games, Nintendo Switch games">
+    <meta name="author" content="GamesPeek">
     <meta name="robots" content="index, follow">
+    <meta property="og:title" content="GamesPeek - Find Games Similar to Your Favorites">
+    <meta property="og:description"
+          content="Discover new games based on what you already love. Intelligent similarity search and comparison tools.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://gamespeek.dpdns.org/">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="GamesPeek - Find Similar Games">
+    <meta name="twitter:description" content="Discover your next favorite game with our similarity algorithm">
 {% endblock %}
 
 {% block extra_css %}
@@ -78,70 +89,169 @@
         </div>
     </div>
 
-    <!-- Recent Games Carousel -->
+    <!-- Recent Releases Carousel -->
     <div class="carousel-section">
         <div class="container">
             <h3 class="text-center mb-4">🆕 Recently Released</h3>
             <div class="carousel-container">
                 <div class="carousel-track-container">
-                    <div class="carousel-track" id="recentCarouselTrack">
-                        {% for card in recent_cards %}
+                    <div class="carousel-track" id="recentReleaseCarouselTrack">
+                        {% for card in recent_release_cards %}
                             <div class="carousel-slide">
                                 {{ card.rendered_card|safe }}
                             </div>
                         {% endfor %}
                     </div>
                 </div>
-                <button class="carousel-btn left" onclick="moveCarousel('recentCarouselTrack', -1)">
+                <button class="carousel-btn left" onclick="moveCarousel('recentReleaseCarouselTrack', -1)">
                     <i class="bi bi-chevron-left"></i>
                 </button>
-                <button class="carousel-btn right" onclick="moveCarousel('recentCarouselTrack', 1)">
+                <button class="carousel-btn right" onclick="moveCarousel('recentReleaseCarouselTrack', 1)">
                     <i class="bi bi-chevron-right"></i>
                 </button>
             </div>
-            <div class="carousel-indicators" id="recentCarouselIndicators"></div>
+            <div class="carousel-indicators" id="recentReleaseCarouselIndicators"></div>
         </div>
     </div>
 
-    <!-- SEO Text Block - Added for Google Indexing -->
+    <!-- Recently Added to Database Carousel -->
+    <div class="carousel-section">
+        <div class="container">
+            <h3 class="text-center mb-4">📥 Recently Added to Database</h3>
+            <div class="carousel-container">
+                <div class="carousel-track-container">
+                    <div class="carousel-track" id="recentlyAddedCarouselTrack">
+                        {% for card in recently_added_cards %}
+                            <div class="carousel-slide">
+                                {{ card.rendered_card|safe }}
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                <button class="carousel-btn left" onclick="moveCarousel('recentlyAddedCarouselTrack', -1)">
+                    <i class="bi bi-chevron-left"></i>
+                </button>
+                <button class="carousel-btn right" onclick="moveCarousel('recentlyAddedCarouselTrack', 1)">
+                    <i class="bi bi-chevron-right"></i>
+                </button>
+            </div>
+            <div class="carousel-indicators" id="recentlyAddedCarouselIndicators"></div>
+        </div>
+    </div>
+
+    <!-- SEO Text Block - Expanded for Better Google Indexing -->
     <div class="seo-content" style="padding: 2rem 0; border-top: 1px solid var(--border); margin-top: 2rem;">
         <div class="container">
-            <h2 style="font-size: 1.8rem; margin-bottom: 1.5rem;">About GamesPeek</h2>
+            <h2 style="font-size: 1.8rem; margin-bottom: 1.5rem;">GamesPeek: Find Games Similar to Your Favorites</h2>
             <p style="margin-bottom: 1rem; line-height: 1.6;">
-                GamesPeek is a comprehensive video game discovery platform powered by the IGDB API.
-                Our database contains thousands of games across all major platforms including PC,
-                PlayStation, Xbox, Nintendo Switch, and mobile devices.
+                GamesPeek is a <strong>video game discovery platform</strong> that helps you find games similar to the
+                ones you already love.
+                Unlike traditional game databases that only show basic information, GamesPeek uses an <strong>intelligent
+                similarity algorithm</strong>
+                that analyzes multiple criteria including genres, themes, keywords, game modes, and player perspectives.
             </p>
             <p style="margin-bottom: 1rem; line-height: 1.6;">
-                Whether you're looking for similar games to your favorites, want to compare game
-                features side by side, or simply browse the latest releases - GamesPeek provides
-                powerful search and filtering tools to help you find your next gaming adventure.
+                Our database contains thousands of games across PC, PlayStation, Xbox, Nintendo Switch, and mobile
+                platforms.
+                Whether you're looking for <strong>games like Elden Ring</strong>, <strong>similar games to The Witcher
+                3</strong>,
+                or want to discover <strong>hidden indie gems</strong> - GamesPeek provides powerful search and
+                comparison tools.
             </p>
 
-            <h3 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">Key Features</h3>
+            <h3 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">How Our Similar Game Algorithm Works</h3>
+            <p style="margin-bottom: 1rem; line-height: 1.6;">
+                GamesPeek calculates similarity scores between games by analyzing:
+            </p>
             <ul style="margin-bottom: 1.5rem; padding-left: 1.5rem;">
-                <li style="margin-bottom: 0.5rem;">Search games by title, genres, platforms, themes, and keywords</li>
-                <li style="margin-bottom: 0.5rem;">Intelligent similar game algorithm based on multiple criteria</li>
-                <li style="margin-bottom: 0.5rem;">Compare game specifications, ratings, and features</li>
-                <li style="margin-bottom: 0.5rem;">Filter by release year, rating, popularity, and many more
-                    parameters
+                <li style="margin-bottom: 0.5rem;"><strong>Genre overlap</strong> - Action, RPG, Strategy, Adventure,
+                    and more
                 </li>
-                <li style="margin-bottom: 0.5rem;">Detailed information including descriptions, screenshots.
+                <li style="margin-bottom: 0.5rem;"><strong>Theme matching</strong> - Fantasy, Sci-fi, Horror,
+                    Historical, Open world
+                </li>
+                <li style="margin-bottom: 0.5rem;"><strong>Keyword analysis</strong> - Gameplay mechanics, features, and
+                    content tags
+                </li>
+                <li style="margin-bottom: 0.5rem;"><strong>Developer and publisher relationships</strong></li>
+                <li style="margin-bottom: 0.5rem;"><strong>Player perspective</strong> - First-person, Third-person,
+                    Top-down, Isometric
+                </li>
+                <li style="margin-bottom: 0.5rem;"><strong>Game modes</strong> - Single player, Multiplayer, Co-op,
+                    Split screen
+                </li>
+                <li style="margin-bottom: 0.5rem;"><strong>Game engine</strong> - Unreal Engine, Unity, Source, and
+                    others
                 </li>
             </ul>
 
-            <h3 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">Popular Game Genres</h3>
+            <h3 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">Popular Game Genres on GamesPeek</h3>
             <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem;">
-                {% for genre in popular_genres|slice:":12" %}
-                    <a href="{% url 'game_list' %}?g={{ genre.id }}" class="genre-badge">
+                {% for genre in popular_genres|slice:":15" %}
+                    <a href="{% url 'game_list' %}?g={{ genre.id }}" class="genre-badge"
+                       style="display: inline-flex; align-items: center; padding: 0.4rem 0.9rem; background: linear-gradient(135deg, #ff6b35, #ff8c00); color: white; text-decoration: none; font-weight: 600; font-size: 0.85rem; border-radius: 20px;">
                         {{ genre.name }}
                     </a>
                 {% endfor %}
             </div>
 
-            <p style="margin-bottom: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">
-                GamesPeek helps gamers discover titles similar to their favorites through advanced
-                matching algorithms that analyze genres, themes, gameplay mechanics, and player perspectives.
+            <h3 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">Popular Game Platforms</h3>
+            <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem;">
+                {% for platform in popular_platforms|slice:":15" %}
+                    <a href="{% url 'game_list' %}?p={{ platform.id }}" class="genre-badge"
+                       style="display: inline-flex; align-items: center; padding: 0.4rem 0.9rem; background: linear-gradient(135deg, #ff6b35, #ff8c00); color: white; text-decoration: none; font-weight: 600; font-size: 0.85rem; border-radius: 20px;">
+                        {{ platform.name }}
+                    </a>
+                {% endfor %}
+            </div>
+
+            <h3 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">What Gamers Say About GamesPeek</h3>
+            <p style="margin-bottom: 1rem; line-height: 1.6; font-style: italic; background: var(--surface-dark); padding: 1rem; border-radius: 8px;">
+                "Finally a tool that actually finds similar games based on gameplay, not just tags!
+                I found 3 great RPGs I never knew existed." - Verified User
+            </p>
+            <p style="margin-bottom: 1rem; line-height: 1.6; font-style: italic; background: var(--surface-dark); padding: 1rem; border-radius: 8px;">
+                "The comparison feature is amazing. Being able to see two games side by side helped me decide which one
+                to buy." - Steam User
+            </p>
+
+            <h3 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">Frequently Asked Questions</h3>
+
+            <h4 style="font-size: 1.1rem; margin: 1rem 0 0.5rem; color: var(--secondary-color);">How does GamesPeek find
+                similar games?</h4>
+            <p style="margin-bottom: 1rem; line-height: 1.6;">
+                Our algorithm analyzes multiple dimensions of each game including genres, themes, keywords,
+                player perspectives, game modes, and developers. We calculate a weighted similarity score
+                to recommend games that share the most characteristics with your source game.
+            </p>
+
+            <h4 style="font-size: 1.1rem; margin: 1rem 0 0.5rem; color: var(--secondary-color);">Is GamesPeek free to
+                use?</h4>
+            <p style="margin-bottom: 1rem; line-height: 1.6;">
+                Yes! GamesPeek is completely free. Search thousands of games, find similar titles,
+                compare features, and discover new games without any cost or registration.
+            </p>
+
+            <h4 style="font-size: 1.1rem; margin: 1rem 0 0.5rem; color: var(--secondary-color);">Where does GamesPeek
+                get game data?</h4>
+            <p style="margin-bottom: 1rem; line-height: 1.6;">
+                GamesPeek uses the official IGDB (Internet Game Database) API, the same database that powers
+                major gaming platforms. We also enrich our data with descriptions and metadata to provide
+                comprehensive game information.
+            </p>
+
+            <h4 style="font-size: 1.1rem; margin: 1rem 0 0.5rem; color: var(--secondary-color);">Can I compare two games
+                side by side?</h4>
+            <p style="margin-bottom: 1rem; line-height: 1.6;">
+                Absolutely! GamesPeek features a powerful comparison tool that lets you compare any two games
+                including ratings, release dates, platforms, genres, and more to help you make informed decisions.
+            </p>
+
+            <p style="margin-bottom: 0.5rem; margin-top: 1.5rem; font-size: 0.9rem; color: var(--text-muted); text-align: center;">
+                GamesPeek is your ultimate companion for discovering new video games. Whether you're looking for
+                <strong>games like Dark Souls</strong>, <strong>similar games to Stardew Valley</strong>,
+                or exploring <strong>best RPGs on PC</strong> - start your search today and never run out of great games
+                to play.
             </p>
         </div>
     </div>
