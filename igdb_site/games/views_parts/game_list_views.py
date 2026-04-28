@@ -27,6 +27,114 @@ from ..utils.filter_renderer import FilterRenderer
 ITEMS_PER_PAGE = 16
 
 
+def search_results(request: HttpRequest) -> HttpResponse:
+    """
+    Отдельная страница для поиска игр через панель поиска вверху.
+    Сначала выводятся точные совпадения названия, затем остальные.
+    """
+    start_time = time.time()
+
+    search_query = request.GET.get('search_k', '').strip()
+    page_num = request.GET.get('page', '1')
+    sort_field = request.GET.get('sort', '-rating_count')
+
+    try:
+        page_num = int(page_num)
+    except (ValueError, TypeError):
+        page_num = 1
+
+    print(f"\n=== SEARCH RESULTS PAGE ===")
+    print(f"Search query: '{search_query}'")
+    print(f"Page: {page_num}, Sort: {sort_field}")
+
+    search_filters = {}
+    if search_query:
+        search_filters['text_query'] = search_query
+
+    games_qs = Game.objects.all().only(
+        'id', 'name', 'rating', 'rating_count',
+        'first_release_date', 'cover_url', 'game_type'
+    )
+
+    if search_filters:
+        from django.db.models import Case, When, Value, IntegerField, Q
+        from .base_views import _apply_search_filters
+
+        # Сначала применяем фильтры поиска
+        games_qs = _apply_search_filters(games_qs, search_filters)
+
+        # Добавляем аннотацию для точного совпадения
+        # exact_match = 1 если название полностью совпадает (без учета регистра)
+        # exact_match = 2 если название начинается с поискового запроса
+        # exact_match = 3 если название содержит поисковый запрос
+        games_qs = games_qs.annotate(
+            relevance=Case(
+                When(name__iexact=search_query, then=Value(1)),
+                When(name__istartswith=search_query, then=Value(2)),
+                default=Value(3),
+                output_field=IntegerField()
+            )
+        )
+
+        # Сортируем: сначала relevance (1,2,3), затем выбранная пользователем сортировка
+        if sort_field in ['name', '-name', 'rating', '-rating', 'rating_count', '-rating_count', '-first_release_date']:
+            games_qs = games_qs.order_by('relevance', sort_field)
+        else:
+            games_qs = games_qs.order_by('relevance', '-rating_count')
+    else:
+        if sort_field in ['name', '-name', 'rating', '-rating', 'rating_count', '-rating_count', '-first_release_date']:
+            games_qs = games_qs.order_by(sort_field)
+        else:
+            games_qs = games_qs.order_by('-rating_count')
+
+    paginator = Paginator(games_qs, ITEMS_PER_PAGE)
+
+    try:
+        page_obj = paginator.page(page_num)
+    except PageNotAnInteger:
+        page_obj = paginator.page(1)
+    except EmptyPage:
+        page_obj = paginator.page(paginator.num_pages)
+
+    total_count = paginator.count
+    total_pages = paginator.num_pages
+    games = list(page_obj.object_list)
+
+    games = _update_games_with_cached_cards(
+        games,
+        {
+            'show_similarity': False,
+            'current_page': page_num,
+        }
+    )
+
+    start_index = (page_num - 1) * ITEMS_PER_PAGE + 1
+    end_index = min(page_num * ITEMS_PER_PAGE, total_count)
+    years_range = _get_cached_years_range()
+
+    context = {
+        'search_query': search_query,
+        'games': games,
+        'page_obj': page_obj,
+        'paginator': paginator,
+        'is_paginated': paginator.num_pages > 1,
+        'total_count': total_count,
+        'total_pages': total_pages,
+        'current_page': page_num,
+        'start_index': start_index,
+        'end_index': end_index,
+        'items_per_page': ITEMS_PER_PAGE,
+        'years_range': years_range,
+        'current_sort': sort_field,
+        'execution_time': round(time.time() - start_time, 3),
+        'show_similarity': False,
+        'find_similar': False,
+        'source_game': None,
+        'source_game_obj': None,
+    }
+
+    return render(request, 'games/search_results.html', context)
+
 def game_list(request: HttpRequest) -> HttpResponse:
     """
     Main game list function - renders filters on server with aggressive caching.
