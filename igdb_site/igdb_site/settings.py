@@ -236,8 +236,10 @@ if os.getenv('DESKTOP_MODE') == '1':
     STATIC_URL = '/static/'
     STATIC_ROOT = base_dir / 'staticfiles'
 
-    # В desktop-режиме STATICFILES_DIRS должен быть пустым
-    STATICFILES_DIRS = []
+    # В desktop-режиме указываем папку со статикой
+    STATICFILES_DIRS = [
+        base_dir / 'static',
+    ]
 
     print(f"[DESKTOP MODE] STATIC_ROOT: {STATIC_ROOT}")
     print(f"[DESKTOP MODE] STATIC_URL: {STATIC_URL}")
@@ -377,7 +379,9 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, 'games', 'static'),
+    os.path.join(BASE_DIR, 'static'),  # Добавлена общая папка для статики
 ]
+
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Поддержка ES6 модулей
