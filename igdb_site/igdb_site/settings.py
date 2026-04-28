@@ -18,34 +18,6 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # ============================================
-# YANDEX METRICA CONFIGURATION
-# ============================================
-
-# ID счетчика Яндекс.Метрики (УКАЗЫВАЕМ ЖЁСТКО без os.getenv)
-YANDEX_METRICA_COUNTER_ID = '108862390'
-
-# Включаем Webvisor для записи действий пользователей
-YANDEX_METRICA_WEBVISOR = True
-
-# Включаем отслеживание хешей в URL (для SPA-навигации)
-YANDEX_METRICA_TRACKHASH = True
-
-# Отключаем автоиндексацию
-YANDEX_METRICA_NOINDEX = False
-
-# Включаем ecommerce
-YANDEX_METRICA_ECOMMERCE = True
-
-# Принудительно включаем analytical даже в DEBUG режиме
-ANALYTICAL_DISABLED = False
-
-# Очищаем INTERNAL_IPS, чтобы код вставлялся всегда
-YANDEX_METRICA_INTERNAL_IPS = []
-
-# Дополнительная настройка для принудительной вставки кода
-ANALYTICAL_AUTO_IDENTIFY = True
-
-# ============================================
 # НАСТРОЙКИ БЕЗОПАСНОСТИ И БАЗОВЫЕ
 # ============================================
 
@@ -83,7 +55,6 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'django.contrib.sitemaps',
     'debug_toolbar',
-    'analytical',  # Добавлено для Яндекс.Метрики
     'games',
 ]
 
@@ -696,25 +667,3 @@ required_settings = ['IGDB_CLIENT_ID', 'IGDB_CLIENT_SECRET']
 for setting in required_settings:
     if not globals().get(setting):
         print(f"[WARNING] {setting} is not set")
-
-# ============================================
-# FIX для analytical библиотеки на Windows
-# ============================================
-
-import analytical.templatetags.yandex_metrica
-from analytical.utils import AnalyticalException
-
-# Сохраняем оригинальную функцию
-_original_get_required_setting = analytical.templatetags.yandex_metrica.get_required_setting
-
-
-def _patched_get_required_setting(setting, regex, invalid_msg):
-    """Обёртка, которая игнорирует проверку regex для YANDEX_METRICA_COUNTER_ID"""
-    if setting == 'YANDEX_METRICA_COUNTER_ID':
-        value = '108862390'
-        return value
-    return _original_get_required_setting(setting, regex, invalid_msg)
-
-
-# Применяем патч
-analytical.templatetags.yandex_metrica.get_required_setting = _patched_get_required_setting
