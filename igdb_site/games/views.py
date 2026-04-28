@@ -1,38 +1,35 @@
+# ===== ФАЙЛ: games/views.py =====
 """Optimized views for game similarity search with updated models."""
 
 # Re-export all views from parts
 from .views_parts.game_list_views import (
-
     ajax_load_games_page,
     ajax_load_filters,
     game_list,
+    search_results,
     get_similar_games_for_criteria,
     get_similar_games_for_game,
     get_source_game,
     clear_game_list_cache_specific,
-
 )
+
 from .views_parts.game_detail_views import (
-
     game_detail,
-
 )
+
 from .views_parts.comparison_views import (
-
     game_comparison,
-
 )
-from .views_parts.other_views import (
 
+from .views_parts.other_views import (
     home,
     keyword_category_view,
     auto_login_admin,
     remove_theme_from_game,
     send_feedback,
-
 )
-from .views_parts.analyze_views import (
 
+from .views_parts.analyze_views import (
     analyze_single_game,
     analyze_game_ajax,
     clear_analysis_results,
@@ -43,10 +40,9 @@ from .views_parts.analyze_views import (
     normalize_keyword,
     add_keyword_ajax,
     delete_keyword_ajax,
-
 )
-from .views_parts.base_views import (
 
+from .views_parts.base_views import (
     # Helper classes
     SimpleSourceGame,
 
@@ -74,16 +70,15 @@ from .views_parts.base_views import (
 
     # Year range
     get_release_years_range,
-
 )
 
 # Export everything
 __all__ = [
-
     # Views
     'ajax_load_games_page',
     'ajax_load_filters',
     'game_list',
+    'search_results',
     'game_detail',
     'game_comparison',
     'home',
@@ -137,5 +132,4 @@ __all__ = [
     'get_release_years_range',
 
     '_apply_search_filters',
-
 ]

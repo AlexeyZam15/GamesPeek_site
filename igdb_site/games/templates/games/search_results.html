@@ -1,0 +1,140 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}
+    {% if search_query %}
+        Search: "{{ search_query }}" - GamesPeek
+    {% else %}
+        Search Results - GamesPeek
+    {% endif %}
+{% endblock %}
+
+{% block extra_css %}
+    <link rel="stylesheet" href="{% static 'games/css/game_list.css' %}">
+    <link rel="stylesheet" href="{% static 'games/css/game_list/games_pagination.css' %}">
+    <link rel="stylesheet" href="{% static 'games/css/game_list/mobile-carousel.css' %}">
+    <link rel="stylesheet" href="{% static 'games/css/components/cards.css' %}">
+    <link rel="stylesheet" href="{% static 'games/css/components/card_carousel.css' %}">
+{% endblock %}
+
+{% block content %}
+    <div class="container">
+        <div class="row mb-4">
+            <div class="col-12">
+                <h1>🔍 Search Results</h1>
+                {% if search_query %}
+                    <p class="text-muted">
+                        Found <strong>{{ total_count }}</strong> games matching
+                        <strong>"{{ search_query }}"</strong>
+                    </p>
+                {% else %}
+                    <p class="text-muted">Enter a search term to find games</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Секция сортировки -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <form method="get" action="{% url 'search_results' %}" id="search-sort-form">
+                    <input type="hidden" name="search_k" value="{{ search_query }}">
+                    <div class="row align-items-center">
+                        <div class="col-md-2">
+                            <label class="form-label mb-0"><strong>Sort by:</strong></label>
+                        </div>
+                        <div class="col-md-6">
+                            <select name="sort" class="form-select" id="search-sort-select">
+                                <option value="-rating_count"
+                                        {% if current_sort == "-rating_count" %}selected{% endif %}>
+                                    Most Popular
+                                </option>
+                                <option value="-rating" {% if current_sort == "-rating" %}selected{% endif %}>
+                                    Highest Rated
+                                </option>
+                                <option value="name" {% if current_sort == "name" %}selected{% endif %}>
+                                    Name A-Z
+                                </option>
+                                <option value="-name" {% if current_sort == "-name" %}selected{% endif %}>
+                                    Name Z-A
+                                </option>
+                                <option value="-first_release_date"
+                                        {% if current_sort == "-first_release_date" %}selected{% endif %}>
+                                    Newest First
+                                </option>
+                                <option value="first_release_date"
+                                        {% if current_sort == "first_release_date" %}selected{% endif %}>
+                                    Oldest First
+                                </option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <button type="submit" class="btn btn-outline-primary w-100">
+                                <i class="bi bi-arrow-down-up"></i> Apply Sort
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Результаты поиска -->
+        <div id="search-results-container">
+            <!-- Пагинация вверху -->
+            {% include 'games/game_list/_pagination.html' with position='games-pagination-top' %}
+
+            <!-- Сетка игр -->
+            <div class="games-container">
+                {% if games %}
+                    <div class="row" id="games-grid-row">
+                        {% for game_item in games %}
+                            {% if game_item.cached_card %}
+                                {{ game_item.cached_card|safe }}
+                            {% else %}
+                                {% with game=game_item %}
+                                    {% include 'games/partials/_game_card.html' with game=game page_number=current_page game_index=forloop.counter0 %}
+                                {% endwith %}
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="row">
+                        <div class="col-12">
+                            <div class="text-center py-5">
+                                {% if search_query %}
+                                    <i class="bi bi-search"
+                                       style="font-size: 4rem; color: var(--secondary-color); opacity: 0.5;"></i>
+                                    <h4 class="mt-3">No games found for "{{ search_query }}"</h4>
+                                    <p class="text-muted">Try different keywords or browse all games</p>
+                                    <a href="{% url 'game_list' %}" class="btn btn-primary mt-2">
+                                        <i class="bi bi-controller"></i> Browse All Games
+                                    </a>
+                                {% else %}
+                                    <i class="bi bi-search"
+                                       style="font-size: 4rem; color: var(--secondary-color); opacity: 0.5;"></i>
+                                    <h4 class="mt-3">Enter a search term</h4>
+                                    <p class="text-muted">Use the search bar above to find games</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+
+            <!-- Пагинация внизу -->
+            {% include 'games/game_list/_pagination.html' with position='games-pagination-bottom' %}
+        </div>
+    </div>
+{% endblock %}
+
+{% block extra_js %}
+    <script src="{% static 'games/js/game_list/mobile-carousel.js' %}"></script>
+    <script>
+        // Автоматическая отправка формы при изменении сортировки
+        const sortSelect = document.getElementById('search-sort-select');
+        if (sortSelect) {
+            sortSelect.addEventListener('change', function() {
+                document.getElementById('search-sort-form').submit();
+            });
+        }
+    </script>
+{% endblock %}
