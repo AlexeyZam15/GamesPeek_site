@@ -139,53 +139,68 @@
         </div>
     </div>
 
-    <!-- SEO Text Block - Expanded for Better Google Indexing -->
+    <!-- SEO Text Block - Extended for Google Indexing -->
     <div class="seo-content" style="padding: 2rem 0; border-top: 1px solid var(--border); margin-top: 2rem;">
         <div class="container">
             <h2 style="font-size: 1.8rem; margin-bottom: 1.5rem;">GamesPeek: Find Games Similar to Your Favorites</h2>
+
             <p style="margin-bottom: 1rem; line-height: 1.6;">
-                GamesPeek is a <strong>video game discovery platform</strong> that helps you find games similar to the
-                ones you already love.
-                Unlike traditional game databases that only show basic information, GamesPeek uses an <strong>intelligent
-                similarity algorithm</strong>
-                that analyzes multiple criteria including genres, themes, keywords, game modes, and player perspectives.
-            </p>
-            <p style="margin-bottom: 1rem; line-height: 1.6;">
-                Our database contains thousands of games across PC, PlayStation, Xbox, Nintendo Switch, and mobile
-                platforms.
-                Whether you're looking for <strong>games like Elden Ring</strong>, <strong>similar games to The Witcher
-                3</strong>,
-                or want to discover <strong>hidden indie gems</strong> - GamesPeek provides powerful search and
-                comparison tools.
+                <strong>GamesPeek</strong> is a video game discovery platform that helps you find <strong>games similar
+                to the ones you already love</strong>.
+                With a database of over 45,000 games, our intelligent similarity algorithm analyzes multiple criteria to
+                recommend titles you'll enjoy.
             </p>
 
-            <h3 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">How Our Similar Game Algorithm Works</h3>
             <p style="margin-bottom: 1rem; line-height: 1.6;">
-                GamesPeek calculates similarity scores between games by analyzing:
+                Unlike traditional game stores that only show popular titles, GamesPeek lets you search by <strong>genres,
+                keywords, themes,
+                platforms, release years, developers, game modes, and engines</strong>. Then our algorithm finds games
+                that share these characteristics.
             </p>
+
+            <h3 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">How the Similarity Algorithm Works</h3>
             <ul style="margin-bottom: 1.5rem; padding-left: 1.5rem;">
-                <li style="margin-bottom: 0.5rem;"><strong>Genre overlap</strong> - Action, RPG, Strategy, Adventure,
-                    and more
+                <li style="margin-bottom: 0.5rem;"><strong>Genre matching (30% weight)</strong> - Action, RPG, Strategy,
+                    Adventure, Indie, Shooter, Simulation
                 </li>
-                <li style="margin-bottom: 0.5rem;"><strong>Theme matching</strong> - Fantasy, Sci-fi, Horror,
-                    Historical, Open world
+                <li style="margin-bottom: 0.5rem;"><strong>Keyword analysis (25% weight)</strong> - Gameplay mechanics,
+                    features, content tags
                 </li>
-                <li style="margin-bottom: 0.5rem;"><strong>Keyword analysis</strong> - Gameplay mechanics, features, and
-                    content tags
+                <li style="margin-bottom: 0.5rem;"><strong>Theme similarity (20% weight)</strong> - Fantasy, Sci-fi,
+                    Horror, Historical, Open world, Survival
                 </li>
-                <li style="margin-bottom: 0.5rem;"><strong>Developer and publisher relationships</strong></li>
-                <li style="margin-bottom: 0.5rem;"><strong>Player perspective</strong> - First-person, Third-person,
-                    Top-down, Isometric
+                <li style="margin-bottom: 0.5rem;"><strong>Developer relationships (10% weight)</strong> - Same
+                    developers often create similar games
                 </li>
-                <li style="margin-bottom: 0.5rem;"><strong>Game modes</strong> - Single player, Multiplayer, Co-op,
-                    Split screen
+                <li style="margin-bottom: 0.5rem;"><strong>Player perspective (8% weight)</strong> - First-person,
+                    Third-person, Top-down, Isometric
                 </li>
-                <li style="margin-bottom: 0.5rem;"><strong>Game engine</strong> - Unreal Engine, Unity, Source, and
-                    others
+                <li style="margin-bottom: 0.5rem;"><strong>Game modes (7% weight)</strong> - Single player, Multiplayer,
+                    Co-op, Couch co-op, Split screen
                 </li>
             </ul>
 
-            <h3 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">Popular Game Genres on GamesPeek</h3>
+            <h3 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">Examples of Similar Game Recommendations</h3>
+            <div style="margin-bottom: 1.5rem;">
+                <div style="background: var(--surface-dark); padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 0.5rem;">
+                    <strong>🎮 Games like The Witcher 3:</strong> Kingdom Come Deliverance, Elder Scrolls V: Skyrim,
+                    Dragon Age Inquisition, Assassin's Creed Odyssey
+                </div>
+                <div style="background: var(--surface-dark); padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 0.5rem;">
+                    <strong>🎮 Games like Dark Souls:</strong> Elden Ring, Sekiro Shadows Die Twice, Bloodborne, Nioh,
+                    Lies of P
+                </div>
+                <div style="background: var(--surface-dark); padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 0.5rem;">
+                    <strong>🎮 Games like Stardew Valley:</strong> Animal Crossing New Horizons, My Time at Portia,
+                    Harvest Moon, Coral Island
+                </div>
+                <div style="background: var(--surface-dark); padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 0.5rem;">
+                    <strong>🎮 Games like Hollow Knight:</strong> Ori and the Blind Forest, Dead Cells, Blasphemous,
+                    Bloodstained Ritual of the Night
+                </div>
+            </div>
+
+            <h3 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">Popular Game Genres</h3>
             <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem;">
                 {% for genre in popular_genres|slice:":15" %}
                     <a href="{% url 'game_list' %}?g={{ genre.id }}" class="genre-badge"
@@ -205,53 +220,30 @@
                 {% endfor %}
             </div>
 
-            <h3 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">What Gamers Say About GamesPeek</h3>
-            <p style="margin-bottom: 1rem; line-height: 1.6; font-style: italic; background: var(--surface-dark); padding: 1rem; border-radius: 8px;">
-                "Finally a tool that actually finds similar games based on gameplay, not just tags!
-                I found 3 great RPGs I never knew existed." - Verified User
-            </p>
-            <p style="margin-bottom: 1rem; line-height: 1.6; font-style: italic; background: var(--surface-dark); padding: 1rem; border-radius: 8px;">
-                "The comparison feature is amazing. Being able to see two games side by side helped me decide which one
-                to buy." - Steam User
-            </p>
-
             <h3 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">Frequently Asked Questions</h3>
 
-            <h4 style="font-size: 1.1rem; margin: 1rem 0 0.5rem; color: var(--secondary-color);">How does GamesPeek find
-                similar games?</h4>
-            <p style="margin-bottom: 1rem; line-height: 1.6;">
-                Our algorithm analyzes multiple dimensions of each game including genres, themes, keywords,
-                player perspectives, game modes, and developers. We calculate a weighted similarity score
-                to recommend games that share the most characteristics with your source game.
-            </p>
+            <h4 style="font-size: 1.1rem; margin: 1rem 0 0.5rem; color: var(--secondary-color);">Is GamesPeek free?</h4>
+            <p style="margin-bottom: 1rem; line-height: 1.6;">Yes! GamesPeek is completely free. No registration
+                required.</p>
 
-            <h4 style="font-size: 1.1rem; margin: 1rem 0 0.5rem; color: var(--secondary-color);">Is GamesPeek free to
-                use?</h4>
-            <p style="margin-bottom: 1rem; line-height: 1.6;">
-                Yes! GamesPeek is completely free. Search thousands of games, find similar titles,
-                compare features, and discover new games without any cost or registration.
-            </p>
-
-            <h4 style="font-size: 1.1rem; margin: 1rem 0 0.5rem; color: var(--secondary-color);">Where does GamesPeek
-                get game data?</h4>
-            <p style="margin-bottom: 1rem; line-height: 1.6;">
-                GamesPeek uses the official IGDB (Internet Game Database) API, the same database that powers
-                major gaming platforms. We also enrich our data with descriptions and metadata to provide
-                comprehensive game information.
-            </p>
+            <h4 style="font-size: 1.1rem; margin: 1rem 0 0.5rem; color: var(--secondary-color);">How many games are in
+                the database?</h4>
+            <p style="margin-bottom: 1rem; line-height: 1.6;">Currently over 45,000 games across all major platforms
+                including PC, PlayStation, Xbox, Nintendo Switch, and mobile.</p>
 
             <h4 style="font-size: 1.1rem; margin: 1rem 0 0.5rem; color: var(--secondary-color);">Can I compare two games
                 side by side?</h4>
-            <p style="margin-bottom: 1rem; line-height: 1.6;">
-                Absolutely! GamesPeek features a powerful comparison tool that lets you compare any two games
-                including ratings, release dates, platforms, genres, and more to help you make informed decisions.
-            </p>
+            <p style="margin-bottom: 1rem; line-height: 1.6;">Absolutely! Click "Compare" on any game card to see
+                ratings, release dates, platforms, and features compared.</p>
+
+            <h4 style="font-size: 1.1rem; margin: 1rem 0 0.5rem; color: var(--secondary-color);">Where does the game
+                data come from?</h4>
+            <p style="margin-bottom: 1rem; line-height: 1.6;">GamesPeek uses the official IGDB (Internet Game Database)
+                API, the same database that powers major gaming platforms.</p>
 
             <p style="margin-bottom: 0.5rem; margin-top: 1.5rem; font-size: 0.9rem; color: var(--text-muted); text-align: center;">
-                GamesPeek is your ultimate companion for discovering new video games. Whether you're looking for
-                <strong>games like Dark Souls</strong>, <strong>similar games to Stardew Valley</strong>,
-                or exploring <strong>best RPGs on PC</strong> - start your search today and never run out of great games
-                to play.
+                <strong>GamesPeek</strong> - Intelligent Game Discovery Engine. Find your next favorite game.<br>
+                GitHub: <a href="https://github.com/AlexeyZam15/GamesPeek_site" style="color: var(--secondary-color);">github.com/AlexeyZam15/GamesPeek_site</a>
             </p>
         </div>
     </div>
