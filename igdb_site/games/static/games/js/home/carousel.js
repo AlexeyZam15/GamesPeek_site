@@ -28,7 +28,8 @@ function moveCarousel(trackId, direction) {
     track.style.transform = `translateX(${newTranslate}px)`;
 
     const currentIndex = Math.abs(Math.round(newTranslate / (slideWidth + gap)));
-    updateIndicators(trackId.replace('CarouselTrack', 'CarouselIndicators'), currentIndex, slides.length);
+    const indicatorsId = trackId.replace('CarouselTrack', 'CarouselIndicators');
+    updateIndicators(indicatorsId, currentIndex, slides.length);
 }
 
 function updateIndicators(indicatorsId, currentIndex, totalSlides) {
@@ -40,7 +41,10 @@ function updateIndicators(indicatorsId, currentIndex, totalSlides) {
         const dot = document.createElement('span');
         dot.className = `carousel-dot ${i === currentIndex ? 'active' : ''}`;
         dot.onclick = (function(idx) {
-            return function() { goToSlide(indicatorsId.replace('CarouselIndicators', 'CarouselTrack'), idx); };
+            return function() {
+                const trackId = indicatorsId.replace('CarouselIndicators', 'CarouselTrack');
+                goToSlide(trackId, idx);
+            };
         })(i);
         indicators.appendChild(dot);
     }
@@ -61,18 +65,23 @@ function goToSlide(trackId, slideIndex) {
     const newTranslate = -(targetIndex * (slideWidth + gap));
 
     track.style.transform = `translateX(${newTranslate}px)`;
-    updateIndicators(trackId.replace('CarouselTrack', 'CarouselIndicators'), targetIndex, slides.length);
+    const indicatorsId = trackId.replace('CarouselTrack', 'CarouselIndicators');
+    updateIndicators(indicatorsId, targetIndex, slides.length);
 }
 
 function initHomeCarousels() {
     const popularTrack = document.getElementById('popularCarouselTrack');
-    const recentTrack = document.getElementById('recentCarouselTrack');
+    const recentReleaseTrack = document.getElementById('recentReleaseCarouselTrack');
+    const recentlyAddedTrack = document.getElementById('recentlyAddedCarouselTrack');
 
     if (popularTrack && popularTrack.children.length > 0) {
         updateIndicators('popularCarouselIndicators', 0, popularTrack.children.length);
     }
-    if (recentTrack && recentTrack.children.length > 0) {
-        updateIndicators('recentCarouselIndicators', 0, recentTrack.children.length);
+    if (recentReleaseTrack && recentReleaseTrack.children.length > 0) {
+        updateIndicators('recentReleaseCarouselIndicators', 0, recentReleaseTrack.children.length);
+    }
+    if (recentlyAddedTrack && recentlyAddedTrack.children.length > 0) {
+        updateIndicators('recentlyAddedCarouselIndicators', 0, recentlyAddedTrack.children.length);
     }
 }
 
@@ -81,7 +90,9 @@ document.addEventListener('DOMContentLoaded', initHomeCarousels);
 window.addEventListener('resize', function() {
     initHomeCarousels();
     const popularTrack = document.getElementById('popularCarouselTrack');
-    const recentTrack = document.getElementById('recentCarouselTrack');
+    const recentReleaseTrack = document.getElementById('recentReleaseCarouselTrack');
+    const recentlyAddedTrack = document.getElementById('recentlyAddedCarouselTrack');
     if (popularTrack) goToSlide('popularCarouselTrack', 0);
-    if (recentTrack) goToSlide('recentCarouselTrack', 0);
+    if (recentReleaseTrack) goToSlide('recentReleaseCarouselTrack', 0);
+    if (recentlyAddedTrack) goToSlide('recentlyAddedCarouselTrack', 0);
 });
