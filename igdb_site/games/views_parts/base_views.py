@@ -418,53 +418,59 @@ def _apply_search_filters(queryset: models.QuerySet, search_filters: Dict[str, L
     Apply search filters with logic:
     - BETWEEN different filter groups: AND (must satisfy ALL groups)
     - WITHIN a single group with multiple values: OR (any of selected)
-    - TEXT search: name__icontains for text_query
-
-    Example: platforms OR, engines AND, genres AND, text search
-    Result: (platforms) AND (engines) AND (genres) AND (name contains text)
+    - TEXT search: name__icontains for each word in text_query (AND logic)
     """
 
-    # Собираем Q объекты для каждой группы фильтров
     filter_groups = []
 
     # ========== ТЕКСТОВЫЙ ПОИСК ПО НАЗВАНИЮ ==========
     text_query = search_filters.get('text_query')
     if text_query:
-        text_filter = Q(name__icontains=text_query)
-        filter_groups.append(text_filter)
-        print(f"DEBUG _apply_search_filters: text search filter: '{text_query}'")
+        # Разбиваем запрос на отдельные слова
+        words = text_query.lower().split()
 
-    # ========== ГРУППА: Платформы (OR внутри группы) ==========
+        if len(words) == 1:
+            # Одно слово - простой поиск
+            text_filter = Q(name__icontains=words[0])
+            filter_groups.append(text_filter)
+            print(f"DEBUG _apply_search_filters: single word text search: '{words[0]}'")
+        else:
+            # Несколько слов - ищем ВСЕ слова в названии (включая короткие)
+            combined_text_filter = Q()
+            for word in words:
+                # Ищем каждое слово, включая "v", "a", "the" и т.д.
+                combined_text_filter &= Q(name__icontains=word)
+
+            if combined_text_filter:
+                filter_groups.append(combined_text_filter)
+                print(f"DEBUG _apply_search_filters: multi-word text search with all words: {words}")
+
+    # ========== ОСТАЛЬНЫЕ ФИЛЬТРЫ ==========
     if search_filters.get('platforms'):
         platforms_filter = Q(platforms__id__in=search_filters['platforms'])
         filter_groups.append(platforms_filter)
         print(f"DEBUG _apply_search_filters: platforms OR filter: {search_filters['platforms']}")
 
-    # ========== ГРУППА: Игровые типы (OR внутри группы) ==========
     if search_filters.get('game_types'):
         game_types_filter = Q(game_type__in=search_filters['game_types'])
         filter_groups.append(game_types_filter)
         print(f"DEBUG _apply_search_filters: game_types OR filter: {search_filters['game_types']}")
 
-    # ========== ГРУППА: Перспективы (OR внутри группы) ==========
     if search_filters.get('perspectives'):
         perspectives_filter = Q(player_perspectives__id__in=search_filters['perspectives'])
         filter_groups.append(perspectives_filter)
         print(f"DEBUG _apply_search_filters: perspectives OR filter: {search_filters['perspectives']}")
 
-    # ========== ГРУППА: Режимы игры (OR внутри группы) ==========
     if search_filters.get('game_modes'):
         game_modes_filter = Q(game_modes__id__in=search_filters['game_modes'])
         filter_groups.append(game_modes_filter)
         print(f"DEBUG _apply_search_filters: game_modes OR filter: {search_filters['game_modes']}")
 
-    # ========== ГРУППА: Движки (OR внутри группы) ==========
     if search_filters.get('engines'):
         engines_filter = Q(engines__id__in=search_filters['engines'])
         filter_groups.append(engines_filter)
         print(f"DEBUG _apply_search_filters: engines OR filter: {search_filters['engines']}")
 
-    # ========== ГРУППА: Жанры (AND внутри группы) ==========
     if search_filters.get('genres'):
         genres_filter = Q()
         for genre_id in search_filters['genres']:
@@ -472,7 +478,6 @@ def _apply_search_filters(queryset: models.QuerySet, search_filters: Dict[str, L
         filter_groups.append(genres_filter)
         print(f"DEBUG _apply_search_filters: genres AND filter: {search_filters['genres']}")
 
-    # ========== ГРУППА: Ключевые слова (AND внутри группы) ==========
     if search_filters.get('keywords'):
         keywords_filter = Q()
         for keyword_id in search_filters['keywords']:
@@ -480,7 +485,6 @@ def _apply_search_filters(queryset: models.QuerySet, search_filters: Dict[str, L
         filter_groups.append(keywords_filter)
         print(f"DEBUG _apply_search_filters: keywords AND filter: {search_filters['keywords']}")
 
-    # ========== ГРУППА: Темы (AND внутри группы) ==========
     if search_filters.get('themes'):
         themes_filter = Q()
         for theme_id in search_filters['themes']:
@@ -488,7 +492,6 @@ def _apply_search_filters(queryset: models.QuerySet, search_filters: Dict[str, L
         filter_groups.append(themes_filter)
         print(f"DEBUG _apply_search_filters: themes AND filter: {search_filters['themes']}")
 
-    # ========== ГРУППА: Дата (AND) ==========
     year_start = search_filters.get('release_year_start')
     year_end = search_filters.get('release_year_end')
 
@@ -505,7 +508,6 @@ def _apply_search_filters(queryset: models.QuerySet, search_filters: Dict[str, L
 
     # ========== ПРИМЕНЯЕМ ВСЕ ГРУППЫ С ЛОГИКОЙ AND ==========
     if filter_groups:
-        # Объединяем все группы через AND
         combined_filter = Q()
         for group_filter in filter_groups:
             combined_filter &= group_filter
