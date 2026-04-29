@@ -4,6 +4,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.views.static import serve
 from django.contrib.sitemaps.views import sitemap
+from django.http import HttpResponse
 from games.sitemap import GameSitemap, StaticViewSitemap
 import os
 
@@ -12,11 +13,29 @@ sitemaps = {
     'static': StaticViewSitemap,
 }
 
+
+def serve_indexnow_key(request, key):
+    """Serve IndexNow key file for Bing/Yandex verification."""
+    key_file_path = os.path.join(settings.BASE_DIR, f'{key}.txt')
+    if os.path.exists(key_file_path):
+        with open(key_file_path, 'r') as f:
+            content = f.read()
+        return HttpResponse(content, content_type='text/plain')
+    return HttpResponse(status=404)
+
+
+# Get IndexNow key from environment variable
+INDEXNOW_KEY = os.getenv('INDEXNOW_KEY', '')
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('games.urls')),
     path('sitemap.xml', sitemap, {'sitemaps': sitemaps}, name='django.contrib.sitemaps.views.sitemap'),
 ]
+
+# Add IndexNow key route only if key is configured
+if INDEXNOW_KEY:
+    urlpatterns.insert(0, path(f'{INDEXNOW_KEY}.txt', lambda request: serve_indexnow_key(request, INDEXNOW_KEY)))
 
 if settings.DEBUG or os.getenv('DESKTOP_MODE') == '1':
     from django.urls import re_path
