@@ -72,8 +72,8 @@ class Command(BaseCommand):
         parser.add_argument(
             '--radius',
             type=int,
-            default=30,
-            help='Радиус поиска в символах (до и после целевого слова), по умолчанию 30'
+            default=25,
+            help='Радиус поиска в символах (до и после целевого слова), по умолчанию 25'
         )
 
         parser.add_argument(
@@ -86,21 +86,21 @@ class Command(BaseCommand):
         parser.add_argument(
             '--max-results',
             type=int,
-            default=100,
+            default=120,
             help='Максимум результатов в статистике, по умолчанию 50'
         )
 
         parser.add_argument(
             '--max-words',
             type=int,
-            default=100,
+            default=120,
             help='Максимальное количество слов для вывода, по умолчанию 20'
         )
 
         parser.add_argument(
             '--max-phrases',
             type=int,
-            default=20,
+            default=50,
             help='Максимальное количество фраз для вывода, по умолчанию 20'
         )
 
