@@ -457,44 +457,130 @@ class PatternManager:
                 r'\b(?:hit)\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:counter(?!-)|riposte)\b',
             ],
         },
-        'Puzzle': [
-            r'\bpuzzle(?:\s+(?:game|title|genre|experience|adventure|platformer|rpg))?\b',
-            r'\b(?:logic|brain|mind)\s+(?:puzzle|teaser|challenge)\b',
-            r'\b(?:solve|figure\s+out)\s+(?:puzzles?|riddles?|enigmas?|challenges?)\b',
-            r'\b(?:environmental|physics|mechanical|electrical)\s+puzzles?\b',
-        ],
-        'Quiz/Trivia': [
-            r'\b(?:quiz|trivia)(?:\s+(?:game|mode|challenge|round))?\b',
-            r'\b(?:multiple\s+choice|true/false|fill-in-the-blank)\s+(?:questions?|format)\b',
-            r'\b(?:test|challenge)\s+your\s+(?:knowledge|trivia\s+skills)\b',
-        ],
-        'Racing': [
-            r'\bracing(?:\s+(?:game|simulator|title|genre|experience|action))?\b',
-            r'\bdriving(?:\s+(?:game|simulator|experience|physics))?\b',
-            r'\b(?:arcade|simulation|realistic)\s+(?:racing|driving)\b',
-            r'\b(?:lap|track|circuit|course)\s+(?:time|record|design)\b',
-            r'\b(?:car|vehicle)\s+(?:customization|tuning|upgrades|modification)\b',
-        ],
+        'Puzzle': {
+            'stop_words': [],
+            'patterns': [
+                # solving + puzzle (125 срабатываний)
+                r'\bsolv\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bpuzzle\b',
+                r'\bpuzzle\s+(?:(?!\.|\!|\?|\n).){0,25}?\bsolv\w*\b',
+
+                # adventure + puzzle (84 срабатывания)
+                r'\badventur\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bpuzzle\b',
+                r'\bpuzzle\s+(?:(?!\.|\!|\?|\n).){0,25}?\badventur\w*\b',
+
+                # collect + puzzle (83 срабатывания)
+                r'\bcollect\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bpuzzle\b',
+
+                # match + puzzle (27 срабатываний)
+                r'\bmatch\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bpuzzle\b',
+                r'\bpuzzle\s+(?:(?!\.|\!|\?|\n).){0,25}?\bmatch\w*\b',
+
+                # dungeon + puzzle (14 срабатываний)
+                r'\bdungeon\s+(?:(?!\.|\!|\?|\n).){0,25}?\bpuzzle\b',
+                r'\bpuzzle\s+(?:(?!\.|\!|\?|\n).){0,25}?\bdungeon\b',
+
+                # puzzle + quest (36 срабатываний)
+                r'\bpuzzle\s+(?:(?!\.|\!|\?|\n).){0,25}?\bquest\b',
+
+                # puzzle + battle (35 срабатываний)
+                r'\bpuzzle\s+(?:(?!\.|\!|\?|\n).){0,25}?\bbattl\w*\b',
+                r'\bbattl\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bpuzzle\b',
+
+                # puzzle + mechanic (51 срабатывание)
+                r'\bpuzzle\s+(?:(?!\.|\!|\?|\n).){0,25}?\bmechanic\w*\b',
+
+                # horror + puzzle (из данных, добавил так как в топ-20 слов #16)
+                r'\bhorror\s+(?:(?!\.|\!|\?|\n).){0,25}?\bpuzzle\b',
+                r'\bpuzzle\s+(?:(?!\.|\!|\?|\n).){0,25}?\bhorror\b',
+
+                # platform + puzzle (из данных, добавил так как в топ-20 слов #7)
+                r'\bplatform\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bpuzzle\b',
+                r'\bpuzzle\s+(?:(?!\.|\!|\?|\n).){0,25}?\bplatform\w*\b',
+
+                # combat + puzzle (из данных, добавил так как в топ-20 слов #8)
+                r'\bcombat\s+(?:(?!\.|\!|\?|\n).){0,25}?\bpuzzle\b',
+                r'\bpuzzle\s+(?:(?!\.|\!|\?|\n).){0,25}?\bcombat\b',
+
+                # element + puzzle (из данных, добавил так как в топ-20 слов #5)
+                r'\belements?\s+(?:(?!\.|\!|\?|\n).){0,25}?\bpuzzle\b',
+                r'\bpuzzle\s+(?:(?!\.|\!|\?|\n).){0,25}?\belements?\b',
+
+                # exploration + puzzle (из данных, добавил так как в топ-20 слов #6)
+                r'\bexplor\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bpuzzle\b',
+                r'\bpuzzle\s+(?:(?!\.|\!|\?|\n).){0,25}?\bexplor\w*\b',
+            ]
+        },
+        'Racing': {
+            'stop_words': [
+                'turn-based',
+                r'\bmini[- ]?gam\w*\b',
+            ],
+            'patterns': [
+                # racing game
+                r'\bracing\s+(?:(?!\.|\!|\?|\n).){0,25}?\bgam\w*\b',
+                # racing elements
+                r'\bracing\s+(?:(?!\.|\!|\?|\n).){0,25}?\belements?\b',
+                # racing + RPG/action/combat
+                r'\bracing\s+(?:(?!\.|\!|\?|\n).){0,25}?\b(?:rpg|action|combat)\w*\b'
+                r'\b(?:rpg|action|combat)\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bracing\b',
+                # street racing
+                r'\bstreet\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bracing\b',
+                # drag racing
+                r'\bdrag\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bracing\b',
+                # underground racing
+                r'\bunderground\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bracing\b',
+                # rally racing
+                r'\brally\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bracing\b',
+                # drift racing
+                r'\bdrift\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bracing\b',
+                # racing + track
+                r'\bracing\s+(?:(?!\.|\!|\?|\n).){0,25}?\btrack\w*\b',
+                # truck racing
+                r'\btruck\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bracing\b',
+                # simulation racing
+                r'\bsimul\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bracing\b',
+                # speed racing
+                r'\bspeed\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bracing\b',
+            ]
+        },
         'Real Time Strategy (RTS)': [
             r'\breal(?:\s+)?time(?:\s+)?strategy\b',
-            r'\brts(?:\s+(?:game|title|genre))?\b',
-            r'\b(?:gather|harvest|mine)\s+resources\s+in\s+real-time\b',
-            r'\b(?:build\s+up\s+(?:your|a)\s+army|mass\s+production)\s+while\s+managing\s+(?:economy|tech\s+tree)\b',
+            r'\brts\b',
         ],
-        'Real-Time with Pause (RTwP)': [
-            r'\breal-time\s+with\s+pause\b',
-            r'\brtwp\b',
-            r'\b(?:pausable|pauseable)\s+real-time\b',
-            r'\b(?:issue\s+commands?|queue\s+actions?)\s+while\s+paused\b',
-        ],
+        'Real-Time with Pause (RTwP)': {
+            'stop_words': [
+                "can't pause",
+                r"can\s+not\s+pause",
+                r"cannot\s+pause",
+                "no pause",
+                r"no\s+pause",
+            ],
+            'patterns': [
+                # real-time + pause
+                r'\breal\s*-?\s*time\s+(?:(?!\.|\!|\?|\n).){0,25}?\bpause\b',
+                # real-time-with-pause (тире)
+                r'\breal\s*-?\s*time\s*-?\s*with\s*-?\s*pause\b',
+                # tactical + pause
+                r'\btactica\w*\s+(?:(?!\.|\!|\?|\n).){0,25}?\bpause\b',
+                r'\bpause\s+(?:(?!\.|\!|\?|\n).){0,25}?\btactica\w*\b',
+                # with + pause
+                r'\bwith\s+(?:(?!\.|\!|\?|\n).){0,25}?\bpause\b',
+                # combat + pause
+                r'\bcombat\s+(?:(?!\.|\!|\?|\n).){0,25}?\bpause\b',
+                r'\bpause\s+(?:(?!\.|\!|\?|\n).){0,25}?\bcombat\b',
+                # option + pause
+                r'\boption\s+(?:(?!\.|\!|\?|\n).){0,25}?\bpause\b',
+                # free + pause
+                r'\bfree\s+(?:(?!\.|\!|\?|\n).){0,25}?\bpause\b',
+                # active + pause
+                r'\bactive\s+(?:(?!\.|\!|\?|\n).){0,25}?\bpause\b',
+            ]
+        },
         'Roguelike / Roguelite': [
-            r'\brogu(?:e|)(?:like|lite)\b',
-            r'\brogue-like\b',
-            r'\b(?:permadeath|procedural|randomized)\s+(?:dungeons?|levels?|worlds?|generation)\b',
-            r'\b(?:run-based|session-based)\s+(?:progression|gameplay)\b',
+            r'\brogu(?:e-?)?(?:like|lite)(?:\/(?:like|lite))?(?:\s+like)?\b',
         ],
         'Role-playing (RPG)': [
-            r'\brole-playing(?:\s+(?:game|title|genre))?\b',
+            r'\brole[-]?playing\b',
             r'\brpg\b',
             r'\b(?:character|class|skill)\s+(?:creation|customization|development|progression|tree)\b',
             r'\b(?:experience|level|stat|attribute)\s+(?:points?|system|mechanics)\b',
