@@ -207,197 +207,6 @@ def export_database(dump_file_path):
     return True
 
 
-def import_database(dump_file_path):
-    """
-    Import database from PostgreSQL native dump with proper cleanup.
-
-    Args:
-        dump_file_path: Path to the dump file to import
-
-    Returns:
-        bool: True if import successful, False otherwise
-    """
-    print("=" * 60)
-    print("📥 DATABASE IMPORTER (Restore from dump)")
-    print("=" * 60)
-    print()
-
-    setup_django()
-
-    if not dump_file_path.exists():
-        print(f"❌ Dump file not found: {dump_file_path}")
-        return False
-
-    db_params = get_database_connection_params()
-
-    print(f"📁 Source dump: {dump_file_path.name}")
-    dump_size_mb = dump_file_path.stat().st_size / (1024 * 1024)
-    print(f"   Size: {dump_size_mb:.1f} MB")
-    print()
-    print(f"🎯 Target database: {db_params['db_name']}")
-    print(f"👤 User: {db_params['db_user']}")
-    print(f"🔗 Host: {db_params['db_host']}:{db_params['db_port']}")
-    print()
-
-    try:
-        pg_restore_path = find_postgres_bin('pg_restore')
-        print(f"🔧 Using pg_restore: {pg_restore_path}")
-        print()
-    except Exception as e:
-        print(f"❌ {e}")
-        return False
-
-    # Confirm before overwriting database
-    print("⚠️  WARNING: This will DROP and RECREATE the entire database!")
-    print("   All existing data will be lost.")
-    print()
-    response = input("   Do you want to continue? (yes/no): ")
-
-    if response.lower() != 'yes':
-        print("❌ Import cancelled by user.")
-        return False
-
-    print()
-    print("⏳ Dropping and recreating database...")
-
-    # Create connection without database name to perform admin operations
-    admin_conn_params = {
-        'db_name': 'postgres',
-        'db_user': db_params['db_user'],
-        'db_host': db_params['db_host'],
-        'db_port': db_params['db_port'],
-        'db_password': db_params['db_password'],
-    }
-
-    env = os.environ.copy()
-    if admin_conn_params['db_password']:
-        env['PGPASSWORD'] = admin_conn_params['db_password']
-
-    # Find psql executable for admin operations
-    try:
-        psql_path = find_postgres_bin('psql')
-    except Exception:
-        # Try to use pg_restore path as base for psql
-        psql_path = str(Path(pg_restore_path).parent / 'psql')
-        if not Path(psql_path).exists():
-            psql_path = 'psql'  # Hope it's in PATH
-
-    # Terminate all connections to the target database
-    terminate_cmd = [
-        psql_path,
-        '-h', admin_conn_params['db_host'],
-        '-p', admin_conn_params['db_port'],
-        '-U', admin_conn_params['db_user'],
-        '-d', admin_conn_params['db_name'],
-        '-c', f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{db_params['db_name']}';"
-    ]
-
-    terminate_result = subprocess.run(
-        terminate_cmd,
-        env=env,
-        capture_output=True,
-        text=True
-    )
-
-    # Drop database if exists
-    drop_cmd = [
-        psql_path,
-        '-h', admin_conn_params['db_host'],
-        '-p', admin_conn_params['db_port'],
-        '-U', admin_conn_params['db_user'],
-        '-d', admin_conn_params['db_name'],
-        '-c', f"DROP DATABASE IF EXISTS {db_params['db_name']};"
-    ]
-
-    drop_result = subprocess.run(
-        drop_cmd,
-        env=env,
-        capture_output=True,
-        text=True
-    )
-
-    if drop_result.returncode != 0:
-        print(f"❌ Failed to drop database: {drop_result.stderr}")
-        return False
-
-    # Create new database
-    create_cmd = [
-        psql_path,
-        '-h', admin_conn_params['db_host'],
-        '-p', admin_conn_params['db_port'],
-        '-U', admin_conn_params['db_user'],
-        '-d', admin_conn_params['db_name'],
-        '-c', f"CREATE DATABASE {db_params['db_name']} ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C' TEMPLATE template0;"
-    ]
-
-    create_result = subprocess.run(
-        create_cmd,
-        env=env,
-        capture_output=True,
-        text=True
-    )
-
-    if create_result.returncode != 0:
-        print(f"❌ Failed to create database: {create_result.stderr}")
-        return False
-
-    print("✅ Database recreated")
-    print()
-    print("⏳ Restoring data from dump...")
-    print("   (This may take several minutes)")
-    print()
-
-    # Restore the dump with optimization flags
-    restore_cmd = [
-        pg_restore_path,
-        '--dbname',
-        f'postgresql://{db_params["db_user"]}@{db_params["db_host"]}:{db_params["db_port"]}/{db_params["db_name"]}',
-        '--verbose',
-        '--no-owner',
-    ]
-
-    # Add parallel jobs only on Linux (Windows sometimes has issues)
-    if sys.platform != 'win32':
-        restore_cmd.extend(['--jobs', '4'])
-
-    start_time = time.time()
-
-    with open(dump_file_path, 'rb') as f:
-        result = subprocess.run(
-            restore_cmd,
-            env=env,
-            stdin=f,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-
-    elapsed = time.time() - start_time
-
-    if result.returncode != 0:
-        print("❌ Import failed!")
-        if result.stderr:
-            print(f"Error: {result.stderr[:500]}")
-        return False
-
-    print(f"✅ Database restored successfully!")
-    print(f"   Time: {elapsed:.1f} seconds")
-
-    print()
-    print("=" * 60)
-    print("✅ IMPORT COMPLETED SUCCESSFULLY!")
-    print("=" * 60)
-    print(f"\n📊 Summary:")
-    print(f"   Restore time: {elapsed:.1f} seconds")
-    print(f"   Source size: {dump_size_mb:.1f} MB")
-    print()
-    print("Next steps:")
-    print("1. Restart your Django application")
-    print("2. Verify data integrity in admin panel")
-    print()
-
-    return True
-
-
 def main():
     """Main entry point with command line argument parsing."""
     parser = argparse.ArgumentParser(
@@ -405,9 +214,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    python export_db.py export          # Export database to database.dump
-    python export_db.py import          # Import database from database.dump
-    python export_db.py import my.dump  # Import specific dump file
+    python export_db.py              # Export database to database.dump (default)
+    python export_db.py export       # Export database to database.dump
+    python export_db.py export my.dump  # Export to specific dump file
+    python export_db.py import       # Import database from database.dump
+    python export_db.py import my.dump  # Import from specific dump file
 
 Environment variables:
     POSTGRESQL_PATH - Path to PostgreSQL installation directory
@@ -416,8 +227,10 @@ Environment variables:
 
     parser.add_argument(
         'command',
+        nargs='?',
+        default='export',
         choices=['export', 'import'],
-        help='Command to execute: export or import'
+        help='Command to execute: export or import (default: export)'
     )
 
     parser.add_argument(
@@ -435,13 +248,145 @@ Environment variables:
     try:
         if args.command == 'export':
             success = export_database(dump_file_path)
-        elif args.command == 'import':
-            success = import_database(dump_file_path)
-        else:
-            print(f"❌ Unknown command: {args.command}")
-            success = False
+            sys.exit(0 if success else 1)
 
-        sys.exit(0 if success else 1)
+        elif args.command == 'import':
+            setup_django()
+
+            if not dump_file_path.exists():
+                print(f"❌ Dump file not found: {dump_file_path}")
+                sys.exit(1)
+
+            db_params = get_database_connection_params()
+
+            dump_size_mb = dump_file_path.stat().st_size / (1024 * 1024)
+            print(f"📁 Source dump: {dump_file_path.name}")
+            print(f"   Size: {dump_size_mb:.1f} MB")
+            print()
+            print(f"🎯 Target database: {db_params['db_name']}")
+            print(f"👤 User: {db_params['db_user']}")
+            print(f"🔗 Host: {db_params['db_host']}:{db_params['db_port']}")
+            print()
+
+            try:
+                pg_restore_path = find_postgres_bin('pg_restore')
+                psql_path = find_postgres_bin('psql')
+            except Exception as e:
+                print(f"❌ {e}")
+                sys.exit(1)
+
+            # Подтверждение перед импортом
+            print("⚠️  WARNING: This will DROP and RECREATE the entire database!")
+            print("   All existing data will be lost.")
+            print()
+            response = input("   Do you want to continue? (yes/no): ")
+
+            if response.lower() != 'yes':
+                print("❌ Import cancelled by user.")
+                sys.exit(0)
+
+            print()
+            print("⏳ Dropping and recreating database...")
+            print()
+
+            # Настройки для административных операций (подключаемся к БД postgres)
+            admin_db_name = 'postgres'
+
+            # Формируем строку подключения к админской БД
+            admin_conn_string = f'postgresql://{db_params["db_user"]}@{db_params["db_host"]}:{db_params["db_port"]}/{admin_db_name}'
+
+            env = os.environ.copy()
+            if db_params['db_password']:
+                env['PGPASSWORD'] = db_params['db_password']
+
+            # 1. Завершаем все подключения к целевой БД
+            print("   Terminating existing connections...")
+            terminate_sql = f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{db_params['db_name']}';"
+            subprocess.run(
+                [psql_path, admin_conn_string, '-c', terminate_sql],
+                env=env,
+                capture_output=True,
+                text=True
+            )
+
+            # 2. Удаляем базу данных если существует
+            print("   Dropping database...")
+            drop_result = subprocess.run(
+                [psql_path, admin_conn_string, '-c', f'DROP DATABASE IF EXISTS {db_params["db_name"]};'],
+                env=env,
+                capture_output=True,
+                text=True
+            )
+
+            if drop_result.returncode != 0:
+                print(f"❌ Failed to drop database: {drop_result.stderr}")
+                sys.exit(1)
+
+            # 3. Создаем новую базу данных
+            print("   Creating new database...")
+            create_result = subprocess.run(
+                [psql_path, admin_conn_string, '-c',
+                 f'CREATE DATABASE {db_params["db_name"]} ENCODING "UTF8" LC_COLLATE "C" LC_CTYPE "C" TEMPLATE template0;'],
+                env=env,
+                capture_output=True,
+                text=True
+            )
+
+            if create_result.returncode != 0:
+                print(f"❌ Failed to create database: {create_result.stderr}")
+                sys.exit(1)
+
+            print("✅ Database recreated")
+            print()
+            print("⏳ Restoring data from dump...")
+            print()
+
+            # Формируем строку подключения к новой БД
+            conn_string = f'postgresql://{db_params["db_user"]}@{db_params["db_host"]}:{db_params["db_port"]}/{db_params["db_name"]}'
+
+            # Команда pg_restore
+            restore_cmd = [
+                pg_restore_path,
+                '--dbname', conn_string,
+                '--verbose',
+                '--no-owner',
+                '--jobs', '4'
+            ]
+
+            # Добавляем файл дампа
+            restore_cmd.append(str(dump_file_path))
+
+            start_time = time.time()
+
+            # Выполняем восстановление
+            result = subprocess.run(
+                restore_cmd,
+                env=env,
+                stderr=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                text=True
+            )
+
+            elapsed = time.time() - start_time
+
+            # Выводим результат
+            if result.stdout:
+                print(result.stdout[:2000])
+            if result.stderr:
+                print(result.stderr[:2000])
+
+            if result.returncode != 0:
+                print("❌ Import failed!")
+                sys.exit(1)
+
+            print(f"✅ Database restored successfully!")
+            print(f"   Time: {elapsed:.1f} seconds")
+            print()
+            print("=" * 60)
+            print("✅ IMPORT COMPLETED SUCCESSFULLY!")
+            print("=" * 60)
+
+            sys.exit(0)
 
     except Exception as e:
         print(f"❌ Fatal error: {e}")
