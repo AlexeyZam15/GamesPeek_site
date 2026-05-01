@@ -10,8 +10,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}GamesPeek - Video Game Discovery{% endblock %}</title>
-    <link rel="canonical"
-          href="https://gamespeek.dpdns.org/{% if request.path != '/' %}{{ request.path|slice:'1:' }}{% endif %}"/>
+
+    <!-- ЯВНАЯ ДИРЕКТИВА ДЛЯ ПОИСКОВЫХ РОБОТОВ (исправление) -->
+    <meta name="robots" content="index, follow">
+
+    <link rel="canonical" href="https://gamespeek.dpdns.org{{ request.path }}">
 
     <!-- Favicon для всех браузеров -->
     <link rel="icon" type="image/png" sizes="180x180" href="{% static 'favicon.png' %}">
