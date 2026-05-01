@@ -3,7 +3,26 @@
 {% extends 'base.html' %}
 {% load static %}
 
-{% block title %}Browse Games - GamesPeek{% endblock %}
+{% block title %}
+    {% if find_similar and source_game_obj %}
+        Games Like {{ source_game_obj.name }} - Similar Games Recommendation
+    {% else %}
+        Browse Games
+    {% endif %}
+{% endblock %}
+
+{% block meta_tags %}
+    {% if find_similar and source_game_obj %}
+        <meta name="description"
+              content="Find games like {{ source_game_obj.name }}. Discover similar games based on genres, themes, and gameplay features. Best recommendations and alternatives to {{ source_game_obj.name }}.">
+        <meta name="keywords"
+              content="games like {{ source_game_obj.name }}, similar games to {{ source_game_obj.name }}, {{ source_game_obj.name }} similar games, best games like {{ source_game_obj.name }}, games similar to {{ source_game_obj.name }}, похожие игры на {{ source_game_obj.name }}, игры похожие на {{ source_game_obj.name }}">
+    {% else %}
+        <meta name="description"
+              content="Browse thousands of video games. Filter by genres, platforms, themes, and features to find your next favorite game.">
+        <meta name="keywords" content="video games, browse games, game database, game discovery, search games">
+    {% endif %}
+{% endblock %}
 
 {% block extra_css %}
     <link rel="stylesheet" href="{% static 'games/css/game_list/filters.css' %}">
