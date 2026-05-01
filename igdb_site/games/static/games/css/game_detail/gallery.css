@@ -7,23 +7,23 @@
   --gallery-height-sm: 150px;
 
   /* Цвета модального окна */
-  --modal-bg: rgba(0, 0, 0, 0.95);
-  --modal-content-bg: rgba(17, 24, 28, 0.95);
-  --modal-border: rgba(255, 255, 255, 0.2);
+  --modal-bg: rgba(0, 0, 0, 0.98);
+  --modal-content-bg: rgba(0, 0, 0, 0.95);
+  --modal-border: rgba(255, 255, 255, 0.15);
 
   /* Цвета кнопок */
-  --button-bg: rgba(0, 0, 0, 0.7);
+  --button-bg: rgba(0, 0, 0, 0.6);
   --button-hover: var(--secondary-color);
   --button-disabled: rgba(255, 107, 53, 0.3);
 
   /* Размеры кнопок */
-  --close-btn-size: 40px;
-  --close-btn-size-md: 35px;
-  --close-btn-size-sm: 30px;
+  --close-btn-size: 45px;
+  --close-btn-size-md: 40px;
+  --close-btn-size-sm: 35px;
 
-  --arrow-btn-size: 50px;
-  --arrow-btn-size-md: 45px;
-  --arrow-btn-size-sm: 40px;
+  --arrow-btn-size: 55px;
+  --arrow-btn-size-md: 50px;
+  --arrow-btn-size-sm: 45px;
 
   /* Градиенты */
   --hover-gradient: linear-gradient(135deg,
@@ -44,7 +44,6 @@
   margin-bottom: 1rem;
 }
 
-/* Для фиксированных контейнеров */
 .screenshot-container-fixed {
   width: 100%;
   display: flex;
@@ -52,7 +51,6 @@
   justify-content: center;
 }
 
-/* Карточки скриншотов */
 .screenshot-card,
 .screenshot-card-fixed {
   background: transparent !important;
@@ -65,7 +63,6 @@
   height: 100%;
 }
 
-/* Изображения скриншотов */
 .screenshot-image,
 .screenshot-image-fixed {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
@@ -85,13 +82,11 @@
   margin: auto;
 }
 
-/* Hover эффект */
 .screenshot-image:hover,
 .screenshot-image-fixed:hover {
   cursor: pointer !important;
 }
 
-/* Hover оверлей для карточек */
 .hover-overlay {
   background: var(--hover-gradient);
   pointer-events: none;
@@ -104,19 +99,21 @@
   opacity: 1;
 }
 
-/* ===== МОДАЛЬНОЕ ОКНО ГАЛЕРЕИ (СТИЛЬ КАК У CARDGALLERYMODAL) ===== */
+/* ===== ПОЛНОЭКРАННОЕ МОДАЛЬНОЕ ОКНО ГАЛЕРЕИ ===== */
 
-/* Основное модальное окно */
 #screenshotModal.modal {
   background: var(--modal-bg) !important;
-  backdrop-filter: blur(10px) !important;
+  backdrop-filter: blur(15px) !important;
   z-index: 9999 !important;
+  padding: 0 !important;
 }
 
 #screenshotModal .modal-dialog {
-  max-width: 95vw !important;
-  max-height: 95vh !important;
-  margin: 2rem auto !important;
+  max-width: 100vw !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  margin: 0 !important;
+  padding: 0 !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -125,30 +122,32 @@
 #screenshotModal .modal-content {
   background: var(--modal-content-bg) !important;
   backdrop-filter: blur(20px) !important;
-  border: 1px solid var(--modal-border) !important;
-  border-radius: 12px !important;
+  border: none !important;
+  border-radius: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
   position: relative !important;
   overflow: hidden !important;
 }
 
-/* Тело модального окна */
 #screenshotModal .modal-body {
   padding: 0 !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  min-height: 70vh !important;
+  width: 100% !important;
+  height: 100% !important;
   position: relative !important;
 }
 
 /* Изображение в модальном окне */
 #screenshotModal .screenshot-full {
-  max-width: 90vw !important;
-  max-height: 80vh !important;
+  max-width: 85vw !important;
+  max-height: 85vh !important;
   width: auto !important;
   height: auto !important;
   object-fit: contain !important;
-  border-radius: 8px !important;
+  border-radius: 0 !important;
   display: block !important;
   margin: 0 auto !important;
   background: transparent !important;
@@ -159,40 +158,54 @@
 
 /* Кнопка закрытия */
 #screenshotModal .screenshot-close {
-  position: absolute !important;
-  top: 20px !important;
-  right: 20px !important;
+  position: fixed !important;
+  top: 25px !important;
+  right: 80px !important;
   z-index: 100002 !important;
   background: var(--button-bg) !important;
-  border: 2px solid white !important;
+  border: 2px solid rgba(255, 255, 255, 0.5) !important;
   border-radius: 50% !important;
   color: white !important;
-  font-size: 1.2rem !important;
-  width: var(--close-btn-size) !important;
-  height: var(--close-btn-size) !important;
+  font-size: 1.5rem !important;
+  width: var(--arrow-btn-size) !important;
+  height: var(--arrow-btn-size) !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  opacity: 0.7 !important;
+  opacity: 0.8 !important;
   transition: all 0.3s ease !important;
   padding: 0 !important;
   cursor: pointer !important;
+  backdrop-filter: blur(5px) !important;
+  line-height: 1 !important;
 }
 
+/* Ховер для крестика как у стрелок */
 #screenshotModal .screenshot-close:hover {
   background: var(--button-hover) !important;
   opacity: 1 !important;
   transform: scale(1.1) !important;
+  border-color: white !important;
+}
+
+#screenshotModal .screenshot-close i,
+#screenshotModal .screenshot-close svg {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  line-height: 1 !important;
 }
 
 /* Навигационные стрелки */
 #screenshotModal .nav-arrow {
-  position: absolute !important;
+  position: fixed !important;
   top: 50% !important;
   transform: translateY(-50%) !important;
   z-index: 100000 !important;
   background: var(--button-bg) !important;
-  border: 2px solid white !important;
+  border: 2px solid rgba(255, 255, 255, 0.5) !important;
   border-radius: 50% !important;
   color: white !important;
   width: var(--arrow-btn-size) !important;
@@ -200,104 +213,120 @@
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  font-size: 1.5rem !important;
   opacity: 0.7 !important;
   transition: all 0.3s ease !important;
   padding: 0 !important;
   cursor: pointer !important;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3) !important;
+  backdrop-filter: blur(5px) !important;
+}
+
+#screenshotModal .nav-arrow i,
+#screenshotModal .nav-arrow svg {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  line-height: 1 !important;
+  font-size: 1.8rem !important;
 }
 
 #screenshotModal .nav-arrow:hover:not(:disabled) {
   background: var(--button-hover) !important;
   opacity: 1 !important;
   transform: translateY(-50%) scale(1.1) !important;
+  border-color: white !important;
 }
 
 #screenshotModal .nav-arrow:disabled {
-  opacity: 0.3 !important;
+  opacity: 0.2 !important;
   cursor: not-allowed !important;
 }
 
+/* Левая стрелка - чуть ближе к центру */
 #screenshotModal .prev-arrow {
-  left: 20px !important;
+  left: 80px !important;
 }
 
+/* Правая стрелка - чуть ближе к центру */
 #screenshotModal .next-arrow {
-  right: 20px !important;
+  right: 80px !important;
 }
 
 /* Счетчик изображений */
 #screenshotModal .screenshot-counter {
-  position: absolute !important;
-  bottom: 20px !important;
+  position: fixed !important;
+  bottom: 25px !important;
   left: 50% !important;
   transform: translateX(-50%) !important;
   z-index: 100000 !important;
   background: rgba(0, 0, 0, 0.7) !important;
-  border: 1px solid rgba(255, 255, 255, 0.2) !important;
-  border-radius: 25px !important;
-  padding: 8px 20px !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  border-radius: 30px !important;
+  padding: 10px 24px !important;
   color: white !important;
   font-size: 1rem !important;
-  font-weight: bold !important;
-  backdrop-filter: blur(5px) !important;
-  min-width: 80px;
+  font-weight: 600 !important;
+  backdrop-filter: blur(10px) !important;
+  min-width: 100px;
   text-align: center;
-}
-
-#screenshotModal .screenshot-counter span {
-  color: white !important;
+  letter-spacing: 1px;
 }
 
 /* ===== АДАПТИВНОСТЬ ДЛЯ МОБИЛЬНЫХ ===== */
 
 @media (max-width: 768px) {
-  .screenshot-container-fixed,
-  .screenshot-container {
-    height: var(--gallery-height-md) !important;
-  }
-
   #screenshotModal .nav-arrow {
     width: var(--arrow-btn-size-md) !important;
     height: var(--arrow-btn-size-md) !important;
-    font-size: 1.2rem !important;
+  }
+
+  #screenshotModal .nav-arrow i,
+  #screenshotModal .nav-arrow svg {
+    font-size: 1.4rem !important;
   }
 
   #screenshotModal .prev-arrow {
-    left: 10px !important;
+    left: 40px !important;
   }
 
   #screenshotModal .next-arrow {
-    right: 10px !important;
+    right: 40px !important;
   }
 
-  #screenshotModal .screenshot-counter {
-    bottom: 10px !important;
-    padding: 6px 15px !important;
-    font-size: 0.9rem !important;
-  }
-
-  #screenshotModal .screenshot-full {
-    max-width: 95vw !important;
-    max-height: 70vh !important;
+  #screenshotModal .screenshot-close {
+    top: 20px !important;
+    right: 40px !important;
+    width: var(--arrow-btn-size-md) !important;
+    height: var(--arrow-btn-size-md) !important;
+    font-size: 1.3rem !important;
   }
 }
 
 @media (max-width: 576px) {
-  .screenshot-container-fixed,
-  .screenshot-container {
-    height: var(--gallery-height-sm) !important;
+  #screenshotModal .nav-arrow {
+    width: var(--arrow-btn-size-sm) !important;
+    height: var(--arrow-btn-size-sm) !important;
   }
 
-  #screenshotModal .screenshot-counter {
-    bottom: 8px !important;
-    padding: 5px 12px !important;
-    font-size: 0.8rem !important;
-    min-width: 70px;
+  #screenshotModal .nav-arrow i,
+  #screenshotModal .nav-arrow svg {
+    font-size: 1.2rem !important;
   }
 
-  #screenshotModal .screenshot-full {
-    max-height: 60vh !important;
+  #screenshotModal .prev-arrow {
+    left: 20px !important;
+  }
+
+  #screenshotModal .next-arrow {
+    right: 20px !important;
+  }
+
+  #screenshotModal .screenshot-close {
+    top: 15px !important;
+    right: 20px !important;
+    width: var(--arrow-btn-size-sm) !important;
+    height: var(--arrow-btn-size-sm) !important;
+    font-size: 1.2rem !important;
   }
 }
