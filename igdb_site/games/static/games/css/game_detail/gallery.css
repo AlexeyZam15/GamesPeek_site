@@ -160,7 +160,7 @@
 #screenshotModal .screenshot-close {
   position: fixed !important;
   top: 25px !important;
-  right: 80px !important;
+  right: 100px !important;
   z-index: 100002 !important;
   background: var(--button-bg) !important;
   border: 2px solid rgba(255, 255, 255, 0.5) !important;
@@ -172,20 +172,10 @@
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  opacity: 0.8 !important;
-  transition: all 0.3s ease !important;
   padding: 0 !important;
   cursor: pointer !important;
   backdrop-filter: blur(5px) !important;
   line-height: 1 !important;
-}
-
-/* Ховер для крестика как у стрелок */
-#screenshotModal .screenshot-close:hover {
-  background: var(--button-hover) !important;
-  opacity: 1 !important;
-  transform: scale(1.1) !important;
-  border-color: white !important;
 }
 
 #screenshotModal .screenshot-close i,
@@ -213,8 +203,6 @@
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  opacity: 0.7 !important;
-  transition: all 0.3s ease !important;
   padding: 0 !important;
   cursor: pointer !important;
   backdrop-filter: blur(5px) !important;
@@ -231,26 +219,14 @@
   font-size: 1.8rem !important;
 }
 
-#screenshotModal .nav-arrow:hover:not(:disabled) {
-  background: var(--button-hover) !important;
-  opacity: 1 !important;
-  transform: translateY(-50%) scale(1.1) !important;
-  border-color: white !important;
-}
-
-#screenshotModal .nav-arrow:disabled {
-  opacity: 0.2 !important;
-  cursor: not-allowed !important;
-}
-
-/* Левая стрелка - чуть ближе к центру */
+/* Левая стрелка - чуть дальше от центра */
 #screenshotModal .prev-arrow {
-  left: 80px !important;
+  left: 100px !important;
 }
 
-/* Правая стрелка - чуть ближе к центру */
+/* Правая стрелка - чуть дальше от центра */
 #screenshotModal .next-arrow {
-  right: 80px !important;
+  right: 100px !important;
 }
 
 /* Счетчик изображений */
@@ -277,56 +253,38 @@
 
 @media (max-width: 768px) {
   #screenshotModal .nav-arrow {
-    width: var(--arrow-btn-size-md) !important;
-    height: var(--arrow-btn-size-md) !important;
-  }
-
-  #screenshotModal .nav-arrow i,
-  #screenshotModal .nav-arrow svg {
-    font-size: 1.4rem !important;
-  }
-
-  #screenshotModal .prev-arrow {
-    left: 40px !important;
-  }
-
-  #screenshotModal .next-arrow {
-    right: 40px !important;
+    display: none !important; /* Скрываем стрелки на планшетах */
   }
 
   #screenshotModal .screenshot-close {
     top: 20px !important;
-    right: 40px !important;
-    width: var(--arrow-btn-size-md) !important;
-    height: var(--arrow-btn-size-md) !important;
-    font-size: 1.3rem !important;
+    right: 20px !important;
+    width: var(--close-btn-size-md) !important;
+    height: var(--close-btn-size-md) !important;
+    font-size: 1.2rem !important;
+  }
+
+  #screenshotModal .screenshot-full {
+    max-width: 100vw !important;
+    max-height: 100vh !important;
   }
 }
 
 @media (max-width: 576px) {
   #screenshotModal .nav-arrow {
-    width: var(--arrow-btn-size-sm) !important;
-    height: var(--arrow-btn-size-sm) !important;
-  }
-
-  #screenshotModal .nav-arrow i,
-  #screenshotModal .nav-arrow svg {
-    font-size: 1.2rem !important;
-  }
-
-  #screenshotModal .prev-arrow {
-    left: 20px !important;
-  }
-
-  #screenshotModal .next-arrow {
-    right: 20px !important;
+    display: none !important; /* Скрываем стрелки на телефонах */
   }
 
   #screenshotModal .screenshot-close {
     top: 15px !important;
-    right: 20px !important;
-    width: var(--arrow-btn-size-sm) !important;
-    height: var(--arrow-btn-size-sm) !important;
-    font-size: 1.2rem !important;
+    right: 15px !important;
+    width: var(--close-btn-size-sm) !important;
+    height: var(--close-btn-size-sm) !important;
+    font-size: 1rem !important;
+  }
+
+  #screenshotModal .screenshot-full {
+    max-width: 100vw !important;
+    max-height: 100vh !important;
   }
 }

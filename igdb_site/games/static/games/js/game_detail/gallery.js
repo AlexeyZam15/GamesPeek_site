@@ -19,7 +19,7 @@ const MAX_SCALE = 1.8;
 let cachedScreenWidth = window.innerWidth;
 let cachedScreenHeight = window.innerHeight;
 
-// Функция масштабирования (оптимизированная)
+// Функция масштабирования
 function scaleImage(img) {
     if (!img || !img.src) return;
 
@@ -89,33 +89,72 @@ modalElement?.addEventListener('hidden.bs.modal', function() {
     cardImages = [];
 });
 
-// Навигация (один обработчик)
+// Навигация с зацикливанием
 function onNavClick(direction) {
     let newIndex = currentIndex;
 
     if (isCardGallery && cardImages.length) {
-        newIndex = direction === 'prev' ? currentIndex - 1 : currentIndex + 1;
-        if (newIndex >= 0 && newIndex < cardImages.length) {
-            currentIndex = newIndex;
-            updateModalImage(cardImages[currentIndex].url, cardImages[currentIndex].alt, currentIndex, cardImages.length);
+        if (direction === 'prev') {
+            newIndex = currentIndex - 1;
+            if (newIndex < 0) newIndex = cardImages.length - 1;
+        } else {
+            newIndex = currentIndex + 1;
+            if (newIndex >= cardImages.length) newIndex = 0;
         }
+
+        currentIndex = newIndex;
+        updateModalImage(cardImages[currentIndex].url, cardImages[currentIndex].alt, currentIndex, cardImages.length);
+
     } else if (galleryImages.length) {
-        newIndex = direction === 'prev' ? currentIndex - 1 : currentIndex + 1;
-        if (newIndex >= 0 && newIndex < galleryImages.length) {
-            currentIndex = newIndex;
-            const img = galleryImages[currentIndex];
-            updateModalImage(img.src, img.alt, currentIndex, galleryImages.length);
+        if (direction === 'prev') {
+            newIndex = currentIndex - 1;
+            if (newIndex < 0) newIndex = galleryImages.length - 1;
+        } else {
+            newIndex = currentIndex + 1;
+            if (newIndex >= galleryImages.length) newIndex = 0;
         }
+
+        currentIndex = newIndex;
+        const img = galleryImages[currentIndex];
+        const src = img.getAttribute('data-image') || img.src;
+        const alt = img.alt || 'Screenshot';
+        updateModalImage(src, alt, currentIndex, galleryImages.length);
     }
 }
 
-// Обработчики событий (один раз)
+// Обработчики событий
 function bindEvents() {
     const prevBtn = document.getElementById('prevBtn');
     const nextBtn = document.getElementById('nextBtn');
 
     if (prevBtn) prevBtn.onclick = () => onNavClick('prev');
     if (nextBtn) nextBtn.onclick = () => onNavClick('next');
+
+    // Поддержка свайпов для мобильных
+    let touchStartX = 0;
+    let touchEndX = 0;
+
+    function handleSwipe() {
+        const diff = touchEndX - touchStartX;
+        if (Math.abs(diff) > 50) {
+            if (diff > 0) {
+                onNavClick('prev');
+            } else {
+                onNavClick('next');
+            }
+        }
+    }
+
+    if (modalImage) {
+        modalImage.addEventListener('touchstart', function(e) {
+            touchStartX = e.touches[0].clientX;
+        });
+
+        modalImage.addEventListener('touchend', function(e) {
+            touchEndX = e.changedTouches[0].clientX;
+            handleSwipe();
+        });
+    }
 
     window.addEventListener('resize', function() {
         cachedScreenWidth = window.innerWidth;
@@ -133,14 +172,12 @@ window.initInlineGallery = function() {
 
     if (!modalElement) return;
 
-    // Собираем изображения один раз
     galleryImages = Array.from(document.querySelectorAll(
         '.game-carousel-cover, .game-carousel-screenshot, .screenshot-image-fixed, .gallery-img, img[data-image]'
     ));
 
     if (!galleryImages.length) return;
 
-    // Делегирование кликов (один обработчик на body)
     if (!window._galleryClickHandler) {
         window._galleryClickHandler = function(e) {
             const img = e.target.closest('.game-carousel-cover, .game-carousel-screenshot, .screenshot-image-fixed, .gallery-img, img[data-image]');
@@ -165,12 +202,14 @@ window.initInlineGallery = function() {
         document.body.addEventListener('click', window._galleryClickHandler);
     }
 
+    // Перепривязываем события после инициализации
+    bindEvents();
+
     console.log(`✅ Gallery initialized with ${galleryImages.length} images`);
 };
 
-// Инициализация при загрузке
+// Инициализация
 document.addEventListener('DOMContentLoaded', function() {
-    bindEvents();
     window.initInlineGallery();
 });
 
