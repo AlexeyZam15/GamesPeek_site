@@ -3,10 +3,10 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from django.views.static import serve
-from django.contrib.sitemaps.views import sitemap
 from django.http import HttpResponse
 from games.sitemap import GameSitemap, StaticViewSitemap
 from games.sitemap_similar_games import SimilarGamesSitemap
+from .sitemap_views import sitemap_without_noindex
 import os
 
 sitemaps = {
@@ -35,8 +35,9 @@ INDEXNOW_KEY = os.getenv('INDEXNOW_KEY', '')
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('games.urls')),
-    path('sitemap.xml', sitemap, {'sitemaps': sitemaps}, name='django.contrib.sitemaps.views.sitemap'),
-    path('sitemap_similar_games.xml', sitemap, {'sitemaps': sitemaps_similar}, name='sitemap_similar_games'),
+    path('sitemap.xml', sitemap_without_noindex, {'sitemaps': sitemaps}, name='django.contrib.sitemaps.views.sitemap'),
+    path('sitemap_similar_games.xml', sitemap_without_noindex, {'sitemaps': sitemaps_similar},
+         name='sitemap_similar_games'),
 ]
 
 # Add IndexNow key route only if key is configured
