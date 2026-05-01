@@ -27,6 +27,7 @@
     <link rel="stylesheet" href="{% static 'games/css/game_tags.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/components/cards.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/components/card_carousel.css' %}">
+    <link rel="stylesheet" href="{% static 'games/css/game_detail/gallery.css' %}">
 
     {% block extra_css %}{% endblock %}
 </head>
@@ -54,7 +55,6 @@
             </div>
 
             <div class="d-flex align-items-center gap-3">
-                <!-- ИСПРАВЛЕНО: убрана несуществующая переменная search_query -->
                 <form class="d-flex" method="get" action="{% url 'search_results' %}">
                     <div class="input-group input-group-sm">
                         <input type="text" class="form-control" name="search_k"
@@ -147,11 +147,38 @@
     </div>
 </div>
 
+<!-- Screenshot Gallery Modal (стили в gallery.css) -->
+<div class="modal fade" id="screenshotModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-xl">
+        <div class="modal-content">
+            <div class="modal-body p-0 position-relative">
+                <button type="button" class="screenshot-close" data-bs-dismiss="modal" aria-label="Close">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+                <button type="button" class="nav-arrow prev-arrow" id="prevBtn">
+                    <i class="bi bi-chevron-left"></i>
+                </button>
+                <button type="button" class="nav-arrow next-arrow" id="nextBtn">
+                    <i class="bi bi-chevron-right"></i>
+                </button>
+                <div class="d-flex align-items-center justify-content-center w-100 h-100">
+                    <img id="modalImage" class="screenshot-full" alt="Screenshot">
+                </div>
+                <div class="screenshot-counter">
+                    <span id="currentNum">1</span><span id="totalCount"> / 0</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 <!-- Глобальный JS -->
 <script src="{% static 'games/js/base.js' %}"></script>
 <!-- Глобальные компоненты JS -->
 <script src="{% static 'games/js/components/card-carousel.js' %}"></script>
+<!-- Галерея скриншотов -->
+<script src="{% static 'games/js/game_detail/gallery.js' %}"></script>
 {% block extra_js %}{% endblock %}
 
 </body>
