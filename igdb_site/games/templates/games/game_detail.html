@@ -3,7 +3,53 @@
 {% extends 'base.html' %}
 {% load static %}
 
-{% block title %}{{ game.name }} - GamesPeek{% endblock %}
+{% block title %}{{ game.name }}{% endblock %}
+
+{% block meta_tags %}
+    <meta name="description" content="{{ game.name }}. Rating: {{ game.rating|default:'N/A' }}/100.
+        {% if game.first_release_date %}Release Date: {{ game.first_release_date|date:'F Y' }}.{% endif %}
+        Genres: {% for genre in game.genres.all %}{{ genre.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.
+        Themes: {% for theme in game.themes.all %}{{ theme.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.
+        Game Modes:
+            {% for mode in game.game_modes.all %}{{ mode.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.
+        Platforms:
+            {% for platform in game.platforms.all %}{{ platform.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.
+        {% if game.developers.all %}Developers:
+        {% for developer in game.developers.all %}{{ developer.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
+        {% if game.publishers.all %}Publishers:
+        {% for publisher in game.publishers.all %}{{ publisher.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
+        {% if game.game_engines.all %}Engine:
+        {% for engine in game.game_engines.all %}{{ engine.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
+        View screenshots, videos, and similar games in our game database.">
+    <meta name="keywords" content="{{ game.name }}, {{ game.name }} game, video game,
+        {% for genre in game.genres.all %}{{ genre.name }}, {% endfor %}
+        {% for theme in game.themes.all %}{{ theme.name }}, {% endfor %}
+        {% for keyword in game.keywords.all %}{{ keyword.name }}, {% endfor %}
+        {% for perspective in game.player_perspectives.all %}{{ perspective.name }} perspective, {% endfor %}
+        {% for mode in game.game_modes.all %}{{ mode.name }}, {% endfor %}
+        {% if game.series.all %}{% for series in game.series.all %}{{ series.name }} series, {% endfor %}{% endif %}
+        game database, game rating, game review, game details, similar games,
+
+            {% if game.developers.all %}{% for developer in game.developers.all %}{{ developer.name }} game, {% endfor %}{% endif %}
+
+            {% if game.publishers.all %}{% for publisher in game.publishers.all %}{{ publisher.name }}, {% endfor %}{% endif %}
+        game engine, screenshots, gameplay video">
+    <meta property="og:title" content="{{ game.name }}">
+    <meta property="og:description" content="{{ game.name }} -
+            {% for genre in game.genres.all %}{{ genre.name }}{% if not forloop.last %}, {% endif %}{% endfor %} game. Rating: {{ game.rating|default:'N/A' }}/100">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="{{ request.build_absolute_uri }}">
+    {% if game.cover_url %}
+        <meta property="og:image" content="{{ game.cover_url }}">
+    {% endif %}
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{{ game.name }}">
+    <meta name="twitter:description"
+          content="{{ game.name }} - Game details, rating, genres, and more in our game database.">
+    {% if game.cover_url %}
+        <meta name="twitter:image" content="{{ game.cover_url }}">
+    {% endif %}
+{% endblock %}
 
 {% block extra_css %}
     <link rel="stylesheet" href="{% static 'games/css/game_detail.css' %}">
@@ -22,27 +68,22 @@
         <div class="modal-dialog modal-dialog-centered modal-xl">
             <div class="modal-content">
                 <div class="modal-body p-0 position-relative">
-                    <!-- Кнопка закрытия -->
                     <button type="button" class="screenshot-close" data-bs-dismiss="modal" aria-label="Close">
                         <i class="bi bi-x-lg"></i>
                     </button>
 
-                    <!-- Левая стрелка -->
                     <button type="button" class="nav-arrow prev-arrow" id="prevBtn">
                         <i class="bi bi-chevron-left"></i>
                     </button>
 
-                    <!-- Правая стрелка -->
                     <button type="button" class="nav-arrow next-arrow" id="nextBtn">
                         <i class="bi bi-chevron-right"></i>
                     </button>
 
-                    <!-- Изображение -->
                     <div class="d-flex align-items-center justify-content-center w-100 h-100">
                         <img id="modalImage" class="screenshot-full" alt="Screenshot">
                     </div>
 
-                    <!-- Счетчик -->
                     <div class="screenshot-counter">
                         <span id="currentNum">1</span><span id="totalCount"> / 0</span>
                     </div>
