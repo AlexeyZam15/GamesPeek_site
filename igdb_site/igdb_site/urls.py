@@ -6,11 +6,16 @@ from django.views.static import serve
 from django.contrib.sitemaps.views import sitemap
 from django.http import HttpResponse
 from games.sitemap import GameSitemap, StaticViewSitemap
+from games.sitemap_similar_games import SimilarGamesSitemap
 import os
 
 sitemaps = {
     'games': GameSitemap,
     'static': StaticViewSitemap,
+}
+
+sitemaps_similar = {
+    'similar_games': SimilarGamesSitemap,
 }
 
 
@@ -31,6 +36,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('games.urls')),
     path('sitemap.xml', sitemap, {'sitemaps': sitemaps}, name='django.contrib.sitemaps.views.sitemap'),
+    path('sitemap_similar_games.xml', sitemap, {'sitemaps': sitemaps_similar}, name='sitemap_similar_games'),
 ]
 
 # Add IndexNow key route only if key is configured
