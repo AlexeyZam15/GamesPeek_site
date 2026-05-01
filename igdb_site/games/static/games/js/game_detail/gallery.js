@@ -8,6 +8,7 @@ let modalElement = null;
 let modalImage = null;
 let isCardGallery = false;
 let cardImages = [];
+let isNavigating = false; // Флаг для предотвращения дублирования
 
 // Константы для масштабирования
 const QUALITY_THRESHOLDS = {
@@ -84,13 +85,19 @@ window.openGalleryFromCard = function(images, startIndex) {
 };
 
 // Закрытие галереи
-modalElement?.addEventListener('hidden.bs.modal', function() {
-    isCardGallery = false;
-    cardImages = [];
-});
+if (modalElement) {
+    modalElement.addEventListener('hidden.bs.modal', function() {
+        isCardGallery = false;
+        cardImages = [];
+        isNavigating = false;
+    });
+}
 
-// Навигация с зацикливанием
+// Навигация с зацикливанием (с защитой от дублирования)
 function onNavClick(direction) {
+    if (isNavigating) return;
+    isNavigating = true;
+
     let newIndex = currentIndex;
 
     if (isCardGallery && cardImages.length) {
@@ -120,6 +127,10 @@ function onNavClick(direction) {
         const alt = img.alt || 'Screenshot';
         updateModalImage(src, alt, currentIndex, galleryImages.length);
     }
+
+    setTimeout(() => {
+        isNavigating = false;
+    }, 300);
 }
 
 // Обработчики событий
@@ -130,18 +141,24 @@ function bindEvents() {
     if (prevBtn) prevBtn.onclick = () => onNavClick('prev');
     if (nextBtn) nextBtn.onclick = () => onNavClick('next');
 
-    // Поддержка свайпов для мобильных
+    // 1. СВАЙПЫ для мобильных
     let touchStartX = 0;
     let touchEndX = 0;
+    let isSwiping = false;
 
     function handleSwipe() {
+        if (isSwiping) return;
         const diff = touchEndX - touchStartX;
         if (Math.abs(diff) > 50) {
+            isSwiping = true;
             if (diff > 0) {
                 onNavClick('prev');
             } else {
                 onNavClick('next');
             }
+            setTimeout(() => {
+                isSwiping = false;
+            }, 300);
         }
     }
 
@@ -153,6 +170,29 @@ function bindEvents() {
         modalImage.addEventListener('touchend', function(e) {
             touchEndX = e.changedTouches[0].clientX;
             handleSwipe();
+        });
+    }
+
+    // 2. КЛИК ПО КРАЯМ ЭКРАНА (15% слева и справа)
+    if (modalElement) {
+        modalElement.addEventListener('click', function(e) {
+            // Не срабатываем если клик по кнопкам
+            if (e.target.closest('#prevBtn') || e.target.closest('#nextBtn') || e.target.closest('.screenshot-close')) {
+                return;
+            }
+
+            // Не срабатываем если блокировка
+            if (isNavigating) return;
+
+            const screenWidth = window.innerWidth;
+            const clickX = e.clientX;
+            const edgeZone = screenWidth * 0.15;
+
+            if (clickX < edgeZone) {
+                onNavClick('prev');
+            } else if (clickX > (screenWidth - edgeZone)) {
+                onNavClick('next');
+            }
         });
     }
 
@@ -202,7 +242,6 @@ window.initInlineGallery = function() {
         document.body.addEventListener('click', window._galleryClickHandler);
     }
 
-    // Перепривязываем события после инициализации
     bindEvents();
 
     console.log(`✅ Gallery initialized with ${galleryImages.length} images`);
