@@ -1,4 +1,5 @@
 # games/management/commands/update_vectors.py
+
 from django.core.management.base import BaseCommand
 from django.core.cache import cache
 from django.db import connection
@@ -88,18 +89,13 @@ class Command(BaseCommand):
             ids_str = ','.join(str(id) for id in batch_ids)
 
             with connection.cursor() as cursor:
-                # ОБНОВЛЕНИЕ С ИСПРАВЛЕННЫМИ igdb_id
+                # ОБНОВЛЕНИЕ ВЕКТОРОВ (без keyword_ids, так как они уже хранятся в games_game)
                 cursor.execute(f"""
                     WITH all_relations AS (
                         SELECT game_id, 'genre' as rel_type, g.igdb_id as rel_id
                         FROM games_game_genres gg
                         JOIN games_genre g ON gg.genre_id = g.id
                         WHERE gg.game_id IN ({ids_str})
-                        UNION ALL
-                        SELECT game_id, 'keyword', k.igdb_id
-                        FROM games_game_keywords gk
-                        JOIN games_keyword k ON gk.keyword_id = k.id
-                        WHERE gk.game_id IN ({ids_str})
                         UNION ALL
                         SELECT game_id, 'theme', t.igdb_id
                         FROM games_game_themes gt
@@ -129,7 +125,6 @@ class Command(BaseCommand):
                     aggregated AS (
                         SELECT game_id,
                                array_agg(DISTINCT rel_id) FILTER (WHERE rel_type = 'genre') as genre_ids,
-                               array_agg(DISTINCT rel_id) FILTER (WHERE rel_type = 'keyword') as keyword_ids,
                                array_agg(DISTINCT rel_id) FILTER (WHERE rel_type = 'theme') as theme_ids,
                                array_agg(DISTINCT rel_id) FILTER (WHERE rel_type = 'perspective') as perspective_ids,
                                array_agg(DISTINCT rel_id) FILTER (WHERE rel_type = 'developer') as developer_ids,
@@ -140,7 +135,6 @@ class Command(BaseCommand):
                     )
                     UPDATE games_game g
                     SET genre_ids = COALESCE(a.genre_ids, ARRAY[]::integer[]),
-                        keyword_ids = COALESCE(a.keyword_ids, ARRAY[]::integer[]),
                         theme_ids = COALESCE(a.theme_ids, ARRAY[]::integer[]),
                         perspective_ids = COALESCE(a.perspective_ids, ARRAY[]::integer[]),
                         developer_ids = COALESCE(a.developer_ids, ARRAY[]::integer[]),
@@ -156,7 +150,6 @@ class Command(BaseCommand):
                 cursor.execute(f"""
                     UPDATE games_game
                     SET genre_ids = ARRAY[]::integer[],
-                        keyword_ids = ARRAY[]::integer[],
                         theme_ids = ARRAY[]::integer[],
                         perspective_ids = ARRAY[]::integer[],
                         developer_ids = ARRAY[]::integer[],
@@ -166,7 +159,6 @@ class Command(BaseCommand):
                       AND id NOT IN (
                           SELECT DISTINCT game_id FROM (
                               SELECT game_id FROM games_game_genres WHERE game_id IN ({ids_str}) UNION
-                              SELECT game_id FROM games_game_keywords WHERE game_id IN ({ids_str}) UNION
                               SELECT game_id FROM games_game_themes WHERE game_id IN ({ids_str}) UNION
                               SELECT game_id FROM games_game_player_perspectives WHERE game_id IN ({ids_str}) UNION
                               SELECT game_id FROM games_game_developers WHERE game_id IN ({ids_str}) UNION
@@ -223,8 +215,8 @@ class Command(BaseCommand):
                            SELECT COUNT(*)                                              as games_with_genres,
                                   (SELECT COUNT(*) FROM games_game_genres)              as total_genre_relations,
                                   COUNT(*)                                              as games_with_keywords,
-                                  (SELECT COUNT(*) FROM games_game_keywords)            as total_keyword_relations,
-                                  COUNT(*)                                              as games_with_themes,
+                                  (SELECT SUM(array_length(keyword_ids, 1)) FROM games_game WHERE keyword_ids != '{}') as total_keyword_relations,
+                                  COUNT(*) as games_with_themes,
                                   (SELECT COUNT(*) FROM games_game_themes)              as total_theme_relations,
                                   COUNT(*)                                              as games_with_perspectives,
                                   (SELECT COUNT(*) FROM games_game_player_perspectives) as total_perspective_relations,

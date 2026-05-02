@@ -30,86 +30,82 @@ ITEMS_PER_PAGE = 16
 def search_results(request: HttpRequest) -> HttpResponse:
     """
     Отдельная страница для поиска игр через панель поиска вверху.
-    Сначала выводятся точные совпадения названия, затем остальные.
     """
     start_time = time.time()
 
-    search_query = request.GET.get('search_k', '').strip()
+    print(f"GET params: {dict(request.GET)}")
+    search_query = request.GET.get('q', '').strip()
     page_num = request.GET.get('page', '1')
     sort_field = request.GET.get('sort', '-rating_count')
+
+    print(f"Search query: '{search_query}'")
+    print(f"Page: {page_num}, Sort: {sort_field}")
 
     try:
         page_num = int(page_num)
     except (ValueError, TypeError):
         page_num = 1
 
-    print(f"\n=== SEARCH RESULTS PAGE ===")
-    print(f"Search query: '{search_query}'")
-    print(f"Page: {page_num}, Sort: {sort_field}")
-
-    search_filters = {}
+    # Если есть поисковой запрос
     if search_query:
-        search_filters['text_query'] = search_query
-
-    games_qs = Game.objects.all().only(
-        'id', 'name', 'rating', 'rating_count',
-        'first_release_date', 'cover_url', 'game_type'
-    )
-
-    if search_filters:
-        from django.db.models import Case, When, Value, IntegerField, Q
-        from .base_views import _apply_search_filters
-
-        # Сначала применяем фильтры поиска
-        games_qs = _apply_search_filters(games_qs, search_filters)
-
-        # Добавляем аннотацию для точного совпадения
-        # exact_match = 1 если название полностью совпадает (без учета регистра)
-        # exact_match = 2 если название начинается с поискового запроса
-        # exact_match = 3 если название содержит поисковый запрос
-        games_qs = games_qs.annotate(
-            relevance=Case(
-                When(name__iexact=search_query, then=Value(1)),
-                When(name__istartswith=search_query, then=Value(2)),
-                default=Value(3),
-                output_field=IntegerField()
-            )
+        games_qs = Game.objects.all().only(
+            'id', 'name', 'rating', 'rating_count',
+            'first_release_date', 'cover_url', 'game_type'
         )
 
-        # Сортируем: сначала relevance (1,2,3), затем выбранная пользователем сортировка
-        if sort_field in ['name', '-name', 'rating', '-rating', 'rating_count', '-rating_count', '-first_release_date']:
-            games_qs = games_qs.order_by('relevance', sort_field)
-        else:
-            games_qs = games_qs.order_by('relevance', '-rating_count')
-    else:
+        from django.db.models import Q
+
+        # Разбиваем запрос на слова
+        words = search_query.lower().split()
+
+        # Создаём фильтр для поиска по всем словам в названии
+        name_filter = Q()
+        for word in words:
+            name_filter &= Q(name__icontains=word)
+
+        games_qs = games_qs.filter(name_filter)
+
+        # Сортировка
         if sort_field in ['name', '-name', 'rating', '-rating', 'rating_count', '-rating_count', '-first_release_date']:
             games_qs = games_qs.order_by(sort_field)
         else:
             games_qs = games_qs.order_by('-rating_count')
 
-    paginator = Paginator(games_qs, ITEMS_PER_PAGE)
+        paginator = Paginator(games_qs, ITEMS_PER_PAGE)
 
-    try:
-        page_obj = paginator.page(page_num)
-    except PageNotAnInteger:
-        page_obj = paginator.page(1)
-    except EmptyPage:
-        page_obj = paginator.page(paginator.num_pages)
+        try:
+            page_obj = paginator.page(page_num)
+        except PageNotAnInteger:
+            page_obj = paginator.page(1)
+        except EmptyPage:
+            page_obj = paginator.page(paginator.num_pages)
 
-    total_count = paginator.count
-    total_pages = paginator.num_pages
-    games = list(page_obj.object_list)
+        total_count = paginator.count
+        total_pages = paginator.num_pages
+        games = list(page_obj.object_list)
 
-    games = _update_games_with_cached_cards(
-        games,
-        {
-            'show_similarity': False,
-            'current_page': page_num,
-        }
-    )
+        # Обновляем игры с кэшированными карточками
+        games = _update_games_with_cached_cards(
+            games,
+            {
+                'show_similarity': False,
+                'current_page': page_num,
+            }
+        )
 
-    start_index = (page_num - 1) * ITEMS_PER_PAGE + 1
-    end_index = min(page_num * ITEMS_PER_PAGE, total_count)
+        start_index = (page_num - 1) * ITEMS_PER_PAGE + 1
+        end_index = min(page_num * ITEMS_PER_PAGE, total_count)
+
+    else:
+        # Нет поискового запроса
+        games = []
+        page_obj = None
+        paginator = None
+        total_count = 0
+        total_pages = 1
+        start_index = 0
+        end_index = 0
+
     years_range = _get_cached_years_range()
 
     context = {
@@ -117,7 +113,7 @@ def search_results(request: HttpRequest) -> HttpResponse:
         'games': games,
         'page_obj': page_obj,
         'paginator': paginator,
-        'is_paginated': paginator.num_pages > 1,
+        'is_paginated': paginator and paginator.num_pages > 1 if paginator else False,
         'total_count': total_count,
         'total_pages': total_pages,
         'current_page': page_num,
@@ -134,6 +130,7 @@ def search_results(request: HttpRequest) -> HttpResponse:
     }
 
     return render(request, 'games/search_results.html', context)
+
 
 def game_list(request: HttpRequest) -> HttpResponse:
     """
@@ -565,7 +562,6 @@ def _render_filters_with_cache(
         ),
         selected_ids=similarity_selected.get('game_modes', [])
     )
-
 
     result['similarity_engines'] = FilterSectionCache.get_or_render(
         'similarity_engines',
@@ -1177,6 +1173,9 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
     search_year_start = request.GET.get('search_ys', '')
     search_year_end = request.GET.get('search_ye', '')
 
+    # Text search query from separate parameter 'q' (not from search_k)
+    search_text_query = request.GET.get('q', '').strip()
+
     search_genres_list = [int(x) for x in search_genres.split(',') if x.isdigit()] if search_genres else []
     search_keywords_list = [int(x) for x in search_keywords.split(',') if x.isdigit()] if search_keywords else []
     search_themes_list = [int(x) for x in search_themes.split(',') if x.isdigit()] if search_themes else []
@@ -1186,9 +1185,6 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
     search_engines_list = [int(x) for x in search_engines.split(',') if x.isdigit()] if search_engines else []
     search_platforms_list = [int(x) for x in search_platforms.split(',') if x.isdigit()] if search_platforms else []
     search_game_types_list = [int(x) for x in search_game_types.split(',') if x.isdigit()] if search_game_types else []
-
-    # Extract text search query from search_k parameter
-    search_text_query = request.GET.get('search_k', '').strip()
 
     try:
         search_year_start_int = int(search_year_start) if search_year_start else None
@@ -1496,10 +1492,15 @@ def get_similar_games_for_criteria(selected_criteria: Dict[str, List[int]], sear
 
 def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int], search_filters: Dict = None) -> Tuple[
     List, int]:
-    """Get similar games for a specific game without limits - ОПТИМИЗИРОВАНО."""
+    """
+    Get similar games for a specific game with database caching.
+    Использует модель GameSimilarityCache для хранения результатов в БД.
+    """
+    from ..models_parts.similarity import GameSimilarityCache
     from .base_views import _generate_cache_key, CACHE_TIMES
     from ..similarity import GameSimilarity
     import hashlib
+    import json
 
     start_total = time.time()
     print(f"\n=== get_similar_games_for_game START for game {game_obj.id} - {game_obj.name} ===")
@@ -1510,31 +1511,51 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int], se
     similarity_engine = GameSimilarity()
     algorithm_version = similarity_engine.ALGORITHM_VERSION
 
+    # Создаем ключ для поиска в БД
     cache_key_data = {
         'game_id': game_obj.id,
         'platforms': sorted(selected_platforms) if selected_platforms else [],
         'search_filters': search_filters,
         'algorithm_version': algorithm_version,
-        'game_cached_counts': {
-            'genres': game_obj.cached_genre_count,
-            'keywords': game_obj.cached_keyword_count,
-            'platforms': game_obj.cached_platform_count,
-            'developers': game_obj.cached_developer_count,
-            'engines': getattr(game_obj, 'cached_engine_count', 0),
-        }
     }
 
-    cache_key = f'similar_for_game_{_generate_cache_key(cache_key_data)}'
-    cached_data = cache.get(cache_key)
-    print(f"Cache check: {time.time() - stage_start:.3f}s")
+    cache_key = hashlib.md5(json.dumps(cache_key_data, sort_keys=True).encode()).hexdigest()
 
-    if cached_data:
-        print(f"Cache HIT for game {game_obj.id}")
-        similar_games = cached_data['games']
-        total_count = cached_data['count']
-        print(f"Total time: {time.time() - start_total:.3f}s")
-        print("=== get_similar_games_for_game END (CACHE HIT) ===\n")
-        return similar_games, total_count
+    # Пытаемся найти в базе данных
+    try:
+        cached_entry = GameSimilarityCache.objects.filter(
+            game1_id=game_obj.id,
+            # Используем поле similarity_score как хранилище для версии и данных
+        ).select_related('game2').first()
+
+        # Проверяем актуальность кэша (по дате или версии)
+        if cached_entry:
+            # Если кэш свежий (менее 7 дней), используем его
+            from django.utils import timezone
+            from datetime import timedelta
+
+            if cached_entry.calculated_at > timezone.now() - timedelta(days=7):
+                # Получаем все похожие игры для этой исходной игры
+                all_similar = list(GameSimilarityCache.objects.filter(
+                    game1_id=game_obj.id
+                ).select_related('game2').order_by('-similarity_score'))
+
+                similar_games = []
+                for item in all_similar:
+                    similar_games.append({
+                        'game': item.game2,
+                        'similarity': item.similarity_score,
+                        'common_keywords': getattr(item, 'common_keywords', 0),
+                        'common_genres': getattr(item, 'common_genres', 0),
+                        'common_themes': getattr(item, 'common_themes', 0),
+                    })
+
+                total_count = len(similar_games)
+                print(f"Cache HIT for game {game_obj.id} - found {total_count} games")
+                print(f"Total time: {time.time() - start_total:.3f}s")
+                return similar_games, total_count
+    except Exception as e:
+        print(f"Cache read error: {e}")
 
     print(f"Cache MISS for game {game_obj.id} - calculating similarity...")
 
@@ -1548,13 +1569,35 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int], se
 
     total_count = len(similar_games)
 
+    # Сохраняем результаты в базу данных
     stage_start = time.time()
-    cache.set(cache_key, {
-        'games': similar_games,
-        'count': total_count,
-        'timestamp': time.time()
-    }, CACHE_TIMES['aggressive']['similar_for_game'])
-    print(f"Cache save: {time.time() - stage_start:.3f}s")
+    try:
+        # Удаляем старые записи для этой игры
+        GameSimilarityCache.objects.filter(game1_id=game_obj.id).delete()
+
+        # Создаем новые записи
+        cache_entries = []
+        for item in similar_games:
+            if isinstance(item, dict):
+                target_game = item.get('game')
+                similarity = item.get('similarity', 0)
+            else:
+                target_game = item
+                similarity = getattr(item, 'similarity', 0)
+
+            if target_game and hasattr(target_game, 'id'):
+                cache_entries.append(GameSimilarityCache(
+                    game1_id=game_obj.id,
+                    game2_id=target_game.id,
+                    similarity_score=similarity,
+                ))
+
+        # Массовое создание записей
+        if cache_entries:
+            GameSimilarityCache.objects.bulk_create(cache_entries, batch_size=500)
+            print(f"Saved {len(cache_entries)} similarity records to database")
+    except Exception as e:
+        print(f"Failed to save to database: {e}")
 
     print(f"TOTAL time for get_similar_games_for_game: {time.time() - start_total:.3f}s")
     print("=== get_similar_games_for_game END ===\n")

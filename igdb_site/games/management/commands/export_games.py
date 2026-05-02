@@ -108,13 +108,13 @@ class Command(BaseCommand):
                 'genres', 'themes', 'platforms', 'publishers', 'developers'
             )
 
-            # Если нужны ключевые слова, добавляем prefetch_related для keywords
+            # Если нужны ключевые слова, используем keyword_ids (без prefetch)
             if options.get('with_keywords', False):
-                queryset = queryset.prefetch_related('keywords')
+                # keywords теперь property, не нужно prefetch
+                pass
 
         # Фильтрация по точному названию игры (поддержка нескольких названий)
         if options['game_name']:
-            # game_name теперь список строк благодаря nargs='+'
             game_names = options['game_name']
             queryset = queryset.filter(name__in=game_names)
 
@@ -123,7 +123,6 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING(f"No games found with exact names: {', '.join(game_names)}"))
                 return None
             else:
-                # Получаем список найденных названий для отображения
                 found_names = list(queryset.values_list('name', flat=True).distinct())
                 missing_names = set(game_names) - set(found_names)
 
@@ -138,18 +137,15 @@ class Command(BaseCommand):
         if options.get('genre'):
             genre_name = options['genre'].strip()
             try:
-                # Находим жанр по имени (регистронезависимый поиск)
                 genre = Genre.objects.get(name__iexact=genre_name)
                 queryset = queryset.filter(genres=genre)
                 self.stdout.write(self.style.SUCCESS(f"Filtering by genre: '{genre.name}'"))
             except Genre.DoesNotExist:
-                # Если жанр не найден, показываем доступные жанры
                 available_genres = Genre.objects.values_list('name', flat=True).order_by('name')[:10]
                 self.stdout.write(self.style.ERROR(f"Genre '{genre_name}' not found"))
                 self.stdout.write(f"Available genres (first 10): {', '.join(available_genres)}")
                 return None
             except Genre.MultipleObjectsReturned:
-                # На случай дубликатов (хотя по логике genre.name уникален)
                 genre = Genre.objects.filter(name__iexact=genre_name).first()
                 queryset = queryset.filter(genres=genre)
                 self.stdout.write(self.style.WARNING(f"Multiple genres matched, using first: '{genre.name}'"))
@@ -302,7 +298,8 @@ class Command(BaseCommand):
                         game_data['storyline'] = game.storyline
 
                     if include_keywords:
-                        keywords_list = [kw.name for kw in game.keywords.all()]
+                        # Используем keywords property
+                        keywords_list = list(game.keywords.values_list('name', flat=True))
                         game_data['keywords'] = keywords_list
                 else:
                     igdb_id, name, release_date = game
