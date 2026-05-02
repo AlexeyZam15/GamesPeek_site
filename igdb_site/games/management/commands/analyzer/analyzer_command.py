@@ -460,7 +460,7 @@ class AnalyzerCommand(BaseCommand):
         """Предзагружает игры"""
         self.timer_start("Предзагрузка игр")
         if self.keywords:
-            games_with_data = games.select_related().prefetch_related('keywords')
+            games_with_data = games.select_related()
         else:
             games_with_data = games.select_related().prefetch_related(
                 'genres', 'themes', 'player_perspectives', 'game_modes'

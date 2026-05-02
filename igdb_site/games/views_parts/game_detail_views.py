@@ -12,11 +12,9 @@ from ..models import (
 
 def game_detail(request: HttpRequest, pk: int) -> HttpResponse:
     """Game detail page with optimized queries."""
-    prefetch_keywords = Prefetch('keywords', queryset=Keyword.objects.select_related('category'))
-
+    # keywords теперь property, не нужно prefetch
     game = get_object_or_404(
         Game.objects.prefetch_related(
-            prefetch_keywords,
             Prefetch('genres', queryset=Genre.objects.only('id', 'name')),
             Prefetch('platforms', queryset=Platform.objects.only('id', 'name', 'slug')),
             Prefetch('themes', queryset=Theme.objects.only('id', 'name')),

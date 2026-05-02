@@ -1,4 +1,5 @@
 # Файл: admin.py
+
 # Путь: P:\Users\Alexey\Desktop\igdb_site\igdb_site\games\admin.py
 
 from django.contrib import admin
@@ -135,7 +136,8 @@ class GameAdmin(admin.ModelAdmin):
 
         return queryset.none(), False
 
-    filter_horizontal = ['genres', 'platforms', 'keywords', 'developers', 'publishers', 'engines', 'themes']
+    filter_horizontal = ['genres', 'platforms', 'developers', 'publishers', 'engines', 'themes', 'player_perspectives',
+                         'game_modes', 'series']
     raw_id_fields = ['parent_game', 'version_parent']
 
     fieldsets = (
@@ -171,7 +173,6 @@ class GameAdmin(admin.ModelAdmin):
             'fields': (
                 'genres',
                 'platforms',
-                'keywords',
                 'engines',
             )
         }),
@@ -304,7 +305,7 @@ class GameAdmin(admin.ModelAdmin):
 
     def formfield_for_manytomany(self, db_field, request, **kwargs):
         """Оптимизация для полей ManyToMany"""
-        if db_field.name in ['genres', 'platforms', 'keywords', 'engines', 'themes']:
+        if db_field.name in ['genres', 'platforms', 'engines', 'themes']:
             kwargs['queryset'] = db_field.remote_field.model.objects.all().order_by('name')
         return super().formfield_for_manytomany(db_field, request, **kwargs)
 
@@ -648,6 +649,7 @@ class GameCountsCacheAdmin(admin.ModelAdmin):
 
 
 # ===== ADMIN SITE CONFIGURATION =====
+
 admin.site.site_header = "GamesPeek Site Administration"
 admin.site.site_title = "GamesPeek Admin"
 admin.site.index_title = "Welcome to GamesPeek Admin"
