@@ -1,4 +1,5 @@
 # games/management/commands/watch_update_vectors.py
+
 from django.core.management.base import BaseCommand
 from django.db import connection
 import time
@@ -21,7 +22,6 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         self.interval = options['interval']
 
-        # Устанавливаем обработчик сигнала
         self.running = True
         signal.signal(signal.SIGINT, self.signal_handler)
         signal.signal(signal.SIGTERM, self.signal_handler)
@@ -33,44 +33,31 @@ class Command(BaseCommand):
         self.stdout.write(f'Интервал обновления: {self.interval} сек')
         self.stdout.write(self.style.WARNING('Нажмите Ctrl+C для выхода\n'))
 
-        # Сохраняем предыдущие значения для отслеживания изменений
         previous_stats = self._get_current_stats()
         start_time = time.time()
         last_update = time.time()
 
         try:
             while self.running:
-                # Проверяем, не пора ли обновить статистику
                 current_time = time.time()
                 if current_time - last_update >= self.interval:
-                    # Получаем текущую статистику
                     current_stats = self._get_current_stats()
-
-                    # Вычисляем изменения
                     changes = self._calculate_changes(previous_stats, current_stats)
-
-                    # Выводим статистику
                     self._print_stats(current_stats, changes, start_time)
-
-                    # Обновляем предыдущие значения и время
                     previous_stats = current_stats
                     last_update = current_time
-
-                # Короткий сон для возможности обработки сигнала
                 time.sleep(0.1)
-
         except Exception as e:
             self.stdout.write(self.style.ERROR(f'\n❌ Ошибка: {e}'))
         finally:
             self.stdout.write(self.style.WARNING('\n👋 Мониторинг остановлен'))
 
     def signal_handler(self, signum, frame):
-        """Обработчик сигналов"""
         self.stdout.write(self.style.WARNING('\n\n👋 Получен сигнал завершения...'))
         self.running = False
 
     def _get_current_stats(self):
-        """Получает текущую статистику из базы данных"""
+        """Получает текущую статистику из базы данных (без games_game_keywords)"""
         stats = {
             'timestamp': datetime.now(),
             'total_games': 0,
@@ -89,13 +76,6 @@ class Command(BaseCommand):
             'total_mode_relations': 0,
             'total_engine_relations': 0,
             'last_game_id': 0,
-            'last_keyword_relation_id': 0,
-            'last_genre_relation_id': 0,
-            'last_theme_relation_id': 0,
-            'last_perspective_relation_id': 0,
-            'last_developer_relation_id': 0,
-            'last_mode_relation_id': 0,
-            'last_engine_relation_id': 0,
             'active_locks': 0,
             'blocked_processes': 0,
             'long_running_queries': 0
@@ -106,72 +86,53 @@ class Command(BaseCommand):
             cursor.execute("SELECT COUNT(*) FROM games_game")
             stats['total_games'] = cursor.fetchone()[0]
 
-            # Игры с непустыми векторами
+            # Игры с непустыми векторами (используем array_length)
             cursor.execute("""
-                           SELECT COUNT(CASE WHEN keyword_ids != '{}' THEN 1 END)     as with_keywords,
-                                  COUNT(CASE WHEN genre_ids != '{}' THEN 1 END)       as with_genres,
-                                  COUNT(CASE WHEN theme_ids != '{}' THEN 1 END)       as with_themes,
-                                  COUNT(CASE WHEN perspective_ids != '{}' THEN 1 END) as with_perspectives,
-                                  COUNT(CASE WHEN developer_ids != '{}' THEN 1 END)   as with_developers,
-                                  COUNT(CASE WHEN game_mode_ids != '{}' THEN 1 END)   as with_modes,
-                                  COUNT(CASE WHEN engine_ids != '{}' THEN 1 END)      as with_engines
+                           SELECT COUNT(CASE WHEN array_length(keyword_ids, 1) > 0 THEN 1 END)     as with_keywords,
+                                  COUNT(CASE WHEN array_length(genre_ids, 1) > 0 THEN 1 END)       as with_genres,
+                                  COUNT(CASE WHEN array_length(theme_ids, 1) > 0 THEN 1 END)       as with_themes,
+                                  COUNT(CASE WHEN array_length(perspective_ids, 1) > 0 THEN 1 END) as with_perspectives,
+                                  COUNT(CASE WHEN array_length(developer_ids, 1) > 0 THEN 1 END)   as with_developers,
+                                  COUNT(CASE WHEN array_length(game_mode_ids, 1) > 0 THEN 1 END)   as with_modes,
+                                  COUNT(CASE WHEN array_length(engine_ids, 1) > 0 THEN 1 END)      as with_engines
                            FROM games_game
                            """)
             row = cursor.fetchone()
-            stats['games_with_keywords'] = row[0]
-            stats['games_with_genres'] = row[1]
-            stats['games_with_themes'] = row[2]
-            stats['games_with_perspectives'] = row[3]
-            stats['games_with_developers'] = row[4]
-            stats['games_with_modes'] = row[5]
-            stats['games_with_engines'] = row[6]
+            stats['games_with_keywords'] = row[0] or 0
+            stats['games_with_genres'] = row[1] or 0
+            stats['games_with_themes'] = row[2] or 0
+            stats['games_with_perspectives'] = row[3] or 0
+            stats['games_with_developers'] = row[4] or 0
+            stats['games_with_modes'] = row[5] or 0
+            stats['games_with_engines'] = row[6] or 0
 
-            # Общее количество связей
-            cursor.execute("SELECT COUNT(*) FROM games_game_keywords")
-            stats['total_keyword_relations'] = cursor.fetchone()[0]
+            # Общее количество связей через array_length
+            cursor.execute("""
+                           SELECT COALESCE(SUM(array_length(keyword_ids, 1)), 0)     as total_keywords,
+                                  COALESCE(SUM(array_length(genre_ids, 1)), 0)       as total_genres,
+                                  COALESCE(SUM(array_length(theme_ids, 1)), 0)       as total_themes,
+                                  COALESCE(SUM(array_length(perspective_ids, 1)), 0) as total_perspectives,
+                                  COALESCE(SUM(array_length(developer_ids, 1)), 0)   as total_developers,
+                                  COALESCE(SUM(array_length(game_mode_ids, 1)), 0)   as total_modes,
+                                  COALESCE(SUM(array_length(engine_ids, 1)), 0)      as total_engines
+                           FROM games_game
+                           """)
+            row = cursor.fetchone()
+            stats['total_keyword_relations'] = row[0] or 0
+            stats['total_genre_relations'] = row[1] or 0
+            stats['total_theme_relations'] = row[2] or 0
+            stats['total_perspective_relations'] = row[3] or 0
+            stats['total_developer_relations'] = row[4] or 0
+            stats['total_mode_relations'] = row[5] or 0
+            stats['total_engine_relations'] = row[6] or 0
 
-            cursor.execute("SELECT COUNT(*) FROM games_game_genres")
-            stats['total_genre_relations'] = cursor.fetchone()[0]
-
-            cursor.execute("SELECT COUNT(*) FROM games_game_themes")
-            stats['total_theme_relations'] = cursor.fetchone()[0]
-
-            cursor.execute("SELECT COUNT(*) FROM games_game_player_perspectives")
-            stats['total_perspective_relations'] = cursor.fetchone()[0]
-
-            cursor.execute("SELECT COUNT(*) FROM games_game_developers")
-            stats['total_developer_relations'] = cursor.fetchone()[0]
-
-            cursor.execute("SELECT COUNT(*) FROM games_game_game_modes")
-            stats['total_mode_relations'] = cursor.fetchone()[0]
-
-            cursor.execute("SELECT COUNT(*) FROM games_game_engines")
-            stats['total_engine_relations'] = cursor.fetchone()[0]
-
-            # Последние обработанные ID
-            cursor.execute("SELECT COALESCE(MAX(id), 0) FROM games_game WHERE keyword_ids != '{}'")
+            # Последняя обработанная игра (с непустым keyword_ids)
+            cursor.execute("""
+                           SELECT COALESCE(MAX(id), 0)
+                           FROM games_game
+                           WHERE array_length(keyword_ids, 1) > 0
+                           """)
             stats['last_game_id'] = cursor.fetchone()[0]
-
-            cursor.execute("SELECT COALESCE(MAX(id), 0) FROM games_game_keywords")
-            stats['last_keyword_relation_id'] = cursor.fetchone()[0]
-
-            cursor.execute("SELECT COALESCE(MAX(id), 0) FROM games_game_genres")
-            stats['last_genre_relation_id'] = cursor.fetchone()[0]
-
-            cursor.execute("SELECT COALESCE(MAX(id), 0) FROM games_game_themes")
-            stats['last_theme_relation_id'] = cursor.fetchone()[0]
-
-            cursor.execute("SELECT COALESCE(MAX(id), 0) FROM games_game_player_perspectives")
-            stats['last_perspective_relation_id'] = cursor.fetchone()[0]
-
-            cursor.execute("SELECT COALESCE(MAX(id), 0) FROM games_game_developers")
-            stats['last_developer_relation_id'] = cursor.fetchone()[0]
-
-            cursor.execute("SELECT COALESCE(MAX(id), 0) FROM games_game_game_modes")
-            stats['last_mode_relation_id'] = cursor.fetchone()[0]
-
-            cursor.execute("SELECT COALESCE(MAX(id), 0) FROM games_game_engines")
-            stats['last_engine_relation_id'] = cursor.fetchone()[0]
 
             # Блокировки
             cursor.execute("SELECT COUNT(*) FROM pg_locks WHERE NOT granted")
@@ -215,13 +176,11 @@ class Command(BaseCommand):
 
     def _print_stats(self, stats, changes, start_time):
         """Выводит статистику"""
-        # Очищаем экран
         self.stdout.write('\033[2J\033[H')
 
         elapsed = time.time() - start_time
         progress = (stats['games_with_keywords'] / stats['total_games']) * 100 if stats['total_games'] > 0 else 0
 
-        # Заголовок
         self.stdout.write('=' * 100)
         self.stdout.write(self.style.SUCCESS(f'📊 МОНИТОРИНГ update_vectors'))
         self.stdout.write('=' * 100)
@@ -229,17 +188,15 @@ class Command(BaseCommand):
         self.stdout.write(f'Последнее обновление: {stats["timestamp"].strftime("%H:%M:%S")}')
         self.stdout.write('-' * 100)
 
-        # Общий прогресс
         self.stdout.write(f'\n🎮 ОБЩИЙ ПРОГРЕСС:')
         self.stdout.write(f'   Всего игр: {stats["total_games"]}')
-        self.stdout.write(f'   Обновлено: {stats["games_with_keywords"]} ({progress:.1f}%)')
+        self.stdout.write(f'   Обновлено (keyword_ids): {stats["games_with_keywords"]} ({progress:.1f}%)')
         self.stdout.write(f'   Последняя игра ID: {stats["last_game_id"]}')
 
         if changes['last_game_id'] > 0:
             speed = changes['last_game_id'] / self.interval
             self.stdout.write(f'   Скорость: {speed:.1f} игр/сек')
 
-        # Изменения за последний интервал
         self.stdout.write(f'\n⚡ ИЗМЕНЕНИЯ ЗА ПОСЛЕДНИЕ {self.interval} СЕК:')
         has_changes = False
 
@@ -247,31 +204,30 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS(f'   +{changes["games_with_keywords"]} игр обновлено'))
             has_changes = True
         if changes['keyword_relations'] > 0:
-            self.stdout.write(self.style.SUCCESS(f'   +{changes["keyword_relations"]} связей ключевых слов'))
+            self.stdout.write(self.style.SUCCESS(f'   +{changes["keyword_relations"]} ключевых слов'))
             has_changes = True
         if changes['genre_relations'] > 0:
-            self.stdout.write(self.style.SUCCESS(f'   +{changes["genre_relations"]} связей жанров'))
+            self.stdout.write(self.style.SUCCESS(f'   +{changes["genre_relations"]} жанров'))
             has_changes = True
         if changes['theme_relations'] > 0:
-            self.stdout.write(self.style.SUCCESS(f'   +{changes["theme_relations"]} связей тем'))
+            self.stdout.write(self.style.SUCCESS(f'   +{changes["theme_relations"]} тем'))
             has_changes = True
         if changes['perspective_relations'] > 0:
-            self.stdout.write(self.style.SUCCESS(f'   +{changes["perspective_relations"]} связей перспектив'))
+            self.stdout.write(self.style.SUCCESS(f'   +{changes["perspective_relations"]} перспектив'))
             has_changes = True
         if changes['developer_relations'] > 0:
-            self.stdout.write(self.style.SUCCESS(f'   +{changes["developer_relations"]} связей разработчиков'))
+            self.stdout.write(self.style.SUCCESS(f'   +{changes["developer_relations"]} разработчиков'))
             has_changes = True
         if changes['mode_relations'] > 0:
-            self.stdout.write(self.style.SUCCESS(f'   +{changes["mode_relations"]} связей режимов игры'))
+            self.stdout.write(self.style.SUCCESS(f'   +{changes["mode_relations"]} режимов игры'))
             has_changes = True
         if changes['engine_relations'] > 0:
-            self.stdout.write(self.style.SUCCESS(f'   +{changes["engine_relations"]} связей движков'))
+            self.stdout.write(self.style.SUCCESS(f'   +{changes["engine_relations"]} движков'))
             has_changes = True
 
         if not has_changes:
             self.stdout.write(self.style.WARNING('   Нет изменений'))
 
-        # Детальная статистика
         self.stdout.write(f'\n📈 ТЕКУЩАЯ СТАТИСТИКА:')
         self.stdout.write(
             f'   Жанры:          {stats["games_with_genres"]} игр, {stats["total_genre_relations"]} связей')
@@ -287,7 +243,6 @@ class Command(BaseCommand):
         self.stdout.write(
             f'   Движки:         {stats["games_with_engines"]} игр, {stats["total_engine_relations"]} связей')
 
-        # Блокировки и проблемы
         self.stdout.write(f'\n🔒 СОСТОЯНИЕ БД:')
         if stats['active_locks'] > 0:
             self.stdout.write(self.style.ERROR(f'   Активных блокировок: {stats["active_locks"]}'))
@@ -300,10 +255,8 @@ class Command(BaseCommand):
         if stats['long_running_queries'] > 0:
             self.stdout.write(self.style.WARNING(f'   Долгих запросов (>5 сек): {stats["long_running_queries"]}'))
 
-        # Последние ID для отслеживания прогресса
-        self.stdout.write(f'\n🔍 ПОСЛЕДНИЕ ID:')
-        self.stdout.write(f'   Последняя игра с ключевыми словами: {stats["last_game_id"]}')
-        self.stdout.write(f'   Последняя связь ключевого слова: {stats["last_keyword_relation_id"]}')
+        self.stdout.write(f'\n🔍 ПОСЛЕДНЯЯ ОБРАБОТАННАЯ ИГРА:')
+        self.stdout.write(f'   ID: {stats["last_game_id"]}')
 
         self.stdout.write('\n' + '=' * 100)
         self.stdout.write(self.style.WARNING('Нажмите Ctrl+C для выхода'))

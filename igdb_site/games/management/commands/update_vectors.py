@@ -18,7 +18,6 @@ class Command(BaseCommand):
 
         self._check_and_clear_locks()
 
-        # КРИТИЧЕСКИ ВАЖНО: увеличиваем work_mem для этой сессии
         with connection.cursor() as cursor:
             cursor.execute("SET work_mem = '1GB'")
             cursor.execute("SET maintenance_work_mem = '2GB'")
@@ -50,12 +49,12 @@ class Command(BaseCommand):
                                   COUNT(engine_ids)      as non_empty_engines
                            FROM games_game
                            WHERE genre_ids != '{}' OR 
-                      keyword_ids != '{}' OR 
-                      theme_ids != '{}' OR 
-                      perspective_ids != '{}' OR 
-                      developer_ids != '{}' OR 
-                      game_mode_ids != '{}' OR 
-                      engine_ids != '{}'
+                                 keyword_ids != '{}' OR 
+                                 theme_ids != '{}' OR 
+                                 perspective_ids != '{}' OR 
+                                 developer_ids != '{}' OR 
+                                 game_mode_ids != '{}' OR 
+                                 engine_ids != '{}'
                            """)
             non_empty_stats = cursor.fetchone()
 
@@ -72,12 +71,10 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.WARNING(f'\n🔄 Начинаю обновление векторов...'))
 
-        # ОПТИМИЗИРОВАННОЕ ОБНОВЛЕНИЕ С БАТЧИНГОМ
         batch_size = 5000
         total_updated = 0
         total_cleaned = 0
 
-        # Получаем список ID игр
         with connection.cursor() as cursor:
             cursor.execute("SELECT id FROM games_game ORDER BY id")
             game_ids = [row[0] for row in cursor.fetchall()]
@@ -89,7 +86,6 @@ class Command(BaseCommand):
             ids_str = ','.join(str(id) for id in batch_ids)
 
             with connection.cursor() as cursor:
-                # ОБНОВЛЕНИЕ ВЕКТОРОВ (без keyword_ids, так как они уже хранятся в games_game)
                 cursor.execute(f"""
                     WITH all_relations AS (
                         SELECT game_id, 'genre' as rel_type, g.igdb_id as rel_id
@@ -145,7 +141,6 @@ class Command(BaseCommand):
                 """)
                 total_updated += cursor.rowcount
 
-            # Очистка игр без связей в этом батче
             with connection.cursor() as cursor:
                 cursor.execute(f"""
                     UPDATE games_game
@@ -169,7 +164,6 @@ class Command(BaseCommand):
                 """)
                 total_cleaned += cursor.rowcount
 
-            # Прогресс
             progress = (i + len(batch_ids)) / len(game_ids) * 100
             self.stdout.write(
                 f'   📍 Батч {i // batch_size + 1}/{(len(game_ids) - 1) // batch_size + 1}: {progress:.1f}% | Обновлено: {total_updated:,} | Очищено: {total_cleaned:,}')
@@ -212,28 +206,36 @@ class Command(BaseCommand):
 
         with connection.cursor() as cursor:
             cursor.execute("""
-                           SELECT COUNT(*)                                              as games_with_genres,
-                                  (SELECT COUNT(*) FROM games_game_genres)              as total_genre_relations,
-                                  COUNT(*)                                              as games_with_keywords,
-                                  (SELECT SUM(array_length(keyword_ids, 1)) FROM games_game WHERE keyword_ids != '{}') as total_keyword_relations,
-                                  COUNT(*) as games_with_themes,
-                                  (SELECT COUNT(*) FROM games_game_themes)              as total_theme_relations,
-                                  COUNT(*)                                              as games_with_perspectives,
-                                  (SELECT COUNT(*) FROM games_game_player_perspectives) as total_perspective_relations,
-                                  COUNT(*)                                              as games_with_developers,
-                                  (SELECT COUNT(*) FROM games_game_developers)          as total_developer_relations,
-                                  COUNT(*)                                              as games_with_game_modes,
-                                  (SELECT COUNT(*) FROM games_game_game_modes)          as total_gamemode_relations,
-                                  COUNT(*)                                              as games_with_engines,
-                                  (SELECT COUNT(*) FROM games_game_engines)             as total_engine_relations
+                           SELECT COUNT(*)                                 as games_with_genres,
+                                  (SELECT COUNT(*) FROM games_game_genres) as total_genre_relations,
+                                  COUNT(*)                                 as games_with_keywords,
+                                  (SELECT SUM(array_length(keyword_ids, 1))
+                                   FROM games_game
+                                   WHERE keyword_ids != '{}') as total_keyword_relations, COUNT (*) as games_with_themes, (
+                           SELECT COUNT (*)
+                           FROM games_game_themes) as total_theme_relations, COUNT (*) as games_with_perspectives, (
+                           SELECT COUNT (*)
+                           FROM games_game_player_perspectives) as total_perspective_relations, COUNT (*) as games_with_developers, (
+                           SELECT COUNT (*)
+                           FROM games_game_developers) as total_developer_relations, COUNT (*) as games_with_game_modes, (
+                           SELECT COUNT (*)
+                           FROM games_game_game_modes) as total_gamemode_relations, COUNT (*) as games_with_engines, (
+                           SELECT COUNT (*)
+                           FROM games_game_engines) as total_engine_relations
                            FROM games_game
-                           WHERE genre_ids != '{}' OR 
-                      keyword_ids != '{}' OR 
-                      theme_ids != '{}' OR 
-                      perspective_ids != '{}' OR 
-                      developer_ids != '{}' OR 
-                      game_mode_ids != '{}' OR 
-                      engine_ids != '{}'
+                           WHERE genre_ids != '{}'
+                              OR
+                               keyword_ids != '{}'
+                              OR
+                               theme_ids != '{}'
+                              OR
+                               perspective_ids != '{}'
+                              OR
+                               developer_ids != '{}'
+                              OR
+                               game_mode_ids != '{}'
+                              OR
+                               engine_ids != '{}'
                            """)
             consistency = cursor.fetchone()
 
@@ -245,6 +247,9 @@ class Command(BaseCommand):
         self.stdout.write(f'   Разработчики: {consistency[8]:,} игр имеют {consistency[9]:,} связей')
         self.stdout.write(f'   Режимы игры: {consistency[10]:,} игр имеют {consistency[11]:,} связей')
         self.stdout.write(f'   Движки: {consistency[12]:,} игр имеют {consistency[13]:,} связей')
+
+        # СОЗДАЁМ GIN ИНДЕКСЫ ПОСЛЕ ОБНОВЛЕНИЯ ДАННЫХ (если их нет)
+        self._ensure_gin_indexes()
 
         self.stdout.write(self.style.SUCCESS(f'\n{"=" * 60}'))
         self.stdout.write(self.style.SUCCESS('ОБНОВЛЕНИЕ ЗАВЕРШЕНО'))

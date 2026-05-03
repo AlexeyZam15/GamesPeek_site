@@ -62,7 +62,6 @@ class Command(BaseCommand):
         threshold = options['usage']
         dry_run = options['dry_run']
 
-        # Генерируем имя файла по умолчанию если не указан outpath
         if options['outpath']:
             outpath = options['outpath']
         else:
@@ -95,7 +94,6 @@ class Command(BaseCommand):
             self.stdout.write(f"Ищу ключевые слова с использованием <= {threshold}...")
             fetch_start = timezone.now()
 
-            # Используем только cached_usage_count для максимальной скорости
             low_usage_keywords = Keyword.objects.filter(
                 cached_usage_count__lte=threshold
             ).select_related('category').only(
@@ -113,21 +111,7 @@ class Command(BaseCommand):
 
             if total_count == 0:
                 self.stdout.write(self.style.WARNING("⚠️ Ключевые слова по заданному условию не найдены"))
-
-                # Даже если нет ключевых слов, создаём файл с информацией
-                self.stdout.write(f"\n💾 Создаю пустой файл {outpath}...")
-
-                # Создаем директорию если нужно
-                if os.path.dirname(outpath):
-                    os.makedirs(os.path.dirname(os.path.abspath(outpath)), exist_ok=True)
-
-                with open(outpath, 'w', encoding='utf-8') as f:
-                    f.write(f"# Ключевые слова с использованием <= {threshold}\n")
-                    f.write(f"# Сгенерировано: {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                    f.write(f"# Всего ключевых слов: 0\n")
-                    f.write("# Ключевые слова по заданному условию не найдены\n")
-
-                self.stdout.write(self.style.SUCCESS(f"✅ Создан пустой файл {outpath}"))
+                self._create_empty_output_file(outpath, threshold)
                 return
 
             # Шаг 3: Показываем статистику
@@ -135,15 +119,11 @@ class Command(BaseCommand):
             self.stdout.write(f"🔍 КЛЮЧЕВЫЕ СЛОВА ДЛЯ УДАЛЕНИЯ (использований <= {threshold}):")
             self.stdout.write("=" * 80)
 
-            # Группируем по категориям для статистики
             category_stats = {}
             for keyword in low_usage_keywords:
                 category_name = keyword.category.name if keyword.category else "Без категории"
-                if category_name not in category_stats:
-                    category_stats[category_name] = 0
-                category_stats[category_name] += 1
+                category_stats[category_name] = category_stats.get(category_name, 0) + 1
 
-            # Показываем статистику по категориям
             self.stdout.write("\n📊 Статистика по категориям:")
             for category_name, count in sorted(category_stats.items(), key=lambda x: x[1], reverse=True):
                 self.stdout.write(f"  • {category_name}: {count} ключевых слов")
@@ -152,58 +132,9 @@ class Command(BaseCommand):
 
             # Шаг 4: Создаём файл со списком ключевых слов для удаления
             self.stdout.write(f"\n💾 Создаю файл со списком ключевых слов для удаления: {outpath}...")
-            write_start = timezone.now()
+            self._create_delete_list_file(outpath, low_usage_keywords, total_count, threshold, dry_run)
 
-            # Создаем директорию если нужно
-            if os.path.dirname(outpath):
-                os.makedirs(os.path.dirname(os.path.abspath(outpath)), exist_ok=True)
-
-            with open(outpath, 'w', encoding='utf-8') as f:
-                # Заголовок с информацией
-                f.write(f"# Ключевые слова для УДАЛЕНИЯ (использований <= {threshold})\n")
-                f.write(f"# Сгенерировано: {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"# Всего ключевых слов для удаления: {total_count}\n")
-
-                if dry_run:
-                    f.write(f"# РЕЖИМ ПРОСМОТРА (DRY RUN) - удаление НЕ выполнялось\n")
-                else:
-                    f.write(f"# Статус: ожидают подтверждения удаления\n")
-
-                f.write("# Формат: ID | IGDB ID | Название | Категория | Количество использований\n")
-                f.write("#" + "=" * 80 + "\n")
-
-                for keyword in low_usage_keywords.iterator(chunk_size=1000):
-                    category_name = keyword.category.name if keyword.category else "Без категории"
-                    f.write(
-                        f"{keyword.id} | {keyword.igdb_id} | {keyword.name} | "
-                        f"{category_name} | {keyword.cached_usage_count}\n"
-                    )
-
-            write_time = (timezone.now() - write_start).total_seconds()
-            self.stdout.write(
-                self.style.SUCCESS(
-                    f"✅ Успешно создан файл {outpath} с {total_count} ключевыми словами за {write_time:.2f} сек"
-                )
-            )
-
-            # Шаг 5: Если dry-run, показываем примеры и завершаем
             if dry_run:
-                self.stdout.write("\n" + "=" * 80)
-                self.stdout.write("🔍 РЕЖИМ ПРОСМОТРА (DRY RUN) - удаление НЕ ВЫПОЛНЯЛОСЬ")
-                self.stdout.write("=" * 80)
-
-                # Показываем первые 20 ключевых слов как пример
-                self.stdout.write("\n📝 Примеры ключевых слов из файла (первые 20):")
-                for i, keyword in enumerate(low_usage_keywords[:20]):
-                    category = keyword.category.name if keyword.category else "Без категории"
-                    self.stdout.write(
-                        f"  {i + 1}. {keyword.name} (ID: {keyword.igdb_id}, "
-                        f"Категория: {category}, Использований: {keyword.cached_usage_count})"
-                    )
-
-                if total_count > 20:
-                    self.stdout.write(f"  ... и ещё {total_count - 20} ключевых слов (полный список в файле)")
-
                 self.stdout.write(
                     self.style.SUCCESS(
                         f"\n✅ Режим просмотра завершён. Создан файл {outpath} с {total_count} ключевыми словами."
@@ -212,95 +143,50 @@ class Command(BaseCommand):
                 self.stdout.write("ℹ️ Удаление не выполнялось (режим --dry-run)")
                 return
 
-            # Шаг 6: Запрашиваем подтверждение на удаление
+            # Шаг 5: Запрашиваем подтверждение на удаление
             self.stdout.write("\n" + "=" * 80)
             self.stdout.write(self.style.WARNING("⚠️  ВНИМАНИЕ! Будет выполнено УДАЛЕНИЕ ключевых слов!"))
             self.stdout.write("=" * 80)
             self.stdout.write(f"📊 Найдено {total_count} ключевых слов с использованием <= {threshold}")
             self.stdout.write(f"📄 Список сохранён в: {outpath}")
-            self.stdout.write("\n⚠️ Пожалуйста, проверьте файл перед продолжением.")
 
-            # Запрашиваем подтверждение
             confirm = input(
-                f"\n❓ Вы действительно хотите УДАЛИТЬ эти {total_count} ключевых слов? [y/N]: "
-            ).strip().lower()
+                f"\n❓ Вы действительно хотите УДАЛИТЬ эти {total_count} ключевых слов? [y/N]: ").strip().lower()
 
-            if confirm != 'y' and confirm != 'yes' and confirm != 'да':
+            if confirm not in ['y', 'yes', 'да']:
                 self.stdout.write(self.style.WARNING("❌ Удаление отменено."))
-
-                # Обновляем файл, отмечая что удаление было отменено
-                with open(outpath, 'r+', encoding='utf-8') as f:
-                    content = f.read()
-                    f.seek(0)
-                    content = content.replace(
-                        "# Статус: ожидают подтверждения удаления",
-                        "# Статус: УДАЛЕНИЕ ОТМЕНЕНО пользователем"
-                    )
-                    f.write(content)
-                    f.truncate()
-
-                self.stdout.write(self.style.WARNING(f"Файл {outpath} обновлён (отметка об отмене)"))
+                self._mark_file_as_cancelled(outpath)
                 return
 
-            # Шаг 7: Удаляем ключевые слова с правильным управлением транзакциями
+            # Шаг 6: Удаляем ключевые слова (без games_game_keywords)
             self.stdout.write(f"\n🗑️ Удаляю {total_count} ключевых слов...")
             delete_start = timezone.now()
 
-            # Получаем ID для удаления
             keyword_ids = list(low_usage_keywords.values_list('id', flat=True))
 
-            # Удаляем батчами для минимизации блокировок, каждая пачка в отдельной транзакции
-            batch_size = 500
-            deleted_count = 0
-
-            for i in range(0, len(keyword_ids), batch_size):
-                batch_ids = keyword_ids[i:i + batch_size]
-
-                # Каждая пачка в своей транзакции, которая сразу коммитится
-                with transaction.atomic():
-                    # Сначала получаем ID игр, у которых будут удалены ключевые слова
-                    with connection.cursor() as cursor:
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    # Очищаем keyword_ids у игр, убирая удаляемые ключевые слова
+                    for kw_id in keyword_ids:
                         cursor.execute("""
-                                       SELECT DISTINCT game_id
-                                       FROM games_game_keywords
-                                       WHERE keyword_id = ANY (%s)
-                                       """, [batch_ids])
-                        affected_game_ids = [row[0] for row in cursor.fetchall()]
+                                       UPDATE games_game
+                                       SET keyword_ids = array_remove(keyword_ids, %s)
+                                       WHERE %s = ANY (keyword_ids)
+                                       """, [kw_id, kw_id])
 
-                    # Удаляем ключевые слова (связи ManyToMany удалятся автоматически)
-                    deleted_batch, _ = Keyword.objects.filter(id__in=batch_ids).delete()
-                    deleted_count += deleted_batch
-
-                    # Очищаем keyword_ids для затронутых игр (если есть)
-                    if affected_game_ids:
-                        # Разбиваем на подпакеты для избежания слишком длинного запроса
-                        for j in range(0, len(affected_game_ids), 1000):
-                            sub_ids = affected_game_ids[j:j + 1000]
-                            with connection.cursor() as cursor:
-                                cursor.execute("""
-                                               UPDATE games_game
-                                               SET keyword_ids = ARRAY[]::integer[]
-                                               WHERE id = ANY (%s)
-                                               """, [sub_ids])
-
-                self.stdout.write(f"  Удалено {min(i + batch_size, len(keyword_ids))}/{len(keyword_ids)}",
-                                  ending='\r')
+                    # Удаляем ключевые слова
+                    cursor.execute("DELETE FROM games_keyword WHERE id = ANY(%s)", [keyword_ids])
+                    deleted_count = cursor.rowcount
 
             delete_time = (timezone.now() - delete_start).total_seconds()
 
-            # Шаг 8: Очищаем кэш Trie после удаления
+            # Шаг 7: Очищаем кэш Trie после удаления
             KeywordTrieManager().clear_cache()
 
-            # Обновляем файл, отмечая что удаление выполнено
-            with open(outpath, 'r+', encoding='utf-8') as f:
-                content = f.read()
-                f.seek(0)
-                content = content.replace(
-                    "# Статус: ожидают подтверждения удаления",
-                    f"# Статус: УДАЛЕНЫ {deleted_count} ключевых слов {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                )
-                f.write(content)
-                f.truncate()
+            # Обновляем файл
+            self._mark_file_as_deleted(outpath, deleted_count)
+
+            total_time = (timezone.now() - start_time).total_seconds()
 
             self.stdout.write("\n" + "=" * 80)
             self.stdout.write(
@@ -308,23 +194,14 @@ class Command(BaseCommand):
                     f"✅ Успешно удалено {deleted_count} ключевых слов за {delete_time:.2f} сек"
                 )
             )
-            self.stdout.write(self.style.SUCCESS(f"📄 Файл {outpath} обновлён (отметка об удалении)"))
+            self.stdout.write(f"📄 Файл {outpath} обновлён (отметка об удалении)")
+            self.stdout.write(self.style.SUCCESS(f"\n⏱️ Общее время выполнения: {total_time:.2f} сек"))
 
-            # Показываем общее время выполнения
-            total_time = (timezone.now() - start_time).total_seconds()
-            self.stdout.write(
-                self.style.SUCCESS(
-                    f"\n⏱️ Общее время выполнения: {total_time:.2f} сек"
-                )
-            )
-
-            # Проверяем, нет ли оставшихся блокировок
             self._check_remaining_locks()
 
         except KeyboardInterrupt:
             self.stdout.write(self.style.WARNING("\n❌ Операция отменена пользователем."))
             return
-
         except Exception as e:
             logger.error(f"Ошибка в delete_low_usage_keywords: {str(e)}", exc_info=True)
             raise CommandError(f"Не удалось обработать ключевые слова: {str(e)}")
