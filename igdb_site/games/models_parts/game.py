@@ -9,7 +9,7 @@ from django.contrib.postgres.fields import ArrayField
 
 from .enums import GameTypeEnum
 from .managers import GameManager
-
+from django.contrib.postgres.indexes import GinIndex
 
 class KeywordsDescriptor:
     """
@@ -296,6 +296,15 @@ class Game(models.Model):
             models.Index(fields=['first_release_date', 'game_type']),
             models.Index(fields=['game_type', 'rating_count']),
             models.Index(fields=['-date_added']),
+
+            # GIN индексы для массивов
+            GinIndex(fields=['genre_ids'], name='game_genre_ids_gin'),
+            GinIndex(fields=['keyword_ids'], name='game_keyword_ids_gin'),
+            GinIndex(fields=['theme_ids'], name='game_theme_ids_gin'),
+            GinIndex(fields=['perspective_ids'], name='game_perspective_ids_gin'),
+            GinIndex(fields=['developer_ids'], name='game_developer_ids_gin'),
+            GinIndex(fields=['game_mode_ids'], name='game_game_mode_ids_gin'),
+            GinIndex(fields=['engine_ids'], name='game_engine_ids_gin'),
         ]
 
     def save(self, *args, **kwargs):
