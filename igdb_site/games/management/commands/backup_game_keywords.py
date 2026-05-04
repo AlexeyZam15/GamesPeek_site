@@ -749,7 +749,7 @@ class Command(BaseCommand):
         )
 
     def _clear_game_keywords(self, options):
-        """Удаляет связи ключевых слов у игр (БЕЗ ОБНОВЛЕНИЯ КЭША)"""
+        """Удаляет связи ключевых слов у игр, очищая материализованный вектор keyword_ids"""
 
         game_names = options.get('game_names')
         game_ids = options.get('game_ids')
@@ -762,6 +762,8 @@ class Command(BaseCommand):
         self.stdout.write("=" * 60)
 
         start_time = datetime.now()
+
+        from django.db import connection
 
         # МАКСИМАЛЬНО БЫСТРЫЙ СБОР - только ID игр
         if game_ids:
@@ -790,16 +792,11 @@ class Command(BaseCommand):
         elif all_games:
             self.stdout.write("📌 Сбор всех игр...")
 
-            # Получаем ВСЕ ID игр
-            from django.db import connection
-
             with connection.cursor() as cursor:
-                # Получаем общее количество игр
                 cursor.execute("SELECT COUNT(*) FROM games_game")
                 total_games = cursor.fetchone()[0]
                 self.stdout.write(f"   📊 Всего игр в базе: {total_games}")
 
-                # Получаем все ID игр
                 self.stdout.write("   ⏳ Загрузка ID всех игр...")
                 cursor.execute("SELECT id FROM games_game")
                 game_ids_to_clear = [row[0] for row in cursor.fetchall()]
@@ -815,23 +812,17 @@ class Command(BaseCommand):
             self.stdout.write("ℹ️ Нет игр для обработки")
             return
 
-        # ПОЛУЧАЕМ РЕАЛЬНУЮ СТАТИСТИКУ ИЗ ТАБЛИЦЫ СВЯЗЕЙ
+        # ПОЛУЧАЕМ РЕАЛЬНУЮ СТАТИСТИКУ ИЗ keyword_ids
         self.stdout.write("\n📊 Получение статистики ключевых слов...")
         stats_start = datetime.now()
 
-        from django.db import connection
-
         with connection.cursor() as cursor:
-            # Сколько реально связей в базе
-            cursor.execute("SELECT COUNT(*) FROM games_game_keywords")
-            total_relations = cursor.fetchone()[0]
-
-            # Какие игры реально имеют ключевые слова
             cursor.execute("""
-                           SELECT game_id, COUNT(keyword_id)
-                           FROM games_game_keywords
-                           WHERE game_id = ANY (%s)
-                           GROUP BY game_id
+                           SELECT game_id, array_length(keyword_ids, 1)
+                           FROM games_game
+                           WHERE id = ANY (%s)
+                             AND keyword_ids IS NOT NULL
+                             AND array_length(keyword_ids, 1) > 0
                            """, [game_ids_to_clear])
 
             real_stats = dict(cursor.fetchall())
@@ -846,7 +837,6 @@ class Command(BaseCommand):
 
         # ВЫВОД СТАТИСТИКИ
         self.stdout.write(f"\n📊 СТАТИСТИКА:")
-        self.stdout.write(f"   🔗 Всего связей в БД: {total_relations}")
         self.stdout.write(f"   🎮 Игр с ключевыми словами: {len(games_with_keywords)}")
         self.stdout.write(f"   🔑 Всего ключевых слов: {total_keywords}")
 
@@ -874,7 +864,7 @@ class Command(BaseCommand):
         if not force and self.stdout.isatty():
             self.stdout.write(
                 self.style.WARNING(
-                    f"\n⚠️ ВНИМАНИЕ: Будет УДАЛЕНО {total_keywords} связей ключевых слов у {len(games_with_keywords)} игр!"
+                    f"\n⚠️ ВНИМАНИЕ: Будет УДАЛЕНО {total_keywords} ключевых слов у {len(games_with_keywords)} игр!"
                 )
             )
             confirm = input("Продолжить удаление? (y/N): ").strip().lower()
@@ -882,29 +872,28 @@ class Command(BaseCommand):
                 self.stdout.write("❌ Операция отменена")
                 return
 
-        # МАКСИМАЛЬНО БЫСТРОЕ УДАЛЕНИЕ
+        # МАКСИМАЛЬНО БЫСТРОЕ УДАЛЕНИЕ - очищаем keyword_ids
         self.stdout.write("\n🔄 Выполняю удаление...")
         delete_start = datetime.now()
 
-        # Получаем ID игр у которых есть ключевые слова
         game_ids_with_keywords = [gid for gid, _ in games_with_keywords]
 
         with connection.cursor() as cursor:
             cursor.execute(
-                "DELETE FROM games_game_keywords WHERE game_id = ANY(%s)",
+                "UPDATE games_game SET keyword_ids = ARRAY[]::integer[] WHERE id = ANY(%s)",
                 [game_ids_with_keywords]
             )
             deleted_count = cursor.rowcount
 
         delete_time = (datetime.now() - delete_start).total_seconds()
-        self.stdout.write(f"   ✅ Удалено {deleted_count} записей за {delete_time:.3f} сек")
+        self.stdout.write(f"   ✅ Удалено записей: {deleted_count} за {delete_time:.3f} сек")
 
         total_time = (datetime.now() - start_time).total_seconds()
 
         self.stdout.write(
             self.style.SUCCESS(
                 f"\n✅ УДАЛЕНИЕ ЗАВЕРШЕНО:\n"
-                f"   ✅ Удалено связей: {deleted_count}\n"
+                f"   ✅ Очищено игр: {deleted_count}\n"
                 f"   🎮 Обработано игр: {len(games_with_keywords)}\n"
                 f"   ⏱️  Время удаления: {delete_time:.3f} сек\n"
                 f"   ⏱️  Общее время: {total_time:.3f} сек"

@@ -203,8 +203,10 @@ class Command(BaseCommand):
 
     def _merge_duplicate_keywords(self, dry_run=False):
         """
-        Объединяет дубликаты ключевых слов с одинаковым именем (регистронезависимо)
+        Объединяет дубликаты ключевых слов с одинаковым именем (регистронезависимо).
+        Использует материализованный вектор keyword_ids вместо games_game_keywords.
         """
+
         self.stdout.write("\n" + "=" * 70)
         self.stdout.write(self.style.SUCCESS("ОБЪЕДИНЕНИЕ ДУБЛИКАТОВ КЛЮЧЕВЫХ СЛОВ"))
         self.stdout.write("=" * 70)
@@ -230,6 +232,88 @@ class Command(BaseCommand):
         self._check_remaining_duplicates(stats, "объединения")
 
         return stats
+
+    def _process_merge_groups(self, duplicate_rows, total_groups, dry_run):
+        """
+        МАКСИМАЛЬНО БЫСТРОЕ объединение групп дубликатов.
+        Обновляет keyword_ids у игр, заменяя ID дубликатов на ID основного ключевого слова.
+        """
+
+        from django.db import connection, transaction
+
+        stats = {
+            'merged_groups': 0,
+            'merged_keywords': 0,
+            'deleted_keywords': 0,
+            'start_time': time.time()
+        }
+
+        BATCH_SIZE = 500
+        current_batch = []
+
+        next_progress = 1000
+
+        try:
+            for i, (name_lower, ids, count) in enumerate(duplicate_rows):
+                main_id = ids[0]
+                duplicate_ids = ids[1:]
+
+                if not dry_run and duplicate_ids:
+                    current_batch.append((main_id, duplicate_ids))
+                    stats['deleted_keywords'] += len(duplicate_ids)
+
+                stats['merged_groups'] += 1
+                stats['merged_keywords'] += len(duplicate_ids)
+
+                if len(current_batch) >= BATCH_SIZE:
+                    self._execute_batch_merge(current_batch)
+                    current_batch = []
+
+                if stats['merged_groups'] >= next_progress:
+                    elapsed = time.time() - stats['start_time']
+                    rate = stats['merged_groups'] / elapsed
+                    self.stdout.write(f"   ✅ {stats['merged_groups']}/{total_groups} ({rate:.0f}/сек)")
+                    next_progress += 1000
+
+            if current_batch and not dry_run:
+                self._execute_batch_merge(current_batch)
+
+        except KeyboardInterrupt:
+            self.stdout.write(self.style.WARNING(f"\n⚠️ Прервано на группе {stats['merged_groups']}/{total_groups}"))
+            return stats
+
+        return stats
+
+    def _execute_batch_merge(self, batch):
+        """
+        Выполняет массовое объединение для батча групп.
+        Обновляет keyword_ids у игр, заменяя duplicate_ids на main_id.
+        batch: список кортежей (main_id, [duplicate_ids])
+        """
+
+        from django.db import connection, transaction
+
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                for main_id, duplicate_ids in batch:
+                    if not duplicate_ids:
+                        continue
+
+                    # Обновляем keyword_ids у всех игр, заменяя duplicate_ids на main_id
+                    for dup_id in duplicate_ids:
+                        cursor.execute("""
+                                       UPDATE games_game
+                                       SET keyword_ids = array_replace(keyword_ids, %s, %s)
+                                       WHERE %s = ANY (keyword_ids)
+                                       """, [dup_id, main_id, dup_id])
+
+                # Удаляем все дубликаты после обновления
+                all_duplicate_ids = []
+                for _, duplicate_ids in batch:
+                    all_duplicate_ids.extend(duplicate_ids)
+
+                if all_duplicate_ids:
+                    cursor.execute("DELETE FROM games_keyword WHERE id = ANY(%s)", [all_duplicate_ids])
 
     def _delete_duplicate_keywords(self, dry_run=False):
         """
@@ -273,100 +357,6 @@ class Command(BaseCommand):
         self._check_remaining_duplicates(stats, "удаления")
 
         return stats
-
-    def _process_merge_groups(self, duplicate_rows, total_groups, dry_run):
-        """
-        МАКСИМАЛЬНО БЫСТРОЕ объединение групп дубликатов с переносом связей.
-        """
-        stats = {
-            'merged_groups': 0,
-            'merged_keywords': 0,
-            'deleted_keywords': 0,
-            'start_time': time.time()
-        }
-
-        # БАТЧИ ПО 500 ГРУПП (оптимально для объединения)
-        BATCH_SIZE = 500
-        current_batch = []  # (main_id, [duplicate_ids])
-
-        # Прогресс каждые 1000 групп
-        next_progress = 1000
-
-        try:
-            for i, (name_lower, ids, count) in enumerate(duplicate_rows):
-                main_id = ids[0]
-                duplicate_ids = ids[1:]
-
-                if not dry_run and duplicate_ids:
-                    current_batch.append((main_id, duplicate_ids))
-                    stats['deleted_keywords'] += len(duplicate_ids)
-
-                stats['merged_groups'] += 1
-                stats['merged_keywords'] += len(duplicate_ids)
-
-                # Обрабатываем батч
-                if len(current_batch) >= BATCH_SIZE:
-                    self._execute_batch_merge(current_batch)
-                    current_batch = []
-
-                # Прогресс
-                if stats['merged_groups'] >= next_progress:
-                    elapsed = time.time() - stats['start_time']
-                    rate = stats['merged_groups'] / elapsed
-                    self.stdout.write(
-                        f"   ✅ {stats['merged_groups']}/{total_groups} "
-                        f"({rate:.0f}/сек)"
-                    )
-                    next_progress += 1000
-
-            # Финальный батч
-            if current_batch and not dry_run:
-                self._execute_batch_merge(current_batch)
-
-        except KeyboardInterrupt:
-            self.stdout.write(self.style.WARNING(
-                f"\n⚠️ Прервано на группе {stats['merged_groups']}/{total_groups}"
-            ))
-            return stats
-
-        return stats
-
-    def _execute_batch_merge(self, batch):
-        """
-        Выполняет массовое объединение для батча групп одним транзакционным блоком.
-        batch: список кортежей (main_id, [duplicate_ids])
-        """
-        from django.db import connection, transaction
-
-        with transaction.atomic():
-            with connection.cursor() as cursor:
-                for main_id, duplicate_ids in batch:
-                    if not duplicate_ids:
-                        continue
-
-                    # 1. Переносим все связи одним запросом
-                    cursor.execute("""
-                                   INSERT INTO games_game_keywords (game_id, keyword_id)
-                                   SELECT DISTINCT game_id, %s
-                                   FROM games_game_keywords
-                                   WHERE keyword_id = ANY (%s)
-                                     AND NOT EXISTS (SELECT 1
-                                                     FROM games_game_keywords
-                                                     WHERE game_id = games_game_keywords.game_id
-                                                       AND keyword_id = %s)
-                                   """, [main_id, duplicate_ids, main_id])
-
-                # 2. После переноса всех связей в батче, удаляем все дубликаты одним запросом
-                all_duplicate_ids = []
-                for _, duplicate_ids in batch:
-                    all_duplicate_ids.extend(duplicate_ids)
-
-                if all_duplicate_ids:
-                    cursor.execute("""
-                                   DELETE
-                                   FROM games_keyword
-                                   WHERE id = ANY (%s)
-                                   """, [all_duplicate_ids])
 
     def _process_delete_groups(self, duplicate_rows, total_groups, dry_run):
         """

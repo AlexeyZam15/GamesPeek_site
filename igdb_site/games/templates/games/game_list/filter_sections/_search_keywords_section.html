@@ -26,44 +26,24 @@
             </span>
         {% endfor %}
     </div>
-
-    {% if search_selected_keywords_objects|length > 27 %}
-        <div id="search-hidden-keywords-badges" style="display: none;">
-            {% for keyword in search_selected_keywords_objects|slice:"27:" %}
-                <span class="badge bg-success me-1 mb-1 search-active-keyword-tag"
-                      data-keyword-id="{{ keyword.id }}"
-                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
-                    {{ keyword.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
-                </span>
-            {% endfor %}
-        </div>
-        <div class="text-center mt-2">
-            <button type="button"
-                    class="btn btn-sm btn-outline-secondary search-show-more-keywords"
-                    onclick="toggleSearchMoreKeywords(this)">
-                <i class="bi bi-chevron-down"></i> Show all ({{ search_selected_keywords_objects|length }})
-            </button>
-            <button type="button"
-                    class="btn btn-sm btn-outline-secondary search-show-less-keywords"
-                    style="display: none;"
-                    onclick="toggleSearchLessKeywords(this)">
-                <i class="bi bi-chevron-up"></i> Show less
-            </button>
-        </div>
-    {% endif %}
 </div>
 
-<input type="text" class="form-control mb-2" id="search-keyword-search"
+<input type="text" class="form-control mb-2" id="search-keyword-search-main"
        placeholder="Search features..." autocomplete="off">
 
-<div class="search-keyword-section">
+<div id="search-keywords-list-container">
     <div class="search-keyword-list border rounded p-2" style="height: 400px; overflow-y: auto; min-height: 400px;">
-        <div class="search-keyword-grid"
+        <div class="keyword-loading text-center py-5" style="display: none;">
+            <div class="spinner-border text-secondary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+        <div class="search-keyword-grid keyword-grid"
              style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px;">
-            {% for keyword in keywords %}
-                <div class="search-keyword-item" data-keyword-name="{{ keyword.name|lower }}">
+            {% for keyword in keywords|slice:":100" %}
+                <div class="keyword-item" data-keyword-name="{{ keyword.name|lower }}">
                     <div class="form-check">
-                        <input class="form-check-input search-keyword-checkbox"
+                        <input class="form-check-input search-keyword-checkbox keyword-checkbox"
                                type="checkbox"
                                value="{{ keyword.id }}"
                                id="search_keyword_{{ keyword.id }}"
@@ -75,6 +55,12 @@
                 </div>
             {% endfor %}
         </div>
+    </div>
+    <div class="keyword-pagination-controls text-center mt-2" style="display: none;">
+        <button class="btn btn-sm btn-outline-secondary keyword-prev-page" disabled>← Prev</button>
+        <span class="keyword-page-info mx-2">Page <span class="current-page">1</span> of <span
+                class="total-pages">1</span></span>
+        <button class="btn btn-sm btn-outline-secondary keyword-next-page">Next →</button>
     </div>
 </div>
 

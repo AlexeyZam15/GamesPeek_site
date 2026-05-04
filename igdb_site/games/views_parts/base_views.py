@@ -273,9 +273,8 @@ def extract_request_params(request: HttpRequest) -> Dict[str, str]:
     get_params = request.GET
 
     params = {}
-    # Добавьте 'e' в список параметров
     for key in ['find_similar', 'g', 'k', 'p', 't', 'pp', 'd', 'gm', 'gt', 'yr', 'ys', 'ye', 'source_game', 'sort',
-                'page', 'e']:
+                'page', 'e', 'search_k', 'q']:
         value = get_params.get(key, '')
         params[key] = value
 
@@ -285,11 +284,9 @@ def extract_request_params(request: HttpRequest) -> Dict[str, str]:
 def convert_params_to_lists(params_dict: Dict[str, str]) -> Dict[str, List[int]]:
     """Convert query parameters to lists of integers."""
 
-    # Helper function to parse string to int list
     def parse_int_list(param_value):
         if not param_value or param_value is None:
             return []
-
         result = []
         try:
             for part in str(param_value).split(','):
@@ -315,7 +312,6 @@ def convert_params_to_lists(params_dict: Dict[str, str]) -> Dict[str, List[int]]
         except (ValueError, IndexError):
             pass
 
-    # Alternative format: separate parameters
     if not release_year_start and params_dict.get('ys'):
         try:
             release_year_start = int(params_dict['ys'])
@@ -328,25 +324,25 @@ def convert_params_to_lists(params_dict: Dict[str, str]) -> Dict[str, List[int]]
         except ValueError:
             pass
 
-    # Parse all parameters
+    # Поддерживаем k и search_k
+    k_value = params_dict.get('k')
+    if not k_value:
+        k_value = params_dict.get('search_k', '')
+
     result = {
         'genres': parse_int_list(params_dict.get('g')),
-        'keywords': parse_int_list(params_dict.get('k')),
+        'keywords': parse_int_list(k_value),
         'platforms': parse_int_list(params_dict.get('p')),
         'themes': parse_int_list(params_dict.get('t')),
         'perspectives': parse_int_list(params_dict.get('pp')),
         'developers': parse_int_list(params_dict.get('d')),
         'game_modes': parse_int_list(params_dict.get('gm')),
         'game_types': parse_int_list(params_dict.get('gt')),
-        'engines': parse_int_list(params_dict.get('e')),  # Параметр 'e' для движков
+        'engines': parse_int_list(params_dict.get('e')),
         'release_years': [],
         'release_year_start': release_year_start,
         'release_year_end': release_year_end,
     }
-
-    # Отладка
-    print(f"DEBUG convert_params_to_lists: e = '{params_dict.get('e')}'")
-    print(f"DEBUG convert_params_to_lists: engines result = {result['engines']}")
 
     return result
 
@@ -371,7 +367,6 @@ def _apply_filters(queryset: models.QuerySet, selected_criteria: Dict[str, List[
     # Обрабатываем остальные поля (AND логика)
     other_fields = [
         ('genres', 'genres__id__in'),
-        ('keywords', 'keywords__id__in'),
         ('themes', 'themes__id__in'),
         ('perspectives', 'player_perspectives__id__in'),
         ('developers', 'developers__id__in'),
@@ -386,6 +381,13 @@ def _apply_filters(queryset: models.QuerySet, selected_criteria: Dict[str, List[
             print(f"DEBUG _apply_filters: applying filter {field} = {field_value}")
             main_filters &= Q(**{model_field: field_value})
             has_main_filters = True
+
+    # Фильтр по ключевым словам (через keyword_ids, так как keywords теперь property)
+    if selected_criteria.get('keywords'):
+        keyword_ids = selected_criteria['keywords']
+        main_filters &= Q(keyword_ids__overlap=keyword_ids)
+        has_main_filters = True
+        print(f"DEBUG _apply_filters: applying keywords filter via keyword_ids__overlap = {keyword_ids}")
 
     # Фильтр по диапазону годов
     year_start = selected_criteria.get('release_year_start')
@@ -426,19 +428,15 @@ def _apply_search_filters(queryset: models.QuerySet, search_filters: Dict[str, L
     # ========== ТЕКСТОВЫЙ ПОИСК ПО НАЗВАНИЮ ==========
     text_query = search_filters.get('text_query')
     if text_query:
-        # Разбиваем запрос на отдельные слова
         words = text_query.lower().split()
 
         if len(words) == 1:
-            # Одно слово - простой поиск
             text_filter = Q(name__icontains=words[0])
             filter_groups.append(text_filter)
             print(f"DEBUG _apply_search_filters: single word text search: '{words[0]}'")
         else:
-            # Несколько слов - ищем ВСЕ слова в названии (включая короткие)
             combined_text_filter = Q()
             for word in words:
-                # Ищем каждое слово, включая "v", "a", "the" и т.д.
                 combined_text_filter &= Q(name__icontains=word)
 
             if combined_text_filter:
@@ -479,11 +477,9 @@ def _apply_search_filters(queryset: models.QuerySet, search_filters: Dict[str, L
         print(f"DEBUG _apply_search_filters: genres AND filter: {search_filters['genres']}")
 
     if search_filters.get('keywords'):
-        keywords_filter = Q()
-        for keyword_id in search_filters['keywords']:
-            keywords_filter &= Q(keywords__id=keyword_id)
+        keywords_filter = Q(keyword_ids__overlap=search_filters['keywords'])
         filter_groups.append(keywords_filter)
-        print(f"DEBUG _apply_search_filters: keywords AND filter: {search_filters['keywords']}")
+        print(f"DEBUG _apply_search_filters: keywords overlap filter: {search_filters['keywords']}")
 
     if search_filters.get('themes'):
         themes_filter = Q()
@@ -520,6 +516,7 @@ def _apply_search_filters(queryset: models.QuerySet, search_filters: Dict[str, L
     print(f"DEBUG _apply_search_filters: final count = {queryset.count()}")
 
     return queryset
+
 
 def get_objects_by_ids(model_class, ids: List[int], only_fields: List[str] = None) -> List:
     """Get model objects by their IDs efficiently."""
@@ -596,9 +593,10 @@ def _prefetch_similar_games(similar_games: List) -> List:
         Prefetch('genres', queryset=Genre.objects.only('id', 'name')),
         Prefetch('platforms', queryset=Platform.objects.only('id', 'name', 'slug')),
         Prefetch('player_perspectives', queryset=PlayerPerspective.objects.only('id', 'name')),
-        Prefetch('keywords', queryset=Keyword.objects.select_related('category').only(
-            'id', 'name', 'category__id', 'category__name'
-        )),
+        # Убираем prefetch для keywords, так как они теперь property
+        # Prefetch('keywords', queryset=Keyword.objects.select_related('category').only(
+        #     'id', 'name', 'category__id', 'category__name'
+        # )),
     ).only(
         'id', 'name', 'rating', 'rating_count',
         'first_release_date', 'cover_url', 'game_type'
@@ -607,7 +605,6 @@ def _prefetch_similar_games(similar_games: List) -> List:
     for game in games_with_prefetch:
         games_dict[game.id] = game
 
-    # Replace games in results with prefetched versions
     updated_games = []
     for item in similar_games:
         if isinstance(item, dict):
@@ -1079,29 +1076,66 @@ def _get_cached_years_range() -> Dict:
     )
 
 
-def _get_optimized_filter_data() -> Dict[str, List]:
-    """Get all filter data with intelligent caching."""
-    cache_key = get_cache_key('optimized_filter_data_v7')
+def _get_optimized_filter_data(selected_keyword_ids: List[int] = None) -> Dict[str, List]:
+    """Get all filter data with intelligent caching and limited keywords.
+
+    Args:
+        selected_keyword_ids: IDs выбранных ключевых слов, которые нужно обязательно включить
+    """
+    import hashlib
+    import json
+    from django.core.cache import cache
+    from django.db.models import Count
+    from ..models import GameEngine, Keyword, Theme, PlayerPerspective, GameMode, Company, Platform
+
+    # Учитываем выбранные ID в кэше
+    cache_key_data = {
+        'selected_keywords': sorted(selected_keyword_ids or [])
+    }
+    cache_key_str = json.dumps(cache_key_data, sort_keys=True)
+    cache_key_hash = hashlib.md5(cache_key_str.encode()).hexdigest()
+    cache_key = f'optimized_filter_data_v12_{cache_key_hash}'
+
+    # Пробуем получить из кэша
+    cached_data = cache.get(cache_key)
+    if cached_data:
+        return cached_data
 
     def fetch_filter_data():
-        from django.db.models import Prefetch, Count
-        from ..models import GameEngine
-
         platforms = list(Platform.objects.annotate(
             game_count=Count('game', distinct=True)
         ).filter(game_count__gt=0).only('id', 'name', 'slug')
                          .order_by('-game_count', 'name'))
 
-        keywords = list(Keyword.objects.all()
-                        .select_related('category').only(
-            'id', 'name', 'category__id', 'category__name'
-        ).order_by('name'))
+        # Получаем топ-200 ключевых слов по cached_usage_count (уже есть в модели)
+        top_keywords = list(Keyword.objects.filter(
+            cached_usage_count__gt=0
+        ).select_related('category').only(
+            'id', 'name', 'category__id', 'category__name', 'cached_usage_count'
+        ).order_by('-cached_usage_count', 'name')[:200])
+
+        top_keyword_ids = {k.id for k in top_keywords}
+
+        # Если есть выбранные ключевые слова, добавляем их (даже если не в топе)
+        if selected_keyword_ids:
+            selected_keywords = list(Keyword.objects.filter(
+                id__in=selected_keyword_ids
+            ).select_related('category').only(
+                'id', 'name', 'category__id', 'category__name', 'cached_usage_count'
+            ))
+
+            # Добавляем выбранные, которых нет в топе
+            for kw in selected_keywords:
+                if kw.id not in top_keyword_ids:
+                    top_keywords.append(kw)
+
+        keywords = top_keywords
 
         popular_keywords = list(Keyword.objects.filter(
             cached_usage_count__gt=0
         ).select_related('category').only(
             'id', 'name', 'category__id', 'category__name', 'cached_usage_count'
-        ).order_by('-cached_usage_count')[:50])
+        ).order_by('-cached_usage_count')[:100])
 
         themes = list(Theme.objects.annotate(
             game_count=Count('game', distinct=True)
@@ -1134,12 +1168,9 @@ def _get_optimized_filter_data() -> Dict[str, List]:
             'engines': engines,
         }
 
-    return cache_get_or_set(
-        cache_key,
-        fetch_filter_data,
-        CACHE_TIMES['short']['filter_data'],
-        cache_group='filter_data'
-    )
+    result = fetch_filter_data()
+    cache.set(cache_key, result, CACHE_TIMES['short']['filter_data'])
+    return result
 
 
 def _get_cached_game(game_id: str) -> Optional[Game]:

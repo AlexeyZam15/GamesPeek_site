@@ -8,6 +8,21 @@ import hashlib
 import json
 
 
+class CacheVersion(models.Model):
+    """Хранит версии различных кэшей в базе данных для сохранения между перезапусками"""
+
+    key = models.CharField(max_length=100, unique=True, db_index=True)
+    value = models.CharField(max_length=50)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Cache version"
+        verbose_name_plural = "Cache versions"
+
+    def __str__(self) -> str:
+        return f"{self.key}: {self.value}"
+
+
 class FilterSectionCache(models.Model):
     """Model for caching pre-rendered filter sections HTML."""
 
@@ -87,6 +102,66 @@ class FilterSectionCache(models.Model):
         return f"Filter cache: {self.section_key}"
 
     @classmethod
+    def _get_persistent_cache_version(cls) -> str:
+        """Получает версию кэша из базы данных (переживает перезапуск)"""
+        from django.core.cache import cache
+
+        # Сначала пробуем получить из memory cache (быстро)
+        version = cache.get('filter_cache_version')
+        if version:
+            return version
+
+        # Если нет в memory cache, получаем из базы данных
+        try:
+            cache_version, created = CacheVersion.objects.get_or_create(
+                key='filter_cache_version',
+                defaults={'value': cls.FILTER_CACHE_VERSION}
+            )
+            version = cache_version.value
+            # Сохраняем в memory cache на 1 час для быстрого доступа
+            cache.set('filter_cache_version', version, 3600)
+            return version
+        except Exception as e:
+            print(f"Error getting cache version: {e}")
+            return cls.FILTER_CACHE_VERSION
+
+    @classmethod
+    def invalidate_all_filters(cls) -> int:
+        """
+        Инвалидирует все кэши фильтров.
+        Увеличивает версию кэша в базе данных.
+        """
+        from django.core.cache import cache
+
+        try:
+            # Получаем текущую версию
+            cache_version, created = CacheVersion.objects.get_or_create(
+                key='filter_cache_version',
+                defaults={'value': cls.FILTER_CACHE_VERSION}
+            )
+
+            # Увеличиваем версию
+            current = cache_version.value
+            if current.startswith('v') and current[1:].isdigit():
+                num = int(current[1:]) + 1
+                new_version = f'v{num}'
+            else:
+                new_version = 'v2'
+
+            cache_version.value = new_version
+            cache_version.save()
+
+            # Очищаем memory cache
+            cache.delete('filter_cache_version')
+            cache.set('filter_cache_version', new_version, 3600)
+
+            print(f"Filter cache version incremented from {current} to {new_version}")
+            return 1
+        except Exception as e:
+            print(f"Error invalidating filters: {e}")
+            return 0
+
+    @classmethod
     def get_or_render(
             cls,
             section_type: str,
@@ -96,14 +171,13 @@ class FilterSectionCache(models.Model):
             context_data: Dict = None
     ) -> str:
         """
-        Получает закэшированную секцию из memory cache или создает новую.
-        При рестарте сервера кэш полностью сбрасывается через filter_cache_version.
+        Получает закэшированную секцию из базы данных или создает новую.
+        Версия кэша сохраняется в БД и переживает перезапуск сервера.
         """
         from django.core.cache import cache
-        import hashlib
 
-        # Получаем текущую версию кэша (устанавливается в apps.py при рестарте)
-        cache_version = cache.get('filter_cache_version', 'v1')
+        # Получаем текущую версию кэша из БД
+        cache_version = cls._get_persistent_cache_version()
 
         # Генерируем ключ с учётом версии
         key_parts = [section_type, params_hash, cache_version]
@@ -122,22 +196,62 @@ class FilterSectionCache(models.Model):
         section_key = hashlib.md5(key_str.encode()).hexdigest()
         memory_cache_key = f"filter_section_{section_key}"
 
-        # Пытаемся получить из memory cache
+        # Пытаемся получить из memory cache (быстро)
         try:
             cached_html = cache.get(memory_cache_key)
             if cached_html is not None:
                 return cached_html
         except Exception as e:
-            print(f"Cache get error: {e}")
+            print(f"Memory cache get error: {e}")
+
+        # Пытаемся получить из базы данных
+        try:
+            db_record = cls.objects.filter(
+                section_key=section_key,
+                is_active=True,
+                template_version=cache_version
+            ).first()
+
+            if db_record:
+                # Обновляем счётчик и время доступа
+                db_record.hit_count += 1
+                db_record.last_accessed = timezone.now()
+                db_record.save(update_fields=['hit_count', 'last_accessed'])
+
+                # Сохраняем в memory cache
+                try:
+                    cache.set(memory_cache_key, db_record.rendered_html, 86400)
+                except Exception as e:
+                    print(f"Memory cache set error: {e}")
+
+                return db_record.rendered_html
+        except Exception as e:
+            print(f"Database cache get error: {e}")
 
         # Рендерим новую секцию
+        print(f"🔄 CACHE MISS: {section_type} - rendering new HTML")
         html = render_func()
+
+        # Сохраняем в базу данных
+        try:
+            cls.objects.update_or_create(
+                section_key=section_key,
+                defaults={
+                    'section_type': section_type,
+                    'rendered_html': html,
+                    'data_hash': section_key,
+                    'template_version': cache_version,
+                    'is_active': True,
+                }
+            )
+        except Exception as e:
+            print(f"Database cache save error: {e}")
 
         # Сохраняем в memory cache
         try:
             cache.set(memory_cache_key, html, 86400)
         except Exception as e:
-            print(f"Cache set error: {e}")
+            print(f"Memory cache set error: {e}")
 
         return html
 
@@ -152,11 +266,26 @@ class FilterSectionCache(models.Model):
     ) -> Tuple[str, bool]:
         """
         Получает закэшированную секцию из memory cache или создает новую.
-        При рестарте сервера кэш полностью сбрасывается.
+        Версия кэша сохраняется в БД и переживает перезапуск сервера.
         """
         from django.core.cache import cache
 
-        section_key = cls.get_section_key(section_type, selected_ids, context_data)
+        cache_version = cls._get_persistent_cache_version()
+
+        key_parts = [section_type, cache_version]
+
+        if selected_ids:
+            sorted_ids = sorted(selected_ids) if selected_ids else []
+            key_parts.append(','.join(str(i) for i in sorted_ids))
+
+        if context_data:
+            year_start = context_data.get('release_year_start')
+            year_end = context_data.get('release_year_end')
+            if year_start or year_end:
+                key_parts.append(f"years_{year_start}_{year_end}")
+
+        key_str = '_'.join(str(p) for p in key_parts)
+        section_key = hashlib.md5(key_str.encode()).hexdigest()
         memory_cache_key = f"filter_section_{section_key}"
 
         if not force_refresh:
@@ -176,6 +305,21 @@ class FilterSectionCache(models.Model):
         except Exception as e:
             print(f"Cache set error: {e}")
 
+        # Сохраняем в базу данных
+        try:
+            cls.objects.update_or_create(
+                section_key=section_key,
+                defaults={
+                    'section_type': section_type,
+                    'rendered_html': html,
+                    'data_hash': section_key,
+                    'template_version': cache_version,
+                    'is_active': True,
+                }
+            )
+        except Exception as e:
+            print(f"Database cache save error: {e}")
+
         return html, False
 
     @classmethod
@@ -183,18 +327,10 @@ class FilterSectionCache(models.Model):
                         context_data: Dict = None) -> str:
         """
         Генерирует уникальный ключ для секции фильтра с учетом версии кэша.
-
-        Args:
-            section_type: Тип секции
-            selected_ids: Список выбранных ID
-            context_data: Дополнительные данные контекста (годы, и т.д.)
-
-        Returns:
-            Уникальный ключ для кэша
         """
-        from django.core.cache import cache
+        cache_version = cls._get_persistent_cache_version()
 
-        key_parts = [section_type]
+        key_parts = [section_type, cache_version]
 
         if selected_ids:
             sorted_ids = sorted(selected_ids) if selected_ids else []
@@ -206,44 +342,13 @@ class FilterSectionCache(models.Model):
             if year_start or year_end:
                 key_parts.append(f"years_{year_start}_{year_end}")
 
-        # Добавляем версию кэша из memory cache
-        version_key = 'filter_cache_version'
-        cache_version = cache.get(version_key, 1)
-        key_parts.append(f"v{cache_version}")
-
         key_str = '_'.join(str(p) for p in key_parts)
         return hashlib.md5(key_str.encode()).hexdigest()
-
-
-    @classmethod
-    def invalidate_all_filters(cls) -> int:
-        """
-        Инвалидирует все кэши фильтров в memory cache.
-        При рестарте сервера этот метод можно не вызывать - кэш сбросится сам.
-
-        Returns:
-            Количество инвалидированных записей (всегда возвращает 0 для memory cache)
-        """
-        from django.core.cache import cache
-
-        # Увеличиваем версию кэша фильтров
-        version_key = 'filter_cache_version'
-        current_version = cache.get(version_key, 0)
-        cache.set(version_key, current_version + 1, 86400)
-
-        logger.info(f"Filter cache version incremented to {current_version + 1}")
-        return 0
 
     @classmethod
     def invalidate_section_type(cls, section_type: str) -> int:
         """
         Инвалидирует все секции определенного типа.
-
-        Args:
-            section_type: Тип секции для инвалидации
-
-        Returns:
-            Количество инвалидированных секций
         """
         updated = cls.objects.filter(
             section_type=section_type,
@@ -254,37 +359,42 @@ class FilterSectionCache(models.Model):
     @classmethod
     def bump_cache_version(cls, new_version: str = None) -> str:
         """
-        Увеличивает версию кэша фильтров.
+        Увеличивает версию кэша фильтров в базе данных.
         Использовать после изменений в структуре HTML фильтров.
-
-        Args:
-            new_version: Новая версия (если не указана, увеличивает текущую)
-
-        Returns:
-            Новая версия кэша
         """
-        if new_version:
-            cls.FILTER_CACHE_VERSION = new_version
-        else:
-            current = cls.FILTER_CACHE_VERSION
-            if current.startswith('v') and current[1:].isdigit():
-                num = int(current[1:]) + 1
-                cls.FILTER_CACHE_VERSION = f'v{num}'
-            else:
-                cls.FILTER_CACHE_VERSION = 'v2'
+        from django.core.cache import cache
 
-        return cls.FILTER_CACHE_VERSION
+        try:
+            cache_version, created = CacheVersion.objects.get_or_create(
+                key='filter_cache_version',
+                defaults={'value': cls.FILTER_CACHE_VERSION}
+            )
+
+            if new_version:
+                cache_version.value = new_version
+            else:
+                current = cache_version.value
+                if current.startswith('v') and current[1:].isdigit():
+                    num = int(current[1:]) + 1
+                    cache_version.value = f'v{num}'
+                else:
+                    cache_version.value = 'v2'
+
+            cache_version.save()
+
+            # Очищаем memory cache
+            cache.delete('filter_cache_version')
+            cache.set('filter_cache_version', cache_version.value, 3600)
+
+            return cache_version.value
+        except Exception as e:
+            print(f"Error bumping cache version: {e}")
+            return cls.FILTER_CACHE_VERSION
 
     @classmethod
     def cleanup_old_caches(cls, days_old: int = 7) -> int:
         """
         Очищает старые неактивные кэши.
-
-        Args:
-            days_old: Возраст в днях для удаления
-
-        Returns:
-            Количество удаленных записей
         """
         cutoff_date = timezone.now() - timezone.timedelta(days=days_old)
         old_caches = cls.objects.filter(

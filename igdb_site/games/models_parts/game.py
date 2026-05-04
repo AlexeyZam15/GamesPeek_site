@@ -1,7 +1,5 @@
 """Main Game model with all related functionality."""
 
-"""Main Game model with all related functionality."""
-
 from django.db import models
 from django.utils import timezone
 from django.urls import reverse
@@ -11,6 +9,81 @@ from django.contrib.postgres.fields import ArrayField
 
 from .enums import GameTypeEnum
 from .managers import GameManager
+from django.contrib.postgres.indexes import GinIndex
+
+class KeywordsDescriptor:
+    """
+    Дескриптор для обратной совместимости с кодом, ожидающим ManyToMany поле keywords.
+    """
+
+    def __init__(self, field_name='keyword_ids'):
+        self.field_name = field_name
+
+    def __get__(self, instance, owner):
+        if instance is None:
+            return self
+        return KeywordQuerySetWrapper(instance, self.field_name)
+
+
+class KeywordQuerySetWrapper:
+    """
+    Обёртка для обратной совместимости с кодом, который ожидает ManyToMany менеджер.
+    Поддерживает .all(), .filter(), .count(), .exists().
+    """
+
+    def __init__(self, game, field_name='keyword_ids'):
+        self.game = game
+        self.field_name = field_name
+        self._cached_queryset = None
+
+    def _get_queryset(self):
+        if self._cached_queryset is None:
+            from .keywords import Keyword
+            keyword_ids = getattr(self.game, self.field_name)
+            if keyword_ids:
+                self._cached_queryset = Keyword.objects.filter(igdb_id__in=keyword_ids)
+            else:
+                self._cached_queryset = Keyword.objects.none()
+        return self._cached_queryset
+
+    def all(self):
+        return self._get_queryset()
+
+    def filter(self, *args, **kwargs):
+        return self._get_queryset().filter(*args, **kwargs)
+
+    def count(self):
+        return self._get_queryset().count()
+
+    def exists(self):
+        return self._get_queryset().exists()
+
+    def __iter__(self):
+        return iter(self._get_queryset())
+
+    def __len__(self):
+        return self.count()
+
+    @property
+    def through(self):
+        """Заглушка для through — чтобы сигналы не падали."""
+        return None
+
+    def set(self, *args, **kwargs):
+        """Заглушка для set() — чтобы администратор не падал."""
+        raise AttributeError("Use set_keywords() method to update keywords")
+
+    def add(self, *args, **kwargs):
+        """Заглушка для add() — чтобы администратор не падал."""
+        raise AttributeError("Use add_keywords() method to update keywords")
+
+    def remove(self, *args, **kwargs):
+        """Заглушка для remove() — чтобы администратор не падал."""
+        raise AttributeError("Use remove_keywords() method to update keywords")
+
+    def clear(self, *args, **kwargs):
+        """Заглушка для clear() — чтобы администратор не падал."""
+        raise AttributeError("Use keyword_ids = [] to clear keywords")
 
 
 class Game(models.Model):
@@ -85,41 +158,35 @@ class Game(models.Model):
     rating_count = models.IntegerField(default=0, db_index=True)
     first_release_date = models.DateTimeField(null=True, blank=True)
 
-    # Many-to-many relationships - используем строковые ссылки для избежания циклических импортов
+    # Many-to-many relationships (keywords удалён, теперь используется дескриптор)
     genres = models.ManyToManyField('Genre', blank=True)
     platforms = models.ManyToManyField('Platform', blank=True)
-    keywords = models.ManyToManyField('Keyword', blank=True)
-    engines = models.ManyToManyField(  # Новое поле для игровых движков
+    engines = models.ManyToManyField(
         'GameEngine',
         blank=True,
         related_name='games',
         help_text="Game engines used in this game"
     )
-
     series = models.ManyToManyField(
         'Series',
         blank=True,
         related_name='games'
     )
-
     series_order = models.PositiveIntegerField(
         null=True,
         blank=True,
         help_text="Order in series (1, 2, 3...)"
     )
-
     developers = models.ManyToManyField(
         'Company',
         related_name='developed_games',
         blank=True
     )
-
     publishers = models.ManyToManyField(
         'Company',
         related_name='published_games',
         blank=True
     )
-
     themes = models.ManyToManyField('Theme', blank=True)
     player_perspectives = models.ManyToManyField('PlayerPerspective', blank=True)
     game_modes = models.ManyToManyField('GameMode', blank=True)
@@ -134,7 +201,6 @@ class Game(models.Model):
     )
 
     # ===== МАТЕРИАЛИЗОВАННЫЕ ВЕКТОРЫ ДЛЯ ПОИСКА ПОХОЖИХ ИГР =====
-    # Храним ID связанных объектов в виде массивов для быстрого поиска через GIN индекс
     genre_ids = ArrayField(
         models.IntegerField(),
         default=list,
@@ -183,7 +249,7 @@ class Game(models.Model):
         help_text="Materialized list of game mode IDs for fast similarity search"
     )
 
-    engine_ids = ArrayField(  # Новое поле для ID движков
+    engine_ids = ArrayField(
         models.IntegerField(),
         default=list,
         blank=True,
@@ -196,8 +262,11 @@ class Game(models.Model):
     _cached_keyword_count = models.IntegerField(null=True, blank=True, editable=False)
     _cached_platform_count = models.IntegerField(null=True, blank=True, editable=False)
     _cached_developer_count = models.IntegerField(null=True, blank=True, editable=False)
-    _cached_engine_count = models.IntegerField(null=True, blank=True, editable=False)  # Новое поле
+    _cached_engine_count = models.IntegerField(null=True, blank=True, editable=False)
     _cache_updated_at = models.DateTimeField(null=True, blank=True, editable=False)
+
+    # Обратно совместимый дескриптор для keywords
+    keywords = KeywordsDescriptor('keyword_ids')
 
     # Optimized manager
     objects = GameManager()
@@ -217,7 +286,7 @@ class Game(models.Model):
             models.Index(fields=['_cached_keyword_count']),
             models.Index(fields=['_cached_platform_count']),
             models.Index(fields=['_cached_developer_count']),
-            models.Index(fields=['_cached_engine_count']),  # Новый индекс
+            models.Index(fields=['_cached_engine_count']),
             models.Index(fields=['rating_count', 'rating']),
             models.Index(fields=['rating_count', '-rating']),
             models.Index(fields=['rating', '-rating_count']),
@@ -227,13 +296,20 @@ class Game(models.Model):
             models.Index(fields=['first_release_date', 'game_type']),
             models.Index(fields=['game_type', 'rating_count']),
             models.Index(fields=['-date_added']),
+
+            # GIN индексы для массивов
+            GinIndex(fields=['genre_ids'], name='game_genre_ids_gin'),
+            GinIndex(fields=['keyword_ids'], name='game_keyword_ids_gin'),
+            GinIndex(fields=['theme_ids'], name='game_theme_ids_gin'),
+            GinIndex(fields=['perspective_ids'], name='game_perspective_ids_gin'),
+            GinIndex(fields=['developer_ids'], name='game_developer_ids_gin'),
+            GinIndex(fields=['game_mode_ids'], name='game_game_mode_ids_gin'),
+            GinIndex(fields=['engine_ids'], name='game_engine_ids_gin'),
         ]
 
     def save(self, *args, **kwargs):
         """Override save to fix naive dates and update cached counts + materialized vectors."""
-        # Исправляем наивные даты при сохранении
         if self.first_release_date and timezone.is_naive(self.first_release_date):
-            # Предполагаем UTC (или ваш локальный часовой пояс)
             self.first_release_date = timezone.make_aware(
                 self.first_release_date,
                 timezone.get_current_timezone()
@@ -241,7 +317,6 @@ class Game(models.Model):
 
         is_new = self.pk is None
 
-        # Сохраняем старые значения полей для определения изменений
         old_genre_ids = None
         old_keyword_ids = None
         old_theme_ids = None
@@ -250,7 +325,6 @@ class Game(models.Model):
         old_engine_ids = None
 
         if not is_new:
-            # Загружаем старые значения материализованных векторов
             old_game = Game.objects.filter(id=self.pk).only(
                 'genre_ids', 'keyword_ids', 'theme_ids',
                 'perspective_ids', 'game_mode_ids', 'engine_ids'
@@ -265,7 +339,6 @@ class Game(models.Model):
 
         super().save(*args, **kwargs)
 
-        # Проверяем, изменились ли связанные данные
         has_related_changes = False
 
         if not is_new and old_genre_ids is not None:
@@ -284,11 +357,9 @@ class Game(models.Model):
                     old_engine_ids != new_engine_ids):
                 has_related_changes = True
 
-        # ВСЕГДА обновляем векторы и счетчики при сохранении
         self.update_cached_counts()
         self.update_materialized_vectors()
 
-        # Если изменились связанные данные - инвалидируем кэши
         if has_related_changes:
             self._invalidate_similarity_cache()
             self._invalidate_card_cache()
@@ -297,12 +368,10 @@ class Game(models.Model):
         """Инвалидирует кэш похожих игр для этой игры."""
         from django.core.cache import cache
 
-        # Удаляем все ключи кэша, связанные с этой игрой
         cache_key_patterns = [
-            f'similar_for_game_*_{self.id}_*',  # Паттерн для кэша похожих игр
+            f'similar_for_game_*_{self.id}_*',
         ]
 
-        # Используем Redis паттерн, если настроен
         try:
             from django.core.cache import caches
             redis_cache = caches['default']
@@ -310,26 +379,21 @@ class Game(models.Model):
                 for pattern in cache_key_patterns:
                     redis_cache.delete_pattern(pattern)
         except Exception:
-            # Если нет поддержки паттернов, увеличиваем версию кэша
             from .base_views import CACHE_VERSION
             import hashlib
             new_version = f"v{int(CACHE_VERSION[1:]) + 1}"
             globals()['CACHE_VERSION'] = new_version
-
-            # Также удаляем конкретный ключ
             cache.delete(f'similar_for_game_{self.id}')
 
     def _invalidate_card_cache(self):
         """Инвалидирует кэш карточки игры."""
         from .game_card import GameCardCache
 
-        # Деактивируем существующую карточку
         GameCardCache.objects.filter(game_id=self.id, is_active=True).update(
             is_active=False,
             updated_at=timezone.now()
         )
 
-        # Удаляем из Django cache
         from django.core.cache import cache
         cache_key = GameCardCache.generate_cache_key_for_game(self.id)
         cache.delete(cache_key)
@@ -346,41 +410,36 @@ class Game(models.Model):
         import logging
         logger = logging.getLogger(__name__)
 
-        # Отключаем автоматическое обновление в DEBUG режиме
         if getattr(settings, 'DISABLE_AUTO_CACHE_UPDATES', False) and not force:
             return
 
-        # Если асинхронное обновление
         if async_update and hasattr(settings, 'CELERY_BROKER_URL'):
             from .tasks import update_game_cache_async
             update_game_cache_async.delay(self.id)
             return
 
         try:
-            # Используем select_related/prefetch для быстрого подсчета
             game = Game.objects.filter(id=self.id).prefetch_related(
-                'genres', 'keywords', 'platforms', 'developers', 'engines'
+                'genres', 'platforms', 'developers', 'engines'
             ).first()
 
             if not game:
                 return
 
-            # Подсчитываем через базу для скорости
             counts = {
                 'genres': game.genres.count(),
-                'keywords': game.keywords.count(),
+                'keywords': len(self.keyword_ids or []),
                 'platforms': game.platforms.count(),
                 'developers': game.developers.count(),
-                'engines': game.engines.count(),  # Добавляем подсчет движков
+                'engines': game.engines.count(),
             }
 
-            # Проверяем, нужно ли обновлять
             needs_update = (
                     self._cached_genre_count != counts['genres'] or
                     self._cached_keyword_count != counts['keywords'] or
                     self._cached_platform_count != counts['platforms'] or
                     self._cached_developer_count != counts['developers'] or
-                    self._cached_engine_count != counts['engines']  # Добавляем проверку
+                    self._cached_engine_count != counts['engines']
             )
 
             if needs_update or force:
@@ -388,24 +447,22 @@ class Game(models.Model):
                 self._cached_keyword_count = counts['keywords']
                 self._cached_platform_count = counts['platforms']
                 self._cached_developer_count = counts['developers']
-                self._cached_engine_count = counts['engines']  # Добавляем установку
+                self._cached_engine_count = counts['engines']
                 self._cache_updated_at = timezone.now()
 
-                # Быстрое обновление через update()
                 Game.objects.filter(id=self.id).update(
                     _cached_genre_count=counts['genres'],
                     _cached_keyword_count=counts['keywords'],
                     _cached_platform_count=counts['platforms'],
                     _cached_developer_count=counts['developers'],
-                    _cached_engine_count=counts['engines'],  # Добавляем обновление
+                    _cached_engine_count=counts['engines'],
                     _cache_updated_at=self._cache_updated_at
                 )
 
-                # Обновляем локальный объект
                 self.refresh_from_db(fields=[
                     '_cached_genre_count', '_cached_keyword_count',
                     '_cached_platform_count', '_cached_developer_count',
-                    '_cached_engine_count', '_cache_updated_at'  # Добавляем новое поле
+                    '_cached_engine_count', '_cache_updated_at'
                 ])
         except Exception as e:
             logger.error(f"Error updating game cache for {self.id}: {str(e)}")
@@ -413,7 +470,6 @@ class Game(models.Model):
     def update_materialized_vectors(self, force: bool = False) -> None:
         """
         Обновляет материализованные векторы (genre_ids, keyword_ids, ...) на основе ManyToMany связей.
-        Вызывается при сохранении игры и при изменении связанных объектов.
 
         Args:
             force: Принудительное обновление даже если данные не изменились
@@ -422,65 +478,61 @@ class Game(models.Model):
         logger = logging.getLogger(__name__)
 
         try:
-            # Загружаем игру со всеми необходимыми prefetch_related
             game = Game.objects.filter(id=self.id).prefetch_related(
                 'genres',
-                'keywords',
                 'themes',
                 'player_perspectives',
                 'developers',
                 'game_modes',
-                'engines'
+                'engines',
+                'platforms'
             ).first()
 
             if not game:
                 return
 
-            # Получаем списки ID - ВАЖНО: используем igdb_id, а не id!
             new_genre_ids = list(game.genres.values_list('igdb_id', flat=True))
-            new_keyword_ids = list(game.keywords.values_list('igdb_id', flat=True))
             new_theme_ids = list(game.themes.values_list('igdb_id', flat=True))
             new_perspective_ids = list(game.player_perspectives.values_list('igdb_id', flat=True))
             new_developer_ids = list(game.developers.values_list('igdb_id', flat=True))
             new_game_mode_ids = list(game.game_modes.values_list('igdb_id', flat=True))
             new_engine_ids = list(game.engines.values_list('igdb_id', flat=True))
+            new_platform_ids = list(game.platforms.values_list('igdb_id', flat=True))
 
-            # Проверяем, изменились ли данные
             needs_update = force or any([
                 set(new_genre_ids) != set(self.genre_ids or []),
-                set(new_keyword_ids) != set(self.keyword_ids or []),
                 set(new_theme_ids) != set(self.theme_ids or []),
                 set(new_perspective_ids) != set(self.perspective_ids or []),
                 set(new_developer_ids) != set(self.developer_ids or []),
                 set(new_game_mode_ids) != set(self.game_mode_ids or []),
-                set(new_engine_ids) != set(self.engine_ids or [])
+                set(new_engine_ids) != set(self.engine_ids or []),
+                set(new_platform_ids) != set(getattr(self, 'platform_ids', []) or [])
             ])
 
             if needs_update:
-                # Обновляем локальный объект
                 self.genre_ids = new_genre_ids
-                self.keyword_ids = new_keyword_ids
                 self.theme_ids = new_theme_ids
                 self.perspective_ids = new_perspective_ids
                 self.developer_ids = new_developer_ids
                 self.game_mode_ids = new_game_mode_ids
                 self.engine_ids = new_engine_ids
+                self.platform_ids = new_platform_ids
 
-                # Сохраняем только измененные поля
-                Game.objects.filter(id=self.id).update(
-                    genre_ids=self.genre_ids,
-                    keyword_ids=self.keyword_ids,
-                    theme_ids=self.theme_ids,
-                    perspective_ids=self.perspective_ids,
-                    developer_ids=self.developer_ids,
-                    game_mode_ids=self.game_mode_ids,
-                    engine_ids=self.engine_ids
-                )
+                update_fields = {
+                    'genre_ids': self.genre_ids,
+                    'theme_ids': self.theme_ids,
+                    'perspective_ids': self.perspective_ids,
+                    'developer_ids': self.developer_ids,
+                    'game_mode_ids': self.game_mode_ids,
+                    'engine_ids': self.engine_ids,
+                    'platform_ids': self.platform_ids,
+                }
+
+                Game.objects.filter(id=self.id).update(**update_fields)
 
                 logger.debug(f"Updated materialized vectors for game {self.id}: "
-                             f"genres={len(self.genre_ids)}, keywords={len(self.keyword_ids)}, "
+                             f"genres={len(self.genre_ids)}, keywords={len(self.keyword_ids or [])}, "
                              f"engines={len(self.engine_ids)}")
-
         except Exception as e:
             logger.error(f"Error updating materialized vectors for game {self.id}: {str(e)}")
 
@@ -502,35 +554,33 @@ class Game(models.Model):
 
         for i in range(0, queryset.count(), batch_size):
             batch = queryset[i:i + batch_size].prefetch_related(
-                'genres', 'keywords', 'platforms', 'developers',
-                'themes', 'player_perspectives', 'game_modes', 'engines'  # Добавляем engines
+                'genres', 'platforms', 'developers',
+                'themes', 'player_perspectives', 'game_modes', 'engines'
             )
 
-            # Получаем все связанные счетчики и векторы одним запросом
             game_data = {}
 
             for game in batch:
                 counts = {
                     'genres': game.genres.count(),
-                    'keywords': game.keywords.count(),
+                    'keywords': len(game.keyword_ids or []),
                     'platforms': game.platforms.count(),
                     'developers': game.developers.count(),
-                    'engines': game.engines.count(),  # Добавляем счетчик движков
+                    'engines': game.engines.count(),
                 }
 
                 vectors = {
-                    'genre_ids': list(game.genres.values_list('id', flat=True)),
-                    'keyword_ids': list(game.keywords.values_list('id', flat=True)),
-                    'theme_ids': list(game.themes.values_list('id', flat=True)),
-                    'perspective_ids': list(game.player_perspectives.values_list('id', flat=True)),
-                    'developer_ids': list(game.developers.values_list('id', flat=True)),
-                    'game_mode_ids': list(game.game_modes.values_list('id', flat=True)),
-                    'engine_ids': list(game.engines.values_list('id', flat=True)),  # Добавляем векторы движков
+                    'genre_ids': list(game.genres.values_list('igdb_id', flat=True)),
+                    'theme_ids': list(game.themes.values_list('igdb_id', flat=True)),
+                    'perspective_ids': list(game.player_perspectives.values_list('igdb_id', flat=True)),
+                    'developer_ids': list(game.developers.values_list('igdb_id', flat=True)),
+                    'game_mode_ids': list(game.game_modes.values_list('igdb_id', flat=True)),
+                    'engine_ids': list(game.engines.values_list('igdb_id', flat=True)),
+                    'platform_ids': list(game.platforms.values_list('igdb_id', flat=True)),
                 }
 
                 game_data[game.id] = {**counts, **vectors}
 
-            # Определяем какие нужно обновить
             to_update = []
             for game in batch:
                 data = game_data.get(game.id, {})
@@ -540,56 +590,52 @@ class Game(models.Model):
                         game._cached_keyword_count != data.get('keywords') or
                         game._cached_platform_count != data.get('platforms') or
                         game._cached_developer_count != data.get('developers') or
-                        game._cached_engine_count != data.get('engines')  # Добавляем проверку
+                        game._cached_engine_count != data.get('engines')
                 )
 
                 needs_vector_update = any([
                     set(data.get('genre_ids', [])) != set(game.genre_ids or []),
-                    set(data.get('keyword_ids', [])) != set(game.keyword_ids or []),
                     set(data.get('theme_ids', [])) != set(game.theme_ids or []),
                     set(data.get('perspective_ids', [])) != set(game.perspective_ids or []),
                     set(data.get('developer_ids', [])) != set(game.developer_ids or []),
                     set(data.get('game_mode_ids', [])) != set(game.game_mode_ids or []),
-                    set(data.get('engine_ids', [])) != set(game.engine_ids or [])  # Добавляем проверку
+                    set(data.get('engine_ids', [])) != set(game.engine_ids or []),
+                    set(data.get('platform_ids', [])) != set(getattr(game, 'platform_ids', []) or [])
                 ])
 
                 if needs_count_update or needs_vector_update:
-                    # Обновляем счетчики
                     if needs_count_update:
                         game._cached_genre_count = data.get('genres', 0)
                         game._cached_keyword_count = data.get('keywords', 0)
                         game._cached_platform_count = data.get('platforms', 0)
                         game._cached_developer_count = data.get('developers', 0)
-                        game._cached_engine_count = data.get('engines', 0)  # Добавляем установку
+                        game._cached_engine_count = data.get('engines', 0)
                         game._cache_updated_at = timezone.now()
 
-                    # Обновляем векторы
                     if needs_vector_update:
                         game.genre_ids = data.get('genre_ids', [])
-                        game.keyword_ids = data.get('keyword_ids', [])
                         game.theme_ids = data.get('theme_ids', [])
                         game.perspective_ids = data.get('perspective_ids', [])
                         game.developer_ids = data.get('developer_ids', [])
                         game.game_mode_ids = data.get('game_mode_ids', [])
-                        game.engine_ids = data.get('engine_ids', [])  # Добавляем установку
+                        game.engine_ids = data.get('engine_ids', [])
+                        game.platform_ids = data.get('platform_ids', [])
 
                     to_update.append(game)
 
-            # Массовое обновление
             if to_update:
                 update_fields = []
                 if any(g._cache_updated_at for g in to_update):
                     update_fields.extend([
                         '_cached_genre_count', '_cached_keyword_count',
                         '_cached_platform_count', '_cached_developer_count',
-                        '_cached_engine_count', '_cache_updated_at'  # Добавляем новое поле
+                        '_cached_engine_count', '_cache_updated_at'
                     ])
 
                 if any(g.genre_ids for g in to_update if g.genre_ids != []):
                     update_fields.extend([
-                        'genre_ids', 'keyword_ids', 'theme_ids',
-                        'perspective_ids', 'developer_ids', 'game_mode_ids',
-                        'engine_ids'  # Добавляем поле
+                        'genre_ids', 'theme_ids', 'perspective_ids',
+                        'developer_ids', 'game_mode_ids', 'engine_ids', 'platform_ids'
                     ])
 
                 cls.objects.bulk_update(
@@ -601,7 +647,6 @@ class Game(models.Model):
 
         return updated_count
 
-    # Свойства для быстрого доступа с ленивым обновлением
     @property
     def cached_genre_count(self) -> int:
         """Get cached genre count with lazy update."""
@@ -643,7 +688,7 @@ class Game(models.Model):
         return self._cached_developer_count or 0
 
     @property
-    def cached_engine_count(self) -> int:  # Новое свойство
+    def cached_engine_count(self) -> int:
         """Get cached engine count with lazy update."""
         if self._cached_engine_count is None or (
                 self._cache_updated_at and
@@ -677,7 +722,6 @@ class Game(models.Model):
         info = self.game_type_info
         return info.get('flag')
 
-    # Individual type check properties with caching
     @property
     @lru_cache(maxsize=1)
     def is_main_game(self) -> bool:
@@ -753,7 +797,6 @@ class Game(models.Model):
     def is_update(self) -> bool:
         return self.game_type == GameTypeEnum.UPDATE
 
-    # ===== OPTIMIZED ENGINE PROPERTIES =====  # Новый блок
     @property
     @lru_cache(maxsize=1)
     def engine_names(self) -> List[str]:
@@ -766,7 +809,6 @@ class Game(models.Model):
         """Main engine (first in list) with caching."""
         return self.engines.first()
 
-    # ===== OPTIMIZED SERIES PROPERTIES =====
     @property
     def is_part_of_series(self) -> bool:
         """Check if game belongs to any series."""
@@ -818,7 +860,6 @@ class Game(models.Model):
         """Number of series the game belongs to."""
         return self.series.count()
 
-    # ===== OPTIMIZED COMPANY PROPERTIES =====
     @property
     @lru_cache(maxsize=1)
     def main_developer(self) -> Optional['Company']:
@@ -843,7 +884,6 @@ class Game(models.Model):
         """List of publisher names with caching."""
         return list(self.publishers.values_list('name', flat=True))
 
-    # ===== OPTIMIZED THEME & PERSPECTIVE PROPERTIES =====
     @property
     @lru_cache(maxsize=1)
     def theme_names(self) -> List[str]:
@@ -862,7 +902,6 @@ class Game(models.Model):
         """List of game modes with caching."""
         return list(self.game_modes.values_list('name', flat=True))
 
-    # ===== OPTIMIZED KEYWORD CATEGORY PROPERTIES =====
     @property
     @lru_cache(maxsize=1)
     def gameplay_keywords(self) -> models.QuerySet:
@@ -960,7 +999,6 @@ class Game(models.Model):
         from .keywords import KeywordCategory
         return self.keywords.filter(category__name=category_name)
 
-    # ===== OPTIMIZED DISPLAY METHODS =====
     @property
     def get_game_type_display(self) -> str:
         """Get display name for game type."""

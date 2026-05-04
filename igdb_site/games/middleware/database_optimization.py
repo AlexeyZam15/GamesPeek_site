@@ -16,7 +16,6 @@ class DatabaseOptimizationMiddleware(MiddlewareMixin):
     Выполняет оптимизацию один раз при первом HTTP запросе.
     """
 
-    # Статические переменные для отслеживания состояния
     _optimization_started = False
     _optimization_completed = False
     _lock = threading.Lock()
@@ -25,23 +24,18 @@ class DatabaseOptimizationMiddleware(MiddlewareMixin):
         """
         Обрабатывает каждый запрос, запускает оптимизацию при первом запросе.
         """
-        # Только для SQLite и только в режиме DEBUG
         if not settings.DEBUG or connection.vendor != 'sqlite':
             return
 
-        # Проверяем, нужно ли запускать оптимизацию
         if not self._optimization_started:
             with self._lock:
                 if not self._optimization_started:
                     self._optimization_started = True
-
-                    # Запускаем оптимизацию в отдельном потоке
                     thread = threading.Thread(
                         target=self._run_database_optimization,
-                        daemon=True  # Демон-поток, завершится с основным
+                        daemon=True
                     )
                     thread.start()
-
         return None
 
     def _run_database_optimization(self):
@@ -50,13 +44,8 @@ class DatabaseOptimizationMiddleware(MiddlewareMixin):
             print("🔧 Запуск оптимизации базы данных...")
             start_time = time.time()
 
-            # 1. Оптимизируем настройки SQLite
             self._optimize_sqlite_settings()
-
-            # 2. Создаем индексы для производительности
             indexes_created = self._create_performance_indexes()
-
-            # 3. Выполняем дополнительную оптимизацию
             self._run_additional_optimizations()
 
             elapsed_time = time.time() - start_time
@@ -75,34 +64,19 @@ class DatabaseOptimizationMiddleware(MiddlewareMixin):
         try:
             print("  ⚙️  Настройка SQLite...")
 
-            # Проверяем текущий режим журнала
             cursor.execute("PRAGMA journal_mode;")
             current_mode = cursor.fetchone()[0].lower()
 
-            # Включаем WAL mode для лучшей конкурентности
             if current_mode != 'wal':
                 cursor.execute("PRAGMA journal_mode=WAL;")
                 print("    ✅ Включен WAL mode")
 
-            # Устанавливаем большой кэш (2GB)
             cursor.execute("PRAGMA cache_size=-2000000;")
-
-            # Оптимальный режим синхронизации
             cursor.execute("PRAGMA synchronous=NORMAL;")
-
-            # Временные таблицы в памяти
             cursor.execute("PRAGMA temp_store=MEMORY;")
-
-            # Увеличиваем таймаут для занятой БД
             cursor.execute("PRAGMA busy_timeout=30000;")
-
-            # Используем mmap для больших файлов
             cursor.execute("PRAGMA mmap_size=30000000000;")
-
-            # Включаем внешние ключи
             cursor.execute("PRAGMA foreign_keys=ON;")
-
-            # Устанавливаем лимит журнала
             cursor.execute("PRAGMA journal_size_limit=67108864;")
 
         except Exception as e:
@@ -111,13 +85,12 @@ class DatabaseOptimizationMiddleware(MiddlewareMixin):
             cursor.close()
 
     def _create_performance_indexes(self):
-        """Создает индексы для повышения производительности."""
+        """Создает индексы для повышения производительности (без games_game_keywords)."""
         cursor = connection.cursor()
 
         try:
             print("  📊 Проверка и создание индексов...")
 
-            # Проверяем существующие индексы
             cursor.execute("""
                            SELECT name
                            FROM sqlite_master
@@ -126,9 +99,7 @@ class DatabaseOptimizationMiddleware(MiddlewareMixin):
                            """)
             existing_indexes = {row[0] for row in cursor.fetchall()}
 
-            # Определяем какие индексы нужно создать
             indexes_to_check = [
-                # Критические индексы для производительности
                 {
                     'name': 'idx_game_rating_count_rating',
                     'sql': """
@@ -161,8 +132,6 @@ class DatabaseOptimizationMiddleware(MiddlewareMixin):
                            """,
                     'desc': "Фильтрация по типу игры"
                 },
-
-                # M2M индексы
                 {
                     'name': 'idx_game_genres_game',
                     'sql': """
@@ -194,15 +163,7 @@ class DatabaseOptimizationMiddleware(MiddlewareMixin):
                                ON games_game_platforms (platform_id, game_id)
                            """,
                     'desc': "Платформы по играм"
-                },
-                {
-                    'name': 'idx_game_keywords_game',
-                    'sql': """
-                           CREATE INDEX idx_game_keywords_game
-                               ON games_game_keywords (game_id, keyword_id)
-                           """,
-                    'desc': "Игры по ключевым словам"
-                },
+                }
             ]
 
             created_count = 0
@@ -228,13 +189,9 @@ class DatabaseOptimizationMiddleware(MiddlewareMixin):
         cursor = connection.cursor()
 
         try:
-            # Оптимизируем запросы
             cursor.execute("PRAGMA optimize;")
-
-            # Анализируем базу для статистики
             cursor.execute("PRAGMA analysis_limit=1000;")
 
-            # Проверяем целостность (только для DEBUG)
             if settings.DEBUG:
                 cursor.execute("PRAGMA integrity_check;")
                 result = cursor.fetchone()
@@ -242,7 +199,6 @@ class DatabaseOptimizationMiddleware(MiddlewareMixin):
                     print("    ✅ Проверка целостности: OK")
 
         except Exception as e:
-            # Игнорируем ошибки дополнительных оптимизаций
             pass
         finally:
             cursor.close()
