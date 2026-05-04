@@ -1577,7 +1577,7 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int], se
     """
     Get similar games for a specific game with database caching.
     Использует модель GameSimilarityCache для хранения результатов в БД.
-    Включает исходную игру в результаты с 100% схожестью.
+    Включает исходную игру в результаты с 100% схожестью, если её ещё нет в списке.
     """
     from ..models_parts.similarity import GameSimilarityCache
     from .base_views import _generate_cache_key, CACHE_TIMES
@@ -1623,7 +1623,13 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int], se
                 ).select_related('game2').order_by('-similarity_score'))
 
                 similar_games = []
+                source_game_in_list = False
+
                 for item in all_similar:
+                    # Проверяем, не является ли игра исходной
+                    if item.game2.id == game_obj.id:
+                        source_game_in_list = True
+
                     similar_games.append({
                         'game': item.game2,
                         'similarity': item.similarity_score,
@@ -1632,17 +1638,19 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int], se
                         'common_themes': getattr(item, 'common_themes', 0),
                     })
 
-                # Добавляем исходную игру в начало списка с 100% схожестью
-                similar_games.insert(0, {
-                    'game': game_obj,
-                    'similarity': 100.0,
-                    'common_keywords': 0,
-                    'common_genres': 0,
-                    'common_themes': 0,
-                })
+                # Добавляем исходную игру в начало списка с 100% схожестью, только если её нет в списке
+                if not source_game_in_list:
+                    similar_games.insert(0, {
+                        'game': game_obj,
+                        'similarity': 100.0,
+                        'common_keywords': 0,
+                        'common_genres': 0,
+                        'common_themes': 0,
+                    })
 
                 total_count = len(similar_games)
-                print(f"Cache HIT for game {game_obj.id} - found {total_count} games (including source)")
+                print(
+                    f"Cache HIT for game {game_obj.id} - found {total_count} games (including source: {not source_game_in_list})")
                 print(f"Total time: {time.time() - start_total:.3f}s")
                 return similar_games, total_count
     except Exception as e:
@@ -1658,15 +1666,33 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int], se
     )
     print(f"find_similar_games executed: {time.time() - stage_start:.3f}s, found {len(similar_games)} games")
 
-    # Добавляем исходную игру в начало списка с 100% схожестью
-    source_game_entry = {
-        'game': game_obj,
-        'similarity': 100.0,
-        'common_keywords': 0,
-        'common_genres': 0,
-        'common_themes': 0,
-    }
-    similar_games.insert(0, source_game_entry)
+    # Проверяем, есть ли уже исходная игра в результатах
+    source_game_in_results = False
+    for item in similar_games:
+        if isinstance(item, dict):
+            target_game = item.get('game')
+        else:
+            target_game = item
+
+        if target_game and hasattr(target_game, 'id') and target_game.id == game_obj.id:
+            source_game_in_results = True
+            # Обновляем схожесть до 100%
+            if isinstance(item, dict):
+                item['similarity'] = 100.0
+            else:
+                item.similarity = 100.0
+            break
+
+    # Добавляем исходную игру в начало списка с 100% схожестью, только если её нет в результатах
+    if not source_game_in_results:
+        source_game_entry = {
+            'game': game_obj,
+            'similarity': 100.0,
+            'common_keywords': 0,
+            'common_genres': 0,
+            'common_themes': 0,
+        }
+        similar_games.insert(0, source_game_entry)
 
     total_count = len(similar_games)
 
@@ -1678,7 +1704,7 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int], se
 
         # Создаем новые записи (только для похожих игр, исключая исходную)
         cache_entries = []
-        for item in similar_games[1:]:  # Пропускаем исходную игру
+        for item in similar_games:
             if isinstance(item, dict):
                 target_game = item.get('game')
                 similarity = item.get('similarity', 0)
@@ -1686,6 +1712,7 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int], se
                 target_game = item
                 similarity = getattr(item, 'similarity', 0)
 
+            # Сохраняем только если это не исходная игра
             if target_game and hasattr(target_game, 'id') and target_game.id != game_obj.id:
                 cache_entries.append(GameSimilarityCache(
                     game1_id=game_obj.id,
