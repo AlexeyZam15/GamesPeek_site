@@ -200,17 +200,10 @@ class BatchUpdater:
             print(
                 f"   ⚠️ Предупреждение: {len(missing_keyword_ids)} ключевых слов не найдены в БД: {list(missing_keyword_ids)[:5]}...")
 
-        # 4. Получаем текущие связи всех игр
-        through_model = Game.keywords.through
-
-        existing_relations = through_model.objects.filter(
-            game_id__in=game_ids,
-            keyword_id__in=existing_keywords
-        ).values_list('game_id', 'keyword_id')
-
-        existing_by_game = defaultdict(set)
-        for game_id, keyword_id in existing_relations:
-            existing_by_game[game_id].add(keyword_id)
+        # 4. Получаем текущие связи всех игр (используя keyword_ids поле)
+        existing_by_game = {}
+        for game in games.values():
+            existing_by_game[game.id] = set(game.keyword_ids or [])
 
         # 5. Собираем новые связи
         new_relations = []
@@ -233,10 +226,9 @@ class BatchUpdater:
             new_ids = [kid for kid in valid_ids if kid not in existing_for_game]
 
             if new_ids:
-                for kid in new_ids:
-                    new_relations.append(
-                        through_model(game_id=game.id, keyword_id=kid)
-                    )
+                # Обновляем keyword_ids
+                game.keyword_ids = list(existing_for_game.union(new_ids))
+                new_relations.append(game)
                 updated_games.add(game.id)
             else:
                 skipped_games.append({
@@ -244,19 +236,19 @@ class BatchUpdater:
                     'reason': f'все ключевые слова уже есть у игры (существующих: {len(existing_for_game)})'
                 })
 
-        # 6. Массовое добавление
+        # 6. Массовое обновление
         if new_relations:
             try:
                 with transaction.atomic():
-                    through_model.objects.bulk_create(new_relations, ignore_conflicts=True)
-                    Game.objects.filter(id__in=updated_games).update(updated_at=timezone.now())
+                    Game.objects.bulk_update(new_relations, ['keyword_ids', 'updated_at'])
             except Exception as e:
                 print(f"\n❌ ОШИБКА БД при сохранении ключевых слов: {e}")
                 raise
 
         elapsed = time.time() - start_time
         if self.verbose:
-            print(f"⚡ Ключевые слова: {len(updated_games)} игр, {len(new_relations)} связей за {elapsed:.2f}с")
+            print(
+                f"⚡ Ключевые слова: {len(updated_games)} игр, {sum(len(g.keyword_ids) for g in new_relations)} связей за {elapsed:.2f}с")
 
         return len(updated_games), skipped_games
 
@@ -433,8 +425,8 @@ class BatchUpdater:
         skipped_count = 0
         game_ids = [g['game_id'] for g in keyword_games]
 
-        # Получаем все игры одним запросом с префетчингом ключевых слов
-        games_dict = {game.id: game for game in Game.objects.filter(id__in=game_ids).prefetch_related('keywords')}
+        # Получаем все игры одним запросом (без prefetch_related)
+        games_dict = {game.id: game for game in Game.objects.filter(id__in=game_ids)}
 
         # Собираем все ID ключевых слов из всех игр
         all_keyword_ids = []
@@ -484,40 +476,28 @@ class BatchUpdater:
                     skipped_count += 1
                     continue
 
-                # Получаем существующие ключевые слова у игры
-                existing_game_ids = set(game.keywords.values_list('id', flat=True))
+                # Получаем существующие ключевые слова из keyword_ids
+                existing_game_ids = set(game.keyword_ids or [])
 
                 # Находим новые ключевые слова (которых еще нет у игры)
                 new_ids = [kid for kid in valid_keyword_ids if kid not in existing_game_ids]
 
                 if not new_ids:
-                    # Игра уже имеет все ключевые слова - пропускаем
                     skipped_count += 1
                     if self.verbose:
                         print(f"ℹ️ Игра {game.id} уже имеет все ключевые слова")
                     continue
 
-                # Получаем объекты Keyword
-                keyword_objects = Keyword.objects.filter(id__in=new_ids)
-
-                if not keyword_objects.exists():
-                    if self.verbose:
-                        print(f"⚠️ Для игры {game.id} не найдены объекты Keyword по ID: {new_ids}")
-                    skipped_count += 1
-                    continue
-
-                # Добавляем ключевые слова к игре
-                game.keywords.add(*keyword_objects)
+                # Обновляем keyword_ids
+                game.keyword_ids = list(existing_game_ids.union(new_ids))
+                game.updated_at = timezone.now()
+                game.save(update_fields=['keyword_ids', 'updated_at'])
                 updated_count += 1
 
                 if self.verbose:
                     print(f"✅ Игра {game.id} обновлена: добавлено {len(new_ids)} ключевых слов")
                 elif updated_count % 10 == 0:
                     print(f"✅ Обновлено {updated_count} игр...")
-
-                # Обновляем время модификации
-                game.updated_at = timezone.now()
-                game.save(update_fields=['updated_at'])
 
             except Exception as e:
                 if self.verbose:
@@ -528,8 +508,6 @@ class BatchUpdater:
         if self.verbose:
             print(
                 f"📊 Обновлено {updated_count} игр, пропущено {skipped_count} (всего {len(games_with_keywords)} с ключевыми словами)")
-            if skipped_count > 0:
-                print(f"ℹ️ Из них пропущено {skipped_count} игр (уже имеют все ключевые слова)")
 
         return updated_count
 

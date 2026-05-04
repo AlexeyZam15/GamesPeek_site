@@ -121,12 +121,18 @@ class GameSimilarityCache(models.Model):
     similarity_score = models.FloatField(db_index=True)
     calculated_at = models.DateTimeField(auto_now=True, db_index=True)
 
+    # Добавляем поля для версии алгоритма и фильтров
+    algorithm_version = models.IntegerField(default=7, db_index=True)
+    cache_key = models.CharField(max_length=64, blank=True, null=True, db_index=True)
+
     class Meta:
         unique_together = ['game1', 'game2']
         indexes = [
             models.Index(fields=['game1', '-similarity_score']),
             models.Index(fields=['game2', '-similarity_score']),
             models.Index(fields=['calculated_at']),
+            models.Index(fields=['algorithm_version']),
+            models.Index(fields=['game1', 'algorithm_version']),
         ]
         verbose_name_plural = "Game similarity cache"
 
