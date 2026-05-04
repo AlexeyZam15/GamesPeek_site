@@ -117,12 +117,13 @@ def get_database_connection_params():
     }
 
 
-def export_database(dump_file_path):
+def export_database(dump_file_path, upload_to_vps_flag=False):
     """
     Export database to full PostgreSQL native dump.
 
     Args:
         dump_file_path: Path where to save the dump file
+        upload_to_vps_flag: If True, upload the dump to VPS server after export
 
     Returns:
         bool: True if export successful, False otherwise
@@ -204,7 +205,139 @@ def export_database(dump_file_path):
     print(f"   Final size: {dump_size_mb:.1f} MB")
     print()
 
+    # Upload to VPS if flag is set
+    if upload_to_vps_flag:
+        print("\n" + "=" * 60)
+        print("📤 UPLOADING TO VPS SERVER")
+        print("=" * 60)
+        print()
+
+        ssh_password = os.getenv('SSH_PASSWORD')
+        vps_host = os.getenv('VPS_HOST')
+        vps_user = os.getenv('VPS_USER')
+        vps_path = os.getenv('VPS_PATH')
+
+        # Validate required environment variables
+        missing_vars = []
+        if not ssh_password:
+            missing_vars.append('SSH_PASSWORD')
+        if not vps_host:
+            missing_vars.append('VPS_HOST')
+        if not vps_user:
+            missing_vars.append('VPS_USER')
+        if not vps_path:
+            missing_vars.append('VPS_PATH')
+
+        if missing_vars:
+            print(f"❌ Missing required environment variables: {', '.join(missing_vars)}")
+            print("   Please set them in your .env file:")
+            print("   SSH_PASSWORD=your_password")
+            print("   VPS_HOST=138.124.18.244")
+            print("   VPS_USER=root")
+            print("   VPS_PATH=/home/django/igdb_site/igdb_site/")
+            print("   Upload skipped")
+        else:
+            upload_success = upload_to_vps(
+                dump_file_path,
+                ssh_password,
+                vps_host,
+                vps_user,
+                vps_path
+            )
+
+            if upload_success:
+                print("\n✅ Full workflow completed: Export + Upload to VPS")
+            else:
+                print("\n⚠️  Export completed but upload to VPS failed")
+                print("   You can manually upload the file later")
+
     return True
+
+
+def upload_to_vps(dump_file_path, ssh_password, vps_host, vps_user, vps_path):
+    """
+    Upload dump file to VPS server via SCP.
+
+    Args:
+        dump_file_path: Path to the dump file to upload
+        ssh_password: SSH password for authentication
+        vps_host: VPS server hostname or IP address
+        vps_user: SSH username for VPS
+        vps_path: Remote directory path on VPS
+
+    Returns:
+        bool: True if upload successful, False otherwise
+    """
+    # Ensure remote path ends with slash
+    if not vps_path.endswith('/'):
+        vps_path += '/'
+
+    # Create full remote path with filename
+    remote_full_path = f"{vps_user}@{vps_host}:{vps_path}{dump_file_path.name}"
+
+    print(f"📡 Target: {vps_user}@{vps_host}")
+    print(f"📁 Remote path: {vps_path}")
+    print(f"📄 File: {dump_file_path.name}")
+    print()
+
+    # Use sshpass to provide password to scp
+    sshpass_path = shutil.which('sshpass')
+
+    if not sshpass_path:
+        print("❌ 'sshpass' tool not found. Please install it:")
+        print("   - Windows: choco install sshpass or download from https://sourceforge.net/projects/sshpass/")
+        print("   - Linux: sudo apt-get install sshpass")
+        print("   - macOS: brew install hudochenkov/sshpass/sshpass")
+        return False
+
+    # Build scp command with sshpass
+    cmd = [
+        sshpass_path,
+        '-p', ssh_password,
+        'scp',
+        '-o', 'StrictHostKeyChecking=no',
+        '-o', 'UserKnownHostsFile=/dev/null',
+        str(dump_file_path),
+        remote_full_path
+    ]
+
+    print("⏳ Uploading to VPS server...")
+    print("   (This may take several minutes depending on file size)")
+    print()
+
+    start_upload = time.time()
+
+    try:
+        result = subprocess.run(
+            cmd,
+            stderr=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+            timeout=3600
+        )
+
+        upload_elapsed = time.time() - start_upload
+
+        if result.returncode != 0:
+            print(f"❌ Upload failed with exit code {result.returncode}")
+            if result.stderr:
+                if "Warning: Permanently added" not in result.stderr:
+                    print(f"   Error: {result.stderr[:500]}")
+            if result.stdout:
+                print(f"   Output: {result.stdout[:500]}")
+            return False
+
+        print(f"✅ Upload completed successfully!")
+        print(f"   Time: {upload_elapsed:.1f} seconds")
+        print(f"   Remote location: {vps_path}{dump_file_path.name}")
+        return True
+
+    except subprocess.TimeoutExpired:
+        print("❌ Upload timeout after 1 hour")
+        return False
+    except Exception as e:
+        print(f"❌ Upload error: {e}")
+        return False
 
 
 def main():
@@ -217,11 +350,17 @@ Examples:
     python export_db.py              # Export database to database.dump (default)
     python export_db.py export       # Export database to database.dump
     python export_db.py export my.dump  # Export to specific dump file
+    python export_db.py export --upload  # Export and upload to VPS
+    python export_db.py export my.dump --upload  # Export to specific file and upload to VPS
     python export_db.py import       # Import database from database.dump
     python export_db.py import my.dump  # Import from specific dump file
 
 Environment variables:
     POSTGRESQL_PATH - Path to PostgreSQL installation directory
+    SSH_PASSWORD - Password for VPS server (required for --upload option)
+    VPS_HOST - VPS server hostname or IP address (default: 138.124.18.244)
+    VPS_USER - SSH username for VPS (default: root)
+    VPS_PATH - Remote directory path on VPS (default: /home/django/igdb_site/igdb_site/)
         """
     )
 
@@ -240,6 +379,12 @@ Environment variables:
         help='Dump file name (default: database.dump)'
     )
 
+    parser.add_argument(
+        '--upload',
+        action='store_true',
+        help='Upload the dump file to VPS server after export (requires SSH_PASSWORD, VPS_HOST, VPS_USER, VPS_PATH in .env)'
+    )
+
     args = parser.parse_args()
 
     project_root = Path(__file__).parent
@@ -247,7 +392,7 @@ Environment variables:
 
     try:
         if args.command == 'export':
-            success = export_database(dump_file_path)
+            success = export_database(dump_file_path, args.upload)
             sys.exit(0 if success else 1)
 
         elif args.command == 'import':
