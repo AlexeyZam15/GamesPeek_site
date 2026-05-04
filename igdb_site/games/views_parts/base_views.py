@@ -1076,29 +1076,66 @@ def _get_cached_years_range() -> Dict:
     )
 
 
-def _get_optimized_filter_data() -> Dict[str, List]:
-    """Get all filter data with intelligent caching."""
-    cache_key = get_cache_key('optimized_filter_data_v7')
+def _get_optimized_filter_data(selected_keyword_ids: List[int] = None) -> Dict[str, List]:
+    """Get all filter data with intelligent caching and limited keywords.
+
+    Args:
+        selected_keyword_ids: IDs выбранных ключевых слов, которые нужно обязательно включить
+    """
+    import hashlib
+    import json
+    from django.core.cache import cache
+    from django.db.models import Count
+    from ..models import GameEngine, Keyword, Theme, PlayerPerspective, GameMode, Company, Platform
+
+    # Учитываем выбранные ID в кэше
+    cache_key_data = {
+        'selected_keywords': sorted(selected_keyword_ids or [])
+    }
+    cache_key_str = json.dumps(cache_key_data, sort_keys=True)
+    cache_key_hash = hashlib.md5(cache_key_str.encode()).hexdigest()
+    cache_key = f'optimized_filter_data_v12_{cache_key_hash}'
+
+    # Пробуем получить из кэша
+    cached_data = cache.get(cache_key)
+    if cached_data:
+        return cached_data
 
     def fetch_filter_data():
-        from django.db.models import Prefetch, Count
-        from ..models import GameEngine
-
         platforms = list(Platform.objects.annotate(
             game_count=Count('game', distinct=True)
         ).filter(game_count__gt=0).only('id', 'name', 'slug')
                          .order_by('-game_count', 'name'))
 
-        keywords = list(Keyword.objects.all()
-                        .select_related('category').only(
-            'id', 'name', 'category__id', 'category__name'
-        ).order_by('name'))
+        # Получаем топ-200 ключевых слов по cached_usage_count (уже есть в модели)
+        top_keywords = list(Keyword.objects.filter(
+            cached_usage_count__gt=0
+        ).select_related('category').only(
+            'id', 'name', 'category__id', 'category__name', 'cached_usage_count'
+        ).order_by('-cached_usage_count', 'name')[:200])
+
+        top_keyword_ids = {k.id for k in top_keywords}
+
+        # Если есть выбранные ключевые слова, добавляем их (даже если не в топе)
+        if selected_keyword_ids:
+            selected_keywords = list(Keyword.objects.filter(
+                id__in=selected_keyword_ids
+            ).select_related('category').only(
+                'id', 'name', 'category__id', 'category__name', 'cached_usage_count'
+            ))
+
+            # Добавляем выбранные, которых нет в топе
+            for kw in selected_keywords:
+                if kw.id not in top_keyword_ids:
+                    top_keywords.append(kw)
+
+        keywords = top_keywords
 
         popular_keywords = list(Keyword.objects.filter(
             cached_usage_count__gt=0
         ).select_related('category').only(
             'id', 'name', 'category__id', 'category__name', 'cached_usage_count'
-        ).order_by('-cached_usage_count')[:50])
+        ).order_by('-cached_usage_count')[:100])
 
         themes = list(Theme.objects.annotate(
             game_count=Count('game', distinct=True)
@@ -1131,12 +1168,9 @@ def _get_optimized_filter_data() -> Dict[str, List]:
             'engines': engines,
         }
 
-    return cache_get_or_set(
-        cache_key,
-        fetch_filter_data,
-        CACHE_TIMES['short']['filter_data'],
-        cache_group='filter_data'
-    )
+    result = fetch_filter_data()
+    cache.set(cache_key, result, CACHE_TIMES['short']['filter_data'])
+    return result
 
 
 def _get_cached_game(game_id: str) -> Optional[Game]:
