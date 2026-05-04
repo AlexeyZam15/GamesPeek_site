@@ -2,6 +2,7 @@
 
 from django.urls import path
 from . import views
+from .views_parts.game_list_views import ajax_load_keywords
 
 from django.conf import settings
 from django.conf.urls.static import static
@@ -16,6 +17,7 @@ urlpatterns = [
     path('games/compare/<int:pk2>/', views.game_comparison, name='game_comparison'),
     path('ajax/load-games-page/', views.ajax_load_games_page, name='ajax_load_games_page'),
     path('ajax/load-filters/', views.ajax_load_filters, name='ajax_load_filters'),
+    path('ajax/load-keywords/', ajax_load_keywords, name='ajax_load_keywords'),
     path('admin-auto-login/', views.auto_login_admin, name='auto_login_admin'),
     path('games/<int:game_id>/analyze/delete-keyword/', views.delete_keyword, name='delete_keyword'),
     path('games/<int:game_id>/analyze/current-keywords/', views.get_current_keywords, name='get_current_keywords'),

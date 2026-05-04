@@ -1,0 +1,21 @@
+{% for keyword in keywords %}
+    <div class="keyword-item" data-keyword-name="{{ keyword.name|lower }}">
+        <div class="form-check">
+            <input class="form-check-input keyword-checkbox"
+                   type="checkbox"
+                   value="{{ keyword.id }}"
+                   id="{{ container_type }}_keyword_{{ keyword.id }}"
+                   {% if keyword.id in selected_ids %}checked{% endif %}>
+            <label class="form-check-label small" for="{{ container_type }}_keyword_{{ keyword.id }}">
+                {{ keyword.name }}
+                {% if keyword.cached_usage_count %}
+                    <span class="text-muted ms-1">({{ keyword.cached_usage_count }})</span>
+                {% endif %}
+            </label>
+        </div>
+    </div>
+{% empty %}
+    <div class="text-center py-3 text-muted">
+        No keywords found
+    </div>
+{% endfor %}

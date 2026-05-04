@@ -22,10 +22,79 @@ from .base_views import (
     GameTypeEnum, cache, GameEngine  # Добавлен GameEngine
 )
 from ..utils.filter_renderer import FilterRenderer
+from django.http import JsonResponse
+
 
 # Константа для количества игр на страницу - теперь используется сервером
 ITEMS_PER_PAGE = 16
 
+
+def ajax_load_keywords(request: HttpRequest) -> HttpResponse:
+    """
+    AJAX endpoint for loading keywords with pagination and search.
+    Supports mobile mode with fewer items per page.
+    """
+    from ..models import Keyword
+    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+    from django.template.loader import render_to_string
+    from django.http import JsonResponse
+
+    page_num = request.GET.get('page', '1')
+    search_term = request.GET.get('search', '').strip()
+    selected_ids = request.GET.get('selected', '')
+    selected_id_list = [int(x) for x in selected_ids.split(',') if x.isdigit()]
+    container_type = request.GET.get('type', 'search')
+    input_name = request.GET.get('input_name', 'keywords')
+    container_id = request.GET.get('container_id', 'keywords-container')
+    is_mobile = request.GET.get('mobile', '0') == '1'
+
+    # Определяем количество элементов на странице
+    items_per_page = 8 if is_mobile else 18
+
+    # Базовый запрос
+    keywords_qs = Keyword.objects.select_related('category').only(
+        'id', 'name', 'category__id', 'category__name', 'cached_usage_count'
+    )
+
+    # Поиск по названию
+    if search_term:
+        keywords_qs = keywords_qs.filter(name__icontains=search_term)
+
+    # Сортировка по популярности
+    keywords_qs = keywords_qs.order_by('-cached_usage_count', 'name')
+
+    # Пагинация
+    paginator = Paginator(keywords_qs, items_per_page)
+
+    try:
+        page_obj = paginator.page(page_num)
+    except PageNotAnInteger:
+        page_obj = paginator.page(1)
+    except EmptyPage:
+        page_obj = paginator.page(paginator.num_pages)
+
+    # Рендерим HTML
+    html = render_to_string('games/game_list/partials/_keyword_list_items.html', {
+        'keywords': page_obj.object_list,
+        'page_obj': page_obj,
+        'paginator': paginator,
+        'selected_ids': selected_id_list,
+        'container_id': container_id,
+        'input_name': input_name,
+        'container_type': container_type,
+        'search_term': search_term,
+        'is_mobile': is_mobile,
+    })
+
+    return JsonResponse({
+        'html': html,
+        'has_next': page_obj.has_next(),
+        'has_previous': page_obj.has_previous(),
+        'current_page': page_obj.number,
+        'total_pages': paginator.num_pages,
+        'total_count': paginator.count,
+        'items_per_page': items_per_page,
+    })
 
 def search_results(request: HttpRequest) -> HttpResponse:
     """
@@ -385,7 +454,6 @@ def _render_filters_with_cache(
     from ..utils.filter_renderer import FilterRenderer
     from ..models import Genre, GameTypeEnum
 
-    # ОТЛАДКА - проверяем что пришло в filter_data
     print("=" * 60)
     print("DEBUG _render_filters_with_cache:")
     print(f"filter_data keys: {list(filter_data.keys())}")
@@ -412,6 +480,20 @@ def _render_filters_with_cache(
     print(f"search_selected genres: {search_selected.get('genres', [])}")
     print(f"similarity_selected genres: {similarity_selected.get('genres', [])}")
     print("=" * 60)
+
+    # Получаем данные фильтров с учётом выбранных ключевых слов
+    from .base_views import _get_optimized_filter_data
+
+    similarity_keyword_ids = similarity_selected.get('keywords', [])
+    search_keyword_ids = search_selected.get('keywords', [])
+    all_selected_keywords = list(set(similarity_keyword_ids + search_keyword_ids))
+
+    # Получаем оптимизированные данные фильтров с включением выбранных ключевых слов
+    optimized_filter_data = _get_optimized_filter_data(selected_keyword_ids=all_selected_keywords)
+
+    # Используем оптимизированные данные для ключевых слов
+    keywords_for_render = optimized_filter_data.get('keywords', [])
+    popular_keywords_for_render = optimized_filter_data.get('popular_keywords', [])
 
     # Search Filters
     result['search_platforms'] = FilterSectionCache.get_or_render(
@@ -448,7 +530,7 @@ def _render_filters_with_cache(
         'search_keywords',
         params_hash,
         lambda: renderer.render_search_keywords(
-            filter_data.get('keywords', []),
+            keywords_for_render,
             search_selected.get('keywords', [])
         ),
         selected_ids=search_selected.get('keywords', [])
@@ -527,7 +609,7 @@ def _render_filters_with_cache(
         'similarity_keywords',
         params_hash,
         lambda: renderer.render_similarity_keywords(
-            filter_data.get('keywords', []),
+            keywords_for_render,
             similarity_selected.get('keywords', [])
         ),
         selected_ids=similarity_selected.get('keywords', [])
