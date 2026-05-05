@@ -170,7 +170,6 @@ class Command(BaseCommand):
 
         cache.clear()
         self._clear_game_card_cache()
-        self._clear_filter_section_cache()
 
         with connection.cursor() as cursor:
             cursor.execute("""
@@ -192,7 +191,6 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f'✅ Из них очищено без связей: {total_cleaned:,}'))
         self.stdout.write(self.style.SUCCESS(f'✅ Кэш Django очищен'))
         self.stdout.write(self.style.SUCCESS(f'✅ Кэш карточек игр очищен'))
-        self.stdout.write(self.style.SUCCESS(f'✅ Кэш секций фильтров очищен'))
         self.stdout.write(self.style.SUCCESS(f'⏱️  Время выполнения: {total_time:.2f} сек'))
 
         self.stdout.write(self.style.WARNING(f'\n📊 Статистика ПОСЛЕ обновления:'))
@@ -248,7 +246,6 @@ class Command(BaseCommand):
         self.stdout.write(f'   Режимы игры: {consistency[10]:,} игр имеют {consistency[11]:,} связей')
         self.stdout.write(f'   Движки: {consistency[12]:,} игр имеют {consistency[13]:,} связей')
 
-        # СОЗДАЁМ GIN ИНДЕКСЫ ПОСЛЕ ОБНОВЛЕНИЯ ДАННЫХ (если их нет)
         self._ensure_gin_indexes()
 
         self.stdout.write(self.style.SUCCESS(f'\n{"=" * 60}'))
@@ -285,16 +282,6 @@ class Command(BaseCommand):
                         self.stdout.write(self.style.WARNING(f'   ⚠️ {index_name}: {e}'))
 
         self.stdout.write(self.style.SUCCESS('   ✅ Проверка GIN индексов завершена'))
-
-    def _clear_filter_section_cache(self):
-        """Очищает кэш секций фильтров."""
-        from games.models import FilterSectionCache
-
-        self.stdout.write(self.style.WARNING('\n🗑️  Очистка кэша секций фильтров...'))
-
-        count = FilterSectionCache.objects.all().delete()[0]
-        self.stdout.write(self.style.SUCCESS(f'   ✅ Удалено {count} записей FilterSectionCache'))
-        return count
 
     def _clear_game_card_cache(self, dry_run=False):
         """Очищает таблицу кэша карточек игр."""
