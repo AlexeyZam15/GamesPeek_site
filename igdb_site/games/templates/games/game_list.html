@@ -4,11 +4,13 @@
 {% load static %}
 
 {% block title %}
-    {% if find_similar and source_game_obj %}
-        Games Like {{ source_game_obj.name }} - Similar Games Recommendation
-    {% else %}
-        Browse Games
-    {% endif %}
+    {% spaceless %}
+        {% if find_similar and source_game_obj %}
+            Games Like {{ source_game_obj.name }} - Similar Games Recommendation
+        {% else %}
+            Browse Games
+        {% endif %}
+    {% endspaceless %}
 {% endblock %}
 
 {% block meta_tags %}
