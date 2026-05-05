@@ -6,8 +6,6 @@ Ensures Game.genre_ids, Game.keyword_ids etc. are always in sync with actual M2M
 
 Also invalidates GameCardCache when game data changes.
 
-Also invalidates FilterSectionCache when filter entities change.
-
 """
 
 from django.db.models.signals import m2m_changed, post_save, post_delete
@@ -15,7 +13,6 @@ from django.dispatch import receiver
 from django.db import transaction
 import logging
 from .models import Game, GameCardCache, Genre, Keyword, Theme, PlayerPerspective, GameMode, Platform, GameEngine
-from .models_parts.filter_cache import FilterSectionCache
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +28,7 @@ def update_game_vectors_on_m2m_change(sender, instance, action, reverse, model, 
     """
     Автоматически обновляет материализованные векторы (genre_ids, keyword_ids, ...)
     при любых изменениях ManyToMany связей игры.
-    Также инвалидирует кэш карточки игры и кэш фильтров.
+    Также инвалидирует кэш карточки игры.
 
     Срабатывает только для действий, которые изменяют связи:
     - post_add: после добавления связей
@@ -67,8 +64,6 @@ def update_game_vectors_on_m2m_change(sender, instance, action, reverse, model, 
         )
         logger.debug(f"Scheduled vector update and card invalidation for game {instance.id} via direct M2M change")
 
-    transaction.on_commit(invalidate_filter_caches)
-
 
 @receiver(m2m_changed, sender=Game.genres.through)
 @receiver(m2m_changed, sender=Game.platforms.through)
@@ -81,7 +76,7 @@ def update_cached_counts_on_m2m_change(sender, instance, action, reverse, model,
     """
     Автоматически обновляет кэшированные счетчики (_cached_genre_count, _cached_keyword_count, ...)
     при изменениях ManyToMany связей.
-    Также инвалидирует кэш карточки игры и кэш фильтров.
+    Также инвалидирует кэш карточки игры.
 
     Это дополняет существующий механизм в save() и обеспечивает актуальность счетчиков
     при изменениях через админку или массовые операции.
@@ -110,37 +105,17 @@ def update_cached_counts_on_m2m_change(sender, instance, action, reverse, model,
             lambda inst=instance: invalidate_game_card_cache(inst.id)
         )
 
-    transaction.on_commit(invalidate_filter_caches)
-
 
 @receiver(post_save, sender=Game)
 def invalidate_card_on_game_save(sender, instance, **kwargs):
     """
     Инвалидирует кэш карточки игры при сохранении основных полей игры
     (имя, рейтинг, обложка, тип игры и т.д.)
-    Также инвалидирует кэш фильтров при изменении игр.
     """
     transaction.on_commit(
         lambda: invalidate_game_card_cache(instance.id)
     )
-    transaction.on_commit(invalidate_filter_caches)
     logger.debug(f"Scheduled card invalidation for game {instance.id} on save")
-
-
-@receiver([post_save, post_delete], sender=Genre)
-@receiver([post_save, post_delete], sender=Keyword)
-@receiver([post_save, post_delete], sender=Theme)
-@receiver([post_save, post_delete], sender=PlayerPerspective)
-@receiver([post_save, post_delete], sender=GameMode)
-@receiver([post_save, post_delete], sender=Platform)
-@receiver([post_save, post_delete], sender=GameEngine)
-def invalidate_filter_caches_on_entity_change(sender, **kwargs):
-    """
-    Инвалидирует кэш фильтров при изменении любой сущности,
-    которая используется в фильтрах (жанры, ключевые слова, темы, платформы и т.д.)
-    """
-    logger.info(f"🔄 Entity {sender.__name__} changed, invalidating filter caches...")
-    transaction.on_commit(invalidate_filter_caches)
 
 
 def invalidate_game_card_cache(game_id: int) -> None:
@@ -155,15 +130,3 @@ def invalidate_game_card_cache(game_id: int) -> None:
             logger.info(f"Invalidated card cache for game {game_id}")
     except Exception as e:
         logger.error(f"Error invalidating card cache for game {game_id}: {e}")
-
-
-def invalidate_filter_caches() -> None:
-    """
-    Инвалидирует все кэши фильтров, помечая их как неактивные.
-    Вызывается при изменении любых данных, влияющих на фильтры.
-    """
-    try:
-        count = FilterSectionCache.invalidate_all_filters()
-        logger.info(f"Invalidated {count} filter section caches")
-    except Exception as e:
-        logger.error(f"Error invalidating filter caches: {e}")

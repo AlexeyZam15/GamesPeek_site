@@ -448,24 +448,14 @@ def _render_filters_with_cache(
         current_sort: str
 ) -> Dict[str, str]:
     """
-    Рендерит все секции фильтров с использованием модели FilterSectionCache.
+    Рендерит все секции фильтров напрямую (без кэширования в БД).
     """
-    from ..models_parts.filter_cache import FilterSectionCache
     from ..utils.filter_renderer import FilterRenderer
     from ..models import Genre, GameTypeEnum
 
     print("=" * 60)
-    print("DEBUG _render_filters_with_cache:")
+    print("DEBUG _render_filters_with_cache (NO CACHE):")
     print(f"filter_data keys: {list(filter_data.keys())}")
-    print(f"filter_data has 'genres': {'genres' in filter_data}")
-    print(f"filter_data genres count: {len(filter_data.get('genres', []))}")
-    print(f"filter_data has 'game_types': {'game_types' in filter_data}")
-    print(f"filter_data has 'platforms': {'platforms' in filter_data}")
-    print(f"filter_data has 'keywords': {'keywords' in filter_data}")
-    print(f"filter_data has 'themes': {'themes' in filter_data}")
-    print(f"filter_data has 'perspectives': {'perspectives' in filter_data}")
-    print(f"filter_data has 'game_modes': {'game_modes' in filter_data}")
-    print(f"filter_data has 'engines': {'engines' in filter_data}")
     print("=" * 60)
 
     result = {}
@@ -477,9 +467,6 @@ def _render_filters_with_cache(
 
     print(f"Direct DB query - genres count: {len(genres_list)}")
     print(f"Direct DB query - game types count: {len(game_types_list)}")
-    print(f"search_selected genres: {search_selected.get('genres', [])}")
-    print(f"similarity_selected genres: {similarity_selected.get('genres', [])}")
-    print("=" * 60)
 
     # Получаем данные фильтров с учётом выбранных ключевых слов
     from .base_views import _get_optimized_filter_data
@@ -495,164 +482,85 @@ def _render_filters_with_cache(
     keywords_for_render = optimized_filter_data.get('keywords', [])
     popular_keywords_for_render = optimized_filter_data.get('popular_keywords', [])
 
-    # Search Filters
-    result['search_platforms'] = FilterSectionCache.get_or_render(
-        'search_platforms',
-        params_hash,
-        lambda: renderer.render_search_platforms(
-            filter_data.get('platforms', []),
-            search_selected.get('platforms', [])
-        ),
-        selected_ids=search_selected.get('platforms', [])
+    # Search Filters - прямой рендеринг без кэша
+    result['search_platforms'] = renderer.render_search_platforms(
+        filter_data.get('platforms', []),
+        search_selected.get('platforms', [])
     )
 
-    result['search_game_types'] = FilterSectionCache.get_or_render(
-        'search_game_types',
-        params_hash,
-        lambda: renderer.render_search_game_types(
-            game_types_list,
-            search_selected.get('game_types', [])
-        ),
-        selected_ids=search_selected.get('game_types', [])
+    result['search_game_types'] = renderer.render_search_game_types(
+        game_types_list,
+        search_selected.get('game_types', [])
     )
 
-    result['search_genres'] = FilterSectionCache.get_or_render(
-        'search_genres',
-        params_hash,
-        lambda: renderer.render_search_genres(
-            genres_list,
-            search_selected.get('genres', [])
-        ),
-        selected_ids=search_selected.get('genres', [])
+    result['search_genres'] = renderer.render_search_genres(
+        genres_list,
+        search_selected.get('genres', [])
     )
 
-    result['search_keywords'] = FilterSectionCache.get_or_render(
-        'search_keywords',
-        params_hash,
-        lambda: renderer.render_search_keywords(
-            keywords_for_render,
-            search_selected.get('keywords', [])
-        ),
-        selected_ids=search_selected.get('keywords', [])
+    result['search_keywords'] = renderer.render_search_keywords(
+        keywords_for_render,
+        search_selected.get('keywords', [])
     )
 
-    result['search_themes'] = FilterSectionCache.get_or_render(
-        'search_themes',
-        params_hash,
-        lambda: renderer.render_search_themes(
-            filter_data.get('themes', []),
-            search_selected.get('themes', [])
-        ),
-        selected_ids=search_selected.get('themes', [])
+    result['search_themes'] = renderer.render_search_themes(
+        filter_data.get('themes', []),
+        search_selected.get('themes', [])
     )
 
-    result['search_perspectives'] = FilterSectionCache.get_or_render(
-        'search_perspectives',
-        params_hash,
-        lambda: renderer.render_search_perspectives(
-            filter_data.get('perspectives', []),
-            search_selected.get('perspectives', [])
-        ),
-        selected_ids=search_selected.get('perspectives', [])
+    result['search_perspectives'] = renderer.render_search_perspectives(
+        filter_data.get('perspectives', []),
+        search_selected.get('perspectives', [])
     )
 
-    result['search_game_modes'] = FilterSectionCache.get_or_render(
-        'search_game_modes',
-        params_hash,
-        lambda: renderer.render_search_game_modes(
-            filter_data.get('game_modes', []),
-            search_selected.get('game_modes', [])
-        ),
-        selected_ids=search_selected.get('game_modes', [])
+    result['search_game_modes'] = renderer.render_search_game_modes(
+        filter_data.get('game_modes', []),
+        search_selected.get('game_modes', [])
     )
 
-    result['search_engines'] = FilterSectionCache.get_or_render(
-        'search_engines',
-        params_hash,
-        lambda: renderer.render_search_engines(
-            filter_data.get('engines', []),
-            search_selected.get('engines', [])
-        ),
-        selected_ids=search_selected.get('engines', [])
+    result['search_engines'] = renderer.render_search_engines(
+        filter_data.get('engines', []),
+        search_selected.get('engines', [])
     )
 
     # Date filter
-    date_context = {
-        'release_year_start': search_selected.get('release_year_start'),
-        'release_year_end': search_selected.get('release_year_end'),
-    }
-    result['search_date'] = FilterSectionCache.get_or_render(
-        'search_date',
-        params_hash,
-        lambda: renderer.render_search_date_filter(
-            search_selected.get('release_year_start'),
-            search_selected.get('release_year_end'),
-            years_range.get('min_year', 1970),
-            years_range.get('max_year', 2024),
-            years_range.get('current_year', 2024)
-        ),
-        context_data=date_context
+    result['search_date'] = renderer.render_search_date_filter(
+        search_selected.get('release_year_start'),
+        search_selected.get('release_year_end'),
+        years_range.get('min_year', 1970),
+        years_range.get('max_year', 2024),
+        years_range.get('current_year', 2024)
     )
 
     # Similarity Filters
-    result['similarity_genres'] = FilterSectionCache.get_or_render(
-        'similarity_genres',
-        params_hash,
-        lambda: renderer.render_similarity_genres(
-            genres_list,
-            similarity_selected.get('genres', [])
-        ),
-        selected_ids=similarity_selected.get('genres', [])
+    result['similarity_genres'] = renderer.render_similarity_genres(
+        genres_list,
+        similarity_selected.get('genres', [])
     )
 
-    result['similarity_keywords'] = FilterSectionCache.get_or_render(
-        'similarity_keywords',
-        params_hash,
-        lambda: renderer.render_similarity_keywords(
-            keywords_for_render,
-            similarity_selected.get('keywords', [])
-        ),
-        selected_ids=similarity_selected.get('keywords', [])
+    result['similarity_keywords'] = renderer.render_similarity_keywords(
+        keywords_for_render,
+        similarity_selected.get('keywords', [])
     )
 
-    result['similarity_themes'] = FilterSectionCache.get_or_render(
-        'similarity_themes',
-        params_hash,
-        lambda: renderer.render_similarity_themes(
-            filter_data.get('themes', []),
-            similarity_selected.get('themes', [])
-        ),
-        selected_ids=similarity_selected.get('themes', [])
+    result['similarity_themes'] = renderer.render_similarity_themes(
+        filter_data.get('themes', []),
+        similarity_selected.get('themes', [])
     )
 
-    result['similarity_perspectives'] = FilterSectionCache.get_or_render(
-        'similarity_perspectives',
-        params_hash,
-        lambda: renderer.render_similarity_perspectives(
-            filter_data.get('perspectives', []),
-            similarity_selected.get('perspectives', [])
-        ),
-        selected_ids=similarity_selected.get('perspectives', [])
+    result['similarity_perspectives'] = renderer.render_similarity_perspectives(
+        filter_data.get('perspectives', []),
+        similarity_selected.get('perspectives', [])
     )
 
-    result['similarity_game_modes'] = FilterSectionCache.get_or_render(
-        'similarity_game_modes',
-        params_hash,
-        lambda: renderer.render_similarity_game_modes(
-            filter_data.get('game_modes', []),
-            similarity_selected.get('game_modes', [])
-        ),
-        selected_ids=similarity_selected.get('game_modes', [])
+    result['similarity_game_modes'] = renderer.render_similarity_game_modes(
+        filter_data.get('game_modes', []),
+        similarity_selected.get('game_modes', [])
     )
 
-    result['similarity_engines'] = FilterSectionCache.get_or_render(
-        'similarity_engines',
-        params_hash,
-        lambda: renderer.render_similarity_engines(
-            filter_data.get('engines', []),
-            similarity_selected.get('engines', [])
-        ),
-        selected_ids=similarity_selected.get('engines', [])
+    result['similarity_engines'] = renderer.render_similarity_engines(
+        filter_data.get('engines', []),
+        similarity_selected.get('engines', [])
     )
 
     print(f"DEBUG _render_filters_with_cache: result keys = {list(result.keys())}")
