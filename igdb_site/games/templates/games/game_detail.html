@@ -3,52 +3,158 @@
 {% extends 'base.html' %}
 {% load static %}
 
-{% block title %}{{ game.name }}{% endblock %}
+{% block title %}{{ game.name }} - Game Details, Rating, Reviews & Similar Games in Database{% endblock %}
 
 {% block meta_tags %}
-    <meta name="description" content="{{ game.name }}. Rating: {{ game.rating|default:'N/A' }}/100.
+    <meta name="description"
+          content="{{ game.name }} - Complete game information in our video game database. Rating: {{ game.rating|default:'N/A' }}/100.
         {% if game.first_release_date %}Release Date: {{ game.first_release_date|date:'F Y' }}.{% endif %}
         Genres: {% for genre in game.genres.all %}{{ genre.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.
         Themes: {% for theme in game.themes.all %}{{ theme.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.
         Game Modes:
-            {% for mode in game.game_modes.all %}{{ mode.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.
+                  {% for mode in game.game_modes.all %}{{ mode.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.
         Platforms:
-            {% for platform in game.platforms.all %}{{ platform.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.
+                  {% for platform in game.platforms.all %}{{ platform.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.
         {% if game.developers.all %}Developers:
-        {% for developer in game.developers.all %}{{ developer.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
+
+              {% for developer in game.developers.all %}{{ developer.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
         {% if game.publishers.all %}Publishers:
-        {% for publisher in game.publishers.all %}{{ publisher.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
+
+              {% for publisher in game.publishers.all %}{{ publisher.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
         {% if game.game_engines.all %}Engine:
-        {% for engine in game.game_engines.all %}{{ engine.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
-        View screenshots, videos, and similar games in our game database.">
-    <meta name="keywords" content="{{ game.name }}, {{ game.name }} game, video game,
-        {% for genre in game.genres.all %}{{ genre.name }}, {% endfor %}
-        {% for theme in game.themes.all %}{{ theme.name }}, {% endfor %}
+
+              {% for engine in game.game_engines.all %}{{ engine.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
+        View screenshots, videos, and find similar games like {{ game.name }} in our game database of 45,000+ titles.">
+
+    <meta name="keywords" content="{{ game.name }}, {{ game.name }} game, {{ game.name }} review, {{ game.name }} rating, video game database,
+        {% for genre in game.genres.all %}{{ genre.name }} game, {% endfor %}
+        {% for theme in game.themes.all %}{{ theme.name }} game, {% endfor %}
         {% for keyword in game.keywords.all %}{{ keyword.name }}, {% endfor %}
         {% for perspective in game.player_perspectives.all %}{{ perspective.name }} perspective, {% endfor %}
-        {% for mode in game.game_modes.all %}{{ mode.name }}, {% endfor %}
+        {% for mode in game.game_modes.all %}{{ mode.name }} mode, {% endfor %}
         {% if game.series.all %}{% for series in game.series.all %}{{ series.name }} series, {% endfor %}{% endif %}
-        game database, game rating, game review, game details, similar games,
+        games like {{ game.name }}, similar games to {{ game.name }},
 
             {% if game.developers.all %}{% for developer in game.developers.all %}{{ developer.name }} game, {% endfor %}{% endif %}
 
             {% if game.publishers.all %}{% for publisher in game.publishers.all %}{{ publisher.name }}, {% endfor %}{% endif %}
-        game engine, screenshots, gameplay video">
-    <meta property="og:title" content="{{ game.name }}">
+        game database entry, game details, {{ game.name }} screenshots, {{ game.name }} gameplay">
+
+    <meta property="og:title" content="{{ game.name }} - Complete Game Database Entry">
     <meta property="og:description" content="{{ game.name }} -
-            {% for genre in game.genres.all %}{{ genre.name }}{% if not forloop.last %}, {% endif %}{% endfor %} game. Rating: {{ game.rating|default:'N/A' }}/100">
+
+            {% for genre in game.genres.all %}{{ genre.name }}{% if not forloop.last %}, {% endif %}{% endfor %} game. Rating: {{ game.rating|default:'N/A' }}/100. Find similar games in our video game database.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="{{ request.build_absolute_uri }}">
     {% if game.cover_url %}
         <meta property="og:image" content="{{ game.cover_url }}">
     {% endif %}
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="{{ game.name }}">
+    <meta name="twitter:title" content="{{ game.name }} - Video Game Database Entry">
     <meta name="twitter:description"
-          content="{{ game.name }} - Game details, rating, genres, and more in our game database.">
+          content="{{ game.name }} - Complete game details, rating, genres, platforms, and similar games in our video game database of 45,000+ titles.">
     {% if game.cover_url %}
         <meta name="twitter:image" content="{{ game.cover_url }}">
     {% endif %}
+
+    <!-- Structured Data for Video Game (Schema.org) -->
+    <script type="application/ld+json">
+        {
+            "@context": "https://schema.org",
+            "@type": "VideoGame",
+            "name": "{{ game.name }}",
+        "url": "{{ request.build_absolute_uri }}",
+        "sameAs": "{% if game.igdb_url %}https://www.igdb.com/games/{{ game.slug }}{% endif %}",
+        {% if game.cover_url %}
+            "image": "{{ game.cover_url }}",
+        "thumbnailUrl": "{{ game.cover_url }}",
+        {% endif %}
+        "description":
+        "{{ game.name }}. {% for genre in game.genres.all %}{{ genre.name }} {% endfor %}game released {% if game.first_release_date %}in {{ game.first_release_date|date:'F Y' }}{% endif %}.",
+        "aggregateRating": {
+            "@type": "AggregateRating",
+            "ratingValue": "{{ game.rating|default:'0'|stringformat:'.1f' }}",
+            "bestRating": "100",
+            "worstRating": "0",
+            "ratingCount": "{{ game.rating_count|default:0 }}"
+        }{% if game.first_release_date %},
+        "datePublished": "{{ game.first_release_date|date:'Y-m-d' }}"{% endif %},
+        {% if game.genres.all %}
+            "genre": [
+            {% for genre in game.genres.all %}
+                "{{ genre.name }}"{% if not forloop.last %}{% endif %}
+            {% endfor %}
+            ],
+        {% endif %}
+        {% if game.game_modes.all %}
+        "gameMode": [
+        {% for mode in game.game_modes.all %}
+            "{{ mode.name }}"{% if not forloop.last %}{% endif %}
+            {% endfor %}
+        ],
+    {% endif %}
+        {% if game.platforms.all %}
+        "availableOnDevice": [
+        {% for platform in game.platforms.all %}
+            {
+                "@type": "Device",
+                "name": "{{ platform.name }}"
+            }{% if not forloop.last %}{% endif %}
+            {% endfor %}
+        ],
+    {% endif %}
+        {% if game.developers.all %}
+        "author": [
+        {% for developer in game.developers.all %}
+            {
+                "@type": "Organization",
+                "name": "{{ developer.name }}"
+            }{% if not forloop.last %}{% endif %}
+            {% endfor %}
+        ],
+    {% endif %}
+        {% if game.publishers.all %}
+        "publisher": [
+        {% for publisher in game.publishers.all %}
+            {
+                "@type": "Organization",
+                "name": "{{ publisher.name }}"
+            }{% if not forloop.last %}{% endif %}
+            {% endfor %}
+        ],
+    {% endif %}
+        "isFamilyFriendly": "true",
+        "applicationCategory": "Game"
+    }
+    </script>
+
+    <!-- BreadcrumbList Structured Data -->
+    <script type="application/ld+json">
+        {
+            "@context": "https://schema.org",
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+                {
+                    "@type": "ListItem",
+                    "position": 1,
+                    "name": "Home",
+                    "item": "https://gamespeek.dpdns.org/"
+                },
+                {
+                    "@type": "ListItem",
+                    "position": 2,
+                    "name": "Video Game Database",
+                    "item": "https://gamespeek.dpdns.org{% url 'game_list' %}"
+            },
+            {
+                "@type": "ListItem",
+                "position": 3,
+                "name": "{{ game.name }}",
+                "item": "{{ request.build_absolute_uri }}"
+            }
+        ]
+    }
+    </script>
 {% endblock %}
 
 {% block extra_css %}
@@ -58,12 +164,22 @@
 {% endblock %}
 
 {% block content %}
+    <!-- Breadcrumb navigation for SEO and user experience -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb" style="background: transparent; padding: 0.5rem 0;">
+            <li class="breadcrumb-item"><a href="{% url 'home' %}" style="color: var(--secondary-color);">Home</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'game_list' %}" style="color: var(--secondary-color);">Video
+                Game Database</a></li>
+            <li class="breadcrumb-item active" aria-current="page">{{ game.name }}</li>
+        </ol>
+    </nav>
+
     <div class="container">
         {% include 'games/game_detail/header.html' %}
         {% include 'games/game_detail/tabs_content.html' %}
     </div>
 
-    <!-- МОДАЛЬНОЕ ОКНО ДЛЯ ГАЛЕРЕИ СКРИНШОТОВ -->
+    <!-- MODAL WINDOW FOR SCREENSHOT GALLERY -->
     <div class="modal fade" id="screenshotModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered modal-xl">
             <div class="modal-content">
