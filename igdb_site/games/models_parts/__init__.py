@@ -21,7 +21,6 @@ from .similarity import (
 from .media import Screenshot
 from .game_card import GameCardCache
 from .game_engine import GameEngine
-from .filter_cache import FilterSectionCache
 
 __all__ = [
     'GameTypeEnum',
@@ -42,5 +41,4 @@ __all__ = [
     'Screenshot',
     'GameCardCache',
     'GameEngine',
-    'FilterSectionCache',
 ]
