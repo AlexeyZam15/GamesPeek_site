@@ -23,7 +23,8 @@ from .base_views import (
 )
 from ..utils.filter_renderer import FilterRenderer
 from django.http import JsonResponse
-
+from django.views.decorators.cache import cache_page
+from django.views.decorators.vary import vary_on_headers
 
 # Константа для количества игр на страницу - теперь используется сервером
 ITEMS_PER_PAGE = 16
@@ -201,6 +202,8 @@ def search_results(request: HttpRequest) -> HttpResponse:
     return render(request, 'games/search_results.html', context)
 
 
+@cache_page(60 * 60)  # Кэшируем на 1 час
+@vary_on_headers('Cookie')  # Учитываем авторизацию
 def game_list(request: HttpRequest) -> HttpResponse:
     """
     Main game list function - renders filters on server with aggressive caching.
@@ -448,123 +451,109 @@ def _render_filters_with_cache(
         current_sort: str
 ) -> Dict[str, str]:
     """
-    Рендерит все секции фильтров напрямую (без кэширования в БД).
+    Renders filter sections with aggressive caching of the final HTML.
+    Cache key includes params_hash (based on request parameters).
     """
+    from django.core.cache import cache
     from ..utils.filter_renderer import FilterRenderer
-    from ..models import Genre, GameTypeEnum
 
-    print("=" * 60)
-    print("DEBUG _render_filters_with_cache (NO CACHE):")
-    print(f"filter_data keys: {list(filter_data.keys())}")
-    print("=" * 60)
+    # Создаём ключ кэша на основе всех параметров
+    import hashlib
+    import json
 
-    result = {}
+    cache_data = {
+        'params_hash': params_hash,
+        'search_selected': {k: sorted(v) for k, v in search_selected.items() if isinstance(v, list)},
+        'similarity_selected': {k: sorted(v) for k, v in similarity_selected.items() if isinstance(v, list)},
+        'current_sort': current_sort,
+        'years_range': years_range,
+        'version': 'v2'
+    }
+    cache_key_str = json.dumps(cache_data, sort_keys=True)
+    cache_key_hash = hashlib.md5(cache_key_str.encode()).hexdigest()
+    cache_key = f'rendered_filters_{cache_key_hash}'
+
+    cached_html = cache.get(cache_key)
+    if cached_html:
+        print(f"[CACHE HIT] rendered_filters for {cache_key_hash[:8]}")
+        return cached_html
+
+    print(f"[CACHE MISS] rendered_filters for {cache_key_hash[:8]}")
+
     renderer = FilterRenderer()
 
-    # Получаем списки напрямую из базы данных
+    # Получаем данные из filter_data (уже кэшировано в _get_optimized_filter_data)
     genres_list = list(Genre.objects.all().only('id', 'name').order_by('name'))
     game_types_list = GameTypeEnum.CHOICES
 
-    print(f"Direct DB query - genres count: {len(genres_list)}")
-    print(f"Direct DB query - game types count: {len(game_types_list)}")
+    result = {
+        'search_platforms': renderer.render_search_platforms(
+            filter_data.get('platforms', []),
+            search_selected.get('platforms', [])
+        ),
+        'search_game_types': renderer.render_search_game_types(
+            game_types_list,
+            search_selected.get('game_types', [])
+        ),
+        'search_genres': renderer.render_search_genres(
+            genres_list,
+            search_selected.get('genres', [])
+        ),
+        'search_keywords': renderer.render_search_keywords(
+            filter_data.get('keywords', []),
+            search_selected.get('keywords', [])
+        ),
+        'search_themes': renderer.render_search_themes(
+            filter_data.get('themes', []),
+            search_selected.get('themes', [])
+        ),
+        'search_perspectives': renderer.render_search_perspectives(
+            filter_data.get('perspectives', []),
+            search_selected.get('perspectives', [])
+        ),
+        'search_game_modes': renderer.render_search_game_modes(
+            filter_data.get('game_modes', []),
+            search_selected.get('game_modes', [])
+        ),
+        'search_engines': renderer.render_search_engines(
+            filter_data.get('engines', []),
+            search_selected.get('engines', [])
+        ),
+        'search_date': renderer.render_search_date_filter(
+            search_selected.get('release_year_start'),
+            search_selected.get('release_year_end'),
+            years_range.get('min_year', 1970),
+            years_range.get('max_year', 2024),
+            years_range.get('current_year', 2024)
+        ),
+        'similarity_genres': renderer.render_similarity_genres(
+            genres_list,
+            similarity_selected.get('genres', [])
+        ),
+        'similarity_keywords': renderer.render_similarity_keywords(
+            filter_data.get('keywords', []),
+            similarity_selected.get('keywords', [])
+        ),
+        'similarity_themes': renderer.render_similarity_themes(
+            filter_data.get('themes', []),
+            similarity_selected.get('themes', [])
+        ),
+        'similarity_perspectives': renderer.render_similarity_perspectives(
+            filter_data.get('perspectives', []),
+            similarity_selected.get('perspectives', [])
+        ),
+        'similarity_game_modes': renderer.render_similarity_game_modes(
+            filter_data.get('game_modes', []),
+            similarity_selected.get('game_modes', [])
+        ),
+        'similarity_engines': renderer.render_similarity_engines(
+            filter_data.get('engines', []),
+            similarity_selected.get('engines', [])
+        ),
+    }
 
-    # Получаем данные фильтров с учётом выбранных ключевых слов
-    from .base_views import _get_optimized_filter_data
-
-    similarity_keyword_ids = similarity_selected.get('keywords', [])
-    search_keyword_ids = search_selected.get('keywords', [])
-    all_selected_keywords = list(set(similarity_keyword_ids + search_keyword_ids))
-
-    # Получаем оптимизированные данные фильтров с включением выбранных ключевых слов
-    optimized_filter_data = _get_optimized_filter_data(selected_keyword_ids=all_selected_keywords)
-
-    # Используем оптимизированные данные для ключевых слов
-    keywords_for_render = optimized_filter_data.get('keywords', [])
-    popular_keywords_for_render = optimized_filter_data.get('popular_keywords', [])
-
-    # Search Filters - прямой рендеринг без кэша
-    result['search_platforms'] = renderer.render_search_platforms(
-        filter_data.get('platforms', []),
-        search_selected.get('platforms', [])
-    )
-
-    result['search_game_types'] = renderer.render_search_game_types(
-        game_types_list,
-        search_selected.get('game_types', [])
-    )
-
-    result['search_genres'] = renderer.render_search_genres(
-        genres_list,
-        search_selected.get('genres', [])
-    )
-
-    result['search_keywords'] = renderer.render_search_keywords(
-        keywords_for_render,
-        search_selected.get('keywords', [])
-    )
-
-    result['search_themes'] = renderer.render_search_themes(
-        filter_data.get('themes', []),
-        search_selected.get('themes', [])
-    )
-
-    result['search_perspectives'] = renderer.render_search_perspectives(
-        filter_data.get('perspectives', []),
-        search_selected.get('perspectives', [])
-    )
-
-    result['search_game_modes'] = renderer.render_search_game_modes(
-        filter_data.get('game_modes', []),
-        search_selected.get('game_modes', [])
-    )
-
-    result['search_engines'] = renderer.render_search_engines(
-        filter_data.get('engines', []),
-        search_selected.get('engines', [])
-    )
-
-    # Date filter
-    result['search_date'] = renderer.render_search_date_filter(
-        search_selected.get('release_year_start'),
-        search_selected.get('release_year_end'),
-        years_range.get('min_year', 1970),
-        years_range.get('max_year', 2024),
-        years_range.get('current_year', 2024)
-    )
-
-    # Similarity Filters
-    result['similarity_genres'] = renderer.render_similarity_genres(
-        genres_list,
-        similarity_selected.get('genres', [])
-    )
-
-    result['similarity_keywords'] = renderer.render_similarity_keywords(
-        keywords_for_render,
-        similarity_selected.get('keywords', [])
-    )
-
-    result['similarity_themes'] = renderer.render_similarity_themes(
-        filter_data.get('themes', []),
-        similarity_selected.get('themes', [])
-    )
-
-    result['similarity_perspectives'] = renderer.render_similarity_perspectives(
-        filter_data.get('perspectives', []),
-        similarity_selected.get('perspectives', [])
-    )
-
-    result['similarity_game_modes'] = renderer.render_similarity_game_modes(
-        filter_data.get('game_modes', []),
-        similarity_selected.get('game_modes', [])
-    )
-
-    result['similarity_engines'] = renderer.render_similarity_engines(
-        filter_data.get('engines', []),
-        similarity_selected.get('engines', [])
-    )
-
-    print(f"DEBUG _render_filters_with_cache: result keys = {list(result.keys())}")
-    print("=" * 60)
+    # Кэшируем на 30 минут
+    cache.set(cache_key, result, 1800)
 
     return result
 

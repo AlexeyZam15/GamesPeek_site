@@ -1077,37 +1077,41 @@ def _get_cached_years_range() -> Dict:
 
 
 def _get_optimized_filter_data(selected_keyword_ids: List[int] = None) -> Dict[str, List]:
-    """Get all filter data with intelligent caching and limited keywords.
-
-    Args:
-        selected_keyword_ids: IDs выбранных ключевых слов, которые нужно обязательно включить
+    """
+    Get all filter data with aggressive caching.
+    Cache lives for 1 hour and is shared across all requests.
     """
     import hashlib
     import json
     from django.core.cache import cache
     from django.db.models import Count
     from ..models import GameEngine, Keyword, Theme, PlayerPerspective, GameMode, Company, Platform
+    from ..models import Genre
 
-    # Учитываем выбранные ID в кэше
-    cache_key_data = {
+    # Создаем ключ кэша без учёта selected_keyword_ids (они влияют только на keywords)
+    cache_data = {
+        'version': 'v12',
         'selected_keywords': sorted(selected_keyword_ids or [])
     }
-    cache_key_str = json.dumps(cache_key_data, sort_keys=True)
+    cache_key_str = json.dumps(cache_data, sort_keys=True)
     cache_key_hash = hashlib.md5(cache_key_str.encode()).hexdigest()
-    cache_key = f'optimized_filter_data_v12_{cache_key_hash}'
+    cache_key = f'optimized_filter_data_{cache_key_hash}'
 
-    # Пробуем получить из кэша
     cached_data = cache.get(cache_key)
     if cached_data:
+        print(f"[CACHE HIT] optimized_filter_data for key {cache_key_hash[:8]}")
         return cached_data
 
+    print(f"[CACHE MISS] optimized_filter_data for key {cache_key_hash[:8]}")
+
     def fetch_filter_data():
+        print("[FETCH] Loading filter data from database...")
+
         platforms = list(Platform.objects.annotate(
             game_count=Count('game', distinct=True)
         ).filter(game_count__gt=0).only('id', 'name', 'slug')
                          .order_by('-game_count', 'name'))
 
-        # Получаем топ-200 ключевых слов по cached_usage_count (уже есть в модели)
         top_keywords = list(Keyword.objects.filter(
             cached_usage_count__gt=0
         ).select_related('category').only(
@@ -1116,15 +1120,12 @@ def _get_optimized_filter_data(selected_keyword_ids: List[int] = None) -> Dict[s
 
         top_keyword_ids = {k.id for k in top_keywords}
 
-        # Если есть выбранные ключевые слова, добавляем их (даже если не в топе)
         if selected_keyword_ids:
             selected_keywords = list(Keyword.objects.filter(
                 id__in=selected_keyword_ids
             ).select_related('category').only(
                 'id', 'name', 'category__id', 'category__name', 'cached_usage_count'
             ))
-
-            # Добавляем выбранные, которых нет в топе
             for kw in selected_keywords:
                 if kw.id not in top_keyword_ids:
                     top_keywords.append(kw)
@@ -1169,7 +1170,10 @@ def _get_optimized_filter_data(selected_keyword_ids: List[int] = None) -> Dict[s
         }
 
     result = fetch_filter_data()
-    cache.set(cache_key, result, CACHE_TIMES['short']['filter_data'])
+
+    # Кэшируем на 1 час (3600 секунд)
+    cache.set(cache_key, result, 3600)
+
     return result
 
 
