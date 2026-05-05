@@ -721,3 +721,9 @@ class TimingMiddleware:
             logger.error(f"[SLOW VIEW] {request.path} took {duration:.2f}s")
 
         return response
+
+
+import redis
+import pickle
+
+redis_client = redis.Redis(host='127.0.0.1', port=6379, db=1, decode_responses=False)
