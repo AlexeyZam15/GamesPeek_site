@@ -26,6 +26,11 @@ from django.http import JsonResponse
 from django.views.decorators.cache import cache_page
 from django.views.decorators.vary import vary_on_headers
 
+import redis
+import pickle
+
+redis_client = redis.Redis(host='127.0.0.1', port=6379, db=1, decode_responses=False)
+
 # Константа для количества игр на страницу - теперь используется сервером
 ITEMS_PER_PAGE = 16
 
@@ -451,38 +456,48 @@ def _render_filters_with_cache(
         current_sort: str
 ) -> Dict[str, str]:
     """
-    Renders filter sections with aggressive caching of the final HTML.
+    Renders filter sections with aggressive caching using Redis.
     Cache key includes params_hash (based on request parameters).
+    Results are pickled and stored in Redis for 30 minutes.
     """
-    from django.core.cache import cache
-    from ..utils.filter_renderer import FilterRenderer
-
-    # Создаём ключ кэша на основе всех параметров
     import hashlib
     import json
+    import pickle
+    from django.conf import settings
+    from ..utils.filter_renderer import FilterRenderer
 
+    # Получаем Redis клиент из настроек
+    redis_client = getattr(settings, 'redis_client', None)
+    if redis_client is None:
+        # Если Redis не настроен, создаем временный клиент
+        import redis
+        redis_client = redis.Redis(host='127.0.0.1', port=6379, db=1, decode_responses=False)
+
+    # Создаём ключ кэша на основе всех параметров
     cache_data = {
         'params_hash': params_hash,
         'search_selected': {k: sorted(v) for k, v in search_selected.items() if isinstance(v, list)},
         'similarity_selected': {k: sorted(v) for k, v in similarity_selected.items() if isinstance(v, list)},
         'current_sort': current_sort,
         'years_range': years_range,
-        'version': 'v2'
+        'version': 'v3'
     }
     cache_key_str = json.dumps(cache_data, sort_keys=True)
     cache_key_hash = hashlib.md5(cache_key_str.encode()).hexdigest()
     cache_key = f'rendered_filters_{cache_key_hash}'
 
-    cached_html = cache.get(cache_key)
-    if cached_html:
-        print(f"[CACHE HIT] rendered_filters for {cache_key_hash[:8]}")
-        return cached_html
+    # Пытаемся получить из Redis
+    cached_data = redis_client.get(cache_key)
+    if cached_data is not None:
+        print(f"[CACHE HIT] rendered_filters for key {cache_key_hash[:8]}")
+        return pickle.loads(cached_data)
 
-    print(f"[CACHE MISS] rendered_filters for {cache_key_hash[:8]}")
+    print(f"[CACHE MISS] rendered_filters for key {cache_key_hash[:8]}")
 
     renderer = FilterRenderer()
 
     # Получаем данные из filter_data (уже кэшировано в _get_optimized_filter_data)
+    from ..models import Genre
     genres_list = list(Genre.objects.all().only('id', 'name').order_by('name'))
     game_types_list = GameTypeEnum.CHOICES
 
@@ -552,8 +567,9 @@ def _render_filters_with_cache(
         ),
     }
 
-    # Кэшируем на 30 минут
-    cache.set(cache_key, result, 1800)
+    # Сохраняем в Redis на 30 минут (1800 секунд)
+    redis_client.setex(cache_key, 1800, pickle.dumps(result))
+    print(f"[CACHE SAVE] rendered_filters for key {cache_key_hash[:8]} saved to Redis")
 
     return result
 
@@ -1114,6 +1130,8 @@ def _get_similar_games_mode_with_pagination(
     }
 
 
+@cache_page(60 * 15)  # Кэшируем на 15 минут
+@vary_on_headers('*')
 def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
     """Load games for specific page via AJAX with card caching and text search support."""
     start_time = time.time()
