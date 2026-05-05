@@ -366,12 +366,14 @@ const AjaxPaginationDebugTimer = {
                 detail: { page: pageNum, source: 'cache' }
             }));
 
-            // Планируем предзагрузку через 500ms
-            setTimeout(() => {
-                if (!isPrefetching) {
-                    prefetchAdjacentPages(pageNum, displayUrl);
-                }
-            }, 500);
+            // Не запускаем предзагрузку, если она уже идёт
+            if (!isPrefetching) {
+                setTimeout(() => {
+                    if (!isPrefetching) {
+                        prefetchAdjacentPages(pageNum, displayUrl);
+                    }
+                }, 500);
+            }
 
             AjaxPaginationDebugTimer.end('loadRequestedPage');
             return;
@@ -469,91 +471,91 @@ const AjaxPaginationDebugTimer = {
      * Предзагружает соседние страницы в фоне, по одной с малыми задержками
      */
     function prefetchAdjacentPages(currentPage, baseDisplayUrl) {
-        AjaxPaginationDebugTimer.start('prefetchAdjacentPages');
+    AjaxPaginationDebugTimer.start('prefetchAdjacentPages');
 
-        // Устанавливаем флаг, что началась предзагрузка
-        isPrefetching = true;
+    // Устанавливаем флаг, что началась предзагрузка
+    isPrefetching = true;
 
-        const totalPagesInput = document.getElementById('server-total-pages');
-        if (!totalPagesInput) {
-            isPrefetching = false;
-            AjaxPaginationDebugTimer.end('prefetchAdjacentPages');
-            return;
-        }
-
-        const totalPages = parseInt(totalPagesInput.value, 10);
-        if (isNaN(totalPages) || totalPages <= 1) {
-            isPrefetching = false;
-            AjaxPaginationDebugTimer.end('prefetchAdjacentPages');
-            return;
-        }
-
-        currentPage = parseInt(currentPage, 10);
-
-        // Определяем страницы для предзагрузки: сначала предыдущая, потом следующая
-        const pagesToPrefetch = [];
-
-        // Сначала предыдущая страница (если есть)
-        if (currentPage - 1 >= 1) {
-            pagesToPrefetch.push(currentPage - 1);
-        }
-
-        // Потом следующая страница (если есть)
-        if (currentPage + 1 <= totalPages) {
-            pagesToPrefetch.push(currentPage + 1);
-        }
-
-        // Потом дальние
-        if (currentPage - 2 >= 1 && !pagesToPrefetch.includes(currentPage - 2)) {
-            pagesToPrefetch.push(currentPage - 2);
-        }
-        if (currentPage + 2 <= totalPages && !pagesToPrefetch.includes(currentPage + 2)) {
-            pagesToPrefetch.push(currentPage + 2);
-        }
-
-        console.log('AjaxPagination: Will prefetch pages in background with delays:', pagesToPrefetch);
-
-        // Загружаем страницы последовательно с малыми задержками
-        pagesToPrefetch.forEach((page, index) => {
-            // Задержка: 200ms, 400ms, 600ms, 800ms - быстро, но не блокирует UI
-            const delay = 200 + (index * 200);
-
-            setTimeout(() => {
-                // Проверяем, не начал ли пользователь новую навигацию
-                if (isPrefetching) {
-                    prefetchSinglePage(page, baseDisplayUrl);
-                }
-            }, delay);
-        });
-
-        // Сбрасываем флаг через 3 секунды (после завершения всех предзагрузок)
-        setTimeout(() => {
-            isPrefetching = false;
-        }, 3000);
-
+    const totalPagesInput = document.getElementById('server-total-pages');
+    if (!totalPagesInput) {
+        isPrefetching = false;
         AjaxPaginationDebugTimer.end('prefetchAdjacentPages');
+        return;
     }
+
+    const totalPages = parseInt(totalPagesInput.value, 10);
+    if (isNaN(totalPages) || totalPages <= 1) {
+        isPrefetching = false;
+        AjaxPaginationDebugTimer.end('prefetchAdjacentPages');
+        return;
+    }
+
+    currentPage = parseInt(currentPage, 10);
+
+    const pagesToPrefetch = [];
+
+    if (currentPage - 1 >= 1) {
+        pagesToPrefetch.push(currentPage - 1);
+    }
+    if (currentPage + 1 <= totalPages) {
+        pagesToPrefetch.push(currentPage + 1);
+    }
+    if (currentPage - 2 >= 1 && !pagesToPrefetch.includes(currentPage - 2)) {
+        pagesToPrefetch.push(currentPage - 2);
+    }
+    if (currentPage + 2 <= totalPages && !pagesToPrefetch.includes(currentPage + 2)) {
+        pagesToPrefetch.push(currentPage + 2);
+    }
+
+    console.log('AjaxPagination: Will prefetch pages in background:', pagesToPrefetch);
+
+    let completedPrefetches = 0;
+    const totalToPrefetch = pagesToPrefetch.length;
+
+    pagesToPrefetch.forEach((page) => {
+        setTimeout(() => {
+            if (isPrefetching) {
+                prefetchSinglePage(page, baseDisplayUrl, () => {
+                    completedPrefetches++;
+                    if (completedPrefetches >= totalToPrefetch) {
+                        isPrefetching = false;
+                        console.log('AjaxPagination: All prefetch completed');
+                    }
+                });
+            }
+        }, 300);
+    });
+
+    setTimeout(() => {
+        if (completedPrefetches < totalToPrefetch) {
+            console.log('AjaxPagination: Prefetch timeout, forcing completion');
+            isPrefetching = false;
+        }
+    }, 5000);
+
+    AjaxPaginationDebugTimer.end('prefetchAdjacentPages');
+}
 
     /**
      * Предзагружает одну страницу
      */
-    function prefetchSinglePage(pageNum, baseDisplayUrl) {
+    function prefetchSinglePage(pageNum, baseDisplayUrl, callback) {
         AjaxPaginationDebugTimer.start('prefetchSinglePage');
 
-        // Проверяем, не начал ли пользователь новую навигацию
         if (!isPrefetching) {
+            if (callback) callback();
             AjaxPaginationDebugTimer.end('prefetchSinglePage');
             return;
         }
 
         const params = extractParamsFromUrl(baseDisplayUrl);
         const ajaxUrl = buildAjaxUrl(params, pageNum);
-        // Для предзагрузки тоже используем URL с page параметром
         const displayUrl = buildDisplayUrl(params, pageNum, true);
         const cacheKey = generateCacheKey(displayUrl, pageNum);
 
         if (getPageFromCache(cacheKey)) {
             console.log('AjaxPagination: Page', pageNum, 'already in cache, skipping prefetch');
+            if (callback) callback();
             AjaxPaginationDebugTimer.end('prefetchSinglePage');
             return;
         }
@@ -570,8 +572,11 @@ const AjaxPaginationDebugTimer = {
                 savePageToCache(cacheKey, html, pageNum);
                 console.log('AjaxPagination: Successfully prefetched page', pageNum);
             }
+            if (callback) callback();
         })
-        .catch(() => {});
+        .catch(() => {
+            if (callback) callback();
+        });
         AjaxPaginationDebugTimer.end('prefetchSinglePage');
     }
 
