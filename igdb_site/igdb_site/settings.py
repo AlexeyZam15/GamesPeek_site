@@ -60,6 +60,7 @@ INSTALLED_APPS = [
 
 # ОПТИМИЗИРОВАННЫЙ ПОРЯДОК MIDDLEWARE
 MIDDLEWARE = [
+    'igdb_site.settings.TimingMiddleware',  # ДОБАВЛЯЕМ ЭТУ СТРОКУ ПЕРВОЙ
     'debug_toolbar.middleware.DebugToolbarMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
@@ -667,3 +668,26 @@ required_settings = ['IGDB_CLIENT_ID', 'IGDB_CLIENT_SECRET']
 for setting in required_settings:
     if not globals().get(setting):
         print(f"[WARNING] {setting} is not set")
+
+# ============================================
+# ВРЕМЕННЫЙ MIDDLEWARE ДЛЯ ДИАГНОСТИКИ МЕДЛЕННЫХ VIEW
+# ============================================
+
+import time
+
+
+class TimingMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        start = time.time()
+        response = self.get_response(request)
+        duration = time.time() - start
+
+        if duration > 1.0:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"[SLOW VIEW] {request.path} took {duration:.2f}s")
+
+        return response
