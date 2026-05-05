@@ -40,13 +40,14 @@ if DEBUG:
     ALLOWED_HOSTS = ['*']
 else:
     allowed_hosts_str = os.getenv('ALLOWED_HOSTS', 'localhost')
-    ALLOWED_HOSTS = [host.strip() for host in allowed_hosts_str.split(',')]
+    ALLOWED_HOSTS = [host.strip() for host in allowed_hosts_str.split(',')] + ['testserver']
 
 # ============================================
 # УСКОРЕННЫЕ НАСТРОЙКИ ПРИЛОЖЕНИЙ И MIDDLEWARE
 # ============================================
 
 INSTALLED_APPS = [
+    'django_redis',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -416,30 +417,38 @@ POLLINATIONS_DEFAULT_MODEL = 'openai'
 POLLINATIONS_TIMEOUT = 30
 
 # ============================================
-# КЭШИРОВАНИЕ ДЛЯ УСКОРЕНИЯ
+# КЭШИРОВАНИЕ ЧЕРЕЗ REDIS (один кэш для всех воркеров)
 # ============================================
 
-if not os.getenv('DESKTOP_MODE') == '1':
-    CACHES = {
-        'default': {
-            'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
-            'LOCATION': os.path.join(BASE_DIR, 'django_cache'),
-            'TIMEOUT': 3600,
-            'OPTIONS': {
-                'MAX_ENTRIES': 1000,
-            }
-        },
-        'page_cache': {
-            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-            'LOCATION': 'page-cache',
-            'TIMEOUT': 900,
-        },
-        'template_cache': {
-            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-            'LOCATION': 'template-cache',
-            'TIMEOUT': 3600,
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': 'redis://127.0.0.1:6379/1',
+        'TIMEOUT': 86400,  # 24 часа - ДОБАВИТЬ ЭТУ СТРОКУ
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            'MAX_ENTRIES': 10000,
+        }
+    },
+    'page_cache': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': 'redis://127.0.0.1:6379/2',
+        'TIMEOUT': 3600,  # 1 час
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            'MAX_ENTRIES': 2000,
+        }
+    },
+    'template_cache': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': 'redis://127.0.0.1:6379/3',
+        'TIMEOUT': 7200,  # 2 часа
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            'MAX_ENTRIES': 2000,
         }
     }
+}
 
 # Оптимизация сессий - храним в кэше
 SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
@@ -642,14 +651,14 @@ try:
     conn.ensure_connection()
 
     db_info = f"""
-[OK] Django settings loaded
-[INFO] Mode: {'DEBUG' if DEBUG else 'PRODUCTION'}
-[INFO] Platform: {'Railway' if IS_RAILWAY else ('Desktop' if IS_DESKTOP else 'Local')}
-[INFO] Database: PostgreSQL
-[INFO] Cache: FileBasedCache
-[INFO] Debug Toolbar: {'ON' if DEBUG else 'OFF'}
-[INFO] PostgreSQL connection: SUCCESS
-"""
+    [OK] Django settings loaded
+    [INFO] Mode: {'DEBUG' if DEBUG else 'PRODUCTION'}
+    [INFO] Platform: {'Railway' if IS_RAILWAY else ('Desktop' if IS_DESKTOP else 'Local')}
+    [INFO] Database: PostgreSQL
+    [INFO] Cache: {'Redis' if 'django_redis' in str(CACHES.get('default', {}).get('BACKEND', '')) else 'LocMemCache'}
+    [INFO] Debug Toolbar: {'ON' if DEBUG else 'OFF'}
+    [INFO] PostgreSQL connection: SUCCESS
+    """
 except Exception as e:
     db_info = f"""
 [ERROR] PostgreSQL connection error: {e}
@@ -675,6 +684,27 @@ for setting in required_settings:
 
 import time
 
+
+class SlowRequestLoggerMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        import time
+        start = time.time()
+        response = self.get_response(request)
+        duration = time.time() - start
+
+        if duration > 1.0:  # Медленные запросы
+            ip = request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR', 'unknown'))
+            import logging
+            logging.getLogger('django').error(
+                f"[SLOW_REQUEST] {ip} | {request.method} {request.path} | {duration:.2f}s"
+            )
+        return response
+
+
+MIDDLEWARE.insert(0, 'igdb_site.settings.SlowRequestLoggerMiddleware')
 
 class TimingMiddleware:
     def __init__(self, get_response):
