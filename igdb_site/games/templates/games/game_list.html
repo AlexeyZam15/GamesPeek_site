@@ -6,9 +6,9 @@
 {% block title %}
     {% spaceless %}
         {% if find_similar and source_game_obj %}
-            Games Like {{ source_game_obj.name }} - Similar Games Recommendation
+            Games Like {{ source_game_obj.name }} - Similar Games in Our Video Game Database
         {% else %}
-            Browse Games
+            Browse Video Game Database - 45,000+ Games Search by Genre, Platform & Theme
         {% endif %}
     {% endspaceless %}
 {% endblock %}
@@ -16,14 +16,32 @@
 {% block meta_tags %}
     {% if find_similar and source_game_obj %}
         <meta name="description"
-              content="Find games like {{ source_game_obj.name }}. Discover similar games based on genres, themes, and gameplay features. Best recommendations and alternatives to {{ source_game_obj.name }}.">
+              content="Find games like {{ source_game_obj.name }} in our video game database. Discover 45,000+ similar games based on genres, themes, and gameplay features. Best recommendations and alternatives to {{ source_game_obj.name }}.">
         <meta name="keywords"
-              content="games like {{ source_game_obj.name }}, similar games to {{ source_game_obj.name }}, {{ source_game_obj.name }} similar games, best games like {{ source_game_obj.name }}, games similar to {{ source_game_obj.name }}, похожие игры на {{ source_game_obj.name }}, игры похожие на {{ source_game_obj.name }}">
+              content="games like {{ source_game_obj.name }}, similar games to {{ source_game_obj.name }}, {{ source_game_obj.name }} similar games, best games like {{ source_game_obj.name }}, games similar to {{ source_game_obj.name }}, {{ source_game_obj.name }} alternatives, похожие игры на {{ source_game_obj.name }}, игры похожие на {{ source_game_obj.name }}, game database {{ source_game_obj.name }}">
     {% else %}
         <meta name="description"
-              content="Browse thousands of video games. Filter by genres, platforms, themes, and features to find your next favorite game.">
-        <meta name="keywords" content="video games, browse games, game database, game discovery, search games">
+              content="Browse our complete video game database with 45,000+ games. Filter by genres, platforms, themes, release years, and features to find your next favorite game. Free game discovery platform.">
+        <meta name="keywords"
+              content="video game database, browse games, game database, game discovery, search games, video games list, game catalog, game search engine, PC games database, PlayStation games, Xbox games, Nintendo Switch games">
     {% endif %}
+
+    <!-- Canonical URL to avoid duplicate content from filters -->
+    <link rel="canonical" href="https://gamespeek.dpdns.org{% url 'game_list' %}">
+
+    <!-- Structured Data for Browse Page -->
+    <script type="application/ld+json">
+        {
+            "@context": "https://schema.org",
+            "@type": "CollectionPage",
+            "name":
+        "{% if find_similar and source_game_obj %}Games Like {{ source_game_obj.name }}{% else %}Video Game Database - Browse All Games{% endif %}",
+        "description": "{% if find_similar and source_game_obj %}Find similar games to {{ source_game_obj.name }}
+        in our database{% else %}Browse 45,000+ video games with advanced filtering{% endif %}",
+        "url": "https://gamespeek.dpdns.org{% url 'game_list' %}{% if find_similar and source_game_obj %}?similar_to={
+        { source_game_obj.id }}{% endif %}"
+    }
+    </script>
 {% endblock %}
 
 {% block extra_css %}
@@ -41,8 +59,15 @@
     <div class="container">
         <div class="row mb-4">
             <div class="col-12">
-                <h1>🎮 Browse Games</h1>
-                <p class="text-muted">Use filters to find your next favorite game</p>
+                {% if find_similar and source_game_obj %}
+                    <h1>🎮 Games Like {{ source_game_obj.name }} - Similar Games in Our Database</h1>
+                    <p class="text-muted">Discover games similar to {{ source_game_obj.name }} based on genres, themes,
+                        and gameplay features from our video game database of 45,000+ titles</p>
+                {% else %}
+                    <h1>🎮 Video Game Database - Browse 45,000+ Games</h1>
+                    <p class="text-muted">Use advanced filters to search our complete video game database and find your
+                        next favorite game by genre, platform, theme, release date, and more</p>
+                {% endif %}
             </div>
         </div>
 
@@ -66,7 +91,7 @@
             </div>
 
             <div class="games-container loading-visible">
-                <div class="loading-text" style="display: block;">Loading games...</div>
+                <div class="loading-text" style="display: block;">Loading games from database...</div>
                 <div class="row" id="games-grid-row"></div>
             </div>
         </div>
