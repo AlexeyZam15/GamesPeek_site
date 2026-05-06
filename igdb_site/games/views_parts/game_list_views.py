@@ -102,6 +102,7 @@ def ajax_load_keywords(request: HttpRequest) -> HttpResponse:
         'items_per_page': items_per_page,
     })
 
+
 def search_results(request: HttpRequest) -> HttpResponse:
     """
     Отдельная страница для поиска игр через панель поиска вверху.
@@ -1400,10 +1401,16 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
 
 def get_similar_games_for_criteria(selected_criteria: Dict[str, List[int]], search_filters: Dict = None) -> Tuple[
     List, int]:
-    """Get similar games for criteria - с поддержкой поиска без жанров."""
+    """
+    Get similar games for criteria with Redis caching to handle bot bursts.
+    Caches results for 5 minutes to survive mass identical requests.
+    """
+    from django.core.cache import cache
+    from ..similarity import GameSimilarity
     import json
     import hashlib
-    from ..similarity import GameSimilarity
+    import pickle
+    import time
 
     start_total = time.time()
     print(f"\n=== get_similar_games_for_criteria START ===")
@@ -1412,7 +1419,6 @@ def get_similar_games_for_criteria(selected_criteria: Dict[str, List[int]], sear
 
     stage_start = time.time()
 
-    # Получаем текущую версию алгоритма
     similarity_engine = GameSimilarity()
     algorithm_version = similarity_engine.ALGORITHM_VERSION
 
@@ -1429,14 +1435,34 @@ def get_similar_games_for_criteria(selected_criteria: Dict[str, List[int]], sear
     }, sort_keys=True)
 
     cache_key = f'virtual_search_full_{hashlib.md5(cache_data.encode()).hexdigest()}'
+    redis_cache_key = f'similar_games_criteria_{cache_key}'
+
+    try:
+        cached_result_raw = redis_client.get(redis_cache_key)
+        if cached_result_raw:
+            cached_result = pickle.loads(cached_result_raw)
+            print(f"Redis CACHE HIT for criteria - returning {cached_result['count']} games")
+            print(f"Total time: {time.time() - start_total:.3f}s")
+            print("=== get_similar_games_for_criteria END (Redis HIT) ===\n")
+            return cached_result['games'], cached_result['count']
+    except Exception as e:
+        print(f"Redis cache read error: {e}")
+
     cached_data = cache.get(cache_key)
     print(f"Cache check: {time.time() - stage_start:.3f}s")
 
     if cached_data:
         logger.debug(f"Cache HIT for criteria search: {len(cached_data['games'])} games")
-        print(f"Cache HIT - returning {len(cached_data['games'])} games")
+        print(f"Django Cache HIT - returning {len(cached_data['games'])} games")
         print(f"Total time: {time.time() - start_total:.3f}s")
-        print("=== get_similar_games_for_criteria END (CACHE HIT) ===\n")
+
+        try:
+            redis_client.setex(redis_cache_key, 300, pickle.dumps(cached_data))
+            print(f"Saved to Redis cache for criteria")
+        except Exception as e:
+            print(f"Failed to save to Redis: {e}")
+
+        print("=== get_similar_games_for_criteria END (Django HIT) ===\n")
         return cached_data['games'], cached_data['count']
 
     print(f"Cache MISS - calculating similarity...")
@@ -1472,7 +1498,17 @@ def get_similar_games_for_criteria(selected_criteria: Dict[str, List[int]], sear
         'count': total_count,
         'timestamp': time.time()
     }, cache_time)
-    print(f"Cache save: {time.time() - stage_start:.3f}s")
+    print(f"Django cache save: {time.time() - stage_start:.3f}s")
+
+    try:
+        redis_client.setex(redis_cache_key, 300, pickle.dumps({
+            'games': similar_games,
+            'count': total_count,
+            'timestamp': time.time()
+        }))
+        print(f"Saved to Redis cache for criteria")
+    except Exception as e:
+        print(f"Failed to save to Redis: {e}")
 
     criteria_count = sum(len(v) for key, v in selected_criteria.items()
                          if key not in ['release_years', 'release_year_start', 'release_year_end'])
@@ -1490,26 +1526,25 @@ def get_similar_games_for_criteria(selected_criteria: Dict[str, List[int]], sear
 def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int], search_filters: Dict = None) -> Tuple[
     List, int]:
     """
-    Get similar games for a specific game with database caching.
-    Использует модель GameSimilarityCache для хранения результатов в БД.
-    Включает исходную игру в результаты с 100% схожестью, если её ещё нет в списке.
+    Get similar games for a specific game with Redis caching to handle bot bursts.
+    Uses Redis for short-term cache (5 minutes) to survive mass requests from Facebook bots.
+    Falls back to database cache for longer-term storage.
     """
     from ..models_parts.similarity import GameSimilarityCache
-    from .base_views import _generate_cache_key, CACHE_TIMES
     from ..similarity import GameSimilarity
     import hashlib
     import json
+    import pickle
+    import time
 
     start_total = time.time()
     print(f"\n=== get_similar_games_for_game START for game {game_obj.id} - {game_obj.name} ===")
 
     stage_start = time.time()
 
-    # Получаем текущую версию алгоритма
     similarity_engine = GameSimilarity()
     algorithm_version = similarity_engine.ALGORITHM_VERSION
 
-    # Создаем ключ для поиска в БД
     cache_key_data = {
         'game_id': game_obj.id,
         'platforms': sorted(selected_platforms) if selected_platforms else [],
@@ -1518,21 +1553,28 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int], se
     }
 
     cache_key = hashlib.md5(json.dumps(cache_key_data, sort_keys=True).encode()).hexdigest()
+    redis_cache_key = f'similar_games_game_{cache_key}'
 
-    # Пытаемся найти в базе данных
+    try:
+        cached_result_raw = redis_client.get(redis_cache_key)
+        if cached_result_raw:
+            cached_result = pickle.loads(cached_result_raw)
+            print(f"Redis CACHE HIT for game {game_obj.id} - returning {cached_result[1]} games")
+            print(f"Total time: {time.time() - start_total:.3f}s")
+            return cached_result[0], cached_result[1]
+    except Exception as e:
+        print(f"Redis cache read error: {e}")
+
     try:
         cached_entry = GameSimilarityCache.objects.filter(
             game1_id=game_obj.id,
         ).select_related('game2').first()
 
-        # Проверяем актуальность кэша (по дате или версии)
         if cached_entry:
-            # Если кэш свежий (менее 7 дней), используем его
             from django.utils import timezone
             from datetime import timedelta
 
             if cached_entry.calculated_at > timezone.now() - timedelta(days=7):
-                # Получаем все похожие игры для этой исходной игры
                 all_similar = list(GameSimilarityCache.objects.filter(
                     game1_id=game_obj.id
                 ).select_related('game2').order_by('-similarity_score'))
@@ -1541,7 +1583,6 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int], se
                 source_game_in_list = False
 
                 for item in all_similar:
-                    # Проверяем, не является ли игра исходной
                     if item.game2.id == game_obj.id:
                         source_game_in_list = True
 
@@ -1553,7 +1594,6 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int], se
                         'common_themes': getattr(item, 'common_themes', 0),
                     })
 
-                # Добавляем исходную игру в начало списка с 100% схожестью, только если её нет в списке
                 if not source_game_in_list:
                     similar_games.insert(0, {
                         'game': game_obj,
@@ -1564,12 +1604,18 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int], se
                     })
 
                 total_count = len(similar_games)
-                print(
-                    f"Cache HIT for game {game_obj.id} - found {total_count} games (including source: {not source_game_in_list})")
+                print(f"Database CACHE HIT for game {game_obj.id} - found {total_count} games")
+
+                try:
+                    redis_client.setex(redis_cache_key, 300, pickle.dumps((similar_games, total_count)))
+                    print(f"Saved to Redis cache for game {game_obj.id}")
+                except Exception as e:
+                    print(f"Failed to save to Redis: {e}")
+
                 print(f"Total time: {time.time() - start_total:.3f}s")
                 return similar_games, total_count
     except Exception as e:
-        print(f"Cache read error: {e}")
+        print(f"Database cache read error: {e}")
 
     print(f"Cache MISS for game {game_obj.id} - calculating similarity...")
 
@@ -1581,7 +1627,6 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int], se
     )
     print(f"find_similar_games executed: {time.time() - stage_start:.3f}s, found {len(similar_games)} games")
 
-    # Проверяем, есть ли уже исходная игра в результатах
     source_game_in_results = False
     for item in similar_games:
         if isinstance(item, dict):
@@ -1591,14 +1636,12 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int], se
 
         if target_game and hasattr(target_game, 'id') and target_game.id == game_obj.id:
             source_game_in_results = True
-            # Обновляем схожесть до 100%
             if isinstance(item, dict):
                 item['similarity'] = 100.0
             else:
                 item.similarity = 100.0
             break
 
-    # Добавляем исходную игру в начало списка с 100% схожестью, только если её нет в результатах
     if not source_game_in_results:
         source_game_entry = {
             'game': game_obj,
@@ -1611,13 +1654,10 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int], se
 
     total_count = len(similar_games)
 
-    # Сохраняем результаты в базу данных (без исходной игры)
     stage_start = time.time()
     try:
-        # Удаляем старые записи для этой игры
         GameSimilarityCache.objects.filter(game1_id=game_obj.id).delete()
 
-        # Создаем новые записи (только для похожих игр, исключая исходную)
         cache_entries = []
         for item in similar_games:
             if isinstance(item, dict):
@@ -1627,7 +1667,6 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int], se
                 target_game = item
                 similarity = getattr(item, 'similarity', 0)
 
-            # Сохраняем только если это не исходная игра
             if target_game and hasattr(target_game, 'id') and target_game.id != game_obj.id:
                 cache_entries.append(GameSimilarityCache(
                     game1_id=game_obj.id,
@@ -1635,12 +1674,17 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int], se
                     similarity_score=similarity,
                 ))
 
-        # Массовое создание записей
         if cache_entries:
             GameSimilarityCache.objects.bulk_create(cache_entries, batch_size=500)
             print(f"Saved {len(cache_entries)} similarity records to database")
     except Exception as e:
         print(f"Failed to save to database: {e}")
+
+    try:
+        redis_client.setex(redis_cache_key, 300, pickle.dumps((similar_games, total_count)))
+        print(f"Saved to Redis cache for game {game_obj.id}")
+    except Exception as e:
+        print(f"Failed to save to Redis: {e}")
 
     print(f"TOTAL time for get_similar_games_for_game: {time.time() - start_total:.3f}s")
     print("=== get_similar_games_for_game END ===\n")
