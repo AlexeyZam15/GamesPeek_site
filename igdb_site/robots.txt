@@ -1,11 +1,45 @@
+User-agent: *
+Allow: /
+
+# Facebook бот для превью ссылок - разрешён
 User-agent: facebookexternalhit
+Allow: /
+
+# Паразитические боты Meta - запрещены (грузили сервер)
+User-agent: meta-*
 Disallow: /
 
 User-agent: MetaInspector
 Disallow: /
 
-User-agent: *
+# Instagram боты
+User-agent: Instagram
 Allow: /
 
+# Twitter/X бот для превью ссылок
+User-agent: Twitterbot
+Allow: /
+
+# Telegram бот для превью ссылок
+User-agent: TelegramBot
+Allow: /
+
+# Основные поисковые боты - всё разрешено (никаких Disallow)
+User-agent: Googlebot
+Allow: /
+
+User-agent: Yandex
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: DuckDuckBot
+Allow: /
+
+# Небольшая задержка для ботов, чтобы не нагружать сервер
+Crawl-delay: 3
+
+# Sitemap
 Sitemap: https://gamespeek.dpdns.org/sitemap.xml
 Sitemap: https://gamespeek.dpdns.org/sitemap_similar_games.xml
