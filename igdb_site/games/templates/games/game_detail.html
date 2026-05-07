@@ -1,5 +1,6 @@
 <!-- games/templates/games/game_detail.html -->
 
+
 {% extends 'base.html' %}
 {% load static %}
 
@@ -14,14 +15,24 @@
         Game Modes:
                   {% for mode in game.game_modes.all %}{{ mode.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.
         Platforms:
+
                   {% for platform in game.platforms.all %}{{ platform.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.
         {% if game.developers.all %}Developers:
+
+
+
 
               {% for developer in game.developers.all %}{{ developer.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
         {% if game.publishers.all %}Publishers:
 
+
+
+
               {% for publisher in game.publishers.all %}{{ publisher.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
         {% if game.game_engines.all %}Engine:
+
+
+
 
               {% for engine in game.game_engines.all %}{{ engine.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
         View screenshots, videos, and find similar games like {{ game.name }} in our game database of 45,000+ titles.">
@@ -35,13 +46,16 @@
         {% if game.series.all %}{% for series in game.series.all %}{{ series.name }} series, {% endfor %}{% endif %}
         games like {{ game.name }}, similar games to {{ game.name }},
 
+
             {% if game.developers.all %}{% for developer in game.developers.all %}{{ developer.name }} game, {% endfor %}{% endif %}
+
 
             {% if game.publishers.all %}{% for publisher in game.publishers.all %}{{ publisher.name }}, {% endfor %}{% endif %}
         game database entry, game details, {{ game.name }} screenshots, {{ game.name }} gameplay">
 
     <meta property="og:title" content="{{ game.name }} - Complete Game Database Entry">
     <meta property="og:description" content="{{ game.name }} -
+
 
             {% for genre in game.genres.all %}{{ genre.name }}{% if not forloop.last %}, {% endif %}{% endfor %} game. Rating: {{ game.rating|default:'N/A' }}/100. Find similar games in our video game database.">
     <meta property="og:type" content="website">
@@ -159,6 +173,7 @@
 
 {% block extra_css %}
     <link rel="stylesheet" href="{% static 'games/css/game_detail.css' %}">
+    <link rel="stylesheet" href="{% static 'games/css/game_detail/header.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/game_detail/tabs.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/game_detail/gallery.css' %}">
 {% endblock %}
