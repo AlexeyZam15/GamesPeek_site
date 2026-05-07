@@ -1,4 +1,5 @@
 /* ===== CSS VARIABLES ===== */
+
 :root {
   /* Размеры */
   --header-min-height: 600px;
@@ -39,162 +40,8 @@
   --platform-icon-size: 32px;
 }
 
-/* ===== GAME DETAIL PAGE LAYOUT ===== */
-
-/* Хедер с основной информацией */
-.game-header-card {
-  background: rgba(17, 24, 28, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  overflow: hidden;
-  height: 100%;
-  min-height: var(--header-min-height);
-  margin-bottom: 2rem;
-}
-
-.game-header-card .card-body {
-  padding: 0;
-  height: 100%;
-}
-
-/* Контейнер обложки */
-.game-cover-container {
-  width: 100%;
-  height: 100%;
-  position: relative;
-  isolation: isolate;
-}
-
-/* Обложка на всю высоту */
-.game-cover-wrapper {
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(135deg,
-    rgba(255, 107, 53, 0.1),
-    rgba(255, 140, 0, 0.07),
-    rgba(13, 110, 253, 0.05));
-  border-right: 2px solid rgba(255, 255, 255, 0.12);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  position: relative;
-}
-
-.game-cover-main {
-  object-fit: cover !important;
-  object-position: center !important;
-  width: 100% !important;
-  height: 100% !important;
-  min-height: var(--header-min-height);
-  transition: all 0.3s ease !important;
-  background: #0a0a0a;
-  position: relative;
-  z-index: 1 !important;
-}
-
-.game-cover-main:hover {
-  filter: brightness(1.1);
-}
-
-.no-cover-placeholder {
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(135deg, #0a0a0a, #1a1a1a, #0a0a0a);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-right: 2px solid rgba(255, 255, 255, 0.15);
-  position: relative;
-  overflow: hidden;
-}
-
-.no-cover-placeholder span {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #555;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  position: relative;
-  z-index: 2;
-}
-
-/* Стили для рейтинга поверх обложки */
-.rating-overlay {
-  z-index: 20 !important;
-  pointer-events: auto !important;
-  padding: 0.5rem !important;
-}
-
-.rating-overlay > div {
-  filter: drop-shadow(2px 2px 4px rgba(0, 0, 0, 0.8));
-}
-
-/* Стиль для контейнера без рейтинга */
-.no-rating-container {
-  cursor: help;
-  transition: all 0.3s ease;
-  width: var(--rating-size);
-  height: var(--rating-size);
-  position: relative;
-  background: rgba(0, 0, 0, 0.6);
-  border-radius: 50%;
-}
-
-.no-rating-container:hover {
-  background: rgba(0, 0, 0, 0.8) !important;
-}
-
-.no-rating-container svg {
-  width: var(--rating-size);
-  height: var(--rating-size);
-}
-
-.no-rating-container path {
-  fill: none;
-  stroke: #6c757d;
-  stroke-width: 2;
-}
-
-.no-rating-container text {
-  text-anchor: middle;
-  fill: #6c757d;
-  font-size: 16px;
-  font-weight: bold;
-}
-
-/* Платформы в хедере */
-.platforms-overlay {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  z-index: 20 !important;
-  pointer-events: auto !important;
-  padding: 1rem !important;
-}
-
-.platforms-overlay .platform-icon {
-  filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.8));
-  font-size: var(--platform-icon-lg) !important;
-}
-
-/* Убеждаемся, что наложенные элементы поверх обложки */
-.position-relative[style*="min-height: 400px"] > .position-absolute {
-  z-index: 20 !important;
-}
-
-/* Информационная колонка */
-.game-info-column {
-  display: flex;
-  flex-direction: column;
-  padding: var(--info-padding) !important;
-  height: 100%;
-}
-
-.game-info-column h1 {
-  margin-bottom: 1.5rem;
-}
-
 /* ===== КАРТОЧКИ ДЕТАЛЕЙ ===== */
+
 .game-detail-card {
   background: rgba(30, 30, 46, 0.7);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -230,6 +77,7 @@
 }
 
 /* ===== ВЕРТИКАЛЬНАЯ РАСКЛАДКА ===== */
+
 .vertical-details {
   display: flex;
   flex-direction: column;
@@ -245,6 +93,7 @@
   transition: var(--transition);
   animation: fadeIn 0.3s ease-out;
   width: 100%;
+  position: relative;
 }
 
 .vertical-detail-card:hover {
@@ -420,6 +269,7 @@
 }
 
 /* ===== СВОРАЧИВАЕМЫЙ ТЕКСТ ===== */
+
 .collapsible-text {
   max-height: 150px;
   overflow: hidden;
@@ -466,31 +316,8 @@
 }
 
 /* ===== АДАПТИВНОСТЬ ===== */
-@media (max-width: 1200px) {
-  .game-cover-main {
-    min-height: var(--header-min-height-lg);
-  }
-}
 
 @media (max-width: 992px) {
-  .game-cover-main {
-    min-height: var(--header-min-height-md);
-  }
-
-  .game-cover-wrapper {
-    border-right: none;
-    border-bottom: 2px solid rgba(255, 255, 255, 0.12);
-  }
-
-  .no-cover-placeholder {
-    border-right: none;
-    border-bottom: 2px solid rgba(255, 255, 255, 0.15);
-  }
-
-  .game-info-column {
-    padding: var(--info-padding-md) !important;
-  }
-
   .vertical-details {
     gap: var(--vertical-detail-gap-md);
   }
@@ -507,23 +334,9 @@
     min-width: 120px;
     padding: 0.875rem;
   }
-
-  /* Платформы на планшетах */
-  .platforms-overlay .platform-icon {
-    font-size: var(--platform-icon-md) !important;
-  }
 }
 
 @media (max-width: 768px) {
-  .game-cover-main {
-    min-height: var(--header-min-height-sm);
-  }
-
-  /* Платформы на планшетах */
-  .platforms-overlay .platform-icon {
-    font-size: var(--platform-icon-sm) !important;
-  }
-
   .compact-section {
     padding: 0.75rem;
   }
@@ -540,10 +353,6 @@
 }
 
 @media (max-width: 576px) {
-  .game-cover-main {
-    min-height: var(--header-min-height-xs);
-  }
-
   .compact-section {
     margin-bottom: 1rem;
   }
@@ -565,88 +374,17 @@
   .platform-name {
     font-size: 0.85rem;
   }
-
-  /* Платформы на телефонах */
-  .platforms-overlay .platform-icon {
-    font-size: var(--platform-icon-xs) !important;
-  }
-
-  /* Рейтинг на телефонах */
-  .rating-overlay {
-    padding: 0.25rem !important;
-  }
-
-  .no-rating-container {
-    width: var(--rating-size-sm);
-    height: var(--rating-size-sm);
-  }
-
-  .no-rating-container svg {
-    width: var(--rating-size-sm);
-    height: var(--rating-size-sm);
-  }
-
-  .no-rating-container text {
-    font-size: 14px;
-  }
 }
 
 /* ===== PLATFORM BADGES IN GAME DETAIL ===== */
 
-/* Бейджи платформ в хедере */
-.game-header-card .platforms-overlay {
-    z-index: 20 !important;
-    pointer-events: auto !important;
-    padding: 0.5rem !important;
-    max-width: calc(100% - 80px);
-    bottom: 8px !important;
-}
-
-.game-header-card .platforms-overlay .d-flex.flex-wrap {
-    gap: 3px !important;
-}
-
 /* Бейджи платформ во вкладке Details */
 .vertical-detail-card.platforms .detail-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .platform-badge-wrapper {
-    text-align: center;
-}
-
-/* Адаптивность для бейджей на детальной странице */
-@media (max-width: 992px) {
-    .game-header-card .platforms-overlay {
-        max-width: calc(100% - 70px);
-        padding: 0.4rem !important;
-    }
-}
-
-@media (max-width: 768px) {
-    .game-header-card .platforms-overlay {
-        max-width: calc(100% - 60px);
-        padding: 0.3rem !important;
-    }
-
-    .vertical-detail-card.platforms .detail-tags {
-        gap: 6px;
-    }
-}
-
-@media (max-width: 576px) {
-    .game-header-card .platforms-overlay {
-        max-width: calc(100% - 50px);
-        padding: 0.2rem !important;
-    }
-
-    .game-header-card .platforms-overlay .d-flex.flex-wrap {
-        gap: 2px !important;
-    }
-
-    .vertical-detail-card.platforms .detail-tags {
-        gap: 4px;
-    }
+  text-align: center;
 }

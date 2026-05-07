@@ -1,5 +1,6 @@
 <!-- games/templates/games/game_detail/header.html -->
-{% load platform_icons game_tags color_tags %}
+
+{% load platform_icons game_tags color_tags game_type_tags %}
 
 <div class="game-header-card card border-0">
     <div class="card-body p-0">
@@ -47,7 +48,7 @@
 
                     <!-- Платформы (нижний левый угол) -->
                     {% if game.platforms.all %}
-                        <div class="position-absolute bottom-0 start-0 platforms-overlay">
+                        <div class="platforms-overlay">
                             <div class="d-flex flex-wrap gap-1">
                                 {% for platform in game.platforms.all %}
                                     {% platform_badge platform.name %}
@@ -55,6 +56,11 @@
                             </div>
                         </div>
                     {% endif %}
+
+                    <!-- Тип игры (нижний правый угол, на уровне с платформами) -->
+                    <div class="game-type-badge-container">
+                        {% game_type_badge game.game_type %}
+                    </div>
                 </div>
             </div>
 
