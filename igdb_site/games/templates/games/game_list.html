@@ -26,8 +26,9 @@
               content="video game database, browse games, game database, game discovery, search games, video games list, game catalog, game search engine, PC games database, PlayStation games, Xbox games, Nintendo Switch games">
     {% endif %}
 
-    <!-- Canonical URL to avoid duplicate content from filters -->
-    <link rel="canonical" href="https://gamespeek.dpdns.org{% url 'game_list' %}">
+    <!-- Canonical URL includes similarity parameters to ensure each "Games Like" page is indexed separately -->
+    <link rel="canonical" href="https://gamespeek.dpdns.org
+            {% url 'game_list' %}{% if find_similar and source_game_obj %}?find_similar=1&source_game={{ source_game_obj.id }}{% endif %}">
 
     <!-- Structured Data for Browse Page -->
     <script type="application/ld+json">
@@ -38,7 +39,7 @@
         "{% if find_similar and source_game_obj %}Games Like {{ source_game_obj.name }}{% else %}Video Game Database - Browse All Games{% endif %}",
         "description": "{% if find_similar and source_game_obj %}Find similar games to {{ source_game_obj.name }}
         in our database{% else %}Browse 45,000+ video games with advanced filtering{% endif %}",
-        "url": "https://gamespeek.dpdns.org{% url 'game_list' %}{% if find_similar and source_game_obj %}?similar_to={
+        "url": "https://gamespeek.dpdns.org{% url 'game_list' %}{% if find_similar and source_game_obj %}?find_similar=1&source_game={
         { source_game_obj.id }}{% endif %}"
     }
     </script>

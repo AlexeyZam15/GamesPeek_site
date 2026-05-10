@@ -14,7 +14,8 @@
     <!-- ЯВНАЯ ДИРЕКТИВА ДЛЯ ПОИСКОВЫХ РОБОТОВ (исправление) -->
     <meta name="robots" content="index, follow">
 
-    <link rel="canonical" href="https://gamespeek.dpdns.org{{ request.path }}">
+    <!-- Canonical URL includes full path with query parameters to properly index all pages including similar games -->
+    <link rel="canonical" href="https://gamespeek.dpdns.org{{ request.get_full_path }}">
 
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-S84TTYCE36"></script>
