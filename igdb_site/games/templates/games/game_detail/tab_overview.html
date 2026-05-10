@@ -1,8 +1,7 @@
 {% load game_tags %}
+
 <div class="row g-4">
-    <!-- Левая колонка - Все описания -->
     <div class="col-lg-8">
-        <!-- RAWG описание (если есть) -->
         {% if game.rawg_description %}
             <div class="compact-section">
                 <div class="section-header">
@@ -28,7 +27,6 @@
             </div>
         {% endif %}
 
-        <!-- IGDB Summary (если есть) -->
         {% if game.summary %}
             <div class="compact-section {% if game.rawg_description %}mt-4{% endif %}">
                 <div class="section-header">
@@ -54,7 +52,6 @@
             </div>
         {% endif %}
 
-        <!-- Сюжет из IGDB (если есть) -->
         {% if game.storyline %}
             <div class="compact-section mt-4">
                 <div class="section-header">
@@ -80,8 +77,32 @@
             </div>
         {% endif %}
 
-        <!-- Если нет ни одного описания -->
-        {% if not game.rawg_description and not game.summary and not game.storyline %}
+        {% if game.wiki_description %}
+            <div class="compact-section mt-4">
+                <div class="section-header">
+                    <h5 class="text-success mb-3">
+                        <i class="bi bi-wikipedia me-2"></i>Wikipedia Description
+                        <span class="badge bg-success ms-2">WIKIPEDIA</span>
+                    </h5>
+                </div>
+                <div class="game-detail-card card">
+                    <div class="card-body">
+                        <div class="collapsible-text {% if game.wiki_description|wordcount <= 100 %}expanded{% endif %}"
+                             id="wiki-text">
+                            <p class="card-text text-light mb-0">{{ game.wiki_description|safe }}</p>
+                        </div>
+                        {% if game.wiki_description|wordcount > 100 %}
+                            <button class="toggle-text-btn mt-3" onclick="toggleText('wiki')">
+                                <span>Read more</span>
+                                <i class="bi bi-chevron-down"></i>
+                            </button>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
+        {% if not game.rawg_description and not game.summary and not game.storyline and not game.wiki_description %}
             <div class="compact-section">
                 <div class="section-header">
                     <h5 class="text-warning mb-3"><i class="bi bi-journal-text me-2"></i>About This Game</h5>
@@ -100,16 +121,33 @@
                             <a href="https://rawg.io" target="_blank" class="btn btn-outline-warning btn-sm">
                                 <i class="bi bi-globe me-1"></i> RAWG
                             </a>
+                            <a href="https://wikipedia.org" target="_blank" class="btn btn-outline-success btn-sm">
+                                <i class="bi bi-wikipedia me-1"></i> Wikipedia
+                            </a>
                         </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
+        <!-- УНИКАЛЬНЫЙ SEO-ТЕКСТ ДЛЯ ПОИСКОВЫХ СИСТЕМ И ПОЛЬЗОВАТЕЛЕЙ -->
+        {% if seo_text %}
+            <div class="compact-section mt-4">
+                <div class="section-header">
+                    <h5 class="text-secondary mb-3">
+                        <i class="bi bi-file-text me-2"></i>About {{ game.name }}
+                    </h5>
+                </div>
+                <div class="game-detail-card card">
+                    <div class="card-body">
+                        <p class="card-text text-light">{{ seo_text }}</p>
                     </div>
                 </div>
             </div>
         {% endif %}
     </div>
 
-    <!-- Правая колонка - Информация -->
     <div class="col-lg-4">
-        <!-- Основная информация -->
         <div class="compact-section">
             <div class="section-header">
                 <h5 class="text-info mb-3"><i class="bi bi-card-checklist me-2"></i>Basic Info</h5>
