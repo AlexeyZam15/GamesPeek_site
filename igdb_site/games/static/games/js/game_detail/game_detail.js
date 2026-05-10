@@ -131,6 +131,21 @@ function initMobileAnchorCarousel() {
 
     const cards = document.querySelectorAll('.mobile-anchor-card');
 
+    function scrollCarouselToSlide(slideElement) {
+        if (!container || !slideElement) return;
+        const containerWidth = container.offsetWidth;
+        const slideWidth = slideElement.offsetWidth;
+        const slideLeft = slideElement.offsetLeft;
+
+        let scrollPosition = slideLeft - (containerWidth / 2) + (slideWidth / 2);
+        if (scrollPosition < 0) scrollPosition = 0;
+
+        const maxScroll = newTrack.scrollWidth - containerWidth;
+        if (scrollPosition > maxScroll) scrollPosition = maxScroll;
+
+        container.scrollTo({ left: scrollPosition, behavior: 'smooth' });
+    }
+
     function setActive(index) {
         cards.forEach((card, i) => {
             if (i === index) {
@@ -156,6 +171,11 @@ function initMobileAnchorCarousel() {
                 dot.style.borderRadius = '50%';
             }
         });
+
+        const slideToScroll = cards[index].closest('.carousel-slide');
+        if (slideToScroll) {
+            scrollCarouselToSlide(slideToScroll);
+        }
     }
 
     cards.forEach((card, index) => {
