@@ -1,21 +1,8 @@
 // games/static/games/js/game_detail/game_detail.js
 
-// games/static/games/js/game_detail/game_detail.js
-
 console.log('🎮 Game detail scripts loaded');
 
-// Состояние мобильной карусели вкладок
-let mobileTabsState = {
-    currentIndex: 0,
-    totalTabs: 0,
-    track: null,
-    indicators: null,
-    slideWidth: 0,
-    gap: 16
-};
-
-// ===== ФУНКЦИИ ДЛЯ УПРАВЛЕНИЯ ВКЛАДКАМИ =====
-
+// Функция для переключения сворачиваемого текста
 window.toggleText = function(type) {
     const element = document.getElementById(type + '-text');
     if (!element) return;
@@ -37,242 +24,228 @@ window.toggleText = function(type) {
     }
 };
 
-// Функция для переключения вкладки из мобильной карусели
-window.switchMobileTab = function(tabId) {
-    const tabLink = document.querySelector(`#gameTabs a[href="#${tabId}"]`);
-    if (tabLink) {
-        tabLink.click();
+// Инициализация десктопной якорной навигации
+function initAnchorNavigation() {
+    const anchorLinks = document.querySelectorAll('.global-anchor-link');
+    const headerOffset = 70;
+    const sections = ['game-info', 'overview', 'details', 'companies', 'keywords', 'screenshots'];
+    const progressBar = document.getElementById('anchor-progress-bar');
 
-        // Обновляем активный класс в мобильных карточках
-        document.querySelectorAll('.mobile-tab-card').forEach(card => {
-            card.classList.remove('active');
-            if (card.getAttribute('data-tab-target') === `#${tabId}`) {
-                card.classList.add('active');
-            }
-        });
-    }
-};
+    function updateActiveAnchor() {
+        const scrollPosition = window.scrollY + headerOffset + 50;
 
-// Функция для перемещения карусели вкладок
-window.moveTabsCarousel = function(direction) {
-    if (!mobileTabsState.track) return;
-
-    const newIndex = mobileTabsState.currentIndex + direction;
-
-    if (newIndex < 0) {
-        mobileTabsState.currentIndex = mobileTabsState.totalTabs - 1;
-    } else if (newIndex >= mobileTabsState.totalTabs) {
-        mobileTabsState.currentIndex = 0;
-    } else {
-        mobileTabsState.currentIndex = newIndex;
-    }
-
-    updateTabsCarouselPosition();
-
-    // Автоматически переключаем вкладку при скролле карусели
-    const currentSlide = mobileTabsState.track.children[mobileTabsState.currentIndex];
-    if (currentSlide) {
-        const tabId = currentSlide.getAttribute('data-tab-id');
-        if (tabId) {
-            window.switchMobileTab(tabId);
-        }
-    }
-};
-
-// Обновление позиции карусели вкладок
-function updateTabsCarouselPosition() {
-    if (!mobileTabsState.track) return;
-
-    const firstSlide = mobileTabsState.track.children[0];
-    if (firstSlide) {
-        mobileTabsState.slideWidth = firstSlide.offsetWidth;
-    }
-
-    const translateX = -mobileTabsState.currentIndex * (mobileTabsState.slideWidth + mobileTabsState.gap);
-
-    mobileTabsState.track.style.transition = 'transform 0.3s ease-in-out';
-    mobileTabsState.track.style.transform = `translateX(${translateX}px)`;
-
-    updateTabsIndicators();
-}
-
-// Обновление индикаторов карусели вкладок
-function updateTabsIndicators() {
-    if (!mobileTabsState.indicators) return;
-
-    let dots = '';
-    for (let i = 0; i < mobileTabsState.totalTabs; i++) {
-        dots += `<span class="carousel-dot ${i === mobileTabsState.currentIndex ? 'active' : ''}"
-                       onclick="goToTabBlock(${i})"></span>`;
-    }
-    mobileTabsState.indicators.innerHTML = dots;
-}
-
-// Переход к конкретному блоку вкладок
-window.goToTabBlock = function(blockIndex) {
-    if (!mobileTabsState.track || blockIndex === mobileTabsState.currentIndex) return;
-
-    mobileTabsState.currentIndex = blockIndex;
-    updateTabsCarouselPosition();
-
-    const currentSlide = mobileTabsState.track.children[mobileTabsState.currentIndex];
-    if (currentSlide) {
-        const tabId = currentSlide.getAttribute('data-tab-id');
-        if (tabId) {
-            window.switchMobileTab(tabId);
-        }
-    }
-};
-
-// Инициализация мобильной карусели вкладок
-function initMobileTabsCarousel() {
-    const track = document.getElementById('mobile-tabs-track');
-    const indicators = document.getElementById('mobile-tabs-indicators');
-
-    if (!track) return;
-
-    const totalSlides = track.children.length;
-
-    mobileTabsState = {
-        currentIndex: 0,
-        totalTabs: totalSlides,
-        track: track,
-        indicators: indicators,
-        slideWidth: track.children[0]?.offsetWidth || 0,
-        gap: 16
-    };
-
-    track.style.transition = 'none';
-
-    setTimeout(() => {
-        updateTabsCarouselPosition();
-    }, 100);
-
-    // Добавляем обработчики кликов на мобильные карточки
-    document.querySelectorAll('.mobile-tab-card').forEach(card => {
-        card.addEventListener('click', function() {
-            const targetId = this.getAttribute('data-tab-target');
-            if (targetId) {
-                const tabId = targetId.substring(1);
-                window.switchMobileTab(tabId);
-            }
-        });
-    });
-}
-
-// Полностью заменяем обработчик Bootstrap
-function setupTabListeners() {
-    console.log('🔔 Setting up tab listeners');
-
-    const tabElements = document.querySelectorAll('#gameTabs a[data-bs-toggle="tab"]');
-
-    tabElements.forEach(tabElement => {
-        tabElement.addEventListener('click', function(event) {
-            event.preventDefault();
-            event.stopPropagation();
-
-            const targetId = this.getAttribute('href').substring(1);
-            console.log(`👆 Switching to tab: ${targetId}`);
-
-            document.querySelectorAll('.tab-pane').forEach(pane => {
-                pane.classList.remove('show', 'active');
-                pane.style.display = 'none';
-            });
-
-            document.querySelectorAll('#gameTabs .nav-link').forEach(link => {
-                link.classList.remove('active');
-            });
-
-            this.classList.add('active');
-
-            const targetPane = document.getElementById(targetId);
-            if (targetPane) {
-                targetPane.classList.add('show', 'active');
-                targetPane.style.display = 'block';
-                targetPane.style.opacity = '1';
-
-                if (targetId === 'screenshots') {
-                    setTimeout(() => {
-                        if (window.initInlineGallery) {
-                            window.initInlineGallery();
+        for (let i = sections.length - 1; i >= 0; i--) {
+            const section = document.getElementById(sections[i]);
+            if (section) {
+                const sectionTop = section.offsetTop;
+                if (scrollPosition >= sectionTop) {
+                    document.querySelectorAll('.global-anchor-link').forEach(link => {
+                        link.classList.remove('active');
+                        if (link.getAttribute('data-anchor') === sections[i]) {
+                            link.classList.add('active');
                         }
-                    }, 100);
+                    });
+                    break;
                 }
             }
+        }
 
-            saveActiveTabToUrl(targetId);
+        if (progressBar) {
+            const scrollPercent = (window.scrollY / (document.documentElement.scrollHeight - window.innerHeight)) * 100;
+            progressBar.style.width = scrollPercent + '%';
+        }
+    }
 
-            // Обновляем активную карточку в мобильной карусели
-            updateMobileTabCardActive(targetId);
+    function scrollToAnchor(targetId) {
+        const targetElement = document.querySelector(targetId);
+        if (targetElement) {
+            const elementPosition = targetElement.getBoundingClientRect().top;
+            const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
 
-            return false;
+            window.scrollTo({
+                top: offsetPosition,
+                behavior: 'smooth'
+            });
+
+            history.pushState(null, null, targetId);
+        }
+    }
+
+    anchorLinks.forEach(link => {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            const target = this.getAttribute('href');
+            if (target) {
+                scrollToAnchor(target);
+            }
         });
     });
 
-    // Инициализируем мобильную карусель после загрузки DOM
-    setTimeout(() => {
-        initMobileTabsCarousel();
-    }, 200);
+    window.addEventListener('scroll', function() {
+        requestAnimationFrame(updateActiveAnchor);
+    });
+
+    updateActiveAnchor();
+
+    if (window.location.hash) {
+        setTimeout(() => {
+            scrollToAnchor(window.location.hash);
+        }, 300);
+    }
 }
 
-// Обновление активной карточки в мобильной карусели
-function updateMobileTabCardActive(tabId) {
-    document.querySelectorAll('.mobile-tab-card').forEach(card => {
-        card.classList.remove('active');
-        const target = card.getAttribute('data-tab-target');
-        if (target === `#${tabId}`) {
-            card.classList.add('active');
+// Инициализация мобильной карусели для якорей
+function initMobileAnchorCarousel() {
+    const container = document.querySelector('.mobile-anchor-carousel .carousel-container');
+    const track = document.getElementById('mobile-carousel-track');
+    const cards = document.querySelectorAll('.mobile-anchor-card');
+    const dotsContainer = document.getElementById('mobile-carousel-dots');
 
-            // Находим индекс слайда с этой вкладкой и обновляем позицию карусели
-            const slides = document.querySelectorAll('#mobile-tabs-track .carousel-slide');
-            slides.forEach((slide, index) => {
-                if (slide.getAttribute('data-tab-id') === tabId) {
-                    if (mobileTabsState.currentIndex !== index) {
-                        mobileTabsState.currentIndex = index;
-                        updateTabsCarouselPosition();
-                    }
+    if (!container || !track || cards.length === 0) {
+        console.log('❌ Mobile carousel elements not found');
+        return;
+    }
+
+    console.log(`✅ Mobile carousel found with ${cards.length} cards`);
+
+    function scrollToCenter(slideElement) {
+        const containerWidth = container.offsetWidth;
+        const slideWidth = slideElement.offsetWidth;
+        const slideLeft = slideElement.offsetLeft;
+
+        let scrollPosition = slideLeft - (containerWidth / 2) + (slideWidth / 2);
+        if (scrollPosition < 0) scrollPosition = 0;
+
+        const maxScroll = track.scrollWidth - containerWidth;
+        if (scrollPosition > maxScroll) scrollPosition = maxScroll;
+
+        container.scrollTo({ left: scrollPosition, behavior: 'smooth' });
+    }
+
+    function setActiveCard(index) {
+        cards.forEach((card, i) => {
+            if (i === index) {
+                card.classList.add('active');
+                card.style.background = '#ff6b35';
+                card.style.color = 'white';
+            } else {
+                card.classList.remove('active');
+                card.style.background = 'rgba(255,255,255,0.08)';
+                card.style.color = '#e0e0e0';
+            }
+        });
+
+        const dots = dotsContainer?.querySelectorAll('.carousel-dot');
+        dots?.forEach((dot, i) => {
+            if (i === index) {
+                dot.classList.add('active');
+                dot.style.background = '#ff6b35';
+                dot.style.width = '20px';
+                dot.style.borderRadius = '4px';
+            } else {
+                dot.classList.remove('active');
+                dot.style.background = 'rgba(255,255,255,0.3)';
+                dot.style.width = '6px';
+                dot.style.borderRadius = '50%';
+            }
+        });
+    }
+
+    function switchToTab(index) {
+        if (index < 0 || index >= cards.length) return;
+
+        const card = cards[index];
+        const targetId = card.getAttribute('data-target');
+
+        setActiveCard(index);
+
+        const slideElement = card.closest('.carousel-slide');
+        if (slideElement) {
+            scrollToCenter(slideElement);
+        }
+
+        if (targetId) {
+            const targetElement = document.querySelector(targetId);
+            if (targetElement) {
+                const headerOffset = 110;
+                const elementPosition = targetElement.getBoundingClientRect().top;
+                const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+                window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
+                history.pushState(null, null, targetId);
+            }
+        }
+    }
+
+    cards.forEach((card, index) => {
+        const newCard = card.cloneNode(true);
+        card.parentNode.replaceChild(newCard, card);
+        cards[index] = newCard;
+
+        newCard.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log(`🔘 Clicked on tab ${index}`);
+            switchToTab(index);
+        });
+    });
+
+    if (dotsContainer) {
+        let dotsHtml = '';
+        for (let i = 0; i < cards.length; i++) {
+            dotsHtml += `<span class="carousel-dot ${i === 0 ? 'active' : ''}" data-index="${i}"></span>`;
+        }
+        dotsContainer.innerHTML = dotsHtml;
+
+        dotsContainer.querySelectorAll('.carousel-dot').forEach(dot => {
+            dot.addEventListener('click', function() {
+                const index = parseInt(this.getAttribute('data-index'));
+                if (!isNaN(index)) {
+                    switchToTab(index);
                 }
             });
-        }
+        });
+    }
+
+    container.addEventListener('scroll', function() {
+        const scrollLeft = container.scrollLeft;
+        const containerWidth = container.offsetWidth;
+        let closestIndex = 0;
+        let closestDistance = Infinity;
+
+        cards.forEach((card, idx) => {
+            const slide = card.closest('.carousel-slide');
+            if (slide) {
+                const slideCenter = slide.offsetLeft + slide.offsetWidth / 2;
+                const viewportCenter = scrollLeft + containerWidth / 2;
+                const distance = Math.abs(slideCenter - viewportCenter);
+                if (distance < closestDistance) {
+                    closestDistance = distance;
+                    closestIndex = idx;
+                }
+            }
+        });
+
+        setActiveCard(closestIndex);
     });
-}
 
-// Функция для активации вкладки по хэшу
-function activateTabFromHash() {
-    const hash = window.location.hash;
+    let startIndex = 0;
+    const hash = window.location.hash.substring(1);
+    const targets = ['game-info', 'overview', 'details', 'companies', 'keywords', 'screenshots'];
+    const hashIndex = targets.indexOf(hash);
+    if (hashIndex !== -1) startIndex = hashIndex;
 
-    if (hash && hash.length > 1) {
-        const tabId = hash.substring(1);
-        const tabLink = document.querySelector(`#gameTabs a[href="#${tabId}"]`);
+    setActiveCard(startIndex);
 
-        if (tabLink) {
-            console.log(`🔗 Activating tab from hash: ${tabId}`);
-            tabLink.click();
+    setTimeout(() => {
+        const activeCard = cards[startIndex];
+        if (activeCard) {
+            const slideElement = activeCard.closest('.carousel-slide');
+            if (slideElement) {
+                scrollToCenter(slideElement);
+            }
         }
-    }
+    }, 100);
 }
-
-// Функция для сохранения активной вкладки в URL
-function saveActiveTabToUrl(tabId) {
-    if (tabId) {
-        console.log(`💾 Saving tab to URL: ${tabId}`);
-
-        if (window.history && window.history.replaceState) {
-            const newUrl = window.location.pathname + '#' + tabId;
-            window.history.replaceState(null, null, newUrl);
-        } else {
-            window.location.hash = tabId;
-        }
-
-        try {
-            localStorage.setItem('game_detail_active_tab', tabId);
-        } catch (e) {
-            console.log('LocalStorage not available:', e);
-        }
-    }
-}
-
-// ===== ФУНКЦИИ ДЛЯ АДАПТИВНОЙ ВЕРСТКИ =====
 
 function adjustCoverHeight() {
     const cover = document.querySelector('.game-cover-main');
@@ -299,38 +272,8 @@ function adaptMobileLayout() {
             headerRow.classList.remove('flex-column');
         }
     }
-
-    const ratingContainer = document.querySelector('.d-flex.justify-content-between.align-items-start');
-    if (ratingContainer && window.innerWidth <= 768) {
-        ratingContainer.style.flexDirection = 'column';
-        ratingContainer.style.alignItems = 'flex-start';
-    }
-
-    // Переключаем видимость десктопных табов и мобильной карусели
-    const desktopTabs = document.querySelector('.desktop-tabs-nav');
-    const mobileCarousel = document.querySelector('.mobile-tabs-carousel');
-
-    if (desktopTabs && mobileCarousel) {
-        if (window.innerWidth <= 768) {
-            desktopTabs.style.display = 'none';
-            mobileCarousel.style.display = 'block';
-            // Переинициализируем карусель при смене ориентации
-            setTimeout(() => {
-                if (mobileTabsState.track) {
-                    mobileTabsState.slideWidth = mobileTabsState.track.children[0]?.offsetWidth || 0;
-                    updateTabsCarouselPosition();
-                }
-            }, 100);
-        } else {
-            desktopTabs.style.display = 'flex';
-            mobileCarousel.style.display = 'none';
-        }
-    }
 }
 
-// ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ГАЛЕРЕИ =====
-
-// Резервная инициализация галереи
 function initGalleryFallback() {
     console.log('🔄 Initializing gallery fallback');
 
@@ -462,18 +405,14 @@ function initGalleryFallback() {
     console.log('✅ Gallery fallback initialized');
 }
 
-// ===== ИНИЦИАЛИЗАЦИЯ =====
-
 function initializeGameDetail() {
     console.log('🏠 DOM fully loaded and parsed');
 
-    // 1. Инициализация Bootstrap tooltips
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+    tooltipTriggerList.map(function (tooltipTriggerEl) {
         return new bootstrap.Tooltip(tooltipTriggerEl);
     });
 
-    // 2. Адаптация обложки
     adjustCoverHeight();
     window.addEventListener('resize', adjustCoverHeight);
 
@@ -490,56 +429,12 @@ function initializeGameDetail() {
         }
     }
 
-    // 3. Адаптация мобильного лейаута
     adaptMobileLayout();
     window.addEventListener('resize', adaptMobileLayout);
 
-    // 4. Настройка вкладок
-    setTimeout(() => {
-        setupTabListeners();
+    initAnchorNavigation();
+    initMobileAnchorCarousel();
 
-        activateTabFromHash();
-
-        if (!window.location.hash || window.location.hash === '#') {
-            try {
-                const savedTab = localStorage.getItem('game_detail_active_tab');
-                if (savedTab) {
-                    const tabLink = document.querySelector(`#gameTabs a[href="#${savedTab}"]`);
-                    if (tabLink) {
-                        tabLink.click();
-                    }
-                }
-            } catch (e) {
-                console.log('LocalStorage not available:', e);
-            }
-        }
-
-        setTimeout(() => {
-            console.log('🔍 Проверка содержимого вкладок:');
-            ['overview', 'companies', 'keywords', 'details', 'screenshots'].forEach(tabId => {
-                const tab = document.getElementById(tabId);
-                if (tab) {
-                    console.log(`  ${tabId}:`, {
-                        innerHTML: tab.innerHTML.length,
-                        children: tab.children.length,
-                        display: tab.style.display,
-                        classes: tab.className
-                    });
-                }
-            });
-        }, 500);
-
-    }, 200);
-
-    // 5. Обработка изменения хэша
-    window.addEventListener('hashchange', function() {
-        console.log('🔗 Hash changed:', window.location.hash);
-        setTimeout(() => {
-            activateTabFromHash();
-        }, 50);
-    });
-
-    // 6. Инициализация галереи
     setTimeout(() => {
         console.log('🎨 Initializing gallery from main script');
         if (window.initInlineGallery) {
@@ -551,34 +446,10 @@ function initializeGameDetail() {
     }, 1000);
 }
 
-// ===== ГЛОБАЛЬНЫЕ ФУНКЦИИ ДЛЯ ОТЛАДКИ =====
-
 window.debugTabs = function() {
     console.log('=== ТАБЫ ОТЛАДКА ===');
     console.log('Хэш:', window.location.hash);
-
-    document.querySelectorAll('#gameTabs a[data-bs-toggle="tab"]').forEach(tab => {
-        const tabId = tab.getAttribute('href').substring(1);
-        const tabPane = document.getElementById(tabId);
-
-        console.log(`  ${tab.textContent.trim()}:`, {
-            href: tab.getAttribute('href'),
-            isActive: tab.classList.contains('active'),
-            paneExists: !!tabPane,
-            paneHTML: tabPane ? tabPane.innerHTML.length : 0,
-            paneDisplay: tabPane ? tabPane.style.display : 'none',
-            paneClasses: tabPane ? tabPane.className : ''
-        });
-    });
-
     console.log('====================');
-};
-
-window.forceShowTab = function(tabId) {
-    const tabLink = document.querySelector(`#gameTabs a[href="#${tabId}"]`);
-    if (tabLink) {
-        tabLink.click();
-    }
 };
 
 window.forceInitGallery = function() {
@@ -599,14 +470,10 @@ window.checkGalleryState = function() {
     console.log(`  Gallery images found: ${galleryImages.length}`);
     console.log(`  Modal exists: ${!!modalEl}`);
     console.log(`  initInlineGallery exists: ${!!window.initInlineGallery}`);
-
-    galleryImages.forEach((img, i) => {
-        console.log(`  Image ${i}:`, {
-            src: img.src.substring(0, 50),
-            'data-image': img.getAttribute('data-image'),
-            'data-gallery-index': img.getAttribute('data-gallery-index')
-        });
-    });
 };
+
+document.addEventListener('DOMContentLoaded', function() {
+    initializeGameDetail();
+});
 
 console.log('✅ Game detail tab management ready');

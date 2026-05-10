@@ -1,19 +1,16 @@
 {% load game_tags %}
+
 <div class="row">
     <div class="col-12">
-        <div class="section-header mb-3">
-            <h5 class="text-warning"><i class="bi bi-tags me-2"></i>Keywords</h5>
-        </div>
-
         {% if game.keywords.all %}
             <div class="d-flex flex-wrap gap-2">
                 {% for keyword in game.keywords.all|dictsortreversed:"cached_usage_count" %}
                     <span class="badge bg-secondary px-3 py-2">
-                    {{ keyword.name }}
-                    <small class="ms-2">
-                        <i class="bi bi-bar-chart me-1"></i>
-                        {{ keyword.cached_usage_count }}
-                    </small>
+                        {{ keyword.name }}
+                        <small class="ms-2">
+                            <i class="bi bi-bar-chart me-1"></i>
+                            {{ keyword.cached_usage_count }}
+                        </small>
                     </span>
                 {% endfor %}
             </div>
