@@ -1,6 +1,5 @@
 <!-- games/templates/games/game_detail.html -->
 
-
 {% extends 'base.html' %}
 {% load static %}
 
@@ -19,20 +18,11 @@
                   {% for platform in game.platforms.all %}{{ platform.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.
         {% if game.developers.all %}Developers:
 
-
-
-
               {% for developer in game.developers.all %}{{ developer.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
         {% if game.publishers.all %}Publishers:
 
-
-
-
               {% for publisher in game.publishers.all %}{{ publisher.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
         {% if game.game_engines.all %}Engine:
-
-
-
 
               {% for engine in game.game_engines.all %}{{ engine.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
         View screenshots, videos, and find similar games like {{ game.name }} in our game database of 45,000+ titles.">
@@ -46,16 +36,13 @@
         {% if game.series.all %}{% for series in game.series.all %}{{ series.name }} series, {% endfor %}{% endif %}
         games like {{ game.name }}, similar games to {{ game.name }},
 
-
             {% if game.developers.all %}{% for developer in game.developers.all %}{{ developer.name }} game, {% endfor %}{% endif %}
-
 
             {% if game.publishers.all %}{% for publisher in game.publishers.all %}{{ publisher.name }}, {% endfor %}{% endif %}
         game database entry, game details, {{ game.name }} screenshots, {{ game.name }} gameplay">
 
     <meta property="og:title" content="{{ game.name }} - Complete Game Database Entry">
     <meta property="og:description" content="{{ game.name }} -
-
 
             {% for genre in game.genres.all %}{{ genre.name }}{% if not forloop.last %}, {% endif %}{% endfor %} game. Rating: {{ game.rating|default:'N/A' }}/100. Find similar games in our video game database.">
     <meta property="og:type" content="website">
@@ -77,64 +64,64 @@
             "@context": "https://schema.org",
             "@type": "VideoGame",
             "name": "{{ game.name }}",
-        "url": "{{ request.build_absolute_uri }}",
-        "sameAs": "{% if game.igdb_url %}https://www.igdb.com/games/{{ game.slug }}{% endif %}",
+            "url": "{{ request.build_absolute_uri }}",
+            "sameAs": "{% if game.igdb_url %}https://www.igdb.com/games/{{ game.slug }}{% endif %}",
         {% if game.cover_url %}
             "image": "{{ game.cover_url }}",
-        "thumbnailUrl": "{{ game.cover_url }}",
+                "thumbnailUrl": "{{ game.cover_url }}",
         {% endif %}
         "description":
         "{{ game.name }}. {% for genre in game.genres.all %}{{ genre.name }} {% endfor %}game released {% if game.first_release_date %}in {{ game.first_release_date|date:'F Y' }}{% endif %}.",
-        "aggregateRating": {
-            "@type": "AggregateRating",
-            "ratingValue": "{{ game.rating|default:'0'|stringformat:'.1f' }}",
-            "bestRating": "100",
-            "worstRating": "0",
-            "ratingCount": "{{ game.rating_count|default:0 }}"
-        }{% if game.first_release_date %},
-        "datePublished": "{{ game.first_release_date|date:'Y-m-d' }}"{% endif %},
+            "aggregateRating": {
+                "@type": "AggregateRating",
+                "ratingValue": "{{ game.rating|default:'0'|stringformat:'.1f' }}",
+                "bestRating": "100",
+                "worstRating": "0",
+                "ratingCount": "{{ game.rating_count|default:0 }}"
+            }{% if game.first_release_date %},
+            "datePublished": "{{ game.first_release_date|date:'Y-m-d' }}"{% endif %},
         {% if game.genres.all %}
             "genre": [
             {% for genre in game.genres.all %}
                 "{{ genre.name }}"{% if not forloop.last %}{% endif %}
-            {% endfor %}
+                    {% endfor %}
             ],
         {% endif %}
-        {% if game.game_modes.all %}
+            {% if game.game_modes.all %}
         "gameMode": [
         {% for mode in game.game_modes.all %}
             "{{ mode.name }}"{% if not forloop.last %}{% endif %}
-            {% endfor %}
+                    {% endfor %}
         ],
     {% endif %}
-        {% if game.platforms.all %}
+            {% if game.platforms.all %}
         "availableOnDevice": [
         {% for platform in game.platforms.all %}
             {
                 "@type": "Device",
                 "name": "{{ platform.name }}"
-            }{% if not forloop.last %}{% endif %}
-            {% endfor %}
+                        }{% if not forloop.last %}{% endif %}
+                    {% endfor %}
         ],
     {% endif %}
-        {% if game.developers.all %}
+            {% if game.developers.all %}
         "author": [
         {% for developer in game.developers.all %}
             {
                 "@type": "Organization",
                 "name": "{{ developer.name }}"
-            }{% if not forloop.last %}{% endif %}
-            {% endfor %}
+                        }{% if not forloop.last %}{% endif %}
+                    {% endfor %}
         ],
     {% endif %}
-        {% if game.publishers.all %}
+            {% if game.publishers.all %}
         "publisher": [
         {% for publisher in game.publishers.all %}
             {
                 "@type": "Organization",
                 "name": "{{ publisher.name }}"
-            }{% if not forloop.last %}{% endif %}
-            {% endfor %}
+                        }{% if not forloop.last %}{% endif %}
+                    {% endfor %}
         ],
     {% endif %}
         "isFamilyFriendly": "true",
@@ -159,15 +146,15 @@
                     "position": 2,
                     "name": "Video Game Database",
                     "item": "https://gamespeek.dpdns.org{% url 'game_list' %}"
-            },
-            {
-                "@type": "ListItem",
-                "position": 3,
-                "name": "{{ game.name }}",
-                "item": "{{ request.build_absolute_uri }}"
-            }
-        ]
-    }
+                },
+                {
+                    "@type": "ListItem",
+                    "position": 3,
+                    "name": "{{ game.name }}",
+                    "item": "{{ request.build_absolute_uri }}"
+                }
+            ]
+        }
     </script>
 {% endblock %}
 
@@ -179,7 +166,6 @@
 {% endblock %}
 
 {% block content %}
-    <!-- Breadcrumb navigation for SEO and user experience -->
     <nav aria-label="breadcrumb" class="mb-3">
         <ol class="breadcrumb" style="background: transparent; padding: 0.5rem 0;">
             <li class="breadcrumb-item"><a href="{% url 'home' %}" style="color: var(--secondary-color);">Home</a></li>
@@ -190,7 +176,6 @@
     </nav>
 
     <div class="container">
-        {% include 'games/game_detail/header.html' %}
         {% include 'games/game_detail/tabs_content.html' %}
     </div>
 
@@ -202,19 +187,15 @@
                     <button type="button" class="screenshot-close" data-bs-dismiss="modal" aria-label="Close">
                         <i class="bi bi-x-lg"></i>
                     </button>
-
                     <button type="button" class="nav-arrow prev-arrow" id="prevBtn">
                         <i class="bi bi-chevron-left"></i>
                     </button>
-
                     <button type="button" class="nav-arrow next-arrow" id="nextBtn">
                         <i class="bi bi-chevron-right"></i>
                     </button>
-
                     <div class="d-flex align-items-center justify-content-center w-100 h-100">
                         <img id="modalImage" class="screenshot-full" alt="Screenshot">
                     </div>
-
                     <div class="screenshot-counter">
                         <span id="currentNum">1</span><span id="totalCount"> / 0</span>
                     </div>

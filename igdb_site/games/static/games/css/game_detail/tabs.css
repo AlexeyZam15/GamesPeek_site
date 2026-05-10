@@ -3,479 +3,294 @@
 /* ===== CSS VARIABLES ===== */
 
 :root {
-  /* Размеры вкладок */
-  --tab-padding: 0.75rem 1.25rem;
-  --tab-padding-md: 0.6rem 1rem;
-  --tab-padding-sm: 0.5rem 0.75rem;
-  --tab-padding-xs: 0.4rem 0.6rem;
-
-  /* Шрифты вкладок */
-  --tab-font-size: 0.9rem;
-  --tab-font-size-md: 0.85rem;
-  --tab-font-size-sm: 0.8rem;
-  --tab-font-size-xs: 0.75rem;
-
-  /* Иконки */
-  --tab-icon-size: 1.1rem;
-  --tab-icon-size-md: 1rem;
-  --tab-icon-size-sm: 0.9rem;
-
-  /* Отступы */
-  --tab-content-padding: 1.5rem;
-  --tab-content-padding-md: 1.25rem;
-  --tab-content-padding-sm: 1rem;
-
-  /* Цвета */
-  --tab-active-color: var(--accent-color);
-  --tab-border-active: 3px solid var(--accent-color);
-  --tab-hover-bg: rgba(255, 255, 255, 0.05);
-
-  /* Секции */
-  --section-padding: 1.5rem;
-  --section-padding-md: 1.25rem;
-  --section-padding-sm: 1rem;
-  --section-padding-xs: 0.75rem;
-
-  /* Карусель вкладок */
-  --tab-card-width: 200px;
-  --tab-card-width-sm: 160px;
-  --tab-card-height: 60px;
-  --tab-card-gap: 16px;
+    --header-height: 70px;
+    --nav-height: 50px;
+    --total-offset: 120px;
 }
 
-/* ===== TABS COMPONENT ===== */
+/* ===== ГЛОБАЛЬНАЯ ЯКОРНАЯ НАВИГАЦИЯ ===== */
 
-/* Основные стили вкладок */
-.game-tabs {
-  background: var(--surface);
-  border-radius: var(--border-radius);
-  border: 1px solid var(--border);
-  margin-top: 1rem;
+.global-anchor-nav {
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.95);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(255, 107, 53, 0.3);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
 }
 
-/* Десктопная навигация вкладок */
-.desktop-tabs-nav {
-  border-bottom: 1px solid var(--border);
-  padding: 0.5rem 0.5rem 0;
-  background: rgba(26, 26, 26, 0.8);
-  display: flex;
-  flex-wrap: wrap;
+.global-anchor-wrapper {
+    display: flex;
+    justify-content: center;
+    gap: 0.25rem;
+    padding: 0.5rem 1rem;
+    flex-wrap: wrap;
 }
 
-/* Ссылки вкладок (десктоп) */
-.desktop-tabs-nav .nav-link {
-  border: none;
-  color: var(--text-dark);
-  font-weight: 600;
-  padding: var(--tab-padding);
-  border-radius: var(--border-radius) var(--border-radius) 0 0;
-  transition: var(--transition);
-  position: relative;
-  overflow: hidden;
-  font-size: var(--tab-font-size);
+.global-anchor-link {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1.25rem;
+    border-radius: 30px;
+    color: #e0e0e0;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid transparent;
 }
 
-.desktop-tabs-nav .nav-link:hover {
-  color: var(--text-light);
-  background: var(--tab-hover-bg);
-  border: none;
+.global-anchor-link i {
+    font-size: 1rem;
 }
 
-.desktop-tabs-nav .nav-link.active {
-  color: var(--tab-active-color);
-  background: var(--surface);
-  border: none;
-  border-bottom: var(--tab-border-active);
+.global-anchor-link .badge {
+    background: rgba(255, 107, 53, 0.8);
+    color: white;
+    font-size: 0.7rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 20px;
+    margin-left: 0.25rem;
 }
 
-/* Контент вкладок */
-.game-tabs .tab-content {
-  padding: var(--tab-content-padding);
-  background: var(--surface);
+.global-anchor-link:hover {
+    background: rgba(255, 107, 53, 0.2);
+    color: #ff6b35;
+    border-color: rgba(255, 107, 53, 0.5);
+    transform: translateY(-2px);
 }
 
-/* Исправление отображения вкладок */
-.tab-content .tab-pane {
-  display: none;
-  animation: fadeInTab 0.2s ease-out;
+.global-anchor-link.active {
+    background: linear-gradient(135deg, #ff6b35, #ff8c00);
+    color: white;
+    border-color: transparent;
+    box-shadow: 0 2px 8px rgba(255, 107, 53, 0.4);
 }
 
-.tab-content .tab-pane.active,
-.tab-content .tab-pane.show {
-  display: block;
+.global-anchor-progress {
+    height: 3px;
+    background: rgba(255, 255, 255, 0.1);
 }
 
-@keyframes fadeInTab {
-  from { opacity: 0; }
-  to { opacity: 1; }
+.progress-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #ff6b35, #ff8c00);
+    transition: width 0.1s ease;
 }
 
-/* Иконки во вкладках */
-.desktop-tabs-nav .nav-link i {
-  font-size: var(--tab-icon-size);
-  margin-right: 0.5rem;
+/* ===== МОБИЛЬНАЯ КАРУСЕЛЬ ===== */
+
+.mobile-anchor-carousel {
+    display: none;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.95);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(255, 107, 53, 0.3);
+    padding: 8px 0;
 }
 
-/* Бейджи во вкладках */
-.desktop-tabs-nav .nav-link .badge {
-  font-size: 0.7rem;
-  padding: 0.2rem 0.5rem;
-  margin-left: 0.5rem;
-  vertical-align: middle;
+.mobile-anchor-carousel .carousel-container {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+    scrollbar-width: none;
 }
 
-/* Анимация переключения вкладок */
-.desktop-tabs-nav .nav-link::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-  transition: left 0.5s ease;
+.mobile-anchor-carousel .carousel-container::-webkit-scrollbar {
+    display: none;
 }
 
-.desktop-tabs-nav .nav-link:hover::before {
-  left: 100%;
+.mobile-anchor-carousel .carousel-track {
+    display: flex;
+    gap: 8px;
+    padding: 0 12px;
 }
 
-/* ===== МОБИЛЬНАЯ КАРУСЕЛЬ ВКЛАДОК ===== */
-
-.mobile-tabs-carousel {
-  display: none;
-  position: relative;
-  margin-bottom: 1.5rem;
-  padding: 0 40px;
+.mobile-anchor-carousel .carousel-slide {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
 }
 
-.mobile-tabs-carousel .carousel-container {
-  position: relative;
-  overflow: hidden;
+.mobile-anchor-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 30px;
+    color: #e0e0e0;
+    font-size: 0.85rem;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+    border: 1px solid transparent;
+    cursor: pointer;
 }
 
-.mobile-tabs-carousel .carousel-track-container {
-  overflow: hidden;
-  border-radius: 12px;
+.mobile-anchor-card i {
+    font-size: 0.95rem;
 }
 
-.mobile-tabs-carousel .carousel-track {
-  display: flex;
-  gap: var(--tab-card-gap);
-  transition: transform 0.3s ease-in-out;
-  will-change: transform;
+.mobile-anchor-card .badge {
+    background: rgba(255, 107, 53, 0.8);
+    color: white;
+    font-size: 0.65rem;
+    padding: 0.15rem 0.4rem;
+    border-radius: 20px;
 }
 
-.mobile-tabs-carousel .carousel-slide {
-  flex: 0 0 var(--tab-card-width);
-  min-width: var(--tab-card-width);
+.mobile-anchor-card.active {
+    background: #ff6b35;
+    color: white;
+    border-color: transparent;
 }
 
-/* Карточка вкладки для мобильной карусели */
-.mobile-tab-card {
-  background: linear-gradient(135deg, #1a1a2e, #16213e);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  padding: 0.875rem 1rem;
-  text-align: center;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  color: var(--text-dark);
-  font-weight: 600;
-  font-size: 0.9rem;
-  backdrop-filter: blur(10px);
-  height: var(--tab-card-height);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
+.mobile-anchor-card:hover {
+    background: rgba(255, 107, 53, 0.3);
+    color: #ff6b35;
 }
 
-.mobile-tab-card i {
-  font-size: 1.1rem;
+.carousel-dots {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 8px;
+    padding-bottom: 4px;
 }
 
-.mobile-tab-card .badge {
-  font-size: 0.7rem;
-  padding: 0.2rem 0.5rem;
+.carousel-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.3);
+    transition: all 0.2s ease;
+    cursor: pointer;
 }
 
-.mobile-tab-card:hover {
-  transform: translateY(-2px);
-  border-color: rgba(255, 107, 53, 0.5);
-  background: linear-gradient(135deg, #1e1e3a, #1a1a2e);
+.carousel-dot.active {
+    width: 20px;
+    border-radius: 4px;
+    background: #ff6b35;
 }
 
-.mobile-tab-card.active {
-  background: linear-gradient(135deg, var(--secondary-color), var(--accent-color));
-  color: var(--text-light);
-  border-color: transparent;
-  box-shadow: 0 4px 15px rgba(255, 107, 53, 0.3);
+/* ===== СЕКЦИИ С КОНТЕНТОМ ===== */
+
+.anchor-section {
+    scroll-margin-top: var(--total-offset);
+    margin-bottom: 2.5rem;
+    animation: fadeInSection 0.3s ease-out;
 }
 
-/* Кнопки навигации карусели вкладок */
-.mobile-tabs-carousel .carousel-btn {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  background: rgba(255, 107, 53, 0.9);
-  border: 2px solid white;
-  border-radius: 50%;
-  color: white;
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  z-index: 10;
-  padding: 0;
-  font-size: 1.2rem;
+@keyframes fadeInSection {
+    from {
+        opacity: 0;
+        transform: translateY(15px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
-.mobile-tabs-carousel .carousel-btn:hover {
-  background: rgba(255, 140, 0, 0.9);
-  transform: translateY(-50%) scale(1.05);
+.anchor-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid #ff6b35;
 }
 
-.mobile-tabs-carousel .carousel-btn.left {
-  left: -5px;
+.anchor-section-header h2 {
+    font-size: 1.3rem;
+    margin: 0;
+    color: #ffffff;
+    font-weight: 700;
 }
 
-.mobile-tabs-carousel .carousel-btn.right {
-  right: -5px;
+.anchor-section-header h2 i {
+    color: #ff6b35;
 }
 
-/* Индикаторы карусели вкладок */
-.mobile-tabs-carousel .carousel-indicators {
-  position: relative;
-  bottom: auto;
-  margin-top: 1rem;
-  gap: 0.5rem;
-  display: flex;
-  justify-content: center;
-  align-items: center;
+.anchor-back-to-top {
+    color: #8b96a0;
+    text-decoration: none;
+    font-size: 0.8rem;
+    transition: color 0.2s ease;
+    padding: 0.3rem 0.8rem;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.05);
 }
 
-.mobile-tabs-carousel .carousel-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.3);
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.mobile-tabs-carousel .carousel-dot.active {
-  width: 24px;
-  border-radius: 4px;
-  background: var(--secondary-color);
-}
-
-.mobile-tabs-carousel .carousel-dot:hover {
-  background: var(--secondary-color);
-  transform: scale(1.2);
-}
-
-/* ===== СЕКЦИИ ВНУТРИ ВКЛАДОК ===== */
-
-/* Компактные секции */
-.compact-section {
-  margin-bottom: 1.5rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--border-radius);
-  padding: var(--section-padding);
-}
-
-.compact-section:last-child {
-  margin-bottom: 0;
-}
-
-/* Заголовки секций */
-.section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid var(--border);
-}
-
-.section-header h5,
-.section-header h6 {
-  margin: 0;
-  color: var(--text-light);
-  font-weight: 600;
-}
-
-/* ===== СВОРАЧИВАЕМЫЙ ТЕКСТ ===== */
-
-.collapsible-text {
-  max-height: 150px;
-  overflow: hidden;
-  transition: max-height 0.3s ease-out;
-  position: relative;
-}
-
-.collapsible-text.expanded {
-  max-height: none;
-}
-
-.collapsible-text::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 40px;
-  background: linear-gradient(transparent, var(--surface));
-  opacity: 1;
-  transition: opacity 0.3s ease;
-}
-
-.collapsible-text.expanded::after {
-  opacity: 0;
-}
-
-/* Кнопка переключения текста */
-.toggle-text-btn {
-  background: none;
-  border: none;
-  color: var(--accent-color);
-  font-size: 0.875rem;
-  padding: 0.5rem 0;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  transition: var(--transition);
-  font-weight: 600;
-}
-
-.toggle-text-btn:hover {
-  color: var(--secondary-color);
+.anchor-back-to-top:hover {
+    color: #ff6b35;
+    background: rgba(255, 107, 53, 0.1);
 }
 
 /* ===== АДАПТИВНОСТЬ ===== */
 
-@media (max-width: 992px) {
-  .desktop-tabs-nav .nav-link {
-    padding: var(--tab-padding-md);
-    font-size: var(--tab-font-size-md);
-  }
-
-  .game-tabs .tab-content {
-    padding: var(--tab-content-padding-md);
-  }
-
-  .compact-section {
-    padding: var(--section-padding-md);
-  }
-
-  .mobile-tabs-carousel .carousel-slide {
-    flex: 0 0 var(--tab-card-width-sm);
-    min-width: var(--tab-card-width-sm);
-  }
-
-  .mobile-tab-card {
-    font-size: 0.85rem;
-    padding: 0.75rem;
-  }
-
-  .mobile-tab-card i {
-    font-size: 1rem;
-  }
-}
-
 @media (max-width: 768px) {
-  .desktop-tabs-nav .nav-link {
-    padding: var(--tab-padding-sm);
-    font-size: var(--tab-font-size-sm);
-  }
+    :root {
+        --header-height: 60px;
+        --nav-height: 60px;
+        --total-offset: 120px;
+    }
 
-  .desktop-tabs-nav .nav-link i {
-    font-size: var(--tab-icon-size-md);
-    margin-right: 0.3rem;
-  }
+    .global-anchor-nav {
+        display: none;
+    }
 
-  .game-tabs .tab-content {
-    padding: var(--tab-content-padding-sm);
-  }
+    .mobile-anchor-carousel {
+        display: block;
+    }
 
-  .compact-section {
-    padding: var(--section-padding-sm);
-  }
+    .anchor-section {
+        scroll-margin-top: 110px;
+    }
 
-  .section-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.5rem;
-  }
+    .anchor-section-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
 
-  .mobile-tabs-carousel {
-    padding: 0 35px;
-  }
-
-  .mobile-tabs-carousel .carousel-btn {
-    width: 32px;
-    height: 32px;
-    font-size: 1rem;
-  }
+    .anchor-section-header h2 {
+        font-size: 1.2rem;
+    }
 }
 
-@media (max-width: 576px) {
-  .desktop-tabs-nav .nav {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    padding-bottom: 0.5rem;
-  }
+@media (min-width: 769px) {
+    .mobile-anchor-carousel {
+        display: none;
+    }
 
-  .desktop-tabs-nav .nav-link {
-    white-space: nowrap;
-    font-size: var(--tab-font-size-xs);
-    padding: var(--tab-padding-xs);
-  }
+    .global-anchor-nav {
+        display: block;
+    }
+}
 
-  .desktop-tabs-nav .nav-link i {
-    font-size: var(--tab-icon-size-sm);
-    margin-right: 0.2rem;
-  }
+@media (max-width: 480px) {
+    .mobile-anchor-card {
+        padding: 6px 12px;
+        font-size: 0.75rem;
+    }
 
-  .desktop-tabs-nav .nav-link .badge {
-    font-size: 0.6rem;
-    padding: 0.1rem 0.3rem;
-    margin-left: 0.3rem;
-  }
+    .mobile-anchor-card i {
+        font-size: 0.85rem;
+    }
 
-  .compact-section {
-    padding: var(--section-padding-xs);
-    margin-bottom: 1rem;
-  }
+    .anchor-section {
+        scroll-margin-top: 100px;
+    }
 
-  .mobile-tabs-carousel {
-    padding: 0 30px;
-  }
-
-  .mobile-tabs-carousel .carousel-slide {
-    flex: 0 0 140px;
-    min-width: 140px;
-  }
-
-  .mobile-tab-card {
-    font-size: 0.8rem;
-    padding: 0.625rem 0.75rem;
-    height: 50px;
-  }
-
-  .mobile-tab-card i {
-    font-size: 0.9rem;
-  }
-
-  .mobile-tabs-carousel .carousel-btn {
-    width: 28px;
-    height: 28px;
-    font-size: 0.9rem;
-  }
+    .anchor-section-header h2 {
+        font-size: 1.1rem;
+    }
 }
