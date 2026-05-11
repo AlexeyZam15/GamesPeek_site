@@ -1,6 +1,7 @@
 // games/static/games/js/components/card-carousel.js
 
 const CardCarousel = {
+
     initialized: false,
     carousels: new Map(),
 
@@ -35,9 +36,10 @@ const CardCarousel = {
         }
 
         try {
+            // ИСПРАВЛЕНО: wrap: true для зацикливания
             const bsCarousel = new bootstrap.Carousel(carouselElement, {
                 interval: false,
-                wrap: true,
+                wrap: true,      // ЗАЦИКЛИВАНИЕ ВКЛЮЧЕНО
                 touch: true,
                 pause: 'hover'
             });
