@@ -95,11 +95,18 @@ function initMobileAnchorCarousel() {
     newTrack.id = 'mobile-carousel-track';
     newTrack.style.cssText = 'display: flex; gap: 8px; padding: 0 12px;';
 
-    const anchors = ['game-info', 'overview', 'details', 'companies', 'keywords', 'screenshots'];
-    const icons = ['bi-controller', 'bi-info-circle', 'bi-list-check', 'bi-building', 'bi-tags', 'bi-image'];
-    const labels = ['Game Info', 'Overview', 'Details', 'Companies', 'Keywords', 'Screenshots'];
+    // Обновленный массив якорей с добавлением similar-games
+    const anchors = ['game-info', 'overview', 'details', 'companies', 'keywords', 'screenshots', 'similar-games'];
+    const icons = ['bi-controller', 'bi-info-circle', 'bi-list-check', 'bi-building', 'bi-tags', 'bi-image', 'bi-search-heart'];
+    const labels = ['Game Info', 'Overview', 'Details', 'Companies', 'Keywords', 'Screenshots', 'Similar Games'];
 
     anchors.forEach((anchor, i) => {
+        // Проверяем, существует ли элемент с таким id на странице
+        const targetElement = document.getElementById(anchor);
+        if (!targetElement && anchor === 'similar-games') {
+            return; // Пропускаем similar-games если блока нет на странице
+        }
+
         const slide = document.createElement('div');
         slide.className = 'carousel-slide';
         slide.setAttribute('data-anchor', anchor);
@@ -227,8 +234,8 @@ function initMobileAnchorCarousel() {
     let startIndex = 0;
     const hash = window.location.hash.substring(1);
     const idx = anchors.indexOf(hash);
-    if (idx !== -1) startIndex = idx;
-    setActive(startIndex);
+    if (idx !== -1 && idx < cards.length) startIndex = idx;
+    if (cards.length > 0) setActive(startIndex);
 }
 
 function adjustCoverHeight() {

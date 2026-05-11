@@ -1,0 +1,96 @@
+<!-- games/templates/games/game_detail/similar_games.html -->
+
+{% load static %}
+
+{% if similar_games %}
+    <div class="similar-games-section mt-5">
+        <div class="section-header mb-4">
+            <h3 class="text-info">
+                <i class="bi bi-search-heart me-2"></i>
+                Games Like {{ game.name }}
+            </h3>
+            <p class="text-muted mt-2">
+                Based on shared genres and themes — hand-picked from our database of 45,000+ titles.
+            </p>
+        </div>
+
+        <div class="row g-4">
+            {% for similar in similar_games %}
+                <div class="col-md-6 col-lg-4 col-xl-3">
+                    <div class="card game-card h-100 bg-dark border-secondary">
+                        <div class="card-img-top position-relative" style="height: 180px; overflow: hidden;">
+                            {% if similar.cover_url %}
+                                <img src="{{ similar.cover_url }}"
+                                     class="w-100 h-100"
+                                     alt="{{ similar.name }}"
+                                     style="object-fit: cover; object-position: center 20%;"
+                                     loading="lazy">
+                            {% else %}
+                                <div class="no-cover-placeholder w-100 h-100 d-flex align-items-center justify-content-center bg-secondary">
+                                    <i class="bi bi-controller text-light fs-1"></i>
+                                </div>
+                            {% endif %}
+
+                            <!-- Рейтинг на обложке -->
+                            {% if similar.rating %}
+                                <div class="position-absolute top-0 start-0 m-2">
+                            <span class="badge bg-dark bg-opacity-75 px-2 py-1 fs-6">
+                                <i class="bi bi-star-fill text-warning me-1"></i>
+                                {{ similar.rating|floatformat:1 }}
+                            </span>
+                                </div>
+                            {% endif %}
+                        </div>
+
+                        <div class="card-body p-3">
+                            <h5 class="card-title text-info mb-2" style="font-size: 1.1rem;">
+                                <a href="{% url 'game_detail' similar.pk %}"
+                                   class="text-decoration-none text-info hover-underline">
+                                    {{ similar.name }}
+                                </a>
+                            </h5>
+
+                            <!-- Год релиза -->
+                            {% if similar.first_release_date %}
+                                <p class="card-text text-muted small mb-2">
+                                    <i class="bi bi-calendar-event me-1"></i>
+                                    {{ similar.first_release_date|date:"Y" }}
+                                </p>
+                            {% endif %}
+
+                            <!-- Жанры (первые 3) -->
+                            {% if similar.genres.all %}
+                                <div class="d-flex flex-wrap gap-1 mt-2">
+                                    {% for genre in similar.genres.all|slice:":3" %}
+                                        <span class="badge bg-success small px-2 py-1" style="font-size: 0.7rem;">
+                                    {{ genre.name }}
+                                </span>
+                                    {% endfor %}
+                                    {% if similar.genres.all|length > 3 %}
+                                        <span class="badge bg-secondary small px-2 py-1">+{{ similar.genres.all|length|add:"-3" }}</span>
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+                        </div>
+
+                        <div class="card-footer bg-dark border-secondary p-3 pt-0">
+                            <a href="{% url 'game_detail' similar.pk %}"
+                               class="btn btn-outline-info w-100 btn-sm">
+                                <i class="bi bi-info-circle me-1"></i>View Details
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+
+        <!-- Ссылка на страницу расширенного поиска похожих игр -->
+        <div class="text-center mt-4">
+            <a href="{% url 'game_list' %}?find_similar=1&source_game={{ game.pk }}"
+               class="btn btn-primary-gradient px-4 py-2">
+                <i class="bi bi-search-heart me-2"></i>
+                Find More Games Like {{ game.name }}
+            </a>
+        </div>
+    </div>
+{% endif %}
