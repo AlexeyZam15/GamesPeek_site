@@ -34,6 +34,13 @@
                 <span class="badge">{{ game.screenshots.all|length }}</span>
             {% endif %}
         </a>
+        {% if similar_games %}
+            <a href="#similar-games" class="global-anchor-link" data-anchor="similar-games">
+                <i class="bi bi-search-heart"></i>
+                <span>Similar Games</span>
+                <span class="badge">{{ similar_games|length }}</span>
+            </a>
+        {% endif %}
     </div>
     <div class="global-anchor-progress">
         <div class="progress-bar" id="anchor-progress-bar"></div>
@@ -83,6 +90,15 @@
                     {% endif %}
                 </div>
             </div>
+            {% if similar_games %}
+                <div class="carousel-slide" data-anchor="similar-games">
+                    <div class="mobile-anchor-card" data-target="#similar-games">
+                        <i class="bi bi-search-heart"></i>
+                        <span>Similar Games</span>
+                        <span class="badge">{{ similar_games|length }}</span>
+                    </div>
+                </div>
+            {% endif %}
         </div>
     </div>
     <div class="carousel-dots" id="mobile-carousel-dots"></div>
@@ -137,6 +153,32 @@
         </div>
         {% include 'games/game_detail/tab_screenshots.html' %}
     </div>
+
+    <!-- Блок похожих игр -->
+    {% if similar_games %}
+        <div id="similar-games" class="anchor-section">
+            <div class="anchor-section-header">
+                <h2><i class="bi bi-search-heart me-2"></i>Similar Games</h2>
+                <a href="#" class="anchor-back-to-top">↑ Back to top</a>
+            </div>
+
+            <div class="games-container">
+                <div class="row" id="games-grid-row">
+                    {% for similar_game in similar_games %}
+                        {% include 'games/partials/_game_card.html' with game=similar_game show_similarity=True %}
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="text-center mt-4">
+                <a href="{% url 'game_list' %}?find_similar=1&source_game={{ game.id }}"
+                   class="btn btn-primary-gradient px-4 py-2">
+                    <i class="bi bi-search-heart me-2"></i>
+                    Find More Games Like {{ game.name }}
+                </a>
+            </div>
+        </div>
+    {% endif %}
 </div>
 
 <script>
