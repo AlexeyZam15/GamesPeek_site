@@ -1,4 +1,5 @@
 <!-- games/templates/games/partials/_game_card.html -->
+
 {% load game_tags platform_icons color_tags game_type_tags %}
 
 <div class="col-xl-3 col-lg-4 col-md-6 col-sm-6 col-12 mb-4 game-card-container"
@@ -11,11 +12,14 @@
         {% if source_game and source_game.id %}
      data-source-game-id="{{ source_game.id }}"
         {% endif %}>
+
     <div class="card game-card d-flex flex-column">
+
         <!-- Контейнер для карусели скриншотов -->
         <div class="card-img-top-container position-relative">
-            <div id="game-carousel-{{ game.id }}" class="game-screenshot-carousel carousel slide" data-bs-ride="false"
-                 data-bs-interval="false">
+            <div id="game-carousel-{{ game.id }}" class="game-screenshot-carousel carousel slide"
+                 data-bs-ride="false" data-bs-interval="false" data-bs-wrap="true">
+
                 <div class="carousel-inner">
                     <!-- Обложка как первый слайд -->
                     <div class="carousel-item active">
@@ -42,7 +46,20 @@
                     {% endif %}
                 </div>
 
-                <!-- Кнопки навигации (показываются только если есть скриншоты) -->
+                <!-- ИСПРАВЛЕННЫЕ ИНДИКАТОРЫ - точное соответствие количеству слайдов -->
+                <div class="carousel-indicators">
+                    <button type="button" data-bs-target="#game-carousel-{{ game.id }}" data-bs-slide-to="0"
+                            class="active" aria-current="true" aria-label="Cover"></button>
+                    {% if game.screenshots.all %}
+                        {% for screenshot in game.screenshots.all %}
+                            <button type="button" data-bs-target="#game-carousel-{{ game.id }}"
+                                    data-bs-slide-to="{{ forloop.counter }}"
+                                    aria-label="Screenshot {{ forloop.counter }}"></button>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+
+                <!-- Кнопки навигации -->
                 {% if game.screenshots.all %}
                     <button class="carousel-control-prev" type="button" data-bs-target="#game-carousel-{{ game.id }}"
                             data-bs-slide="prev">
@@ -54,17 +71,6 @@
                         <span class="carousel-control-next-icon" aria-hidden="true"></span>
                         <span class="visually-hidden">Next</span>
                     </button>
-
-                    <!-- Индикаторы количества скриншотов -->
-                    <div class="carousel-indicators">
-                        <button type="button" data-bs-target="#game-carousel-{{ game.id }}" data-bs-slide-to="0"
-                                class="active" aria-current="true" aria-label="Cover"></button>
-                        {% for screenshot in game.screenshots.all|slice:":8" %}
-                            <button type="button" data-bs-target="#game-carousel-{{ game.id }}"
-                                    data-bs-slide-to="{{ forloop.counter }}"
-                                    aria-label="Screenshot {{ forloop.counter }}"></button>
-                        {% endfor %}
-                    </div>
                 {% endif %}
             </div>
 
@@ -75,14 +81,10 @@
                 </div>
             {% else %}
                 <div class="position-absolute top-0 start-0 p-1 no-rating-container-card" style="z-index: 10;"
-                     data-bs-toggle="tooltip"
-                     data-bs-placement="right"
-                     title="No Rating">
+                     data-bs-toggle="tooltip" data-bs-placement="right" title="No Rating">
                     <svg viewBox="0 0 60 60" width="60" height="60">
                         <path d="M30,7.5 L36.45,22.65 L52.5,22.65 L39.525,31.1 L45.975,46.25 L30,37.8 L14.025,46.25 L20.475,31.1 L7.5,22.65 L23.55,22.65 Z"
-                              fill="none"
-                              stroke="#6c757d"
-                              stroke-width="2"/>
+                              fill="none" stroke="#6c757d" stroke-width="2"/>
                         <text x="30" y="34" text-anchor="middle" fill="#6c757d" font-size="14" font-weight="bold">N/A
                         </text>
                     </svg>
@@ -145,8 +147,7 @@
                             {% endfor %}
                             {% if game.genres.all|length > genre_limit %}
                                 <span class="badge bg-secondary small"
-                                      data-bs-toggle="tooltip"
-                                      data-bs-placement="top"
+                                      data-bs-toggle="tooltip" data-bs-placement="top"
                                       title="+{{ game.genres.all|length|add:"-genre_limit" }} more genres">
                                     +{{ game.genres.all|length|add:"-genre_limit" }}
                                 </span>
@@ -170,8 +171,7 @@
                             {% endfor %}
                             {% if game.player_perspectives.all|length > perspective_limit %}
                                 <span class="badge bg-secondary small"
-                                      data-bs-toggle="tooltip"
-                                      data-bs-placement="top"
+                                      data-bs-toggle="tooltip" data-bs-placement="top"
                                       title="+{{ game.player_perspectives.all|length|add:"-perspective_limit" }} more perspectives">
                                     +{{ game.player_perspectives.all|length|add:"-perspective_limit" }}
                                 </span>
@@ -201,11 +201,9 @@
                 <a href="{% url 'game_detail' game.id %}" class="btn btn-sm btn-outline-primary">
                     <i class="bi bi-info-circle"></i> Details
                 </a>
-
                 <a href="{% get_find_similar_url game %}" class="btn btn-sm btn-outline-info">
                     <i class="bi bi-search-heart"></i> Find Similar
                 </a>
-
                 <div class="compare-button-placeholder" style="display: none;"></div>
             </div>
         </div>
