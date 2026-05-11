@@ -3,8 +3,8 @@
 {% load game_tags platform_icons color_tags game_type_tags %}
 
 <div class="col-xl-3 col-lg-4 col-md-6 col-sm-6 col-12 mb-4 game-card-container"
-     data-page="{{ game.page_number|default:current_page|default:1 }}"
-     data-index="{{ game.game_index|default:forloop.counter0|add:game_index_offset|default:forloop.counter0 }}"
+     data-page="1"
+     data-index="{{ forloop.counter0 }}"
      data-game-id="{{ game.id }}"
         {% if show_similarity and game.similarity %}
      data-similarity="{{ game.similarity }}"
@@ -46,7 +46,7 @@
                     {% endif %}
                 </div>
 
-                <!-- ИСПРАВЛЕННЫЕ ИНДИКАТОРЫ - точное соответствие количеству слайдов -->
+                <!-- ИНДИКАТОРЫ - теперь точное соответствие количеству слайдов -->
                 <div class="carousel-indicators">
                     <button type="button" data-bs-target="#game-carousel-{{ game.id }}" data-bs-slide-to="0"
                             class="active" aria-current="true" aria-label="Cover"></button>
