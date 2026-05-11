@@ -11,7 +11,9 @@ from ..models import (
 
 
 def game_detail(request: HttpRequest, pk: int) -> HttpResponse:
-    """Game detail page with optimized queries."""
+    """Game detail page with optimized queries and similar games."""
+    from .game_list_views import get_similar_games_for_game
+
     game = get_object_or_404(
         Game.objects.prefetch_related(
             Prefetch('genres', queryset=Genre.objects.only('id', 'name')),
@@ -25,12 +27,36 @@ def game_detail(request: HttpRequest, pk: int) -> HttpResponse:
         pk=pk
     )
 
-    # Генерируем уникальный SEO-текст на основе данных игры
     seo_text = _generate_game_seo_text(game)
+
+    similar_games_data, total_count = get_similar_games_for_game(
+        game_obj=game,
+        selected_platforms=[],
+        search_filters=None
+    )
+
+    # Формируем список, добавляя атрибут similarity к каждому объекту Game
+    similar_games = []
+    for item in similar_games_data[:12]:
+        if isinstance(item, dict):
+            similar_game = item.get('game')
+            similarity = item.get('similarity', 0)
+        else:
+            similar_game = item
+            similarity = getattr(item, 'similarity', 0)
+
+        if similar_game and similar_game.id != game.id:
+            # КЛЮЧЕВОЕ: добавляем атрибут similarity прямо в объект Game
+            setattr(similar_game, 'similarity', similarity)
+            similar_games.append(similar_game)
+
+    # Сортируем по убыванию
+    similar_games.sort(key=lambda x: getattr(x, 'similarity', 0), reverse=True)
 
     return render(request, 'games/game_detail.html', {
         'game': game,
         'seo_text': seo_text,
+        'similar_games': similar_games,
     })
 
 
