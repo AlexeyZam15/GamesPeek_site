@@ -28,7 +28,7 @@ class KeywordsDescriptor:
 class KeywordQuerySetWrapper:
     """
     Обёртка для обратной совместимости с кодом, который ожидает ManyToMany менеджер.
-    Поддерживает .all(), .filter(), .count(), .exists().
+    Поддерживает .all(), .filter(), .count(), .exists(), а также оператор & (пересечение).
     """
 
     def __init__(self, game, field_name='keyword_ids'):
@@ -37,11 +37,13 @@ class KeywordQuerySetWrapper:
         self._cached_queryset = None
 
     def _get_queryset(self):
+        """Ленивая загрузка QuerySet ключевых слов."""
         if self._cached_queryset is None:
             from .keywords import Keyword
             keyword_ids = getattr(self.game, self.field_name)
             if keyword_ids:
-                self._cached_queryset = Keyword.objects.filter(igdb_id__in=keyword_ids)
+                # keyword_ids хранит локальные ID ключевых слов
+                self._cached_queryset = Keyword.objects.filter(id__in=keyword_ids)
             else:
                 self._cached_queryset = Keyword.objects.none()
         return self._cached_queryset
@@ -58,31 +60,43 @@ class KeywordQuerySetWrapper:
     def exists(self):
         return self._get_queryset().exists()
 
+    def values_list(self, *args, **kwargs):
+        """Поддержка values_list для совместимости с ManyToMany."""
+        return self._get_queryset().values_list(*args, **kwargs)
+
     def __iter__(self):
         return iter(self._get_queryset())
 
     def __len__(self):
         return self.count()
 
+    def __and__(self, other):
+        """Поддержка оператора & (пересечение) для QuerySet."""
+        return self._get_queryset() & other
+
+    def __rand__(self, other):
+        """Поддержка обратного оператора &."""
+        return other & self._get_queryset()
+
     @property
     def through(self):
-        """Заглушка для through — чтобы сигналы не падали."""
+        """Заглушка для through."""
         return None
 
     def set(self, *args, **kwargs):
-        """Заглушка для set() — чтобы администратор не падал."""
+        """Заглушка для set()."""
         raise AttributeError("Use set_keywords() method to update keywords")
 
     def add(self, *args, **kwargs):
-        """Заглушка для add() — чтобы администратор не падал."""
+        """Заглушка для add()."""
         raise AttributeError("Use add_keywords() method to update keywords")
 
     def remove(self, *args, **kwargs):
-        """Заглушка для remove() — чтобы администратор не падал."""
+        """Заглушка для remove()."""
         raise AttributeError("Use remove_keywords() method to update keywords")
 
     def clear(self, *args, **kwargs):
-        """Заглушка для clear() — чтобы администратор не падал."""
+        """Заглушка для clear()."""
         raise AttributeError("Use keyword_ids = [] to clear keywords")
 
 
