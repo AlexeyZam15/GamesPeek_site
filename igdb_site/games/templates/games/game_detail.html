@@ -3,10 +3,10 @@
 {% extends 'base.html' %}
 {% load static %}
 
-{% block title %}{{ game.name }}{% with game_type_name=game.get_game_type_display %}
-    {% if game_type_name and game_type_name != 'No game type' %} - {{ game_type_name }}{% endif %}{% endwith %}
-    {% if game.first_release_date %} ({{ game.first_release_date|date:"Y" }}){% endif %} - Rating, Reviews & Similar
-    Games | GamesPeek{% endblock %}
+{% block title %}{% with year=game.first_release_date|date:"Y"|cut:' ' type_name=game.get_game_type_display|cut:' ' %}
+    {{ game.name }}{% if type_name and type_name != 'Maingame' and type_name != 'Main game' %}
+        {{ type_name }}{% endif %}{% if year %} {{ year }}{% endif %} | Similar Games | GamesPeek
+{% endwith %}{% endblock %}
 
 {% block meta_tags %}
     <meta name="description"
