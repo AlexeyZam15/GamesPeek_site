@@ -1,3 +1,5 @@
+<!-- games/templates/games/home.html -->
+
 {% extends 'base.html' %}
 
 {% load static %}
@@ -236,7 +238,7 @@
             <h3 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">Browse Our Game Database by Genre</h3>
             <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem;">
                 {% for genre in popular_genres|slice:":15" %}
-                    <a href="{% url 'game_list' %}?g={{ genre.id }}" class="genre-badge"
+                    <a href="{% url 'game_list' %}?search_g={{ genre.id }}" class="genre-badge"
                        style="display: inline-flex; align-items: center; padding: 0.4rem 0.9rem; background: linear-gradient(135deg, #ff6b35, #ff8c00); color: white; text-decoration: none; font-weight: 600; font-size: 0.85rem; border-radius: 20px;">
                         {{ genre.name }}
                     </a>
@@ -246,7 +248,7 @@
             <h3 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">Filter Game Database by Platform</h3>
             <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem;">
                 {% for platform in popular_platforms|slice:":15" %}
-                    <a href="{% url 'game_list' %}?p={{ platform.id }}" class="genre-badge"
+                    <a href="{% url 'game_list' %}?search_p={{ platform.id }}" class="genre-badge"
                        style="display: inline-flex; align-items: center; padding: 0.4rem 0.9rem; background: linear-gradient(135deg, #ff6b35, #ff8c00); color: white; text-decoration: none; font-weight: 600; font-size: 0.85rem; border-radius: 20px;">
                         {{ platform.name }}
                     </a>
