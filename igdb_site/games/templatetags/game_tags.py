@@ -7,48 +7,25 @@ register = template.Library()
 
 @register.simple_tag
 def get_find_similar_url(game):
-    """Генерирует URL для поиска похожих игр со всеми критериями."""
+    """Генерирует чистый URL для поиска похожих игр только с source_game (без параметров фильтров).
+
+    Используется на карточках игр. Чистый URL без параметров g, t, pp, gm, k, d
+    позволяет Google индексировать каноническую версию страницы.
+    Параметры фильтров добавляются динамически через JavaScript при взаимодействии пользователя.
+    """
     params = {
         'find_similar': '1',
     }
 
     # Проверяем тип game
     if hasattr(game, 'id') and game.id is not None:
-        # Если это реальная игра
+        # Реальная игра: добавляем только source_game
         params['source_game'] = game.id
 
-        # Жанры - ВСЕ (для алгоритма похожести)
-        genre_ids = [str(g.id) for g in game.genres.all()]
-        if genre_ids:
-            params['g'] = ','.join(genre_ids)
-
-        # Темы - ВСЕ (для алгоритма похожести)
-        theme_ids = [str(t.id) for t in game.themes.all()]
-        if theme_ids:
-            params['t'] = ','.join(theme_ids)
-
-        # Перспективы - ВСЕ (для алгоритма похожести)
-        perspective_ids = [str(p.id) for p in game.player_perspectives.all()]
-        if perspective_ids:
-            params['pp'] = ','.join(perspective_ids)
-
-        # Режимы игры - ВСЕ (для алгоритма похожести)
-        game_mode_ids = [str(gm.id) for gm in game.game_modes.all()]
-        if game_mode_ids:
-            params['gm'] = ','.join(game_mode_ids)
-
-        # Ключевые слова - ВСЕ (для алгоритма похожести)
-        keyword_ids = [str(k.id) for k in game.keywords.all()]
-        if keyword_ids:
-            params['k'] = ','.join(keyword_ids)
-
-        # Разработчики - ВСЕ (для алгоритма похожести)
-        developer_ids = [str(d.id) for d in game.developers.all()]
-        if developer_ids:
-            params['d'] = ','.join(developer_ids)
+        # Жанры, темы, перспективы, режимы, ключевые слова, разработчики НЕ добавляются
+        # Они будут подставлены автоматически бэкендом при загрузке страницы
     else:
-        # Если это виртуальная игра (критерии поиска)
-        # Используем сохраненные критерии через специальные методы
+        # Виртуальная игра (критерии поиска) - нужны для работы фильтров
         if hasattr(game, 'genres_list'):
             genres = game.genres_list()
             if genres:

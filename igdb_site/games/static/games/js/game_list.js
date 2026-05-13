@@ -35,66 +35,58 @@ function initFormSubmit() {
         return;
     }
 
+    // Удаляем старый обработчик, чтобы не было дублей
     const newButton = applyButton.cloneNode(true);
     applyButton.parentNode.replaceChild(newButton, applyButton);
 
     newButton.addEventListener('click', function(e) {
         e.preventDefault();
-        console.log('Apply filters clicked');
+        console.log('Apply filters clicked - updating URL with filters');
 
         const params = new URLSearchParams();
 
         // ===== SEARCH FILTERS (с префиксом search_) =====
 
-        // Платформы (search_p)
         const searchPlatforms = document.querySelectorAll('.search-platform-checkbox:checked');
         if (searchPlatforms.length > 0) {
             params.set('search_p', Array.from(searchPlatforms).map(cb => cb.value).join(','));
         }
 
-        // Типы игр (search_gt)
         const searchGameTypes = document.querySelectorAll('.search-game-type-checkbox:checked');
         if (searchGameTypes.length > 0) {
             params.set('search_gt', Array.from(searchGameTypes).map(cb => cb.value).join(','));
         }
 
-        // Жанры (search_g)
         const searchGenres = document.querySelectorAll('.search-genre-checkbox:checked');
         if (searchGenres.length > 0) {
             params.set('search_g', Array.from(searchGenres).map(cb => cb.value).join(','));
         }
 
-        // Ключевые слова (search_k)
         const searchKeywords = document.querySelectorAll('.search-keyword-checkbox:checked');
         if (searchKeywords.length > 0) {
             params.set('search_k', Array.from(searchKeywords).map(cb => cb.value).join(','));
         }
 
-        // Темы (search_t)
         const searchThemes = document.querySelectorAll('.search-theme-checkbox:checked');
         if (searchThemes.length > 0) {
             params.set('search_t', Array.from(searchThemes).map(cb => cb.value).join(','));
         }
 
-        // Перспективы (search_pp)
         const searchPerspectives = document.querySelectorAll('.search-perspective-checkbox:checked');
         if (searchPerspectives.length > 0) {
             params.set('search_pp', Array.from(searchPerspectives).map(cb => cb.value).join(','));
         }
 
-        // Режимы игры (search_gm)
         const searchGameModes = document.querySelectorAll('.search-game-mode-checkbox:checked');
         if (searchGameModes.length > 0) {
             params.set('search_gm', Array.from(searchGameModes).map(cb => cb.value).join(','));
         }
 
-        // Движки (search_e)
         const searchEngines = document.querySelectorAll('.search-engine-checkbox:checked');
         if (searchEngines.length > 0) {
             params.set('search_e', Array.from(searchEngines).map(cb => cb.value).join(','));
         }
 
-        // Дата (search_ys, search_ye)
         const searchYearStart = document.getElementById('search-manual-year-start')?.value;
         const searchYearEnd = document.getElementById('search-manual-year-end')?.value;
         if (searchYearStart && searchYearStart !== '') params.set('search_ys', searchYearStart);
@@ -102,49 +94,41 @@ function initFormSubmit() {
 
         // ===== SIMILARITY FILTERS (без префикса) =====
 
-        // Жанры похожести (g)
         const similarityGenres = document.querySelectorAll('.genre-checkbox:checked');
         if (similarityGenres.length > 0) {
             params.set('g', Array.from(similarityGenres).map(cb => cb.value).join(','));
         }
 
-        // Ключевые слова похожести (k)
         const similarityKeywords = document.querySelectorAll('.keyword-checkbox:checked');
         if (similarityKeywords.length > 0) {
             params.set('k', Array.from(similarityKeywords).map(cb => cb.value).join(','));
         }
 
-        // Темы похожести (t)
         const similarityThemes = document.querySelectorAll('.theme-checkbox:checked');
         if (similarityThemes.length > 0) {
             params.set('t', Array.from(similarityThemes).map(cb => cb.value).join(','));
         }
 
-        // Перспективы похожести (pp)
         const similarityPerspectives = document.querySelectorAll('.perspective-checkbox:checked');
         if (similarityPerspectives.length > 0) {
             params.set('pp', Array.from(similarityPerspectives).map(cb => cb.value).join(','));
         }
 
-        // Режимы игры похожести (gm)
         const similarityGameModes = document.querySelectorAll('.game-mode-checkbox:checked');
         if (similarityGameModes.length > 0) {
             params.set('gm', Array.from(similarityGameModes).map(cb => cb.value).join(','));
         }
 
-        // Движки похожести (e)
         const similarityEngines = document.querySelectorAll('.engine-checkbox:checked');
         if (similarityEngines.length > 0) {
             params.set('e', Array.from(similarityEngines).map(cb => cb.value).join(','));
         }
 
-        // Source game
         const sourceGameInput = document.getElementById('server-source-game-id');
         if (sourceGameInput && sourceGameInput.value) {
             params.set('source_game', sourceGameInput.value);
         }
 
-        // Включаем режим похожести
         const hasSimilarity = similarityGenres.length > 0 || similarityKeywords.length > 0 ||
                               similarityThemes.length > 0 || similarityPerspectives.length > 0 ||
                               similarityGameModes.length > 0 || similarityEngines.length > 0 ||
@@ -154,19 +138,29 @@ function initFormSubmit() {
             params.set('find_similar', '1');
         }
 
-        // Сортировка
         const sortSelect = document.querySelector('select[name="sort"]');
         if (sortSelect && sortSelect.value) {
             params.set('sort', sortSelect.value);
         }
 
-        // Страница 1
         params.set('page', '1');
 
         const newUrl = window.location.pathname + '?' + params.toString();
         console.log('Final URL:', newUrl);
-        window.location.href = newUrl;
+
+        // Используем pushState вместо редиректа, чтобы страница не перезагружалась
+        // Но сначала загружаем новые данные через AJAX
+        if (typeof window.AjaxPagination !== 'undefined' && window.AjaxPagination.loadPage) {
+            // Если есть AJAX пагинация, используем её для загрузки
+            const ajaxUrl = '/ajax/load-games-page/?' + params.toString();
+            window.AjaxPagination.loadPage(ajaxUrl, newUrl, '1');
+        } else {
+            // Fallback: обычный редирект
+            window.location.href = newUrl;
+        }
     });
+
+    // ВАЖНО: НЕ вызываем newButton.click() здесь — только при клике пользователя
 }
 
 // ===== ФУНКЦИИ ДЛЯ ПЕРЕКЛЮЧЕНИЯ ВКЛАДОК ФИЛЬТРОВ =====

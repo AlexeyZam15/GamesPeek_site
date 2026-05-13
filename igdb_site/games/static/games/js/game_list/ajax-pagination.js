@@ -150,8 +150,8 @@ const AjaxPaginationDebugTimer = {
         // Строим URL для AJAX запроса
         const ajaxUrl = buildAjaxUrl(params, pageNum);
 
-        // Строим display URL - ВСЕГДА с page параметром, даже для первой страницы
-        const displayUrl = buildDisplayUrl(params, pageNum, true);
+        // Строим display URL - НЕ добавляем page для первой страницы
+        const displayUrl = buildDisplayUrl(params, pageNum, false);
 
         // Показываем загрузку
         showLoading();
@@ -180,7 +180,7 @@ const AjaxPaginationDebugTimer = {
             // Скрываем загрузку
             hideLoading();
 
-            // Обновляем URL - ВСЕГДА с page параметром
+            // Обновляем URL - НЕ добавляем page для первой страницы
             updateUrlParams(displayUrl, pageNum, true);
 
             // Переинициализируем компоненты
@@ -246,8 +246,9 @@ const AjaxPaginationDebugTimer = {
         // Копируем параметры
         const displayParams = new URLSearchParams(params);
 
-        // Добавляем page если это не первая страница или alwaysIncludePage=true
-        if (alwaysIncludePage || pageNum !== '1') {
+        // НЕ добавляем page для первой страницы
+        // alwaysIncludePage больше не используется для page=1
+        if (pageNum !== '1') {
             displayParams.set('page', pageNum);
         }
 

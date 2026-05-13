@@ -10,7 +10,6 @@ from .base_views import (
     convert_params_to_lists, SimpleSourceGame,
     GameSimilarity, VirtualGame
 )
-# Импортируем все нужные модели
 from ..models import (
     Game, Genre, Keyword, Theme, PlayerPerspective,
     Company, GameMode, Platform
@@ -22,11 +21,8 @@ logger = logging.getLogger(__name__)
 def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
     """Universal comparison: game-game or criteria-game."""
     try:
-        keyword_prefetch = Prefetch('keywords', queryset=Keyword.objects.select_related('category'))
-
         game2 = get_object_or_404(
             Game.objects.prefetch_related(
-                keyword_prefetch,
                 Prefetch('genres', queryset=Genre.objects.only('id', 'name')),
                 Prefetch('platforms', queryset=Platform.objects.only('id', 'name')),
                 Prefetch('themes', queryset=Theme.objects.only('id', 'name')),
@@ -45,7 +41,7 @@ def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
                 game1 = Game.objects.only(
                     'id', 'name', 'game_type'
                 ).prefetch_related(
-                    'genres', 'keywords', 'themes',
+                    'genres', 'themes',
                     'developers', 'player_perspectives', 'game_modes'
                 ).get(pk=int(source_game_id))
             except (Game.DoesNotExist, ValueError):
@@ -97,7 +93,6 @@ def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
             print(f"Criteria themes: {selected_criteria['themes']}")
             print(f"Game2 ID: {game2.id}, Name: {game2.name}")
 
-        # Инициализируем similarity_data
         similarity_data = None
         similarity_engine = GameSimilarity()
 
@@ -202,7 +197,6 @@ def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
                     field2 = getattr(game2, field).all()
                 shared_items[field] = list(field1 & field2)
 
-        # ОТЛАДКА: выводим количество общих элементов
         print(f"\n=== SHARED ITEMS DEBUG ===")
         for field in fields_to_compare:
             print(f"{field}: {len(shared_items[field])} shared items")
@@ -291,7 +285,6 @@ def game_comparison(request: HttpRequest, pk2: int) -> HttpResponse:
         else:
             context['average_similarity'] = None
 
-        # ОТЛАДКА: выводим контекстные переменные для shared элементов
         print(f"Context shared_perspectives_count: {context.get('shared_perspectives_count', 0)}")
         print(f"Context shared_game_modes_count: {context.get('shared_game_modes_count', 0)}")
         print(f"Context shared_developers_count: {context.get('shared_developers_count', 0)}")
