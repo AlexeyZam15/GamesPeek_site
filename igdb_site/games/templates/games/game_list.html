@@ -6,17 +6,12 @@
 {% block title %}
     {% spaceless %}
         {% if find_similar and source_game_obj %}
-
-            {{ source_game_obj.name }}
-            {% if source_game_obj.get_game_type_display and source_game_obj.get_game_type_display != 'No game type' %}
-                - {{ source_game_obj.get_game_type_display }}{% endif %}
-            {% if source_game_obj.first_release_date %} ({{ source_game_obj.first_release_date|date:"Y" }}){% endif %} -
-            Games Like, Similar Games & Alternatives | GamesPeek
-
+            {% with year=source_game_obj.first_release_date|date:"Y"|cut:' ' type_name=source_game_obj.get_game_type_display|cut:' ' %}
+                {{ source_game_obj.name }}{% if type_name and type_name != 'Maingame' and type_name != 'Main game' %}
+                    {{ type_name }}{% endif %}{% if year %} {{ year }}{% endif %} - Similar Games | GamesPeek
+            {% endwith %}
         {% else %}
-
-            Video Game Database - Browse 45,000+ Games by Genre, Platform, Year & Theme | GamesPeek
-
+            Video Game Database | GamesPeek
         {% endif %}
     {% endspaceless %}
 {% endblock %}
