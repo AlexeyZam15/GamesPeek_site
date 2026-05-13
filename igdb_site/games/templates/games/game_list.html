@@ -6,13 +6,17 @@
 {% block title %}
     {% spaceless %}
         {% if find_similar and source_game_obj %}
+
             {{ source_game_obj.name }}
-                    {% if source_game_obj.get_game_type_display and source_game_obj.get_game_type_display != 'No game type' %}
-                        - {{ source_game_obj.get_game_type_display }}{% endif %}
+            {% if source_game_obj.get_game_type_display and source_game_obj.get_game_type_display != 'No game type' %}
+                - {{ source_game_obj.get_game_type_display }}{% endif %}
             {% if source_game_obj.first_release_date %} ({{ source_game_obj.first_release_date|date:"Y" }}){% endif %} -
             Games Like, Similar Games & Alternatives | GamesPeek
+
         {% else %}
+
             Video Game Database - Browse 45,000+ Games by Genre, Platform, Year & Theme | GamesPeek
+
         {% endif %}
     {% endspaceless %}
 {% endblock %}
@@ -21,6 +25,7 @@
     {% if find_similar and source_game_obj %}
         <meta name="description"
               content="Find games like
+
                       {{ source_game_obj.name }}{% if source_game_obj.get_game_type_display and source_game_obj.get_game_type_display != 'No game type' %} ({{ source_game_obj.get_game_type_display }}){% endif %}{% if source_game_obj.first_release_date %} from {{ source_game_obj.first_release_date|date:"Y" }}{% endif %} in our video game database. Discover 45,000+ similar games based on genres, themes, and gameplay features. Best recommendations and alternatives to {{ source_game_obj.name }}.">
         <meta name="keywords"
               content="games like {{ source_game_obj.name }}, similar games to {{ source_game_obj.name }}, {{ source_game_obj.name }} similar games, best games like {{ source_game_obj.name }}, games similar to {{ source_game_obj.name }}, {{ source_game_obj.name }} alternatives">
@@ -31,9 +36,13 @@
               content="video game database, browse games, game database, game discovery, search games, video games list, game catalog, game search engine, PC games database, PlayStation games, Xbox games, Nintendo Switch games">
     {% endif %}
 
-    <link rel="canonical" href="https://gamespeek.dpdns.org
-
-            {% url 'game_list' %}{% if find_similar and source_game_obj %}?find_similar=1&source_game={{ source_game_obj.id }}{% endif %}">
+    <!-- Canonical URL для страницы списка игр -->
+    {% if find_similar and source_game_obj %}
+        <link rel="canonical"
+              href="https://gamespeek.dpdns.org/games/?find_similar=1&amp;source_game={{ source_game_obj.id }}">
+    {% else %}
+        <link rel="canonical" href="https://gamespeek.dpdns.org/games/">
+    {% endif %}
 
     <script type="application/ld+json">
         {
