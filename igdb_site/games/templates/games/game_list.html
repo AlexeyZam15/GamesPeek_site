@@ -19,13 +19,12 @@
 {% block meta_tags %}
     {% if find_similar and source_game_obj %}
         <meta name="description"
-              content="Find games like
-                      {{ source_game_obj.name }}{% if source_game_obj.get_game_type_display and source_game_obj.get_game_type_display != 'No game type' %} ({{ source_game_obj.get_game_type_display }}){% endif %}{% if source_game_obj.first_release_date %} from {{ source_game_obj.first_release_date|date:"Y" }}{% endif %} in our video game database. Discover 45,000+ similar games based on genres, themes, and gameplay features. Best recommendations and alternatives to {{ source_game_obj.name }}.">
+              content="Find games like {{ source_game_obj.name }}. Discover similar games based on genres, themes, and features. 45,000+ games in database.">
         <meta name="keywords"
               content="games like {{ source_game_obj.name }}, similar games to {{ source_game_obj.name }}, {{ source_game_obj.name }} similar games, best games like {{ source_game_obj.name }}, games similar to {{ source_game_obj.name }}, {{ source_game_obj.name }} alternatives">
     {% else %}
         <meta name="description"
-              content="Browse our complete video game database with 45,000+ games. Filter by genres, platforms, themes, release years, and features to find your next favorite game. Free game discovery platform.">
+              content="Browse 45,000+ video games. Filter by genre, platform, theme, release year, and features. Free game discovery platform.">
         <meta name="keywords"
               content="video game database, browse games, game database, game discovery, search games, video games list, game catalog, game search engine, PC games database, PlayStation games, Xbox games, Nintendo Switch games">
     {% endif %}
@@ -44,10 +43,8 @@
             "@type": "CollectionPage",
             "name":
         "{% if find_similar and source_game_obj %}Games Like {{ source_game_obj.name }}{% else %}Video Game Database - Browse All Games{% endif %}",
-            "description": "{% if find_similar and source_game_obj %}Find similar games to {{ source_game_obj.name }}
-        in our database{% else %}Browse 45,000+ video games with advanced filtering{% endif %}",
-            "url": "https://gamespeek.dpdns.org{% url 'game_list' %}{% if find_similar and source_game_obj %}?
-        find_similar=1&source_game={{ source_game_obj.id }}{% endif %}"
+            "description": "{% if find_similar and source_game_obj %}Find similar games to {{ source_game_obj.name }} in our database{% else %}Browse 45,000+ video games with advanced filtering{% endif %}",
+            "url": "https://gamespeek.dpdns.org{% url 'game_list' %}{% if find_similar and source_game_obj %}?find_similar=1&source_game={{ source_game_obj.id }}{% endif %}"
         }
     </script>
 {% endblock %}
