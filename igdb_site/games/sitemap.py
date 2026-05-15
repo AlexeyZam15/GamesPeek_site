@@ -7,6 +7,9 @@ class GameSitemap(Sitemap):
     changefreq = "weekly"
     priority = 0.8
 
+    def protocol(self):
+        return 'https'
+
     def items(self):
         return Game.objects.all()
 
@@ -21,12 +24,13 @@ class StaticViewSitemap(Sitemap):
     changefreq = "daily"
     priority = 0.5
 
+    def protocol(self):
+        return 'https'
+
     def items(self):
-        # ДОБАВЛЯЕМ 'game_list' в список
         return ['home', 'game_list']
 
     def location(self, item):
-        # Возвращаем правильные URL для каждого элемента
         if item == 'game_list':
             return '/games/'
         return reverse(item)
