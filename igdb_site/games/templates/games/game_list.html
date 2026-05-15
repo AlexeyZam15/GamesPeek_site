@@ -20,7 +20,6 @@
     {% if find_similar and source_game_obj %}
         <meta name="description"
               content="Find games like
-
                       {{ source_game_obj.name }}{% if source_game_obj.get_game_type_display and source_game_obj.get_game_type_display != 'No game type' %} ({{ source_game_obj.get_game_type_display }}){% endif %}{% if source_game_obj.first_release_date %} from {{ source_game_obj.first_release_date|date:"Y" }}{% endif %} in our video game database. Discover 45,000+ similar games based on genres, themes, and gameplay features. Best recommendations and alternatives to {{ source_game_obj.name }}.">
         <meta name="keywords"
               content="games like {{ source_game_obj.name }}, similar games to {{ source_game_obj.name }}, {{ source_game_obj.name }} similar games, best games like {{ source_game_obj.name }}, games similar to {{ source_game_obj.name }}, {{ source_game_obj.name }} alternatives">
@@ -84,9 +83,9 @@
 
         <div id="games-results-container">
             <div style="display: none;">
-                <input type="hidden" id="server-current-page" value="1">
-                <input type="hidden" id="server-total-pages" value="1">
-                <input type="hidden" id="server-total-count" value="0">
+                <input type="hidden" id="server-current-page" value="{{ current_page|default:1 }}">
+                <input type="hidden" id="server-total-pages" value="{{ total_pages|default:1 }}">
+                <input type="hidden" id="server-total-count" value="{{ total_count|default:0 }}">
                 <input type="hidden" id="server-items-per-page" value="{{ items_per_page|default:16 }}">
 
                 {% if source_game_obj and source_game_obj.id %}
@@ -99,9 +98,32 @@
                 {% endif %}
             </div>
 
-            <div class="games-container loading-visible">
-                <div class="loading-text" style="display: block;">Loading games from database...</div>
-                <div class="row" id="games-grid-row"></div>
+            <div class="games-container {% if games or games_with_similarity %}games-loaded{% else %}loading-visible{% endif %}">
+                <div class="loading-text"
+                     style="display: {% if games or games_with_similarity %}none{% else %}block{% endif %};">Loading
+                    games from database...<
+                /div>
+                <div class="row" id="games-grid-row">
+                    {% if show_similarity and games_with_similarity %}
+                        {% for game_item in games_with_similarity %}
+                            {% if game_item.cached_card %}
+                                {{ game_item.cached_card|safe }}
+                            {% else %}
+                                {% with game=game_item.game %}
+                                    {% include 'games/partials/_game_card.html' with game=game similarity_percent=game_item.similarity show_similarity=True source_game=source_game current_page=current_page game_index=forloop.counter0 %}
+                                {% endwith %}
+                            {% endif %}
+                        {% endfor %}
+                    {% elif games %}
+                        {% for game_item in games %}
+                            {% if game_item.cached_card %}
+                                {{ game_item.cached_card|safe }}
+                            {% else %}
+                                {% include 'games/partials/_game_card.html' with game=game_item current_page=current_page game_index=forloop.counter0 %}
+                            {% endif %}
+                        {% endfor %}
+                    {% endif %}
+                </div>
             </div>
         </div>
     </div>
