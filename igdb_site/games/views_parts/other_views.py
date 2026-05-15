@@ -71,276 +71,206 @@ def home(request: HttpRequest) -> HttpResponse:
 
 
 def _get_home_context() -> Dict:
-    """Get context for home page with cached game cards and extended SEO data."""
-    start_time = time.time()
+    """
+    Get context for home page with cached game cards and extended SEO data.
+    ДЕБАГ ВЕРСИЯ: замер времени на каждом этапе.
+    """
+    import time
+    from django.db import connection
+    from django.db.models import Count
+    from django.utils import timezone
+    from datetime import timedelta
+    from ..models_parts.game_card import GameCardCache
+    from ..utils.game_card_utils import GameCardCreator
+
+    timings = {}
+    total_start = time.time()
+
+    print("\n" + "=" * 60)
+    print("ДЕБАГ _get_home_context() - ЗАМЕР ВРЕМЕНИ")
+    print("=" * 60)
 
     try:
-        from django.db import connection
+        two_years_ago = timezone.now() - timedelta(days=730)
 
-        popular_games_ids = list(Game.objects.filter(
+        # ===== ЭТАП 1: Получение ID популярных игр =====
+        start = time.time()
+        popular_ids = list(Game.objects.filter(
             rating_count__gt=10,
             rating__gte=3.0
-        ).only('id').order_by('-rating_count', '-rating')[:20].values_list('id', flat=True))
+        ).order_by('-rating_count', '-rating')[:20].values_list('id', flat=True))
+        timings['1_popular_ids'] = time.time() - start
+        print(f"1. Получение ID популярных игр: {timings['1_popular_ids'] * 1000:.2f} мс, найдено: {len(popular_ids)}")
 
-        two_years_ago = timezone.now() - timedelta(days=730)
-        recent_release_ids = list(Game.objects.filter(
+        # ===== ЭТАП 2: Получение ID новых релизов =====
+        start = time.time()
+        recent_ids = list(Game.objects.filter(
             first_release_date__gte=two_years_ago,
             first_release_date__lte=timezone.now()
-        ).only('id').order_by('-first_release_date')[:20].values_list('id', flat=True))
+        ).order_by('-first_release_date')[:20].values_list('id', flat=True))
+        timings['2_recent_ids'] = time.time() - start
+        print(f"2. Получение ID новых релизов: {timings['2_recent_ids'] * 1000:.2f} мс, найдено: {len(recent_ids)}")
 
-        recently_added_ids = list(Game.objects.filter(
+        # ===== ЭТАП 3: Получение ID недавно добавленных =====
+        start = time.time()
+        added_ids = list(Game.objects.filter(
             rating_count__gt=0
-        ).only('id').order_by('-id')[:20].values_list('id', flat=True))
+        ).order_by('-id')[:20].values_list('id', flat=True))
+        timings['3_added_ids'] = time.time() - start
+        print(f"3. Получение ID недавно добавленных: {timings['3_added_ids'] * 1000:.2f} мс, найдено: {len(added_ids)}")
 
-        popular_games = []
-        if popular_games_ids:
-            popular_games = list(Game.objects.filter(
-                id__in=popular_games_ids
-            ).prefetch_related(
-                'genres', 'platforms', 'player_perspectives'
-            ).only(
-                'id', 'name', 'rating', 'rating_count',
-                'first_release_date', 'cover_url', 'game_type'
-            ))
+        # ===== ЭТАП 4: Объединение ID =====
+        start = time.time()
+        all_ids = list(set(popular_ids + recent_ids + added_ids))
+        timings['4_merge_ids'] = time.time() - start
+        print(f"4. Объединение ID: {timings['4_merge_ids'] * 1000:.2f} мс, всего уникальных: {len(all_ids)}")
 
-            game_dict = {game.id: game for game in popular_games}
-            popular_games = [game_dict[game_id] for game_id in popular_games_ids if game_id in game_dict]
+        # ===== ЭТАП 5: Получение игр с prefetch =====
+        start = time.time()
+        games_with_prefetch = list(Game.objects.filter(
+            id__in=all_ids
+        ).prefetch_related(
+            'genres', 'platforms', 'player_perspectives'
+        ).only(
+            'id', 'name', 'rating', 'rating_count',
+            'first_release_date', 'cover_url', 'game_type'
+        ))
+        timings['5_games_prefetch'] = time.time() - start
+        print(
+            f"5. Получение игр с prefetch: {timings['5_games_prefetch'] * 1000:.2f} мс, получено: {len(games_with_prefetch)}")
 
-        recent_release_games = []
-        if recent_release_ids:
-            recent_release_games = list(Game.objects.filter(
-                id__in=recent_release_ids
-            ).prefetch_related(
-                'genres', 'platforms', 'player_perspectives'
-            ).only(
-                'id', 'name', 'rating', 'rating_count',
-                'first_release_date', 'cover_url', 'game_type'
-            ))
+        games_dict = {game.id: game for game in games_with_prefetch}
 
-            game_dict = {game.id: game for game in recent_release_games}
-            recent_release_games = [game_dict[game_id] for game_id in recent_release_ids if game_id in game_dict]
+        # ===== ЭТАП 6: Получение карточек из GameCardCache =====
+        start = time.time()
+        cards = GameCardCache.objects.filter(
+            game_id__in=all_ids,
+            is_active=True
+        )
+        cards_dict = {card.game_id: card for card in cards}
+        timings['6_card_cache'] = time.time() - start
+        print(f"6. Получение карточек из кэша: {timings['6_card_cache'] * 1000:.2f} мс, в кэше: {len(cards_dict)}")
 
-        recently_added_games = []
-        if recently_added_ids:
-            recently_added_games = list(Game.objects.filter(
-                id__in=recently_added_ids
-            ).prefetch_related(
-                'genres', 'platforms', 'player_perspectives'
-            ).only(
-                'id', 'name', 'rating', 'rating_count',
-                'first_release_date', 'cover_url', 'game_type'
-            ))
+        # ===== ЭТАП 7: СОЗДАНИЕ НЕДОСТАЮЩИХ КАРТОЧЕК (САМОЕ ТЯЖЁЛОЕ) =====
+        missing_ids = [gid for gid in all_ids if gid not in cards_dict]
+        timings['7_missing_count'] = len(missing_ids)
+        print(f"7. Отсутствующих карточек: {len(missing_ids)}")
 
-            game_dict = {game.id: game for game in recently_added_games}
-            recently_added_games = [game_dict[game_id] for game_id in recently_added_ids if game_id in game_dict]
-
-        all_game_ids = list(set(popular_games_ids + recent_release_ids + recently_added_ids))
-
-        if all_game_ids:
-            from ..utils.game_card_utils import GameCardCreator
-
+        if missing_ids:
+            start = time.time()
+            # Засекаем время на create_cards_for_games
             GameCardCreator.create_cards_for_games(
-                game_ids=all_game_ids,
+                game_ids=missing_ids,
                 show_similarity=False,
                 batch_size=100,
                 force=False
             )
+            timings['7_create_cards'] = time.time() - start
+            print(f"   Время создания карточек: {timings['7_create_cards'] * 1000:.2f} мс")
 
+            # Повторно получаем созданные карточки
+            start = time.time()
+            new_cards = GameCardCache.objects.filter(
+                game_id__in=missing_ids,
+                is_active=True
+            )
+            for card in new_cards:
+                cards_dict[card.game_id] = card
+            timings['7_reload_cards'] = time.time() - start
+            print(f"   Перезагрузка карточек: {timings['7_reload_cards'] * 1000:.2f} мс")
+        else:
+            timings['7_create_cards'] = 0
+            timings['7_reload_cards'] = 0
+
+        # ===== ЭТАП 8: Формирование списков карточек =====
+        start = time.time()
         popular_cards = []
-        if popular_games:
-            from ..models_parts.game_card import GameCardCache
+        for gid in popular_ids:
+            if gid in cards_dict:
+                popular_cards.append(cards_dict[gid])
+            elif gid in games_dict:
+                # Заглушка, если карточки нет
+                class SimpleCard:
+                    def __init__(self, game):
+                        self.rendered_card = f'<div>Game ID: {game.id}</div>'
 
-            cards = {}
-            try:
-                card_objects = GameCardCache.objects.filter(
-                    game_id__in=popular_games_ids,
-                    is_active=True
-                )
-
-                for card in card_objects:
-                    expected_key = GameCardCache.generate_cache_key_for_game(card.game_id)
-                    if card.cache_key == expected_key:
-                        cards[card.game_id] = card
-                    else:
-                        card.is_active = False
-                        card.save(update_fields=['is_active'])
-
-            except Exception as e:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.error(f"Error batch loading card caches: {str(e)}")
-
-            for idx, game in enumerate(popular_games):
-                if game.id in cards:
-                    popular_cards.append(cards[game.id])
-                else:
-                    from django.template.loader import render_to_string
-                    card_context = {
-                        'game': game,
-                        'show_similarity': False,
-                        'source_game': None,
-                        'current_page': 1,
-                        'game_index': idx,
-                        'game_index_offset': idx,
-                        'forloop': {'counter0': idx, 'counter': idx + 1},
-                    }
-                    rendered_card = render_to_string('games/partials/_game_card.html', card_context)
-
-                    related_data = GameCardCreator._extract_related_data(game)
-
-                    try:
-                        card_cache, created = GameCardCache.get_or_create_card(
-                            game=game,
-                            rendered_card=rendered_card,
-                            show_similarity=False,
-                            similarity_percent=None,
-                            card_size='normal',
-                            **related_data
-                        )
-                        popular_cards.append(card_cache)
-                    except Exception as e:
-                        class SimpleCard:
-                            def __init__(self, rendered):
-                                self.rendered_card = rendered
-
-                        popular_cards.append(SimpleCard(rendered_card))
+                popular_cards.append(SimpleCard(games_dict[gid]))
 
         recent_release_cards = []
-        if recent_release_games:
-            from ..models_parts.game_card import GameCardCache
+        for gid in recent_ids:
+            if gid in cards_dict:
+                recent_release_cards.append(cards_dict[gid])
+            elif gid in games_dict:
+                class SimpleCard:
+                    def __init__(self, game):
+                        self.rendered_card = f'<div>Game ID: {game.id}</div>'
 
-            cards = {}
-            try:
-                card_objects = GameCardCache.objects.filter(
-                    game_id__in=recent_release_ids,
-                    is_active=True
-                )
-
-                for card in card_objects:
-                    expected_key = GameCardCache.generate_cache_key_for_game(card.game_id)
-                    if card.cache_key == expected_key:
-                        cards[card.game_id] = card
-                    else:
-                        card.is_active = False
-                        card.save(update_fields=['is_active'])
-
-            except Exception as e:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.error(f"Error batch loading card caches: {str(e)}")
-
-            for idx, game in enumerate(recent_release_games):
-                if game.id in cards:
-                    recent_release_cards.append(cards[game.id])
-                else:
-                    from django.template.loader import render_to_string
-                    card_context = {
-                        'game': game,
-                        'show_similarity': False,
-                        'source_game': None,
-                        'current_page': 1,
-                        'game_index': idx,
-                        'game_index_offset': idx,
-                        'forloop': {'counter0': idx, 'counter': idx + 1},
-                    }
-                    rendered_card = render_to_string('games/partials/_game_card.html', card_context)
-
-                    related_data = GameCardCreator._extract_related_data(game)
-
-                    try:
-                        card_cache, created = GameCardCache.get_or_create_card(
-                            game=game,
-                            rendered_card=rendered_card,
-                            show_similarity=False,
-                            similarity_percent=None,
-                            card_size='normal',
-                            **related_data
-                        )
-                        recent_release_cards.append(card_cache)
-                    except Exception as e:
-                        class SimpleCard:
-                            def __init__(self, rendered):
-                                self.rendered_card = rendered
-
-                        recent_release_cards.append(SimpleCard(rendered_card))
+                recent_release_cards.append(SimpleCard(games_dict[gid]))
 
         recently_added_cards = []
-        if recently_added_games:
-            from ..models_parts.game_card import GameCardCache
+        for gid in added_ids:
+            if gid in cards_dict:
+                recently_added_cards.append(cards_dict[gid])
+            elif gid in games_dict:
+                class SimpleCard:
+                    def __init__(self, game):
+                        self.rendered_card = f'<div>Game ID: {game.id}</div>'
 
-            cards = {}
-            try:
-                card_objects = GameCardCache.objects.filter(
-                    game_id__in=recently_added_ids,
-                    is_active=True
-                )
+                recently_added_cards.append(SimpleCard(games_dict[gid]))
 
-                for card in card_objects:
-                    expected_key = GameCardCache.generate_cache_key_for_game(card.game_id)
-                    if card.cache_key == expected_key:
-                        cards[card.game_id] = card
-                    else:
-                        card.is_active = False
-                        card.save(update_fields=['is_active'])
+        timings['8_format_cards'] = time.time() - start
+        print(f"8. Формирование списков карточек: {timings['8_format_cards'] * 1000:.2f} мс")
 
-            except Exception as e:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.error(f"Error batch loading card caches: {str(e)}")
-
-            for idx, game in enumerate(recently_added_games):
-                if game.id in cards:
-                    recently_added_cards.append(cards[game.id])
-                else:
-                    from django.template.loader import render_to_string
-                    card_context = {
-                        'game': game,
-                        'show_similarity': False,
-                        'source_game': None,
-                        'current_page': 1,
-                        'game_index': idx,
-                        'game_index_offset': idx,
-                        'forloop': {'counter0': idx, 'counter': idx + 1},
-                    }
-                    rendered_card = render_to_string('games/partials/_game_card.html', card_context)
-
-                    related_data = GameCardCreator._extract_related_data(game)
-
-                    try:
-                        card_cache, created = GameCardCache.get_or_create_card(
-                            game=game,
-                            rendered_card=rendered_card,
-                            show_similarity=False,
-                            similarity_percent=None,
-                            card_size='normal',
-                            **related_data
-                        )
-                        recently_added_cards.append(card_cache)
-                    except Exception as e:
-                        class SimpleCard:
-                            def __init__(self, rendered):
-                                self.rendered_card = rendered
-
-                        recently_added_cards.append(SimpleCard(rendered_card))
-
+        # ===== ЭТАП 9: Получение ключевых слов =====
+        start = time.time()
         popular_keywords = list(Keyword.objects.filter(
             cached_usage_count__gt=0
         ).only('id', 'name').order_by('-cached_usage_count')[:20])
+        timings['9_keywords'] = time.time() - start
+        print(f"9. Получение ключевых слов: {timings['9_keywords'] * 1000:.2f} мс, найдено: {len(popular_keywords)}")
 
+        # ===== ЭТАП 10: Получение жанров =====
+        start = time.time()
         popular_genres = list(Genre.objects.annotate(
-            total_game_count=Count('game')
+            total_games=Count('game')
         ).filter(
-            total_game_count__gt=0
-        ).order_by('-total_game_count', 'name').only('id', 'name')[:20])
+            total_games__gt=0
+        ).order_by('-total_games', 'name').only('id', 'name')[:20])
+        timings['10_genres'] = time.time() - start
+        print(f"10. Получение жанров: {timings['10_genres'] * 1000:.2f} мс, найдено: {len(popular_genres)}")
 
+        # ===== ЭТАП 11: Получение платформ =====
+        start = time.time()
         popular_platforms = list(Platform.objects.annotate(
             game_count=Count('game', distinct=True)
         ).filter(
             game_count__gt=0
         ).order_by('-game_count', 'name').only('id', 'name', 'slug')[:12])
+        timings['11_platforms'] = time.time() - start
+        print(f"11. Получение платформ: {timings['11_platforms'] * 1000:.2f} мс, найдено: {len(popular_platforms)}")
 
-        query_count = len(connection.queries)
+        # ===== ИТОГИ =====
+        total_time = time.time() - total_start
+        timings['total'] = total_time
 
+        print("\n" + "-" * 40)
+        print("СВОДКА ПО ВРЕМЕНИ:")
+        print("-" * 40)
+        for key, value in timings.items():
+            if 'time' in key or key == 'total' or key == '7_create_cards' or key == '7_reload_cards':
+                if isinstance(value, float):
+                    print(f"   {key}: {value * 1000:.2f} мс")
+            elif key == '7_missing_count':
+                print(f"   {key}: {value}")
+
+        print(f"\n   ОБЩЕЕ ВРЕМЯ: {total_time * 1000:.2f} мс")
+
+        if timings.get('7_create_cards', 0) > 1.0:
+            print("\n⚠️  ПРОБЛЕМА В create_cards_for_games() - это самый медленный этап!")
+
+        print("=" * 60)
+
+        # ===== ФОРМИРОВАНИЕ КОНТЕКСТА =====
         context = {
             'popular_cards': popular_cards,
             'recent_release_cards': recent_release_cards,
@@ -348,9 +278,9 @@ def _get_home_context() -> Dict:
             'popular_keywords': popular_keywords,
             'popular_genres': popular_genres,
             'popular_platforms': popular_platforms,
-            'execution_time': round(time.time() - start_time, 3),
-            'query_count': query_count,
-            'cached': False,
+            'execution_time': round(total_time, 3),
+            'query_count': len(connection.queries),
+            'cached': len(missing_ids) == 0,
             'show_similarity': False,
             'source_game': None,
             'selected_genres': [],
@@ -365,8 +295,10 @@ def _get_home_context() -> Dict:
 
     except Exception as e:
         import logging
+        import traceback
         logger = logging.getLogger(__name__)
         logger.error(f"Home page error: {str(e)}", exc_info=True)
+        traceback.print_exc()
 
         return {
             'popular_cards': [],
