@@ -15,11 +15,18 @@ class GameSitemap(Sitemap):
 
 
 class StaticViewSitemap(Sitemap):
+    """
+    Карта сайта для статических страниц.
+    """
     changefreq = "daily"
     priority = 0.5
 
     def items(self):
+        # ДОБАВЛЯЕМ 'game_list' в список
         return ['home', 'game_list']
 
     def location(self, item):
+        # Возвращаем правильные URL для каждого элемента
+        if item == 'game_list':
+            return '/games/'
         return reverse(item)
