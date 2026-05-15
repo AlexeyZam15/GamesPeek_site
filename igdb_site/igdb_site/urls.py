@@ -36,8 +36,8 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('games.urls')),
     path('sitemap.xml', sitemap_without_noindex, {'sitemaps': sitemaps}, name='django.contrib.sitemaps.views.sitemap'),
-    path('sitemap_similar_games.xml', sitemap_without_noindex, {'sitemaps': sitemaps_similar},
-         name='sitemap_similar_games'),
+    path('sitemap_similar_games.xml', sitemap_without_noindex,
+         {'sitemaps': sitemaps_similar, 'section': 'similar_games'}, name='sitemap_similar_games'),
 ]
 
 # Add IndexNow key route only if key is configured

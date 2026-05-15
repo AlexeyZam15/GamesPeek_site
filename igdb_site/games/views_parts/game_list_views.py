@@ -214,6 +214,9 @@ def game_list(request: HttpRequest) -> HttpResponse:
     """
     Main game list function - renders filters on server with aggressive caching.
     Filters are rendered server-side, not via AJAX.
+
+    Первая страница (page=1 или без параметра page) загружается на сервере
+    полностью, чтобы поисковые роботы видели контент.
     """
     start_time = time.time()
 
@@ -260,7 +263,6 @@ def game_list(request: HttpRequest) -> HttpResponse:
 
     search_selected_objects = _get_selected_criteria_objects(search_selected)
 
-    # similarity_selected использует selected_criteria (из URL параметров без search_ префикса)
     similarity_selected = {
         'genres': selected_criteria.get('genres', []),
         'keywords': selected_criteria.get('keywords', []),
@@ -286,7 +288,7 @@ def game_list(request: HttpRequest) -> HttpResponse:
     # Генерируем хеш параметров для кэширования фильтров
     params_hash = _get_params_hash_from_request(request)
 
-    # Рендерим фильтры на сервере с кэшированием - передаем similarity_selected с engines
+    # Рендерим фильтры на сервере с кэшированием
     cached_filter_sections = _render_filters_with_cache(
         params_hash,
         filter_data,
@@ -296,22 +298,128 @@ def game_list(request: HttpRequest) -> HttpResponse:
         params.get('sort', '')
     )
 
+    # Определяем, нужно ли загружать игры на сервере
+    page_param = params.get('page', '1')
+    is_first_page = page_param == '1' or page_param == ''
+
+    # Для первой страницы загружаем игры на сервере
+    games_data = []
+    games_with_similarity_data = []
+    page_obj = None
+    paginator = None
+    total_count = 0
+    total_pages = 1
+    current_page = 1
+    show_similarity_flag = find_similar
+    source_game_for_template = None
+
+    if is_first_page:
+        print(f"[SERVER RENDER] First page - loading games on server")
+        page_num = 1
+        current_page = 1
+
+        has_search_params = any([
+            search_selected['genres'], search_selected['keywords'], search_selected['themes'],
+            search_selected['perspectives'], search_selected['game_modes'], search_selected['engines'],
+            search_selected['platforms'], search_selected['game_types'],
+            search_selected['release_year_start'], search_selected['release_year_end']
+        ])
+
+        if find_similar and (source_game_obj or any(similarity_selected.values())):
+            # Режим похожих игр
+            mode_result = _get_similar_games_mode_with_pagination(
+                params,
+                similarity_selected,
+                source_game_obj,
+                page_num,
+                search_genres_list=search_selected['genres'],
+                search_keywords_list=search_selected['keywords'],
+                search_themes_list=search_selected['themes'],
+                search_perspectives_list=search_selected['perspectives'],
+                search_game_modes_list=search_selected['game_modes'],
+                search_engines_list=search_selected['engines'],
+                search_platforms_list=search_selected['platforms'],
+                search_game_types_list=search_selected['game_types'],
+                search_year_start_int=search_selected['release_year_start'],
+                search_year_end_int=search_selected['release_year_end'],
+            )
+            games_with_similarity_data = _update_games_with_cached_cards(
+                mode_result.get('games_with_similarity', []),
+                {'show_similarity': True, 'source_game': mode_result.get('source_game'), 'current_page': page_num}
+            )
+            page_obj = mode_result.get('page_obj')
+            paginator = mode_result.get('paginator')
+            total_count = mode_result.get('total_count', 0)
+            total_pages = paginator.num_pages if paginator else 1
+            show_similarity_flag = True
+            source_game_for_template = mode_result.get('source_game')
+        else:
+            # Обычный режим - все игры
+            games_qs = Game.objects.all().only(
+                'id', 'name', 'rating', 'rating_count',
+                'first_release_date', 'cover_url', 'game_type'
+            )
+
+            if has_search_params:
+                search_filters = {}
+                if search_selected['platforms']:
+                    search_filters['platforms'] = search_selected['platforms']
+                if search_selected['game_types']:
+                    search_filters['game_types'] = search_selected['game_types']
+                if search_selected['genres']:
+                    search_filters['genres'] = search_selected['genres']
+                if search_selected['keywords']:
+                    search_filters['keywords'] = search_selected['keywords']
+                if search_selected['themes']:
+                    search_filters['themes'] = search_selected['themes']
+                if search_selected['perspectives']:
+                    search_filters['perspectives'] = search_selected['perspectives']
+                if search_selected['game_modes']:
+                    search_filters['game_modes'] = search_selected['game_modes']
+                if search_selected['engines']:
+                    search_filters['engines'] = search_selected['engines']
+                if search_selected['release_year_start']:
+                    search_filters['release_year_start'] = search_selected['release_year_start']
+                if search_selected['release_year_end']:
+                    search_filters['release_year_end'] = search_selected['release_year_end']
+
+                from .base_views import _apply_search_filters
+                games_qs = _apply_search_filters(games_qs, search_filters)
+
+            sort_field = params.get('sort', '-rating_count')
+            if sort_field in ['name', '-name', 'rating', '-rating', 'rating_count', '-rating_count',
+                              '-first_release_date']:
+                games_qs = games_qs.order_by(sort_field)
+            else:
+                games_qs = games_qs.order_by('-rating_count')
+
+            paginator = Paginator(games_qs, ITEMS_PER_PAGE)
+            page_obj = paginator.page(1)
+            games_list_data = list(page_obj.object_list)
+            games_data = _update_games_with_cached_cards(
+                games_list_data,
+                {'show_similarity': False, 'current_page': page_num}
+            )
+            total_count = paginator.count
+            total_pages = paginator.num_pages
+            show_similarity_flag = False
+
     context = {
-        'games': [],
-        'games_with_similarity': [],
-        'page_obj': None,
-        'paginator': None,
-        'is_paginated': False,
-        'total_count': 0,
-        'total_pages': 1,
-        'current_page': 1,
-        'start_index': 0,
-        'end_index': 0,
+        'games': games_data,
+        'games_with_similarity': games_with_similarity_data,
+        'page_obj': page_obj,
+        'paginator': paginator,
+        'is_paginated': total_pages > 1,
+        'total_count': total_count,
+        'total_pages': total_pages,
+        'current_page': current_page,
+        'start_index': 0 if total_count == 0 else 1,
+        'end_index': min(ITEMS_PER_PAGE, total_count) if total_count > 0 else 0,
         'items_per_page': ITEMS_PER_PAGE,
 
         'find_similar': find_similar,
-        'show_similarity': find_similar,
-        'source_game': None,
+        'show_similarity': show_similarity_flag,
+        'source_game': source_game_for_template,
         'source_game_obj': source_game_obj,
 
         'genres': _get_cached_genres_list(),
@@ -398,10 +506,11 @@ def game_list(request: HttpRequest) -> HttpResponse:
             'find_similar': find_similar,
             'has_source_game': source_game_obj is not None,
             'engines_count': len(filter_data.get('engines', [])),
+            'server_rendered_first_page': is_first_page,
         }
     }
 
-    if source_game_obj:
+    if source_game_obj and not source_game_for_template:
         from .base_views import SimpleSourceGame
 
         game_criteria = {
