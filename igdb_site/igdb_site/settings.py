@@ -380,8 +380,9 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, 'games', 'static'),
-    os.path.join(BASE_DIR, 'static'),  # Добавлена общая папка для статики
+    BASE_DIR / 'static',
+    BASE_DIR / 'games' / 'static',
+    BASE_DIR / 'robots_txt',  # только для robots.txt
 ]
 
 STATIC_ROOT = BASE_DIR / 'staticfiles'
