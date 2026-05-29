@@ -598,6 +598,18 @@ class GameSimilarity:
 
     @timeit
     def _get_candidate_ids_new(self, source_data, single_player_info, min_similarity, search_filters=None):
+        """
+        Получает ID игр-кандидатов с учётом поисковых фильтров.
+
+        Args:
+            source_data: Данные исходной игры
+            single_player_info: Информация о режиме single player
+            min_similarity: Минимальный процент схожести
+            search_filters: Словарь с фильтрами для поиска
+
+        Returns:
+            Список ID игр-кандидатов
+        """
         import time
         from django.utils import timezone
         from django.db import connection
@@ -641,7 +653,22 @@ class GameSimilarity:
                 print("Прерывание: остановка после базового SQL")
             return []
 
+        # ПРИМЕНЯЕМ ПОИСКОВЫЕ ФИЛЬТРЫ - ЭТО КЛЮЧЕВАЯ ЧАСТЬ!
         if search_filters:
+            print(f"Applying search filters in SQL: {search_filters}")
+
+            # Фильтр по дате - ДОБАВЛЯЕМ ПЕРВЫМ
+            year_start = search_filters.get('release_year_start')
+            year_end = search_filters.get('release_year_end')
+
+            if year_start:
+                sql_parts.append(f" AND EXTRACT(YEAR FROM g.first_release_date) >= {year_start}")
+                print(f"  Added year_start filter: >= {year_start}")
+            if year_end:
+                sql_parts.append(f" AND EXTRACT(YEAR FROM g.first_release_date) <= {year_end}")
+                print(f"  Added year_end filter: <= {year_end}")
+
+            # Фильтр по платформам (OR)
             if search_filters.get('platforms'):
                 platform_ids = search_filters['platforms']
                 platform_ids_str = ','.join(map(str, platform_ids))
@@ -651,34 +678,42 @@ class GameSimilarity:
                         WHERE ggp.game_id = g.id AND ggp.platform_id IN ({platform_ids_str})
                     )
                 """)
+                print(f"  Added platforms filter: {platform_ids}")
 
+            # Фильтр по жанрам (AND)
             if search_filters.get('genres'):
                 genre_ids = search_filters['genres']
-                genre_ids_str = ','.join(map(str, genre_ids))
-                sql_parts.append(f"""
-                    AND EXISTS (
-                        SELECT 1 FROM games_game_genres ggg 
-                        WHERE ggg.game_id = g.id AND ggg.genre_id IN ({genre_ids_str})
-                    )
-                """)
+                for genre_id in genre_ids:
+                    sql_parts.append(f"""
+                        AND EXISTS (
+                            SELECT 1 FROM games_game_genres ggg 
+                            WHERE ggg.game_id = g.id AND ggg.genre_id = {genre_id}
+                        )
+                    """)
+                print(f"  Added genres AND filter: {genre_ids}")
 
+            # Фильтр по ключевым словам (AND)
             if search_filters.get('keywords'):
                 keyword_ids = search_filters['keywords']
-                keyword_ids_str = ','.join(map(str, keyword_ids))
-                sql_parts.append(f"""
-                    AND g.keyword_ids && ARRAY[{keyword_ids_str}]::integer[]
-                """)
+                for keyword_id in keyword_ids:
+                    sql_parts.append(f"""
+                        AND g.keyword_ids && ARRAY[{keyword_id}]::integer[]
+                    """)
+                print(f"  Added keywords AND filter: {keyword_ids}")
 
+            # Фильтр по темам (AND)
             if search_filters.get('themes'):
                 theme_ids = search_filters['themes']
-                theme_ids_str = ','.join(map(str, theme_ids))
-                sql_parts.append(f"""
-                    AND EXISTS (
-                        SELECT 1 FROM games_game_themes ggt 
-                        WHERE ggt.game_id = g.id AND ggt.theme_id IN ({theme_ids_str})
-                    )
-                """)
+                for theme_id in theme_ids:
+                    sql_parts.append(f"""
+                        AND EXISTS (
+                            SELECT 1 FROM games_game_themes ggt 
+                            WHERE ggt.game_id = g.id AND ggt.theme_id = {theme_id}
+                        )
+                    """)
+                print(f"  Added themes AND filter: {theme_ids}")
 
+            # Фильтр по перспективам (OR)
             if search_filters.get('perspectives'):
                 perspective_ids = search_filters['perspectives']
                 perspective_ids_str = ','.join(map(str, perspective_ids))
@@ -688,7 +723,9 @@ class GameSimilarity:
                         WHERE gggp.game_id = g.id AND gggp.playerperspective_id IN ({perspective_ids_str})
                     )
                 """)
+                print(f"  Added perspectives OR filter: {perspective_ids}")
 
+            # Фильтр по режимам игры (OR)
             if search_filters.get('game_modes'):
                 game_mode_ids = search_filters['game_modes']
                 game_mode_ids_str = ','.join(map(str, game_mode_ids))
@@ -698,7 +735,9 @@ class GameSimilarity:
                         WHERE gggm.game_id = g.id AND gggm.gamemode_id IN ({game_mode_ids_str})
                     )
                 """)
+                print(f"  Added game_modes OR filter: {game_mode_ids}")
 
+            # Фильтр по движкам (OR)
             if search_filters.get('engines'):
                 engine_ids = search_filters['engines']
                 engine_ids_str = ','.join(map(str, engine_ids))
@@ -708,25 +747,22 @@ class GameSimilarity:
                         WHERE gge.game_id = g.id AND gge.gameengine_id IN ({engine_ids_str})
                     )
                 """)
+                print(f"  Added engines OR filter: {engine_ids}")
 
+            # Фильтр по типам игр (OR)
             if search_filters.get('game_types'):
                 game_type_ids = search_filters['game_types']
                 game_type_ids_str = ','.join(map(str, game_type_ids))
                 sql_parts.append(f"""
                     AND g.game_type IN ({game_type_ids_str})
                 """)
-
-            year_start = search_filters.get('release_year_start')
-            year_end = search_filters.get('release_year_end')
-            if year_start:
-                sql_parts.append(f" AND EXTRACT(YEAR FROM g.first_release_date) >= {year_start}")
-            if year_end:
-                sql_parts.append(f" AND EXTRACT(YEAR FROM g.first_release_date) <= {year_end}")
+                print(f"  Added game_types OR filter: {game_type_ids}")
 
         if exclude_ids:
             exclude_str = ','.join(map(str, exclude_ids))
             sql_parts.append(f" AND g.id NOT IN ({exclude_str})")
 
+        # Фильтры по схожести (жанры исходной игры)
         if source_genre_ids:
             source_genre_ids_str = ','.join(map(str, source_genre_ids))
             if dynamic_min_common_genres == 2:
@@ -797,6 +833,13 @@ class GameSimilarity:
             return []
 
         final_sql = ' '.join(sql_parts)
+
+        # Выводим финальный SQL для отладки
+        if search_filters and (search_filters.get('release_year_start') or search_filters.get('release_year_end')):
+            print(f"\nFINAL SQL with date filter:")
+            print(final_sql)
+            print(f"Params: {params}\n")
+
         candidate_ids = []
 
         with connection.cursor() as cursor:
@@ -1537,7 +1580,30 @@ class GameSimilarity:
 
     @timeit
     def find_similar_games(self, source_game, min_similarity=None, limit=None, search_filters=None):
+        """
+        Находит игры, похожие на указанную игру или виртуальную игру.
+
+        Args:
+            source_game: Объект Game или VirtualGame
+            min_similarity: Минимальный процент схожести (по умолчанию 40)
+            limit: Максимальное количество результатов (по умолчанию 500)
+            search_filters: Словарь с фильтрами для ограничения результатов:
+                - platforms: список ID платформ (OR)
+                - game_types: список ID типов игр (OR)
+                - perspectives: список ID перспектив (OR)
+                - game_modes: список ID режимов игры (OR)
+                - engines: список ID движков (OR)
+                - genres: список ID жанров (AND)
+                - keywords: список ID ключевых слов (AND)
+                - themes: список ID тем (AND)
+                - release_year_start: начальный год
+                - release_year_end: конечный год
+
+        Returns:
+            Список словарей с ключами 'game' и 'similarity'
+        """
         import time
+        from django.db import connection
 
         total_start_time = time.time()
 
@@ -1564,6 +1630,7 @@ class GameSimilarity:
                     print("Прерывание: остановка после подготовки данных")
                 return []
 
+            # Передаем search_filters в _get_candidate_ids_new для фильтрации кандидатов
             candidate_ids = self._get_candidate_ids_new(source_data, single_player_info, min_similarity, search_filters)
 
             if self.verbose:
@@ -1593,6 +1660,136 @@ class GameSimilarity:
                     print("Прерывание: остановка после подсчета общих элементов")
                 return []
 
+            # Дополнительная фильтрация по search_filters для игр, прошедших SQL фильтрацию
+            if search_filters:
+                if self.verbose:
+                    print(f"Применение дополнительной фильтрации к {len(games_data)} кандидатам...")
+
+                filtered_games_data = {}
+                year_start = search_filters.get('release_year_start')
+                year_end = search_filters.get('release_year_end')
+
+                for game_id, data in games_data.items():
+                    passes = True
+
+                    # Проверка даты
+                    if (year_start or year_end) and passes:
+                        with connection.cursor() as cursor:
+                            cursor.execute(
+                                "SELECT EXTRACT(YEAR FROM first_release_date) FROM games_game WHERE id = %s",
+                                [game_id]
+                            )
+                            row = cursor.fetchone()
+                            if row and row[0]:
+                                game_year = int(row[0])
+                                if year_start and game_year < year_start:
+                                    passes = False
+                                if year_end and game_year > year_end:
+                                    passes = False
+                            else:
+                                passes = False
+
+                    # Проверка платформ (OR)
+                    if search_filters.get('platforms') and passes:
+                        platform_ids = search_filters['platforms']
+                        placeholders = ','.join(['%s'] * len(platform_ids))
+                        with connection.cursor() as cursor:
+                            cursor.execute(
+                                f"SELECT 1 FROM games_game_platforms WHERE game_id = %s AND platform_id IN ({placeholders}) LIMIT 1",
+                                [game_id] + platform_ids
+                            )
+                            passes = cursor.fetchone() is not None
+
+                    # Проверка типов игр (OR)
+                    if search_filters.get('game_types') and passes:
+                        game_type_ids = search_filters['game_types']
+                        placeholders = ','.join(['%s'] * len(game_type_ids))
+                        with connection.cursor() as cursor:
+                            cursor.execute(
+                                f"SELECT 1 FROM games_game WHERE id = %s AND game_type IN ({placeholders}) LIMIT 1",
+                                [game_id] + game_type_ids
+                            )
+                            passes = cursor.fetchone() is not None
+
+                    # Проверка перспектив (OR)
+                    if search_filters.get('perspectives') and passes:
+                        perspective_ids = search_filters['perspectives']
+                        placeholders = ','.join(['%s'] * len(perspective_ids))
+                        with connection.cursor() as cursor:
+                            cursor.execute(
+                                f"SELECT 1 FROM games_game_player_perspectives WHERE game_id = %s AND playerperspective_id IN ({placeholders}) LIMIT 1",
+                                [game_id] + perspective_ids
+                            )
+                            passes = cursor.fetchone() is not None
+
+                    # Проверка режимов игры (OR)
+                    if search_filters.get('game_modes') and passes:
+                        game_mode_ids = search_filters['game_modes']
+                        placeholders = ','.join(['%s'] * len(game_mode_ids))
+                        with connection.cursor() as cursor:
+                            cursor.execute(
+                                f"SELECT 1 FROM games_game_game_modes WHERE game_id = %s AND gamemode_id IN ({placeholders}) LIMIT 1",
+                                [game_id] + game_mode_ids
+                            )
+                            passes = cursor.fetchone() is not None
+
+                    # Проверка движков (OR)
+                    if search_filters.get('engines') and passes:
+                        engine_ids = search_filters['engines']
+                        placeholders = ','.join(['%s'] * len(engine_ids))
+                        with connection.cursor() as cursor:
+                            cursor.execute(
+                                f"SELECT 1 FROM games_game_engines WHERE game_id = %s AND gameengine_id IN ({placeholders}) LIMIT 1",
+                                [game_id] + engine_ids
+                            )
+                            passes = cursor.fetchone() is not None
+
+                    # Проверка жанров (AND)
+                    if search_filters.get('genres') and passes:
+                        genre_ids = search_filters['genres']
+                        for genre_id in genre_ids:
+                            with connection.cursor() as cursor:
+                                cursor.execute(
+                                    "SELECT 1 FROM games_game_genres WHERE game_id = %s AND genre_id = %s LIMIT 1",
+                                    [game_id, genre_id]
+                                )
+                                if cursor.fetchone() is None:
+                                    passes = False
+                                    break
+
+                    # Проверка ключевых слов (AND)
+                    if search_filters.get('keywords') and passes:
+                        keyword_ids = search_filters['keywords']
+                        for keyword_id in keyword_ids:
+                            with connection.cursor() as cursor:
+                                cursor.execute(
+                                    "SELECT 1 FROM unnest(keyword_ids) as kw_id WHERE kw_id = %s AND game_id = %s LIMIT 1",
+                                    [keyword_id, game_id]
+                                )
+                                if cursor.fetchone() is None:
+                                    passes = False
+                                    break
+
+                    # Проверка тем (AND)
+                    if search_filters.get('themes') and passes:
+                        theme_ids = search_filters['themes']
+                        for theme_id in theme_ids:
+                            with connection.cursor() as cursor:
+                                cursor.execute(
+                                    "SELECT 1 FROM games_game_themes WHERE game_id = %s AND theme_id = %s LIMIT 1",
+                                    [game_id, theme_id]
+                                )
+                                if cursor.fetchone() is None:
+                                    passes = False
+                                    break
+
+                    if passes:
+                        filtered_games_data[game_id] = data
+
+                if self.verbose:
+                    print(f"После дополнительной фильтрации осталось {len(filtered_games_data)} игр")
+                games_data = filtered_games_data
+
             similar_games = self._calculate_similarity_for_candidates(
                 games_data, source_data, source_game, single_player_info
             )
@@ -1601,6 +1798,23 @@ class GameSimilarity:
                 if self.verbose:
                     print("Прерывание: остановка после расчета схожести")
                 return []
+
+            # Фильтрация исходной игры по дате
+            if search_filters and source_game and hasattr(source_game, 'id') and source_game.first_release_date:
+                year_start = search_filters.get('release_year_start')
+                year_end = search_filters.get('release_year_end')
+                source_year = source_game.first_release_date.year
+
+                source_passes_date = True
+                if year_start and source_year < year_start:
+                    source_passes_date = False
+                if year_end and source_year > year_end:
+                    source_passes_date = False
+
+                if not source_passes_date:
+                    similar_games = [item for item in similar_games if not item.get('is_source_game', False)]
+                    if self.verbose:
+                        print(f"Исходная игра удалена из результатов (не проходит фильтр по дате)")
 
             similar_games.sort(key=lambda x: (not x.get('is_source_game', False), -x['similarity']))
 
