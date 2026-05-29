@@ -1,5 +1,6 @@
 """
 Команда для очистки всех кэшей системы.
+
 Использование: python manage.py clear_cache [опции]
 """
 
@@ -37,12 +38,8 @@ class Command(BaseCommand):
         verbose = options['verbose']
         force = options['force']
 
-        if not force and cache_type == 'all':
-            self.stdout.write(self.style.WARNING('⚠️  ВНИМАНИЕ: Вы собираетесь очистить ВСЕ кэши системы!'))
-            confirm = input('Продолжить? (yes/no): ')
-            if confirm.lower() != 'yes':
-                self.stdout.write(self.style.ERROR('Отменено пользователем'))
-                return
+        # Убрана проверка на подтверждение для всех типов кэша включая 'all'
+        # Команда теперь выполняется автоматически без запроса пользователя
 
         start_time = time.time()
         cleared_count = 0
