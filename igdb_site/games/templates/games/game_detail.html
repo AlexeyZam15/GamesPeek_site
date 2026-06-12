@@ -1,34 +1,54 @@
 <!-- games/templates/games/game_detail.html -->
 
 {% extends 'base.html' %}
+
 {% load static %}
 
 {% block title %}{% with year=game.first_release_date|date:"Y"|cut:' ' type_name=game.get_game_type_display|cut:' ' %}
+
     {{ game.name }}{% if type_name and type_name != 'Maingame' and type_name != 'Main game' %}
+
         {{ type_name }}{% endif %}{% if year %} {{ year }}{% endif %} | Similar Games | GamesPeek
+
 {% endwith %}{% endblock %}
 
 {% block meta_tags %}
+
     <meta name="description"
+
           content="{{ game.name }} - Complete game information in our video game database. Rating: {{ game.rating|default:'N/A' }}/100.
+
         {% if game.first_release_date %}Release Date: {{ game.first_release_date|date:'F Y' }}.{% endif %}
+
         Genres: {% for genre in game.genres.all %}{{ genre.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.
+
         Themes: {% for theme in game.themes.all %}{{ theme.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.
+
         Game Modes:
                   {% for mode in game.game_modes.all %}{{ mode.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.
+
         Platforms:
                   {% for platform in game.platforms.all %}{{ platform.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.
+
         {% if game.developers.all %}Developers:
               {% for developer in game.developers.all %}{{ developer.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
+
         {% if game.publishers.all %}Publishers:
               {% for publisher in game.publishers.all %}{{ publisher.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
+
         {% if game.engines.all %}Engine:
               {% for engine in game.engines.all %}{{ engine.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
+
         View screenshots, videos, and find similar games like {{ game.name }} in our game database of 45,000+ titles.">
 
     <meta name="keywords"
+
           content="{{ game.name }}, {{ game.name }} game, {{ game.name }} review, {{ game.name }} rating, video game database,
+
+
                   {% for genre in game.genres.all %}{{ genre.name }} game, {% endfor %}{% for theme in game.themes.all %}{{ theme.name }} game, {% endfor %}{% for keyword in game.keywords.all %}{{ keyword.name }}, {% endfor %}{% for perspective in game.player_perspectives.all %}{{ perspective.name }} perspective, {% endfor %}{% for mode in game.game_modes.all %}{{ mode.name }} mode, {% endfor %}{% if game.series.all %}{% for series in game.series.all %}{{ series.name }} series, {% endfor %}{% endif %}games like {{ game.name }}, similar games to {{ game.name }},
+
+
                   {% if game.developers.all %}{% for developer in game.developers.all %}{{ developer.name }} game, {% endfor %}{% endif %}{% if game.publishers.all %}{% for publisher in game.publishers.all %}{{ publisher.name }}, {% endfor %}{% endif %}game database entry, game details, {{ game.name }} screenshots, {{ game.name }} gameplay">
 
     <link rel="canonical" href="{{ request.build_absolute_uri }}">
@@ -52,92 +72,112 @@
             "datePublished": "{{ game.first_release_date|date:'Y-m-d' }}"{% endif %},
             "genre": [{% for genre in game.genres.all %}"{{ genre.name }}"{% if not forloop.last %} {% endif %}{% endfor %}],
             "gameMode": [{% for mode in game.game_modes.all %}"{{ mode.name }}"{% if not forloop.last %} {% endif %}{% endfor %}],
-            "author": [{% for developer in game.developers.all %}{"@type": "Organization", "name": "{{ developer.name }}"
-        }{% if not forloop.last %} {% endif %}{% endfor %}],
+            "author": [{% for developer in game.developers.all %}{"@type": "Organization", "name": "{{ developer.name }}"}{% if not forloop.last %} {% endif %}{% endfor %}],
             "publisher": [{% for publisher in game.publishers.all %}{"@type": "Organization", "name": "{{ publisher.name }}"}{% if not forloop.last %} {% endif %}{% endfor %}]
         }
     </script>
 
-    <script type="application/ld+json">
-        {
-            "@context": "https://schema.org",
-            "@type": "BreadcrumbList",
-            "itemListElement": [
-                {
-                    "@type": "ListItem",
-                    "position": 1,
-                    "name": "Home",
-                    "item": "https://gamespeek.dpdns.org/"
-                },
-                {
-                    "@type": "ListItem",
-                    "position": 2,
-                    "name": "Video Game Database",
-                    "item": "https://gamespeek.dpdns.org{% url 'game_list' %}"
-                },
-                {
-                    "@type": "ListItem",
-                    "position": 3,
-                    "name": "{{ game.name }}",
-                    "item": "{{ request.build_absolute_uri }}"
-                }
-            ]
-        }
-    </script>
+    {{ breadcrumb_json_ld|safe }}
+
 {% endblock %}
 
 {% block extra_css %}
+
     <link rel="stylesheet" href="{% static 'games/css/game_detail.css' %}">
+
     <link rel="stylesheet" href="{% static 'games/css/game_detail/header.css' %}">
+
     <link rel="stylesheet" href="{% static 'games/css/game_detail/tabs.css' %}">
+
     <link rel="stylesheet" href="{% static 'games/css/game_detail/gallery.css' %}">
+
     <link rel="stylesheet" href="{% static 'games/css/game_list/mobile-carousel.css' %}">
+
 {% endblock %}
 
 {% block content %}
+
     <nav aria-label="breadcrumb" class="mb-3">
+
         <ol class="breadcrumb" style="background: transparent; padding: 0.5rem 0;">
+
             <li class="breadcrumb-item"><a href="{% url 'home' %}" style="color: var(--secondary-color);">Home</a></li>
+
             <li class="breadcrumb-item"><a href="{% url 'game_list' %}" style="color: var(--secondary-color);">Video
                 Game Database</a></li>
+
             <li class="breadcrumb-item active" aria-current="page">{{ game.name }}</li>
+
         </ol>
+
     </nav>
 
     <div class="container">
+
         {% include 'games/game_detail/tabs_content.html' %}
+
     </div>
 
     <div class="modal fade" id="screenshotModal" tabindex="-1" aria-hidden="true">
+
         <div class="modal-dialog modal-dialog-centered modal-xl">
+
             <div class="modal-content">
+
                 <div class="modal-body p-0 position-relative">
+
                     <button type="button" class="screenshot-close" data-bs-dismiss="modal" aria-label="Close">
+
                         <i class="bi bi-x-lg"></i>
+
                     </button>
+
                     <button type="button" class="nav-arrow prev-arrow" id="prevBtn">
+
                         <i class="bi bi-chevron-left"></i>
+
                     </button>
+
                     <button type="button" class="nav-arrow next-arrow" id="nextBtn">
+
                         <i class="bi bi-chevron-right"></i>
+
                     </button>
+
                     <div class="d-flex align-items-center justify-content-center w-100 h-100">
+
                         <img id="modalImage" class="screenshot-full" alt="Screenshot">
+
                     </div>
+
                     <div class="screenshot-counter">
+
                         <span id="currentNum">1</span><span id="totalCount"> / 0</span>
+
                     </div>
+
                 </div>
+
             </div>
+
         </div>
+
     </div>
+
 {% endblock %}
 
 {% block extra_js %}
+
     <script src="{% static 'games/js/game_detail/header.js' %}"></script>
+
     <script src="{% static 'games/js/game_detail/gallery.js' %}"></script>
+
     <script src="{% static 'games/js/game_detail/game_detail.js' %}"></script>
+
     <script src="{% static 'games/js/game_detail/main.js' %}"></script>
+
     <script src="{% static 'games/js/game_list/similarity-display.js' %}"></script>
+
     <script src="{% static 'games/js/game_list/mobile-carousel.js' %}"></script>
+
 {% endblock %}
