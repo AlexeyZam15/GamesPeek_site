@@ -8,6 +8,7 @@ from ..models import (
     Game, Genre, Platform, Theme, Company,
     PlayerPerspective, GameMode, Keyword
 )
+from ..breadcrumb import generate_game_breadcrumb
 
 
 def game_detail(request: HttpRequest, pk: int) -> HttpResponse:
@@ -48,11 +49,27 @@ def game_detail(request: HttpRequest, pk: int) -> HttpResponse:
             setattr(similar_game, 'similarity', similarity)
             similar_games.append(similar_game)
 
+    # Получаем первый жанр и первую платформу для навигационной цепочки
+    first_genre = game.genres.first()
+    genre_name = first_genre.name if first_genre else None
+
+    first_platform = game.platforms.first()
+    platform_name = first_platform.name if first_platform else None
+
+    # Генерируем JSON-LD для навигационной цепочки BreadcrumbList
+    breadcrumb_json_ld = generate_game_breadcrumb(
+        game_title=game.name,
+        platform_name=platform_name,
+        genre_name=genre_name,
+        base_url="https://gamespeek.dpdns.org"
+    )
+
     return render(request, 'games/game_detail.html', {
         'game': game,
         'seo_text': seo_text,
         'similar_games': similar_games,
-        'current_page': 1,  # ДОБАВЛЕНО
+        'current_page': 1,
+        'breadcrumb_json_ld': breadcrumb_json_ld,
     })
 
 

@@ -28,6 +28,7 @@ from django.views.decorators.vary import vary_on_headers
 
 import redis
 import pickle
+from ..breadcrumb import generate_similar_games_breadcrumb
 
 redis_client = redis.Redis(host='127.0.0.1', port=6379, db=1, decode_responses=False)
 
@@ -404,6 +405,24 @@ def game_list(request: HttpRequest) -> HttpResponse:
             total_pages = paginator.num_pages
             show_similarity_flag = False
 
+    # Генерируем навигационную цепочку для страницы похожих игр
+    breadcrumb_json_ld = ''
+    if find_similar and source_game_obj:
+        breadcrumb_json_ld = generate_similar_games_breadcrumb(
+            game_title=source_game_obj.name,
+            base_url="https://gamespeek.dpdns.org"
+        )
+    elif find_similar and params.get('source_game'):
+        try:
+            from ..models import Game
+            source_game_temp = Game.objects.only('name').get(pk=int(params['source_game']))
+            breadcrumb_json_ld = generate_similar_games_breadcrumb(
+                game_title=source_game_temp.name,
+                base_url="https://gamespeek.dpdns.org"
+            )
+        except (Game.DoesNotExist, ValueError):
+            pass
+
     context = {
         'games': games_data,
         'games_with_similarity': games_with_similarity_data,
@@ -507,7 +526,9 @@ def game_list(request: HttpRequest) -> HttpResponse:
             'has_source_game': source_game_obj is not None,
             'engines_count': len(filter_data.get('engines', [])),
             'server_rendered_first_page': is_first_page,
-        }
+        },
+
+        'breadcrumb_json_ld': breadcrumb_json_ld,
     }
 
     if source_game_obj and not source_game_for_template:
