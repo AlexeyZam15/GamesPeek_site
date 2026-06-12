@@ -1,45 +1,174 @@
 User-agent: *
+
 Allow: /
+
+
 
 # Facebook бот для превью ссылок - разрешён
+
 User-agent: facebookexternalhit
+
 Allow: /
+
+
 
 # Паразитические боты Meta - запрещены (грузили сервер)
+
 User-agent: meta-*
+
 Disallow: /
+
+
 
 User-agent: MetaInspector
+
 Disallow: /
 
+
+
 # Instagram боты
+
 User-agent: Instagram
+
 Allow: /
+
+
 
 # Twitter/X бот для превью ссылок
+
 User-agent: Twitterbot
+
 Allow: /
+
+
 
 # Telegram бот для превью ссылок
+
 User-agent: TelegramBot
+
 Allow: /
+
+
 
 # Основные поисковые боты - всё разрешено (никаких Disallow)
+
 User-agent: Googlebot
+
 Allow: /
+
+
 
 User-agent: Yandex
+
 Allow: /
+
+# Ограничение нагрузки от Яндекс-ботов - максимальная задержка между запросами
+Crawl-delay: 5
+
+# Дополнительное ограничение для устаревших версий Яндекс-ботов
+User-agent: YandexBot
+
+Allow: /
+
+Crawl-delay: 5
+
+User-agent: YandexMobileBot
+
+Allow: /
+
+Crawl-delay: 5
+
+User-agent: YandexImages
+
+Allow: /
+
+Crawl-delay: 10
+
+User-agent: YandexVideo
+
+Allow: /
+
+Crawl-delay: 10
+
+User-agent: YandexMedia
+
+Allow: /
+
+Crawl-delay: 10
+
+User-agent: YandexBlogs
+
+Allow: /
+
+Crawl-delay: 5
+
+User-agent: YandexAddurl
+
+Allow: /
+
+Crawl-delay: 5
+
+User-agent: YandexFavicons
+
+Allow: /
+
+Crawl-delay: 30
+
+User-agent: YandexDirect
+
+Allow: /
+
+Crawl-delay: 5
+
+User-agent: YandexDirectDyn
+
+Allow: /
+
+Crawl-delay: 5
+
+User-agent: YandexCalendar
+
+Allow: /
+
+Crawl-delay: 5
+
+User-agent: YandexNews
+
+Allow: /
+
+Crawl-delay: 5
+
+User-agent: YandexMetrika
+
+Allow: /
+
+Crawl-delay: 2
+
+
 
 User-agent: Bingbot
+
 Allow: /
 
-User-agent: DuckDuckBot
-Allow: /
-
-# Небольшая задержка для ботов, чтобы не нагружать сервер
 Crawl-delay: 3
 
+
+
+User-agent: DuckDuckBot
+
+Allow: /
+
+Crawl-delay: 3
+
+
+
+# Основная задержка для всех остальных ботов, не указанных выше
+Crawl-delay: 3
+
+
+
 # Sitemap
+
 Sitemap: https://gamespeek.dpdns.org/sitemap.xml
+
 Sitemap: https://gamespeek.dpdns.org/sitemap_similar_games.xml
