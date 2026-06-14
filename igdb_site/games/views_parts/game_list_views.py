@@ -219,7 +219,7 @@ def game_list(request: HttpRequest) -> HttpResponse:
     Первая страница (page=1 или без параметра page) загружается на сервере
     полностью, чтобы поисковые роботы видели контент.
     """
-    from ..models import Game  # <--- ДОБАВЛЕН ИМПОРТ
+    from ..models import Game  # <--- ДОБАВЛЕН ИМПОРТ (УБРАТЬ КОНФЛИКТ)
 
     start_time = time.time()
 
