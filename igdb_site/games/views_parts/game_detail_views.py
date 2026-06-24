@@ -56,7 +56,7 @@ def game_detail(request: HttpRequest, pk: int) -> HttpResponse:
     # Самые похожие игры — первые в списке
     similar_games.sort(key=lambda x: getattr(x, 'similarity', 0), reverse=True)
 
-    # Ограничиваем до 12 игр
+    # Ограничиваем до 12 самых похожих игр
     similar_games = similar_games[:12]
 
     return render(request, 'games/game_detail.html', {
