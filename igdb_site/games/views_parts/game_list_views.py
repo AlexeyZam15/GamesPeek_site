@@ -979,7 +979,6 @@ def _get_all_games_mode_with_pagination(
         'source_game': None,
     }
 
-
 def _get_similar_games_mode_with_pagination(
         params: Dict[str, str],
         selected_criteria: Dict[str, List[int]],
@@ -996,84 +995,163 @@ def _get_similar_games_mode_with_pagination(
         search_year_start_int: int = None,
         search_year_end_int: int = None,
 ) -> Dict[str, Any]:
-    """Режим похожих игр с СЕРВЕРНОЙ пагинацией."""
-    timers = {
-        'source_game_creation': 0,
-        'formatting': 0,
-        'search_filters': 0,
-        'sorting': 0,
-        'pagination': 0,
-        'total': 0
-    }
-    total_start = time.time()
+    """
+    Режим похожих игр с СЕРВЕРНОЙ пагинацией.
 
+    Для ПЕРВОЙ СТРАНИЦЫ (page=1) использует готовый список similar_game_ids
+    из модели Game - МГНОВЕННАЯ ЗАГРУЗКА без тяжелых вычислений.
+
+    Для остальных страниц выполняет полный расчет через GameSimilarity.
+    """
+    import time
+
+    total_start = time.time()
     current_sort = params.get('sort', '-similarity')
 
+    # Собираем search_filters из параметров
     search_filters = {}
-
     if search_platforms_list:
         search_filters['platforms'] = search_platforms_list
-        _debug_print(f"DEBUG: search_filters platforms = {search_platforms_list}")
-
     if search_game_modes_list:
         search_filters['game_modes'] = search_game_modes_list
-        _debug_print(f"DEBUG: search_filters game_modes = {search_game_modes_list}")
-
     if search_genres_list:
         search_filters['genres'] = search_genres_list
-        _debug_print(f"DEBUG: search_filters genres = {search_genres_list}")
-
     if search_keywords_list:
         search_filters['keywords'] = search_keywords_list
-        _debug_print(f"DEBUG: search_filters keywords = {search_keywords_list}")
-
     if search_themes_list:
         search_filters['themes'] = search_themes_list
-        _debug_print(f"DEBUG: search_filters themes = {search_themes_list}")
-
     if search_perspectives_list:
         search_filters['perspectives'] = search_perspectives_list
-        _debug_print(f"DEBUG: search_filters perspectives = {search_perspectives_list}")
-
     if search_game_types_list:
         search_filters['game_types'] = search_game_types_list
-        _debug_print(f"DEBUG: search_filters game_types = {search_game_types_list}")
-
     if search_engines_list:
         search_filters['engines'] = search_engines_list
-        _debug_print(f"DEBUG: search_filters engines = {search_engines_list}")
-
     if search_year_start_int:
         search_filters['release_year_start'] = search_year_start_int
-        _debug_print(f"DEBUG: search_filters release_year_start = {search_year_start_int}")
-
     if search_year_end_int:
         search_filters['release_year_end'] = search_year_end_int
-        _debug_print(f"DEBUG: search_filters release_year_end = {search_year_end_int}")
 
-    _debug_print(f"DEBUG: Final search_filters = {search_filters}")
+    # Проверяем, есть ли изменения в фильтрах
+    has_filter_changes = False
+    if source_game_obj:
+        default_genres = [g.id for g in source_game_obj.genres.all()]
+        default_keywords = [k.id for k in source_game_obj.keywords.all()]
+        default_themes = [t.id for t in source_game_obj.themes.all()]
+        default_perspectives = [p.id for p in source_game_obj.player_perspectives.all()]
+        default_game_modes = [gm.id for gm in source_game_obj.game_modes.all()]
+        default_engines = [e.id for e in source_game_obj.engines.all()]
 
-    stage_start = time.time()
+        if (set(search_filters.get('genres', [])) != set(default_genres) or
+                set(search_filters.get('keywords', [])) != set(default_keywords) or
+                set(search_filters.get('themes', [])) != set(default_themes) or
+                set(search_filters.get('perspectives', [])) != set(default_perspectives) or
+                set(search_filters.get('game_modes', [])) != set(default_game_modes) or
+                set(search_filters.get('engines', [])) != set(default_engines)):
+            has_filter_changes = True
+
+        if (search_filters.get('platforms') or search_filters.get('game_types') or
+                search_filters.get('release_year_start') or search_filters.get('release_year_end')):
+            has_filter_changes = True
+
+    # ЕСЛИ ПЕРВАЯ СТРАНИЦА И НЕТ ИЗМЕНЕНИЙ В ФИЛЬТРАХ - ИСПОЛЬЗУЕМ ГОТОВЫЙ СПИСОК
+    is_first_page = page_num == 1
+    use_cached_list = is_first_page and source_game_obj and not has_filter_changes
+
+    if use_cached_list:
+        _debug_print(f"[SIMILAR MODE] FIRST PAGE - using cached similar_game_ids (INSTANT)")
+
+        # Получаем ID из готового списка
+        similar_ids = source_game_obj.similar_game_ids or []
+
+        if similar_ids:
+            # Загружаем игры по ID (быстро, без тяжелых вычислений)
+            games = Game.objects.filter(id__in=similar_ids).prefetch_related(
+                'genres', 'themes', 'game_modes', 'engines',
+                'platforms', 'player_perspectives', 'developers'
+            ).only(
+                'id', 'name', 'rating', 'rating_count',
+                'first_release_date', 'cover_url', 'game_type'
+            )
+
+            # Создаем словарь для быстрого доступа
+            games_dict = {game.id: game for game in games}
+
+            # Формируем результат в правильном порядке
+            games_with_similarity = []
+            # Для первой страницы используем примерную схожесть из порядка списка
+            # (список уже отсортирован по убыванию схожести)
+            total_similarity = 100.0
+            step = (100.0 - 40.0) / max(len(similar_ids), 1)
+
+            for idx, game_id in enumerate(similar_ids[:12]):  # Только первые 12
+                if game_id in games_dict:
+                    game = games_dict[game_id]
+                    # Приблизительная схожесть на основе позиции в списке
+                    similarity_score = max(40.0, total_similarity - idx * step)
+                    games_with_similarity.append({
+                        'game': game,
+                        'similarity': round(similarity_score, 2),
+                        'is_source_game': False
+                    })
+
+            total_count = len(similar_ids)
+
+            # Создаем пагинатор
+            paginator = Paginator(games_with_similarity, ITEMS_PER_PAGE)
+            page_obj = paginator.page(1)
+
+            # Формируем source_game
+            source_display = source_game_obj.name
+            game_criteria = {
+                'genres': [g.id for g in source_game_obj.genres.all()],
+                'keywords': [k.id for k in source_game_obj.keywords.all()],
+                'themes': [t.id for t in source_game_obj.themes.all()],
+                'perspectives': [p.id for p in source_game_obj.player_perspectives.all()],
+                'game_modes': [gm.id for gm in source_game_obj.game_modes.all()],
+                'engines': [e.id for e in source_game_obj.engines.all()],
+            }
+            source_game = SimpleSourceGame(
+                game_obj=source_game_obj,
+                criteria=game_criteria,
+                display_name=source_display
+            )
+
+            _debug_print(
+                f"[FIRST PAGE] Loaded {len(games_with_similarity)} games from cached list in {time.time() - total_start:.3f}s")
+
+            return {
+                'page_obj': page_obj,
+                'paginator': paginator,
+                'is_paginated': paginator.num_pages > 1,
+                'total_count': total_count,
+                'current_page': 1,
+                'games_with_similarity': list(page_obj.object_list),
+                'show_similarity': True,
+                'find_similar': True,
+                'source_game': source_game,
+                'source_game_obj': source_game_obj,
+                'timers': {'total': time.time() - total_start},
+            }
+        else:
+            _debug_print(f"[FIRST PAGE] No similar_game_ids, falling back to full calculation")
+
+    # ДЛЯ ОСТАЛЬНЫХ СТРАНИЦ ИЛИ ПРИ ИЗМЕНЕНИИ ФИЛЬТРОВ - ПОЛНЫЙ РАСЧЕТ
+    _debug_print(f"[SIMILAR MODE] FULL calculation (page={page_num}, has_changes={has_filter_changes})")
+
     if source_game_obj:
         similar_games_data, total_count = get_similar_games_for_game(
             source_game_obj, [], search_filters
         )
-        _debug_print(f"get_similar_games_for_game took: {time.time() - stage_start:.3f}s")
-        _debug_print(f"Found {total_count} games with search_filters")
 
         source_display = source_game_obj.name
-
         game_criteria = {
-            'genres': [g.id for g in source_game_obj.genres.all()] if hasattr(source_game_obj, 'genres') else [],
-            'keywords': [k.id for k in source_game_obj.keywords.all()] if hasattr(source_game_obj, 'keywords') else [],
-            'themes': [t.id for t in source_game_obj.themes.all()] if hasattr(source_game_obj, 'themes') else [],
-            'perspectives': [p.id for p in source_game_obj.player_perspectives.all()] if hasattr(source_game_obj,
-                                                                                                 'player_perspectives') else [],
-            'game_modes': [gm.id for gm in source_game_obj.game_modes.all()] if hasattr(source_game_obj,
-                                                                                        'game_modes') else [],
-            'engines': [e.id for e in source_game_obj.engines.all()] if hasattr(source_game_obj, 'engines') else [],
+            'genres': [g.id for g in source_game_obj.genres.all()],
+            'keywords': [k.id for k in source_game_obj.keywords.all()],
+            'themes': [t.id for t in source_game_obj.themes.all()],
+            'perspectives': [p.id for p in source_game_obj.player_perspectives.all()],
+            'game_modes': [gm.id for gm in source_game_obj.game_modes.all()],
+            'engines': [e.id for e in source_game_obj.engines.all()],
         }
-
         source_game = SimpleSourceGame(
             game_obj=source_game_obj,
             criteria=game_criteria,
@@ -1081,33 +1159,25 @@ def _get_similar_games_mode_with_pagination(
         )
     else:
         similar_games_data, total_count = get_similar_games_for_criteria(selected_criteria, search_filters)
-        _debug_print(f"get_similar_games_for_criteria took: {time.time() - stage_start:.3f}s")
         source_display = "Search Criteria"
-
         source_game = SimpleSourceGame(
             game_obj=None,
             criteria=selected_criteria,
             display_name=source_display
         )
-    timers['source_game_creation'] = round(time.time() - stage_start, 3)
 
-    stage_start = time.time()
+    # Форматируем данные
     games_with_similarity = _format_similar_games_data(similar_games_data)
 
     for item in games_with_similarity:
         if 'game' in item and item.get('similarity') is not None:
             item['game'].similarity = item['similarity']
-    timers['formatting'] = round(time.time() - stage_start, 3)
 
-    timers['search_filters'] = 0
-
-    stage_start = time.time()
+    # Сортируем
     _sort_similar_games(games_with_similarity, current_sort)
-    timers['sorting'] = round(time.time() - stage_start, 3)
 
-    stage_start = time.time()
+    # Пагинация
     paginator = Paginator(games_with_similarity, ITEMS_PER_PAGE)
-
     try:
         page_obj = paginator.page(page_num)
     except PageNotAnInteger:
@@ -1116,18 +1186,6 @@ def _get_similar_games_mode_with_pagination(
         page_obj = paginator.page(paginator.num_pages)
 
     current_games_with_similarity = list(page_obj.object_list)
-    timers['pagination'] = round(time.time() - stage_start, 3)
-
-    timers['total'] = round(time.time() - total_start, 3)
-
-    if DEBUG_SIMILARITY:
-        print("\n=== TIMERS: _get_similar_games_mode_with_pagination ===")
-        print(f"Source game creation: {timers['source_game_creation']}s")
-        print(f"Formatting data: {timers['formatting']}s")
-        print(f"Sorting: {timers['sorting']}s")
-        print(f"Pagination: {timers['pagination']}s")
-        print(f"TOTAL: {timers['total']}s")
-        print("======================================================\n")
 
     return {
         'page_obj': page_obj,
@@ -1140,7 +1198,7 @@ def _get_similar_games_mode_with_pagination(
         'find_similar': True,
         'source_game': source_game,
         'source_game_obj': source_game_obj,
-        'timers': timers,
+        'timers': {'total': time.time() - total_start},
     }
 
 
