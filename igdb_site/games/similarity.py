@@ -118,11 +118,15 @@ class GameSimilarity:
     KEYWORDS_ADD_PER_MATCH = 0.2
     EXTRA_GENRE_PENALTY = 2.0
 
-    def __init__(self):
+    def __init__(self, verbose=False):
         self._similarity_cache = {}
         self._game_data_cache = {}
         self.stop_flag = False
-        self.verbose = True
+        self.verbose = verbose
+
+    def set_verbose(self, verbose):
+        """Устанавливает режим вывода отладочной информации"""
+        self.verbose = verbose
 
     def clear_cache(self, force=False):
         """
@@ -600,24 +604,12 @@ class GameSimilarity:
 
     @timeit
     def _get_candidate_ids_new(self, source_data, single_player_info, min_similarity, search_filters=None):
-        """
-        Получает ID игр-кандидатов с учётом поисковых фильтров.
-        ИСПОЛЬЗУЕТ СВЯЗНЫЕ ТАБЛИЦЫ (как в SQL версии)
-
-        Args:
-            source_data: Данные исходной игры
-            single_player_info: Информация о режиме single player
-            min_similarity: Минимальный процент схожести
-            search_filters: Словарь с фильтрами для поиска
-
-        Returns:
-            Список ID игр-кандидатов
-        """
         import time
         from django.utils import timezone
         from django.db import connection
 
-        start_time = time.time()
+        if self.verbose:
+            start_time = time.time()
         current_time = timezone.now()
 
         if self.stop_flag:
@@ -656,7 +648,6 @@ class GameSimilarity:
                 print("Прерывание: остановка после базового SQL")
             return []
 
-        # ПРИМЕНЯЕМ ПОИСКОВЫЕ ФИЛЬТРЫ
         if search_filters:
             if self.verbose:
                 print(f"Applying search filters in SQL: {search_filters}")
@@ -747,7 +738,6 @@ class GameSimilarity:
             exclude_str = ','.join(map(str, exclude_ids))
             sql_parts.append(f" AND g.id NOT IN ({exclude_str})")
 
-        # ФИЛЬТРЫ ПО СХОЖЕСТИ (используем связные таблицы)
         if source_genre_ids:
             source_genre_ids_str = ','.join(map(str, source_genre_ids))
             if dynamic_min_common_genres == 2:
@@ -811,9 +801,6 @@ class GameSimilarity:
                     WHERE gggm.game_id = g.id AND gggm.gamemode_id = {single_player_mode_id}
                 )
             """)
-
-        # УБИРАЕМ rating_count > 0 (как в SQL версии)
-        # sql_parts.append("AND g.rating_count > 0")
 
         if self.stop_flag:
             if self.verbose:
@@ -1092,7 +1079,6 @@ class GameSimilarity:
 
     @timeit
     def _prepare_candidate_data(self, candidate_ids):
-        """Подготовка данных кандидатов с использованием связных таблиц"""
         import time
         from django.db import connection
 
@@ -1529,28 +1515,6 @@ class GameSimilarity:
 
     @timeit
     def find_similar_games(self, source_game, min_similarity=None, limit=None, search_filters=None):
-        """
-        Находит игры, похожие на указанную игру или виртуальную игру.
-
-        Args:
-            source_game: Объект Game или VirtualGame
-            min_similarity: Минимальный процент схожести (по умолчанию 40)
-            limit: Максимальное количество результатов (по умолчанию 500)
-            search_filters: Словарь с фильтрами для ограничения результатов:
-                - platforms: список ID платформ (OR)
-                - game_types: список ID типов игр (OR)
-                - perspectives: список ID перспектив (OR)
-                - game_modes: список ID режимов игры (OR)
-                - engines: список ID движков (OR)
-                - genres: список ID жанров (AND)
-                - keywords: список ID ключевых слов (AND)
-                - themes: список ID тем (AND)
-                - release_year_start: начальный год
-                - release_year_end: конечный год
-
-        Returns:
-            Список словарей с ключами 'game' и 'similarity'
-        """
         import time
         from django.db import connection
 
@@ -1579,7 +1543,6 @@ class GameSimilarity:
                     print("Прерывание: остановка после подготовки данных")
                 return []
 
-            # Передаем search_filters в _get_candidate_ids_new для фильтрации кандидатов
             candidate_ids = self._get_candidate_ids_new(source_data, single_player_info, min_similarity, search_filters)
 
             if self.verbose:
@@ -1609,7 +1572,6 @@ class GameSimilarity:
                     print("Прерывание: остановка после подсчета общих элементов")
                 return []
 
-            # Дополнительная фильтрация по search_filters для игр, прошедших SQL фильтрацию
             if search_filters:
                 if self.verbose:
                     print(f"Применение дополнительной фильтрации к {len(games_data)} кандидатам...")
@@ -1621,7 +1583,6 @@ class GameSimilarity:
                 for game_id, data in games_data.items():
                     passes = True
 
-                    # Проверка даты
                     if (year_start or year_end) and passes:
                         with connection.cursor() as cursor:
                             cursor.execute(
@@ -1638,7 +1599,6 @@ class GameSimilarity:
                             else:
                                 passes = False
 
-                    # Проверка платформ (OR)
                     if search_filters.get('platforms') and passes:
                         platform_ids = search_filters['platforms']
                         placeholders = ','.join(['%s'] * len(platform_ids))
@@ -1649,7 +1609,6 @@ class GameSimilarity:
                             )
                             passes = cursor.fetchone() is not None
 
-                    # Проверка типов игр (OR)
                     if search_filters.get('game_types') and passes:
                         game_type_ids = search_filters['game_types']
                         placeholders = ','.join(['%s'] * len(game_type_ids))
@@ -1660,7 +1619,6 @@ class GameSimilarity:
                             )
                             passes = cursor.fetchone() is not None
 
-                    # Проверка перспектив (OR)
                     if search_filters.get('perspectives') and passes:
                         perspective_ids = search_filters['perspectives']
                         placeholders = ','.join(['%s'] * len(perspective_ids))
@@ -1671,7 +1629,6 @@ class GameSimilarity:
                             )
                             passes = cursor.fetchone() is not None
 
-                    # Проверка режимов игры (OR)
                     if search_filters.get('game_modes') and passes:
                         game_mode_ids = search_filters['game_modes']
                         placeholders = ','.join(['%s'] * len(game_mode_ids))
@@ -1682,7 +1639,6 @@ class GameSimilarity:
                             )
                             passes = cursor.fetchone() is not None
 
-                    # Проверка движков (OR)
                     if search_filters.get('engines') and passes:
                         engine_ids = search_filters['engines']
                         placeholders = ','.join(['%s'] * len(engine_ids))
@@ -1693,7 +1649,6 @@ class GameSimilarity:
                             )
                             passes = cursor.fetchone() is not None
 
-                    # Проверка жанров (AND)
                     if search_filters.get('genres') and passes:
                         genre_ids = search_filters['genres']
                         for genre_id in genre_ids:
@@ -1706,7 +1661,6 @@ class GameSimilarity:
                                     passes = False
                                     break
 
-                    # Проверка ключевых слов (AND)
                     if search_filters.get('keywords') and passes:
                         keyword_ids = search_filters['keywords']
                         for keyword_id in keyword_ids:
@@ -1719,7 +1673,6 @@ class GameSimilarity:
                                     passes = False
                                     break
 
-                    # Проверка тем (AND)
                     if search_filters.get('themes') and passes:
                         theme_ids = search_filters['themes']
                         for theme_id in theme_ids:
@@ -1748,7 +1701,6 @@ class GameSimilarity:
                     print("Прерывание: остановка после расчета схожести")
                 return []
 
-            # Фильтрация исходной игры по дате
             if search_filters and source_game and hasattr(source_game, 'id') and source_game.first_release_date:
                 year_start = search_filters.get('release_year_start')
                 year_end = search_filters.get('release_year_end')
