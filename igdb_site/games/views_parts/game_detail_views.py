@@ -65,6 +65,21 @@ def game_detail(request: HttpRequest, pk: int) -> HttpResponse:
         base_url="https://gamespeek.dpdns.org"
     )
 
+    # Получаем первый жанр и первую платформу для навигационной цепочки
+    first_genre = game.genres.first()
+    genre_name = first_genre.name if first_genre else None
+
+    first_platform = game.platforms.first()
+    platform_name = first_platform.name if first_platform else None
+
+    # Генерируем JSON-LD для навигационной цепочки BreadcrumbList
+    breadcrumb_json_ld = generate_game_breadcrumb(
+        game_title=game.name,
+        platform_name=platform_name,
+        genre_name=genre_name,
+        base_url="https://gamespeek.dpdns.org"
+    )
+
     return render(request, 'games/game_detail.html', {
         'game': game,
         'seo_text': seo_text,
