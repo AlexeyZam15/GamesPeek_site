@@ -1,3 +1,4 @@
+# games/models_parts/__init__.py
 """Optimized game models organized in modules."""
 
 from .enums import GameTypeEnum
