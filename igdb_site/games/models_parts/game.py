@@ -11,6 +11,7 @@ from .enums import GameTypeEnum
 from .managers import GameManager
 from django.contrib.postgres.indexes import GinIndex
 
+
 class KeywordsDescriptor:
     """
     Дескриптор для обратной совместимости с кодом, ожидающим ManyToMany поле keywords.
@@ -271,6 +272,23 @@ class Game(models.Model):
         help_text="Materialized list of game engine IDs for fast similarity search"
     )
 
+    platform_ids = ArrayField(
+        models.IntegerField(),
+        default=list,
+        blank=True,
+        db_index=True,
+        help_text="Materialized list of platform IDs for fast similarity search"
+    )
+
+    # ===== ПОЛЕ ДЛЯ ПОХОЖИХ ИГР =====
+    similar_game_ids = ArrayField(
+        models.IntegerField(),
+        default=list,
+        blank=True,
+        db_index=True,
+        help_text="Список ID игр, отсортированных по убыванию схожести (первые 12 самых похожих)"
+    )
+
     # ===== КЭШИРОВАННЫЕ СЧЕТЧИКИ =====
     _cached_genre_count = models.IntegerField(null=True, blank=True, editable=False)
     _cached_keyword_count = models.IntegerField(null=True, blank=True, editable=False)
@@ -319,6 +337,8 @@ class Game(models.Model):
             GinIndex(fields=['developer_ids'], name='game_developer_ids_gin'),
             GinIndex(fields=['game_mode_ids'], name='game_game_mode_ids_gin'),
             GinIndex(fields=['engine_ids'], name='game_engine_ids_gin'),
+            GinIndex(fields=['platform_ids'], name='game_platform_ids_gin'),
+            GinIndex(fields=['similar_game_ids'], name='game_similar_game_ids_gin'),
         ]
 
     def save(self, *args, **kwargs):
@@ -337,11 +357,12 @@ class Game(models.Model):
         old_perspective_ids = None
         old_game_mode_ids = None
         old_engine_ids = None
+        old_platform_ids = None
 
         if not is_new:
             old_game = Game.objects.filter(id=self.pk).only(
                 'genre_ids', 'keyword_ids', 'theme_ids',
-                'perspective_ids', 'game_mode_ids', 'engine_ids'
+                'perspective_ids', 'game_mode_ids', 'engine_ids', 'platform_ids'
             ).first()
             if old_game:
                 old_genre_ids = set(old_game.genre_ids or [])
@@ -350,6 +371,7 @@ class Game(models.Model):
                 old_perspective_ids = set(old_game.perspective_ids or [])
                 old_game_mode_ids = set(old_game.game_mode_ids or [])
                 old_engine_ids = set(old_game.engine_ids or [])
+                old_platform_ids = set(old_game.platform_ids or [])
 
         super().save(*args, **kwargs)
 
@@ -362,21 +384,80 @@ class Game(models.Model):
             new_perspective_ids = set(self.perspective_ids or [])
             new_game_mode_ids = set(self.game_mode_ids or [])
             new_engine_ids = set(self.engine_ids or [])
+            new_platform_ids = set(self.platform_ids or [])
 
             if (old_genre_ids != new_genre_ids or
                     old_keyword_ids != new_keyword_ids or
                     old_theme_ids != new_theme_ids or
                     old_perspective_ids != new_perspective_ids or
                     old_game_mode_ids != new_game_mode_ids or
-                    old_engine_ids != new_engine_ids):
+                    old_engine_ids != new_engine_ids or
+                    old_platform_ids != new_platform_ids):
                 has_related_changes = True
 
         self.update_cached_counts()
         self.update_materialized_vectors()
 
+        # Обновляем список похожих игр, если есть изменения или игра новая
+        if has_related_changes or is_new:
+            self.update_similar_games()
+
         if has_related_changes:
             self._invalidate_similarity_cache()
             self._invalidate_card_cache()
+
+    def update_similar_games(self, limit: int = 12) -> None:
+        """
+        Обновляет поле similar_game_ids списком ID самых похожих игр.
+
+        Алгоритм:
+        1. Получает до 25 самых похожих игр через get_similar_games_for_game
+        2. Извлекает ID и сортирует по убыванию схожести
+        3. Сохраняет первые limit ID в similar_game_ids
+
+        Args:
+            limit: Максимальное количество ID для сохранения (по умолчанию 12)
+        """
+        from .base_views import get_similar_games_for_game
+
+        try:
+            # Получаем похожие игры с их процентами схожести
+            similar_games_data, total_count = get_similar_games_for_game(
+                game_obj=self,
+                selected_platforms=[],
+                search_filters=None
+            )
+
+            # Извлекаем ID и similarity из результатов
+            game_similarity_pairs = []
+            for item in similar_games_data:
+                if isinstance(item, dict):
+                    similar_game = item.get('game')
+                    similarity = item.get('similarity', 0)
+                else:
+                    similar_game = item
+                    similarity = getattr(item, 'similarity', 0)
+
+                # Пропускаем саму игру
+                if similar_game and similar_game.id != self.id:
+                    game_similarity_pairs.append((similar_game.id, similarity))
+
+            # Сортируем по убыванию схожести
+            game_similarity_pairs.sort(key=lambda x: x[1], reverse=True)
+
+            # Берем первые limit ID
+            similar_ids = [game_id for game_id, _ in game_similarity_pairs[:limit]]
+
+            # Обновляем поле
+            if set(similar_ids) != set(self.similar_game_ids or []):
+                self.similar_game_ids = similar_ids
+                # Обновляем только это поле в базе, чтобы избежать рекурсии
+                Game.objects.filter(id=self.id).update(similar_game_ids=similar_ids)
+
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error updating similar games for game {self.id}: {str(e)}")
 
     def _invalidate_similarity_cache(self):
         """Инвалидирует кэш похожих игр для этой игры."""
@@ -491,6 +572,10 @@ class Game(models.Model):
         import logging
         logger = logging.getLogger(__name__)
 
+        # Если это массовое обновление - пропускаем
+        if getattr(self, '_skip_vector_update', False):
+            return
+
         try:
             game = Game.objects.filter(id=self.id).prefetch_related(
                 'genres',
@@ -520,7 +605,7 @@ class Game(models.Model):
                 set(new_developer_ids) != set(self.developer_ids or []),
                 set(new_game_mode_ids) != set(self.game_mode_ids or []),
                 set(new_engine_ids) != set(self.engine_ids or []),
-                set(new_platform_ids) != set(getattr(self, 'platform_ids', []) or [])
+                set(new_platform_ids) != set(self.platform_ids or [])
             ])
 
             if needs_update:
@@ -544,9 +629,10 @@ class Game(models.Model):
 
                 Game.objects.filter(id=self.id).update(**update_fields)
 
-                logger.debug(f"Updated materialized vectors for game {self.id}: "
-                             f"genres={len(self.genre_ids)}, keywords={len(self.keyword_ids or [])}, "
-                             f"engines={len(self.engine_ids)}")
+                # Вывод отключен - используем только для отладки
+                # logger.debug(f"Updated materialized vectors for game {self.id}: "
+                #              f"genres={len(self.genre_ids)}, keywords={len(self.keyword_ids or [])}, "
+                #              f"engines={len(self.engine_ids)}")
         except Exception as e:
             logger.error(f"Error updating materialized vectors for game {self.id}: {str(e)}")
 
@@ -614,7 +700,7 @@ class Game(models.Model):
                     set(data.get('developer_ids', [])) != set(game.developer_ids or []),
                     set(data.get('game_mode_ids', [])) != set(game.game_mode_ids or []),
                     set(data.get('engine_ids', [])) != set(game.engine_ids or []),
-                    set(data.get('platform_ids', [])) != set(getattr(game, 'platform_ids', []) or [])
+                    set(data.get('platform_ids', [])) != set(game.platform_ids or [])
                 ])
 
                 if needs_count_update or needs_vector_update:
