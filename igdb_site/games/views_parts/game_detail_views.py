@@ -91,44 +91,110 @@ def game_detail(request: HttpRequest, pk: int) -> HttpResponse:
 
 def _generate_game_seo_text(game: Game) -> str:
     """
-    Генерирует уникальный SEO-текст на основе данных игры.
+    Generates unique SEO text based on game data.
+
+    The text is generated programmatically from game attributes and is unique
+    for each page, as the combination of genres, platforms, developers, and
+    rating is unique for each game.
+
+    Args:
+        game: Game object with preloaded related data
+
+    Returns:
+        Unique descriptive text for the game page
     """
     parts = []
 
-    parts.append(f"{game.name} is a ")
+    # Game name and type
+    game_type_display = game.get_game_type_display
+    if game_type_display and game_type_display != "No game type":
+        parts.append(f"{game.name} is a {game_type_display.lower()}")
+    else:
+        parts.append(f"{game.name} is a game")
 
-    if game.genres.all():
-        genre_names = [g.name for g in game.genres.all()]
-        parts.append(f"{', '.join(genre_names)} game ")
+    # Genres
+    genres = list(game.genres.all())
+    if genres:
+        genre_names = [g.name for g in genres[:5]]
+        if len(genre_names) > 3:
+            parts.append(f"in {', '.join(genre_names[:-1])} and {genre_names[-1]} genres")
+        else:
+            parts.append(f"in the {', '.join(genre_names)} genre")
 
+    # Release year
     if game.first_release_date:
-        parts.append(f"released in {game.first_release_date.year} ")
+        parts.append(f"released in {game.first_release_date.year}")
 
-    if game.developers.all():
-        dev_names = [d.name for d in game.developers.all()[:2]]
-        parts.append(f"developed by {', '.join(dev_names)} ")
+    # Developers
+    developers = list(game.developers.all())
+    if developers:
+        dev_names = [d.name for d in developers[:2]]
+        if len(dev_names) == 1:
+            parts.append(f"developed by {dev_names[0]}")
+        else:
+            parts.append(f"developed by {', '.join(dev_names)}")
 
-    parts.append("that offers ")
+    # Platforms
+    platforms = list(game.platforms.all())
+    if platforms:
+        platform_names = [p.name for p in platforms[:4]]
+        display_names = []
+        for name in platform_names:
+            name_lower = name.lower()
+            if 'microsoft windows' in name_lower or name_lower == 'windows':
+                display_names.append('PC')
+            elif 'nintendo switch' in name_lower:
+                display_names.append('Nintendo Switch')
+            elif 'playstation' in name_lower:
+                display_names.append(name.replace('PlayStation', 'PS'))
+            elif 'xbox' in name_lower:
+                display_names.append(name.replace('Xbox', 'XB'))
+            else:
+                display_names.append(name)
 
-    if game.game_modes.all():
-        mode_names = [m.name for m in game.game_modes.all()[:2]]
-        parts.append(f"{', '.join(mode_names)} gameplay ")
+        if len(display_names) == 1:
+            parts.append(f"available on {display_names[0]}")
+        else:
+            parts.append(f"available on {', '.join(display_names)}")
 
-    if game.player_perspectives.all():
-        persp_names = [p.name for p in game.player_perspectives.all()[:2]]
-        parts.append(f"from a {', '.join(persp_names).lower()} perspective ")
+    # Game modes
+    modes = list(game.game_modes.all())
+    if modes:
+        mode_names = [m.name for m in modes[:3]]
+        if len(mode_names) == 1:
+            parts.append(f"with {mode_names[0]} mode")
+        else:
+            parts.append(f"with {', '.join(mode_names)} modes")
 
-    if game.platforms.all():
-        platform_names = [p.name for p in game.platforms.all()[:3]]
-        parts.append(f"playable on {', '.join(platform_names)} ")
+    # Rating
+    if game.rating:
+        rounded_rating = round(game.rating, 1)
+        parts.append(f"with a rating of {rounded_rating}/100 based on {game.rating_count or 0} user votes")
 
-    rounded_rating = round(game.rating or 0, 1)
-    parts.append(f"with {game.rating_count or 0} user ratings averaging {rounded_rating}/100.")
+    # Themes
+    themes = list(game.themes.all())
+    if themes:
+        theme_names = [t.name for t in themes[:3]]
+        if len(theme_names) == 1:
+            parts.append(f"featuring {theme_names[0]} theme")
+        else:
+            parts.append(f"featuring {', '.join(theme_names)} themes")
 
-    if game.themes.all():
-        theme_names = [t.name for t in game.themes.all()[:3]]
-        parts.append(f" The game explores themes like {', '.join(theme_names)}.")
+    # Series information
+    if game.is_part_of_series and game.main_series:
+        series_name = game.main_series.name
+        if game.series_order:
+            parts.append(f"part of the {series_name} series (Part {game.series_order})")
+        else:
+            parts.append(f"part of the {series_name} series")
 
-    parts.append(f" If you enjoy {game.name}, you might also like similar games in our database of 45,000+ titles.")
+    # Call to action
+    parts.append(
+        f"Browse our database of 45,000+ games and find more titles similar to {game.name} in the 'Similar Games' section below.")
 
-    return " ".join(parts)
+    # Capitalize first letter
+    full_text = " ".join(parts)
+    if full_text:
+        full_text = full_text[0].upper() + full_text[1:]
+
+    return full_text
