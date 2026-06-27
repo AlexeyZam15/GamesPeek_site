@@ -16,40 +16,25 @@
 
     <meta name="description"
 
-          content="{{ game.name }} - Complete game information in our video game database. Rating: {{ game.rating|default:'N/A' }}/100.
+          content="{{ game.name }} —
+          {% if game.genres.all %}
 
-        {% if game.first_release_date %}Release Date: {{ game.first_release_date|date:'F Y' }}.{% endif %}
-
-        Genres: {% for genre in game.genres.all %}{{ genre.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.
-
-        Themes: {% for theme in game.themes.all %}{{ theme.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.
-
-        Game Modes:
-                  {% for mode in game.game_modes.all %}{{ mode.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.
-
-        Platforms:
-                  {% for platform in game.platforms.all %}{{ platform.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.
-
-        {% if game.developers.all %}Developers:
-              {% for developer in game.developers.all %}{{ developer.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
-
-        {% if game.publishers.all %}Publishers:
-              {% for publisher in game.publishers.all %}{{ publisher.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
-
-        {% if game.engines.all %}Engine:
-              {% for engine in game.engines.all %}{{ engine.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
-
-        View screenshots, videos, and find similar games like {{ game.name }} in our game database of 45,000+ titles.">
+              {% for genre in game.genres.all|slice:":3" %}{{ genre.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
+          {% endif %}
+          game{% if game.first_release_date %} from {{ game.first_release_date|date:'Y' }}{% endif %}.
+          Rating: {{ game.rating|floatformat:1|default:'N/A' }}/100.
+          Platforms:
+                  {% for platform in game.platforms.all|slice:":3" %}{{ platform.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.
+          {% if game.developers.all %}Developer: {{ game.developers.first.name }}.{% endif %}
+          Find similar games in our database of 45,000+ titles.">
 
     <meta name="keywords"
 
-          content="{{ game.name }}, {{ game.name }} game, {{ game.name }} review, {{ game.name }} rating, video game database,
-
-
-                  {% for genre in game.genres.all %}{{ genre.name }} game, {% endfor %}{% for theme in game.themes.all %}{{ theme.name }} game, {% endfor %}{% for keyword in game.keywords.all %}{{ keyword.name }}, {% endfor %}{% for perspective in game.player_perspectives.all %}{{ perspective.name }} perspective, {% endfor %}{% for mode in game.game_modes.all %}{{ mode.name }} mode, {% endfor %}{% if game.series.all %}{% for series in game.series.all %}{{ series.name }} series, {% endfor %}{% endif %}games like {{ game.name }}, similar games to {{ game.name }},
-
-
-                  {% if game.developers.all %}{% for developer in game.developers.all %}{{ developer.name }} game, {% endfor %}{% endif %}{% if game.publishers.all %}{% for publisher in game.publishers.all %}{{ publisher.name }}, {% endfor %}{% endif %}game database entry, game details, {{ game.name }} screenshots, {{ game.name }} gameplay">
+          content="{{ game.name }}, {{ game.name }} game,
+          {% for genre in game.genres.all|slice:":5" %}{{ genre.name }}, {% endfor %}
+          {% for platform in game.platforms.all|slice:":3" %}{{ platform.name }}, {% endfor %}
+          {% if game.developers.all %}{{ game.developers.first.name }}, {% endif %}
+          similar games to {{ game.name }}, game database">
 
     <link rel="canonical" href="{{ request.build_absolute_uri }}">
 
@@ -70,7 +55,7 @@
                 "ratingCount": "{{ game.rating_count|default:0 }}"
             }{% if game.first_release_date %},
             "datePublished": "{{ game.first_release_date|date:'Y-m-d' }}"{% endif %},
-            "genre": [{% for genre in game.genres.all %}"{{ genre.name }}"{% if not forloop.last %} {% endif %}{% endfor %}],
+            "genre": [{% for genre in game.genres.all %}"{{ genre.name }}"{% if not forloop.last %} {% endif%}{% endfor %}],
             "gameMode": [{% for mode in game.game_modes.all %}"{{ mode.name }}"{% if not forloop.last %} {% endif %}{% endfor %}],
             "author": [{% for developer in game.developers.all %}{"@type": "Organization", "name": "{{ developer.name }}"}{% if not forloop.last %} {% endif %}{% endfor %}],
             "publisher": [{% for publisher in game.publishers.all %}{"@type": "Organization", "name": "{{ publisher.name }}"}{% if not forloop.last %} {% endif %}{% endfor %}]
@@ -104,6 +89,7 @@
             <li class="breadcrumb-item"><a href="{% url 'home' %}" style="color: var(--secondary-color);">Home</a></li>
 
             <li class="breadcrumb-item"><a href="{% url 'game_list' %}" style="color: var(--secondary-color);">Video
+
                 Game Database</a></li>
 
             <li class="breadcrumb-item active" aria-current="page">{{ game.name }}</li>
@@ -146,7 +132,7 @@
 
                     <div class="d-flex align-items-center justify-content-center w-100 h-100">
 
-                        <img id="modalImage" class="screenshot-full" alt="Screenshot">
+                        <img id="modalImage" class="screenshot-full" src="" alt="Screenshot">
 
                     </div>
 
