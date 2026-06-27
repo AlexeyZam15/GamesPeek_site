@@ -1,7 +1,102 @@
+<!-- games/templates/games/game_detail/tab_overview.html -->
+
 {% load game_tags %}
 
 <div class="row g-4">
+    <!-- UNIQUE SEO BLOCK - added first, before all descriptions -->
+    <div class="col-12">
+        <div class="game-unique-seo-block card bg-dark border-secondary">
+            <div class="card-body">
+                <h2 class="h5 text-info mb-3">
+                    <i class="bi bi-star-fill text-warning me-2"></i>
+                    {{ game.name }} — Overview &amp; Facts
+                </h2>
+
+                {% if seo_text %}
+                    <div class="seo-description-text">
+                        <p class="card-text text-light">{{ seo_text }}</p>
+                    </div>
+                {% else %}
+                    <p class="card-text text-light">
+                        {{ game.name }} is a game in our database.
+                        {% if game.genres.all %}
+                            Genres:
+                            {% for genre in game.genres.all|slice:":5" %}{{ genre.name }}{% if not forloop.last %},
+                            {% endif %}{% endfor %}.
+                        {% endif %}
+                        {% if game.first_release_date %}
+                            Released: {{ game.first_release_date|date:"Y" }}.
+                        {% endif %}
+                        {% if game.platforms.all %}
+                            Platforms:{% for platform in game.platforms.all|slice:":4" %}{{ platform.name }}
+                            {% if not forloop.last %}, {% endif %}{% endfor %}.
+                        {% endif %}
+                        {% if game.rating %}
+                            Rating: {{ game.rating|floatformat:1 }}/100.
+                        {% endif %}
+                        Our database contains over 45,000 games.
+                    </p>
+                {% endif %}
+
+                <!-- Key facts in card format -->
+                <div class="row mt-3 g-2">
+                    <div class="col-md-3 col-6">
+                        <div class="fact-item text-center p-2 bg-dark rounded">
+                            <small class="text-muted d-block">Rating</small>
+                            <span class="fw-bold text-light">
+                                {% if game.rating %}
+                                    {{ game.rating|floatformat:1 }}/100
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6">
+                        <div class="fact-item text-center p-2 bg-dark rounded">
+                            <small class="text-muted d-block">Platforms</small>
+                            <span class="fw-bold text-light">{{ game.platforms.count }}</span>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6">
+                        <div class="fact-item text-center p-2 bg-dark rounded">
+                            <small class="text-muted d-block">Genres</small>
+                            <span class="fw-bold text-light">{{ game.genres.count }}</span>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6">
+                        <div class="fact-item text-center p-2 bg-dark rounded">
+                            <small class="text-muted d-block">Release Year</small>
+                            <span class="fw-bold text-light">
+                                {% if game.first_release_date %}
+                                    {{ game.first_release_date|date:"Y" }}
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Navigation links to related sections -->
+                <div class="mt-3">
+                    <a href="#similar-games" class="btn btn-sm btn-outline-info me-2">
+                        <i class="bi bi-search-heart me-1"></i>Similar Games
+                    </a>
+                    <a href="#details" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-list-check me-1"></i>All Details
+                    </a>
+                    <a href="#screenshots" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-image me-1"></i>Screenshots
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- LEFT COLUMN: Descriptions -->
     <div class="col-lg-8">
+        <!-- Description from Steam -->
         {% if game.rawg_description %}
             <div class="compact-section">
                 <div class="section-header">
@@ -27,6 +122,7 @@
             </div>
         {% endif %}
 
+        <!-- Description from IGDB -->
         {% if game.summary %}
             <div class="compact-section {% if game.rawg_description %}mt-4{% endif %}">
                 <div class="section-header">
@@ -52,6 +148,7 @@
             </div>
         {% endif %}
 
+        <!-- Storyline -->
         {% if game.storyline %}
             <div class="compact-section mt-4">
                 <div class="section-header">
@@ -77,6 +174,7 @@
             </div>
         {% endif %}
 
+        <!-- Wikipedia Description -->
         {% if game.wiki_description %}
             <div class="compact-section mt-4">
                 <div class="section-header">
@@ -102,6 +200,7 @@
             </div>
         {% endif %}
 
+        <!-- Message if no descriptions available -->
         {% if not game.rawg_description and not game.summary and not game.storyline and not game.wiki_description %}
             <div class="compact-section">
                 <div class="section-header">
@@ -129,24 +228,9 @@
                 </div>
             </div>
         {% endif %}
-
-        <!-- УНИКАЛЬНЫЙ SEO-ТЕКСТ ДЛЯ ПОИСКОВЫХ СИСТЕМ И ПОЛЬЗОВАТЕЛЕЙ -->
-        {% if seo_text %}
-            <div class="compact-section mt-4">
-                <div class="section-header">
-                    <h5 class="text-secondary mb-3">
-                        <i class="bi bi-file-text me-2"></i>About {{ game.name }}
-                    </h5>
-                </div>
-                <div class="game-detail-card card">
-                    <div class="card-body">
-                        <p class="card-text text-light">{{ seo_text }}</p>
-                    </div>
-                </div>
-            </div>
-        {% endif %}
     </div>
 
+    <!-- RIGHT COLUMN: Basic Info -->
     <div class="col-lg-4">
         <div class="compact-section">
             <div class="section-header">
