@@ -76,6 +76,103 @@
   border-bottom: 1px solid var(--border);
 }
 
+/* ===== УНИКАЛЬНЫЙ SEO-БЛОК ===== */
+
+.game-unique-seo-block {
+  background: linear-gradient(135deg, rgba(255, 107, 53, 0.08), rgba(255, 140, 0, 0.05));
+  border: 1px solid rgba(255, 107, 53, 0.25);
+  border-radius: 12px;
+  margin-bottom: 2rem;
+  transition: all 0.3s ease;
+}
+
+.game-unique-seo-block:hover {
+  border-color: rgba(255, 107, 53, 0.5);
+  box-shadow: 0 4px 20px rgba(255, 107, 53, 0.1);
+}
+
+.game-unique-seo-block .card-body {
+  padding: 1.5rem;
+}
+
+.game-unique-seo-block .seo-description-text {
+  font-size: 1rem;
+  line-height: 1.7;
+  color: #e0e0e0;
+}
+
+.game-unique-seo-block .seo-description-text p {
+  margin-bottom: 0.75rem;
+}
+
+.game-unique-seo-block .seo-description-text p:last-child {
+  margin-bottom: 0;
+}
+
+/* Факты в виде карточек */
+.fact-item {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  padding: 0.75rem 0.5rem;
+  transition: all 0.3s ease;
+}
+
+.fact-item:hover {
+  background: rgba(255, 107, 53, 0.1);
+  border-color: rgba(255, 107, 53, 0.2);
+  transform: translateY(-2px);
+}
+
+.fact-item small {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.fact-item .fw-bold {
+  font-size: 1.1rem;
+}
+
+/* ===== СВОРАЧИВАЕМЫЙ ТЕКСТ ДЛЯ СКОПИРОВАННЫХ ОПИСАНИЙ ===== */
+
+.game-detail-card .collapsible-text {
+  max-height: 150px;
+  overflow: hidden;
+  transition: max-height 0.3s ease-out;
+  position: relative;
+}
+
+.game-detail-card .collapsible-text:not(.expanded)::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: linear-gradient(transparent, rgba(26, 26, 46, 0.95));
+  opacity: 1;
+  transition: opacity 0.3s ease;
+}
+
+.game-detail-card .collapsible-text.expanded {
+  max-height: none;
+}
+
+.game-detail-card .collapsible-text.expanded::after {
+  opacity: 0;
+}
+
+/* Уникальный SEO-блок всегда полностью видим */
+.game-unique-seo-block .collapsible-text {
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+.game-unique-seo-block .collapsible-text::after {
+  display: none !important;
+}
+
 /* ===== ВЕРТИКАЛЬНАЯ РАСКЛАДКА ===== */
 
 .vertical-details {
@@ -268,34 +365,7 @@
   font-size: 0.95rem;
 }
 
-/* ===== СВОРАЧИВАЕМЫЙ ТЕКСТ ===== */
-
-.collapsible-text {
-  max-height: 150px;
-  overflow: hidden;
-  transition: max-height 0.3s ease-out;
-  position: relative;
-}
-
-.collapsible-text.expanded {
-  max-height: none;
-}
-
-.collapsible-text::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 40px;
-  background: linear-gradient(transparent, var(--surface));
-  opacity: 1;
-  transition: opacity 0.3s ease;
-}
-
-.collapsible-text.expanded::after {
-  opacity: 0;
-}
+/* ===== КНОПКА РАЗВЕРНУТЬ/СВЕРНУТЬ ===== */
 
 .toggle-text-btn {
   background: none;
@@ -334,6 +404,14 @@
     min-width: 120px;
     padding: 0.875rem;
   }
+
+  .game-unique-seo-block .card-body {
+    padding: 1.25rem;
+  }
+
+  .fact-item .fw-bold {
+    font-size: 1rem;
+  }
 }
 
 @media (max-width: 768px) {
@@ -348,6 +426,22 @@
   }
 
   .section-header h6 {
+    font-size: 0.9rem;
+  }
+
+  .game-unique-seo-block .card-body {
+    padding: 1rem;
+  }
+
+  .game-unique-seo-block .seo-description-text {
+    font-size: 0.9rem;
+  }
+
+  .fact-item {
+    padding: 0.5rem 0.25rem;
+  }
+
+  .fact-item .fw-bold {
     font-size: 0.9rem;
   }
 }
@@ -373,6 +467,27 @@
 
   .platform-name {
     font-size: 0.85rem;
+  }
+
+  .game-unique-seo-block .card-body {
+    padding: 0.875rem;
+  }
+
+  .game-unique-seo-block .seo-description-text {
+    font-size: 0.85rem;
+    line-height: 1.6;
+  }
+
+  .fact-item .fw-bold {
+    font-size: 0.85rem;
+  }
+
+  .game-detail-card .collapsible-text:not(.expanded) {
+    max-height: 100px;
+  }
+
+  .game-detail-card .collapsible-text:not(.expanded)::after {
+    height: 40px;
   }
 }
 
