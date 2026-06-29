@@ -33,7 +33,6 @@ def game_detail(request: HttpRequest, pk: int) -> HttpResponse:
 
     seo_text = _generate_game_seo_text(game)
 
-    # Получаем похожие игры из поля similar_game_ids
     similar_games = []
     if game.similar_game_ids:
         similar_games = list(
@@ -46,33 +45,15 @@ def game_detail(request: HttpRequest, pk: int) -> HttpResponse:
                 'first_release_date', 'cover_url', 'game_type'
             )
         )
-        # Сохраняем порядок как в similar_game_ids
         id_to_game = {g.id: g for g in similar_games}
         similar_games = [id_to_game[gid] for gid in game.similar_game_ids if gid in id_to_game]
 
-    # Получаем первый жанр и первую платформу для навигационной цепочки
     first_genre = game.genres.first()
     genre_name = first_genre.name if first_genre else None
 
     first_platform = game.platforms.first()
     platform_name = first_platform.name if first_platform else None
 
-    # Генерируем JSON-LD для навигационной цепочки BreadcrumbList
-    breadcrumb_json_ld = generate_game_breadcrumb(
-        game_title=game.name,
-        platform_name=platform_name,
-        genre_name=genre_name,
-        base_url="https://gamespeek.dpdns.org"
-    )
-
-    # Получаем первый жанр и первую платформу для навигационной цепочки
-    first_genre = game.genres.first()
-    genre_name = first_genre.name if first_genre else None
-
-    first_platform = game.platforms.first()
-    platform_name = first_platform.name if first_platform else None
-
-    # Генерируем JSON-LD для навигационной цепочки BreadcrumbList
     breadcrumb_json_ld = generate_game_breadcrumb(
         game_title=game.name,
         platform_name=platform_name,
@@ -91,110 +72,77 @@ def game_detail(request: HttpRequest, pk: int) -> HttpResponse:
 
 def _generate_game_seo_text(game: Game) -> str:
     """
-    Generates unique SEO text based on game data.
-
-    The text is generated programmatically from game attributes and is unique
-    for each page, as the combination of genres, platforms, developers, and
-    rating is unique for each game.
+    Генерирует краткий SEO-текст для страницы игры (максимум 155 символов).
 
     Args:
-        game: Game object with preloaded related data
+        game: Объект игры с предварительно загруженными связанными данными
 
     Returns:
-        Unique descriptive text for the game page
+        Описательный текст для страницы игры (макс. 155 символов)
     """
     parts = []
 
-    # Game name and type
+    # Название игры
+    parts.append(game.name)
+
+    # Тип игры
     game_type_display = game.get_game_type_display
     if game_type_display and game_type_display != "No game type":
-        parts.append(f"{game.name} is a {game_type_display.lower()}")
+        parts.append(f"is a {game_type_display.lower()}")
     else:
-        parts.append(f"{game.name} is a game")
+        parts.append("is a game")
 
-    # Genres
+    # Жанры (только первые 2)
     genres = list(game.genres.all())
     if genres:
-        genre_names = [g.name for g in genres[:5]]
-        if len(genre_names) > 3:
-            parts.append(f"in {', '.join(genre_names[:-1])} and {genre_names[-1]} genres")
+        genre_names = [g.name for g in genres[:2]]
+        if len(genre_names) == 1:
+            parts.append(f"in the {genre_names[0]} genre")
         else:
-            parts.append(f"in the {', '.join(genre_names)} genre")
+            parts.append(f"in {genre_names[0]} and {genre_names[1]} genres")
 
-    # Release year
+    # Год релиза
     if game.first_release_date:
-        parts.append(f"released in {game.first_release_date.year}")
+        parts.append(f"from {game.first_release_date.year}")
 
-    # Developers
+    # Рейтинг
+    if game.rating:
+        parts.append(f"rated {round(game.rating, 1)}/100")
+
+    # Разработчик (только первый)
     developers = list(game.developers.all())
     if developers:
-        dev_names = [d.name for d in developers[:2]]
-        if len(dev_names) == 1:
-            parts.append(f"developed by {dev_names[0]}")
-        else:
-            parts.append(f"developed by {', '.join(dev_names)}")
+        parts.append(f"by {developers[0].name}")
 
-    # Platforms
+    # Платформы (только первые 2)
     platforms = list(game.platforms.all())
     if platforms:
-        platform_names = [p.name for p in platforms[:4]]
-        display_names = []
-        for name in platform_names:
-            name_lower = name.lower()
+        platform_names = []
+        for p in platforms[:2]:
+            name_lower = p.name.lower()
             if 'microsoft windows' in name_lower or name_lower == 'windows':
-                display_names.append('PC')
+                platform_names.append('PC')
             elif 'nintendo switch' in name_lower:
-                display_names.append('Nintendo Switch')
+                platform_names.append('Switch')
             elif 'playstation' in name_lower:
-                display_names.append(name.replace('PlayStation', 'PS'))
+                platform_names.append(p.name.replace('PlayStation', 'PS'))
             elif 'xbox' in name_lower:
-                display_names.append(name.replace('Xbox', 'XB'))
+                platform_names.append(p.name.replace('Xbox', 'XB'))
             else:
-                display_names.append(name)
+                platform_names.append(p.name)
 
-        if len(display_names) == 1:
-            parts.append(f"available on {display_names[0]}")
+        if len(platform_names) == 1:
+            parts.append(f"on {platform_names[0]}")
         else:
-            parts.append(f"available on {', '.join(display_names)}")
+            parts.append(f"on {platform_names[0]} and {platform_names[1]}")
 
-    # Game modes
-    modes = list(game.game_modes.all())
-    if modes:
-        mode_names = [m.name for m in modes[:3]]
-        if len(mode_names) == 1:
-            parts.append(f"with {mode_names[0]} mode")
-        else:
-            parts.append(f"with {', '.join(mode_names)} modes")
+    # Призыв к действию (коротко)
+    parts.append("Find similar games in our database")
 
-    # Rating
-    if game.rating:
-        rounded_rating = round(game.rating, 1)
-        parts.append(f"with a rating of {rounded_rating}/100 based on {game.rating_count or 0} user votes")
-
-    # Themes
-    themes = list(game.themes.all())
-    if themes:
-        theme_names = [t.name for t in themes[:3]]
-        if len(theme_names) == 1:
-            parts.append(f"featuring {theme_names[0]} theme")
-        else:
-            parts.append(f"featuring {', '.join(theme_names)} themes")
-
-    # Series information
-    if game.is_part_of_series and game.main_series:
-        series_name = game.main_series.name
-        if game.series_order:
-            parts.append(f"part of the {series_name} series (Part {game.series_order})")
-        else:
-            parts.append(f"part of the {series_name} series")
-
-    # Call to action
-    parts.append(
-        f"Browse our database of 45,000+ games and find more titles similar to {game.name} in the 'Similar Games' section below.")
-
-    # Capitalize first letter
     full_text = " ".join(parts)
-    if full_text:
-        full_text = full_text[0].upper() + full_text[1:]
+
+    # Обрезаем до 155 символов, если длиннее
+    if len(full_text) > 155:
+        full_text = full_text[:152] + "..."
 
     return full_text
