@@ -1,5 +1,6 @@
 """
 Django management command to check site health.
+
 Usage: python manage.py check_site
 """
 
@@ -44,9 +45,10 @@ class Command(BaseCommand):
             (f'/games/{game_id}/', 'Детали игры'),
         ]
 
-        print("\n" + "=" * 40)
-        print("ПРОВЕРКА САЙТА")
-        print("=" * 40)
+        # Используем self.stdout.write для вывода
+        self.stdout.write("\n" + "=" * 40)
+        self.stdout.write("ПРОВЕРКА САЙТА")
+        self.stdout.write("=" * 40)
 
         all_ok = True
 
@@ -55,18 +57,18 @@ class Command(BaseCommand):
             status = response.status_code
 
             if status == 200:
-                print(f"✅ {name} - работает")
+                self.stdout.write(f"✅ {name} - работает")
             else:
-                print(f"❌ {name} - ОШИБКА {status}")
+                self.stdout.write(f"❌ {name} - ОШИБКА {status}")
                 all_ok = False
 
-        print("=" * 40)
+        self.stdout.write("=" * 40)
 
         if all_ok:
-            print("✅ ВСЕ СТРАНИЦЫ РАБОТАЮТ")
+            self.stdout.write("✅ ВСЕ СТРАНИЦЫ РАБОТАЮТ")
         else:
-            print("❌ ЕСТЬ ПРОБЛЕМЫ")
+            self.stdout.write("❌ ЕСТЬ ПРОБЛЕМЫ")
 
-        print("=" * 40 + "\n")
+        self.stdout.write("=" * 40 + "\n")
 
         return 0 if all_ok else 1
