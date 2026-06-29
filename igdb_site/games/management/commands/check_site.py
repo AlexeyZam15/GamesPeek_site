@@ -71,4 +71,8 @@ class Command(BaseCommand):
 
         self.stdout.write("=" * 40 + "\n")
 
-        return 0 if all_ok else 1
+        # ВОЗВРАЩАЕМ СТРОКУ, А НЕ ЧИСЛО
+        if all_ok:
+            return "Success"
+        else:
+            return "Failed"
