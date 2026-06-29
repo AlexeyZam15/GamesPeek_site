@@ -3,9 +3,7 @@
 {% load static %}
 
 <!DOCTYPE html>
-
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,7 +11,16 @@
 
     <meta name="robots" content="index, follow">
 
-    {% block meta_tags %}{% endblock %}
+    <!-- ===== CANONICAL URL ===== -->
+    <link rel="canonical" href="https://gamespeek.dpdns.org/{% block canonical %}{% endblock %}">
+
+    {% block meta_tags %}
+        <!-- ===== OPEN GRAPH IMAGE (БАЗОВОЕ ЗНАЧЕНИЕ) ===== -->
+        <meta property="og:image" content="https://gamespeek.dpdns.org/static/og-image.jpg">
+        <meta property="og:image:width" content="1200">
+        <meta property="og:image:height" content="630">
+        <meta property="og:image:type" content="image/jpeg">
+    {% endblock %}
 
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-S84TTYCE36"></script>
