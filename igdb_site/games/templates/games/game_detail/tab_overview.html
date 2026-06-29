@@ -4,14 +4,14 @@
 
 <div class="row g-4">
 
-    <!-- UNIQUE SEO BLOCK - added first, before all descriptions -->
+    <!-- UNIQUE SEO BLOCK - добавлен первым, перед всеми описаниями -->
     <div class="col-12">
         <div class="game-unique-seo-block card bg-dark border-secondary">
             <div class="card-body">
-                <h2 class="h5 text-info mb-3">
+                <h3 class="h5 text-info mb-3">
                     <i class="bi bi-star-fill text-warning me-2"></i>
                     {{ game.name }} — Overview &amp; Facts
-                </h2>
+                </h3>
 
                 {% if seo_text %}
                     <div class="seo-description-text">
@@ -104,10 +104,10 @@
         {% if game.rawg_description %}
             <div class="compact-section">
                 <div class="section-header">
-                    <h5 class="text-warning mb-3">
+                    <h4 class="text-warning mb-3">
                         <i class="bi bi-info-circle me-2"></i>Description from Steam
                         <span class="badge bg-warning ms-2">STEAM</span>
-                    </h5>
+                    </h4>
                 </div>
                 <div class="game-detail-card card">
                     <div class="card-body">
@@ -130,10 +130,10 @@
         {% if game.summary %}
             <div class="compact-section {% if game.rawg_description %}mt-4{% endif %}">
                 <div class="section-header">
-                    <h5 class="text-info mb-3">
+                    <h4 class="text-info mb-3">
                         <i class="bi bi-journal-text me-2"></i>Description from IGDB
                         <span class="badge bg-info ms-2">IGDB</span>
-                    </h5>
+                    </h4>
                 </div>
                 <div class="game-detail-card card">
                     <div class="card-body">
@@ -156,10 +156,10 @@
         {% if game.storyline %}
             <div class="compact-section mt-4">
                 <div class="section-header">
-                    <h5 class="text-primary mb-3">
+                    <h4 class="text-primary mb-3">
                         <i class="bi bi-book me-2"></i>Storyline
                         <span class="badge bg-primary ms-2">IGDB</span>
-                    </h5>
+                    </h4>
                 </div>
                 <div class="game-detail-card card">
                     <div class="card-body">
@@ -182,10 +182,10 @@
         {% if game.wiki_description %}
             <div class="compact-section mt-4">
                 <div class="section-header">
-                    <h5 class="text-success mb-3">
+                    <h4 class="text-success mb-3">
                         <i class="bi bi-wikipedia me-2"></i>Wikipedia Description
                         <span class="badge bg-success ms-2">WIKIPEDIA</span>
-                    </h5>
+                    </h4>
                 </div>
                 <div class="game-detail-card card">
                     <div class="card-body">
@@ -208,7 +208,7 @@
         {% if not game.rawg_description and not game.summary and not game.storyline and not game.wiki_description %}
             <div class="compact-section">
                 <div class="section-header">
-                    <h5 class="text-warning mb-3"><i class="bi bi-journal-text me-2"></i>About This Game</h5>
+                    <h4 class="text-warning mb-3"><i class="bi bi-journal-text me-2"></i>About This Game</h4>
                 </div>
                 <div class="game-detail-card card">
                     <div class="card-body text-center py-5">
@@ -247,7 +247,7 @@
     <div class="col-lg-4">
         <div class="compact-section">
             <div class="section-header">
-                <h5 class="text-info mb-3"><i class="bi bi-card-checklist me-2"></i>Basic Info</h5>
+                <h4 class="text-info mb-3"><i class="bi bi-card-checklist me-2"></i>Basic Info</h4>
             </div>
             <div class="game-detail-card card">
                 <div class="card-body">
