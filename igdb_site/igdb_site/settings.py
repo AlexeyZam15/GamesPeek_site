@@ -421,35 +421,37 @@ POLLINATIONS_TIMEOUT = 30
 # КЭШИРОВАНИЕ ЧЕРЕЗ REDIS (один кэш для всех воркеров)
 # ============================================
 
-CACHES = {
-    'default': {
-        'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': 'redis://127.0.0.1:6379/1',
-        'TIMEOUT': 86400,  # 24 часа - ДОБАВИТЬ ЭТУ СТРОКУ
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-            'MAX_ENTRIES': 10000,
-        }
-    },
-    'page_cache': {
-        'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': 'redis://127.0.0.1:6379/2',
-        'TIMEOUT': 3600,  # 1 час
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-            'MAX_ENTRIES': 2000,
-        }
-    },
-    'template_cache': {
-        'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': 'redis://127.0.0.1:6379/3',
-        'TIMEOUT': 7200,  # 2 часа
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-            'MAX_ENTRIES': 2000,
+# Проверяем, не был ли уже установлен CACHES в desktop режиме
+if not os.getenv('DESKTOP_MODE') == '1' and not IS_HF_SPACE:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': 'redis://127.0.0.1:6379/1',
+            'TIMEOUT': 86400,  # 24 часа
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+                'MAX_ENTRIES': 10000,
+            }
+        },
+        'page_cache': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': 'redis://127.0.0.1:6379/2',
+            'TIMEOUT': 3600,  # 1 час
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+                'MAX_ENTRIES': 2000,
+            }
+        },
+        'template_cache': {
+            'BACKEND': 'django_redis.cache.RedisCache',
+            'LOCATION': 'redis://127.0.0.1:6379/3',
+            'TIMEOUT': 7200,  # 2 часа
+            'OPTIONS': {
+                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+                'MAX_ENTRIES': 2000,
+            }
         }
     }
-}
 
 # Оптимизация сессий - храним в кэше
 SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
@@ -637,8 +639,36 @@ CACHE_TIMES = {
 }
 
 # ============================================
-# ФИНАЛЬНЫЕ СООБЩЕНИЯ ПРИ ЗАПУСКЕ
+# ===== БЕЗОПАСНОСТЬ: SECURITY HEADERS =====
 # ============================================
+
+"""
+Настройки безопасности для защиты сайта и улучшения SEO.
+Эти заголовки помогают предотвратить XSS-атаки, утечку данных
+и улучшают доверие поисковых систем к сайту.
+"""
+
+# HSTS (HTTP Strict Transport Security) - принудительное использование HTTPS
+# Заставляет браузеры всегда использовать HTTPS, даже если пользователь вводит http://
+# Это защищает от атак "человек посередине" (MITM)
+SECURE_HSTS_SECONDS = 31536000  # 1 год (максимальное значение для preload)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True  # Применять ко всем поддоменам
+SECURE_HSTS_PRELOAD = True  # Добавить в список preload HSTS
+
+# Referrer Policy - контроль передачи информации о переходе
+# strict-origin-when-cross-origin: при переходе на другой сайт передавать только домен,
+# но не полный URL с параметрами. Защищает от утечки конфиденциальной информации.
+SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+
+# Дополнительные заголовки безопасности
+SECURE_BROWSER_XSS_FILTER = True  # Включает XSS-фильтр в браузере
+SECURE_CONTENT_TYPE_NOSNIFF = True  # Запрещает MIME-сниффинг
+X_FRAME_OPTIONS = 'SAMEORIGIN'  # Запрещает отображение во фреймах других сайтов
+
+# Настройки для продакшена (раскомментировать при деплое на VPS)
+# SECURE_SSL_REDIRECT = True  # Перенаправлять HTTP на HTTPS
+# SESSION_COOKIE_SECURE = True  # Передавать session cookie только по HTTPS
+# CSRF_COOKIE_SECURE = True  # Передавать CSRF cookie только по HTTPS
 
 # ============================================
 # ФИНАЛЬНЫЕ СООБЩЕНИЯ ПРИ ЗАПУСКЕ
@@ -652,14 +682,15 @@ try:
     conn.ensure_connection()
 
     db_info = f"""
-    [OK] Django settings loaded
-    [INFO] Mode: {'DEBUG' if DEBUG else 'PRODUCTION'}
-    [INFO] Platform: {'Railway' if IS_RAILWAY else ('Desktop' if IS_DESKTOP else 'Local')}
-    [INFO] Database: PostgreSQL
-    [INFO] Cache: {'Redis' if 'django_redis' in str(CACHES.get('default', {}).get('BACKEND', '')) else 'LocMemCache'}
-    [INFO] Debug Toolbar: {'ON' if DEBUG else 'OFF'}
-    [INFO] PostgreSQL connection: SUCCESS
-    """
+[OK] Django settings loaded
+[INFO] Mode: {'DEBUG' if DEBUG else 'PRODUCTION'}
+[INFO] Platform: {'Railway' if IS_RAILWAY else ('Desktop' if IS_DESKTOP else 'Local')}
+[INFO] Database: PostgreSQL
+[INFO] Cache: {'Redis' if 'django_redis' in str(CACHES.get('default', {}).get('BACKEND', '')) else 'LocMemCache'}
+[INFO] Debug Toolbar: {'ON' if DEBUG else 'OFF'}
+[INFO] PostgreSQL connection: SUCCESS
+[INFO] Security Headers: ENABLED
+"""
 except Exception as e:
     db_info = f"""
 [ERROR] PostgreSQL connection error: {e}
@@ -687,10 +718,30 @@ import time
 
 
 class SlowRequestLoggerMiddleware:
+    """
+    Middleware для логирования медленных запросов.
+    Помогает выявлять страницы, которые загружаются дольше 1 секунды.
+    """
+
     def __init__(self, get_response):
+        """
+        Инициализация middleware с функцией получения ответа.
+
+        Args:
+            get_response: Функция, которая обрабатывает запрос и возвращает ответ
+        """
         self.get_response = get_response
 
     def __call__(self, request):
+        """
+        Обработка запроса с замером времени выполнения.
+
+        Args:
+            request: HTTP запрос
+
+        Returns:
+            HttpResponse: Ответ от сервера
+        """
         import time
         start = time.time()
         response = self.get_response(request)
@@ -707,11 +758,32 @@ class SlowRequestLoggerMiddleware:
 
 MIDDLEWARE.insert(0, 'igdb_site.settings.SlowRequestLoggerMiddleware')
 
+
 class TimingMiddleware:
+    """
+    Middleware для замера времени выполнения запросов.
+    Логирует все запросы, которые выполняются дольше 1 секунды.
+    """
+
     def __init__(self, get_response):
+        """
+        Инициализация middleware с функцией получения ответа.
+
+        Args:
+            get_response: Функция, которая обрабатывает запрос и возвращает ответ
+        """
         self.get_response = get_response
 
     def __call__(self, request):
+        """
+        Обработка запроса с замером времени выполнения.
+
+        Args:
+            request: HTTP запрос
+
+        Returns:
+            HttpResponse: Ответ от сервера
+        """
         start = time.time()
         response = self.get_response(request)
         duration = time.time() - start
