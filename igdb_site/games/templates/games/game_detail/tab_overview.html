@@ -5,551 +5,289 @@
 <div class="row g-4">
 
     <!-- UNIQUE SEO BLOCK - added first, before all descriptions -->
-
     <div class="col-12">
-
         <div class="game-unique-seo-block card bg-dark border-secondary">
-
             <div class="card-body">
-
                 <h2 class="h5 text-info mb-3">
-
                     <i class="bi bi-star-fill text-warning me-2"></i>
-
                     {{ game.name }} — Overview &amp; Facts
-
                 </h2>
 
                 {% if seo_text %}
-
                     <div class="seo-description-text">
-
                         <p class="card-text text-light">{{ seo_text }}</p>
-
                     </div>
-
                 {% else %}
-
                     <p class="card-text text-light">
-
                         {{ game.name }} is a game in our database.
-
                         {% if game.genres.all %}
-
                             Genres:
-
-                            {% for genre in game.genres.all|slice:":5" %}{{ genre.name }}{% if not forloop.last %},
-
-                            {% endif %}{% endfor %}.
-
+                            {% for genre in game.genres.all|slice:":5" %}
+                                {{ genre.name }}{% if not forloop.last %}, {% endif %}
+                            {% endfor %}.
                         {% endif %}
-
                         {% if game.first_release_date %}
-
                             Released: {{ game.first_release_date|date:"Y" }}.
-
                         {% endif %}
-
                         {% if game.platforms.all %}
-
-                            Platforms:{% for platform in game.platforms.all|slice:":4" %}{{ platform.name }}
-
-                            {% if not forloop.last %}, {% endif %}{% endfor %}.
-
+                            Platforms:
+                            {% for platform in game.platforms.all|slice:":4" %}
+                                {{ platform.name }}{% if not forloop.last %}, {% endif %}
+                            {% endfor %}.
                         {% endif %}
-
                         {% if game.rating %}
-
                             Rating: {{ game.rating|floatformat:1 }}/100.
-
                         {% endif %}
-
                         Our database contains over 45,000 games.
-
                     </p>
-
                 {% endif %}
 
                 <!-- Key facts in card format -->
-
                 <div class="row mt-3 g-2">
-
                     <div class="col-md-3 col-6">
-
                         <div class="fact-item text-center p-2 bg-dark rounded">
-
                             <small class="text-muted d-block">Rating</small>
-
                             <span class="fw-bold text-light">
-
                                 {% if game.rating %}
-
                                     {{ game.rating|floatformat:1 }}/100
-
                                 {% else %}
-
                                     N/A
-
                                 {% endif %}
-
                             </span>
-
                         </div>
-
                     </div>
-
                     <div class="col-md-3 col-6">
-
                         <div class="fact-item text-center p-2 bg-dark rounded">
-
                             <small class="text-muted d-block">Platforms</small>
-
                             <span class="fw-bold text-light">{{ game.platforms.count }}</span>
-
                         </div>
-
                     </div>
-
                     <div class="col-md-3 col-6">
-
                         <div class="fact-item text-center p-2 bg-dark rounded">
-
                             <small class="text-muted d-block">Genres</small>
-
                             <span class="fw-bold text-light">{{ game.genres.count }}</span>
-
                         </div>
-
                     </div>
-
                     <div class="col-md-3 col-6">
-
                         <div class="fact-item text-center p-2 bg-dark rounded">
-
                             <small class="text-muted d-block">Release Year</small>
-
                             <span class="fw-bold text-light">
-
                                 {% if game.first_release_date %}
-
                                     {{ game.first_release_date|date:"Y" }}
-
                                 {% else %}
-
                                     N/A
-
                                 {% endif %}
-
                             </span>
-
                         </div>
-
                     </div>
-
                 </div>
 
                 <!-- Navigation links to related sections -->
-
                 <div class="mt-3">
-
                     <a href="#similar-games" class="btn btn-sm btn-outline-info me-2">
-
                         <i class="bi bi-search-heart me-1"></i>Similar Games
-
                     </a>
-
                     <a href="#details" class="btn btn-sm btn-outline-secondary">
-
                         <i class="bi bi-list-check me-1"></i>All Details
-
                     </a>
-
                     <a href="#screenshots" class="btn btn-sm btn-outline-secondary">
-
                         <i class="bi bi-image me-1"></i>Screenshots
-
                     </a>
-
                 </div>
-
             </div>
-
         </div>
-
     </div>
 
     <!-- LEFT COLUMN: Descriptions -->
-
     <div class="col-lg-8">
-
         <!-- Description from Steam -->
-
         {% if game.rawg_description %}
-
             <div class="compact-section">
-
                 <div class="section-header">
-
                     <h5 class="text-warning mb-3">
-
                         <i class="bi bi-info-circle me-2"></i>Description from Steam
-
                         <span class="badge bg-warning ms-2">STEAM</span>
-
                     </h5>
-
                 </div>
-
                 <div class="game-detail-card card">
-
                     <div class="card-body">
-
                         <div class="collapsible-text {% if game.rawg_description|wordcount <= 100 %}expanded{% endif %}"
-
                              id="rawg-text">
-
                             <p class="card-text text-light mb-0">{{ game.rawg_description|safe }}</p>
-
                         </div>
-
                         {% if game.rawg_description|wordcount > 100 %}
-
                             <button class="toggle-text-btn mt-3" onclick="toggleText('rawg')">
-
                                 <span>Read more</span>
-
                                 <i class="bi bi-chevron-down"></i>
-
                             </button>
-
                         {% endif %}
-
                     </div>
-
                 </div>
-
             </div>
-
         {% endif %}
 
         <!-- Description from IGDB -->
-
         {% if game.summary %}
-
             <div class="compact-section {% if game.rawg_description %}mt-4{% endif %}">
-
                 <div class="section-header">
-
                     <h5 class="text-info mb-3">
-
                         <i class="bi bi-journal-text me-2"></i>Description from IGDB
-
                         <span class="badge bg-info ms-2">IGDB</span>
-
                     </h5>
-
                 </div>
-
                 <div class="game-detail-card card">
-
                     <div class="card-body">
-
                         <div class="collapsible-text {% if game.summary|wordcount <= 100 %}expanded{% endif %}"
-
                              id="summary-text">
-
                             <p class="card-text text-light mb-0">{{ game.summary }}</p>
-
                         </div>
-
                         {% if game.summary|wordcount > 100 %}
-
                             <button class="toggle-text-btn mt-3" onclick="toggleText('summary')">
-
                                 <span>Read more</span>
-
                                 <i class="bi bi-chevron-down"></i>
-
                             </button>
-
                         {% endif %}
-
                     </div>
-
                 </div>
-
             </div>
-
         {% endif %}
 
         <!-- Storyline -->
-
         {% if game.storyline %}
-
             <div class="compact-section mt-4">
-
                 <div class="section-header">
-
                     <h5 class="text-primary mb-3">
-
                         <i class="bi bi-book me-2"></i>Storyline
-
                         <span class="badge bg-primary ms-2">IGDB</span>
-
                     </h5>
-
                 </div>
-
                 <div class="game-detail-card card">
-
                     <div class="card-body">
-
                         <div class="collapsible-text {% if game.storyline|wordcount <= 100 %}expanded{% endif %}"
-
                              id="storyline-text">
-
                             <p class="card-text text-light mb-0">{{ game.storyline }}</p>
-
                         </div>
-
                         {% if game.storyline|wordcount > 100 %}
-
                             <button class="toggle-text-btn mt-3" onclick="toggleText('storyline')">
-
                                 <span>Read more</span>
-
                                 <i class="bi bi-chevron-down"></i>
-
                             </button>
-
                         {% endif %}
-
                     </div>
-
                 </div>
-
             </div>
-
         {% endif %}
 
         <!-- Wikipedia Description -->
-
         {% if game.wiki_description %}
-
             <div class="compact-section mt-4">
-
                 <div class="section-header">
-
                     <h5 class="text-success mb-3">
-
                         <i class="bi bi-wikipedia me-2"></i>Wikipedia Description
-
                         <span class="badge bg-success ms-2">WIKIPEDIA</span>
-
                     </h5>
-
                 </div>
-
                 <div class="game-detail-card card">
-
                     <div class="card-body">
-
                         <div class="collapsible-text {% if game.wiki_description|wordcount <= 100 %}expanded{% endif %}"
-
                              id="wiki-text">
-
                             <p class="card-text text-light mb-0">{{ game.wiki_description|safe }}</p>
-
                         </div>
-
                         {% if game.wiki_description|wordcount > 100 %}
-
                             <button class="toggle-text-btn mt-3" onclick="toggleText('wiki')">
-
                                 <span>Read more</span>
-
                                 <i class="bi bi-chevron-down"></i>
-
                             </button>
-
                         {% endif %}
-
                     </div>
-
                 </div>
-
             </div>
-
         {% endif %}
 
         <!-- Message if no descriptions available -->
-
         {% if not game.rawg_description and not game.summary and not game.storyline and not game.wiki_description %}
-
             <div class="compact-section">
-
                 <div class="section-header">
-
                     <h5 class="text-warning mb-3"><i class="bi bi-journal-text me-2"></i>About This Game</h5>
-
                 </div>
-
                 <div class="game-detail-card card">
-
                     <div class="card-body text-center py-5">
-
                         <div class="mb-3">
-
                             <i class="bi bi-journal-x text-muted" style="font-size: 3rem;"></i>
-
                         </div>
-
                         <h5 class="text-muted mb-2">No Descriptions Available</h5>
-
                         <p class="text-muted mb-0">Try checking the game on these platforms:</p>
-
                         <div class="mt-3 d-flex justify-content-center gap-3">
-
                             <a href="https://www.igdb.com"
-
                                target="_blank"
-
                                rel="noopener noreferrer"
-
                                class="btn btn-outline-info btn-sm">
-
                                 <i class="bi bi-controller me-1"></i> IGDB
-
                             </a>
-
                             <a href="https://rawg.io"
-
                                target="_blank"
-
                                rel="noopener noreferrer"
-
                                class="btn btn-outline-warning btn-sm">
-
                                 <i class="bi bi-globe me-1"></i> RAWG
-
                             </a>
-
                             <a href="https://wikipedia.org"
-
                                target="_blank"
-
                                rel="noopener noreferrer"
-
                                class="btn btn-outline-success btn-sm">
-
                                 <i class="bi bi-wikipedia me-1"></i> Wikipedia
-
                             </a>
-
                         </div>
-
                     </div>
-
                 </div>
-
             </div>
-
         {% endif %}
-
     </div>
 
     <!-- RIGHT COLUMN: Basic Info -->
-
     <div class="col-lg-4">
-
         <div class="compact-section">
-
             <div class="section-header">
-
                 <h5 class="text-info mb-3"><i class="bi bi-card-checklist me-2"></i>Basic Info</h5>
-
             </div>
-
             <div class="game-detail-card card">
-
                 <div class="card-body">
-
                     <div class="info-grid">
-
                         <div class="info-item d-flex justify-content-between py-3 border-bottom">
-
                             <span class="text-muted">Release Date:</span>
-
                             <span class="fw-bold text-light">
-
                                 {% if game.first_release_date %}
-
                                     {{ game.first_release_date|date:"F j, Y" }}
-
                                 {% else %}
-
                                     <span class="text-muted">Unknown</span>
-
                                 {% endif %}
-
                             </span>
-
                         </div>
-
                         {% if game.rating %}
-
                             <div class="info-item d-flex justify-content-between py-3 border-bottom">
-
                                 <span class="text-muted">IGDB Rating:</span>
-
                                 <span class="fw-bold text-light">
-
                                     {{ game.rating|floatformat:1 }}/100
-
                                     {% if game.rating_count %}
-
                                         <small class="text-muted ms-2">({{ game.rating_count }})</small>
-
                                     {% endif %}
-
                                 </span>
-
                             </div>
-
                         {% endif %}
-
                         {% if game.rating_count %}
-
                             <div class="info-item d-flex justify-content-between py-3 border-bottom">
-
                                 <span class="text-muted">Rating Count:</span>
-
                                 <span class="fw-bold text-light">{{ game.rating_count }}</span>
-
                             </div>
-
                         {% endif %}
-
                         {% if game.igdb_id %}
-
                             <div class="info-item d-flex justify-content-between py-3">
-
                                 <span class="text-muted">IGDB ID:</span>
-
                                 <span class="fw-bold text-light">{{ game.igdb_id }}</span>
-
                             </div>
-
                         {% endif %}
-
                     </div>
-
                 </div>
-
             </div>
-
         </div>
-
     </div>
-
 </div>

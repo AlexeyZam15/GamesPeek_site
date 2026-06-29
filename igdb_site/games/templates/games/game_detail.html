@@ -55,7 +55,7 @@
                 "ratingCount": "{{ game.rating_count|default:0 }}"
             }{% if game.first_release_date %},
             "datePublished": "{{ game.first_release_date|date:'Y-m-d' }}"{% endif %},
-            "genre": [{% for genre in game.genres.all %}"{{ genre.name }}"{% if not forloop.last %} {% endif%}{% endf or %}],
+            "genre": [{% for genre in game.genres.all %}"{{ genre.name }}"{% if not forloop.last %} {% endif%}{% endfor %}],
             "gameMode": [{% for mode in game.game_modes.all %}"{{ mode.name }}"{% if not forloop.last %} {% endif%}{% endfor %}],
             "author": [{% for developer in game.developers.all %}{"@type": "Organization", "name": "{{ developer.name }}"}{% if not forloop.last %} {% endif %}{% endfor %}],
             "publisher": [{% for publisher in game.publishers.all %}{"@type": "Organization", "name": "{{ publisher.name }}"}{% if not forloop.last %} {% endif %}{% endfor %}]
