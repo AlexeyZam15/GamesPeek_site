@@ -645,33 +645,31 @@ CACHE_TIMES = {
 """
 Настройки безопасности для защиты сайта и улучшения SEO.
 Включаются автоматически только в production режиме (DEBUG=False).
-В режиме разработки (DEBUG=True) они не определяются.
+В режиме разработки (DEBUG=True) настройки не определяются — Django использует значения по умолчанию.
 """
 
 if not DEBUG:
-    # HSTS (HTTP Strict Transport Security) - принудительное использование HTTPS
-    # Заставляет браузеры всегда использовать HTTPS, даже если пользователь вводит http://
-    # Это защищает от атак "человек посередине" (MITM)
-    SECURE_HSTS_SECONDS = 31536000  # 1 год (максимальное значение для preload)
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = True  # Применять ко всем поддоменам
-    SECURE_HSTS_PRELOAD = True  # Добавить в список preload HSTS
+    # HSTS - принудительное использование HTTPS
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
 
     # Принудительное перенаправление HTTP → HTTPS
     SECURE_SSL_REDIRECT = True
 
-    # Передавать cookies только по HTTPS
+    # Безопасные cookies
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
 
-    # Referrer Policy - контроль передачи информации о переходе
+    # Referrer Policy
     SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
 
-    # Дополнительные заголовки безопасности
+    # Дополнительные заголовки
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = 'SAMEORIGIN'
 
-    print("[SECURITY] Production security headers ENABLED")
+    print("[SECURITY] Production mode: security headers ENABLED")
 
 # ============================================
 # ФИНАЛЬНЫЕ СООБЩЕНИЯ ПРИ ЗАПУСКЕ
