@@ -11,8 +11,10 @@
 
     <meta name="robots" content="index, follow">
 
-    <!-- ===== CANONICAL URL ===== -->
-    <link rel="canonical" href="https://gamespeek.dpdns.org/{% block canonical %}{% endblock %}">
+    <!-- ===== CANONICAL URL (переопределяется в дочерних шаблонах) ===== -->
+    {% block canonical %}
+        <link rel="canonical" href="https://gamespeek.dpdns.org/">
+    {% endblock %}
 
     {% block meta_tags %}
         <!-- ===== OPEN GRAPH IMAGE (БАЗОВОЕ ЗНАЧЕНИЕ) ===== -->
