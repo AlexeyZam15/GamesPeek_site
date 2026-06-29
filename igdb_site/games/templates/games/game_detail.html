@@ -18,16 +18,15 @@
 {% block meta_tags %}
     {{ block.super }}
     <meta name="description"
-          content="{{ game.name }} —
-          {% if game.genres.all %}
-              {% for genre in game.genres.all|slice:":3" %}{{ genre.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
-          {% endif %}
-          game{% if game.first_release_date %} from {{ game.first_release_date|date:'Y' }}{% endif %}.
-          Rating: {{ game.rating|floatformat:1|default:'N/A' }}/100.
-          Platforms:
-          {% for platform in game.platforms.all|slice:":3" %}{{ platform.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.
-          {% if game.developers.all %}Developer: {{ game.developers.first.name }}.{% endif %}
-          Find similar games in our database of 45,000+ titles.">
+          content="
+              {{ game.name|truncatechars:25 }}
+              {% if game.genres.all %}
+                  — {% for genre in game.genres.all|slice:":2" %}{{ genre.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
+              {% endif %}
+              {% if game.first_release_date %}, {{ game.first_release_date|date:"Y" }}{% endif %}
+              {% if game.rating %}. Rating: {{ game.rating|floatformat:1 }}/100{% endif %}.
+              Find similar games in our database.
+          ">
 
     <meta name="keywords"
           content="{{ game.name }}, {{ game.name }} game,

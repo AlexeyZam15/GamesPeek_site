@@ -30,9 +30,11 @@
         <a href="#screenshots" class="global-anchor-link" data-anchor="screenshots">
             <i class="bi bi-image"></i>
             <span>Screenshots</span>
-            {% if game.screenshots.all %}
-                <span class="badge">{{ game.screenshots.all|length }}</span>
-            {% endif %}
+            {% with screenshots_count=game.screenshots.count %}
+                {% if screenshots_count %}
+                    <span class="badge">{{ screenshots_count }}</span>
+                {% endif %}
+            {% endwith %}
         </a>
         {% if similar_games %}
             <a href="#similar-games" class="global-anchor-link" data-anchor="similar-games">
@@ -85,9 +87,11 @@
                 <div class="mobile-anchor-card" data-target="#screenshots">
                     <i class="bi bi-image"></i>
                     <span>Screenshots</span>
-                    {% if game.screenshots.all %}
-                        <span class="badge">{{ game.screenshots.all|length }}</span>
-                    {% endif %}
+                    {% with screenshots_count=game.screenshots.count %}
+                        {% if screenshots_count %}
+                            <span class="badge">{{ screenshots_count }}</span>
+                        {% endif %}
+                    {% endwith %}
                 </div>
             </div>
             {% if similar_games %}
