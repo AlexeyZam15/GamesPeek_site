@@ -62,6 +62,7 @@ INSTALLED_APPS = [
 # ОПТИМИЗИРОВАННЫЙ ПОРЯДОК MIDDLEWARE
 MIDDLEWARE = [
     'igdb_site.settings.TimingMiddleware',  # ДОБАВЛЯЕМ ЭТУ СТРОКУ ПЕРВОЙ
+    'igdb_site.settings.SecurityHeadersMiddleware',  # ДОБАВЛЯЕМ ЭТУ СТРОКУ ВТОРОЙ
     'debug_toolbar.middleware.DebugToolbarMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
@@ -670,6 +671,60 @@ if not DEBUG:
     X_FRAME_OPTIONS = 'SAMEORIGIN'
 
     print("[SECURITY] Production mode: security headers ENABLED")
+
+
+# ============================================
+# ===== CONTENT-SECURITY-POLICY HEADER =====
+# ============================================
+
+class SecurityHeadersMiddleware:
+    """
+    Middleware для добавления заголовков безопасности во все ответы.
+    Защищает от XSS-атак, кликджекинга и других угроз.
+
+    Добавляет Content-Security-Policy заголовок только в production режиме.
+    В режиме разработки заголовок не добавляется для упрощения отладки.
+    """
+
+    def __init__(self, get_response):
+        """
+        Инициализация middleware с функцией получения ответа.
+
+        Args:
+            get_response: Функция, которая обрабатывает запрос и возвращает ответ
+        """
+        self.get_response = get_response
+
+    def __call__(self, request):
+        """
+        Обработка запроса с добавлением заголовков безопасности.
+
+        Args:
+            request: HTTP запрос
+
+        Returns:
+            HttpResponse: Ответ с добавленными заголовками безопасности
+        """
+        response = self.get_response(request)
+
+        # Добавляем CSP-заголовок только в production режиме
+        if not DEBUG:
+            response['Content-Security-Policy'] = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://www.googletagmanager.com https://www.clarity.ms; "
+                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "img-src 'self' data: https:; "
+                "font-src 'self' https://cdn.jsdelivr.net; "
+                "connect-src 'self' https://www.clarity.ms; "
+                "frame-src 'self'; "
+                "object-src 'none'; "
+                "base-uri 'self'; "
+                "form-action 'self'; "
+                "upgrade-insecure-requests;"
+            )
+
+        return response
+
 
 # ============================================
 # ФИНАЛЬНЫЕ СООБЩЕНИЯ ПРИ ЗАПУСКЕ
