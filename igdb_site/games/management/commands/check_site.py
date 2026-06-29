@@ -4,6 +4,7 @@ Django management command to check site health.
 Usage: python manage.py check_site
 """
 
+import sys
 from django.core.management.base import BaseCommand
 from django.test.client import Client
 from django.apps import apps
@@ -53,7 +54,8 @@ class Command(BaseCommand):
         all_ok = True
 
         for path, name in routes_to_test:
-            response = client.get(path)
+            # КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: follow=True заставляет клиент следовать за редиректами
+            response = client.get(path, follow=True)
             status = response.status_code
 
             if status == 200:
@@ -71,8 +73,8 @@ class Command(BaseCommand):
 
         self.stdout.write("=" * 40 + "\n")
 
-        # ВОЗВРАЩАЕМ СТРОКУ, А НЕ ЧИСЛО
+        # Возвращаем код выхода для shell
         if all_ok:
-            return "Success"
+            sys.exit(0)
         else:
-            return "Failed"
+            sys.exit(1)
