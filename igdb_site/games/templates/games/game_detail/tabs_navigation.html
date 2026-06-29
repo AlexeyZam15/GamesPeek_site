@@ -31,9 +31,11 @@
         <a class="nav-link" id="screenshots-tab" data-bs-toggle="tab"
            href="#screenshots" role="tab" aria-controls="screenshots" aria-selected="false">
             <i class="bi bi-image me-2"></i>Screenshots
-            {% if game.screenshots.all %}
-                <span class="badge bg-secondary ms-1">{{ game.screenshots.all|length }}</span>
-            {% endif %}
+            {% with screenshots_count=game.screenshots.count %}
+                {% if screenshots_count %}
+                    <span class="badge bg-secondary ms-1">{{ screenshots_count }}</span>
+                {% endif %}
+            {% endwith %}
         </a>
     </li>
 </ul>
