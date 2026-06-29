@@ -646,29 +646,62 @@ CACHE_TIMES = {
 Настройки безопасности для защиты сайта и улучшения SEO.
 Эти заголовки помогают предотвратить XSS-атаки, утечку данных
 и улучшают доверие поисковых систем к сайту.
+
+Включаются автоматически только в production режиме (DEBUG=False).
+В режиме разработки (DEBUG=True) они отключаются для удобства.
 """
 
-# HSTS (HTTP Strict Transport Security) - принудительное использование HTTPS
-# Заставляет браузеры всегда использовать HTTPS, даже если пользователь вводит http://
-# Это защищает от атак "человек посередине" (MITM)
-SECURE_HSTS_SECONDS = 31536000  # 1 год (максимальное значение для preload)
-SECURE_HSTS_INCLUDE_SUBDOMAINS = True  # Применять ко всем поддоменам
-SECURE_HSTS_PRELOAD = True  # Добавить в список preload HSTS
+if not DEBUG:
+    # HSTS (HTTP Strict Transport Security) - принудительное использование HTTPS
+    # Заставляет браузеры всегда использовать HTTPS, даже если пользователь вводит http://
+    # Это защищает от атак "человек посередине" (MITM)
+    SECURE_HSTS_SECONDS = 31536000  # 1 год (максимальное значение для preload)
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True  # Применять ко всем поддоменам
+    SECURE_HSTS_PRELOAD = True  # Добавить в список preload HSTS
 
-# Referrer Policy - контроль передачи информации о переходе
-# strict-origin-when-cross-origin: при переходе на другой сайт передавать только домен,
-# но не полный URL с параметрами. Защищает от утечки конфиденциальной информации.
-SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+    # Принудительное перенаправление HTTP → HTTPS
+    SECURE_SSL_REDIRECT = True
 
-# Дополнительные заголовки безопасности
-SECURE_BROWSER_XSS_FILTER = True  # Включает XSS-фильтр в браузере
-SECURE_CONTENT_TYPE_NOSNIFF = True  # Запрещает MIME-сниффинг
-X_FRAME_OPTIONS = 'SAMEORIGIN'  # Запрещает отображение во фреймах других сайтов
+    # Передавать cookies только по HTTPS
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
 
-# Настройки для продакшена (раскомментировать при деплое на VPS)
-# SECURE_SSL_REDIRECT = True  # Перенаправлять HTTP на HTTPS
-# SESSION_COOKIE_SECURE = True  # Передавать session cookie только по HTTPS
-# CSRF_COOKIE_SECURE = True  # Передавать CSRF cookie только по HTTPS
+    # Referrer Policy - контроль передачи информации о переходе
+    # strict-origin-when-cross-origin: при переходе на другой сайт передавать только домен,
+    # но не полный URL с параметрами. Защищает от утечки конфиденциальной информации.
+    SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+
+    # Дополнительные заголовки безопасности
+    SECURE_BROWSER_XSS_FILTER = True  # Включает XSS-фильтр в браузере
+    SECURE_CONTENT_TYPE_NOSNIFF = True  # Запрещает MIME-сниффинг
+    X_FRAME_OPTIONS = 'SAMEORIGIN'  # Запрещает отображение во фреймах других сайтов
+
+    # Content-Security-Policy через django-csp (опционально)
+    # Если установлен пакет django-csp, можно добавить:
+    # CSP_DEFAULT_SRC = ("'self'",)
+    # CSP_SCRIPT_SRC = ("'self'", "'unsafe-inline'", "https://www.googletagmanager.com", "https://cdn.jsdelivr.net", "https://*.clarity.ms")
+    # CSP_STYLE_SRC = ("'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net")
+    # CSP_IMG_SRC = ("'self'", "data:", "https:")
+    # CSP_FONT_SRC = ("'self'", "https://cdn.jsdelivr.net")
+    # CSP_CONNECT_SRC = ("'self'",)
+    # CSP_FRAME_SRC = ("'self'",)
+
+    print("[SECURITY] Production security headers ENABLED")
+else:
+    # В режиме разработки все security-настройки отключены
+    # Это позволяет работать с http://127.0.0.1:8000/ без проблем
+    SECURE_SSL_REDIRECT = False
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SECURE = False
+    SECURE_HSTS_SECONDS = 0
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+    SECURE_HSTS_PRELOAD = False
+    SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+    SECURE_BROWSER_XSS_FILTER = False
+    SECURE_CONTENT_TYPE_NOSNIFF = False
+    X_FRAME_OPTIONS = 'SAMEORIGIN'
+
+    print("[SECURITY] Development mode - security headers DISABLED")
 
 # ============================================
 # ФИНАЛЬНЫЕ СООБЩЕНИЯ ПРИ ЗАПУСКЕ
@@ -689,7 +722,7 @@ try:
 [INFO] Cache: {'Redis' if 'django_redis' in str(CACHES.get('default', {}).get('BACKEND', '')) else 'LocMemCache'}
 [INFO] Debug Toolbar: {'ON' if DEBUG else 'OFF'}
 [INFO] PostgreSQL connection: SUCCESS
-[INFO] Security Headers: ENABLED
+[INFO] Security Headers: {'ENABLED' if not DEBUG else 'DISABLED (development)'}
 """
 except Exception as e:
     db_info = f"""
