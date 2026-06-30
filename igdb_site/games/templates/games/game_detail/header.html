@@ -9,13 +9,11 @@
         <div class="row g-0">
 
             <!-- Обложка с наложенными элементами -->
-
             <div class="col-md-5 col-lg-4 col-xl-4">
 
                 <div class="position-relative h-100" style="min-height: 400px;">
 
                     <!-- Основной контейнер обложки -->
-
                     <div class="game-cover-container w-100 h-100">
 
                         {% if game.cover_url %}
@@ -23,10 +21,15 @@
                             <div class="game-cover-wrapper w-100 h-100">
 
                                 <img src="{{ game.cover_url }}"
+
                                      class="game-cover-main w-100 h-100"
+
                                      alt="{{ game.name }}"
+
                                      loading="lazy"
+
                                      onload="this.style.opacity='1'"
+
                                      style="opacity: 0; transition: opacity 0.5s ease; object-fit: cover; object-position: center 20%;">
 
                             </div>
@@ -44,7 +47,6 @@
                     </div>
 
                     <!-- Рейтинг как SVG изображение (верхний левый угол) -->
-
                     <div class="position-absolute top-0 start-0 rating-overlay">
 
                         {% if game.rating %}
@@ -54,20 +56,20 @@
                         {% else %}
 
                             <!-- Звезда с N/A для игр без рейтинга -->
-
                             <div class="no-rating-container"
+
                                  data-bs-toggle="tooltip"
+
                                  data-bs-placement="right"
+
                                  data-bs-title="No Rating">
 
                                 <svg viewBox="0 0 80 80">
 
                                     <!-- Внешняя звезда -->
-
                                     <path d="M40,10 L48.6,30.2 L70,30.2 L52.7,42.8 L61.3,63 L40,50.4 L18.7,63 L27.3,42.8 L10,30.2 L31.4,30.2 Z"/>
 
                                     <!-- Текст N/A внутри -->
-
                                     <text x="40" y="45" text-anchor="middle">N/A</text>
 
                                 </svg>
@@ -79,7 +81,6 @@
                     </div>
 
                     <!-- Платформы (нижний левый угол) -->
-
                     {% if game.platforms.all %}
 
                         <div class="platforms-overlay">
@@ -99,7 +100,6 @@
                     {% endif %}
 
                     <!-- Тип игры (нижний правый угол, на уровне с платформами) -->
-
                     <div class="game-type-badge-container">
 
                         {% game_type_badge game.game_type %}
@@ -111,13 +111,11 @@
             </div>
 
             <!-- Основная информация -->
-
             <div class="col-md-7 col-lg-8 col-xl-8">
 
                 <div class="h-100 p-4">
 
                     <!-- Дата релиза -->
-
                     <div class="mb-4">
 
                         {% if game.first_release_date %}
@@ -141,16 +139,15 @@
                     </div>
 
                     <!-- Серия игры -->
-
                     {% if game.is_part_of_series and game.main_series %}
 
                         <div class="mb-4">
 
-                            <h6 class="text-light mb-2">
+                            <h5 class="text-light mb-2">
 
                                 <i class="bi bi-collection-play me-2 text-primary"></i>Series:
 
-                            </h6>
+                            </h5>
 
                             <div class="d-flex align-items-center">
 
@@ -173,16 +170,15 @@
                     {% endif %}
 
                     <!-- Жанры -->
-
                     {% if game.genres.all %}
 
                         <div class="mb-4">
 
-                            <h6 class="text-light mb-2">
+                            <h5 class="text-light mb-2">
 
                                 <i class="bi bi-grid me-2"></i>Genres:
 
-                            </h6>
+                            </h5>
 
                             <div class="d-flex flex-wrap gap-2">
 
@@ -199,16 +195,15 @@
                     {% endif %}
 
                     <!-- Темы -->
-
                     {% if game.themes.all %}
 
                         <div class="mb-4">
 
-                            <h6 class="text-light mb-2">
+                            <h5 class="text-light mb-2">
 
                                 <i class="bi bi-palette me-2"></i>Themes:
 
-                            </h6>
+                            </h5>
 
                             <div class="d-flex flex-wrap gap-2">
 
@@ -225,16 +220,15 @@
                     {% endif %}
 
                     <!-- Player Perspectives -->
-
                     {% if game.player_perspectives.all %}
 
                         <div class="mb-4">
 
-                            <h6 class="text-light mb-2">
+                            <h5 class="text-light mb-2">
 
                                 <i class="bi bi-camera-video me-2"></i>Perspectives:
 
-                            </h6>
+                            </h5>
 
                             <div class="d-flex flex-wrap gap-2">
 
@@ -251,16 +245,15 @@
                     {% endif %}
 
                     <!-- Game Modes -->
-
                     {% if game.game_modes.all %}
 
                         <div class="mb-4">
 
-                            <h6 class="text-light mb-2">
+                            <h5 class="text-light mb-2">
 
                                 <i class="bi bi-people me-2"></i>Game Modes:
 
-                            </h6>
+                            </h5>
 
                             <div class="d-flex flex-wrap gap-2">
 
@@ -277,16 +270,15 @@
                     {% endif %}
 
                     <!-- Game Engines -->
-
                     {% if game.engines.all %}
 
                         <div class="mb-4">
 
-                            <h6 class="text-light mb-2">
+                            <h5 class="text-light mb-2">
 
                                 <i class="bi bi-cpu me-2"></i>Game Engines:
 
-                            </h6>
+                            </h5>
 
                             <div class="d-flex flex-wrap gap-2">
 
@@ -303,10 +295,10 @@
                     {% endif %}
 
                     <!-- Кнопки действий -->
-
                     <div class="d-flex flex-wrap gap-3 mt-auto pt-4">
 
                         <a href="{% get_find_similar_url game %}"
+
                            class="btn btn-primary-gradient px-4 py-2 fw-bold">
 
                             <i class="bi bi-search-heart me-2"></i>Find Similar
@@ -314,10 +306,10 @@
                         </a>
 
                         <!-- КНОПКА АНАЛИЗА -->
-
                         {% if user.is_authenticated and user.is_staff %}
 
                             <a href="{% url 'analyze_game' game.id %}"
+
                                class="btn btn-outline-warning px-4 py-2 fw-bold">
 
                                 <i class="bi bi-search me-2"></i>Analyze Descriptions
@@ -327,10 +319,12 @@
                         {% endif %}
 
                         <!-- Кнопка View on IGDB с rel="noopener noreferrer" для безопасности -->
-
                         <a href="https://www.igdb.com/games/{{ game.name|slugify }}"
+
                            target="_blank"
+
                            rel="noopener noreferrer"
+
                            class="btn btn-outline-secondary px-4 py-2">
 
                             <i class="bi bi-box-arrow-up-right me-2"></i>View on IGDB
