@@ -1,45 +1,28 @@
 <!-- games/templates/games/home.html -->
-
-
 {% extends 'base.html' %}
-
-
 {% load static %}
-
-
-
 {% block title %}Find Similar Games | Video Game Database | GamesPeek{% endblock %}
-
-
-
 {% block meta_tags %}
-
     <meta name="description"
           content="GamesPeek: 45,000+ game database with intelligent similarity search. Find games like The Witcher 3, Dark Souls, or Stardew Valley. Search by genre, platform, or theme.">
-
     <meta name="keywords"
           content="video game database, game database, find similar games, games like, game discovery, video game database, game recommendations">
-
     <meta name="author" content="GamesPeek">
-
     <meta property="og:title" content="GamesPeek - Video Game Database | Find Games Similar to Your Favorites">
     <meta property="og:description"
           content="Browse 45,000+ games in our video game database. Find games similar to your favorites with intelligent similarity search and comparison tools.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://gamespeek.dpdns.org/">
     <meta property="og:site_name" content="GamesPeek">
-
     <!-- ===== ДОБАВЛЕНО OG:IMAGE ===== -->
     <meta property="og:image" content="https://gamespeek.dpdns.org/static/og-image.jpg">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
     <meta property="og:image:type" content="image/jpeg">
-
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="GamesPeek - Video Game Database">
     <meta name="twitter:description"
           content="Search 45,000+ games in our video game database. Find your next favorite game with intelligent similarity algorithm.">
-
     <!-- Structured Data for Video Game Database -->
     <script type="application/ld+json">
         {
@@ -59,9 +42,6 @@
         }
     </script>
 {% endblock %}
-
-
-
 {% block extra_css %}
     <link rel="stylesheet" href="{% static 'games/css/home/hero.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/home/quick-filters.css' %}">
@@ -69,9 +49,6 @@
     <link rel="stylesheet" href="{% static 'games/css/home/how-it-works.css' %}">
     <link rel="stylesheet" href="{% static 'games/css/home.css' %}">
 {% endblock %}
-
-
-
 {% block content %}
     <!-- Hero Section -->
     <div class="home-hero">
@@ -87,11 +64,10 @@
             </a>
         </div>
     </div>
-
     <!-- Quick Actions & Filters -->
     <div class="quick-actions text-center">
         <div class="quick-filters">
-            <h6>Quick Database Filters</h6>
+            <h2 style="font-size: 1.2rem;">Quick Database Filters</h2>
             <div class="d-flex flex-wrap justify-content-center gap-2">
                 <a href="{% url 'game_list' %}?sort=-rating_count" class="btn btn-outline-primary btn-sm">
                     Most Popular in Database
@@ -105,7 +81,6 @@
             </div>
         </div>
     </div>
-
     <!-- Popular Games Carousel -->
     <div class="carousel-section">
         <div class="container">
@@ -130,7 +105,6 @@
             <div class="carousel-indicators" id="popularCarouselIndicators"></div>
         </div>
     </div>
-
     <!-- Recent Releases Carousel -->
     <div class="carousel-section">
         <div class="container">
@@ -155,7 +129,6 @@
             <div class="carousel-indicators" id="recentReleaseCarouselIndicators"></div>
         </div>
     </div>
-
     <!-- Recently Added to Database Carousel -->
     <div class="carousel-section">
         <div class="container">
@@ -180,13 +153,11 @@
             <div class="carousel-indicators" id="recentlyAddedCarouselIndicators"></div>
         </div>
     </div>
-
     <!-- SEO Text Block - Extended for Google Indexing -->
     <div class="seo-content" style="padding: 2rem 0; border-top: 1px solid var(--border); margin-top: 2rem;">
         <div class="container">
             <h2 style="font-size: 1.8rem; margin-bottom: 1.5rem;">Complete Video Game Database - Find Games Similar to
                 Your Favorites</h2>
-
             <p style="margin-bottom: 1rem; line-height: 1.6;">
                 <strong>GamesPeek</strong> is a comprehensive <strong>video game database</strong> that helps you find
                 <strong>games similar
@@ -194,7 +165,6 @@
                 similarity algorithm analyzes multiple criteria to
                 recommend titles you'll enjoy.
             </p>
-
             <p style="margin-bottom: 1rem; line-height: 1.6;">
                 Unlike traditional game stores that only show popular titles, our <strong>game database</strong> lets
                 you search by <strong>genres,
@@ -202,8 +172,7 @@
                 algorithm finds games
                 that share these characteristics.
             </p>
-
-            <h2 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">How Our Game Database Similarity Algorithm Works</h2>
+            <h3 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">How Our Game Database Similarity Algorithm Works</h3>
             <ul style="margin-bottom: 1.5rem; padding-left: 1.5rem;">
                 <li style="margin-bottom: 0.5rem;"><strong>Genre matching (30% weight)</strong> - Action, RPG, Strategy,
                     Adventure, Indie, Shooter, Simulation
@@ -224,9 +193,8 @@
                     Co-op, Couch co-op, Split screen
                 </li>
             </ul>
-
-            <h2 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">Examples from Our Game Database: Similar Game
-                Recommendations</h2>
+            <h3 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">Examples from Our Game Database: Similar Game
+                Recommendations</h3>
             <div style="margin-bottom: 1.5rem;">
                 <div style="background: var(--surface-dark); padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 0.5rem;">
                     <strong>🎮 Games like The Witcher 3 (in our database):</strong> Kingdom Come Deliverance, Elder
@@ -245,8 +213,7 @@
                     Blasphemous, Bloodstained Ritual of the Night
                 </div>
             </div>
-
-            <h2 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">Browse Our Game Database by Genre</h2>
+            <h3 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">Browse Our Game Database by Genre</h3>
             <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem;">
                 {% for genre in popular_genres|slice:":15" %}
                     <a href="{% url 'game_list' %}?search_g={{ genre.id }}" class="genre-badge"
@@ -255,8 +222,7 @@
                     </a>
                 {% endfor %}
             </div>
-
-            <h2 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">Filter Game Database by Platform</h2>
+            <h3 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">Filter Game Database by Platform</h3>
             <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem;">
                 {% for platform in popular_platforms|slice:":15" %}
                     <a href="{% url 'game_list' %}?search_p={{ platform.id }}" class="genre-badge"
@@ -265,30 +231,24 @@
                     </a>
                 {% endfor %}
             </div>
-
-            <h2 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">Frequently Asked Questions About Our Game
-                Database</h2>
-
-            <h3 style="font-size: 1.1rem; margin: 1rem 0 0.5rem; color: var(--secondary-color);">Is GamesPeek's game
-                database free to use?</h3>
+            <h3 style="font-size: 1.4rem; margin: 1.5rem 0 1rem;">Frequently Asked Questions About Our Game
+                Database</h3>
+            <h4 style="font-size: 1.1rem; margin: 1rem 0 0.5rem; color: var(--secondary-color);">Is GamesPeek's game
+                database free to use?</h4>
             <p style="margin-bottom: 1rem; line-height: 1.6;">Yes! Our complete video game database is completely free.
                 No registration required to search, browse, or compare games.</p>
-
-            <h3 style="font-size: 1.1rem; margin: 1rem 0 0.5rem; color: var(--secondary-color);">How many games are in
-                the database?</h3>
+            <h4 style="font-size: 1.1rem; margin: 1rem 0 0.5rem; color: var(--secondary-color);">How many games are in
+                the database?</h4>
             <p style="margin-bottom: 1rem; line-height: 1.6;">Currently over 45,000 games across all major platforms
                 including PC, PlayStation, Xbox, Nintendo Switch, and mobile.</p>
-
-            <h3 style="font-size: 1.1rem; margin: 1rem 0 0.5rem; color: var(--secondary-color);">Can I compare two games
-                in the database side by side?</h3>
+            <h4 style="font-size: 1.1rem; margin: 1rem 0 0.5rem; color: var(--secondary-color);">Can I compare two games
+                in the database side by side?</h4>
             <p style="margin-bottom: 1rem; line-height: 1.6;">Absolutely! Click "Compare" on any game card to see
                 ratings, release dates, platforms, and features compared from our database.</p>
-
-            <h3 style="font-size: 1.1rem; margin: 1rem 0 0.5rem; color: var(--secondary-color);">Where does the game
-                database data come from?</h3>
+            <h4 style="font-size: 1.1rem; margin: 1rem 0 0.5rem; color: var(--secondary-color);">Where does the game
+                database data come from?</h4>
             <p style="margin-bottom: 1rem; line-height: 1.6;">GamesPeek uses the official IGDB (Internet Game Database)
                 API, the same database that powers major gaming platforms.</p>
-
             <p style="margin-bottom: 0.5rem; margin-top: 1.5rem; font-size: 0.9rem; color: var(--text-muted); text-align: center;">
                 <strong>GamesPeek</strong> - Complete Video Game Database with Intelligent Discovery Engine. Find your
                 next favorite game.<br>
@@ -296,40 +256,35 @@
             </p>
         </div>
     </div>
-
     <!-- How It Works Section -->
     <div class="how-it-works">
         <h2>How Our Game Database Works</h2>
         <div class="row">
             <div class="col-md-3 mb-4">
                 <div class="step-number">1</div>
-                <h5>Browse Game Database</h5>
+                <h3 style="font-size: 1.25rem;">Browse Game Database</h3>
                 <p>Explore our extensive video game database collection from various platforms and genres.</p>
             </div>
             <div class="col-md-3 mb-4">
                 <div class="step-number">2</div>
-                <h5>Apply Database Filters</h5>
+                <h3 style="font-size: 1.25rem;">Apply Database Filters</h3>
                 <p>Use advanced filters to narrow down games in our database by genre, platform, release date, and
                     more.</p>
             </div>
             <div class="col-md-3 mb-4">
                 <div class="step-number">3</div>
-                <h5>Find Similar Games in Database</h5>
+                <h3 style="font-size: 1.25rem;">Find Similar Games in Database</h3>
                 <p>Discover games similar to your favorites using our intelligent similarity algorithm on 45,000+
                     games.</p>
             </div>
             <div class="col-md-3 mb-4">
                 <div class="step-number">4</div>
-                <h5>Compare Database Results</h5>
+                <h3 style="font-size: 1.25rem;">Compare Database Results</h3>
                 <p>Compare games from our database side by side to make informed decisions about what to play next.</p>
             </div>
         </div>
     </div>
-
 {% endblock %}
-
-
-
 {% block extra_js %}
     <script src="{% static 'games/js/home/carousel.js' %}"></script>
 {% endblock %}
