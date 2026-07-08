@@ -2,7 +2,7 @@
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     {% for sitemap in sitemaps %}
         <sitemap>
-            <loc>https://gamespeek.dpdns.org{{ sitemap.location }}</loc>
+            <loc>{{ sitemap.location }}</loc>
         </sitemap>
     {% endfor %}
 </sitemapindex>
