@@ -15,7 +15,7 @@ class SimilarGamesSitemap(Sitemap):
         """
         Возвращает QuerySet со всеми ID игр.
         """
-        return Game.objects.all().only('id').order_by('id')
+        return Game.objects.all().order_by('id')
 
     def location(self, item):
         """

@@ -16,14 +16,12 @@ class GameSitemap(Sitemap):
     def items(self):
         """
         Возвращает все игры с оптимизацией запроса.
-        Использует only('id') для уменьшения нагрузки на базу данных.
         """
-        return Game.objects.all().only('id').order_by('id')
+        return Game.objects.all().order_by('id')
 
     def location(self, item):
         """
         Генерирует абсолютный URL для страницы игры.
-        Использует reverse() для получения пути.
         """
         return reverse('game_detail', kwargs={'pk': item.id})
 

@@ -19,7 +19,6 @@ sitemaps = {
 def serve_static_sitemap(request, filename):
     """
     Отдаёт статический sitemap файл из STATIC_ROOT.
-    Используется для прямой отдачи заранее сгенерированных sitemap.xml файлов.
     """
     file_path = os.path.join(settings.STATIC_ROOT, filename)
     if os.path.exists(file_path):
@@ -32,7 +31,6 @@ def serve_static_sitemap(request, filename):
 def serve_indexnow_key(request, key):
     """
     Serve IndexNow key file for Bing/Yandex verification.
-    Проверяет существование файла с ключом и отдаёт его содержимое.
     """
     key_file_path = os.path.join(settings.BASE_DIR, f'{key}.txt')
     if os.path.exists(key_file_path):
@@ -45,7 +43,6 @@ def serve_indexnow_key(request, key):
 def serve_robots_txt(request):
     """
     Serve robots.txt from static files directory.
-    Отдаёт файл robots.txt из директории статических файлов.
     """
     robots_path = os.path.join(settings.STATIC_ROOT, 'robots.txt')
     if os.path.exists(robots_path):
@@ -62,10 +59,9 @@ urlpatterns = [
     path('', include('games.urls')),
 
     # ГЛАВНЫЙ SITEMAP - ДЛЯ ИНДЕКСА
-    # Теперь Django видит, что это индекс, потому что section не передан
     path('sitemap.xml', sitemap_without_noindex, {'sitemaps': sitemaps}, name='sitemap_index'),
 
-    # ПОДКАРТЫ ДЛЯ КОНКРЕТНЫХ СЕКЦИЙ - С ПАГИНАЦИЕЙ
+    # ПОДКАРТЫ ДЛЯ КОНКРЕТНЫХ СЕКЦИЙ
     path('sitemap-<section>.xml', sitemap_without_noindex, {'sitemaps': sitemaps},
          name='django.contrib.sitemaps.views.sitemap'),
 
