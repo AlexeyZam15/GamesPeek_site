@@ -64,6 +64,7 @@ urlpatterns = [
     path('', include('games.urls')),
 
     # ИСПОЛЬЗУЕМ КАСТОМНУЮ VIEW с КЭШИРОВАНИЕМ и без noindex
+    # Django автоматически создаст sitemap index при необходимости
     path('sitemap.xml', sitemap_without_noindex, {'sitemaps': sitemaps}, name='django.contrib.sitemaps.views.sitemap'),
 
     path('robots.txt', serve_robots_txt, name='robots_txt'),
