@@ -12,15 +12,15 @@ from games.similarity import GameSimilarity
 
 
 class Command(BaseCommand):
-    help = 'Очищает все кэши системы: Django кэш, кэш алгоритма схожести, батчинг кэши'
+    help = 'Очищает все кэши системы: Django кэш, кэш алгоритма схожести, батчинг кэши, кэш sitemap'
 
     def add_arguments(self, parser):
         parser.add_argument(
             '--type',
             type=str,
-            choices=['all', 'similarity', 'database', 'template', 'views'],
+            choices=['all', 'similarity', 'database', 'template', 'views', 'sitemap'],
             default='all',
-            help='Тип кэша для очистки (all, similarity, database, template, views)'
+            help='Тип кэша для очистки (all, similarity, database, template, views, sitemap)'
         )
         parser.add_argument(
             '--verbose',
@@ -37,9 +37,6 @@ class Command(BaseCommand):
         cache_type = options['type']
         verbose = options['verbose']
         force = options['force']
-
-        # Убрана проверка на подтверждение для всех типов кэша включая 'all'
-        # Команда теперь выполняется автоматически без запроса пользователя
 
         start_time = time.time()
         cleared_count = 0
@@ -105,12 +102,23 @@ class Command(BaseCommand):
                 from games.views import _cached_string_to_int_list
                 _cached_string_to_int_list.cache_clear()
 
-                cleared_count += 3  # Примерное количество
+                cleared_count += 3
                 if verbose:
                     self.stdout.write(self.style.SUCCESS('✅ Очищены кэши views.py'))
             except Exception as e:
                 if verbose:
                     self.stdout.write(self.style.WARNING(f'⚠️  Ошибка очистки кэшей views: {e}'))
+
+        # 6. Очистка кэша sitemap
+        if cache_type in ['all', 'sitemap']:
+            try:
+                from igdb_site.sitemap_views import clear_sitemap_cache
+                result = clear_sitemap_cache()
+                cleared_count += 1
+                if verbose:
+                    self.stdout.write(self.style.SUCCESS(f'✅ Очищен кэш sitemap (игр: {result["game_count"]})'))
+            except Exception as e:
+                self.stdout.write(self.style.ERROR(f'❌ Ошибка очистки кэша sitemap: {e}'))
 
         end_time = time.time()
         elapsed_time = end_time - start_time
@@ -126,6 +134,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING('\n⚠️  ПРИМЕЧАНИЯ:'))
             self.stdout.write('• Первый запрос после очистки может быть медленнее')
             self.stdout.write('• Кэш алгоритма схожести будет пересчитан при следующем поиске')
+            self.stdout.write('• Кэш sitemap будет перегенерирован при следующем запросе')
             self.stdout.write('• Для пересчета схожести закройте вкладки браузера и обновите страницу')
 
         self.stdout.write(self.style.SUCCESS('\n✅ Очистка кэша завершена!'))
@@ -134,5 +143,6 @@ class Command(BaseCommand):
         self.stdout.write('\n📋 РЕКОМЕНДАЦИИ ПО ИСПОЛЬЗОВАНИЮ:')
         self.stdout.write('python manage.py clear_cache --type=similarity  # Только кэш схожести')
         self.stdout.write('python manage.py clear_cache --type=database   # Только кэш БД')
+        self.stdout.write('python manage.py clear_cache --type=sitemap    # Только кэш sitemap')
         self.stdout.write('python manage.py clear_cache --type=all --verbose  # Подробная очистка всего')
         self.stdout.write('python manage.py clear_cache --type=all --force    # Без подтверждения')
