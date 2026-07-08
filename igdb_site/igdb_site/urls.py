@@ -3,7 +3,10 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from django.http import HttpResponse
-from django.contrib.sitemaps.views import sitemap
+
+# Импортируем КАСТОМНУЮ view вместо стандартной
+from igdb_site.sitemap_views import sitemap_without_noindex
+
 from games.sitemap import GameSitemap
 from games.sitemap_similar_games import SimilarGamesSitemap
 import os
@@ -59,7 +62,10 @@ INDEXNOW_KEY = os.getenv('INDEXNOW_KEY', '')
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('games.urls')),
-    path('sitemap.xml', sitemap, {'sitemaps': sitemaps}, name='django.contrib.sitemaps.views.sitemap'),
+
+    # ИСПОЛЬЗУЕМ КАСТОМНУЮ VIEW с кэшированием и без noindex
+    path('sitemap.xml', sitemap_without_noindex, {'sitemaps': sitemaps}, name='django.contrib.sitemaps.views.sitemap'),
+
     path('robots.txt', serve_robots_txt, name='robots_txt'),
 ]
 
