@@ -4,14 +4,12 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.http import HttpResponse
 
-# Импортируем КАСТОМНУЮ view с кэшированием вместо стандартной
 from igdb_site.sitemap_views import sitemap_without_noindex
 
 from games.sitemap import GameSitemap
 from games.sitemap_similar_games import SimilarGamesSitemap
 import os
 
-# Регистрация sitemap
 sitemaps = {
     'games': GameSitemap,
     'similar': SimilarGamesSitemap,
@@ -63,9 +61,13 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('games.urls')),
 
-    # ИСПОЛЬЗУЕМ КАСТОМНУЮ VIEW с КЭШИРОВАНИЕМ и без noindex
-    # Django автоматически создаст sitemap index при необходимости
-    path('sitemap.xml', sitemap_without_noindex, {'sitemaps': sitemaps}, name='django.contrib.sitemaps.views.sitemap'),
+    # ГЛАВНЫЙ SITEMAP - ДЛЯ ИНДЕКСА
+    # Теперь Django видит, что это индекс, потому что section не передан
+    path('sitemap.xml', sitemap_without_noindex, {'sitemaps': sitemaps}, name='sitemap_index'),
+
+    # ПОДКАРТЫ ДЛЯ КОНКРЕТНЫХ СЕКЦИЙ - С ПАГИНАЦИЕЙ
+    path('sitemap-<section>.xml', sitemap_without_noindex, {'sitemaps': sitemaps},
+         name='django.contrib.sitemaps.views.sitemap'),
 
     path('robots.txt', serve_robots_txt, name='robots_txt'),
 ]
