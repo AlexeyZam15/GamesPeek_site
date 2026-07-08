@@ -2,9 +2,17 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
-from django.views.static import serve
 from django.http import HttpResponse
+from django.contrib.sitemaps.views import sitemap
+from games.sitemap import GameSitemap
+from games.sitemap_similar_games import SimilarGamesSitemap
 import os
+
+# Регистрация sitemap
+sitemaps = {
+    'games': GameSitemap,
+    'similar': SimilarGamesSitemap,
+}
 
 
 def serve_static_sitemap(request, filename):
@@ -51,21 +59,13 @@ INDEXNOW_KEY = os.getenv('INDEXNOW_KEY', '')
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('games.urls')),
-
-    # Статические sitemap файлы (генерируются командой generate_sitemap)
-    path('sitemap.xml', serve_static_sitemap, {'filename': 'sitemap.xml'}, name='sitemap'),
-    path('sitemap_similar_games.xml', serve_static_sitemap, {'filename': 'sitemap_similar_games.xml'},
-         name='sitemap_similar'),
-
-    # robots.txt
+    path('sitemap.xml', sitemap, {'sitemaps': sitemaps}, name='django.contrib.sitemaps.views.sitemap'),
     path('robots.txt', serve_robots_txt, name='robots_txt'),
 ]
 
-# Добавляем маршрут для IndexNow ключа только если ключ настроен
 if INDEXNOW_KEY:
     urlpatterns.insert(0, path(f'{INDEXNOW_KEY}.txt', lambda request: serve_indexnow_key(request, INDEXNOW_KEY)))
 
-# Режим разработки и Desktop режим - раздача статических файлов
 if settings.DEBUG or os.getenv('DESKTOP_MODE') == '1':
     from django.urls import re_path
     from django.views.static import serve as static_serve
@@ -80,7 +80,6 @@ if settings.DEBUG or os.getenv('DESKTOP_MODE') == '1':
     if hasattr(settings, 'MEDIA_URL') and hasattr(settings, 'MEDIA_ROOT'):
         urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
-# Django Debug Toolbar только в режиме DEBUG и не в Desktop режиме
 if settings.DEBUG and os.getenv('DESKTOP_MODE') != '1':
     try:
         import debug_toolbar
