@@ -1,53 +1,38 @@
 from django.contrib.sitemaps import Sitemap
 from django.urls import reverse
+from django.core.paginator import Paginator
 from .models import Game
 
 
 class GameSitemap(Sitemap):
     """
-    Карта сайта для страниц игр.
-    Генерирует URL для детальных страниц каждой игры.
+    Карта сайта для страниц игр с пагинацией.
+    Разбивает все игры на части по 1000 записей для ускорения индексации.
     """
     changefreq = "weekly"
     priority = 0.8
-    protocol = 'https'  # Явно указываем как строку, а не метод
+    protocol = 'https'
 
     def items(self):
         """
-        Возвращает все игры для включения в sitemap.
-        Оптимизировано: выбираем только id для уменьшения нагрузки на БД.
+        Возвращает все игры с оптимизацией запроса.
+        Использует only('id') для уменьшения нагрузки на базу данных.
         """
-        return Game.objects.all().only('id')
+        return Game.objects.all().only('id').order_by('id')
 
     def location(self, item):
         """
         Генерирует абсолютный URL для страницы игры.
-        Использует reverse() для получения относительного пути,
-        protocol='https' добавляется автоматически базовым классом.
+        Использует reverse() для получения пути.
         """
         return reverse('game_detail', kwargs={'pk': item.id})
 
-
-class StaticViewSitemap(Sitemap):
-    """
-    Карта сайта для статических страниц.
-    Включает главную страницу и список игр.
-    """
-    changefreq = "daily"
-    priority = 0.5
-    protocol = 'https'  # Явно указываем как строку, а не метод
-
-    def items(self):
+    @property
+    def paginator(self):
         """
-        Возвращает имена статических страниц для включения в sitemap.
+        Создает пагинатор для разбивки на несколько sitemap файлов.
+        Каждый файл содержит не более 1000 записей.
         """
-        return ['home', 'game_list']
-
-    def location(self, item):
-        """
-        Генерирует URL для статической страницы.
-        Для 'game_list' использует прямой путь, для остальных - reverse().
-        """
-        if item == 'game_list':
-            return '/games/'
-        return reverse(item)
+        if not hasattr(self, '_paginator'):
+            self._paginator = Paginator(self.items(), 1000)
+        return self._paginator
