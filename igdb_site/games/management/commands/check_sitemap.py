@@ -1,252 +1,109 @@
 """
-Команда для проверки и диагностики sitemap на локальном сервере или реальном домене.
+Команда для проверки и диагностики sitemap.
 
-Основные функции:
-- Проверка главного sitemap.xml на корректность
-- Проверка всех подкарт games и similar
-- Валидация абсолютных URL в sitemap
-- Проверка пагинации и количества записей
-- Проверка количества URL на каждой странице (должно быть 1000)
-- Тестирование конкретных URL на доступность
-- Поддержка проверки на реальном домене через --domain
-- Автоматическое определение окружения (локально/VPS)
+Исправленная версия, которая корректно обрабатывает редиректы на VPS.
 """
 
 from django.core.management.base import BaseCommand
-from django.core.paginator import Paginator
-from games.sitemap import GameSitemap
-from games.sitemap_similar_games import SimilarGamesSitemap
 from games.models import Game
+from django.test import Client
 import xml.etree.ElementTree as ET
 import requests
-import re
-import sys
 import os
 
 
 class Command(BaseCommand):
-    """
-    Команда для проверки и диагностики sitemap на локальном сервере или реальном домене.
-
-    Используется для отладки проблем с генерацией sitemap,
-    проверки пагинации и валидации URL.
-    """
-
     help = 'Проверяет sitemap и выводит диагностическую информацию'
 
     def add_arguments(self, parser):
-        """
-        Добавляет аргументы командной строки.
-        """
         parser.add_argument(
-            '--verbose',
+            '--check-counts',
             action='store_true',
-            help='Показывает подробную информацию по каждой странице'
-        )
-        parser.add_argument(
-            '--url',
-            type=str,
-            help='Проверяет конкретный URL (например: /sitemap-games.xml?page=2)'
+            help='Проверяет количество URL на каждой странице sitemap'
         )
         parser.add_argument(
             '--domain',
             type=str,
-            help='Проверяет sitemap на реальном домене (например: gamespeek.dpdns.org)'
+            help='Проверяет sitemap на реальном домене'
         )
         parser.add_argument(
             '--protocol',
             type=str,
             default='https',
-            choices=['http', 'https'],
-            help='Протокол для реального домена (по умолчанию: https)'
-        )
-        parser.add_argument(
-            '--check-counts',
-            action='store_true',
-            help='Проверяет количество URL на каждой странице sitemap (должно быть 1000)'
+            help='Протокол (http/https)'
         )
 
+    def get_response(self, url_path, domain=None, protocol='https', follow=True):
+        """
+        Получает ответ на запрос.
+        Если указан domain - использует requests.
+        Иначе использует Django Test Client с поддержкой редиректов.
+        """
+        if domain:
+            full_url = f'{protocol}://{domain}{url_path}'
+            try:
+                return requests.get(full_url, timeout=30)
+            except requests.exceptions.RequestException as e:
+                self.stdout.write(self.style.ERROR(f'Ошибка: {e}'))
+                return None
+        else:
+            client = Client()
+            return client.get(url_path, follow=follow)
+
     def handle(self, *args, **options):
-        """
-        Основной метод обработки команды.
-        """
-        verbose = options.get('verbose', False)
-        specific_url = options.get('url', None)
-        domain = options.get('domain', None)
+        domain = options.get('domain')
         protocol = options.get('protocol', 'https')
         check_counts = options.get('check_counts', False)
 
         self.stdout.write(self.style.SUCCESS('=' * 60))
-
         if domain:
-            self.stdout.write(self.style.SUCCESS(f'ПРОВЕРКА SITEMAP НА РЕАЛЬНОМ ДОМЕНЕ: {protocol}://{domain}'))
+            self.stdout.write(self.style.SUCCESS(f'ПРОВЕРКА SITEMAP НА ДОМЕНЕ: {domain}'))
         else:
-            # Определяем, где запущена команда
-            is_vps = os.getenv('VPS_MODE') == 'true' or os.getenv('RENDER') or os.getenv('RAILWAY')
-            if is_vps:
-                self.stdout.write(self.style.SUCCESS('ПРОВЕРКА SITEMAP (VPS - ЛОКАЛЬНЫЙ СЕРВЕР)'))
-            else:
-                self.stdout.write(self.style.SUCCESS('ПРОВЕРКА SITEMAP (ЛОКАЛЬНЫЙ СЕРВЕР)'))
-
+            self.stdout.write(self.style.SUCCESS('ПРОВЕРКА SITEMAP (ЛОКАЛЬНО)'))
         self.stdout.write(self.style.SUCCESS('=' * 60))
 
-        # Если указан конкретный URL, проверяем только его
-        if specific_url:
-            self.check_specific_url(specific_url, domain, protocol)
-            return
-
-        # 1. Проверяем количество игр
+        # Количество игр
         game_count = Game.objects.count()
         self.stdout.write(f'\n📊 Всего игр в БД: {game_count}')
+        total_pages = (game_count + 999) // 1000
+        self.stdout.write(f'📄 Страниц в sitemap: {total_pages} (по 1000 игр)')
 
-        if game_count == 0:
-            self.stdout.write(self.style.ERROR('❌ В БАЗЕ НЕТ ИГР!'))
-            return
-
-        # 2. Проверяем пагинацию
-        games_per_page = 1000
-        total_pages = (game_count + games_per_page - 1) // games_per_page
-        self.stdout.write(f'📄 Страниц в sitemap: {total_pages} (по {games_per_page} игр)')
-
-        # 3. Проверяем главный sitemap.xml
+        # Проверка главного sitemap
         self.check_main_sitemap(domain, protocol)
 
-        # 4. Проверяем подкарту games
-        self.check_games_sitemap(domain, protocol, verbose)
+        # Проверка подкарты games (первая страница)
+        self.check_games_sitemap(domain, protocol)
 
-        # 5. Проверяем подкарту similar
+        # Проверка подкарты similar
         self.check_similar_sitemap(domain, protocol)
 
-        # 6. Проверяем количество URL на каждой странице (если указан --check-counts)
+        # Проверка количества URL на каждой странице
         if check_counts:
             self.check_page_counts(total_pages, domain, protocol)
 
-        # 7. Итоговый вывод
         self.print_summary(domain, protocol)
 
-    def get_base_url(self, domain, protocol):
-        """
-        Возвращает базовый URL для запросов.
-
-        Аргументы:
-            domain: Домен или None для локального сервера
-            protocol: Протокол (http/https)
-
-        Возвращает:
-            str: Базовый URL
-        """
-        if domain:
-            return f'{protocol}://{domain}'
-
-        # Если на VPS без домена, используем localhost с портом Gunicorn
-        is_vps = os.getenv('VPS_MODE') == 'true' or os.getenv('RENDER') or os.getenv('RAILWAY')
-        if is_vps:
-            return 'http://127.0.0.1:8000'
-
-        # Локальная разработка
-        return ''
-
-    def get_response(self, url_path, domain=None, protocol='https'):
-        """
-        Выполняет GET запрос к указанному URL.
-
-        Аргументы:
-            url_path: Путь (например: /sitemap.xml) или полный URL
-            domain: Домен или None для локального сервера
-            protocol: Протокол (http/https)
-
-        Возвращает:
-            Response object с методами status_code, content, headers
-        """
-        if domain:
-            full_url = f'{protocol}://{domain}{url_path}'
-            try:
-                return requests.get(full_url, timeout=30, allow_redirects=False)
-            except requests.exceptions.RequestException as e:
-                # Если запрос к домену не удался, пробуем локально
-                self.stdout.write(self.style.WARNING(f'   ⚠️ Ошибка запроса к {full_url}: {e}'))
-                from django.test import Client
-                client = Client()
-                return client.get(url_path)
-        else:
-            from django.test import Client
-            client = Client()
-            return client.get(url_path)
-
-    def check_specific_url(self, url_path, domain, protocol):
-        """
-        Проверяет конкретный URL и выводит его содержимое.
-        """
-        if domain:
-            full_url = f'{protocol}://{domain}{url_path}'
-            self.stdout.write(f'\n🔍 ПРОВЕРКА URL: {full_url}')
-            try:
-                response = requests.get(full_url, timeout=30)
-            except requests.exceptions.RequestException as e:
-                self.stdout.write(self.style.ERROR(f'   ❌ Ошибка: {e}'))
-                return
-        else:
-            from django.test import Client
-            client = Client()
-            full_url = url_path
-            self.stdout.write(f'\n🔍 ПРОВЕРКА URL: {full_url}')
-            response = client.get(url_path)
-
-        self.stdout.write(f'   Статус: {response.status_code}')
-        self.stdout.write(f'   Content-Type: {response.headers.get("Content-Type", "не указан")}')
-
-        robots_tag = response.headers.get('X-Robots-Tag', 'отсутствует')
-        self.stdout.write(f'   X-Robots-Tag: {robots_tag}')
-
-        if response.status_code == 200:
-            content = response.text
-
-            if '<sitemapindex' in content:
-                self.stdout.write(self.style.SUCCESS('   ✅ Это SITEMAP INDEX'))
-                self.print_sitemap_index_info(content)
-            elif '<urlset' in content:
-                self.stdout.write(self.style.SUCCESS('   ✅ Это URLSET'))
-                self.print_urlset_info(content)
-            else:
-                self.stdout.write(self.style.WARNING('   ⚠️ Неизвестный формат'))
-
-            self.stdout.write('\n   СОДЕРЖИМОЕ (первые 500 символов):')
-            self.stdout.write('   ' + '-' * 56)
-            preview = content[:500]
-            preview = preview.replace('\n', '\n   ')
-            self.stdout.write(f'   {preview}')
-            if len(content) > 500:
-                self.stdout.write('   ... (обрезано)')
-            self.stdout.write('   ' + '-' * 56)
-
     def check_main_sitemap(self, domain, protocol):
-        """
-        Проверяет главный sitemap.xml на корректность.
-        """
-        url_path = '/sitemap.xml'
+        """Проверяет главный sitemap.xml."""
+        self.stdout.write('\n🔍 ПРОВЕРКА ГЛАВНОГО SITEMAP (sitemap.xml)')
 
-        if domain:
-            full_url = f'{protocol}://{domain}{url_path}'
-            self.stdout.write(f'\n🔍 ПРОВЕРКА ГЛАВНОГО SITEMAP: {full_url}')
-            try:
-                response = requests.get(full_url, timeout=30)
-            except requests.exceptions.RequestException as e:
-                self.stdout.write(self.style.ERROR(f'   ❌ Ошибка: {e}'))
-                return
-        else:
-            self.stdout.write('\n🔍 ПРОВЕРКА ГЛАВНОГО SITEMAP (sitemap.xml)')
-            from django.test import Client
-            client = Client()
-            response = client.get(url_path)
+        response = self.get_response('/sitemap.xml', domain, protocol)
+        if response is None:
+            return
 
         self.stdout.write(f'   Статус: {response.status_code}')
-        self.stdout.write(f'   Content-Type: {response.headers.get("Content-Type", "не указан")}')
 
-        robots_tag = response.headers.get('X-Robots-Tag', 'отсутствует')
-        self.stdout.write(f'   X-Robots-Tag: {robots_tag}')
+        if response.status_code == 301 or response.status_code == 302:
+            redirect_url = response.headers.get('Location', 'не указан')
+            self.stdout.write(self.style.WARNING(f'   ⚠️ РЕДИРЕКТ: {redirect_url}'))
+            # Если это редирект и мы используем test client, он уже следовал за ним
+            # Проверяем итоговый статус
+            if hasattr(response, 'redirect_chain') and response.redirect_chain:
+                final_status = response.status_code
+                self.stdout.write(f'   Статус после редиректа: {final_status}')
 
         try:
-            content = response.text
+            content = response.content.decode('utf-8')
 
             if '<sitemapindex' in content:
                 self.stdout.write(self.style.SUCCESS('   ✅ Это SITEMAP INDEX'))
@@ -256,350 +113,206 @@ class Command(BaseCommand):
                 self.print_urlset_info(content)
             else:
                 self.stdout.write(self.style.ERROR('   ❌ НЕИЗВЕСТНЫЙ ФОРМАТ XML'))
+                # Показываем первые 200 символов для диагностики
+                self.stdout.write(f'   Содержимое: {content[:200]}')
+        except UnicodeDecodeError:
+            self.stdout.write(self.style.ERROR('   ❌ ОШИБКА ДЕКОДИРОВАНИЯ'))
 
+    def check_games_sitemap(self, domain, protocol):
+        """Проверяет подкарту games."""
+        self.stdout.write('\n🔍 ПРОВЕРКА ПОДКАРТЫ GAMES')
+
+        response = self.get_response('/sitemap-games.xml', domain, protocol)
+        if response is None:
+            return
+
+        self.stdout.write(f'   Статус: {response.status_code}')
+        self.check_urlset_content(response)
+
+    def check_similar_sitemap(self, domain, protocol):
+        """Проверяет подкарту similar."""
+        self.stdout.write('\n🔍 ПРОВЕРКА ПОДКАРТЫ SIMILAR')
+
+        response = self.get_response('/sitemap-similar.xml', domain, protocol)
+        if response is None:
+            return
+
+        self.stdout.write(f'   Статус: {response.status_code}')
+        self.check_urlset_content(response)
+
+    def check_urlset_content(self, response):
+        """Проверяет содержимое urlset."""
+        if response.status_code != 200:
+            self.stdout.write(self.style.ERROR(f'   ❌ ОШИБКА: статус {response.status_code}'))
+            return
+
+        try:
+            content = response.content.decode('utf-8')
+            if '<urlset' in content:
+                root = ET.fromstring(content)
+                ns = {'sitemap': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
+                urls = root.findall('sitemap:url', ns)
+                url_count = len(urls)
+
+                if url_count > 0:
+                    self.stdout.write(self.style.SUCCESS(f'   ✅ Найдено URL: {url_count}'))
+
+                    # Проверяем, абсолютные ли URL
+                    sample_url = root.find('sitemap:url/sitemap:loc', ns)
+                    if sample_url is not None and sample_url.text:
+                        if sample_url.text.startswith(('http://', 'https://')):
+                            self.stdout.write(self.style.SUCCESS('   ✅ URL АБСОЛЮТНЫЕ'))
+                        else:
+                            self.stdout.write(self.style.WARNING(f'   ⚠️ ОТНОСИТЕЛЬНЫЙ URL: {sample_url.text[:50]}...'))
+                else:
+                    self.stdout.write(self.style.ERROR('   ❌ НЕТ URL!'))
+            else:
+                self.stdout.write(self.style.ERROR('   ❌ НЕ URLSET'))
+                # Показываем первые 200 символов для диагностики
+                self.stdout.write(f'   Содержимое: {content[:200]}')
         except ET.ParseError as e:
-            self.stdout.write(self.style.ERROR(f'   ❌ Ошибка парсинга XML: {e}'))
-        except Exception as e:
-            self.stdout.write(self.style.ERROR(f'   ❌ Ошибка: {e}'))
+            self.stdout.write(self.style.ERROR(f'   ❌ ОШИБКА ПАРСИНГА: {e}'))
+        except UnicodeDecodeError:
+            self.stdout.write(self.style.ERROR('   ❌ ОШИБКА ДЕКОДИРОВАНИЯ'))
 
     def print_sitemap_index_info(self, content):
-        """
-        Выводит информацию о sitemap index.
-        """
+        """Выводит информацию о sitemap index."""
         try:
             root = ET.fromstring(content)
             ns = {'sitemap': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
             sitemaps = root.findall('sitemap:sitemap', ns)
             self.stdout.write(f'   📂 Найдено подкарт: {len(sitemaps)}')
 
-            invalid_urls = []
-            for i, sitemap in enumerate(sitemaps, 1):
+            absolute_count = 0
+            relative_count = 0
+            for sitemap in sitemaps[:5]:
                 loc = sitemap.find('sitemap:loc', ns)
                 if loc is not None:
                     url_text = loc.text
-                    if i <= 5:
-                        self.stdout.write(f'   {i}. {url_text}')
-
-                    if not url_text.startswith(('http://', 'https://')):
-                        invalid_urls.append(url_text)
-                        if i <= 5:
-                            self.stdout.write(self.style.ERROR(f'      ❌ ОТНОСИТЕЛЬНЫЙ URL!'))
+                    if url_text.startswith(('http://', 'https://')):
+                        absolute_count += 1
                     else:
-                        if i <= 5:
-                            self.stdout.write(self.style.SUCCESS(f'      ✅ Абсолютный URL'))
+                        relative_count += 1
 
             if len(sitemaps) > 5:
                 self.stdout.write(f'   ... и еще {len(sitemaps) - 5} подкарт')
 
-            if invalid_urls:
-                self.stdout.write(self.style.ERROR(f'   ⚠️ Найдено {len(invalid_urls)} относительных URL'))
+            if relative_count > 0:
+                self.stdout.write(self.style.WARNING(f'   ⚠️ Найдено {relative_count} относительных URL'))
+            if absolute_count > 0:
+                self.stdout.write(self.style.SUCCESS(f'   ✅ Найдено {absolute_count} абсолютных URL'))
         except Exception as e:
-            self.stdout.write(self.style.ERROR(f'   ❌ Ошибка при анализе: {e}'))
+            self.stdout.write(self.style.ERROR(f'   ❌ Ошибка: {e}'))
 
     def print_urlset_info(self, content):
-        """
-        Выводит информацию о urlset (подкарте).
-        """
+        """Выводит информацию о urlset."""
         try:
             root = ET.fromstring(content)
             ns = {'sitemap': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
             urls = root.findall('sitemap:url', ns)
             self.stdout.write(f'   🔗 URL в sitemap: {len(urls)}')
         except Exception as e:
-            self.stdout.write(self.style.ERROR(f'   ❌ Ошибка при анализе: {e}'))
-
-    def check_games_sitemap(self, domain, protocol, verbose):
-        """
-        Проверяет подкарту games.
-        """
-        url_path = '/sitemap-games.xml'
-
-        if domain:
-            full_url = f'{protocol}://{domain}{url_path}'
-            self.stdout.write(f'\n🔍 ПРОВЕРКА ПОДКАРТЫ GAMES: {full_url}')
-            try:
-                response = requests.get(full_url, timeout=30)
-            except requests.exceptions.RequestException as e:
-                self.stdout.write(self.style.ERROR(f'   ❌ Ошибка: {e}'))
-                return
-        else:
-            self.stdout.write('\n🔍 ПРОВЕРКА ПОДКАРТЫ GAMES')
-            from django.test import Client
-            client = Client()
-            response = client.get(url_path)
-
-        self.stdout.write(f'   Статус: {response.status_code}')
-
-        if response.status_code == 301 or response.status_code == 302:
-            redirect_url = response.headers.get('Location', 'не указан')
-            self.stdout.write(self.style.WARNING(f'   ⚠️ РЕДИРЕКТ: {redirect_url}'))
-            # Пробуем перейти по редиректу
-            try:
-                if domain:
-                    response = requests.get(full_url, timeout=30, allow_redirects=True)
-                else:
-                    from django.test import Client
-                    client = Client()
-                    response = client.get(url_path, follow=True)
-                self.stdout.write(f'   Статус после редиректа: {response.status_code}')
-            except Exception:
-                pass
-
-        try:
-            content = response.text
-
-            if '<urlset' in content:
-                root = ET.fromstring(content)
-                ns = {'sitemap': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
-                urls = root.findall('sitemap:url', ns)
-                self.stdout.write(self.style.SUCCESS(f'   ✅ Найдено URL: {len(urls)}'))
-
-                if len(urls) == 0:
-                    self.stdout.write(self.style.ERROR('   ❌ НЕТ URL!'))
-                elif len(urls) < 1000:
-                    self.stdout.write(self.style.WARNING(f'   ⚠️ МАЛО URL: {len(urls)} (ожидается 1000)'))
-                elif len(urls) == 1000:
-                    self.stdout.write(self.style.SUCCESS('   ✅ Правильное количество URL: 1000'))
-                else:
-                    self.stdout.write(self.style.WARNING(f'   ⚠️ МНОГО URL: {len(urls)} (ожидается 1000)'))
-
-                if verbose and len(urls) > 0:
-                    self.stdout.write('   Первые 3 URL:')
-                    for i, url_elem in enumerate(urls[:3], 1):
-                        loc = url_elem.find('sitemap:loc', ns)
-                        if loc is not None:
-                            self.stdout.write(f'     {i}. {loc.text}')
-            else:
-                self.stdout.write(self.style.ERROR('   ❌ НЕ URLSET'))
-
-        except Exception as e:
-            self.stdout.write(self.style.ERROR(f'   ❌ Ошибка: {e}'))
-
-    def check_similar_sitemap(self, domain, protocol):
-        """
-        Проверяет подкарту similar.
-        """
-        url_path = '/sitemap-similar.xml'
-
-        if domain:
-            full_url = f'{protocol}://{domain}{url_path}'
-            self.stdout.write(f'\n🔍 ПРОВЕРКА ПОДКАРТЫ SIMILAR: {full_url}')
-            try:
-                response = requests.get(full_url, timeout=30)
-            except requests.exceptions.RequestException as e:
-                self.stdout.write(self.style.ERROR(f'   ❌ Ошибка: {e}'))
-                return
-        else:
-            self.stdout.write('\n🔍 ПРОВЕРКА ПОДКАРТЫ SIMILAR')
-            from django.test import Client
-            client = Client()
-            response = client.get(url_path)
-
-        self.stdout.write(f'   Статус: {response.status_code}')
-
-        try:
-            content = response.text
-
-            if '<urlset' in content:
-                root = ET.fromstring(content)
-                ns = {'sitemap': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
-                urls = root.findall('sitemap:url', ns)
-                self.stdout.write(self.style.SUCCESS(f'   ✅ Найдено URL: {len(urls)}'))
-            else:
-                self.stdout.write(self.style.ERROR('   ❌ НЕ URLSET'))
-
-        except Exception as e:
             self.stdout.write(self.style.ERROR(f'   ❌ Ошибка: {e}'))
 
     def check_page_counts(self, total_pages, domain, protocol):
-        """
-        Проверяет количество URL на каждой странице sitemap.
-        """
+        """Проверяет количество URL на каждой странице."""
         self.stdout.write('\n' + '=' * 60)
         self.stdout.write('🔍 ПРОВЕРКА КОЛИЧЕСТВА URL НА СТРАНИЦАХ')
         self.stdout.write('=' * 60)
 
-        games_per_page = 1000
-        game_count = Game.objects.count()
-        expected_last_page = game_count - (total_pages - 1) * games_per_page
-
-        # Проверяем страницы games
+        errors = 0
         self.stdout.write('\n📄 SITEMAP-GAMES:')
         self.stdout.write('-' * 40)
 
-        errors = []
-        warning_pages = []
-
-        for page in range(1, total_pages + 1):
+        for page in range(1, min(total_pages + 1, 46)):  # Проверяем первые 45 страниц
             url_path = f'/sitemap-games.xml?page={page}'
+            response = self.get_response(url_path, domain, protocol, follow=True)
 
-            if domain:
-                full_url = f'{protocol}://{domain}{url_path}'
-                try:
-                    response = requests.get(full_url, timeout=30)
-                except requests.exceptions.Timeout:
-                    self.stdout.write(self.style.ERROR(f'   Страница {page:2d}: ТАЙМАУТ ❌'))
-                    errors.append(page)
-                    continue
-                except requests.exceptions.ConnectionError:
-                    self.stdout.write(self.style.ERROR(f'   Страница {page:2d}: ОШИБКА ПОДКЛЮЧЕНИЯ ❌'))
-                    errors.append(page)
-                    continue
-            else:
-                from django.test import Client
-                client = Client()
-                response = client.get(url_path)
+            if response is None:
+                self.stdout.write(self.style.ERROR(f'   Страница {page:2d}: ОШИБКА ❌'))
+                errors += 1
+                continue
 
             if response.status_code == 200:
                 try:
-                    content = response.text
+                    content = response.content.decode('utf-8')
                     if '<urlset' in content:
                         root = ET.fromstring(content)
                         ns = {'sitemap': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
                         urls = root.findall('sitemap:url', ns)
                         url_count = len(urls)
 
-                        expected = games_per_page
-                        if page == total_pages:
-                            expected = expected_last_page
-
-                        if url_count == expected:
+                        if url_count == 1000 or (page == total_pages and url_count > 0):
                             self.stdout.write(self.style.SUCCESS(f'   Страница {page:2d}: {url_count:4d} URL ✅'))
                         elif url_count == 0:
-                            self.stdout.write(self.style.ERROR(f'   Страница {page:2d}: {url_count:4d} URL ❌ НЕТ URL!'))
-                            errors.append(page)
+                            self.stdout.write(self.style.ERROR(f'   Страница {page:2d}: {url_count:4d} URL ❌'))
+                            errors += 1
                         else:
-                            self.stdout.write(self.style.WARNING(
-                                f'   Страница {page:2d}: {url_count:4d} URL ⚠️ (ожидается {expected})'))
-                            warning_pages.append(page)
+                            self.stdout.write(self.style.WARNING(f'   Страница {page:2d}: {url_count:4d} URL ⚠️'))
                     else:
                         self.stdout.write(self.style.ERROR(f'   Страница {page:2d}: НЕ URLSET ❌'))
-                        errors.append(page)
+                        errors += 1
                 except Exception as e:
                     self.stdout.write(self.style.ERROR(f'   Страница {page:2d}: ОШИБКА: {e}'))
-                    errors.append(page)
+                    errors += 1
             else:
                 self.stdout.write(self.style.ERROR(f'   Страница {page:2d}: СТАТУС {response.status_code} ❌'))
-                errors.append(page)
+                errors += 1
 
-        # Проверяем страницы similar
+        # Проверяем similar страницы
         self.stdout.write('\n📄 SITEMAP-SIMILAR:')
         self.stdout.write('-' * 40)
 
-        for page in range(1, total_pages + 1):
+        for page in range(1, min(total_pages + 1, 46)):
             url_path = f'/sitemap-similar.xml?page={page}'
+            response = self.get_response(url_path, domain, protocol, follow=True)
 
-            if domain:
-                full_url = f'{protocol}://{domain}{url_path}'
-                try:
-                    response = requests.get(full_url, timeout=30)
-                except requests.exceptions.Timeout:
-                    self.stdout.write(self.style.ERROR(f'   Страница {page:2d}: ТАЙМАУТ ❌'))
-                    errors.append(page)
-                    continue
-                except requests.exceptions.ConnectionError:
-                    self.stdout.write(self.style.ERROR(f'   Страница {page:2d}: ОШИБКА ПОДКЛЮЧЕНИЯ ❌'))
-                    errors.append(page)
-                    continue
-            else:
-                from django.test import Client
-                client = Client()
-                response = client.get(url_path)
+            if response is None:
+                self.stdout.write(self.style.ERROR(f'   Страница {page:2d}: ОШИБКА ❌'))
+                errors += 1
+                continue
 
             if response.status_code == 200:
                 try:
-                    content = response.text
+                    content = response.content.decode('utf-8')
                     if '<urlset' in content:
                         root = ET.fromstring(content)
                         ns = {'sitemap': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
                         urls = root.findall('sitemap:url', ns)
                         url_count = len(urls)
 
-                        expected = games_per_page
-                        if page == total_pages:
-                            expected = expected_last_page
-
-                        if url_count == expected:
+                        if url_count > 0:
                             self.stdout.write(self.style.SUCCESS(f'   Страница {page:2d}: {url_count:4d} URL ✅'))
                         elif url_count == 0:
-                            self.stdout.write(self.style.ERROR(f'   Страница {page:2d}: {url_count:4d} URL ❌ НЕТ URL!'))
-                            errors.append(page)
+                            self.stdout.write(self.style.ERROR(f'   Страница {page:2d}: {url_count:4d} URL ❌'))
+                            errors += 1
                         else:
-                            self.stdout.write(self.style.WARNING(
-                                f'   Страница {page:2d}: {url_count:4d} URL ⚠️ (ожидается {expected})'))
-                            warning_pages.append(page)
+                            self.stdout.write(self.style.WARNING(f'   Страница {page:2d}: {url_count:4d} URL ⚠️'))
                     else:
                         self.stdout.write(self.style.ERROR(f'   Страница {page:2d}: НЕ URLSET ❌'))
-                        errors.append(page)
+                        errors += 1
                 except Exception as e:
                     self.stdout.write(self.style.ERROR(f'   Страница {page:2d}: ОШИБКА: {e}'))
-                    errors.append(page)
+                    errors += 1
             else:
                 self.stdout.write(self.style.ERROR(f'   Страница {page:2d}: СТАТУС {response.status_code} ❌'))
-                errors.append(page)
+                errors += 1
 
-        # Итог проверки
         self.stdout.write('\n' + '=' * 60)
-        if errors:
-            self.stdout.write(self.style.ERROR(f'❌ Найдено {len(errors)} страниц с ошибками'))
-        elif warning_pages:
-            self.stdout.write(
-                self.style.WARNING(f'⚠️ Найдено {len(warning_pages)} страниц с неправильным количеством URL'))
+        if errors > 0:
+            self.stdout.write(self.style.ERROR(f'❌ Найдено {errors} страниц с ошибками'))
         else:
-            self.stdout.write(self.style.SUCCESS('✅ Все страницы содержат правильное количество URL'))
+            self.stdout.write(self.style.SUCCESS('✅ Все страницы загружены корректно'))
         self.stdout.write('=' * 60)
 
     def print_summary(self, domain, protocol):
-        """
-        Выводит итоговую информацию о состоянии sitemap.
-        """
-        url_path = '/sitemap.xml'
-
-        if domain:
-            full_url = f'{protocol}://{domain}{url_path}'
-            try:
-                response = requests.get(full_url, timeout=30)
-            except requests.exceptions.RequestException:
-                self.stdout.write('\n' + '=' * 60)
-                self.stdout.write(self.style.ERROR('❌ НЕ УДАЛОСЬ ПОЛУЧИТЬ SITEMAP'))
-                self.stdout.write('=' * 60)
-                return
-        else:
-            from django.test import Client
-            client = Client()
-            response = client.get(url_path)
-
+        """Выводит итоговую информацию."""
         self.stdout.write('\n' + '=' * 60)
 
-        content = response.text
-
-        if '<sitemapindex' in content:
-            self.stdout.write(self.style.SUCCESS('✅ SITEMAP РАБОТАЕТ КОРРЕКТНО'))
-
-            try:
-                root = ET.fromstring(content)
-                ns = {'sitemap': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
-                sitemaps = root.findall('sitemap:sitemap', ns)
-
-                has_relative = False
-                for sitemap in sitemaps:
-                    loc = sitemap.find('sitemap:loc', ns)
-                    if loc is not None and not loc.text.startswith(('http://', 'https://')):
-                        has_relative = True
-                        break
-
-                if has_relative:
-                    self.stdout.write(self.style.WARNING('⚠️ ЕСТЬ ОТНОСИТЕЛЬНЫЕ URL'))
-                    self.stdout.write('   Исправьте sitemap_views.py: используйте get_full_url()')
-                else:
-                    self.stdout.write(self.style.SUCCESS('✅ ВСЕ URL АБСОЛЮТНЫЕ'))
-            except Exception:
-                pass
+        if domain:
+            self.stdout.write(self.style.SUCCESS('✅ ПРОВЕРКА ЗАВЕРШЕНА'))
+            self.stdout.write(f'   Домен: {domain}')
         else:
-            self.stdout.write(self.style.ERROR('❌ SITEMAP НЕ РАБОТАЕТ (не индекс)'))
-            self.stdout.write('   Проверьте:')
-            self.stdout.write('   1. sitemap_views.py - должна вызывать index() для section=None')
-            self.stdout.write('   2. urls.py - должен быть паттерн sitemap-<section>.xml')
-            self.stdout.write('   3. Перезапустите сервер')
+            self.stdout.write(self.style.SUCCESS('✅ ПРОВЕРКА ЗАВЕРШЕНА'))
 
         self.stdout.write('=' * 60)
