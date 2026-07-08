@@ -1,174 +1,98 @@
 User-agent: *
-
 Allow: /
 
+# ===== ЗАПРЕТ ДЛЯ АГРЕССИВНЫХ БОТОВ =====
 
+# SemrushBot - агрессивный краулер, запрещен
+User-agent: SemrushBot
+Disallow: /
+
+# Для старых версий
+User-agent: SemrushBot-SA
+Disallow: /
+
+User-agent: SemrushBot-*
+Disallow: /
+
+# AhrefsBot - тоже агрессивный
+User-agent: AhrefsBot
+Disallow: /
+
+User-agent: AhrefsBot-*
+Disallow: /
 
 # Facebook бот для превью ссылок - разрешён
-
 User-agent: facebookexternalhit
-
 Allow: /
-
-
-
-# Паразитические боты Meta - запрещены (грузили сервер)
-
-User-agent: meta-*
-
-Disallow: /
-
-
-
-User-agent: MetaInspector
-
-Disallow: /
-
-
 
 # Instagram боты
-
 User-agent: Instagram
-
 Allow: /
-
-
 
 # Twitter/X бот для превью ссылок
-
 User-agent: Twitterbot
-
 Allow: /
-
-
 
 # Telegram бот для превью ссылок
-
 User-agent: TelegramBot
-
 Allow: /
 
-
-
-# Основные поисковые боты - всё разрешено (никаких Disallow)
-
+# Основные поисковые боты - всё разрешено
 User-agent: Googlebot
-
 Allow: /
-
-
+Crawl-delay: 1
 
 User-agent: Yandex
-
 Allow: /
-
-# Ограничение нагрузки от Яндекс-ботов - максимальная задержка между запросами
 Crawl-delay: 5
 
-# Дополнительное ограничение для устаревших версий Яндекс-ботов
 User-agent: YandexBot
-
 Allow: /
-
 Crawl-delay: 5
 
 User-agent: YandexMobileBot
-
 Allow: /
-
 Crawl-delay: 5
 
 User-agent: YandexImages
-
 Allow: /
-
 Crawl-delay: 10
 
 User-agent: YandexVideo
-
 Allow: /
-
 Crawl-delay: 10
 
 User-agent: YandexMedia
-
 Allow: /
-
 Crawl-delay: 10
 
+# Яндекс блоги и новости
 User-agent: YandexBlogs
-
 Allow: /
-
-Crawl-delay: 5
-
-User-agent: YandexAddurl
-
-Allow: /
-
-Crawl-delay: 5
-
-User-agent: YandexFavicons
-
-Allow: /
-
-Crawl-delay: 30
-
-User-agent: YandexDirect
-
-Allow: /
-
-Crawl-delay: 5
-
-User-agent: YandexDirectDyn
-
-Allow: /
-
-Crawl-delay: 5
-
-User-agent: YandexCalendar
-
-Allow: /
-
 Crawl-delay: 5
 
 User-agent: YandexNews
-
 Allow: /
-
 Crawl-delay: 5
 
+# Яндекс метрика - минимальная задержка
 User-agent: YandexMetrika
-
 Allow: /
-
 Crawl-delay: 2
 
-
-
+# Bing - разрешен с задержкой
 User-agent: Bingbot
-
 Allow: /
-
 Crawl-delay: 3
 
-
-
+# DuckDuckGo
 User-agent: DuckDuckBot
-
 Allow: /
-
 Crawl-delay: 3
 
-
-
-# Основная задержка для всех остальных ботов, не указанных выше
+# Основная задержка для всех остальных ботов
 Crawl-delay: 3
-
-
 
 # Sitemap
-
 Sitemap: https://gamespeek.dpdns.org/sitemap.xml
-
 Sitemap: https://gamespeek.dpdns.org/sitemap_similar_games.xml
