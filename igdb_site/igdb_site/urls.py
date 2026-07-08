@@ -4,7 +4,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.http import HttpResponse
 
-# Импортируем КАСТОМНУЮ view вместо стандартной
+# Импортируем КАСТОМНУЮ view с кэшированием вместо стандартной
 from igdb_site.sitemap_views import sitemap_without_noindex
 
 from games.sitemap import GameSitemap
@@ -63,7 +63,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('games.urls')),
 
-    # ИСПОЛЬЗУЕМ КАСТОМНУЮ VIEW с кэшированием и без noindex
+    # ИСПОЛЬЗУЕМ КАСТОМНУЮ VIEW с КЭШИРОВАНИЕМ и без noindex
     path('sitemap.xml', sitemap_without_noindex, {'sitemaps': sitemaps}, name='django.contrib.sitemaps.views.sitemap'),
 
     path('robots.txt', serve_robots_txt, name='robots_txt'),
