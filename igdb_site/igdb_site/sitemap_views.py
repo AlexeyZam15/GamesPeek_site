@@ -25,6 +25,7 @@ def sitemap_without_noindex(request, sitemaps, section=None, template_name='site
     """
     Кастомная view для sitemap без заголовка X-Robots-Tag noindex.
     С кэшированием до изменения количества игр.
+    Поддерживает пагинацию (sitemap index).
     """
     cache_key = get_sitemap_cache_key(section)
 
