@@ -1,4 +1,5 @@
 <!-- Секция сортировки -->
+
 <div class="col-12">
     <div class="sorting-section border-bottom pb-3 mb-3">
         <div class="row align-items-center">
@@ -31,6 +32,13 @@
                     </option>
                     <option value="first_release_date" {% if current_sort == "first_release_date" %}selected{% endif %}>
                         Oldest First
+                    </option>
+                    <option value="-date_added"
+                            {% if current_sort == "-date_added" %}selected{% endif %}>
+                        Recently Added
+                    </option>
+                    <option value="date_added" {% if current_sort == "date_added" %}selected{% endif %}>
+                        Oldest Added
                     </option>
                 </select>
             </div>

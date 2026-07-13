@@ -214,7 +214,7 @@ def game_list(request: HttpRequest) -> HttpResponse:
     Первая страница (page=1 или без параметра page) загружается на сервере
     полностью, чтобы поисковые роботы видели контент.
     """
-    from ..models import Game  # <--- ДОБАВЛЕН ИМПОРТ (УБРАТЬ КОНФЛИКТ)
+    from ..models import Game
 
     start_time = time.time()
 
@@ -347,7 +347,8 @@ def game_list(request: HttpRequest) -> HttpResponse:
         else:
             games_qs = Game.objects.all().only(
                 'id', 'name', 'rating', 'rating_count',
-                'first_release_date', 'cover_url', 'game_type'
+                'first_release_date', 'cover_url', 'game_type',
+                'date_added'
             )
 
             if has_search_params:
@@ -377,8 +378,11 @@ def game_list(request: HttpRequest) -> HttpResponse:
                 games_qs = _apply_search_filters(games_qs, search_filters)
 
             sort_field = params.get('sort', '-rating_count')
-            if sort_field in ['name', '-name', 'rating', '-rating', 'rating_count', '-rating_count',
-                              '-first_release_date']:
+            allowed_sort_fields = [
+                'name', '-name', 'rating', '-rating', 'rating_count', '-rating_count',
+                '-first_release_date', 'first_release_date', '-date_added', 'date_added'
+            ]
+            if sort_field in allowed_sort_fields:
                 games_qs = games_qs.order_by(sort_field)
             else:
                 games_qs = games_qs.order_by('-rating_count')
@@ -394,7 +398,6 @@ def game_list(request: HttpRequest) -> HttpResponse:
             total_pages = paginator.num_pages
             show_similarity_flag = False
 
-    # Генерируем навигационную цепочку для страницы похожих игр
     breadcrumb_json_ld = ''
     if find_similar and source_game_obj:
         breadcrumb_json_ld = generate_similar_games_breadcrumb(
@@ -503,7 +506,6 @@ def game_list(request: HttpRequest) -> HttpResponse:
             'engines_count': len(filter_data.get('engines', [])),
             'server_rendered_first_page': is_first_page,
         },
-
         'breadcrumb_json_ld': breadcrumb_json_ld,
     }
 
@@ -946,13 +948,18 @@ def _get_all_games_mode_with_pagination(
     """Режим отображения ВСЕХ игр с СЕРВЕРНОЙ пагинацией."""
     games_qs = Game.objects.all().only(
         'id', 'name', 'rating', 'rating_count',
-        'first_release_date', 'cover_url', 'game_type'
+        'first_release_date', 'cover_url', 'game_type',
+        'date_added'
     )
 
     if any(selected_criteria.values()):
         games_qs = _apply_filters(games_qs, selected_criteria)
 
-    if sort_field in ['name', '-name', 'rating', '-rating', 'rating_count', '-rating_count', '-first_release_date']:
+    allowed_sort_fields = [
+        'name', '-name', 'rating', '-rating', 'rating_count', '-rating_count',
+        '-first_release_date', 'first_release_date', '-date_added', 'date_added'
+    ]
+    if sort_field in allowed_sort_fields:
         games_qs = games_qs.order_by(sort_field)
     else:
         games_qs = games_qs.order_by('-rating_count')
@@ -1322,14 +1329,19 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
 
         games_qs = Game.objects.all().only(
             'id', 'name', 'rating', 'rating_count',
-            'first_release_date', 'cover_url', 'game_type'
+            'first_release_date', 'cover_url', 'game_type',
+            'date_added'
         )
 
         if search_filters:
             from .base_views import _apply_search_filters
             games_qs = _apply_search_filters(games_qs, search_filters)
 
-        if sort_field in ['name', '-name', 'rating', '-rating', 'rating_count', '-rating_count', '-first_release_date']:
+        allowed_sort_fields = [
+            'name', '-name', 'rating', '-rating', 'rating_count', '-rating_count',
+            '-first_release_date', 'first_release_date', '-date_added', 'date_added'
+        ]
+        if sort_field in allowed_sort_fields:
             games_qs = games_qs.order_by(sort_field)
         else:
             games_qs = games_qs.order_by('-rating_count')
