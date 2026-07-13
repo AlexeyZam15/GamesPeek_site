@@ -75,6 +75,7 @@ def _get_home_context() -> Dict:
     Get context for home page with cached game cards and extended SEO data.
     ДЕБАГ ВЕРСИЯ: замер времени на каждом этапе.
     """
+
     import time
     from django.db import connection
     from django.db.models import Count
@@ -93,7 +94,6 @@ def _get_home_context() -> Dict:
     try:
         two_years_ago = timezone.now() - timedelta(days=730)
 
-        # ===== ЭТАП 1: Получение ID популярных игр =====
         start = time.time()
         popular_ids = list(Game.objects.filter(
             rating_count__gt=10,
@@ -102,7 +102,6 @@ def _get_home_context() -> Dict:
         timings['1_popular_ids'] = time.time() - start
         print(f"1. Получение ID популярных игр: {timings['1_popular_ids'] * 1000:.2f} мс, найдено: {len(popular_ids)}")
 
-        # ===== ЭТАП 2: Получение ID новых релизов =====
         start = time.time()
         recent_ids = list(Game.objects.filter(
             first_release_date__gte=two_years_ago,
@@ -111,21 +110,16 @@ def _get_home_context() -> Dict:
         timings['2_recent_ids'] = time.time() - start
         print(f"2. Получение ID новых релизов: {timings['2_recent_ids'] * 1000:.2f} мс, найдено: {len(recent_ids)}")
 
-        # ===== ЭТАП 3: Получение ID недавно добавленных =====
         start = time.time()
-        added_ids = list(Game.objects.filter(
-            rating_count__gt=0
-        ).order_by('-id')[:20].values_list('id', flat=True))
+        added_ids = list(Game.objects.order_by('-date_added')[:20].values_list('id', flat=True))
         timings['3_added_ids'] = time.time() - start
         print(f"3. Получение ID недавно добавленных: {timings['3_added_ids'] * 1000:.2f} мс, найдено: {len(added_ids)}")
 
-        # ===== ЭТАП 4: Объединение ID =====
         start = time.time()
         all_ids = list(set(popular_ids + recent_ids + added_ids))
         timings['4_merge_ids'] = time.time() - start
         print(f"4. Объединение ID: {timings['4_merge_ids'] * 1000:.2f} мс, всего уникальных: {len(all_ids)}")
 
-        # ===== ЭТАП 5: Получение игр с prefetch =====
         start = time.time()
         games_with_prefetch = list(Game.objects.filter(
             id__in=all_ids
@@ -141,7 +135,6 @@ def _get_home_context() -> Dict:
 
         games_dict = {game.id: game for game in games_with_prefetch}
 
-        # ===== ЭТАП 6: Получение карточек из GameCardCache =====
         start = time.time()
         cards = GameCardCache.objects.filter(
             game_id__in=all_ids,
@@ -151,14 +144,12 @@ def _get_home_context() -> Dict:
         timings['6_card_cache'] = time.time() - start
         print(f"6. Получение карточек из кэша: {timings['6_card_cache'] * 1000:.2f} мс, в кэше: {len(cards_dict)}")
 
-        # ===== ЭТАП 7: СОЗДАНИЕ НЕДОСТАЮЩИХ КАРТОЧЕК (САМОЕ ТЯЖЁЛОЕ) =====
         missing_ids = [gid for gid in all_ids if gid not in cards_dict]
         timings['7_missing_count'] = len(missing_ids)
         print(f"7. Отсутствующих карточек: {len(missing_ids)}")
 
         if missing_ids:
             start = time.time()
-            # Засекаем время на create_cards_for_games
             GameCardCreator.create_cards_for_games(
                 game_ids=missing_ids,
                 show_similarity=False,
@@ -168,7 +159,6 @@ def _get_home_context() -> Dict:
             timings['7_create_cards'] = time.time() - start
             print(f"   Время создания карточек: {timings['7_create_cards'] * 1000:.2f} мс")
 
-            # Повторно получаем созданные карточки
             start = time.time()
             new_cards = GameCardCache.objects.filter(
                 game_id__in=missing_ids,
@@ -182,14 +172,12 @@ def _get_home_context() -> Dict:
             timings['7_create_cards'] = 0
             timings['7_reload_cards'] = 0
 
-        # ===== ЭТАП 8: Формирование списков карточек =====
         start = time.time()
         popular_cards = []
         for gid in popular_ids:
             if gid in cards_dict:
                 popular_cards.append(cards_dict[gid])
             elif gid in games_dict:
-                # Заглушка, если карточки нет
                 class SimpleCard:
                     def __init__(self, game):
                         self.rendered_card = f'<div>Game ID: {game.id}</div>'
@@ -221,7 +209,6 @@ def _get_home_context() -> Dict:
         timings['8_format_cards'] = time.time() - start
         print(f"8. Формирование списков карточек: {timings['8_format_cards'] * 1000:.2f} мс")
 
-        # ===== ЭТАП 9: Получение ключевых слов =====
         start = time.time()
         popular_keywords = list(Keyword.objects.filter(
             cached_usage_count__gt=0
@@ -229,7 +216,6 @@ def _get_home_context() -> Dict:
         timings['9_keywords'] = time.time() - start
         print(f"9. Получение ключевых слов: {timings['9_keywords'] * 1000:.2f} мс, найдено: {len(popular_keywords)}")
 
-        # ===== ЭТАП 10: Получение жанров =====
         start = time.time()
         popular_genres = list(Genre.objects.annotate(
             total_games=Count('game')
@@ -239,7 +225,6 @@ def _get_home_context() -> Dict:
         timings['10_genres'] = time.time() - start
         print(f"10. Получение жанров: {timings['10_genres'] * 1000:.2f} мс, найдено: {len(popular_genres)}")
 
-        # ===== ЭТАП 11: Получение платформ =====
         start = time.time()
         popular_platforms = list(Platform.objects.annotate(
             game_count=Count('game', distinct=True)
@@ -249,7 +234,6 @@ def _get_home_context() -> Dict:
         timings['11_platforms'] = time.time() - start
         print(f"11. Получение платформ: {timings['11_platforms'] * 1000:.2f} мс, найдено: {len(popular_platforms)}")
 
-        # ===== ИТОГИ =====
         total_time = time.time() - total_start
         timings['total'] = total_time
 
@@ -270,7 +254,6 @@ def _get_home_context() -> Dict:
 
         print("=" * 60)
 
-        # ===== ФОРМИРОВАНИЕ КОНТЕКСТА =====
         context = {
             'popular_cards': popular_cards,
             'recent_release_cards': recent_release_cards,

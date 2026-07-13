@@ -1,8 +1,10 @@
 <!-- games/templates/games/home.html -->
+
 {% extends 'base.html' %}
 {% load static %}
 {% block title %}Find Similar Games | Video Game Database | GamesPeek{% endblock %}
 {% block meta_tags %}
+
     <meta name="description"
           content="GamesPeek: 45,000+ game database with intelligent similarity search. Find games like The Witcher 3, Dark Souls, or Stardew Valley. Search by genre, platform, or theme.">
     <meta name="keywords"
@@ -14,7 +16,6 @@
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://gamespeek.dpdns.org/">
     <meta property="og:site_name" content="GamesPeek">
-    <!-- ===== ДОБАВЛЕНО OG:IMAGE ===== -->
     <meta property="og:image" content="https://gamespeek.dpdns.org/static/og-image.jpg">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
@@ -23,7 +24,6 @@
     <meta name="twitter:title" content="GamesPeek - Video Game Database">
     <meta name="twitter:description"
           content="Search 45,000+ games in our video game database. Find your next favorite game with intelligent similarity algorithm.">
-    <!-- Structured Data for Video Game Database -->
     <script type="application/ld+json">
         {
             "@context": "https://schema.org",
@@ -50,7 +50,7 @@
     <link rel="stylesheet" href="{% static 'games/css/home.css' %}">
 {% endblock %}
 {% block content %}
-    <!-- Hero Section -->
+
     <div class="home-hero">
         <h1>Video Game Database - Discover Your Next Favorite Game</h1>
         <p class="lead">
@@ -64,7 +64,7 @@
             </a>
         </div>
     </div>
-    <!-- Quick Actions & Filters -->
+
     <div class="quick-actions text-center">
         <div class="quick-filters">
             <h2 style="font-size: 1.2rem;">Quick Database Filters</h2>
@@ -81,7 +81,7 @@
             </div>
         </div>
     </div>
-    <!-- Popular Games Carousel -->
+
     <div class="carousel-section">
         <div class="container">
             <h2 class="text-center mb-4">🔥 Most Popular Games in Our Database</h2>
@@ -105,7 +105,7 @@
             <div class="carousel-indicators" id="popularCarouselIndicators"></div>
         </div>
     </div>
-    <!-- Recent Releases Carousel -->
+
     <div class="carousel-section">
         <div class="container">
             <h2 class="text-center mb-4">🆕 Recently Released Games in Database</h2>
@@ -129,10 +129,15 @@
             <div class="carousel-indicators" id="recentReleaseCarouselIndicators"></div>
         </div>
     </div>
-    <!-- Recently Added to Database Carousel -->
+
     <div class="carousel-section">
         <div class="container">
-            <h2 class="text-center mb-4">📥 Recently Added to Game Database</h2>
+            <div class="d-flex justify-content-center align-items-center gap-3 mb-4">
+                <h2 class="mb-0">📥 Recently Added to Game Database</h2>
+                <a href="{% url 'game_list' %}?sort=-date_added" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-grid-3x3-gap-fill me-1"></i>Browse All
+                </a>
+            </div>
             <div class="carousel-container">
                 <div class="carousel-track-container">
                     <div class="carousel-track" id="recentlyAddedCarouselTrack">
@@ -153,7 +158,7 @@
             <div class="carousel-indicators" id="recentlyAddedCarouselIndicators"></div>
         </div>
     </div>
-    <!-- SEO Text Block - Extended for Google Indexing -->
+
     <div class="seo-content" style="padding: 2rem 0; border-top: 1px solid var(--border); margin-top: 2rem;">
         <div class="container">
             <h2 style="font-size: 1.8rem; margin-bottom: 1.5rem;">Complete Video Game Database - Find Games Similar to
@@ -256,7 +261,7 @@
             </p>
         </div>
     </div>
-    <!-- How It Works Section -->
+
     <div class="how-it-works">
         <h2>How Our Game Database Works</h2>
         <div class="row">
@@ -284,6 +289,7 @@
             </div>
         </div>
     </div>
+
 {% endblock %}
 {% block extra_js %}
     <script src="{% static 'games/js/home/carousel.js' %}"></script>

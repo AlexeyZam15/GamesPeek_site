@@ -1,8 +1,9 @@
 # games/management/commands/load_igdb/relations_handler.py
+
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from games.models import (
-    Game, Genre, Keyword, Platform, Series,
+    Game, Genre, Platform, Series,
     Company, Theme, PlayerPerspective, GameMode
 )
 from django.db.models import Q, Count
@@ -84,11 +85,11 @@ class RelationsHandler:
         return count
 
     def create_relations_batch(self, all_game_relations, debug=False):
-        """Создает основные M2M связи для игр пачками"""
+        """Создает основные M2M связи для игр пачками (без ключевых слов)"""
         if not all_game_relations:
             if debug:
                 self.stdout.write('   ⚠️  Нет связей для создания')
-            return 0, 0, 0, 0
+            return 0, 0, 0
 
         game_ids = [rel['game_id'] for rel in all_game_relations]
 
@@ -109,10 +110,6 @@ class RelationsHandler:
             all_game_relations, game_map, 'platforms', Game.platforms.through, 'platform', debug
         )
 
-        keyword_relations = self._create_relations(
-            all_game_relations, game_map, 'keywords', Game.keywords.through, 'keyword', debug
-        )
-
         engine_relations = self._create_relations(
             all_game_relations, game_map, 'engines', Game.engines.through, 'gameengine', debug
         )
@@ -121,13 +118,12 @@ class RelationsHandler:
             self.stdout.write(f'   ✅ Создано связей:')
             self.stdout.write(f'      • С жанрами: {genre_relations}')
             self.stdout.write(f'      • С платформами: {platform_relations}')
-            self.stdout.write(f'      • С ключевыми словами: {keyword_relations}')
             self.stdout.write(f'      • С движками: {engine_relations}')
 
-        return genre_relations, platform_relations, keyword_relations, engine_relations
+        return genre_relations, platform_relations, engine_relations
 
     def create_all_additional_relations(self, all_game_relations, debug=False):
-        """Создает все дополнительные M2M связи для игр"""
+        """Создает все дополнительные M2M связи для игр (без ключевых слов)"""
         if not all_game_relations:
             if debug:
                 self.stdout.write('   ⚠️  Нет дополнительных связей для создания')
@@ -184,7 +180,7 @@ class RelationsHandler:
         return results
 
     def prepare_game_relations(self, game_basic_map, game_data_map, additional_data_map, data_maps, debug=False):
-        """Подготавливает связи для игр (keywords отключены)"""
+        """Подготавливает связи для игр (без ключевых слов)"""
         if debug:
             self.stdout.write('\n📋 ПОДГОТОВКА СВЯЗЕЙ ДЛЯ ИГР...')
 
@@ -222,7 +218,6 @@ class RelationsHandler:
                 'game_id': game_id,
                 'genres': [],
                 'platforms': [],
-                'keywords': [],  # ВСЕГДА ПУСТОЙ СПИСОК
                 'engines': [],
                 'series': [],
                 'developers': [],
@@ -239,11 +234,6 @@ class RelationsHandler:
             for pid in game_data.get('platforms', []):
                 if pid in data_maps.get('platform_map', {}):
                     relations['platforms'].append(data_maps['platform_map'][pid])
-
-            # КЛЮЧЕВЫЕ СЛОВА ОТКЛЮЧЕНЫ - НЕ ДОБАВЛЯЕМ
-            # for kid in game_data.get('keywords', []):
-            #     if kid in data_maps.get('keyword_map', {}):
-            #         relations['keywords'].append(data_maps['keyword_map'][kid])
 
             for engine_data in game_data.get('game_engines', []):
                 if isinstance(engine_data, dict):
@@ -320,7 +310,7 @@ class RelationsHandler:
                     for key in stats.keys():
                         stats[key] += len(rel[key])
 
-                self.stdout.write(f'   📈 Статистика связей (keywords отключены):')
+                self.stdout.write(f'   📈 Статистика связей:')
                 for key, count in stats.items():
                     if count > 0:
                         self.stdout.write(f'      • {key}: {count}')
@@ -328,7 +318,7 @@ class RelationsHandler:
         return all_game_relations, step_time
 
     def create_all_relations(self, all_game_relations, debug=False):
-        """Создает все связи для игр и возвращает статистику возможных связей"""
+        """Создает все связи для игр и возвращает статистику возможных связей (без ключевых слов)"""
         if debug:
             self.stdout.write('\n🔗 СОЗДАНИЕ СВЯЗЕЙ...')
 
@@ -338,7 +328,6 @@ class RelationsHandler:
         possible_stats = {
             'possible_genre_relations': 0,
             'possible_platform_relations': 0,
-            'possible_keyword_relations': 0,
             'possible_engine_relations': 0,
             'possible_series_relations': 0,
             'possible_developer_relations': 0,
@@ -353,7 +342,7 @@ class RelationsHandler:
                 field_name = key.replace('possible_', '').replace('_relations', '')
                 possible_stats[key] += len(rel.get(field_name, []))
 
-        genre_relations, platform_relations, keyword_relations, engine_relations = self.create_relations_batch(
+        genre_relations, platform_relations, engine_relations = self.create_relations_batch(
             all_game_relations, debug
         )
 
@@ -364,7 +353,6 @@ class RelationsHandler:
         results = {
             'genre_relations': genre_relations,
             'platform_relations': platform_relations,
-            'keyword_relations': keyword_relations,
             'engine_relations': engine_relations,
             **additional_results
         }

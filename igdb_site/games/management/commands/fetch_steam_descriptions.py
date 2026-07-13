@@ -397,7 +397,6 @@ class Command(BaseCommand):
         self._pause_shown = False
 
     def add_arguments(self, parser: CommandParser) -> None:
-        """Добавление аргументов команды."""
         parser.add_argument(
             '--limit',
             type=int,
@@ -656,6 +655,85 @@ class Command(BaseCommand):
             default=0,
             help='Внутренний аргумент: количество итераций из предыдущего процесса'
         )
+
+        parser.add_argument(
+            '--game-ids-file',
+            type=str,
+            default=None,
+            help='Путь к файлу со списком ID игр для обработки (по одному ID на строку)'
+        )
+
+    def _load_game_ids_from_file(self, file_path: str) -> set:
+        """
+        Загружает список ID игр из файла.
+
+        Аргументы:
+            file_path: путь к файлу с ID (по одному на строку)
+
+        Возвращает:
+            set: множество ID игр
+        """
+        if not file_path or not os.path.exists(file_path):
+            return set()
+
+        game_ids = set()
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and line.isdigit():
+                        game_ids.add(int(line))
+            self.stdout.write(
+                self.style.SUCCESS(f'📂 Загружено {len(game_ids)} ID игр из файла: {file_path}')
+            )
+        except Exception as e:
+            self.stdout.write(
+                self.style.ERROR(f'❌ Ошибка загрузки ID из файла: {e}')
+            )
+        return game_ids
+
+    def _get_games_batch_for_offset(self, target_game: Optional[Game], force: bool,
+                                    process_not_found: bool, skip_not_found: bool,
+                                    process_no_description: bool, skip_no_description: bool,
+                                    only_found: bool,
+                                    start_offset: int, count: int) -> List[Game]:
+        """
+        Получение порции игр для обработки с поддержкой фильтрации по ID из файла.
+        """
+        if target_game:
+            return [target_game] if start_offset == 0 else []
+
+        # Если есть файл с ID, используем его для фильтрации
+        if hasattr(self, '_game_ids_filter') and self._game_ids_filter:
+            game_ids = list(self._game_ids_filter)
+            # Сортируем для консистентности
+            game_ids.sort()
+            # Применяем offset и limit
+            if start_offset >= len(game_ids):
+                return []
+            end_offset = min(start_offset + count, len(game_ids))
+            filtered_ids = game_ids[start_offset:end_offset]
+            games = list(Game.objects.filter(id__in=filtered_ids).order_by('id'))
+            return games
+
+        if only_found is True and self.found_games:
+            games = list(Game.objects.filter(id__in=self.found_games).order_by('id')
+                         [start_offset:start_offset + count])
+            return games
+
+        if process_not_found is True and self.not_found_games:
+            games = list(Game.objects.filter(id__in=self.not_found_games).order_by('id')
+                         [start_offset:start_offset + count])
+            return games
+
+        if process_no_description is True and self.no_description_games:
+            games = list(Game.objects.filter(id__in=self.no_description_games).order_by('id')
+                         [start_offset:start_offset + count])
+            return games
+
+        return self.get_games_batch(start_offset, count, force,
+                                    skip_not_found, self.not_found_games,
+                                    skip_no_description, self.no_description_games)
 
     def _display_progress_during_pause(self, remaining_seconds: float):
         """
@@ -1073,12 +1151,19 @@ class Command(BaseCommand):
 
         return descriptions
 
-    def load_descriptions_from_csv_to_db(self, csv_descriptions: Dict[str, str]) -> int:
+    def load_descriptions_from_csv_to_db(self, csv_descriptions: Dict[str, str], game_ids: List[int] = None) -> int:
         """
         Загрузка описаний из CSV в базу данных.
         Загружает только игры без описания.
         Использует массовые запросы для оптимизации скорости.
         Поддерживает прерывание (Ctrl+C).
+
+        Args:
+            csv_descriptions: Словарь {название_игры: описание} из CSV
+            game_ids: Список ID игр для обновления (если None - обновляет все игры без описаний)
+
+        Returns:
+            int: Количество загруженных описаний
         """
         if not csv_descriptions:
             self.stdout.write(self.style.WARNING('📂 CSV-словарь пуст'))
@@ -1086,95 +1171,64 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.WARNING('📂 Загрузка описаний из CSV в базу данных...'))
 
-        # Получаем список всех названий игр из CSV
-        game_names_list = list(csv_descriptions.keys())
-
-        self.stdout.write(f'   🔍 Массовый поиск игр для обновления...')
-
-        games_to_update = []
-
-        # Разбиваем на пачки по 1000 названий для избежания слишком длинных запросов
-        batch_size = 1000
-        total_batches = (len(game_names_list) + batch_size - 1) // batch_size
-        processed_batches = 0
-
-        for i in range(0, len(game_names_list), batch_size):
-            # Проверяем прерывание перед каждой пачкой
-            if self.interrupted:
-                self.stdout.write(self.style.WARNING('\n   ⚠️ Прерывание загрузки CSV...'))
-                break
-
-            batch_names = game_names_list[i:i + batch_size]
-
-            # Массовый запрос к базе данных
-            games = Game.objects.filter(
-                name__in=batch_names,
+        # ЕСЛИ ПЕРЕДАНЫ КОНКРЕТНЫЕ ID - РАБОТАЕМ ТОЛЬКО С НИМИ
+        if game_ids:
+            self.stdout.write(f'   🎯 Обновление только для {len(game_ids)} игр из пайплайна')
+            games_query = Game.objects.filter(
+                id__in=game_ids,
+                rawg_description__isnull=True
+            ).exclude(rawg_description='')
+        else:
+            self.stdout.write('   🔍 Массовый поиск игр для обновления...')
+            games_query = Game.objects.filter(
                 rawg_description__isnull=True
             ).exclude(rawg_description='')
 
-            # Создаем словарь для быстрого поиска
-            name_to_game = {game.name.lower(): game for game in games}
+        game_names_from_db = list(games_query.values_list('name', flat=True))
 
-            # Для названий, которые не нашлись по точному совпадению, ищем по регистронезависимому
-            not_found_names = [name for name in batch_names if name not in name_to_game]
+        self.stdout.write(f'   📊 Найдено игр без описаний: {len(game_names_from_db)}')
 
-            if not_found_names:
-                # Массовый поиск по регистронезависимому совпадению
-                import django.db.models.functions as func
-                case_insensitive_games = Game.objects.annotate(
-                    lower_name=func.Lower('name')
-                ).filter(
-                    lower_name__in=not_found_names,
-                    rawg_description__isnull=True
-                ).exclude(rawg_description='')
-
-                # Добавляем найденные игры в словарь
-                for game in case_insensitive_games:
-                    name_to_game[game.name.lower()] = game
-
-            # Формируем список для обновления
-            for name_lower, description in csv_descriptions.items():
-                # Проверяем прерывание внутри цикла
-                if self.interrupted:
-                    break
-
-                if name_lower in name_to_game:
-                    game = name_to_game[name_lower]
-                    game.rawg_description = description
-                    games_to_update.append(game)
-
-            # Проверяем прерывание после формирования списка
-            if self.interrupted:
-                break
-
-            processed_batches += 1
-            if processed_batches % 10 == 0 or processed_batches == total_batches:
-                self.stdout.write(
-                    f'   📥 Обработано {min(i + batch_size, len(game_names_list))}/{len(game_names_list)} названий, найдено {len(games_to_update)} игр')
-
-        # Если было прерывание, сообщаем о частичной загрузке
-        if self.interrupted:
-            self.stdout.write(self.style.WARNING(
-                f'\n   ⚠️ Загрузка CSV прервана. Найдено {len(games_to_update)} игр для обновления.'))
-            if not games_to_update:
-                self.stdout.write(self.style.WARNING('   📂 Не было найдено игр для обновления до прерывания'))
-                return 0
-
-        if not games_to_update:
-            self.stdout.write(self.style.WARNING('📂 Нет игр для обновления из CSV'))
+        if not game_names_from_db:
+            self.stdout.write(self.style.SUCCESS('✅ Все игры уже имеют описания'))
             return 0
+
+        game_names_lower = [name.lower() for name in game_names_from_db]
+
+        filtered_csv = {}
+        for name, description in csv_descriptions.items():
+            if name.lower() in game_names_lower:
+                filtered_csv[name] = description
+
+        self.stdout.write(f'   📊 Найдено совпадений в CSV: {len(filtered_csv)}')
+
+        if not filtered_csv:
+            self.stdout.write(self.style.WARNING('📂 Нет совпадений между CSV и БД'))
+            return 0
+
+        games_to_update = []
+        name_to_game = {game.name.lower(): game for game in Game.objects.filter(
+            name__in=[name for name in filtered_csv.keys()]
+        )}
+
+        for name_lower, description in filtered_csv.items():
+            if name_lower in name_to_game:
+                game = name_to_game[name_lower]
+                game.rawg_description = description
+                games_to_update.append(game)
 
         self.stdout.write(f'   💾 Сохранение {len(games_to_update)} описаний в базу данных...')
 
+        if not games_to_update:
+            self.stdout.write(self.style.WARNING('📂 Нет игр для обновления'))
+            return 0
+
         try:
             with transaction.atomic():
-                # Сохраняем пачками по 500 записей
                 save_batch_size = 500
                 saved_count = 0
                 total_to_save = len(games_to_update)
 
                 for i in range(0, total_to_save, save_batch_size):
-                    # Проверяем прерывание перед каждой пачкой сохранения
                     if self.interrupted:
                         self.stdout.write(self.style.WARNING(
                             f'\n   ⚠️ Прерывание сохранения. Сохранено {saved_count}/{total_to_save}'))
@@ -1184,18 +1238,14 @@ class Command(BaseCommand):
                     Game.objects.bulk_update(batch, ['rawg_description'])
                     saved_count += len(batch)
 
-                    # Вычисляем проценты для прогресс-бара
                     percent = (saved_count / total_to_save) * 100
                     bar_width = 40
                     filled = int(bar_width * saved_count / total_to_save)
                     bar = '█' * filled + '░' * (bar_width - filled)
-
-                    # Формируем строку прогресс-бара в одну строку
                     self.stdout.write(f'\r      [{bar}] {percent:>5.1f}% | {saved_count:>6}/{total_to_save:<6}',
                                       ending='')
                     self.stdout.flush()
 
-                # Переходим на новую строку после завершения
                 self.stdout.write('')
 
             if saved_count > 0:
@@ -2436,10 +2486,16 @@ class Command(BaseCommand):
             self.log_debug("Ошибка при очистке описаний", error=e)
             self.stdout.write(self.style.ERROR(f'❌ Ошибка: {e}'))
 
-    def load_descriptions_from_cache(self) -> int:
+    def load_descriptions_from_cache(self, game_ids: List[int] = None) -> int:
         """
         Загрузка описаний из кэш-файла в базу данных.
         Загружает только игры без описания.
+
+        Args:
+            game_ids: Список ID игр для загрузки (если None - загружает все)
+
+        Returns:
+            int: Количество загруженных описаний
         """
         if not self.full_output_path or not self.full_output_path.exists():
             self.stdout.write(self.style.WARNING('📂 Кэш-файл не найден'))
@@ -2494,11 +2550,35 @@ class Command(BaseCommand):
 
             self.stdout.write(self.style.SUCCESS(f'📊 Найдено {len(games_from_cache)} игр в кэше'))
 
-            game_names = [game[0] for game in games_from_cache]
+            # ЕСЛИ ПЕРЕДАНЫ ID - ФИЛЬТРУЕМ ТОЛЬКО ИХ
+            game_names_from_cache = [game[0] for game in games_from_cache]
+
+            if game_ids:
+                # Получаем названия игр по переданным ID
+                games_with_ids = Game.objects.filter(id__in=game_ids)
+                game_names_from_ids = list(games_with_ids.values_list('name', flat=True))
+
+                # Фильтруем кэш только по этим названиям
+                filtered_games = [
+                    g for g in games_from_cache
+                    if g[0] in game_names_from_ids
+                ]
+
+                if len(filtered_games) < len(games_from_cache):
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f'📊 Отфильтровано для ID: {len(filtered_games)} игр из {len(games_from_cache)}'
+                        )
+                    )
+                games_from_cache = filtered_games
+
+                if not games_from_cache:
+                    self.stdout.write(self.style.WARNING('📂 Нет описаний для указанных ID в кэше'))
+                    return 0
 
             games_with_description = set(
                 Game.objects.filter(
-                    name__in=game_names,
+                    name__in=[game[0] for game in games_from_cache],
                     rawg_description__isnull=False
                 ).exclude(rawg_description='').values_list('name', flat=True)
             )
@@ -2784,36 +2864,9 @@ class Command(BaseCommand):
             except Exception as e:
                 self.log_debug("Ошибка при обновлении БД", error=e)
 
-    def _get_games_batch_for_offset(self, target_game: Optional[Game], force: bool,
-                                    process_not_found: bool, skip_not_found: bool,
-                                    process_no_description: bool, skip_no_description: bool,
-                                    only_found: bool,
-                                    start_offset: int, count: int) -> List[Game]:
-        """Получение порции игр для обработки."""
-        if target_game:
-            return [target_game] if start_offset == 0 else []
-
-        if only_found is True and self.found_games:
-            games = list(Game.objects.filter(id__in=self.found_games).order_by('id')
-                         [start_offset:start_offset + count])
-            return games
-
-        if process_not_found is True and self.not_found_games:
-            games = list(Game.objects.filter(id__in=self.not_found_games).order_by('id')
-                         [start_offset:start_offset + count])
-            return games
-
-        if process_no_description is True and self.no_description_games:
-            games = list(Game.objects.filter(id__in=self.no_description_games).order_by('id')
-                         [start_offset:start_offset + count])
-            return games
-
-        return self.get_games_batch(start_offset, count, force,
-                                    skip_not_found, self.not_found_games,
-                                    skip_no_description, self.no_description_games)
-
     def _initialize_parameters(self, options: Dict, pc: Platform) -> Optional[Tuple]:
-        """Инициализация параметров из options."""
+        """Инициализация параметров из options с оптимизацией для game-ids-file."""
+
         limit_from_args = options['limit']
         force = options['force']
         game_name = options['game_name']
@@ -2882,6 +2935,52 @@ class Command(BaseCommand):
         self.stats_file_path = self.output_dir / self.stats_file
         self.progress_file_path = self.output_dir / self.progress_file
 
+        # ЗАГРУЗКА ID ИЗ ФАЙЛА - ПРОВЕРЯЕМ СРАЗУ
+        game_ids_file = options.get('game_ids_file')
+        self._game_ids_filter = set()
+        if game_ids_file:
+            self._game_ids_filter = self._load_game_ids_from_file(game_ids_file)
+            if self._game_ids_filter:
+                self.stdout.write(
+                    self.style.SUCCESS(f'📊 Фильтр по ID: {len(self._game_ids_filter)} игр')
+                )
+                if options.get('limit') is None:
+                    options['limit'] = len(self._game_ids_filter)
+                    limit_from_args = len(self._game_ids_filter)
+
+        # ЕСЛИ ЕСТЬ ФИЛЬТР ПО ID - ЗАГРУЖАЕМ ТОЛЬКО НУЖНЫЕ ДАННЫЕ, ПРОПУСКАЕМ ВСЕ ЛИШНИЕ ЗАГРУЗКИ
+        if self._game_ids_filter:
+            self.stdout.write(
+                self.style.WARNING('📊 Режим фильтрации по ID: пропускаем загрузку кэшей и списков')
+            )
+            # Не загружаем found/not_found/no_description кэши
+            self.found_games = set()
+            self.app_id_dict = {}
+            self.not_found_games = set()
+            self.no_description_games = set()
+            self.cache_data = {}
+
+            # Получаем игры напрямую
+            base_queryset = Game.objects.filter(id__in=self._game_ids_filter)
+            if not force:
+                base_queryset = base_queryset.filter(
+                    Q(rawg_description__isnull=True) | Q(rawg_description='')
+                )
+            total_available = base_queryset.count()
+            total_limit = min(limit_from_args or total_available, total_available)
+            target_game = None
+
+            self.stdout.write(self.style.SUCCESS(f'📊 Будет обработано: {total_limit} игр'))
+
+            self.current_offset = options['offset']
+
+            return (total_limit, total_available, target_game, processed_total,
+                    batch_size, iteration_pause, output_file, output_dir,
+                    dry_run, force, skip_search, no_restart,
+                    False, False, False, False, True)
+
+        # --- ДАЛЬШЕ ИДЕТ ОБЫЧНЫЙ КОД ДЛЯ РЕЖИМА БЕЗ --game-ids-file ---
+
         self.cache_data = self.load_steam_cache(self.cache_file_path)
 
         if not self.found_file_path.exists():
@@ -2919,10 +3018,8 @@ class Command(BaseCommand):
         self.not_found_games = self.load_not_found_games()
         self.no_description_games = self.load_no_description_games()
 
-        # Инициализируем пустой словарь для App ID (больше не загружаем из API)
         self.steam_app_dict = {}
 
-        # ========== ОПТИМИЗАЦИЯ: отсеиваем игры с уже существующими описаниями ==========
         if self.found_games:
             self.stdout.write(
                 self.style.WARNING(f'📊 Проверка наличия описаний у {len(self.found_games)} найденных игр...'))
@@ -2948,7 +3045,6 @@ class Command(BaseCommand):
                 ))
             else:
                 self.stdout.write(self.style.SUCCESS(f'✅ Все {len(self.found_games)} найденных игр не имеют описаний'))
-        # =============================================================================
 
         only_found = options.get('only_found', False)
         process_not_found = options.get('process_not_found', False)
@@ -3270,12 +3366,23 @@ class Command(BaseCommand):
          process_no_description, skip_no_description,
          only_found) = params
 
+        # ПОЛУЧАЕМ ID ИГР ДЛЯ ФИЛЬТРАЦИИ (если есть)
+        game_ids_for_loading = None
+        has_game_ids_filter = hasattr(self, '_game_ids_filter') and self._game_ids_filter
+        if has_game_ids_filter:
+            game_ids_for_loading = list(self._game_ids_filter)
+            self.stdout.write(
+                self.style.WARNING(
+                    f'📊 Режим фильтрации по ID: загружаем данные только для {len(game_ids_for_loading)} игр'
+                )
+            )
+
         if processed_total == 0:
             self.stdout.write(self.style.WARNING('📋 Шаг 3/8: Создание статистики...'))
             self._init_stats_file()
 
             self.stdout.write(self.style.WARNING('📋 Шаг 4/8: Загрузка описаний из кэш-файла...'))
-            loaded_from_cache = self.load_descriptions_from_cache()
+            loaded_from_cache = self.load_descriptions_from_cache(game_ids_for_loading)
             if loaded_from_cache > 0:
                 self.stdout.write(self.style.SUCCESS(f'✅ Загружено {loaded_from_cache} описаний из кэша'))
 
@@ -3283,18 +3390,10 @@ class Command(BaseCommand):
             csv_descriptions = self.load_descriptions_from_csv()
 
             if csv_descriptions:
-                if only_found and self.found_games:
-                    self.stdout.write(self.style.WARNING(
-                        f'📊 Загрузка CSV-описаний только для {len(self.found_games)} найденных игр...'))
-                    filtered_csv = {}
-                    for game_id in self.found_games:
-                        game = Game.objects.filter(id=game_id).first()
-                        if game and game.name.lower() in csv_descriptions:
-                            filtered_csv[game.name.lower()] = csv_descriptions[game.name.lower()]
-                    loaded_from_csv = self.load_descriptions_from_csv_to_db(filtered_csv)
-                else:
-                    loaded_from_csv = self.load_descriptions_from_csv_to_db(csv_descriptions)
-
+                loaded_from_csv = self.load_descriptions_from_csv_to_db(
+                    csv_descriptions,
+                    game_ids=game_ids_for_loading
+                )
                 if loaded_from_csv > 0:
                     self.stdout.write(self.style.SUCCESS(f'✅ Загружено {loaded_from_csv} описаний из CSV'))
 
@@ -3302,64 +3401,67 @@ class Command(BaseCommand):
             else:
                 self.csv_descriptions = {}
 
-            # Дополнительное отсеивание после загрузки
-            self.stdout.write(self.style.WARNING('📋 Шаг 5.1/8: Повторная проверка и отсеивание игр с описаниями...'))
+            # ЕСЛИ ЕСТЬ ФИЛЬТР ПО ID - ПРОПУСКАЕМ МАССОВУЮ ПРОВЕРКУ ВСЕХ ИГР
+            if not has_game_ids_filter:
+                self.stdout.write(
+                    self.style.WARNING('📋 Шаг 5.1/8: Повторная проверка и отсеивание игр с описаниями...'))
 
-            if self.found_games:
-                games_with_description = set(
-                    Game.objects.filter(
-                        id__in=self.found_games,
-                        rawg_description__isnull=False
-                    ).exclude(rawg_description='').values_list('id', flat=True)
-                )
+                if self.found_games:
+                    games_with_description = set(
+                        Game.objects.filter(
+                            id__in=self.found_games,
+                            rawg_description__isnull=False
+                        ).exclude(rawg_description='').values_list('id', flat=True)
+                    )
 
-                if games_with_description:
-                    self.found_games = self.found_games - games_with_description
+                    if games_with_description:
+                        self.found_games = self.found_games - games_with_description
 
-                    for game_id in games_with_description:
-                        if game_id in self.app_id_dict:
-                            del self.app_id_dict[game_id]
+                        for game_id in games_with_description:
+                            if game_id in self.app_id_dict:
+                                del self.app_id_dict[game_id]
 
+                        self.stdout.write(self.style.SUCCESS(
+                            f'✅ Отсеяно {len(games_with_description)} игр с описаниями. '
+                            f'Осталось {len(self.found_games)} игр для обработки'
+                        ))
+
+                if self.not_found_games:
+                    games_with_description = set(
+                        Game.objects.filter(
+                            id__in=self.not_found_games,
+                            rawg_description__isnull=False
+                        ).exclude(rawg_description='').values_list('id', flat=True)
+                    )
+
+                    if games_with_description:
+                        self.not_found_games = self.not_found_games - games_with_description
+                        self.stdout.write(self.style.SUCCESS(
+                            f'✅ Отсеяно {len(games_with_description)} не найденных игр с описаниями'
+                        ))
+
+                if self.no_description_games:
+                    games_with_description = set(
+                        Game.objects.filter(
+                            id__in=self.no_description_games,
+                            rawg_description__isnull=False
+                        ).exclude(rawg_description='').values_list('id', flat=True)
+                    )
+
+                    if games_with_description:
+                        self.no_description_games = self.no_description_games - games_with_description
+                        self.stdout.write(self.style.SUCCESS(
+                            f'✅ Отсеяно {len(games_with_description)} игр без описания, которые теперь имеют описание'
+                        ))
+
+                if only_found and self.found_games:
+                    total_to_process = len(self.found_games)
+                    limit = total_to_process
                     self.stdout.write(self.style.SUCCESS(
-                        f'✅ Отсеяно {len(games_with_description)} игр с описаниями. '
-                        f'Осталось {len(self.found_games)} игр для обработки'
+                        f'📊 Пересчитано количество игр для обработки: {total_to_process}'
                     ))
-
-            if self.not_found_games:
-                games_with_description = set(
-                    Game.objects.filter(
-                        id__in=self.not_found_games,
-                        rawg_description__isnull=False
-                    ).exclude(rawg_description='').values_list('id', flat=True)
-                )
-
-                if games_with_description:
-                    self.not_found_games = self.not_found_games - games_with_description
-                    self.stdout.write(self.style.SUCCESS(
-                        f'✅ Отсеяно {len(games_with_description)} не найденных игр с описаниями'
-                    ))
-
-            if self.no_description_games:
-                games_with_description = set(
-                    Game.objects.filter(
-                        id__in=self.no_description_games,
-                        rawg_description__isnull=False
-                    ).exclude(rawg_description='').values_list('id', flat=True)
-                )
-
-                if games_with_description:
-                    self.no_description_games = self.no_description_games - games_with_description
-                    self.stdout.write(self.style.SUCCESS(
-                        f'✅ Отсеяно {len(games_with_description)} игр без описания, которые теперь имеют описание'
-                    ))
-
-            # Пересчитываем total_to_process для only_found режима
-            if only_found and self.found_games:
-                total_to_process = len(self.found_games)
-                limit = total_to_process
-                self.stdout.write(self.style.SUCCESS(
-                    f'📊 Пересчитано количество игр для обработки: {total_to_process}'
-                ))
+            else:
+                self.stdout.write(self.style.WARNING('📋 Шаг 5.1/8: Пропущен (режим фильтрации по ID)'))
 
         if options['clear_descriptions']:
             self.stdout.write(self.style.WARNING('📋 Шаг 6/8: Очистка описаний...'))
