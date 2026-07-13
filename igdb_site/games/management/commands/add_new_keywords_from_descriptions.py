@@ -387,16 +387,13 @@ class Command(BaseCommand):
         self.stdout.write(f"📚 Загружено стоп-слов: {len(stop_words)}")
         self.stdout.write("")
 
-        # Преобразуем стоп-слова в список для SQL запроса
         stop_words_list = list(stop_words)
 
         if not stop_words_list:
             self.stdout.write(self.style.SUCCESS("✅ Нет стоп-слов для удаления"))
             return
 
-        # Используем сырой SQL для подсчета и удаления, чтобы избежать ошибок кэширования
         with connection.cursor() as cursor:
-            # Сначала подсчитываем количество ключевых слов для удаления
             cursor.execute("""
                            SELECT COUNT(*)
                            FROM games_keyword
@@ -414,54 +411,20 @@ class Command(BaseCommand):
                 self.stdout.write("\n📌 СПИСОК НАЙДЕННЫХ СТОП-СЛОВ:")
                 self.stdout.write("-" * 50)
                 cursor.execute("""
-                               SELECT id,
-                                      name,
-                                      (SELECT COUNT(*)
-                                       FROM games_game_keywords
-                                       WHERE keyword_id = games_keyword.id) as games_count
+                               SELECT id, name
                                FROM games_keyword
                                WHERE name = ANY (%s)
                                ORDER BY name LIMIT 20
                                """, [stop_words_list])
                 rows = cursor.fetchall()
                 for row in rows:
-                    self.stdout.write(f"  • '{row[1]}' (ID: {row[0]}, игр: {row[2]})")
+                    self.stdout.write(f"  • '{row[1]}' (ID: {row[0]})")
                 if count > 20:
                     self.stdout.write(f"  ... и еще {count - 20} слов")
-
-            # Подсчитываем общее количество связей с играми
-            cursor.execute("""
-                           SELECT COUNT(*)
-                           FROM games_game_keywords
-                           WHERE keyword_id IN (SELECT id FROM games_keyword WHERE name = ANY (%s))
-                           """, [stop_words_list])
-            total_connections = cursor.fetchone()[0]
-
-            if total_connections > 0:
-                self.stdout.write(
-                    self.style.WARNING(f"\n⚠️ ВНИМАНИЕ: Будет удалено {total_connections} связей с играми!"))
-
-                if not self.dry_run:
-                    response = input("   Продолжить? (yes/no): ")
-                    if response.lower() != 'yes':
-                        self.stdout.write(self.style.WARNING("   Операция отменена"))
-                        return
 
             if not self.dry_run:
                 self.stdout.write("\n🗑️ Удаление стоп-слов...")
 
-                # Отключаем проверки внешних ключей временно для скорости
-                cursor.execute("SET CONSTRAINTS ALL DEFERRED")
-
-                # Сначала удаляем связи из промежуточной таблицы
-                cursor.execute("""
-                               DELETE
-                               FROM games_game_keywords
-                               WHERE keyword_id IN (SELECT id FROM games_keyword WHERE name = ANY (%s))
-                               """, [stop_words_list])
-                deleted_connections = cursor.rowcount
-
-                # Затем удаляем сами ключевые слова
                 cursor.execute("""
                                DELETE
                                FROM games_keyword
@@ -469,7 +432,6 @@ class Command(BaseCommand):
                                """, [stop_words_list])
                 deleted_keywords = cursor.rowcount
 
-                self.stdout.write(self.style.SUCCESS(f"✅ Удалено связей с играми: {deleted_connections}"))
                 self.stdout.write(self.style.SUCCESS(f"✅ Удалено ключевых слов: {deleted_keywords}"))
 
                 try:

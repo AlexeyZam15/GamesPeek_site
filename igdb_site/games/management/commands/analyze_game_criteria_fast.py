@@ -15,7 +15,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.db.models import Q
 
-from games.models import Game, Genre, Theme, PlayerPerspective, GameMode
+from games.models import Game, Genre, Theme, PlayerPerspective, GameMode, Keyword
 from games.analyze.range_cache import RangeCacheManager
 from games.analyze.pattern_manager import PatternManager
 
@@ -311,6 +311,8 @@ class Command(BaseCommand):
                             help='Собирать ВСЕ срабатывания паттернов (не только первые) для статистики')
         parser.add_argument('--group-by-pattern', action='store_true',
                             help='Группировать вывод по паттернам (сначала паттерн, потом игры)')
+        parser.add_argument('--keywords', action='store_true',
+                            help='Анализировать ключевые слова вместо критериев (жанры, темы, перспективы, режимы)')
 
     def _filter_games_by_genre(self, games: List[Dict]) -> List[Dict]:
         """Фильтрует игры, у которых уже есть указанный жанр"""
@@ -491,14 +493,16 @@ class Command(BaseCommand):
             'genres': {},
             'themes': {},
             'perspectives': {},
-            'game_modes': {}
+            'game_modes': {},
+            'keywords': {}
         }
 
         self.criteria_by_name = {
             'genres': {},
             'themes': {},
             'perspectives': {},
-            'game_modes': {}
+            'game_modes': {},
+            'keywords': {}
         }
 
         # Загружаем все жанры
@@ -521,56 +525,69 @@ class Command(BaseCommand):
             self.criteria_by_id['game_modes'][m.id] = m.name
             self.criteria_by_name['game_modes'][m.name.lower()] = m.id
 
-        # Определяем, какие типы критериев и какие имена нужно обрабатывать
+        # Загружаем все ключевые слова
+        for k in Keyword.objects.all().only('id', 'name'):
+            self.criteria_by_id['keywords'][k.id] = k.name
+            self.criteria_by_name['keywords'][k.name.lower()] = k.id
+
+        # Определяем, какие типы критериев нужно обрабатывать
         criteria_types_to_process = []
-        target_name = None
 
-        # Если указан --criteria-name, ищем во всех типах
-        if hasattr(self, 'criteria_name') and self.criteria_name:
-            target_name = self.criteria_name.lower()
-            sys.stderr.write(f"   🔍 Универсальный поиск критерия: '{self.criteria_name}'\n")
+        # Если указан --keywords - обрабатываем ТОЛЬКО ключевые слова
+        if hasattr(self, 'keywords_mode') and self.keywords_mode:
+            sys.stderr.write(f"   🔑 Режим анализа КЛЮЧЕВЫХ СЛОВ\n")
             sys.stderr.flush()
-
-            # Проверяем, существует ли такой критерий в БД
-            found_in_db = False
-            for crit_type in ['genres', 'themes', 'perspectives', 'game_modes']:
-                if target_name in self.criteria_by_name[crit_type]:
-                    criteria_types_to_process.append((crit_type, self.criteria_name))
-                    found_in_db = True
-                    sys.stderr.write(f"   ✅ Найден в {crit_type}: '{self.criteria_name}'\n")
-                    sys.stderr.flush()
-
-            if not found_in_db:
-                sys.stderr.write(
-                    f"   ⚠️ Критерий '{self.criteria_name}' не найден в БД (ни в жанрах, ни в темах, ни в перспективах, ни в режимах)\n")
+            # Для ключевых слов используем существующие ключевые слова из БД, а не паттерны
+            # Создаем псевдо-паттерны для каждого ключевого слова
+            keywords_patterns = {}
+            for keyword in Keyword.objects.all().only('id', 'name'):
+                name = keyword.name
+                keywords_patterns[name] = {
+                    'patterns': [re.compile(re.escape(name), re.IGNORECASE | re.UNICODE)],
+                    'stop_words': []
+                }
+            self.patterns['keywords'] = keywords_patterns
+            criteria_types_to_process = [('keywords', None)]
+        else:
+            # Обычный режим - используем паттерны из PatternManager
+            if hasattr(self, 'criteria_name') and self.criteria_name:
+                target_name = self.criteria_name.lower()
+                sys.stderr.write(f"   🔍 Универсальный поиск критерия: '{self.criteria_name}'\n")
                 sys.stderr.flush()
 
-        # Если указан --theme (обратная совместимость)
-        elif self.theme:
-            criteria_types_to_process.append(('themes', self.theme))
-            sys.stderr.write(f"   📚 Фильтрация: загружаем ТОЛЬКО тему '{self.theme}'\n")
-            sys.stderr.flush()
+                found_in_db = False
+                for crit_type in ['genres', 'themes', 'perspectives', 'game_modes']:
+                    if target_name in self.criteria_by_name[crit_type]:
+                        criteria_types_to_process.append((crit_type, self.criteria_name))
+                        found_in_db = True
+                        sys.stderr.write(f"   ✅ Найден в {crit_type}: '{self.criteria_name}'\n")
+                        sys.stderr.flush()
 
-        # Если не указаны фильтры, обрабатываем все типы
-        if not criteria_types_to_process:
-            criteria_types_to_process = [('genres', None), ('themes', None), ('perspectives', None),
-                                         ('game_modes', None)]
+                if not found_in_db:
+                    sys.stderr.write(
+                        f"   ⚠️ Критерий '{self.criteria_name}' не найден в БД\n")
+                    sys.stderr.flush()
+            elif self.theme:
+                criteria_types_to_process.append(('themes', self.theme))
+                sys.stderr.write(f"   📚 Фильтрация: загружаем ТОЛЬКО тему '{self.theme}'\n")
+                sys.stderr.flush()
+            else:
+                criteria_types_to_process = [
+                    ('genres', None),
+                    ('themes', None),
+                    ('perspectives', None),
+                    ('game_modes', None),
+                ]
 
         # Компилируем паттерны в плоский список для быстрого доступа
         self.compiled_patterns = []
-        # Счетчик срабатываний паттернов для НОВЫХ критериев
         self.pattern_match_counter_new = defaultdict(int)
-        # Счетчик срабатываний паттернов для СУЩЕСТВУЮЩИХ критериев
         self.pattern_match_counter_existing = defaultdict(int)
-
-        # Кэш стоп-слов для каждого критерия
         self.criteria_stop_words_cache = {}
 
         for criteria_type, filter_name in criteria_types_to_process:
-            # Получаем паттерны для этого типа
             type_patterns = self.patterns.get(criteria_type, {})
 
-            # Если есть фильтр по имени, берем ТОЛЬКО паттерны для конкретного имени
             if filter_name:
                 filter_name_lower = filter_name.lower()
                 matched_name = None
@@ -580,7 +597,6 @@ class Command(BaseCommand):
                         break
 
                 if matched_name:
-                    # ВАЖНО: берем ВСЕ паттерны для этого имени (включая все варианты)
                     patterns_dict = {matched_name: type_patterns[matched_name]}
                     sys.stderr.write(
                         f"   🔍 Найдены паттерны для '{matched_name}': {len(type_patterns[matched_name]['patterns'])} шт.\n")
@@ -592,7 +608,6 @@ class Command(BaseCommand):
             else:
                 patterns_dict = type_patterns
 
-            # Добавляем пользовательский паттерн если указан
             if self.custom_pattern and filter_name:
                 sys.stderr.write(f"   🔧 Добавляем пользовательский паттерн: '{self.custom_pattern}'\n")
                 sys.stderr.flush()
@@ -609,7 +624,6 @@ class Command(BaseCommand):
                         'stop_words': []
                     }
 
-            # Компилируем паттерны и сохраняем стоп-слова на уровне критерия
             for name, pattern_data in patterns_dict.items():
                 name_lower = name.lower()
                 criteria_id = self.criteria_by_name.get(criteria_type, {}).get(name_lower)
@@ -617,13 +631,11 @@ class Command(BaseCommand):
                     patterns = pattern_data.get('patterns', [])
                     stop_words = pattern_data.get('stop_words', [])
 
-                    # Сохраняем стоп-слова для критерия
                     criteria_key = (criteria_type, criteria_id, name)
                     self.criteria_stop_words_cache[criteria_key] = stop_words
 
                     for compiled_pattern in patterns:
                         try:
-                            # Определяем регистрозависимость
                             if hasattr(compiled_pattern, 'flags'):
                                 is_case_sensitive = (compiled_pattern.flags & re.IGNORECASE == 0)
                             else:
@@ -642,10 +654,8 @@ class Command(BaseCommand):
                         except Exception as e:
                             continue
 
-        # Отладочный вывод - группируем по критериям
         sys.stderr.write(f"   ✅ Скомпилировано паттернов: {len(self.compiled_patterns)}\n")
         if hasattr(self, 'criteria_name') and self.criteria_name:
-            # Группируем паттерны по имени критерия
             patterns_by_name = {}
             for p in self.compiled_patterns:
                 if p['name'] == self.criteria_name:
@@ -659,16 +669,13 @@ class Command(BaseCommand):
             sys.stderr.write(
                 f"   🔍 Найдено паттернов для '{self.criteria_name}': {len(patterns_by_name.get(self.criteria_name, {}).get('patterns', []))}\n")
 
-            # Выводим сначала стоп-слова один раз, потом все паттерны
             for crit_name, data in patterns_by_name.items():
                 stop_words = data['stop_words']
-                # Выводим стоп-слова один раз
                 if stop_words:
                     sys.stderr.write(f"      🛑 Стоп-слова для '{crit_name}': {stop_words}\n")
                 else:
                     sys.stderr.write(f"      🛑 Стоп-слова для '{crit_name}': []\n")
 
-                # Выводим все паттерны
                 for pattern in data['patterns']:
                     sys.stderr.write(f"      - {pattern}\n")
         sys.stderr.flush()
@@ -829,7 +836,7 @@ class Command(BaseCommand):
                 'skipped': True,
                 'reason': 'no_text',
                 'count': 0,
-                'found': {'genres': [], 'themes': [], 'perspectives': [], 'game_modes': []},
+                'found': {'genres': [], 'themes': [], 'perspectives': [], 'game_modes': [], 'keywords': []},
                 'pattern_info': {},
                 'has_new': False
             }
@@ -837,6 +844,72 @@ class Command(BaseCommand):
         text_lower = text.lower()
         game_id = game_dict['id']
 
+        # ========== РЕЖИМ КЛЮЧЕВЫХ СЛОВ - ИСПОЛЬЗУЕМ TRIE ==========
+        if self.keywords_mode:
+            from games.analyze.keyword_trie import KeywordTrieManager
+
+            trie_manager = KeywordTrieManager()
+            trie = trie_manager.get_trie(verbose=False)
+
+            # Поиск всех ключевых слов в тексте
+            trie_results = trie.find_all_in_text(text, unique_only=True)
+
+            found_ids = set()
+            pattern_info = {'keywords': []}
+
+            for result in trie_results:
+                keyword_id = result['id']
+                if keyword_id not in found_ids:
+                    found_ids.add(keyword_id)
+                    pattern_info['keywords'].append({
+                        'name': result['name'],
+                        'matched_text': result['text'],
+                        'position': result['position'],
+                        'status': 'found',
+                        'pattern': 'trie_match'
+                    })
+
+            # Проверяем существующие связи для ключевых слов
+            has_new = False
+            found = {'genres': [], 'themes': [], 'perspectives': [], 'game_modes': [], 'keywords': []}
+
+            if found_ids and self.update_game:
+                from django.db import connection
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT keyword_ids FROM games_game WHERE id = %s", [game_id])
+                    row = cursor.fetchone()
+                    existing_keyword_ids = set(row[0] or []) if row else set()
+
+                for kw_id in found_ids:
+                    is_new = kw_id not in existing_keyword_ids
+                    if is_new:
+                        has_new = True
+                    found['keywords'].append({
+                        'id': kw_id,
+                        'name': self.criteria_by_id['keywords'].get(kw_id, 'Unknown'),
+                        'is_new': is_new
+                    })
+            else:
+                for kw_id in found_ids:
+                    found['keywords'].append({
+                        'id': kw_id,
+                        'name': self.criteria_by_id['keywords'].get(kw_id, 'Unknown'),
+                        'is_new': True
+                    })
+                has_new = len(found_ids) > 0
+
+            return {
+                'id': game_id,
+                'name': game_dict['name'],
+                'has_results': len(found_ids) > 0,
+                'skipped': False,
+                'count': len(found_ids),
+                'found': found,
+                'pattern_info': pattern_info,
+                'has_new': has_new
+            }
+
+        # ========== ОБЫЧНЫЙ РЕЖИМ - ЖАНРЫ, ТЕМЫ, ПЕРСПЕКТИВЫ, РЕЖИМЫ ==========
         found_ids = {
             'genres': set(),
             'themes': set(),
@@ -972,7 +1045,6 @@ class Command(BaseCommand):
             return False
 
         # Кэшируем проверку стоп-слов для каждого уникального критерия
-        # Ключ: (тип, id, имя) -> значение: есть ли стоп-слова в тексте
         stop_word_check_cache = {}
 
         for p in self.compiled_patterns:
@@ -1096,7 +1168,7 @@ class Command(BaseCommand):
             except Exception:
                 continue
 
-        found = {'genres': [], 'themes': [], 'perspectives': [], 'game_modes': []}
+        found = {'genres': [], 'themes': [], 'perspectives': [], 'game_modes': [], 'keywords': []}
         has_new = False
 
         if total_found > 0 and self.update_game:
@@ -1982,6 +2054,7 @@ class Command(BaseCommand):
             self.custom_pattern = options.get('custom_pattern')
             self.collect_all_patterns = options.get('collect_all_patterns', False)
             self.group_by_pattern = options.get('group_by_pattern', False)
+            self.keywords_mode = options.get('keywords', False)  # ДОБАВЛЯЕМ ФЛАГ KEYWORDS
 
             self.update_game = True
             self.combine_all_texts = not options.get('no_combine_texts', False)

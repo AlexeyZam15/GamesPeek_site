@@ -113,7 +113,8 @@ class BaseProgressBar:
 
     def update(self, total_games=None, total_loaded=None, current_iteration=None,
                iterations_without_new=None, updated_count=0, failed_count=0,
-               skipped_count=0, created_count=0, processed_count=0, errors=0):
+               skipped_count=0, created_count=0, processed_count=0, errors=0,
+               count_only=False, found_count=0):
         """Обновляет прогресс со статистикой"""
         if not self._enabled:
             return
@@ -132,6 +133,10 @@ class BaseProgressBar:
         self.stats['skipped_total'] = skipped_count
         self.stats['created'] = created_count
         self.stats['processed'] = processed_count
+        self.stats['found_count'] = found_count
+
+        # Сохраняем флаг count_only
+        self.count_only = count_only
 
         current_time = time.time()
 
@@ -172,7 +177,7 @@ class TopProgressBar(BaseProgressBar):
             return True
 
     def _display(self):
-        """Отображает прогресс вверху терминала"""
+        """Отображает прогресс вверху терминала с ANSI escape codes"""
         if not self._enabled or not self.is_tty:
             return
 
@@ -197,7 +202,6 @@ class TopProgressBar(BaseProgressBar):
         bar = self.filled_char * filled_length + self.empty_char * (self.bar_length - filled_length)
 
         elapsed_time = time.time() - self.start_time
-        # Используем существующий метод для расчета оставшегося времени
         time_str = self._calculate_time_string(elapsed_time, self.total_loaded, self.total_games)
 
         if self.total_games > 0:
@@ -207,17 +211,21 @@ class TopProgressBar(BaseProgressBar):
 
         spacing = " " * self.emoji_spacing
 
-        message += f"✅{spacing}{self.stats['created']:>{self.stat_width}} "
-        message += f"💾{spacing}{self.stats['updated']:>{self.stat_width}} "
-        message += f"❌{spacing}{self.stats['errors']:>{self.stat_width}} "
-        message += f"⏭️{spacing}{self.stats['skipped_total']:>{self.stat_width}} "
+        # В режиме count_only показываем найденные игры как ✅
+        if hasattr(self, 'count_only') and self.count_only:
+            message += f"🔍{spacing}{self.stats['found_count']:>{self.stat_width}} "
+            message += f"⏭️{spacing}{self.stats['skipped_total']:>{self.stat_width}} "
+        else:
+            message += f"✅{spacing}{self.stats['created']:>{self.stat_width}} "
+            message += f"💾{spacing}{self.stats['updated']:>{self.stat_width}} "
+            message += f"❌{spacing}{self.stats['errors']:>{self.stat_width}} "
+            message += f"⏭️{spacing}{self.stats['skipped_total']:>{self.stat_width}} "
 
         if self.current_iteration > 0:
             message += f"🔄{spacing}{self.current_iteration:>{self.stat_width}} "
         if self.iterations_without_new > 0:
             message += f"⏸️{spacing}{self.iterations_without_new:>{self.stat_width}} "
 
-        # Добавляем строку с оставшимся временем
         message += f"({time_str})"
 
         terminal_width = 150
@@ -293,22 +301,25 @@ class SimpleProgressBar(BaseProgressBar):
             message = f"{self.desc}: [{self.total_loaded} игр] "
 
         elapsed_time = time.time() - self.start_time
-        # Используем существующий метод для расчета оставшегося времени
         time_str = self._calculate_time_string(elapsed_time, self.total_loaded, self.total_games)
 
         spacing = " " * self.emoji_spacing
 
-        message += f"✅{spacing}{self.stats['created']:>{self.stat_width}} "
-        message += f"💾{spacing}{self.stats['updated']:>{self.stat_width}} "
-        message += f"❌{spacing}{self.stats['errors']:>{self.stat_width}} "
-        message += f"⏭️{spacing}{self.stats['skipped_total']:>{self.stat_width}} "
+        # В режиме count_only показываем найденные игры как ✅
+        if hasattr(self, 'count_only') and self.count_only:
+            message += f"🔍{spacing}{self.stats['found_count']:>{self.stat_width}} "
+            message += f"⏭️{spacing}{self.stats['skipped_total']:>{self.stat_width}} "
+        else:
+            message += f"✅{spacing}{self.stats['created']:>{self.stat_width}} "
+            message += f"💾{spacing}{self.stats['updated']:>{self.stat_width}} "
+            message += f"❌{spacing}{self.stats['errors']:>{self.stat_width}} "
+            message += f"⏭️{spacing}{self.stats['skipped_total']:>{self.stat_width}} "
 
         if self.current_iteration > 0:
             message += f"🔄{spacing}{self.current_iteration:>{self.stat_width}} "
         if self.iterations_without_new > 0:
             message += f"⏸️{spacing}{self.iterations_without_new:>{self.stat_width}} "
 
-        # Добавляем строку с оставшимся временем
         message += f"({time_str})"
 
         self.last_printed_length = len(message)
@@ -597,7 +608,7 @@ class BaseGamesCommand(BaseCommand):
         return True
 
     def update_total_stats(self, total_stats, iteration_stats, iteration,
-                           current_offset, execution_mode, progress_bar, debug_mode=False):
+                           current_offset, execution_mode, progress_bar, debug_mode=False, count_only=False):
         """Обновляет общую статистику"""
         total_stats['iterations'] += 1
         total_stats['total_games_found'] += iteration_stats.get('total_games_found', 0)
@@ -608,7 +619,6 @@ class BaseGamesCommand(BaseCommand):
         total_stats['total_games_updated'] += iteration_stats.get('updated_count', 0)
         total_stats['total_time'] += iteration_stats.get('total_time', 0)
 
-        # Подсчитываем ВСЕ обработанные игры для отображения
         processed = (total_stats['total_games_created'] +
                      total_stats['total_games_updated'] +
                      total_stats['total_games_skipped'])
@@ -620,15 +630,33 @@ class BaseGamesCommand(BaseCommand):
             total_stats['iterations_with_no_new_games'] = 0
 
         if progress_bar:
-            progress_bar.update(
-                total_loaded=processed,  # ← Теперь показываем ВСЕ обработанные игры
-                current_iteration=iteration,
-                iterations_without_new=total_stats['iterations_with_no_new_games'],
-                created_count=total_stats['total_games_created'],
-                updated_count=total_stats['total_games_updated'],
-                skipped_count=total_stats['total_games_skipped'],
-                errors=total_stats['errors']
-            )
+            # В режиме count_only показываем found_count вместо created
+            if count_only:
+                progress_bar.update(
+                    total_loaded=processed,
+                    current_iteration=iteration,
+                    iterations_without_new=total_stats['iterations_with_no_new_games'],
+                    created_count=0,  # Не показываем созданные
+                    updated_count=total_stats['total_games_updated'],
+                    skipped_count=total_stats['total_games_skipped'],
+                    processed_count=total_stats['total_games_checked'],
+                    errors=total_stats['errors'],
+                    count_only=True,
+                    found_count=total_stats['total_games_found']  # Показываем найденные
+                )
+            else:
+                progress_bar.update(
+                    total_loaded=processed,
+                    current_iteration=iteration,
+                    iterations_without_new=total_stats['iterations_with_no_new_games'],
+                    created_count=total_stats['total_games_created'],
+                    updated_count=total_stats['total_games_updated'],
+                    skipped_count=total_stats['total_games_skipped'],
+                    processed_count=total_stats['total_games_checked'],
+                    errors=total_stats['errors'],
+                    count_only=False,
+                    found_count=0
+                )
 
         iteration_errors = iteration_stats.get('errors', 0)
         if iteration_errors > 0:

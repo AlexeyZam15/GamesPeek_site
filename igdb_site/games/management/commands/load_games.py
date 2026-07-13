@@ -113,12 +113,12 @@ class Command(BaseCommand):
                 self.stdout.write(f'   ❌ Ошибка очистки кэша: {e}')
 
             self.stdout.write('=' * 50)
-
-            if not options.get('force', False):
-                response = input('\nПродолжить выполнение команды? (y/n): ')
-                if response.lower() != 'y':
-                    self.stdout.write('⏹️ Команда отменена')
-                    return
+            # Удаляем подтверждение
+            # if not options.get('force', False):
+            #     response = input('\nПродолжить выполнение команды? (y/n): ')
+            #     if response.lower() != 'y':
+            #         self.stdout.write('⏹️ Команда отменена')
+            #         return
 
         if options.get('restore_genre'):
             genre_name = options['restore_genre'].strip()
