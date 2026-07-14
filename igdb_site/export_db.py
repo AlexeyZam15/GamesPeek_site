@@ -433,6 +433,13 @@ Environment variables (in .env):
             print("⚠️  WARNING: This will DROP and RECREATE the entire database!")
             print("   All existing data will be lost.")
             print()
+
+            # Исправление проблемы с кодировкой: принудительно устанавливаем кодировку для stdin
+            import sys
+            if sys.stdin.encoding is None or sys.stdin.encoding.upper() != 'UTF-8':
+                import io
+                sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8', errors='replace')
+
             response = input("   Do you want to continue? (yes/no): ")
 
             if response.lower() != 'yes':
@@ -456,7 +463,6 @@ Environment variables (in .env):
 
             print()
 
-            # 1. Terminate connections
             print("   Terminating existing connections...")
             terminate_sql = f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{db_params['db_name']}' AND pid <> pg_backend_pid();"
             terminate_result = subprocess.run(
@@ -471,7 +477,6 @@ Environment variables (in .env):
             if terminate_result.returncode != 0:
                 print(f"⚠️  Warning: {terminate_result.stderr}")
 
-            # 2. Drop database
             print("   Dropping database...")
             drop_result = subprocess.run(
                 [psql_path, admin_conn_string, '-c', f'DROP DATABASE IF EXISTS {db_params["db_name"]};'],
@@ -490,7 +495,6 @@ Environment variables (in .env):
                 print(f"   PGSUPERUSER_PASSWORD=postgres")
                 sys.exit(1)
 
-            # 3. Create database with django_user as owner
             print("   Creating new database...")
             create_result = subprocess.run(
                 [psql_path, admin_conn_string, '-c',
@@ -511,7 +515,6 @@ Environment variables (in .env):
             print("⏳ Restoring data from dump...")
             print()
 
-            # Now restore using django_user
             conn_string = f'postgresql://{db_params["db_user"]}@{db_params["db_host"]}:{db_params["db_port"]}/{db_params["db_name"]}'
 
             restore_env = os.environ.copy()
