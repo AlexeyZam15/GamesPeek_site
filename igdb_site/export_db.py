@@ -16,6 +16,7 @@ import time
 import argparse
 from pathlib import Path
 from django.conf import settings
+from dotenv import load_dotenv
 
 
 def setup_django():
@@ -24,26 +25,28 @@ def setup_django():
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'igdb_site.settings')
     if str(PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(PROJECT_ROOT))
+
+    # Load .env file
+    env_path = PROJECT_ROOT / '.env'
+    if env_path.exists():
+        load_dotenv(env_path)
+
     django.setup()
 
 
 def find_postgres_bin(executable_name):
     """
     Find PostgreSQL executable (pg_dump or pg_restore) with priority for version 18.
-
     Args:
         executable_name: Name of executable ('pg_dump' or 'pg_restore')
-
     Returns:
         Path to executable
     """
-    # Check if executable is in PATH first (works on Linux VPS)
     which_cmd = shutil.which(executable_name)
     if which_cmd:
         print(f"  Found in PATH: {which_cmd}")
         return which_cmd
 
-    # Check environment variable for custom PostgreSQL path
     pg_path = os.getenv('POSTGRESQL_PATH')
     if pg_path:
         potential_path = Path(pg_path) / 'bin' / executable_name
@@ -55,7 +58,6 @@ def find_postgres_bin(executable_name):
             print(f"  Using POSTGRESQL_PATH: {potential_path_exe}")
             return str(potential_path_exe)
 
-    # Check bundled PostgreSQL (for compiled Windows app)
     bundled_paths = [
         Path(__file__).parent / 'PostgreSQL' / '18' / 'bin' / executable_name,
         Path(__file__).parent / 'PostgreSQL' / '18' / 'bin' / f'{executable_name}.exe',
@@ -70,7 +72,6 @@ def find_postgres_bin(executable_name):
             print(f"  Using bundled PostgreSQL: {path}")
             return str(path)
 
-    # Check common Windows installation paths for PostgreSQL 18
     windows_paths = [
         f'C:\\Program Files\\PostgreSQL\\18\\bin\\{executable_name}.exe',
         f'C:\\Program Files\\PostgreSQL\\18\\bin\\{executable_name}',
@@ -83,7 +84,6 @@ def find_postgres_bin(executable_name):
             print(f"  Using system PostgreSQL: {path}")
             return path
 
-    # Check Linux paths (for VPS)
     linux_paths = [
         '/usr/bin/pg_dump',
         '/usr/local/bin/pg_dump',
@@ -117,14 +117,24 @@ def get_database_connection_params():
     }
 
 
+def get_superuser_params():
+    """
+    Get superuser parameters from environment variables.
+    Returns:
+        dict: {'user': 'postgres', 'password': 'postgres'}
+    """
+    return {
+        'user': os.getenv('PGSUPERUSER', 'postgres'),
+        'password': os.getenv('PGSUPERUSER_PASSWORD', ''),
+    }
+
+
 def export_database(dump_file_path, upload_to_vps_flag=False):
     """
     Export database to full PostgreSQL native dump.
-
     Args:
         dump_file_path: Path where to save the dump file
         upload_to_vps_flag: If True, upload the dump to VPS server after export
-
     Returns:
         bool: True if export successful, False otherwise
     """
@@ -152,7 +162,6 @@ def export_database(dump_file_path, upload_to_vps_flag=False):
         print(f"❌ {e}")
         return False
 
-    # Build connection string
     conn_string = f'postgresql://{db_params["db_user"]}@{db_params["db_host"]}:{db_params["db_port"]}/{db_params["db_name"]}'
 
     cmd = [
@@ -180,7 +189,9 @@ def export_database(dump_file_path, upload_to_vps_flag=False):
             env=env,
             stdout=f,
             stderr=subprocess.PIPE,
-            text=True
+            text=True,
+            encoding='utf-8',
+            errors='replace'
         )
 
     elapsed = time.time() - start_time
@@ -205,7 +216,6 @@ def export_database(dump_file_path, upload_to_vps_flag=False):
     print(f"   Final size: {dump_size_mb:.1f} MB")
     print()
 
-    # Upload to VPS if flag is set
     if upload_to_vps_flag:
         print("\n" + "=" * 60)
         print("📤 UPLOADING TO VPS SERVER")
@@ -217,7 +227,6 @@ def export_database(dump_file_path, upload_to_vps_flag=False):
         vps_user = os.getenv('VPS_USER')
         vps_path = os.getenv('VPS_PATH')
 
-        # Validate required environment variables
         missing_vars = []
         if not ssh_password:
             missing_vars.append('SSH_PASSWORD')
@@ -257,22 +266,18 @@ def export_database(dump_file_path, upload_to_vps_flag=False):
 def upload_to_vps(dump_file_path, ssh_password, vps_host, vps_user, vps_path):
     """
     Upload dump file to VPS server via SCP.
-
     Args:
         dump_file_path: Path to the dump file to upload
         ssh_password: SSH password for authentication
         vps_host: VPS server hostname or IP address
         vps_user: SSH username for VPS
         vps_path: Remote directory path on VPS
-
     Returns:
         bool: True if upload successful, False otherwise
     """
-    # Ensure remote path ends with slash
     if not vps_path.endswith('/'):
         vps_path += '/'
 
-    # Create full remote path with filename
     remote_full_path = f"{vps_user}@{vps_host}:{vps_path}{dump_file_path.name}"
 
     print(f"📡 Target: {vps_user}@{vps_host}")
@@ -280,7 +285,6 @@ def upload_to_vps(dump_file_path, ssh_password, vps_host, vps_user, vps_path):
     print(f"📄 File: {dump_file_path.name}")
     print()
 
-    # Use sshpass to provide password to scp
     sshpass_path = shutil.which('sshpass')
 
     if not sshpass_path:
@@ -290,7 +294,6 @@ def upload_to_vps(dump_file_path, ssh_password, vps_host, vps_user, vps_path):
         print("   - macOS: brew install hudochenkov/sshpass/sshpass")
         return False
 
-    # Build scp command with sshpass
     cmd = [
         sshpass_path,
         '-p', ssh_password,
@@ -313,6 +316,8 @@ def upload_to_vps(dump_file_path, ssh_password, vps_host, vps_user, vps_path):
             stderr=subprocess.PIPE,
             stdout=subprocess.PIPE,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             timeout=3600
         )
 
@@ -355,12 +360,14 @@ Examples:
     python export_db.py import       # Import database from database.dump
     python export_db.py import my.dump  # Import from specific dump file
 
-Environment variables:
-    POSTGRESQL_PATH - Path to PostgreSQL installation directory
-    SSH_PASSWORD - Password for VPS server (required for --upload option)
-    VPS_HOST - VPS server hostname or IP address (default: 138.124.18.244)
-    VPS_USER - SSH username for VPS (default: root)
-    VPS_PATH - Remote directory path on VPS (default: /home/django/igdb_site/igdb_site/)
+Environment variables (in .env):
+    DB_NAME - Database name
+    DB_USER - Django database user
+    DB_PASSWORD - Django database user password
+    DB_HOST - Database host
+    DB_PORT - Database port
+    PGSUPERUSER - PostgreSQL superuser (default: postgres)
+    PGSUPERUSER_PASSWORD - PostgreSQL superuser password
         """
     )
 
@@ -382,7 +389,7 @@ Environment variables:
     parser.add_argument(
         '--upload',
         action='store_true',
-        help='Upload the dump file to VPS server after export (requires SSH_PASSWORD, VPS_HOST, VPS_USER, VPS_PATH in .env)'
+        help='Upload the dump file to VPS server after export'
     )
 
     args = parser.parse_args()
@@ -403,14 +410,17 @@ Environment variables:
                 sys.exit(1)
 
             db_params = get_database_connection_params()
+            superuser = get_superuser_params()
 
             dump_size_mb = dump_file_path.stat().st_size / (1024 * 1024)
             print(f"📁 Source dump: {dump_file_path.name}")
             print(f"   Size: {dump_size_mb:.1f} MB")
             print()
             print(f"🎯 Target database: {db_params['db_name']}")
-            print(f"👤 User: {db_params['db_user']}")
+            print(f"👤 Django user: {db_params['db_user']}")
             print(f"🔗 Host: {db_params['db_host']}:{db_params['db_port']}")
+            print()
+            print(f"👑 Superuser: {superuser['user']}")
             print()
 
             try:
@@ -420,7 +430,6 @@ Environment variables:
                 print(f"❌ {e}")
                 sys.exit(1)
 
-            # Подтверждение перед импортом
             print("⚠️  WARNING: This will DROP and RECREATE the entire database!")
             print("   All existing data will be lost.")
             print()
@@ -434,47 +443,63 @@ Environment variables:
             print("⏳ Dropping and recreating database...")
             print()
 
-            # Настройки для административных операций (подключаемся к БД postgres)
             admin_db_name = 'postgres'
 
-            # Формируем строку подключения к админской БД
-            admin_conn_string = f'postgresql://{db_params["db_user"]}@{db_params["db_host"]}:{db_params["db_port"]}/{admin_db_name}'
+            admin_conn_string = f'postgresql://{superuser["user"]}@{db_params["db_host"]}:{db_params["db_port"]}/{admin_db_name}'
 
             env = os.environ.copy()
-            if db_params['db_password']:
-                env['PGPASSWORD'] = db_params['db_password']
+            if superuser['password']:
+                env['PGPASSWORD'] = superuser['password']
+                print(f"   Using password for superuser '{superuser['user']}'")
+            else:
+                print(f"   No password set for superuser '{superuser['user']}', trying without password...")
 
-            # 1. Завершаем все подключения к целевой БД
+            print()
+
+            # 1. Terminate connections
             print("   Terminating existing connections...")
-            terminate_sql = f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{db_params['db_name']}';"
-            subprocess.run(
+            terminate_sql = f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{db_params['db_name']}' AND pid <> pg_backend_pid();"
+            terminate_result = subprocess.run(
                 [psql_path, admin_conn_string, '-c', terminate_sql],
                 env=env,
                 capture_output=True,
-                text=True
+                text=True,
+                encoding='utf-8',
+                errors='replace'
             )
 
-            # 2. Удаляем базу данных если существует
+            if terminate_result.returncode != 0:
+                print(f"⚠️  Warning: {terminate_result.stderr}")
+
+            # 2. Drop database
             print("   Dropping database...")
             drop_result = subprocess.run(
                 [psql_path, admin_conn_string, '-c', f'DROP DATABASE IF EXISTS {db_params["db_name"]};'],
                 env=env,
                 capture_output=True,
-                text=True
+                text=True,
+                encoding='utf-8',
+                errors='replace'
             )
 
             if drop_result.returncode != 0:
                 print(f"❌ Failed to drop database: {drop_result.stderr}")
+                print()
+                print("💡 If you don't have permissions, add to .env:")
+                print(f"   PGSUPERUSER=postgres")
+                print(f"   PGSUPERUSER_PASSWORD=postgres")
                 sys.exit(1)
 
-            # 3. Создаем новую базу данных
+            # 3. Create database with django_user as owner
             print("   Creating new database...")
             create_result = subprocess.run(
                 [psql_path, admin_conn_string, '-c',
-                 f'CREATE DATABASE {db_params["db_name"]} ENCODING "UTF8" LC_COLLATE "C" LC_CTYPE "C" TEMPLATE template0;'],
+                 f'CREATE DATABASE {db_params["db_name"]} ENCODING "UTF8" LC_COLLATE "C" LC_CTYPE "C" TEMPLATE template0 OWNER {db_params["db_user"]};'],
                 env=env,
                 capture_output=True,
-                text=True
+                text=True,
+                encoding='utf-8',
+                errors='replace'
             )
 
             if create_result.returncode != 0:
@@ -486,10 +511,13 @@ Environment variables:
             print("⏳ Restoring data from dump...")
             print()
 
-            # Формируем строку подключения к новой БД
+            # Now restore using django_user
             conn_string = f'postgresql://{db_params["db_user"]}@{db_params["db_host"]}:{db_params["db_port"]}/{db_params["db_name"]}'
 
-            # Команда pg_restore
+            restore_env = os.environ.copy()
+            if db_params['db_password']:
+                restore_env['PGPASSWORD'] = db_params['db_password']
+
             restore_cmd = [
                 pg_restore_path,
                 '--dbname', conn_string,
@@ -498,27 +526,32 @@ Environment variables:
                 '--jobs', '4'
             ]
 
-            # Добавляем файл дампа
             restore_cmd.append(str(dump_file_path))
 
             start_time = time.time()
 
-            # Выполняем восстановление
             result = subprocess.run(
                 restore_cmd,
-                env=env,
+                env=restore_env,
                 stderr=subprocess.PIPE,
                 stdout=subprocess.PIPE,
-                text=True
+                text=True,
+                encoding='utf-8',
+                errors='replace'
             )
 
             elapsed = time.time() - start_time
 
-            # Выводим результат
             if result.stdout:
                 print(result.stdout[:2000])
             if result.stderr:
-                print(result.stderr[:2000])
+                stderr_lines = result.stderr.split('\n')
+                error_lines = []
+                for line in stderr_lines:
+                    if 'WARNING' not in line and 'warning' not in line:
+                        error_lines.append(line)
+                if error_lines:
+                    print('\n'.join(error_lines[:1000]))
 
             if result.returncode != 0:
                 print("❌ Import failed!")
