@@ -222,8 +222,12 @@ def game_list(request: HttpRequest) -> HttpResponse:
     selected_criteria = convert_params_to_lists(params)
 
     # Набор параметров, реально присутствующих в запросе (даже если пустые).
-    # Нужен, чтобы отличать "параметр отсутствует" от "параметр явно очищен".
     present_params = set(request.GET.keys())
+
+    # Есть ли similarity-параметры -> пользователь изменил критерии.
+    has_similarity_overrides = any(
+        p in present_params for p in ('g', 'k', 't', 'pp', 'gm', 'e')
+    )
 
     years_range = _get_cached_years_range()
 
@@ -275,11 +279,11 @@ def game_list(request: HttpRequest) -> HttpResponse:
         'developers': selected_criteria.get('developers', []),
     }
 
-    if find_similar and source_game_obj:
-        # ВАЖНО: подставляем критерии из исходной игры ТОЛЬКО для тех параметров,
-        # которых вообще нет в запросе. Если параметр присутствует, но пустой
-        # (например, g= после удаления всех жанров), пользователь явно очистил
-        # фильтр — ничего не подставляем.
+    # Подстановка критериев из source в similarity_selected делается ТОЛЬКО
+    # в исходном режиме (без similarity-параметров). Если пользователь изменил
+    # критерии (есть g/k/t/pp/gm/e), подстановок нет: бейджи и расчёт
+    # соответствуют только явно выбранным критериям (virtual-режим).
+    if find_similar and source_game_obj and not has_similarity_overrides:
         if 'g' not in present_params:
             similarity_selected['genres'] = [g.id for g in source_game_obj.genres.all()]
         if 'k' not in present_params:
@@ -330,10 +334,10 @@ def game_list(request: HttpRequest) -> HttpResponse:
             search_selected['release_year_start'], search_selected['release_year_end']
         ])
 
-        if find_similar and (source_game_obj or any(similarity_selected.values())):
+        if find_similar and (source_game_obj or any(similarity_selected.values()) or has_similarity_overrides):
             mode_result = _get_similar_games_mode_with_pagination(
                 params,
-                similarity_selected,
+                selected_criteria,
                 source_game_obj,
                 page_num,
                 search_genres_list=search_selected['genres'],
@@ -413,12 +417,12 @@ def game_list(request: HttpRequest) -> HttpResponse:
             show_similarity_flag = False
 
     breadcrumb_json_ld = ''
-    if find_similar and source_game_obj:
+    if find_similar and source_game_obj and not has_similarity_overrides:
         breadcrumb_json_ld = generate_similar_games_breadcrumb(
             game_title=source_game_obj.name,
             base_url="https://gamespeek.dpdns.org"
         )
-    elif find_similar and params.get('source_game'):
+    elif find_similar and params.get('source_game') and not has_similarity_overrides:
         try:
             from ..models import Game
             source_game_temp = Game.objects.only('name').get(pk=int(params['source_game']))
@@ -517,13 +521,14 @@ def game_list(request: HttpRequest) -> HttpResponse:
             'message': 'Filters rendered on server with caching',
             'find_similar': find_similar,
             'has_source_game': source_game_obj is not None,
+            'has_similarity_overrides': has_similarity_overrides,
             'engines_count': len(filter_data.get('engines', [])),
             'server_rendered_first_page': is_first_page,
         },
         'breadcrumb_json_ld': breadcrumb_json_ld,
     }
 
-    if source_game_obj and not source_game_for_template:
+    if source_game_obj and not source_game_for_template and not has_similarity_overrides:
         game_criteria = {
             'genres': similarity_selected['genres'],
             'keywords': similarity_selected['keywords'],
@@ -699,6 +704,10 @@ def ajax_load_filters(request: HttpRequest) -> HttpResponse:
     # Набор параметров, реально присутствующих в запросе (даже если пустые).
     present_params = set(request.GET.keys())
 
+    has_similarity_overrides = any(
+        p in present_params for p in ('g', 'k', 't', 'pp', 'gm', 'e')
+    )
+
     years_range = _get_cached_years_range()
     filter_data = _get_optimized_filter_data()
 
@@ -735,10 +744,10 @@ def ajax_load_filters(request: HttpRequest) -> HttpResponse:
         'developers': selected_criteria.get('developers', []),
     }
 
-    # Подставляем критерии из source_game ТОЛЬКО для параметров,
-    # которых нет в запросе. Явно пустой параметр (g=) означает,
-    # что пользователь очистил выбор, и подставлять нельзя.
-    if find_similar and source_game_obj:
+    # Подстановка критериев из source — только в исходном режиме
+    # (без similarity-параметров). При изменении критериев бейджи должны
+    # соответствовать только явно выбранным значениям (virtual-режим).
+    if find_similar and source_game_obj and not has_similarity_overrides:
         if 'g' not in present_params:
             similarity_selected['genres'] = [g.id for g in source_game_obj.genres.all()]
         if 'k' not in present_params:
@@ -1052,11 +1061,14 @@ def _get_similar_games_mode_with_pagination(
     """
     Режим похожих игр с СЕРВЕРНОЙ пагинацией.
 
-    Всегда выполняет полный расчёт через GameSimilarity (find_similar_games).
-    Similarity-параметры (g/k/t/pp/gm/e), присутствующие в запросе, передаются
-    как override_criteria — они заменяют соответствующие критерии source-игры
-    при расчёте процентов. Отсутствующий параметр означает "взять из source".
-    Пустой параметр (например, g=) означает "исключить критерий".
+    Если в запросе присутствует хотя бы один similarity-параметр
+    (g/k/t/pp/gm/e), пользователь изменил критерии: поиск идёт по
+    VirtualGame, построенной из selected_criteria (только явно выбранные
+    в URL критерии). Source-игра в результатах отсутствует.
+
+    Если similarity-параметров нет — используется source_game_obj как
+    якорь (get_similar_games_for_game), source-игра присутствует в
+    результатах с 100%.
     """
     import time
 
@@ -1065,25 +1077,13 @@ def _get_similar_games_mode_with_pagination(
 
     present_params = present_params or set()
 
-    # Similarity-параметры, которые заменяют критерии source-игры.
-    # Ключ — имя поля в override_criteria, значение — имя GET-параметра.
-    similarity_param_map = {
-        'genres': 'g',
-        'keywords': 'k',
-        'themes': 't',
-        'perspectives': 'pp',
-        'game_modes': 'gm',
-        'engines': 'e',
-    }
-
-    # Строим override_criteria: только для параметров, реально присутствующих в запросе.
-    override_criteria = {}
-    for field, param_name in similarity_param_map.items():
-        if param_name in present_params:
-            override_criteria[field] = list(selected_criteria.get(field, []) or [])
+    # Наличие хотя бы одного similarity-параметра означает, что пользователь
+    # изменил критерии -> virtual-режим без source-игры.
+    has_similarity_overrides = any(
+        p in present_params for p in ('g', 'k', 't', 'pp', 'gm', 'e')
+    )
 
     # Собираем search_filters ТОЛЬКО из search_* (Search-вкладка).
-    # Similarity-поля идут через override_criteria, чтобы не дублировать.
     search_filters = {}
     if search_platforms_list:
         search_filters['platforms'] = search_platforms_list
@@ -1095,40 +1095,60 @@ def _get_similar_games_mode_with_pagination(
         search_filters['release_year_end'] = search_year_end_int
 
     _debug_print(
-        f"[SIMILAR MODE] FULL calculation (page={page_num}, override={override_criteria}, search={search_filters})"
+        f"[SIMILAR MODE] has_similarity_overrides={has_similarity_overrides}, "
+        f"search_filters={search_filters}, page={page_num}"
     )
 
-    if source_game_obj:
-        similar_games_data, total_count = get_similar_games_for_game(
-            source_game_obj, [], search_filters, override_criteria=override_criteria
+    effective_source_game_obj = None
+
+    if has_similarity_overrides:
+        # Virtual-режим: поиск по явно выбранным критериям (из URL).
+        # source-игра не используется и не показывается.
+        similar_games_data, total_count = get_similar_games_for_criteria(
+            selected_criteria, search_filters
         )
 
-        source_display = source_game_obj.name
-        # В source_game для шаблона подставляем эффективные критерии:
-        # при наличии override — из override, иначе из source.
-        game_criteria = {
-            'genres': override_criteria.get('genres', [g.id for g in source_game_obj.genres.all()]),
-            'keywords': override_criteria.get('keywords', [k.id for k in source_game_obj.keywords.all()]),
-            'themes': override_criteria.get('themes', [t.id for t in source_game_obj.themes.all()]),
-            'perspectives': override_criteria.get('perspectives',
-                                                  [p.id for p in source_game_obj.player_perspectives.all()]),
-            'game_modes': override_criteria.get('game_modes',
-                                                [gm.id for gm in source_game_obj.game_modes.all()]),
-            'engines': override_criteria.get('engines', [e.id for e in source_game_obj.engines.all()]),
-        }
-        source_game = SimpleSourceGame(
-            game_obj=source_game_obj,
-            criteria=game_criteria,
-            display_name=source_display
-        )
-    else:
-        similar_games_data, total_count = get_similar_games_for_criteria(selected_criteria, search_filters)
         source_display = "Search Criteria"
         source_game = SimpleSourceGame(
             game_obj=None,
             criteria=selected_criteria,
             display_name=source_display
         )
+        effective_source_game_obj = None
+    else:
+        if source_game_obj:
+            # Исходный режим "похожие на X": source как якорь.
+            similar_games_data, total_count = get_similar_games_for_game(
+                source_game_obj, [], search_filters
+            )
+
+            source_display = source_game_obj.name
+            game_criteria = {
+                'genres': [g.id for g in source_game_obj.genres.all()],
+                'keywords': [k.id for k in source_game_obj.keywords.all()],
+                'themes': [t.id for t in source_game_obj.themes.all()],
+                'perspectives': [p.id for p in source_game_obj.player_perspectives.all()],
+                'game_modes': [gm.id for gm in source_game_obj.game_modes.all()],
+                'engines': [e.id for e in source_game_obj.engines.all()],
+            }
+            source_game = SimpleSourceGame(
+                game_obj=source_game_obj,
+                criteria=game_criteria,
+                display_name=source_display
+            )
+            effective_source_game_obj = source_game_obj
+        else:
+            # Нет source — поиск по критериям.
+            similar_games_data, total_count = get_similar_games_for_criteria(
+                selected_criteria, search_filters
+            )
+            source_display = "Search Criteria"
+            source_game = SimpleSourceGame(
+                game_obj=None,
+                criteria=selected_criteria,
+                display_name=source_display
+            )
+            effective_source_game_obj = None
 
     # Форматируем данные
     games_with_similarity = _format_similar_games_data(similar_games_data)
@@ -1161,7 +1181,7 @@ def _get_similar_games_mode_with_pagination(
         'show_similarity': True,
         'find_similar': True,
         'source_game': source_game,
-        'source_game_obj': source_game_obj,
+        'source_game_obj': effective_source_game_obj,
         'timers': {'total': time.time() - total_start},
     }
 
@@ -1460,37 +1480,54 @@ def get_similar_games_for_criteria(selected_criteria: Dict[str, List[int]], sear
 
     print(f"\n=== get_similar_games_for_criteria START ===")
     print(
-        f"Criteria: genres={len(selected_criteria['genres'])}, keywords={len(selected_criteria['keywords'])}, themes={len(selected_criteria['themes'])}, engines={len(selected_criteria.get('engines', []))}")
+        f"Criteria: genres={len(selected_criteria['genres'])}, keywords={len(selected_criteria['keywords'])}, "
+        f"themes={len(selected_criteria['themes'])}, engines={len(selected_criteria.get('engines', []))}, "
+        f"perspectives={len(selected_criteria.get('perspectives', []))}, "
+        f"game_modes={len(selected_criteria.get('game_modes', []))}, "
+        f"developers={len(selected_criteria.get('developers', []))}"
+    )
     print(f"Search filters: {search_filters}")
 
-    similarity_engine = GameSimilarity()
+    try:
+        similarity_engine = GameSimilarity()
 
-    virtual_game = VirtualGame(
-        genre_ids=selected_criteria['genres'],
-        keyword_ids=selected_criteria['keywords'],
-        theme_ids=selected_criteria['themes'],
-        perspective_ids=selected_criteria['perspectives'],
-        developer_ids=selected_criteria['developers'],
-        game_mode_ids=selected_criteria['game_modes'],
-        engine_ids=selected_criteria['engines'],
-    )
+        virtual_game = VirtualGame(
+            genre_ids=selected_criteria['genres'],
+            keyword_ids=selected_criteria['keywords'],
+            theme_ids=selected_criteria['themes'],
+            perspective_ids=selected_criteria['perspectives'],
+            developer_ids=selected_criteria['developers'],
+            game_mode_ids=selected_criteria['game_modes'],
+            engine_ids=selected_criteria['engines'],
+        )
 
-    similar_games = similarity_engine.find_similar_games(
-        source_game=virtual_game,
-        search_filters=search_filters
-    )
+        # Для VirtualGame порог 0: при пустых критериях similarity всех
+        # кандидатов = 0, порог 40 отсекал бы всех. find_similar_games
+        # сам понижает порог до 0, если main_criteria = 0, но передаём явно.
+        similar_games = similarity_engine.find_similar_games(
+            source_game=virtual_game,
+            min_similarity=0,
+            limit=500,
+            search_filters=search_filters,
+        )
 
-    total_count = len(similar_games)
+        total_count = len(similar_games)
 
-    print(f"find_similar_games executed: {time.time() - start_total:.3f}s, found {total_count} games")
+        print(f"find_similar_games executed: {time.time() - start_total:.3f}s, found {total_count} games")
 
-    criteria_count = sum(len(v) for key, v in selected_criteria.items()
-                         if key not in ['release_years', 'release_year_start', 'release_year_end'])
+        criteria_count = sum(len(v) for key, v in selected_criteria.items()
+                             if key not in ['release_years', 'release_year_start', 'release_year_end'])
 
-    print(f"TOTAL time: {time.time() - start_total:.2f}s, criteria: {criteria_count}, results: {total_count}")
-    print("=== get_similar_games_for_criteria END ===\n")
+        print(f"TOTAL time: {time.time() - start_total:.2f}s, criteria: {criteria_count}, results: {total_count}")
+        print("=== get_similar_games_for_criteria END ===\n")
 
-    return similar_games, total_count
+        return similar_games, total_count
+    except Exception as e:
+        print(f"[get_similar_games_for_criteria] ОШИБКА: {e}")
+        import traceback
+        traceback.print_exc()
+        print("=== get_similar_games_for_criteria END (error) ===\n")
+        return [], 0
 
 
 def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int], search_filters: Dict = None,
@@ -1519,9 +1556,11 @@ def get_similar_games_for_game(game_obj: Game, selected_platforms: List[int], se
 
     similarity_engine = GameSimilarity()
 
+    # min_similarity не передаём — используется DEFAULT_MIN_SIMILARITY (40).
+    # Если эффективные критерии (с учётом override) пусты, find_similar_games
+    # сам понижает порог до 0, чтобы не отсекать всех кандидатов с similarity 0.
     similar_games = similarity_engine.find_similar_games(
         source_game=game_obj,
-        min_similarity=0,
         limit=500,
         search_filters=search_filters,
         override_criteria=override_criteria,

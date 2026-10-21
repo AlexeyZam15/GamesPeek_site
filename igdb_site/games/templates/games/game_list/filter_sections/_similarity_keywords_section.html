@@ -20,6 +20,8 @@
     <div id="visible-keywords-badges">
         {% for keyword in similarity_selected_keywords_objects|slice:":27" %}
             <span class="badge bg-success me-1 mb-1 active-keyword-tag"
+                  data-param="k"
+                  data-value="{{ keyword.id }}"
                   data-keyword-id="{{ keyword.id }}"
                   style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
                 {{ keyword.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>

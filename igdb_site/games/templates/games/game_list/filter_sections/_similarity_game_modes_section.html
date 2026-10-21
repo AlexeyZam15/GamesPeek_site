@@ -20,6 +20,8 @@
     <div id="visible-game-modes-badges">
         {% for game_mode in similarity_selected_game_modes_objects|slice:":27" %}
             <span class="badge bg-purple me-1 mb-1 active-game-mode-tag"
+                  data-param="gm"
+                  data-value="{{ game_mode.id }}"
                   data-game-mode-id="{{ game_mode.id }}"
                   style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
                 {{ game_mode.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>

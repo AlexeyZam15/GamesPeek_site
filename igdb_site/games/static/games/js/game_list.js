@@ -19,6 +19,13 @@ const GameListDebugTimer = {
     }
 };
 
+// Накопленные очистки (Clear All): ключ параметра -> '' (явно пустой).
+// Живёт на уровне модуля, чтобы initFormSubmit (Apply) могла её сбросить,
+// а initClearButtons — накапливать и применять поверх window.location.search.
+// Сбрасывается, когда updateUrlParams обновил URL и все ключи уже пусты в URL,
+// либо при явном Apply (пользователь выбрал значения — старые очистки неактуальны).
+const pendingClearedParams = new Map();
+
 // ===== ФУНКЦИЯ ДЛЯ ОТПРАВКИ ФИЛЬТРОВ =====
 function initFormSubmit() {
     console.log('Initializing form submit handler...');
@@ -42,6 +49,10 @@ function initFormSubmit() {
     newButton.addEventListener('click', function(e) {
         e.preventDefault();
         console.log('Apply filters clicked - updating URL with filters');
+
+        // Явное применение фильтров: накопленные Clear All-очистки больше
+        // не актуальны (пользователь мог заново выбрать значения).
+        pendingClearedParams.clear();
 
         const params = new URLSearchParams();
 
@@ -148,26 +159,19 @@ function initFormSubmit() {
         const newUrl = window.location.pathname + '?' + params.toString();
         console.log('Final URL:', newUrl);
 
-        // Используем pushState вместо редиректа, чтобы страница не перезагружалась
-        // Но сначала загружаем новые данные через AJAX
         if (typeof window.AjaxPagination !== 'undefined' && window.AjaxPagination.loadPage) {
-            // Если есть AJAX пагинация, используем её для загрузки
             const ajaxUrl = '/ajax/load-games-page/?' + params.toString();
             window.AjaxPagination.loadPage(ajaxUrl, newUrl, '1');
         } else {
-            // Fallback: обычный редирект
             window.location.href = newUrl;
         }
     });
-
-    // ВАЖНО: НЕ вызываем newButton.click() здесь — только при клике пользователя
 }
 
 // ===== ФУНКЦИИ ДЛЯ ПЕРЕКЛЮЧЕНИЯ ВКЛАДОК ФИЛЬТРОВ =====
 function initFilterTabs() {
     console.log('Initializing filter tabs...');
 
-    // Ищем кастомные вкладки из _real_filters.html
     const tabLinks = document.querySelectorAll('.filter-tab-link');
     const tabPanes = document.querySelectorAll('.filter-tab-pane');
 
@@ -179,12 +183,10 @@ function initFilterTabs() {
         return;
     }
 
-    // Скрываем все панели
     tabPanes.forEach(pane => {
         pane.style.display = 'none';
     });
 
-    // Функция активации вкладки
     function activateTab(tabId) {
         console.log('Activating tab:', tabId);
 
@@ -214,7 +216,6 @@ function initFilterTabs() {
         } catch(e) {}
     }
 
-    // Добавляем обработчики
     tabLinks.forEach(link => {
         link.addEventListener('click', function(e) {
             e.preventDefault();
@@ -225,12 +226,10 @@ function initFilterTabs() {
         });
     });
 
-    // Восстанавливаем сохранённую вкладку
     const savedTab = localStorage.getItem('active_filter_tab');
     if (savedTab === 'search-filters-pane' || savedTab === 'similarity-filters-pane') {
         activateTab(savedTab);
     } else {
-        // По умолчанию search-filters-pane
         activateTab('search-filters-pane');
     }
 }
@@ -312,7 +311,6 @@ function initSectionToggles() {
         }
     }
 
-    // Переключение главных секций
     document.querySelectorAll('.toggle-section').forEach(section => {
         const targetId = section.getAttribute('data-target');
         const targetContent = document.getElementById(targetId);
@@ -330,8 +328,6 @@ function initSectionToggles() {
                 icon.classList.remove('bi-chevron-down');
                 icon.classList.add('bi-chevron-right');
             } else {
-                // Нет сохраненного состояния - оставляем как есть (CSS уже скрыл)
-                // Просто обновляем иконку
                 icon.classList.remove('bi-chevron-down');
                 icon.classList.add('bi-chevron-right');
             }
@@ -359,7 +355,6 @@ function initSectionToggles() {
         });
     });
 
-    // Переключение подсекций
     document.querySelectorAll('.toggle-subsection').forEach(subsection => {
         const targetId = subsection.getAttribute('data-target');
         const targetContent = document.getElementById(targetId);
@@ -377,8 +372,6 @@ function initSectionToggles() {
                 icon.classList.remove('bi-chevron-down');
                 icon.classList.add('bi-chevron-right');
             } else {
-                // Нет сохраненного состояния - оставляем как есть (CSS уже скрыл)
-                // Просто обновляем иконку
                 icon.classList.remove('bi-chevron-down');
                 icon.classList.add('bi-chevron-right');
             }
@@ -420,7 +413,6 @@ function initShowAllToggles() {
         { btn: '.show-all-perspectives-btn', list: '.perspective-list', type: 'perspectives' },
         { btn: '.show-all-game-modes-btn', list: '.game-mode-list', type: 'game-modes' },
         { btn: '.show-all-engines-btn', list: '.engine-list', type: 'engines' },
-        // Search filters
         { btn: '.search-show-all-platforms-btn', list: '.search-platform-list', type: 'search-platforms' },
         { btn: '.search-show-all-game-types-btn', list: '.search-game-type-list', type: 'search-game-types' },
         { btn: '.search-show-all-genres-btn', list: '.search-genre-list', type: 'search-genres' },
@@ -500,7 +492,6 @@ function initSearchInputs() {
         { inputId: 'game-mode-search', itemSelector: '.game-mode-item', dataAttr: 'data-game-mode-name' },
         { inputId: 'engine-search', itemSelector: '.engine-item', dataAttr: 'data-engine-name' },
         { inputId: 'game-type-search', itemSelector: '.game-type-item', dataAttr: 'data-game-type-name' },
-        // Search filters
         { inputId: 'search-platform-search', itemSelector: '.search-platform-item', dataAttr: 'data-platform-name' },
         { inputId: 'search-genre-search', itemSelector: '.search-genre-item', dataAttr: 'data-genre-name' },
         { inputId: 'search-keyword-search', itemSelector: '.search-keyword-item', dataAttr: 'data-keyword-name' },
@@ -551,7 +542,6 @@ function initDateFilters() {
     let maxYear = window.maxYear || new Date().getFullYear();
     let currentYear = window.currentYear || new Date().getFullYear();
 
-    // Search date filter
     window.updateSearchYearRange = function(type) {
         const minSlider = document.getElementById('search-year-range-slider-min');
         const maxSlider = document.getElementById('search-year-range-slider-max');
@@ -671,7 +661,6 @@ function initDateFilters() {
         if (yearEndField) yearEndField.value = endYear;
     };
 
-    // Similarity date filter
     window.updateYearRange = function(type) {
         const minSlider = document.getElementById('year-range-slider-min');
         const maxSlider = document.getElementById('year-range-slider-max');
@@ -796,7 +785,6 @@ function initDateFilters() {
 function initBadgeToggles() {
     console.log('Initializing badge toggles...');
 
-    // Similarity filters
     window.toggleMoregenres = function(button) {
         const hiddenSection = document.getElementById('hidden-genres-badges');
         const showLessBtn = button.nextElementSibling;
@@ -917,7 +905,6 @@ function initBadgeToggles() {
         }
     };
 
-    // Search filters badges
     window.toggleSearchMoreGenres = function(button) {
         const hiddenSection = document.getElementById('search-hidden-genres-badges');
         const showLessBtn = button.nextElementSibling;
@@ -1068,7 +1055,23 @@ function initClearButtons() {
     }
     initClearButtons.__bound = true;
 
-    // Классы бейджей, клики по которым должны удалять значение параметра.
+    // Сбрасываем накопленные очистки, когда URL уже содержит все
+    // соответствующие пустые параметры.
+    window.addEventListener('url-updated', function () {
+        if (pendingClearedParams.size === 0) return;
+        const urlParams = new URLSearchParams(window.location.search);
+        let allApplied = true;
+        pendingClearedParams.forEach(function (_value, key) {
+            if (urlParams.get(key) !== '') {
+                allApplied = false;
+            }
+        });
+        if (allApplied) {
+            console.log('ClearButtons: all pending clears applied in URL, resetting');
+            pendingClearedParams.clear();
+        }
+    });
+
     const BADGE_SELECTOR =
         '.active-genre-tag, .search-active-genre-tag,' +
         ' .active-keyword-tag, .search-active-keyword-tag,' +
@@ -1080,21 +1083,41 @@ function initClearButtons() {
         ' .active-game-type-tag, .search-active-game-type-tag,' +
         ' .search-active-date-filter-tag';
 
-    // Собирает значения бейджей для параметра param, присутствующих в DOM.
-    // Нужно для случая, когда параметр ещё не попал в URL (первичная загрузка
-    // страницы похожих игр: similarity-значения рисуются на сервере, но в
-    // window.location.search их нет).
+    const PARAM_BADGE_SELECTORS = {
+        'g': '.active-genre-tag, .search-active-genre-tag',
+        'search_g': '.search-active-genre-tag',
+        'k': '.active-keyword-tag, .search-active-keyword-tag',
+        'search_k': '.search-active-keyword-tag',
+        't': '.active-theme-tag, .search-active-theme-tag',
+        'search_t': '.search-active-theme-tag',
+        'pp': '.active-perspective-tag, .search-active-perspective-tag',
+        'search_pp': '.search-active-perspective-tag',
+        'gm': '.active-game-mode-tag, .search-active-game-mode-tag',
+        'search_gm': '.search-active-game-mode-tag',
+        'e': '.active-engine-tag, .search-active-engine-tag',
+        'search_e': '.search-active-engine-tag',
+        'p': '.active-platform-tag, .search-active-platform-tag',
+        'search_p': '.search-active-platform-tag',
+        'gt': '.active-game-type-tag, .search-active-game-type-tag',
+        'search_gt': '.search-active-game-type-tag',
+        'search_ys': '.search-active-date-filter-tag',
+        'search_ye': '.search-active-date-filter-tag',
+        'search_yr': '.search-active-date-filter-tag',
+    };
+
+    // Similarity-поля, которые сериализуются в URL при изменении критериев,
+    // чтобы virtual-режим получил полный набор текущих критериев.
+    const SIMILARITY_FIELDS = ['g', 'k', 't', 'pp', 'gm', 'e'];
+
     function collectBadgeValues(param) {
         if (!param) return [];
         const seen = new Set();
         const result = [];
-        // Экранируем кавычки в значении param для CSS-селектора.
         const safeParam = String(param).replace(/["\\]/g, '\\$&');
         const nodes = document.querySelectorAll(
             '[data-param="' + safeParam + '"][data-value]'
         );
         nodes.forEach(function (el) {
-            // Пропускаем кнопки "Clear All" и прочие элементы без значения.
             if (!el.dataset || el.dataset.value === undefined) return;
             const v = String(el.dataset.value);
             if (!v) return;
@@ -1103,6 +1126,67 @@ function initClearButtons() {
             result.push(v);
         });
         return result;
+    }
+
+    // Добавляет в params текущие значения similarity-полей из DOM-бейджей,
+    // если их там ещё нет (и они не удаляются/не очищаются).
+    // Нужно, чтобы при изменении критериев URL содержал полный набор
+    // текущих критериев (virtual-режим: source не подставляется).
+    function serializeCurrentSimilarityFields(params, excludedFields) {
+        excludedFields = excludedFields || [];
+        SIMILARITY_FIELDS.forEach(function (field) {
+            if (excludedFields.indexOf(field) !== -1) return;
+            if (pendingClearedParams.has(field)) return;
+            if (params.has(field)) return;
+            const vals = collectBadgeValues(field);
+            if (vals.length > 0) {
+                params.set(field, vals.join(','));
+            }
+        });
+    }
+
+    function removeBadgeFromDom(badge) {
+        const parent = badge.parentElement;
+        if (badge.parentNode) {
+            badge.parentNode.removeChild(badge);
+        }
+        if (!parent) return;
+
+        const remaining = parent.querySelectorAll(BADGE_SELECTOR);
+        if (remaining.length === 0) {
+            const activeBlock = parent.closest(
+                '[id$="-active-genres"], [id$="-active-keywords"], ' +
+                '[id$="-active-themes"], [id$="-active-perspectives"], ' +
+                '[id$="-active-game-modes"], [id$="-active-engines"], ' +
+                '[id$="-active-platforms"], [id$="-active-game-types"], ' +
+                '[id="search-active-date-filter"]'
+            );
+            if (activeBlock) {
+                const header = activeBlock.querySelector('.d-flex.justify-content-between');
+                if (header) header.style.display = 'none';
+            }
+        }
+    }
+
+    function removeBadgesForParam(param) {
+        if (!param) return;
+
+        let nodes;
+        const mapped = PARAM_BADGE_SELECTORS[param];
+        if (mapped) {
+            nodes = document.querySelectorAll(mapped);
+        } else {
+            const safeParam = String(param).replace(/["\\]/g, '\\$&');
+            nodes = document.querySelectorAll(
+                '[data-param="' + safeParam + '"][data-value]'
+            );
+        }
+
+        if (!nodes.length) return;
+        const badges = Array.from(nodes);
+        badges.forEach(function (badge) {
+            removeBadgeFromDom(badge);
+        });
     }
 
     function reloadWithParams(params, explicitEmptyParams) {
@@ -1128,52 +1212,42 @@ function initClearButtons() {
     }
 
     function currentParams() {
-        return new URLSearchParams(window.location.search);
-    }
-
-    // Мгновенно удаляет бейдж из DOM и, если контейнер опустел,
-    // скрывает соответствующий блок "Selected ... (N)" / "Clear All".
-    function removeBadgeFromDom(badge) {
-        const parent = badge.parentElement;
-        if (badge.parentNode) {
-            badge.parentNode.removeChild(badge);
+        const params = new URLSearchParams(window.location.search);
+        if (pendingClearedParams.size > 0) {
+            pendingClearedParams.forEach(function (value, key) {
+                params.set(key, value);
+            });
         }
-        if (!parent) return;
-
-        // Если в контейнере бейджей больше нет — скрываем блок-обёртку
-        const remaining = parent.querySelectorAll(BADGE_SELECTOR);
-        if (remaining.length === 0) {
-            // Скрываем верхнюю часть секции с "Clear All" и счётчиком,
-            // если она есть рядом. Не трогаем сам список чекбоксов ниже.
-            const activeBlock = parent.closest(
-                '[id$="-active-genres"], [id$="-active-keywords"], ' +
-                '[id$="-active-themes"], [id$="-active-perspectives"], ' +
-                '[id$="-active-game-modes"], [id$="-active-engines"], ' +
-                '[id$="-active-platforms"], [id$="-active-game-types"], ' +
-                '[id="search-active-date-filter"]'
-            );
-            if (activeBlock) {
-                const header = activeBlock.querySelector('.d-flex.justify-content-between');
-                if (header) header.style.display = 'none';
-            }
-        }
+        return params;
     }
 
     document.addEventListener('click', function (e) {
-        // 1) Кнопки Clear All с data-param (но без data-value) — удаляем параметр целиком,
-        //    оставляя его явно пустым.
+        // 1) Кнопки Clear All с data-param (но без data-value).
         const clearBtn = e.target.closest('[data-param]');
         if (clearBtn && clearBtn.dataset.param && !clearBtn.dataset.value) {
             e.preventDefault();
-            const params = currentParams();
             const paramsToClear = clearBtn.dataset.param.split(',');
-            const explicitEmpty = {};
+            const keysToClear = [];
             paramsToClear.forEach(function (p) {
                 const key = p.trim();
                 if (!key) return;
+                pendingClearedParams.set(key, '');
+                keysToClear.push(key);
+            });
+
+            const params = currentParams();
+
+            // Сериализуем остальные similarity-поля из DOM, чтобы virtual-режим
+            // получил полный набор текущих критериев (кроме очищаемых).
+            serializeCurrentSimilarityFields(params, keysToClear);
+
+            const explicitEmpty = {};
+            keysToClear.forEach(function (key) {
                 params.delete(key);
                 explicitEmpty[key] = true;
+                removeBadgesForParam(key);
             });
+
             reloadWithParams(params, explicitEmpty);
             return;
         }
@@ -1197,10 +1271,6 @@ function initClearButtons() {
         const params = currentParams();
         const current = params.get(param);
 
-        // Список текущих значений: приоритет — URL. Если параметра в URL нет
-        // (типичный случай первичной загрузки страницы похожих игр), берём
-        // значения из уже отрисованных бейджей в DOM. Иначе удаление одного
-        // бейджа превращалось в "удалить все" (g=).
         let baseValues;
         if (current !== null) {
             baseValues = current
@@ -1214,7 +1284,9 @@ function initClearButtons() {
             return v !== String(value);
         });
 
-        // Мгновенный визуальный отклик: убираем бейдж из DOM сразу.
+        // Сериализуем остальные similarity-поля из DOM (кроме изменяемого).
+        serializeCurrentSimilarityFields(params, [param]);
+
         removeBadgeFromDom(badge);
 
         if (values.length > 0) {
@@ -1234,7 +1306,6 @@ function initializeAllModules() {
     GameListDebugTimer.start('initializeAllModules');
     console.log('Initializing all modules for game list page...');
 
-    // Инициализируем все UI компоненты фильтров
     initFilterTabs();
     initSectionToggles();
     initShowAllToggles();
@@ -1244,7 +1315,6 @@ function initializeAllModules() {
     initClearButtons();
     initFormSubmit();
 
-    // Загружаем дополнительные модули
     loadScript('/static/games/js/game_list/ajax-pagination.js', function() {
         console.log('Ajax pagination loaded');
     });
@@ -1260,14 +1330,12 @@ function initializeAllModules() {
     GameListDebugTimer.end('initializeAllModules');
 }
 
-// Проверяем, находимся ли мы на странице с играми
 function isGamesPage() {
     return document.querySelector('.games-container') !== null ||
            document.getElementById('games-results-container') !== null ||
            document.querySelector('.card.mb-4') !== null;
 }
 
-// Инициализация при загрузке DOM
 document.addEventListener('DOMContentLoaded', function() {
     console.log('Game list page DOM loaded');
 
@@ -1281,10 +1349,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-// Глобальная функция для ручной инициализации
 window.initializeGameListPage = initializeAllModules;
 
-// Экспортируем для использования в других модулях
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         initializeAllModules,

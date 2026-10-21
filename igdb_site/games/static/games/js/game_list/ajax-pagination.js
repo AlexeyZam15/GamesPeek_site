@@ -41,6 +41,16 @@ const AjaxPaginationDebugTimer = {
     // Флаг для отслеживания, идет ли сейчас предзагрузка
     let isPrefetching = false;
 
+    // Токен для refreshFiltersBlock: устаревшие ответы (от более ранних
+    // запросов, пришедшие позже) игнорируются, чтобы не перезатирать
+    // актуальный блок фильтров.
+    let filtersRefreshToken = 0;
+
+    // Счётчик запросов страниц. updateUrlParams применяется только последним
+    // запросом, чтобы устаревший ответ (пришедший позже более нового) не
+    // перезаписывал URL и не сбрасывал накопленные очистки.
+    let requestSeq = 0;
+
     // Запускаем сразу после загрузки скрипта
     initialize();
 
@@ -318,8 +328,6 @@ const AjaxPaginationDebugTimer = {
 
     // Синхронизирует блок фильтров (#filters-container) с переданным URL/параметрами.
     // Если paramsOrUrl не передан — fallback на window.location.search (обратная совместимость).
-    // Запрашивает /ajax/load-filters/ с актуальными query-параметрами (без page)
-    // и подставляет полученный HTML. Затем перевешивает обработчики.
     function refreshFiltersBlock(paramsOrUrl) {
         const filtersContainer = document.getElementById('filters-container');
         if (!filtersContainer) {
@@ -346,6 +354,10 @@ const AjaxPaginationDebugTimer = {
         const queryString = params.toString();
         const url = '/ajax/load-filters/' + (queryString ? '?' + queryString : '');
 
+        // Токен текущего запроса. Если за время ответа был отправлен более
+        // новый запрос — этот ответ устарел и будет проигнорирован.
+        const myToken = ++filtersRefreshToken;
+
         fetch(url, {
             headers: {
                 'X-Requested-With': 'XMLHttpRequest',
@@ -358,11 +370,18 @@ const AjaxPaginationDebugTimer = {
             return response.text();
         })
         .then(html => {
+            if (myToken !== filtersRefreshToken) {
+                console.log('AjaxPagination: stale filters response ignored for', url);
+                return;
+            }
             filtersContainer.innerHTML = html;
             if (typeof window.initializeGameListPage === 'function') {
                 window.initializeGameListPage();
             }
             console.log('AjaxPagination: filters block refreshed for', url);
+
+            // Сообщаем слушателям, что блок фильтров актуализирован.
+            document.dispatchEvent(new CustomEvent('filters-block-refreshed'));
         })
         .catch(error => {
             console.warn('AjaxPagination: failed to refresh filters block', error);
@@ -382,6 +401,10 @@ const AjaxPaginationDebugTimer = {
             return;
         }
 
+        // Идентификатор текущего запроса страницы. Обновляем URL только если
+        // этот запрос — последний.
+        const myRequestId = ++requestSeq;
+
         const cacheKey = generateCacheKey(displayUrl, pageNum);
 
         const cachedPage = getPageFromCache(cacheKey);
@@ -390,13 +413,12 @@ const AjaxPaginationDebugTimer = {
 
             gamesResultsContainer.innerHTML = cachedPage.html;
 
-            if (!isPopState) {
+            if (!isPopState && myRequestId === requestSeq) {
                 updateUrlParams(displayUrl, pageNum);
             }
 
             reinitializeComponents();
 
-            // Синхронизируем блок фильтров с ТЕМ ЖЕ URL, что запрашивали.
             refreshFiltersBlock(displayUrl);
 
             document.dispatchEvent(new CustomEvent('games-grid-updated', {
@@ -437,13 +459,12 @@ const AjaxPaginationDebugTimer = {
             gamesResultsContainer.innerHTML = html;
             hidePaginationLoading();
 
-            if (!isPopState) {
+            if (!isPopState && myRequestId === requestSeq) {
                 updateUrlParams(displayUrl, pageNum);
             }
 
             reinitializeComponents();
 
-            // Синхронизируем блок фильтров с ТЕМ ЖЕ URL, что запрашивали.
             refreshFiltersBlock(displayUrl);
 
             document.dispatchEvent(new CustomEvent('games-grid-updated', {
@@ -745,7 +766,6 @@ const AjaxPaginationDebugTimer = {
 
     function updateUrlParams(url, pageNum, replace = false) {
         if (!history.pushState) {
-            // Очень старый браузер — просто перезагружаемся с правильным URL
             try {
                 window.location.assign(url);
             } catch (e) {
@@ -763,23 +783,21 @@ const AjaxPaginationDebugTimer = {
                 window.history.pushState(state, '', url);
             }
             console.log('AjaxPagination: URL updated to:', url);
+            window.dispatchEvent(new CustomEvent('url-updated'));
             return;
         } catch (e) {
-            // Browser throttling (SecurityError) или иные ограничения.
-            // Пытаемся хотя бы replaceState, чтобы не терять URL.
             console.warn('AjaxPagination: history.pushState failed, trying replaceState', e);
         }
 
         try {
             window.history.replaceState(state, '', url);
             console.log('AjaxPagination: URL replaced via replaceState fallback:', url);
+            window.dispatchEvent(new CustomEvent('url-updated'));
             return;
         } catch (e2) {
             console.error('AjaxPagination: history.replaceState also failed, falling back to full navigation', e2);
         }
 
-        // Крайний случай: полная навигация с правильным URL.
-        // Это дороже (перезагрузка), но гарантирует корректное состояние фильтров.
         try {
             window.location.assign(url);
         } catch (e3) {
@@ -817,7 +835,6 @@ const AjaxPaginationDebugTimer = {
         setTimeout(() => errorDiv.style.display = 'none', 5000);
     }
 
-    // Добавляем стили
     const style = document.createElement('style');
     style.textContent = `
         .games-container.loading-visible {
@@ -857,7 +874,6 @@ const AjaxPaginationDebugTimer = {
     `;
     document.head.appendChild(style);
 
-    // Экспорт в глобальную область
     window.AjaxPagination = {
         loadPage: (ajaxUrl, displayUrl, pageNum) => loadRequestedPage(ajaxUrl, displayUrl, pageNum),
         clearCache: clearPageCache,

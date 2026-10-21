@@ -20,6 +20,8 @@
     <div id="search-visible-platforms-badges">
         {% for platform in search_selected_platforms_objects|slice:":27" %}
             <span class="badge bg-info me-1 mb-1 search-active-platform-tag"
+                  data-param="p"
+                  data-value="{{ platform.id }}"
                   data-platform-id="{{ platform.id }}"
                   style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
                 {{ platform.name }} ({{ platform.game_count }})
@@ -32,6 +34,8 @@
         <div id="search-hidden-platforms-badges" style="display: none;">
             {% for platform in search_selected_platforms_objects|slice:"27:" %}
                 <span class="badge bg-info me-1 mb-1 search-active-platform-tag"
+                      data-param="p"
+                      data-value="{{ platform.id }}"
                       data-platform-id="{{ platform.id }}"
                       style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
                     {{ platform.name }} ({{ platform.game_count }})
