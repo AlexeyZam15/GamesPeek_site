@@ -1514,7 +1514,8 @@ class GameSimilarity:
         return set()
 
     @timeit
-    def find_similar_games(self, source_game, min_similarity=None, limit=None, search_filters=None):
+    def find_similar_games(self, source_game, min_similarity=None, limit=None, search_filters=None,
+                           override_criteria=None):
         import time
         from django.db import connection
 
@@ -1532,11 +1533,15 @@ class GameSimilarity:
             print(f"{'=' * 60}")
             print(f"Source: {getattr(source_game, 'id', 'virtual')}")
             print(f"Search filters: {search_filters}")
+            print(f"Override criteria: {override_criteria}")
             print(f"Min similarity: {min_similarity}")
             print(f"{'=' * 60}\n")
 
         try:
-            source_data, single_player_info = self._prepare_source_data(source_game)
+            source_data, single_player_info = self._prepare_source_data(
+                source_game,
+                override_criteria=override_criteria,
+            )
 
             if self.stop_flag:
                 if self.verbose:
@@ -1749,8 +1754,15 @@ class GameSimilarity:
             return []
 
     # Обновляем _prepare_source_data:
-    def _prepare_source_data(self, source_game):
-        """Подготовка данных исходной игры - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
+    def _prepare_source_data(self, source_game, override_criteria=None):
+        """Подготовка данных исходной игры - с поддержкой override критериев.
+
+        override_criteria — dict, где ключи: 'genres', 'keywords', 'themes',
+        'perspectives', 'game_modes', 'engines', 'developers'.
+        Если ключ присутствует — соответствующее поле source-игры заменяется
+        на переданный список (даже если он пустой). Отсутствующий ключ означает
+        "взять из source-игры".
+        """
         from .models import GameMode
 
         # Получаем базовые данные из кэша (множества)
@@ -1761,26 +1773,39 @@ class GameSimilarity:
         if isinstance(source_game, Game):
             source_game_id = source_game.id
 
-        # Преобразуем множества в списки для всех полей
+        # Преобразуем множества в списки для всех полей (копии, чтобы не мутировать кэш)
         source_genre_ids = list(source_data.get('genres', set()))
-        source_genre_count = len(source_genre_ids)
-
         source_keyword_ids = list(source_data.get('keywords', set()))
-        source_keyword_count = len(source_keyword_ids)
-
         source_theme_ids = list(source_data.get('themes', set()))
-        source_theme_count = len(source_theme_ids)
-
         source_perspective_ids = list(source_data.get('perspectives', set()))
-        source_perspective_count = len(source_perspective_ids)
-
         source_game_mode_ids = list(source_data.get('game_modes', set()))
-        source_game_mode_count = len(source_game_mode_ids)
-
-        source_developer_ids = list(source_data.get('developers', set()))
-        source_developer_count = len(source_developer_ids)
-
         source_engine_ids = list(source_data.get('engines', set()))
+        source_developer_ids = list(source_data.get('developers', set()))
+
+        # Применяем override критериев (замена критериев source-игры).
+        # Важно: заменяем на НОВЫЕ списки, не мутируя кэш _game_data_cache.
+        if override_criteria:
+            if 'genres' in override_criteria:
+                source_genre_ids = list(override_criteria.get('genres') or [])
+            if 'keywords' in override_criteria:
+                source_keyword_ids = list(override_criteria.get('keywords') or [])
+            if 'themes' in override_criteria:
+                source_theme_ids = list(override_criteria.get('themes') or [])
+            if 'perspectives' in override_criteria:
+                source_perspective_ids = list(override_criteria.get('perspectives') or [])
+            if 'game_modes' in override_criteria:
+                source_game_mode_ids = list(override_criteria.get('game_modes') or [])
+            if 'engines' in override_criteria:
+                source_engine_ids = list(override_criteria.get('engines') or [])
+            if 'developers' in override_criteria:
+                source_developer_ids = list(override_criteria.get('developers') or [])
+
+        source_genre_count = len(source_genre_ids)
+        source_keyword_count = len(source_keyword_ids)
+        source_theme_count = len(source_theme_ids)
+        source_perspective_count = len(source_perspective_ids)
+        source_game_mode_count = len(source_game_mode_ids)
+        source_developer_count = len(source_developer_ids)
         source_engine_count = len(source_engine_ids)
 
         # Проверяем, есть ли у исходной игры режим Single player
@@ -1831,14 +1856,16 @@ class GameSimilarity:
             'developer_ids': source_developer_ids,
             'developer_count': source_developer_count,
             'single_player_mode_id': single_player_mode_id,
-            # Сохраняем оригинальные множества для обратной совместимости
-            'genres': source_data.get('genres', set()),
-            'keywords': source_data.get('keywords', set()),
-            'themes': source_data.get('themes', set()),
-            'perspectives': source_data.get('perspectives', set()),
-            'game_modes': source_data.get('game_modes', set()),
-            'developers': source_data.get('developers', set()),
-            'engines': source_data.get('engines', set()),
+            # Сохраняем оригинальные множества для обратной совместимости.
+            # При наличии override — строим множества из override-списков,
+            # чтобы common_* считались относительно них.
+            'genres': set(source_genre_ids),
+            'keywords': set(source_keyword_ids),
+            'themes': set(source_theme_ids),
+            'perspectives': set(source_perspective_ids),
+            'game_modes': set(source_game_mode_ids),
+            'developers': set(source_developer_ids),
+            'engines': set(source_engine_ids),
         }
 
         single_player_info = {

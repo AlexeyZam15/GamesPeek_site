@@ -200,6 +200,9 @@ const AjaxPaginationDebugTimer = {
             // Переинициализируем компоненты
             reinitializeComponents();
 
+            // Синхронизируем блок фильтров с ТЕМ ЖЕ URL, что запрашивали (а не из window.location).
+            refreshFiltersBlock(displayUrl);
+
             // Кэшируем текущую страницу
             cacheCurrentPage();
 
@@ -313,6 +316,59 @@ const AjaxPaginationDebugTimer = {
         AjaxPaginationDebugTimer.end('reinitializeComponents');
     }
 
+    // Синхронизирует блок фильтров (#filters-container) с переданным URL/параметрами.
+    // Если paramsOrUrl не передан — fallback на window.location.search (обратная совместимость).
+    // Запрашивает /ajax/load-filters/ с актуальными query-параметрами (без page)
+    // и подставляет полученный HTML. Затем перевешивает обработчики.
+    function refreshFiltersBlock(paramsOrUrl) {
+        const filtersContainer = document.getElementById('filters-container');
+        if (!filtersContainer) {
+            return;
+        }
+
+        let params;
+        if (paramsOrUrl instanceof URLSearchParams) {
+            params = new URLSearchParams(paramsOrUrl);
+        } else if (typeof paramsOrUrl === 'string' && paramsOrUrl.length > 0) {
+            try {
+                const urlObj = new URL(paramsOrUrl, window.location.origin);
+                params = new URLSearchParams(urlObj.search);
+            } catch (e) {
+                console.warn('AjaxPagination: refreshFiltersBlock - failed to parse url, falling back to location.search', e);
+                params = new URLSearchParams(window.location.search);
+            }
+        } else {
+            params = new URLSearchParams(window.location.search);
+        }
+
+        params.delete('page');
+
+        const queryString = params.toString();
+        const url = '/ajax/load-filters/' + (queryString ? '?' + queryString : '');
+
+        fetch(url, {
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'text/html'
+            },
+            credentials: 'same-origin'
+        })
+        .then(response => {
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            return response.text();
+        })
+        .then(html => {
+            filtersContainer.innerHTML = html;
+            if (typeof window.initializeGameListPage === 'function') {
+                window.initializeGameListPage();
+            }
+            console.log('AjaxPagination: filters block refreshed for', url);
+        })
+        .catch(error => {
+            console.warn('AjaxPagination: failed to refresh filters block', error);
+        });
+    }
+
     function loadRequestedPage(ajaxUrl, displayUrl, pageNum, isPopState = false) {
         AjaxPaginationDebugTimer.start('loadRequestedPage');
 
@@ -339,6 +395,9 @@ const AjaxPaginationDebugTimer = {
             }
 
             reinitializeComponents();
+
+            // Синхронизируем блок фильтров с ТЕМ ЖЕ URL, что запрашивали.
+            refreshFiltersBlock(displayUrl);
 
             document.dispatchEvent(new CustomEvent('games-grid-updated', {
                 detail: { page: pageNum, source: 'cache' }
@@ -383,6 +442,9 @@ const AjaxPaginationDebugTimer = {
             }
 
             reinitializeComponents();
+
+            // Синхронизируем блок фильтров с ТЕМ ЖЕ URL, что запрашивали.
+            refreshFiltersBlock(displayUrl);
 
             document.dispatchEvent(new CustomEvent('games-grid-updated', {
                 detail: { page: pageNum, source: 'server' }
@@ -682,15 +744,46 @@ const AjaxPaginationDebugTimer = {
     }
 
     function updateUrlParams(url, pageNum, replace = false) {
-        if (history.pushState) {
+        if (!history.pushState) {
+            // Очень старый браузер — просто перезагружаемся с правильным URL
             try {
-                if (replace) {
-                    window.history.replaceState({ path: url, page: pageNum, displayUrl: url }, '', url);
-                } else {
-                    window.history.pushState({ path: url, page: pageNum, displayUrl: url }, '', url);
-                }
-                console.log('AjaxPagination: URL updated to:', url);
-            } catch {}
+                window.location.assign(url);
+            } catch (e) {
+                console.error('AjaxPagination: cannot navigate to url', url, e);
+            }
+            return;
+        }
+
+        const state = { path: url, page: pageNum, displayUrl: url };
+
+        try {
+            if (replace) {
+                window.history.replaceState(state, '', url);
+            } else {
+                window.history.pushState(state, '', url);
+            }
+            console.log('AjaxPagination: URL updated to:', url);
+            return;
+        } catch (e) {
+            // Browser throttling (SecurityError) или иные ограничения.
+            // Пытаемся хотя бы replaceState, чтобы не терять URL.
+            console.warn('AjaxPagination: history.pushState failed, trying replaceState', e);
+        }
+
+        try {
+            window.history.replaceState(state, '', url);
+            console.log('AjaxPagination: URL replaced via replaceState fallback:', url);
+            return;
+        } catch (e2) {
+            console.error('AjaxPagination: history.replaceState also failed, falling back to full navigation', e2);
+        }
+
+        // Крайний случай: полная навигация с правильным URL.
+        // Это дороже (перезагрузка), но гарантирует корректное состояние фильтров.
+        try {
+            window.location.assign(url);
+        } catch (e3) {
+            console.error('AjaxPagination: cannot navigate to url', url, e3);
         }
     }
 
@@ -769,6 +862,8 @@ const AjaxPaginationDebugTimer = {
         loadPage: (ajaxUrl, displayUrl, pageNum) => loadRequestedPage(ajaxUrl, displayUrl, pageNum),
         clearCache: clearPageCache,
         reinitializeComponents: reinitializeComponents,
+        refreshFiltersBlock: refreshFiltersBlock,
+        updateUrlParams: updateUrlParams,
         getCacheStats: () => ({
             size: pageCache.size,
             keys: Array.from(pageCache.keys())

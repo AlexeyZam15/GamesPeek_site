@@ -1063,51 +1063,168 @@ function initBadgeToggles() {
 function initClearButtons() {
     console.log('Initializing clear buttons...');
 
-    document.querySelectorAll('[data-param]').forEach(button => {
-        button.addEventListener('click', function(e) {
-            e.preventDefault();
-            const param = this.getAttribute('data-param');
-            const url = new URL(window.location.href);
+    if (initClearButtons.__bound) {
+        return;
+    }
+    initClearButtons.__bound = true;
 
-            const paramsToClear = param.split(',');
-            paramsToClear.forEach(p => {
-                if (url.searchParams.has(p)) {
-                    url.searchParams.delete(p);
+    // Классы бейджей, клики по которым должны удалять значение параметра.
+    const BADGE_SELECTOR =
+        '.active-genre-tag, .search-active-genre-tag,' +
+        ' .active-keyword-tag, .search-active-keyword-tag,' +
+        ' .active-theme-tag, .search-active-theme-tag,' +
+        ' .active-perspective-tag, .search-active-perspective-tag,' +
+        ' .active-game-mode-tag, .search-active-game-mode-tag,' +
+        ' .active-engine-tag, .search-active-engine-tag,' +
+        ' .active-platform-tag, .search-active-platform-tag,' +
+        ' .active-game-type-tag, .search-active-game-type-tag,' +
+        ' .search-active-date-filter-tag';
+
+    // Собирает значения бейджей для параметра param, присутствующих в DOM.
+    // Нужно для случая, когда параметр ещё не попал в URL (первичная загрузка
+    // страницы похожих игр: similarity-значения рисуются на сервере, но в
+    // window.location.search их нет).
+    function collectBadgeValues(param) {
+        if (!param) return [];
+        const seen = new Set();
+        const result = [];
+        // Экранируем кавычки в значении param для CSS-селектора.
+        const safeParam = String(param).replace(/["\\]/g, '\\$&');
+        const nodes = document.querySelectorAll(
+            '[data-param="' + safeParam + '"][data-value]'
+        );
+        nodes.forEach(function (el) {
+            // Пропускаем кнопки "Clear All" и прочие элементы без значения.
+            if (!el.dataset || el.dataset.value === undefined) return;
+            const v = String(el.dataset.value);
+            if (!v) return;
+            if (seen.has(v)) return;
+            seen.add(v);
+            result.push(v);
+        });
+        return result;
+    }
+
+    function reloadWithParams(params, explicitEmptyParams) {
+        if (explicitEmptyParams) {
+            Object.keys(explicitEmptyParams).forEach(function (p) {
+                if (!params.has(p)) {
+                    params.set(p, '');
                 }
             });
+        }
+        params.set('page', '1');
 
-            window.location.href = url.toString();
-        });
-    });
+        const basePath = window.location.pathname;
+        const queryString = params.toString();
+        const displayUrl = basePath + (queryString ? '?' + queryString : '');
 
-    // Active tag removal
-    document.addEventListener('click', (e) => {
-        let tagElement = null;
+        if (typeof window.AjaxPagination !== 'undefined' && window.AjaxPagination.loadPage) {
+            const ajaxUrl = '/ajax/load-games-page/?' + params.toString();
+            window.AjaxPagination.loadPage(ajaxUrl, displayUrl, '1');
+        } else {
+            window.location.href = displayUrl;
+        }
+    }
 
-        if (e.target.classList && e.target.classList.contains('active-genre-tag')) {
-            tagElement = e.target;
-        } else if (e.target.closest && e.target.closest('.active-genre-tag')) {
-            tagElement = e.target.closest('.active-genre-tag');
+    function currentParams() {
+        return new URLSearchParams(window.location.search);
+    }
+
+    // Мгновенно удаляет бейдж из DOM и, если контейнер опустел,
+    // скрывает соответствующий блок "Selected ... (N)" / "Clear All".
+    function removeBadgeFromDom(badge) {
+        const parent = badge.parentElement;
+        if (badge.parentNode) {
+            badge.parentNode.removeChild(badge);
+        }
+        if (!parent) return;
+
+        // Если в контейнере бейджей больше нет — скрываем блок-обёртку
+        const remaining = parent.querySelectorAll(BADGE_SELECTOR);
+        if (remaining.length === 0) {
+            // Скрываем верхнюю часть секции с "Clear All" и счётчиком,
+            // если она есть рядом. Не трогаем сам список чекбоксов ниже.
+            const activeBlock = parent.closest(
+                '[id$="-active-genres"], [id$="-active-keywords"], ' +
+                '[id$="-active-themes"], [id$="-active-perspectives"], ' +
+                '[id$="-active-game-modes"], [id$="-active-engines"], ' +
+                '[id$="-active-platforms"], [id$="-active-game-types"], ' +
+                '[id="search-active-date-filter"]'
+            );
+            if (activeBlock) {
+                const header = activeBlock.querySelector('.d-flex.justify-content-between');
+                if (header) header.style.display = 'none';
+            }
+        }
+    }
+
+    document.addEventListener('click', function (e) {
+        // 1) Кнопки Clear All с data-param (но без data-value) — удаляем параметр целиком,
+        //    оставляя его явно пустым.
+        const clearBtn = e.target.closest('[data-param]');
+        if (clearBtn && clearBtn.dataset.param && !clearBtn.dataset.value) {
+            e.preventDefault();
+            const params = currentParams();
+            const paramsToClear = clearBtn.dataset.param.split(',');
+            const explicitEmpty = {};
+            paramsToClear.forEach(function (p) {
+                const key = p.trim();
+                if (!key) return;
+                params.delete(key);
+                explicitEmpty[key] = true;
+            });
+            reloadWithParams(params, explicitEmpty);
+            return;
         }
 
-        if (tagElement) {
-            e.preventDefault();
-            const param = 'g';
-            const id = tagElement.getAttribute('data-genre-id');
-            const url = new URL(window.location.href);
+        // 2) Клик по бейджу выбранного значения.
+        const badge = e.target.closest && e.target.closest(BADGE_SELECTOR);
 
-            if (url.searchParams.has(param)) {
-                const currentValues = url.searchParams.get(param).split(',');
-                const newValues = currentValues.filter(value => value !== id);
+        if (!badge) {
+            return;
+        }
 
-                if (newValues.length > 0) {
-                    url.searchParams.set(param, newValues.join(','));
-                } else {
-                    url.searchParams.delete(param);
-                }
-            }
+        const param = badge.dataset.param;
+        const value = badge.dataset.value;
+        if (!param || !value) {
+            return;
+        }
 
-            window.location.href = url.toString();
+        e.preventDefault();
+        e.stopPropagation();
+
+        const params = currentParams();
+        const current = params.get(param);
+
+        // Список текущих значений: приоритет — URL. Если параметра в URL нет
+        // (типичный случай первичной загрузки страницы похожих игр), берём
+        // значения из уже отрисованных бейджей в DOM. Иначе удаление одного
+        // бейджа превращалось в "удалить все" (g=).
+        let baseValues;
+        if (current !== null) {
+            baseValues = current
+                ? current.split(',').filter(function (v) { return v !== ''; })
+                : [];
+        } else {
+            baseValues = collectBadgeValues(param);
+        }
+
+        const values = baseValues.filter(function (v) {
+            return v !== String(value);
+        });
+
+        // Мгновенный визуальный отклик: убираем бейдж из DOM сразу.
+        removeBadgeFromDom(badge);
+
+        if (values.length > 0) {
+            params.set(param, values.join(','));
+            reloadWithParams(params, null);
+        } else {
+            params.set(param, '');
+            const explicitEmpty = {};
+            explicitEmpty[param] = true;
+            reloadWithParams(params, explicitEmpty);
         }
     });
 }

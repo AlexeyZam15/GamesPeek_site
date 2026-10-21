@@ -283,6 +283,9 @@ def extract_request_params(request: HttpRequest) -> Dict[str, str]:
         value = get_params.get(key, '')
         params[key] = value
 
+    # Служебное поле: набор реально присутствующих ключей (даже с пустым значением).
+    params['_present'] = set(get_params.keys())
+
     return params
 
 
