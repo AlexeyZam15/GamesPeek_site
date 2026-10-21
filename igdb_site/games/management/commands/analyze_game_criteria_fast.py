@@ -408,7 +408,8 @@ class Command(BaseCommand):
             'genres': set(),
             'themes': set(),
             'perspectives': set(),
-            'game_modes': set()
+            'game_modes': set(),
+            'keywords': set(),
         }
 
         with connection.cursor() as cursor:
@@ -427,6 +428,12 @@ class Command(BaseCommand):
             cursor.execute(f"SELECT game_id, gamemode_id FROM {games_modes_table}")
             for row in cursor.fetchall():
                 existing_relations['game_modes'].add((row[0], row[1]))
+
+            # keywords хранятся в ArrayField keyword_ids прямо в games_game
+            cursor.execute("SELECT id, keyword_ids FROM games_game")
+            for game_id, keyword_ids in cursor.fetchall():
+                for kw_id in (keyword_ids or []):
+                    existing_relations['keywords'].add((game_id, kw_id))
 
         return existing_relations
 
@@ -851,7 +858,6 @@ class Command(BaseCommand):
             trie_manager = KeywordTrieManager()
             trie = trie_manager.get_trie(verbose=False)
 
-            # Поиск всех ключевых слов в тексте
             trie_results = trie.find_all_in_text(text, unique_only=True)
 
             found_ids = set()
@@ -869,34 +875,45 @@ class Command(BaseCommand):
                         'pattern': 'trie_match'
                     })
 
-            # Проверяем существующие связи для ключевых слов
             has_new = False
             found = {'genres': [], 'themes': [], 'perspectives': [], 'game_modes': [], 'keywords': []}
 
-            if found_ids and self.update_game:
-                from django.db import connection
-                with connection.cursor() as cursor:
-                    cursor.execute("SELECT keyword_ids FROM games_game WHERE id = %s", [game_id])
-                    row = cursor.fetchone()
-                    existing_keyword_ids = set(row[0] or []) if row else set()
+            if found_ids:
+                if existing_relations and 'keywords' in existing_relations:
+                    # используем предзагруженные связи (быстро, без запроса на игру)
+                    for kw_id in found_ids:
+                        is_new = (game_id, kw_id) not in existing_relations['keywords']
+                        if is_new:
+                            has_new = True
+                        found['keywords'].append({
+                            'id': kw_id,
+                            'name': self.criteria_by_id['keywords'].get(kw_id, 'Unknown'),
+                            'is_new': is_new
+                        })
+                elif self.update_game:
+                    from django.db import connection
+                    with connection.cursor() as cursor:
+                        cursor.execute("SELECT keyword_ids FROM games_game WHERE id = %s", [game_id])
+                        row = cursor.fetchone()
+                        existing_keyword_ids = set(row[0] or []) if row else set()
 
-                for kw_id in found_ids:
-                    is_new = kw_id not in existing_keyword_ids
-                    if is_new:
-                        has_new = True
-                    found['keywords'].append({
-                        'id': kw_id,
-                        'name': self.criteria_by_id['keywords'].get(kw_id, 'Unknown'),
-                        'is_new': is_new
-                    })
-            else:
-                for kw_id in found_ids:
-                    found['keywords'].append({
-                        'id': kw_id,
-                        'name': self.criteria_by_id['keywords'].get(kw_id, 'Unknown'),
-                        'is_new': True
-                    })
-                has_new = len(found_ids) > 0
+                    for kw_id in found_ids:
+                        is_new = kw_id not in existing_keyword_ids
+                        if is_new:
+                            has_new = True
+                        found['keywords'].append({
+                            'id': kw_id,
+                            'name': self.criteria_by_id['keywords'].get(kw_id, 'Unknown'),
+                            'is_new': is_new
+                        })
+                else:
+                    for kw_id in found_ids:
+                        found['keywords'].append({
+                            'id': kw_id,
+                            'name': self.criteria_by_id['keywords'].get(kw_id, 'Unknown'),
+                            'is_new': True
+                        })
+                    has_new = len(found_ids) > 0
 
             return {
                 'id': game_id,
@@ -969,7 +986,6 @@ class Command(BaseCommand):
             return sentence
 
         def has_negation_before(text, match_start):
-            """Проверяет, есть ли отрицание перед совпадением (в пределах 30 символов)"""
             negations = {'not', "isn't", 'aren\'t', 'wasn\'t', 'weren\'t', 'no', 'never', 'nor', 'without'}
             before_start = max(0, match_start - 30)
             before_text = text[before_start:match_start].lower()
@@ -980,38 +996,18 @@ class Command(BaseCommand):
             return False
 
         def has_stop_word_in_text(full_text_lower: str, stop_words: list) -> bool:
-            """
-            Проверяет, содержит ли текст хотя бы одно стоп-слово.
-            Поддерживает:
-            - простые строки (проверка через 'in')
-            - регулярные выражения (автоопределение по спецсимволам)
-
-            Args:
-                full_text_lower: текст в нижнем регистре для проверки
-                stop_words: список стоп-слов (могут быть простыми строками или regex-паттернами)
-
-            Returns:
-                True если найдено хотя бы одно стоп-слово/паттерн, иначе False
-            """
             import re
 
             if not stop_words:
                 return False
 
-            # Локальный кэш скомпилированных паттернов для этого вызова
             if not hasattr(has_stop_word_in_text, '_pattern_cache'):
                 has_stop_word_in_text._pattern_cache = {}
 
             for stop_word in stop_words:
-                # Определяем, является ли stop_word регулярным выражением
                 is_regex = False
 
-                # Признаки regex:
-                # 1. Содержит спецсимволы regex: \b, \d, \w, \s, ., *, +, ?, {, }, [, (, ), |, ^, $
-                # 2. Начинается с '(?'
-                # 3. Содержит \\ (экранированный бэкслэш)
                 if any(regex_char in stop_word for regex_char in r'\.*+?{}[]()|^$\\'):
-                    # Проверяем, валидный ли это regex
                     if stop_word not in has_stop_word_in_text._pattern_cache:
                         try:
                             re.compile(stop_word)
@@ -1024,7 +1020,6 @@ class Command(BaseCommand):
                     is_regex = True
 
                 if is_regex:
-                    # Получаем или компилируем паттерн
                     if stop_word not in has_stop_word_in_text._pattern_cache:
                         try:
                             has_stop_word_in_text._pattern_cache[stop_word] = re.compile(
@@ -1038,13 +1033,11 @@ class Command(BaseCommand):
                     if compiled and compiled.search(full_text_lower):
                         return True
                 else:
-                    # Обычная строка — быстрое сравнение
                     if stop_word in full_text_lower:
                         return True
 
             return False
 
-        # Кэшируем проверку стоп-слов для каждого уникального критерия
         stop_word_check_cache = {}
 
         for p in self.compiled_patterns:
@@ -1054,15 +1047,12 @@ class Command(BaseCommand):
                 crit_id = p['id']
                 crit_name = p['name']
 
-                # Получаем стоп-слова из кэша для этого критерия
                 criteria_key = (crit_type, crit_id, crit_name)
 
-                # Проверяем стоп-слова только один раз на критерий
                 if criteria_key not in stop_word_check_cache:
                     stop_words = self.criteria_stop_words_cache.get(criteria_key, [])
                     stop_word_check_cache[criteria_key] = has_stop_word_in_text(text_lower, stop_words)
 
-                # Если есть стоп-слова - пропускаем ВСЕ паттерны этого критерия
                 if stop_word_check_cache[criteria_key]:
                     continue
 
@@ -1085,7 +1075,6 @@ class Command(BaseCommand):
                     match_start_pos = match.start()
                     match_end_pos = match.end()
 
-                    # Проверка на отрицание перед совпадением
                     if has_negation_before(text, match_start_pos):
                         search_start = match_end_pos
                         continue
@@ -1270,7 +1259,7 @@ class Command(BaseCommand):
         interrupted = False
 
         existing_sets = existing_relations if existing_relations else {
-            'genres': set(), 'themes': set(), 'perspectives': set(), 'game_modes': set()
+            'genres': set(), 'themes': set(), 'perspectives': set(), 'game_modes': set(), 'keywords': set()
         }
 
         def signal_handler(signum, frame):
@@ -1295,7 +1284,7 @@ class Command(BaseCommand):
                 try:
                     result = self._analyze_game_fast(game_dict, existing_sets)
                     result_queue.put(result)
-                except Exception as e:
+                except Exception:
                     result_queue.put({
                         'id': game_dict['id'],
                         'name': game_dict['name'],
@@ -1303,7 +1292,7 @@ class Command(BaseCommand):
                         'skipped': True,
                         'reason': 'error',
                         'count': 0,
-                        'found': {'genres': [], 'themes': [], 'perspectives': [], 'game_modes': []},
+                        'found': {'genres': [], 'themes': [], 'perspectives': [], 'game_modes': [], 'keywords': []},
                         'has_new': False
                     })
 
@@ -1324,7 +1313,6 @@ class Command(BaseCommand):
         last_processed = 0
         last_speed_time = start_time
         smooth_speed = 0.0
-        last_percent_displayed = -1
 
         def format_time(seconds):
             if seconds < 60:
@@ -1335,32 +1323,25 @@ class Command(BaseCommand):
                 return f"{seconds / 3600:.1f}ч"
 
         try:
-            # Запускаем отдельный поток для обработки результатов, чтобы не блокировать получение
-            results_buffer = []
-
             while processed < total_games and not stop_flag.is_set():
-                # Пытаемся получить сразу много результатов из очереди
+                # Забираем пачку результатов из очереди
                 batch_results = []
                 try:
-                    # Сначала берем один результат
                     result = result_queue.get(timeout=0.1)
                     batch_results.append(result)
 
-                    # Затем забираем все остальные, которые уже есть в очереди
                     while True:
                         try:
                             batch_results.append(result_queue.get_nowait())
                         except Empty:
                             break
                 except Empty:
-                    # Проверяем, живы ли воркеры
                     with workers_lock:
                         workers_alive = active_workers > 0
                     if not workers_alive and task_queue.empty():
                         break
                     continue
 
-                # Обрабатываем всю пачку результатов
                 for result in batch_results:
                     processed += 1
 
@@ -1383,13 +1364,12 @@ class Command(BaseCommand):
                                         'found': result.get('found', {})
                                     })
 
-                # Обновляем прогресс-бар
+                # Обновляем прогресс-бар раз в секунду (и на финальном шаге)
                 now = time.time()
                 if now - last_report >= 1.0 or processed == total_games:
                     elapsed = now - start_time
-                    percent = (processed / total_games) * 100
+                    percent = (processed / total_games) * 100 if total_games > 0 else 100.0
 
-                    # Рассчитываем скорость
                     time_delta = now - last_speed_time
                     processed_delta = processed - last_processed
 
@@ -1400,25 +1380,22 @@ class Command(BaseCommand):
                         else:
                             smooth_speed = smooth_speed * 0.7 + instant_speed * 0.3
 
-                    # Рассчитываем оставшееся время
                     if smooth_speed > 0 and processed < total_games:
                         remaining_seconds = (total_games - processed) / smooth_speed
                         eta = format_time(remaining_seconds)
+                    elif processed >= total_games:
+                        eta = "0сек"
                     else:
                         eta = "расчет..."
 
-                    # Показываем прогресс только если изменился процент (чтобы не спамить)
-                    current_percent_int = int(percent)
-                    if current_percent_int != last_percent_displayed or processed == total_games:
-                        progress_line = (f"\r📊 {processed}/{total_games} ({percent:.1f}%) | "
-                                         f"Скорость: {smooth_speed:.1f} игр/сек | "
-                                         f"Осталось: {eta} | "
-                                         f"Найдено: {stats['total_found']} | "
-                                         f"Новых: {stats['total_new_found']}    ")
+                    progress_line = (f"\r📊 {processed}/{total_games} ({percent:.1f}%) | "
+                                     f"Скорость: {smooth_speed:.1f} игр/сек | "
+                                     f"Осталось: {eta} | "
+                                     f"Найдено: {stats['total_found']} | "
+                                     f"Новых: {stats['total_new_found']}    ")
 
-                        sys.stderr.write(progress_line)
-                        sys.stderr.flush()
-                        last_percent_displayed = current_percent_int
+                    sys.stderr.write(progress_line)
+                    sys.stderr.flush()
 
                     last_report = now
                     last_processed = processed
@@ -1463,12 +1440,29 @@ class Command(BaseCommand):
             elapsed = time.time() - start_time
             final_speed = stats['processed'] / elapsed if elapsed > 0 else 0
 
-            # Принудительно выводим финальный прогресс 100%
-            sys.stderr.write(f"\r📊 {stats['processed']}/{total_games} (100.0%) | "
+            # Фактический прогресс вместо принудительных 100%
+            total = total_games if total_games > 0 else 1
+            percent = (stats['processed'] / total) * 100
+
+            if interrupted or stop_flag.is_set():
+                status_suffix = " [ПРЕРВАНО]"
+                eta = "—"
+            elif stats['processed'] >= total_games:
+                status_suffix = ""
+                eta = "0сек"
+            else:
+                status_suffix = ""
+                if final_speed > 0:
+                    remaining_seconds = (total_games - stats['processed']) / final_speed
+                    eta = format_time(remaining_seconds)
+                else:
+                    eta = "—"
+
+            sys.stderr.write(f"\r📊 {stats['processed']}/{total_games} ({percent:.1f}%) | "
                              f"Скорость: {final_speed:.1f} игр/сек | "
-                             f"Осталось: 0сек | "
+                             f"Осталось: {eta} | "
                              f"Найдено: {stats['total_found']} | "
-                             f"Новых: {stats['total_new_found']}    \n")
+                             f"Новых: {stats['total_new_found']}{status_suffix}    \n")
             sys.stderr.flush()
 
             sys.stderr.write(f"\n✅ Обработано: {stats['processed']}/{total_games} игр за {format_time(elapsed)}\n")
@@ -1536,6 +1530,23 @@ class Command(BaseCommand):
         sys.stderr.write(f"\n💾 Сохранение {total_games} игр в БД...\n")
         sys.stderr.flush()
 
+        # === ДИАГНОСТИКА: смотрим реальную структуру первого элемента ===
+        try:
+            first = to_save[0]
+            sys.stderr.write(f"   🔎 [DEBUG] to_save[0] keys: {list(first.keys())}\n")
+            found_dbg = first.get('found', {})
+            sys.stderr.write(
+                f"   🔎 [DEBUG] found type: {type(found_dbg).__name__}, keys: {list(found_dbg.keys()) if isinstance(found_dbg, dict) else found_dbg}\n")
+            if isinstance(found_dbg, dict):
+                for k, v in found_dbg.items():
+                    if v:
+                        sys.stderr.write(f"   🔎 [DEBUG] found['{k}'][0] = {repr(v[0])[:200]}\n")
+            sys.stderr.flush()
+        except Exception as e:
+            sys.stderr.write(f"   ⚠️ [DEBUG] не удалось вывести структуру: {e}\n")
+            sys.stderr.flush()
+        # === КОНЕЦ ДИАГНОСТИКИ ===
+
         save_start = time.time()
 
         from games.models import Game, Genre, Theme, PlayerPerspective, GameMode
@@ -1549,15 +1560,26 @@ class Command(BaseCommand):
         theme_relations = []
         perspective_relations = []
         mode_relations = []
+        keyword_relations = []  # (game_id, keyword_id)
 
         for item in to_save:
             game_id = item['id']
+            found = item.get('found', {}) or {}
+            if not isinstance(found, dict):
+                continue
 
-            for criteria_type, items in item['found'].items():
+            for criteria_type, items in found.items():
                 if not items:
                     continue
                 for crit in items:
-                    crit_id = crit['id']
+                    # устойчиво: crit может быть dict или int
+                    if isinstance(crit, dict):
+                        crit_id = crit.get('id')
+                    else:
+                        crit_id = crit
+                    if crit_id is None:
+                        continue
+
                     if criteria_type == 'genres':
                         genre_relations.append((game_id, crit_id))
                     elif criteria_type == 'themes':
@@ -1566,9 +1588,16 @@ class Command(BaseCommand):
                         perspective_relations.append((game_id, crit_id))
                     elif criteria_type == 'game_modes':
                         mode_relations.append((game_id, crit_id))
+                    elif criteria_type == 'keywords':
+                        keyword_relations.append((game_id, crit_id))
 
-        total_relations = len(genre_relations) + len(theme_relations) + len(perspective_relations) + len(mode_relations)
-        sys.stderr.write(f"   📊 Связей для сохранения: {total_relations}\n")
+        total_relations = (len(genre_relations) + len(theme_relations) +
+                           len(perspective_relations) + len(mode_relations) +
+                           len(keyword_relations))
+        sys.stderr.write(f"   📊 Связей для сохранения: {total_relations} "
+                         f"(genres={len(genre_relations)}, themes={len(theme_relations)}, "
+                         f"perspectives={len(perspective_relations)}, modes={len(mode_relations)}, "
+                         f"keywords={len(keyword_relations)})\n")
         sys.stderr.flush()
 
         def bulk_insert(relations, table_name, id_field, type_name):
@@ -1601,6 +1630,64 @@ class Command(BaseCommand):
 
                 return len(new_relations)
 
+        def bulk_update_keywords(relations):
+            """keywords хранятся в ArrayField keyword_ids прямо в games_game.
+            Объединяем с существующими значениями и обновляем одним UPDATE ... FROM (VALUES ...).
+            """
+            if not relations:
+                return 0
+
+            # группируем новые keyword_id по game_id
+            from collections import defaultdict
+            new_by_game = defaultdict(set)
+            for game_id, kw_id in relations:
+                new_by_game[game_id].add(kw_id)
+
+            game_ids = list(new_by_game.keys())
+
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT id, keyword_ids FROM games_game WHERE id = ANY(%s)",
+                    [game_ids]
+                )
+                existing_map = {}
+                for gid, kw_ids in cursor.fetchall():
+                    existing_map[gid] = set(kw_ids or [])
+
+            values = []
+            changed = 0
+            for gid, new_set in new_by_game.items():
+                old_set = existing_map.get(gid, set())
+                merged = old_set | new_set
+                if merged != old_set:
+                    changed += 1
+                    # передаём как текстовый литерал массива PostgreSQL
+                    arr_literal = '{' + ','.join(str(x) for x in sorted(merged)) + '}'
+                    values.append((gid, arr_literal))
+
+            if not values:
+                return 0
+
+            with connection.cursor() as cursor:
+                # UPDATE ... FROM (VALUES ...) — одним запросом
+                placeholders = ','.join(['(%s, %s::integer[])'] * len(values))
+                flat = []
+                for gid, arr_literal in values:
+                    flat.append(gid)
+                    flat.append(arr_literal)
+                cursor.execute(
+                    f"""
+                    UPDATE games_game AS g
+                    SET keyword_ids = v.kw
+                    FROM (VALUES {placeholders}) AS v(id, kw)
+                    WHERE g.id = v.id
+                    """,
+                    flat
+                )
+                updated_rows = cursor.rowcount
+
+            return updated_rows
+
         with transaction.atomic():
             sys.stderr.write(f"   📖 Сохранение жанров... ")
             sys.stderr.flush()
@@ -1631,6 +1718,13 @@ class Command(BaseCommand):
             sys.stderr.write(f"{modes_added} связей за {time.time() - start:.1f}с\n")
             sys.stderr.flush()
 
+            sys.stderr.write(f"   📖 Сохранение ключевых слов (ArrayField)... ")
+            sys.stderr.flush()
+            start = time.time()
+            keywords_updated = bulk_update_keywords(keyword_relations)
+            sys.stderr.write(f"{keywords_updated} игр обновлено за {time.time() - start:.1f}с\n")
+            sys.stderr.flush()
+
         save_time = time.time() - save_start
         total_added = genres_added + themes_added + perspectives_added + modes_added
 
@@ -1639,7 +1733,8 @@ class Command(BaseCommand):
         sys.stderr.write(f"      Темы: {themes_added} связей\n")
         sys.stderr.write(f"      Перспективы: {perspectives_added} связей\n")
         sys.stderr.write(f"      Режимы: {modes_added} связей\n")
-        sys.stderr.write(f"      Всего: {total_added} связей\n")
+        sys.stderr.write(f"      Ключевые слова: {keywords_updated} игр обновлено\n")
+        sys.stderr.write(f"      Всего (M2M): {total_added} связей\n")
         if save_time > 0 and total_added > 0:
             sys.stderr.write(f"      ⚡ Скорость: {total_added / save_time:.0f} связей/сек\n")
         sys.stderr.flush()
@@ -2020,6 +2115,11 @@ class Command(BaseCommand):
         """Основной обработчик команды"""
         import signal
         import threading
+        import warnings
+
+        # Подавляем шумные UserWarning от NLTK (No WordNet synset found)
+        warnings.filterwarnings("ignore", message="No WordNet synset found")
+        warnings.filterwarnings("ignore", category=UserWarning, module="nltk")
 
         stop_flag = threading.Event()
 
@@ -2054,7 +2154,7 @@ class Command(BaseCommand):
             self.custom_pattern = options.get('custom_pattern')
             self.collect_all_patterns = options.get('collect_all_patterns', False)
             self.group_by_pattern = options.get('group_by_pattern', False)
-            self.keywords_mode = options.get('keywords', False)  # ДОБАВЛЯЕМ ФЛАГ KEYWORDS
+            self.keywords_mode = options.get('keywords', False)
 
             self.update_game = True
             self.combine_all_texts = not options.get('no_combine_texts', False)
@@ -2099,7 +2199,8 @@ class Command(BaseCommand):
             sys.stderr.write(f"   ✅ Загружено связей: жанры={len(existing_relations['genres'])}, "
                              f"темы={len(existing_relations['themes'])}, "
                              f"перспективы={len(existing_relations['perspectives'])}, "
-                             f"режимы={len(existing_relations['game_modes'])}\n")
+                             f"режимы={len(existing_relations['game_modes'])}, "
+                             f"ключевые слова={len(existing_relations.get('keywords', set()))}\n")
             sys.stderr.flush()
 
             self.progress_bar = None
