@@ -27,11 +27,13 @@ from django.http import JsonResponse
 from django.views.decorators.cache import cache_page
 from django.views.decorators.vary import vary_on_headers
 
-import redis
 import pickle
+from django.conf import settings
 from ..breadcrumb import generate_similar_games_breadcrumb
 
-redis_client = redis.Redis(host='127.0.0.1', port=6379, db=1, decode_responses=False)
+# redis_client безопасно инициализирован в settings.py:
+# в desktop-режиме или при недоступном Redis он равен None.
+redis_client = getattr(settings, 'redis_client', None)
 
 ITEMS_PER_PAGE = 16
 
@@ -623,6 +625,9 @@ def _render_filters_with_cache(
 ) -> Dict[str, str]:
     """Renders filter sections with aggressive caching using Redis.
 
+    Если redis_client is None (desktop-режим или Redis недоступен) —
+    рендерит напрямую без кэширования.
+
     present_params — набор ключей, реально присутствующих в запросе (даже если
     значение пустое, например g=). Включается в ключ кэша, чтобы различать
     "параметр отсутствует" и "параметр явно очищен" и не отдавать из кэша
@@ -634,13 +639,15 @@ def _render_filters_with_cache(
     import hashlib
     import json
     import pickle
-    from django.conf import settings
     from ..utils.filter_renderer import FilterRenderer
+    from ..models import Genre
 
-    redis_client = getattr(settings, 'redis_client', None)
+    # Без Redis — рендерим напрямую (desktop-режим / Redis недоступен).
     if redis_client is None:
-        import redis
-        redis_client = redis.Redis(host='127.0.0.1', port=6379, db=1, decode_responses=False)
+        _debug_print("[CACHE DISABLED] rendered_filters — redis_client is None, rendering directly")
+        return _render_filters_uncached(
+            filter_data, years_range, search_selected, similarity_selected
+        )
 
     # Присутствие параметров — часть ключа кэша. Сортируем для стабильности.
     present_list = sorted(list(present_params)) if present_params else []
@@ -666,26 +673,53 @@ def _render_filters_with_cache(
         'current_sort': current_sort,
         'years_range': years_range,
         'present_params': present_list,
-        'version': 'v6'  # поднято с v5: старый кэш не учитывал search_* и release_year
+        'version': 'v6'
     }
     cache_key_str = json.dumps(cache_data, sort_keys=True)
     cache_key_hash = hashlib.md5(cache_key_str.encode()).hexdigest()
     cache_key = f'rendered_filters_{cache_key_hash}'
 
-    cached_data = redis_client.get(cache_key)
-    if cached_data is not None:
-        _debug_print(f"[CACHE HIT] rendered_filters for key {cache_key_hash[:8]}")
-        return pickle.loads(cached_data)
+    try:
+        cached_data = redis_client.get(cache_key)
+        if cached_data is not None:
+            _debug_print(f"[CACHE HIT] rendered_filters for key {cache_key_hash[:8]}")
+            return pickle.loads(cached_data)
+    except Exception as e:
+        _debug_print(f"[CACHE ERROR] redis get failed: {e}; rendering directly")
+        return _render_filters_uncached(
+            filter_data, years_range, search_selected, similarity_selected
+        )
 
     _debug_print(f"[CACHE MISS] rendered_filters for key {cache_key_hash[:8]}")
 
-    renderer = FilterRenderer()
+    result = _render_filters_uncached(
+        filter_data, years_range, search_selected, similarity_selected
+    )
 
+    try:
+        redis_client.setex(cache_key, 1800, pickle.dumps(result))
+        _debug_print(f"[CACHE SAVE] rendered_filters for key {cache_key_hash[:8]} saved to Redis")
+    except Exception as e:
+        _debug_print(f"[CACHE ERROR] redis setex failed: {e}")
+
+    return result
+
+
+def _render_filters_uncached(
+        filter_data: Dict,
+        years_range: Dict,
+        search_selected: Dict,
+        similarity_selected: Dict
+) -> Dict[str, str]:
+    """Рендерит секции фильтров без кэша."""
+    from ..utils.filter_renderer import FilterRenderer
     from ..models import Genre
+
+    renderer = FilterRenderer()
     genres_list = list(Genre.objects.all().only('id', 'name').order_by('name'))
     game_types_list = GameTypeEnum.CHOICES
 
-    result = {
+    return {
         'search_platforms': renderer.render_search_platforms(
             filter_data.get('platforms', []),
             search_selected.get('platforms', [])
@@ -750,11 +784,6 @@ def _render_filters_with_cache(
             similarity_selected.get('engines', [])
         ),
     }
-
-    redis_client.setex(cache_key, 1800, pickle.dumps(result))
-    _debug_print(f"[CACHE SAVE] rendered_filters for key {cache_key_hash[:8]} saved to Redis")
-
-    return result
 
 
 def ajax_load_filters(request: HttpRequest) -> HttpResponse:

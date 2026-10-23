@@ -1255,6 +1255,14 @@ def create_gui_window():
             setup_environment()
             database_url = start_postgresql(append_to_terminal)
             os.environ['DATABASE_URL'] = database_url
+            # ВАЖНО: settings.py в DESKTOP_MODE читает DB_*, а не DATABASE_URL,
+            # поэтому переопределяем их на наш embedded PostgreSQL (порт _postgresql_port),
+            # иначе pg_restore заливает dump в базу PyCharm на 5432.
+            os.environ['DB_HOST'] = '127.0.0.1'
+            os.environ['DB_PORT'] = str(_postgresql_port)
+            os.environ['DB_NAME'] = 'postgres'
+            os.environ['DB_USER'] = 'postgres'
+            os.environ['DB_PASSWORD'] = ''
 
             append_to_terminal("\nLoading Django...\n")
             django.setup()

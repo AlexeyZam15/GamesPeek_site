@@ -151,22 +151,37 @@ elif IS_VPS:
     print(f"[VPS] PostgreSQL configured on {os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', '5432')}")
 
 elif IS_DESKTOP:
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.getenv('DB_NAME'),
-            'USER': os.getenv('DB_USER'),
-            'PASSWORD': os.getenv('DB_PASSWORD'),
-            'HOST': os.getenv('DB_HOST'),
-            'PORT': os.getenv('DB_PORT'),
-            'CONN_MAX_AGE': 600,
-            'OPTIONS': {
-                'connect_timeout': 10,
-                'client_encoding': 'UTF8',
-                'sslmode': 'disable',
-            },
+    # Приоритет DATABASE_URL: run.py выставляет его на embedded PostgreSQL
+    # (127.0.0.1:<свободный порт>), чтобы dump не заливался в базу PyCharm.
+    database_url = os.getenv('DATABASE_URL')
+    if database_url:
+        DATABASES = {
+            'default': dj_database_url.config(
+                default=database_url,
+                conn_max_age=0,
+                ssl_require=False,
+            )
         }
-    }
+        DATABASES['default'].setdefault('OPTIONS', {})
+        DATABASES['default']['OPTIONS']['sslmode'] = 'disable'
+        print("[DESKTOP MODE] DATABASE_URL used for embedded PostgreSQL")
+    else:
+        DATABASES = {
+            'default': {
+                'ENGINE': 'django.db.backends.postgresql',
+                'NAME': os.getenv('DB_NAME'),
+                'USER': os.getenv('DB_USER'),
+                'PASSWORD': os.getenv('DB_PASSWORD'),
+                'HOST': os.getenv('DB_HOST'),
+                'PORT': os.getenv('DB_PORT'),
+                'CONN_MAX_AGE': 600,
+                'OPTIONS': {
+                    'connect_timeout': 10,
+                    'client_encoding': 'UTF8',
+                    'sslmode': 'disable',
+                },
+            }
+        }
 else:
     DATABASES = {
         'default': {
@@ -855,4 +870,42 @@ class TimingMiddleware:
 import redis
 import pickle
 
-redis_client = redis.Redis(host='127.0.0.1', port=6379, db=1, decode_responses=False)
+
+def _init_redis_client():
+    """
+    Безопасная инициализация Redis-клиента.
+
+    Возвращает None, если:
+    - включён desktop-режим (DESKTOP_MODE=1) — Redis не поставляется со сборкой;
+    - приложение запущено на Hugging Face Spaces — Redis недоступен;
+    - Redis недоступен по сети (ping не прошёл).
+
+    Код, использующий redis_client, обязан обрабатывать None
+    и работать без кэша (например, через LocMemCache Django).
+    """
+    if os.getenv('DESKTOP_MODE') == '1':
+        print("[REDIS] Desktop mode: redis_client = None (using LocMemCache)")
+        return None
+
+    if IS_HF_SPACE:
+        print("[REDIS] Hugging Face Space: redis_client = None (using LocMemCache)")
+        return None
+
+    try:
+        client = redis.Redis(
+            host='127.0.0.1',
+            port=6379,
+            db=1,
+            decode_responses=False,
+            socket_connect_timeout=1,
+            socket_timeout=1,
+        )
+        client.ping()
+        print("[REDIS] Connected to 127.0.0.1:6379/1")
+        return client
+    except Exception as e:
+        print(f"[REDIS] Unavailable ({e}): redis_client = None (using LocMemCache)")
+        return None
+
+
+redis_client = _init_redis_client()

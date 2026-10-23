@@ -435,7 +435,6 @@ Environment variables (in .env):
             print()
 
             # Исправление проблемы с кодировкой: принудительно устанавливаем кодировку для stdin
-            import sys
             if sys.stdin.encoding is None or sys.stdin.encoding.upper() != 'UTF-8':
                 import io
                 sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8', errors='replace')
