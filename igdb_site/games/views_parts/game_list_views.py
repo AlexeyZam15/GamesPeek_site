@@ -551,12 +551,29 @@ def game_list(request: HttpRequest) -> HttpResponse:
 
 
 def _get_params_hash_from_request(request: HttpRequest) -> str:
-    """Генерирует хеш параметров запроса для инвалидации кэша фильтров."""
+    """Генерирует хеш параметров запроса для инвалидации кэша фильтров.
+
+    Включает search_* параметры и q, чтобы кэш rendered_filters различал
+    запросы с разными search-фильтрами. Без этого после AJAX-обновления
+    фильтров мог отдаваться HTML без бейджей/чекбоксов search-вкладки.
+    """
     import hashlib
     import json
 
     filter_params = {}
-    param_keys = ['g', 'k', 'p', 't', 'pp', 'gm', 'gt', 'e', 'ys', 'ye', 'source_game', 'find_similar', 'sort']
+    param_keys = [
+        # Similarity-параметры
+        'g', 'k', 'p', 't', 'pp', 'gm', 'gt', 'e', 'ys', 'ye',
+        # Source / режим
+        'source_game', 'find_similar',
+        # Сортировка
+        'sort',
+        # Search-параметры
+        'search_g', 'search_k', 'search_p', 'search_t', 'search_pp',
+        'search_gm', 'search_gt', 'search_e', 'search_ys', 'search_ye',
+        # Текстовый поиск
+        'q',
+    ]
 
     for key in param_keys:
         value = request.GET.get(key, '')
@@ -594,6 +611,7 @@ def _apply_random_order(queryset, seed: str):
         )
     ).order_by('_random_key')
 
+
 def _render_filters_with_cache(
         params_hash: str,
         filter_data: Dict,
@@ -609,6 +627,9 @@ def _render_filters_with_cache(
     значение пустое, например g=). Включается в ключ кэша, чтобы различать
     "параметр отсутствует" и "параметр явно очищен" и не отдавать из кэша
     HTML с подставленными из source_game критериями.
+
+    search_selected теперь включает release_year_start/end (int), поэтому
+    ключ кэша должен учитывать их отдельно, а не только списки.
     """
     import hashlib
     import json
@@ -624,14 +645,28 @@ def _render_filters_with_cache(
     # Присутствие параметров — часть ключа кэша. Сортируем для стабильности.
     present_list = sorted(list(present_params)) if present_params else []
 
+    def _normalize_selected(selected: Dict) -> Dict:
+        """Нормализует selected для ключа кэша: списки -> sorted, int -> int, None -> None."""
+        normalized = {}
+        for k, v in selected.items():
+            if isinstance(v, list):
+                normalized[k] = sorted(v)
+            elif isinstance(v, int):
+                normalized[k] = v
+            elif v is None:
+                normalized[k] = None
+            else:
+                normalized[k] = v
+        return normalized
+
     cache_data = {
         'params_hash': params_hash,
-        'search_selected': {k: sorted(v) for k, v in search_selected.items() if isinstance(v, list)},
-        'similarity_selected': {k: sorted(v) for k, v in similarity_selected.items() if isinstance(v, list)},
+        'search_selected': _normalize_selected(search_selected),
+        'similarity_selected': _normalize_selected(similarity_selected),
         'current_sort': current_sort,
         'years_range': years_range,
         'present_params': present_list,
-        'version': 'v5'
+        'version': 'v6'  # поднято с v5: старый кэш не учитывал search_* и release_year
     }
     cache_key_str = json.dumps(cache_data, sort_keys=True)
     cache_key_hash = hashlib.md5(cache_key_str.encode()).hexdigest()
@@ -748,18 +783,34 @@ def ajax_load_filters(request: HttpRequest) -> HttpResponse:
         except (Game.DoesNotExist, ValueError):
             pass
 
+    # ===== SEARCH FILTERS: читаем из request.GET, а не пустые списки =====
+    # Без этого после AJAX-обновления фильтров search-вкладка всегда пустая,
+    # и выбранный жанр (search_g) визуально «сбрасывается».
+    search_genres = request.GET.get('search_g', '')
+    search_keywords = request.GET.get('search_k', '')
+    search_platforms = request.GET.get('search_p', '')
+    search_themes = request.GET.get('search_t', '')
+    search_perspectives = request.GET.get('search_pp', '')
+    search_game_modes = request.GET.get('search_gm', '')
+    search_game_types = request.GET.get('search_gt', '')
+    search_engines = request.GET.get('search_e', '')
+    search_year_start = request.GET.get('search_ys', '')
+    search_year_end = request.GET.get('search_ye', '')
+
     search_selected = {
-        'genres': [],
-        'keywords': [],
-        'platforms': [],
-        'themes': [],
-        'perspectives': [],
-        'game_modes': [],
-        'game_types': [],
-        'engines': [],
-        'release_year_start': selected_criteria['release_year_start'],
-        'release_year_end': selected_criteria['release_year_end'],
+        'genres': [int(x) for x in search_genres.split(',') if x.isdigit()] if search_genres else [],
+        'keywords': [int(x) for x in search_keywords.split(',') if x.isdigit()] if search_keywords else [],
+        'platforms': [int(x) for x in search_platforms.split(',') if x.isdigit()] if search_platforms else [],
+        'themes': [int(x) for x in search_themes.split(',') if x.isdigit()] if search_themes else [],
+        'perspectives': [int(x) for x in search_perspectives.split(',') if x.isdigit()] if search_perspectives else [],
+        'game_modes': [int(x) for x in search_game_modes.split(',') if x.isdigit()] if search_game_modes else [],
+        'game_types': [int(x) for x in search_game_types.split(',') if x.isdigit()] if search_game_types else [],
+        'engines': [int(x) for x in search_engines.split(',') if x.isdigit()] if search_engines else [],
+        'release_year_start': int(search_year_start) if search_year_start and search_year_start.isdigit() else None,
+        'release_year_end': int(search_year_end) if search_year_end and search_year_end.isdigit() else None,
     }
+
+    search_selected_objects = _get_selected_criteria_objects(search_selected)
 
     similarity_selected = {
         'genres': selected_criteria['genres'],
@@ -788,6 +839,8 @@ def ajax_load_filters(request: HttpRequest) -> HttpResponse:
         if 'e' not in present_params:
             similarity_selected['engines'] = [e.id for e in source_game_obj.engines.all()]
 
+    similarity_selected_objects = _get_selected_criteria_objects(similarity_selected)
+
     cached_sections = _render_filters_with_cache(
         params_hash,
         filter_data,
@@ -810,6 +863,7 @@ def ajax_load_filters(request: HttpRequest) -> HttpResponse:
         'game_types': GameTypeEnum.CHOICES,
         'years_range': years_range,
         'current_year': timezone.now().year,
+        # ===== SEARCH SELECTED (теперь заполнены) =====
         'search_selected_genres': search_selected['genres'],
         'search_selected_keywords': search_selected['keywords'],
         'search_selected_platforms': search_selected['platforms'],
@@ -820,6 +874,15 @@ def ajax_load_filters(request: HttpRequest) -> HttpResponse:
         'search_selected_engines': search_selected['engines'],
         'search_selected_release_year_start': search_selected['release_year_start'],
         'search_selected_release_year_end': search_selected['release_year_end'],
+        # ===== SEARCH SELECTED OBJECTS =====
+        'search_selected_genres_objects': search_selected_objects.get('genres', []),
+        'search_selected_keywords_objects': search_selected_objects.get('keywords', []),
+        'search_selected_platforms_objects': search_selected_objects.get('platforms', []),
+        'search_selected_themes_objects': search_selected_objects.get('themes', []),
+        'search_selected_perspectives_objects': search_selected_objects.get('perspectives', []),
+        'search_selected_game_modes_objects': search_selected_objects.get('game_modes', []),
+        'search_selected_engines_objects': search_selected_objects.get('engines', []),
+        # ===== SIMILARITY SELECTED =====
         'similarity_selected_genres': similarity_selected['genres'],
         'similarity_selected_keywords': similarity_selected['keywords'],
         'similarity_selected_platforms': similarity_selected['platforms'],
@@ -828,6 +891,14 @@ def ajax_load_filters(request: HttpRequest) -> HttpResponse:
         'similarity_selected_game_modes': similarity_selected['game_modes'],
         'similarity_selected_game_types': similarity_selected['game_types'],
         'similarity_selected_engines': similarity_selected.get('engines', []),
+        'similarity_selected_genres_objects': similarity_selected_objects.get('genres', []),
+        'similarity_selected_keywords_objects': similarity_selected_objects.get('keywords', []),
+        'similarity_selected_platforms_objects': similarity_selected_objects.get('platforms', []),
+        'similarity_selected_themes_objects': similarity_selected_objects.get('themes', []),
+        'similarity_selected_perspectives_objects': similarity_selected_objects.get('perspectives', []),
+        'similarity_selected_game_modes_objects': similarity_selected_objects.get('game_modes', []),
+        'similarity_selected_engines_objects': similarity_selected_objects.get('engines', []),
+        # ===== COMMON =====
         'current_sort': params.get('sort', ''),
         'find_similar': find_similar,
         'source_game_obj': source_game_obj,

@@ -20,54 +20,75 @@ function generateRandomSeed() {
 }
 
 /**
- * Собирает все параметры фильтров и сортировки из DOM.
+ * Возвращает базовые параметры: копию текущего URL + накопленные очистки.
+ * Это ключевое изменение: раньше параметры строились с нуля из DOM,
+ * из-за чего любой параметр, не отражённый в DOM как :checked
+ * (например, выбранный жанр search_g=31, отображаемый бейджем,
+ * либо q — текстовый поиск), терялся при Apply Sort.
+ */
+function getBaseParams() {
+    const params = new URLSearchParams(window.location.search);
+
+    // Применяем накопленные очистки поверх URL: явно очищенные ключи
+    // должны остаться пустыми, даже если в URL было старое значение.
+    if (pendingClearedParams.size > 0) {
+        pendingClearedParams.forEach(function (value, key) {
+            params.set(key, value);
+        });
+    }
+
+    return params;
+}
+
+/**
+ * Утилита: устанавливает параметр, только если в DOM есть выбранные значения.
+ * Если selectedValues пуст — параметр НЕ трогаем (сохраняем значение из URL,
+ * которое могло быть выбрано через бейдж и не отразиться в чекбоксе).
+ */
+function setParamIfSelected(params, key, selectedValues) {
+    if (selectedValues && selectedValues.length > 0) {
+        params.set(key, selectedValues.join(','));
+    }
+    // Если selectedValues пуст — оставляем как есть (из URL/очисток).
+}
+
+/**
+ * Собирает все параметры фильтров и сортировки.
+ * БАЗА — текущий URL (+ pendingClearedParams), поверх неё накладываются
+ * значения из DOM. Параметры, которых нет в DOM как :checked, НЕ удаляются —
+ * это предотвращает сброс фильтров при смене сортировки.
+ *
  * НЕ добавляет page и seed — это делает вызывающий код,
  * чтобы поведение seed'а (новый или сохранённый) зависело от действия.
  */
 function collectFilterParams() {
-    const params = new URLSearchParams();
+    const params = getBaseParams();
 
     // ===== SEARCH FILTERS (с префиксом search_) =====
 
     const searchPlatforms = document.querySelectorAll('.search-platform-checkbox:checked');
-    if (searchPlatforms.length > 0) {
-        params.set('search_p', Array.from(searchPlatforms).map(cb => cb.value).join(','));
-    }
+    setParamIfSelected(params, 'search_p', Array.from(searchPlatforms).map(cb => cb.value));
 
     const searchGameTypes = document.querySelectorAll('.search-game-type-checkbox:checked');
-    if (searchGameTypes.length > 0) {
-        params.set('search_gt', Array.from(searchGameTypes).map(cb => cb.value).join(','));
-    }
+    setParamIfSelected(params, 'search_gt', Array.from(searchGameTypes).map(cb => cb.value));
 
     const searchGenres = document.querySelectorAll('.search-genre-checkbox:checked');
-    if (searchGenres.length > 0) {
-        params.set('search_g', Array.from(searchGenres).map(cb => cb.value).join(','));
-    }
+    setParamIfSelected(params, 'search_g', Array.from(searchGenres).map(cb => cb.value));
 
     const searchKeywords = document.querySelectorAll('.search-keyword-checkbox:checked');
-    if (searchKeywords.length > 0) {
-        params.set('search_k', Array.from(searchKeywords).map(cb => cb.value).join(','));
-    }
+    setParamIfSelected(params, 'search_k', Array.from(searchKeywords).map(cb => cb.value));
 
     const searchThemes = document.querySelectorAll('.search-theme-checkbox:checked');
-    if (searchThemes.length > 0) {
-        params.set('search_t', Array.from(searchThemes).map(cb => cb.value).join(','));
-    }
+    setParamIfSelected(params, 'search_t', Array.from(searchThemes).map(cb => cb.value));
 
     const searchPerspectives = document.querySelectorAll('.search-perspective-checkbox:checked');
-    if (searchPerspectives.length > 0) {
-        params.set('search_pp', Array.from(searchPerspectives).map(cb => cb.value).join(','));
-    }
+    setParamIfSelected(params, 'search_pp', Array.from(searchPerspectives).map(cb => cb.value));
 
     const searchGameModes = document.querySelectorAll('.search-game-mode-checkbox:checked');
-    if (searchGameModes.length > 0) {
-        params.set('search_gm', Array.from(searchGameModes).map(cb => cb.value).join(','));
-    }
+    setParamIfSelected(params, 'search_gm', Array.from(searchGameModes).map(cb => cb.value));
 
     const searchEngines = document.querySelectorAll('.search-engine-checkbox:checked');
-    if (searchEngines.length > 0) {
-        params.set('search_e', Array.from(searchEngines).map(cb => cb.value).join(','));
-    }
+    setParamIfSelected(params, 'search_e', Array.from(searchEngines).map(cb => cb.value));
 
     const searchYearStart = document.getElementById('search-manual-year-start')?.value;
     const searchYearEnd = document.getElementById('search-manual-year-end')?.value;
@@ -77,61 +98,70 @@ function collectFilterParams() {
     // ===== SIMILARITY FILTERS (без префикса) =====
 
     const similarityGenres = document.querySelectorAll('.genre-checkbox:checked');
-    if (similarityGenres.length > 0) {
-        params.set('g', Array.from(similarityGenres).map(cb => cb.value).join(','));
-    }
+    setParamIfSelected(params, 'g', Array.from(similarityGenres).map(cb => cb.value));
 
     const similarityKeywords = document.querySelectorAll('.keyword-checkbox:checked');
-    if (similarityKeywords.length > 0) {
-        params.set('k', Array.from(similarityKeywords).map(cb => cb.value).join(','));
-    }
+    setParamIfSelected(params, 'k', Array.from(similarityKeywords).map(cb => cb.value));
 
     const similarityThemes = document.querySelectorAll('.theme-checkbox:checked');
-    if (similarityThemes.length > 0) {
-        params.set('t', Array.from(similarityThemes).map(cb => cb.value).join(','));
-    }
+    setParamIfSelected(params, 't', Array.from(similarityThemes).map(cb => cb.value));
 
     const similarityPerspectives = document.querySelectorAll('.perspective-checkbox:checked');
-    if (similarityPerspectives.length > 0) {
-        params.set('pp', Array.from(similarityPerspectives).map(cb => cb.value).join(','));
-    }
+    setParamIfSelected(params, 'pp', Array.from(similarityPerspectives).map(cb => cb.value));
 
     const similarityGameModes = document.querySelectorAll('.game-mode-checkbox:checked');
-    if (similarityGameModes.length > 0) {
-        params.set('gm', Array.from(similarityGameModes).map(cb => cb.value).join(','));
-    }
+    setParamIfSelected(params, 'gm', Array.from(similarityGameModes).map(cb => cb.value));
 
     const similarityEngines = document.querySelectorAll('.engine-checkbox:checked');
-    if (similarityEngines.length > 0) {
-        params.set('e', Array.from(similarityEngines).map(cb => cb.value).join(','));
-    }
+    setParamIfSelected(params, 'e', Array.from(similarityEngines).map(cb => cb.value));
+
+    // ===== SOURCE GAME / FIND_SIMILAR =====
 
     const sourceGameInput = document.getElementById('server-source-game-id');
     if (sourceGameInput && sourceGameInput.value) {
         params.set('source_game', sourceGameInput.value);
     }
 
+    // find_similar: включаем, если есть similarity-критерии, source_game
+    // или параметр уже был в URL.
     const hasSimilarity = similarityGenres.length > 0 || similarityKeywords.length > 0 ||
                           similarityThemes.length > 0 || similarityPerspectives.length > 0 ||
                           similarityGameModes.length > 0 || similarityEngines.length > 0 ||
-                          (sourceGameInput && sourceGameInput.value);
+                          (sourceGameInput && sourceGameInput.value) ||
+                          params.get('find_similar') === '1';
 
     if (hasSimilarity) {
         params.set('find_similar', '1');
     }
+
+    // ===== ТЕКСТОВЫЙ ПОИСК (q) =====
+    // Раньше q терялся при Apply Sort. Сохраняем из URL, если поле ввода
+    // поиска в навбаре не переопределило его.
+    const navSearchInput = document.querySelector('form[action*="search_results"] input[name="q"]');
+    if (navSearchInput && navSearchInput.value && navSearchInput.value.trim()) {
+        params.set('q', navSearchInput.value.trim());
+    }
+    // Иначе q остаётся из URL (getBaseParams уже его скопировал).
+
+    // ===== СОРТИРОВКА =====
 
     const sortSelect = document.querySelector('select[name="sort"]');
     if (sortSelect && sortSelect.value) {
         params.set('sort', sortSelect.value);
     }
 
+    // page сбрасывается при любом применении фильтров/сортировки.
+    params.set('page', '1');
+
     return params;
 }
 
 /**
  * Отправляет запрос со списком игр: через AJAX (если доступно) или обычной навигацией.
+ * params уже содержит page=1 (устанавливается в collectFilterParams).
  */
 function submitGameListWithParams(params) {
+    // Гарантируем page=1 (на случай вызова из других мест).
     params.set('page', '1');
 
     const newUrl = window.location.pathname + '?' + params.toString();
@@ -165,13 +195,14 @@ function initFormSubmit() {
     const newButton = applyButton.cloneNode(true);
     applyButton.parentNode.replaceChild(newButton, applyButton);
 
-    newButton.addEventListener('click', function(e) {
+    newButton.addEventListener('click', function (e) {
         e.preventDefault();
         console.log('Apply filters clicked - updating URL with filters');
 
-        // Явное применение фильтров: накопленные Clear All-очистки больше
-        // не актуальны (пользователь мог заново выбрать значения).
-        pendingClearedParams.clear();
+        // ВАЖНО: НЕ вызываем pendingClearedParams.clear() вслепую.
+        // collectFilterParams() берёт URL как базу и применяет pendingClearedParams
+        // поверх. Явные очистки (Clear All) должны сохраняться, а выбранные
+        // значения (из DOM или URL) — не теряться.
 
         const params = collectFilterParams();
 
@@ -181,7 +212,14 @@ function initFormSubmit() {
         // ajax-pagination.js, копируя параметры из href ссылок пагинатора.)
         if (params.get('sort') === 'random') {
             params.set('seed', generateRandomSeed());
+        } else {
+            // При не-random сортировке seed больше не нужен.
+            params.delete('seed');
         }
+
+        // После явного применения фильтров накопленные очистки уже
+        // материализованы в params (пустые значения), поэтому сбрасываем.
+        pendingClearedParams.clear();
 
         submitGameListWithParams(params);
     });
@@ -197,7 +235,7 @@ function initApplySortSubmit() {
     }
     initApplySortSubmit.__bound = true;
 
-    document.addEventListener('submit', function(e) {
+    document.addEventListener('submit', function (e) {
         const form = e.target;
         if (!form || form.id !== 'main-search-form') {
             return;
@@ -206,15 +244,21 @@ function initApplySortSubmit() {
         e.preventDefault();
         console.log('Apply Sort submitted - updating URL with filters');
 
-        // Сбрасываем накопленные очистки — пользователь явно применил параметры.
-        pendingClearedParams.clear();
+        // ВАЖНО: НЕ сбрасываем pendingClearedParams вслепую.
+        // collectFilterParams() берёт URL как базу (+очистки) и накладывает DOM.
+        // Это сохраняет выбранные фильтры (search_g=31 и т.п.) при смене сортировки.
 
         const params = collectFilterParams();
 
         // При random — новая перестановка на каждое нажатие Apply Sort.
         if (params.get('sort') === 'random') {
             params.set('seed', generateRandomSeed());
+        } else {
+            params.delete('seed');
         }
+
+        // Очистки материализованы в params — сбрасываем накопленный список.
+        pendingClearedParams.clear();
 
         submitGameListWithParams(params);
     });

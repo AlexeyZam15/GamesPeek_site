@@ -18,6 +18,20 @@
             <input type="hidden" name="ys" id="year-start-field" value="{{ request.GET.ys|default:'' }}">
             <input type="hidden" name="ye" id="year-end-field" value="{{ request.GET.ye|default:'' }}">
 
+            <!-- SEARCH FILTERS hidden fields (чтобы не терялись при AJAX-обновлении фильтров) -->
+            <input type="hidden" name="search_p" value="{{ request.GET.search_p|default:'' }}">
+            <input type="hidden" name="search_gt" value="{{ request.GET.search_gt|default:'' }}">
+            <input type="hidden" name="search_g" value="{{ request.GET.search_g|default:'' }}">
+            <input type="hidden" name="search_k" value="{{ request.GET.search_k|default:'' }}">
+            <input type="hidden" name="search_t" value="{{ request.GET.search_t|default:'' }}">
+            <input type="hidden" name="search_pp" value="{{ request.GET.search_pp|default:'' }}">
+            <input type="hidden" name="search_gm" value="{{ request.GET.search_gm|default:'' }}">
+            <input type="hidden" name="search_e" value="{{ request.GET.search_e|default:'' }}">
+            <input type="hidden" name="search_ys" value="{{ request.GET.search_ys|default:'' }}">
+            <input type="hidden" name="search_ye" value="{{ request.GET.search_ye|default:'' }}">
+            <input type="hidden" name="q" value="{{ request.GET.q|default:'' }}">
+            <input type="hidden" name="seed" value="{{ request.GET.seed|default:'' }}">
+
             <div class="row g-3">
                 {% include 'games/game_list/_sort_form.html' %}
 
