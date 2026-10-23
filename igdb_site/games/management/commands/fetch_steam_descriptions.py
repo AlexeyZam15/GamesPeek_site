@@ -310,7 +310,7 @@ class Command(BaseCommand):
     # Константа лимита запросов в минуту
     REQUESTS_PER_MINUTE = 50
 
-    help = 'Получение описаний из Steam с пакетной обработкой и сохранением прогресса'
+    help = 'Получение описаний из Steam с пакетной обработкой и сохранением прогресса. Поддерживает фильтрацию по внутренним ID (--game-ids-file), по IGDB ID (--igdb-id, --igdb-ids-file) и по имени (--game-name).'
 
     def __init__(self, *args, **kwargs):
         """Инициализация команды."""
@@ -385,6 +385,385 @@ class Command(BaseCommand):
 
         # Инициализация ограничителя запросов
         self._init_rate_limiter()
+
+    def _check_existing_descriptions(self, options: Dict) -> None:
+        """
+        Проверяет существующие rawg_description на соответствие Steam.
+        Не изменяет БД. Выводит отчёт.
+        """
+        import difflib
+
+        self.stdout.write(self.style.SUCCESS('=' * 60))
+        self.stdout.write(self.style.SUCCESS('🔍 ПРОВЕРКА СУЩЕСТВУЮЩИХ ОПИСАНИЙ'))
+        self.stdout.write(self.style.SUCCESS('=' * 60))
+
+        # Настройка rate limiter и параметров
+        self.timeout = options.get('timeout', 10.0)
+        self.delay = options.get('delay', 0.1)
+
+        # Отключаем подробный вывод, чтобы не было спама в терминале
+        self.verbose = False
+        self.debug = False
+
+        self.rate_limiter = SteamRateLimiter(
+            max_consecutive_failures=options.get('max_consecutive_failures', 15),
+            base_wait_time=options.get('base_wait', 180),
+            max_wait_time=options.get('max_wait', 300)
+        )
+
+        # Формируем queryset
+        queryset = Game.objects.filter(
+            rawg_description__isnull=False
+        ).exclude(rawg_description='').order_by('id')
+
+        # Фильтр по IGDB ID
+        if options.get('igdb_id'):
+            igdb_ids = set(options['igdb_id'])
+            resolved = list(Game.objects.filter(igdb_id__in=igdb_ids).values_list('id', flat=True))
+            if resolved:
+                queryset = queryset.filter(id__in=resolved)
+                self.stdout.write(self.style.WARNING(f'📌 Фильтр по IGDB ID: {len(resolved)} игр'))
+            else:
+                self.stdout.write(self.style.ERROR('❌ Ни один IGDB ID не найден в БД'))
+                return
+
+        # Фильтр по файлу внутренних ID
+        if options.get('game_ids_file'):
+            file_path = options['game_ids_file']
+            if os.path.exists(file_path):
+                ids = set()
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.isdigit():
+                            ids.add(int(line))
+                if ids:
+                    queryset = queryset.filter(id__in=ids)
+                    self.stdout.write(self.style.WARNING(f'📌 Фильтр по файлу ID: {len(ids)} игр'))
+                else:
+                    self.stdout.write(self.style.ERROR('❌ Файл ID пуст'))
+                    return
+            else:
+                self.stdout.write(self.style.ERROR(f'❌ Файл ID не найден: {file_path}'))
+                return
+
+        # Фильтр по имени игры
+        if options.get('game_name'):
+            name = options['game_name']
+            queryset = queryset.filter(name__icontains=name)
+            self.stdout.write(self.style.WARNING(f'📌 Фильтр по имени: "{name}"'))
+
+        # Применяем offset и limit
+        offset = options.get('offset', 0)
+        limit = options.get('limit')
+        if offset:
+            queryset = queryset[offset:]
+        if limit:
+            queryset = queryset[:limit]
+
+        total = queryset.count()
+        if total == 0:
+            self.stdout.write(self.style.WARNING('⚠️ Нет игр с описаниями для проверки'))
+            return
+
+        # Вывод легенды значков
+        self.stdout.write('')
+        self.stdout.write(self.style.NOTICE('📖 ЛЕГЕНДА:'))
+        self.stdout.write(self.style.NOTICE('  ✅ — описание совпадает'))
+        self.stdout.write(self.style.NOTICE('  ⚠️ — подозрительно (несовпадение/не найдено)'))
+        self.stdout.write(self.style.NOTICE('  ❌ — ошибка при проверке'))
+        self.stdout.write(self.style.NOTICE('  🔍 — текущая проверяемая игра'))
+        self.stdout.write('')
+        self.stdout.write(f'📊 Всего игр для проверки: {total}')
+        self.stdout.write('')
+
+        suspicious = []
+        checked = 0
+        errors = 0
+        matched = 0
+
+        for idx, game in enumerate(queryset.iterator(chunk_size=100), 1):
+            if self.interrupted:
+                self.stdout.write('\n')
+                self.stdout.write(self.style.WARNING('⏹️ Проверка прервана'))
+                break
+
+            # Проверка rate limit
+            if self.rate_limiter.should_backoff():
+                self.check_rate_limit()
+                if self.interrupted:
+                    self.stdout.write('\n')
+                    break
+
+            # Прогресс-бар в одну строку
+            game_name_short = game.name[:30]
+            self.stdout.write(
+                f'\r🔍 [{idx}/{total}] {game_name_short:30} | '
+                f'✅ {matched} | ⚠️ {len(suspicious)} | ❌ {errors}',
+                ending=''
+            )
+            self.stdout.flush()
+
+            try:
+                app_id, search_error = self.search_steam(game.name, self.timeout)
+
+                if not app_id:
+                    suspicious.append({
+                        'id': game.id,
+                        'igdb_id': game.igdb_id,
+                        'name': game.name,
+                        'reason': f'not_found_in_steam ({search_error})',
+                        'current_desc_len': len(game.rawg_description) if game.rawg_description else 0,
+                        'steam_desc_len': 0,
+                        'text_ratio': None,
+                        'current_desc': game.rawg_description or '',
+                        'steam_desc': ''
+                    })
+                    checked += 1
+                    continue
+
+                steam_desc, desc_error = self.fetch_description(app_id, self.timeout, game.name)
+
+                if not steam_desc:
+                    suspicious.append({
+                        'id': game.id,
+                        'igdb_id': game.igdb_id,
+                        'name': game.name,
+                        'reason': f'no_steam_description ({desc_error})',
+                        'current_desc_len': len(game.rawg_description) if game.rawg_description else 0,
+                        'steam_desc_len': 0,
+                        'text_ratio': None,
+                        'current_desc': game.rawg_description or '',
+                        'steam_desc': ''
+                    })
+                    checked += 1
+                    continue
+
+                # Сравниваем тексты
+                current_desc = (game.rawg_description or '').lower()
+                new_desc = steam_desc.lower()
+                ratio = difflib.SequenceMatcher(None, current_desc, new_desc).ratio()
+
+                if ratio < 0.8:
+                    suspicious.append({
+                        'id': game.id,
+                        'igdb_id': game.igdb_id,
+                        'name': game.name,
+                        'reason': f'text_mismatch (ratio={ratio:.2f})',
+                        'current_desc_len': len(current_desc),
+                        'steam_desc_len': len(new_desc),
+                        'text_ratio': round(ratio, 3),
+                        'current_desc': game.rawg_description or '',
+                        'steam_desc': steam_desc or ''
+                    })
+                else:
+                    matched += 1
+
+                checked += 1
+
+            except Exception as e:
+                errors += 1
+                self.log_debug(f'Ошибка проверки', game_name=game.name, error=e)
+
+            time.sleep(self.delay)
+
+        # Перевод строки после прогресс-бара
+        self.stdout.write('')
+
+        # Вывод результатов
+        self.stdout.write('\n' + '=' * 60)
+        self.stdout.write(self.style.SUCCESS('📊 РЕЗУЛЬТАТЫ ПРОВЕРКИ'))
+        self.stdout.write('=' * 60)
+        self.stdout.write(f'📊 Проверено игр: {checked}')
+        self.stdout.write(self.style.SUCCESS(f'✅ Совпадают: {matched}'))
+        self.stdout.write(self.style.WARNING(f'⚠️ Подозрительных: {len(suspicious)}'))
+        self.stdout.write(self.style.ERROR(f'❌ Ошибок: {errors}'))
+
+        if suspicious:
+            self.stdout.write('\n📋 СПИСОК ПОДОЗРИТЕЛЬНЫХ ИГР (кратко):')
+            for item in suspicious[:50]:
+                self.stdout.write(f"\n  • {item['name']} (id={item['id']}, igdb_id={item['igdb_id']})")
+                self.stdout.write(f"    Причина: {item['reason']}")
+                self.stdout.write(f"    Длина текущего описания: {item['current_desc_len']}")
+                if item.get('steam_desc_len'):
+                    self.stdout.write(f"    Длина описания из Steam: {item['steam_desc_len']}")
+                if item.get('text_ratio') is not None:
+                    self.stdout.write(f"    Схожесть текста: {item['text_ratio']}")
+                if item.get('current_desc'):
+                    self.stdout.write(f"    Текущее описание (начало): {item['current_desc'][:200]}...")
+                if item.get('steam_desc'):
+                    self.stdout.write(f"    Steam описание (начало): {item['steam_desc'][:200]}...")
+
+            if len(suspicious) > 50:
+                self.stdout.write(f'\n... и ещё {len(suspicious) - 50} игр')
+
+            # Определяем имя файла отчёта
+            report_file = options.get('output_file', 'steam_descriptions_check.txt')
+            if report_file == 'steam_descriptions_all.txt':
+                report_file = 'steam_descriptions_check.txt'
+
+            # Сохранение полного отчёта в TXT
+            try:
+                with open(report_file, 'w', encoding='utf-8') as f:
+                    f.write('=' * 80 + '\n')
+                    f.write('ОТЧЁТ О ПРОВЕРКЕ ОПИСАНИЙ STEAM\n')
+                    f.write(f'Дата: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}\n')
+                    f.write(f'Проверено игр: {checked}\n')
+                    f.write(f'Совпадают: {matched}\n')
+                    f.write(f'Подозрительных: {len(suspicious)}\n')
+                    f.write(f'Ошибок: {errors}\n')
+                    f.write('=' * 80 + '\n\n')
+
+                    for item in suspicious:
+                        f.write('-' * 80 + '\n')
+                        f.write(f"Игра: {item['name']}\n")
+                        f.write(f"ID: {item['id']}\n")
+                        f.write(f"IGDB ID: {item['igdb_id']}\n")
+                        f.write(f"Причина: {item['reason']}\n")
+                        f.write(f"Длина текущего описания: {item['current_desc_len']}\n")
+                        f.write(f"Длина описания из Steam: {item['steam_desc_len']}\n")
+                        if item.get('text_ratio') is not None:
+                            f.write(f"Схожесть текста: {item['text_ratio']}\n")
+                        f.write('\nТЕКУЩЕЕ ОПИСАНИЕ (rawg_description):\n')
+                        f.write('-' * 40 + '\n')
+                        f.write(item.get('current_desc', '') + '\n')
+                        f.write('\nОПИСАНИЕ ИЗ STEAM:\n')
+                        f.write('-' * 40 + '\n')
+                        f.write(item.get('steam_desc', '') + '\n')
+                        f.write('\n')
+
+                    f.write('=' * 80 + '\n')
+
+                self.stdout.write(self.style.SUCCESS(f'\n💾 Полный отчёт сохранён: {report_file}'))
+            except Exception as e:
+                self.stdout.write(self.style.ERROR(f'❌ Ошибка сохранения отчёта: {e}'))
+        else:
+            self.stdout.write(self.style.SUCCESS('\n✅ Все проверенные описания совпадают с Steam'))
+
+        self.stdout.write('=' * 60)
+
+    def _clear_steam_cache_files(self, output_dir: str) -> None:
+        """
+        Очищает кэш-файлы Steam:
+        - steam_descriptions_all.txt (перезаписывает заголовком)
+        - steam_cache.json (записывает {})
+        - steam_found.txt (перезаписывает заголовком)
+        - steam_no_description.txt (перезаписывает заголовком)
+
+        Аргументы:
+            output_dir: директория, где находятся файлы.
+        """
+        out_dir = Path(output_dir)
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            self.stdout.write(self.style.ERROR(f'❌ Не удалось создать директорию {output_dir}: {e}'))
+            return
+
+        now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        # 1. steam_descriptions_all.txt
+        desc_file = out_dir / 'steam_descriptions_all.txt'
+        try:
+            header = (
+                f"{'=' * 80}\n"
+                f"STEAM GAME DESCRIPTIONS\n"
+                f"Generated: {now_str}\n"
+                f"{'=' * 80}\n\n"
+            )
+            with open(desc_file, 'w', encoding='utf-8') as f:
+                f.write(header)
+            self.stdout.write(self.style.SUCCESS(f'🧹 Очищен: {desc_file}'))
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(f'⚠️ Не удалось очистить {desc_file}: {e}'))
+
+        # 2. steam_cache.json
+        cache_file = out_dir / 'steam_cache.json'
+        try:
+            import json
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                json.dump({}, f, ensure_ascii=False, indent=2)
+            self.stdout.write(self.style.SUCCESS(f'🧹 Очищен: {cache_file}'))
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(f'⚠️ Не удалось очистить {cache_file}: {e}'))
+
+        # 3. steam_found.txt
+        found_file = out_dir / 'steam_found.txt'
+        try:
+            header = (
+                f"{'=' * 80}\n"
+                f"STEAM FOUND GAMES\n"
+                f"Created: {now_str}\n"
+                f"{'=' * 80}\n\n"
+            )
+            with open(found_file, 'w', encoding='utf-8') as f:
+                f.write(header)
+            self.stdout.write(self.style.SUCCESS(f'🧹 Очищен: {found_file}'))
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(f'⚠️ Не удалось очистить {found_file}: {e}'))
+
+        # 4. steam_no_description.txt
+        no_desc_file = out_dir / 'steam_no_description.txt'
+        try:
+            header = (
+                f"{'=' * 80}\n"
+                f"STEAM GAMES WITHOUT DESCRIPTION\n"
+                f"Created: {now_str}\n"
+                f"{'=' * 80}\n\n"
+            )
+            with open(no_desc_file, 'w', encoding='utf-8') as f:
+                f.write(header)
+            self.stdout.write(self.style.SUCCESS(f'🧹 Очищен: {no_desc_file}'))
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(f'⚠️ Не удалось очистить {no_desc_file}: {e}'))
+
+        self.stdout.write(self.style.SUCCESS('✅ Кэш Steam очищен.'))
+
+    def _resolve_igdb_ids_to_game_ids(self, igdb_ids: set) -> set:
+        """
+        Преобразует множество IGDB ID во множество внутренних Game.id.
+
+        Аргументы:
+            igdb_ids: множество IGDB ID для поиска.
+
+        Возвращает:
+            set: множество внутренних ID игр (Game.id), найденных в БД.
+        """
+        if not igdb_ids:
+            return set()
+
+        self.stdout.write(
+            self.style.WARNING(f'🔗 Резолв {len(igdb_ids)} IGDB ID во внутренние ID игр...')
+        )
+
+        resolved = list(
+            Game.objects.filter(igdb_id__in=list(igdb_ids))
+            .values_list('igdb_id', 'id')
+        )
+        resolved_map = {igdb: local for igdb, local in resolved}
+        missing = igdb_ids - set(resolved_map.keys())
+
+        if resolved_map:
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f'✅ Найдено {len(resolved_map)} из {len(igdb_ids)} IGDB ID'
+                )
+            )
+            for igdb_id, local_id in list(resolved_map.items())[:20]:
+                self.stdout.write(f'   • igdb_id={igdb_id} → Game.id={local_id}')
+            if len(resolved_map) > 20:
+                self.stdout.write(f'   ... и ещё {len(resolved_map) - 20}')
+
+        if missing:
+            self.stdout.write(
+                self.style.WARNING(
+                    f'⚠️ Не найдены в БД IGDB ID: {sorted(missing)[:50]}'
+                )
+            )
+            if len(missing) > 50:
+                self.stdout.write(f'   ... и ещё {len(missing) - 50}')
+
+        return set(resolved_map.values())
 
     def _init_rate_limiter(self):
         """Инициализация потокобезопасного ограничителя запросов."""
@@ -661,6 +1040,35 @@ class Command(BaseCommand):
             type=str,
             default=None,
             help='Путь к файлу со списком ID игр для обработки (по одному ID на строку)'
+        )
+
+        # --- НОВЫЕ АРГУМЕНТЫ ДЛЯ IGDB ID ---
+        parser.add_argument(
+            '--igdb-id',
+            type=int,
+            nargs='+',
+            default=None,
+            help='Один или несколько IGDB ID игр для обработки (например: --igdb-id 284260 12345)'
+        )
+        parser.add_argument(
+            '--igdb-ids-file',
+            type=str,
+            default=None,
+            help='Путь к файлу со списком IGDB ID игр для обработки (по одному ID на строку)'
+        )
+
+        # --- НОВЫЙ АРГУМЕНТ ДЛЯ ОЧИСТКИ КЭША ---
+        parser.add_argument(
+            '--clear-cache',
+            action='store_true',
+            help='Очистить кэш Steam (steam_descriptions_all.txt, steam_cache.json, steam_found.txt, steam_no_description.txt) перед началом работы'
+        )
+
+        # --- НОВЫЙ АРГУМЕНТ ДЛЯ ПРОВЕРКИ СУЩЕСТВУЮЩИХ ОПИСАНИЙ ---
+        parser.add_argument(
+            '--check',
+            action='store_true',
+            help='Проверить существующие описания (rawg_description) на соответствие Steam. Не изменяет БД, выводит отчёт.'
         )
 
     def _load_game_ids_from_file(self, file_path: str) -> set:
@@ -1849,7 +2257,9 @@ class Command(BaseCommand):
             return []
 
     def search_steam(self, game_name: str, timeout: float) -> Tuple[Optional[int], Optional[str]]:
-        """Поиск игры в Steam с использованием универсальной функции get_request."""
+        """Поиск игры в Steam с использованием универсальной функции get_request и проверкой схожести названий."""
+        import difflib
+
         if self.rate_limiter and self.rate_limiter.should_backoff():
             self.check_rate_limit()
             if self.rate_limiter.should_backoff():
@@ -1880,13 +2290,44 @@ class Command(BaseCommand):
 
             if response_data.get('total', 0) > 0:
                 items = response_data.get('items', [])
-                if items:
-                    app_id = items[0].get('id')
-                    self.log_verbose(f"Найден Steam ID: {app_id}", game_name=game_name)
+                if not items:
+                    return None, 'not_found'
+
+                # Перебираем items, ищем лучший по схожести названий
+                best_item = None
+                best_ratio = 0.0
+                for item in items:
+                    item_name = item.get('name', '')
+                    if not item_name:
+                        continue
+                    ratio = difflib.SequenceMatcher(
+                        None,
+                        game_name.lower(),
+                        item_name.lower()
+                    ).ratio()
+                    if ratio > best_ratio:
+                        best_ratio = ratio
+                        best_item = item
+
+                # Фиксированный порог схожести
+                MIN_SIMILARITY = 0.7
+
+                if best_item and best_ratio >= MIN_SIMILARITY:
+                    app_id = best_item.get('id')
+                    self.log_verbose(
+                        f"Найден Steam ID: {app_id} "
+                        f"(схожесть '{game_name}' vs '{best_item.get('name')}' = {best_ratio:.2f})",
+                        game_name=game_name
+                    )
                     self.rate_limiter.record_success()
                     return app_id, None
                 else:
-                    return None, 'not_found'
+                    self.log_debug(
+                        f"Нет подходящего совпадения (лучшая схожесть {best_ratio:.2f} "
+                        f"< {MIN_SIMILARITY}) для '{game_name}'",
+                        game_name=game_name
+                    )
+                    return None, 'low_similarity'
             else:
                 self.log_debug(f"Нет результатов для '{search_name}'", game_name=game_name)
                 return None, 'not_found'
@@ -2948,6 +3389,50 @@ class Command(BaseCommand):
                     options['limit'] = len(self._game_ids_filter)
                     limit_from_args = len(self._game_ids_filter)
 
+        # --- ОБРАБОТКА IGDB ID ---
+        igdb_ids = set()
+        if options.get('igdb_id'):
+            igdb_ids.update(options['igdb_id'])
+            self.stdout.write(f'📌 Получено IGDB ID из аргумента: {len(options["igdb_id"])}')
+
+        if options.get('igdb_ids_file'):
+            igdb_file = options['igdb_ids_file']
+            if os.path.exists(igdb_file):
+                count = 0
+                with open(igdb_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.isdigit():
+                            igdb_ids.add(int(line))
+                            count += 1
+                self.stdout.write(
+                    self.style.SUCCESS(f'📂 Загружено {count} IGDB ID из файла: {igdb_file}')
+                )
+            else:
+                self.stdout.write(
+                    self.style.ERROR(f'❌ Файл IGDB ID не найден: {igdb_file}')
+                )
+                return None
+
+        if igdb_ids:
+            resolved_ids = self._resolve_igdb_ids_to_game_ids(igdb_ids)
+            if not resolved_ids:
+                self.stdout.write(
+                    self.style.ERROR(
+                        '❌ Ни один IGDB ID не найден в базе данных. Завершение.'
+                    )
+                )
+                return None
+            self._game_ids_filter.update(resolved_ids)
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f'📊 Итого внутренних ID для обработки: {len(self._game_ids_filter)}'
+                )
+            )
+            if options.get('limit') is None:
+                options['limit'] = len(self._game_ids_filter)
+                limit_from_args = len(self._game_ids_filter)
+
         # ЕСЛИ ЕСТЬ ФИЛЬТР ПО ID - ЗАГРУЖАЕМ ТОЛЬКО НУЖНЫЕ ДАННЫЕ, ПРОПУСКАЕМ ВСЕ ЛИШНИЕ ЗАГРУЗКИ
         if self._game_ids_filter:
             self.stdout.write(
@@ -3329,6 +3814,16 @@ class Command(BaseCommand):
 
         signal.signal(signal.SIGINT, self.signal_handler)
 
+        # --- ОЧИСТКА КЭША (если указан флаг) ---
+        if options.get('clear_cache'):
+            self.stdout.write(self.style.WARNING('🧹 Очистка кэша Steam по флагу --clear-cache...'))
+            self._clear_steam_cache_files(options.get('output_dir', 'steam_data'))
+
+        # --- ПРОВЕРКА СУЩЕСТВУЮЩИХ ОПИСАНИЙ (если указан флаг) ---
+        if options.get('check'):
+            self._check_existing_descriptions(options)
+            return
+
         self.rate_limiter = SteamRateLimiter(
             max_consecutive_failures=options['max_consecutive_failures'],
             base_wait_time=options['base_wait'],
@@ -3559,6 +4054,10 @@ class Command(BaseCommand):
 
             self.stdout.write(self.style.WARNING(f'🔄 Выполняется перезапуск...'))
             try:
-                subprocess.run([sys.executable, script_path] + new_args)
+                result = subprocess.run([sys.executable, script_path] + new_args, check=False)
+                if result.returncode != 0:
+                    self.stdout.write(self.style.ERROR(
+                        f'❌ Перезапуск завершился с кодом {result.returncode}'
+                    ))
             except Exception as e:
                 self.stdout.write(self.style.ERROR(f'❌ Ошибка перезапуска: {e}'))
