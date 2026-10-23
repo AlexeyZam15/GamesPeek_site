@@ -279,7 +279,7 @@ def extract_request_params(request: HttpRequest) -> Dict[str, str]:
 
     params = {}
     for key in ['find_similar', 'g', 'k', 'p', 't', 'pp', 'd', 'gm', 'gt', 'yr', 'ys', 'ye', 'source_game', 'sort',
-                'page', 'e', 'search_k', 'q']:
+                'page', 'e', 'search_k', 'q', 'seed']:
         value = get_params.get(key, '')
         params[key] = value
 
@@ -689,8 +689,28 @@ def _format_similar_games_data(similar_games_data: List) -> List[Dict[str, Any]]
     return formatted
 
 
-def _sort_similar_games(games_with_similarity: List[Dict[str, Any]], current_sort: str) -> None:
-    """Sort similar games."""
+def _sort_similar_games(games_with_similarity: List[Dict[str, Any]], current_sort: str,
+                        seed: Optional[str] = None) -> None:
+    """Sort similar games.
+
+    Для current_sort == 'random' выполняется детерминированное перемешивание
+    на основе seed (random.Random(seed).shuffle), чтобы при переходах по
+    пагинации (страницы 1..N) порядок оставался стабильным. Если seed пуст —
+    используется системное время (нестабильный shuffle), но это допустимо
+    только как fallback: view всегда передаёт seed из URL.
+    """
+    if current_sort == 'random':
+        import random as _random
+        import time as _time
+
+        if seed:
+            rng = _random.Random(str(seed))
+        else:
+            rng = _random.Random(_time.time_ns())
+
+        rng.shuffle(games_with_similarity)
+        return
+
     if current_sort == '-rating_count':
         games_with_similarity.sort(key=lambda x: x['game'].rating_count or 0, reverse=True)
     elif current_sort == '-rating':

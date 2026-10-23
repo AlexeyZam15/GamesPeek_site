@@ -224,7 +224,9 @@ def game_list(request: HttpRequest) -> HttpResponse:
     # Набор параметров, реально присутствующих в запросе (даже если пустые).
     present_params = set(request.GET.keys())
 
-    # Есть ли similarity-параметры -> пользователь изменил критерии.
+    # seed для random-сортировки (генерируется на клиенте; сервер только читает).
+    random_seed = params.get('seed', '')
+
     has_similarity_overrides = any(
         p in present_params for p in ('g', 'k', 't', 'pp', 'gm', 'e')
     )
@@ -279,10 +281,6 @@ def game_list(request: HttpRequest) -> HttpResponse:
         'developers': selected_criteria.get('developers', []),
     }
 
-    # Подстановка критериев из source в similarity_selected делается ТОЛЬКО
-    # в исходном режиме (без similarity-параметров). Если пользователь изменил
-    # критерии (есть g/k/t/pp/gm/e), подстановок нет: бейджи и расчёт
-    # соответствуют только явно выбранным критериям (virtual-режим).
     if find_similar and source_game_obj and not has_similarity_overrides:
         if 'g' not in present_params:
             similarity_selected['genres'] = [g.id for g in source_game_obj.genres.all()]
@@ -351,6 +349,7 @@ def game_list(request: HttpRequest) -> HttpResponse:
                 search_year_start_int=search_selected['release_year_start'],
                 search_year_end_int=search_selected['release_year_end'],
                 present_params=present_params,
+                seed=random_seed,
             )
             games_with_similarity_data = _update_games_with_cached_cards(
                 mode_result.get('games_with_similarity', []),
@@ -400,7 +399,9 @@ def game_list(request: HttpRequest) -> HttpResponse:
                 'name', '-name', 'rating', '-rating', 'rating_count', '-rating_count',
                 '-first_release_date', 'first_release_date', '-date_added', 'date_added'
             ]
-            if sort_field in allowed_sort_fields:
+            if sort_field == 'random':
+                games_qs = _apply_random_order(games_qs, random_seed)
+            elif sort_field in allowed_sort_fields:
                 games_qs = games_qs.order_by(sort_field)
             else:
                 games_qs = games_qs.order_by('-rating_count')
@@ -515,6 +516,7 @@ def game_list(request: HttpRequest) -> HttpResponse:
         'selected_developers_objects': similarity_selected_objects.get('developers', []),
         'selected_engines_objects': similarity_selected_objects.get('engines', []),
         'current_sort': params.get('sort', ''),
+        'random_seed': random_seed,
         'execution_time': round(time.time() - start_time, 3),
         'debug_info': {
             'mode': 'server_rendered_filters',
@@ -564,6 +566,33 @@ def _get_params_hash_from_request(request: HttpRequest) -> str:
     param_string = json.dumps(filter_params, sort_keys=True)
     return hashlib.md5(param_string.encode()).hexdigest()
 
+
+def _apply_random_order(queryset, seed: str):
+    """Детерминированно перемешивает QuerySet по seed.
+
+    Ключ сортировки: MD5(CONCAT(CAST(id AS text), seed)). Стабилен между
+    страницами пагинатора (в отличие от order_by('?'), который делает новый
+    RANDOM() на каждый запрос). Работает на PostgreSQL.
+
+    Важно: id — BigAutoField (число), seed — строка. Без Cast/Concat с
+    output_field Django падает с FieldError "mixed types: BigAutoField,
+    CharField". Поэтому id приводится к CharField явно.
+    """
+    from django.db.models import Value, F, CharField
+    from django.db.models.functions import Cast, Concat, MD5
+
+    if not seed:
+        return queryset.order_by('?')
+
+    return queryset.annotate(
+        _random_key=MD5(
+            Concat(
+                Cast(F('id'), output_field=CharField()),
+                Value(str(seed)),
+                output_field=CharField(),
+            )
+        )
+    ).order_by('_random_key')
 
 def _render_filters_with_cache(
         params_hash: str,
@@ -997,7 +1026,8 @@ def _paginate_games(games_list, page_number, items_per_page=ITEMS_PER_PAGE):
 def _get_all_games_mode_with_pagination(
         selected_criteria: Dict[str, List[int]],
         sort_field: str,
-        page_num: int
+        page_num: int,
+        seed: str = ''
 ) -> Dict[str, Any]:
     """Режим отображения ВСЕХ игр с СЕРВЕРНОЙ пагинацией."""
     games_qs = Game.objects.all().only(
@@ -1013,7 +1043,9 @@ def _get_all_games_mode_with_pagination(
         'name', '-name', 'rating', '-rating', 'rating_count', '-rating_count',
         '-first_release_date', 'first_release_date', '-date_added', 'date_added'
     ]
-    if sort_field in allowed_sort_fields:
+    if sort_field == 'random':
+        games_qs = _apply_random_order(games_qs, seed)
+    elif sort_field in allowed_sort_fields:
         games_qs = games_qs.order_by(sort_field)
     else:
         games_qs = games_qs.order_by('-rating_count')
@@ -1057,6 +1089,7 @@ def _get_similar_games_mode_with_pagination(
         search_year_start_int: int = None,
         search_year_end_int: int = None,
         present_params: Optional[set] = None,
+        seed: str = '',
 ) -> Dict[str, Any]:
     """
     Режим похожих игр с СЕРВЕРНОЙ пагинацией.
@@ -1069,6 +1102,9 @@ def _get_similar_games_mode_with_pagination(
     Если similarity-параметров нет — используется source_game_obj как
     якорь (get_similar_games_for_game), source-игра присутствует в
     результатах с 100%.
+
+    seed используется для current_sort='random' — детерминированный
+    shuffle в _sort_similar_games.
     """
     import time
 
@@ -1077,8 +1113,6 @@ def _get_similar_games_mode_with_pagination(
 
     present_params = present_params or set()
 
-    # Наличие хотя бы одного similarity-параметра означает, что пользователь
-    # изменил критерии -> virtual-режим без source-игры.
     has_similarity_overrides = any(
         p in present_params for p in ('g', 'k', 't', 'pp', 'gm', 'e')
     )
@@ -1096,7 +1130,7 @@ def _get_similar_games_mode_with_pagination(
 
     _debug_print(
         f"[SIMILAR MODE] has_similarity_overrides={has_similarity_overrides}, "
-        f"search_filters={search_filters}, page={page_num}"
+        f"search_filters={search_filters}, page={page_num}, sort={current_sort}, seed={seed!r}"
     )
 
     effective_source_game_obj = None
@@ -1157,8 +1191,8 @@ def _get_similar_games_mode_with_pagination(
         if 'game' in item and item.get('similarity') is not None:
             item['game'].similarity = item['similarity']
 
-    # Сортируем
-    _sort_similar_games(games_with_similarity, current_sort)
+    # Сортируем (с поддержкой random + seed)
+    _sort_similar_games(games_with_similarity, current_sort, seed=seed)
 
     # Пагинация
     paginator = Paginator(games_with_similarity, ITEMS_PER_PAGE)
@@ -1214,6 +1248,9 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
     params = extract_request_params(request)
     selected_criteria = convert_params_to_lists(params)
 
+    # seed для random-сортировки.
+    random_seed = params.get('seed', '')
+
     # Набор параметров, реально присутствующих в запросе (даже если пустые).
     present_params = set(request.GET.keys())
 
@@ -1256,6 +1293,7 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
     _debug_print(f"Search genres: {search_genres_list}")
     _debug_print(f"Search platforms: {search_platforms_list}")
     _debug_print(f"Search keywords: {search_keywords_list}")
+    _debug_print(f"Random seed: {random_seed!r}")
 
     sort_field = params.get('sort', '-rating_count')
     find_similar = params.get('find_similar') == '1'
@@ -1321,7 +1359,9 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
             'name', '-name', 'rating', '-rating', 'rating_count', '-rating_count',
             '-first_release_date', 'first_release_date', '-date_added', 'date_added'
         ]
-        if sort_field in allowed_sort_fields:
+        if sort_field == 'random':
+            games_qs = _apply_random_order(games_qs, random_seed)
+        elif sort_field in allowed_sort_fields:
             games_qs = games_qs.order_by(sort_field)
         else:
             games_qs = games_qs.order_by('-rating_count')
@@ -1346,7 +1386,7 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
     else:
         _debug_print("Mode: similar games with search filters")
         _debug_print(
-            f"Passing to _get_similar_games_mode_with_pagination: year_start={search_year_start_int}, year_end={search_year_end_int}")
+            f"Passing to _get_similar_games_mode_with_pagination: year_start={search_year_start_int}, year_end={search_year_end_int}, seed={random_seed!r}")
 
         mode_result = _get_similar_games_mode_with_pagination(
             params,
@@ -1364,6 +1404,7 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
             search_year_start_int=search_year_start_int,
             search_year_end_int=search_year_end_int,
             present_params=present_params,
+            seed=random_seed,
         )
 
         games_with_similarity = mode_result.get('games_with_similarity', [])
@@ -1398,6 +1439,7 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
             'end_index': min(page_num * ITEMS_PER_PAGE, total_count),
             'items_per_page': ITEMS_PER_PAGE,
             'current_sort': sort_field,
+            'random_seed': random_seed,
             'request': request,
             'show_similarity': False,
         }
@@ -1425,6 +1467,7 @@ def ajax_load_games_page(request: HttpRequest) -> HttpResponse:
             'end_index': min(page_num * ITEMS_PER_PAGE, total_count),
             'items_per_page': ITEMS_PER_PAGE,
             'current_sort': sort_field,
+            'random_seed': random_seed,
             'request': request,
         }
 
