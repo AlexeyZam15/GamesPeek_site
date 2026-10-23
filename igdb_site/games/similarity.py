@@ -96,7 +96,7 @@ class GameSimilarity:
     """
     # ВЕРСИЯ АЛГОРИТМА - УВЕЛИЧИВАТЬ ПРИ ЛЮБЫХ ИЗМЕНЕНИЯХ В ЛОГИКЕ РАСЧЕТА
     # Это гарантирует, что старый кэш не будет использоваться после обновления
-    ALGORITHM_VERSION = 8
+    ALGORITHM_VERSION = 9
 
     DEFAULT_SIMILAR_GAMES_LIMIT = 500
 
@@ -121,8 +121,33 @@ class GameSimilarity:
     def __init__(self, verbose=False):
         self._similarity_cache = {}
         self._game_data_cache = {}
+        self._mmo_mode_igdb_id = None  # ленивый кэш igdb_id MMO-режима
         self.stop_flag = False
         self.verbose = verbose
+
+    def _get_mmo_game_mode_igdb_id(self):
+        """
+        Возвращает igdb_id режима игры 'Massively Multiplayer Online (MMO)'.
+
+        Ищет режим по имени в БД (без жёстко зашитой константы) и кэширует
+        результат в экземпляре. Если режим не найден — возвращает None,
+        и фильтрация по MMO не применяется.
+        """
+        if self._mmo_mode_igdb_id is not None:
+            return self._mmo_mode_igdb_id
+
+        from .models import GameMode
+
+        mmo_id = GameMode.objects.filter(
+            name__iexact='Massively Multiplayer Online (MMO)'
+        ).values_list('igdb_id', flat=True).first()
+
+        self._mmo_mode_igdb_id = mmo_id
+
+        if self.verbose:
+            print(f"[_get_mmo_game_mode_igdb_id] MMO game mode igdb_id = {self._mmo_mode_igdb_id}")
+
+        return self._mmo_mode_igdb_id
 
     def set_verbose(self, verbose):
         """Устанавливает режим вывода отладочной информации"""
@@ -623,25 +648,34 @@ class GameSimilarity:
         source_perspective_ids = source_data['perspective_ids']
         source_game_mode_ids = source_data['game_mode_ids']
         source_engine_ids = source_data['engine_ids']
-        source_game_id = source_data.get('game_id', 0)
+        source_game_id = source_data.get('game_id')
 
         has_single_player = single_player_info['has_single_player']
         single_player_mode_id = single_player_info['single_player_mode_id']
         dynamic_min_common_genres = single_player_info['dynamic_min_common_genres']
 
-        exclude_ids = [source_game_id] if source_game_id else []
+        # MMO-фильтрация: если source не MMO и MMO-режим найден —
+        # исключаем игры с этим режимом.
+        is_source_mmo = single_player_info.get('is_mmo', False)
+        mmo_mode_igdb_id = single_player_info.get('mmo_mode_igdb_id')
 
         sql_parts = []
-        params = [current_time, source_game_id]
+        params = [current_time]
 
         base_sql = """
                    SELECT DISTINCT g.id
                    FROM games_game g
                    WHERE g.first_release_date IS NOT NULL
                      AND g.first_release_date <= %s
-                     AND g.id != %s
                    """
         sql_parts.append(base_sql)
+
+        # Исключаем source-игру только если есть реальный source_game_id
+        # (Game). Для VirtualGame source_game_id = None — "g.id != NULL"
+        # в SQL даёт NULL и отсекает все строки.
+        if source_game_id is not None:
+            sql_parts.append(" AND g.id != %s")
+            params.append(source_game_id)
 
         if self.stop_flag:
             if self.verbose:
@@ -734,10 +768,6 @@ class GameSimilarity:
                     AND g.game_type IN ({game_type_ids_str})
                 """)
 
-        if exclude_ids:
-            exclude_str = ','.join(map(str, exclude_ids))
-            sql_parts.append(f" AND g.id NOT IN ({exclude_str})")
-
         if source_genre_ids:
             source_genre_ids_str = ','.join(map(str, source_genre_ids))
             if dynamic_min_common_genres == 2:
@@ -802,6 +832,12 @@ class GameSimilarity:
                 )
             """)
 
+        # MMO-фильтр: исключаем игры с MMO-режимом, если source не MMO.
+        # game_mode_ids — материализованный массив igdb_id (GIN-индекс).
+        if (not is_source_mmo) and (mmo_mode_igdb_id is not None):
+            sql_parts.append(" AND NOT (g.game_mode_ids && ARRAY[%s]::integer[])")
+            params.append(mmo_mode_igdb_id)
+
         if self.stop_flag:
             if self.verbose:
                 print("Прерывание: остановка перед выполнением SQL")
@@ -809,8 +845,7 @@ class GameSimilarity:
 
         final_sql = ' '.join(sql_parts)
 
-        if self.verbose:
-            print(f"SQL запрос для кандидатов: {final_sql[:500]}...")
+        print(f"[_get_candidate_ids_new] SQL params={params}, sql_len={len(final_sql)}")
 
         candidate_ids = []
 
@@ -821,13 +856,13 @@ class GameSimilarity:
                 candidate_ids = [row[0] for row in cursor.fetchall()]
             except Exception as e:
                 if "canceling statement due to statement timeout" in str(e):
-                    if self.verbose:
-                        print("Прерывание: SQL запрос отменен по таймауту (30 сек)")
+                    print("[_get_candidate_ids_new] SQL отменён по таймауту (30 сек)")
                     return []
+                # Логируем и пробрасываем — пусть find_similar_games покажет ошибку.
+                print(f"[_get_candidate_ids_new] ОШИБКА SQL: {e}")
                 raise
 
-        if self.verbose:
-            print(f"Найдено {len(candidate_ids)} уникальных кандидатов за {time.time() - start_time:.2f} сек")
+        print(f"[_get_candidate_ids_new] candidate_ids={len(candidate_ids)}")
 
         return candidate_ids
 
@@ -942,6 +977,21 @@ class GameSimilarity:
         engine_ids_str = ','.join(map(str, source_engine_ids)) if source_engine_ids else '-1'
         developer_ids_str = ','.join(map(str, source_developer_ids)) if source_developer_ids else '-1'
 
+        # Формируем SQL-фрагмент для has_single_player.
+        # Если single_player_mode_id задан — EXISTS с параметром %s.
+        # Если None — литерал FALSE, чтобы в SQL не попало "gamemode_id = None".
+        query_params = []
+        if single_player_mode_id is not None:
+            has_single_player_sql = """EXISTS (
+                        SELECT 1
+                        FROM games_game_game_modes gggm
+                        WHERE gggm.game_id = g.id
+                          AND gggm.gamemode_id = %s
+                    )"""
+            query_params.append(single_player_mode_id)
+        else:
+            has_single_player_sql = "FALSE"
+
         query = f"""
             SELECT 
                 g.id as game_id,
@@ -982,22 +1032,13 @@ class GameSimilarity:
                     WHERE ggd.game_id = g.id
                       AND ggd.company_id IN ({developer_ids_str})
                 ), 0) as common_developers,
-                CASE 
-                    WHEN {single_player_mode_id if single_player_mode_id else 'NULL'} IS NOT NULL 
-                    THEN EXISTS (
-                        SELECT 1
-                        FROM games_game_game_modes gggm
-                        WHERE gggm.game_id = g.id
-                          AND gggm.gamemode_id = {single_player_mode_id}
-                    )
-                    ELSE FALSE
-                END as has_single_player
+                {has_single_player_sql} as has_single_player
             FROM games_game g
             WHERE g.id IN ({candidate_ids_str})
         """
 
         with connection.cursor() as cursor:
-            cursor.execute(query)
+            cursor.execute(query, query_params)
             rows = cursor.fetchall()
 
             for row in rows:
@@ -1312,12 +1353,22 @@ class GameSimilarity:
         return similarity
 
     @timeit
-    def _calculate_similarity_for_candidates(self, games_data, source_data, source_game, single_player_info):
-        """Расчет схожести для кандидатов с использованием SQL логики"""
+    def _calculate_similarity_for_candidates(self, games_data, source_data, source_game, single_player_info,
+                                             min_similarity=None):
+        """Расчет схожести для кандидатов с использованием SQL логики.
+
+        min_similarity — порог отсечения. Если None, используется DEFAULT_MIN_SIMILARITY.
+        Вызывающий код (find_similar_games) передаёт 0, когда у source-игры нет
+        активных критериев, чтобы не отсекать всех кандидатов с similarity == 0.
+        """
         import time
+
+        if min_similarity is None:
+            min_similarity = self.DEFAULT_MIN_SIMILARITY
 
         if self.verbose:
             print("Расчет схожести для кандидатов...")
+            print(f"min_similarity = {min_similarity}")
 
         calc_time = time.time()
 
@@ -1333,7 +1384,6 @@ class GameSimilarity:
         has_genres = source_genre_count > 0
         dynamic_min_common_genres = single_player_info['dynamic_min_common_genres']
         has_single_player = single_player_info['has_single_player']
-        min_similarity = self.DEFAULT_MIN_SIMILARITY
 
         source_game_id = getattr(source_game, 'id', None) if isinstance(source_game, Game) else None
         source_game_name = getattr(source_game, 'name', 'Source Game') if isinstance(source_game,
@@ -1514,7 +1564,8 @@ class GameSimilarity:
         return set()
 
     @timeit
-    def find_similar_games(self, source_game, min_similarity=None, limit=None, search_filters=None):
+    def find_similar_games(self, source_game, min_similarity=None, limit=None, search_filters=None,
+                           override_criteria=None):
         import time
         from django.db import connection
 
@@ -1532,11 +1583,30 @@ class GameSimilarity:
             print(f"{'=' * 60}")
             print(f"Source: {getattr(source_game, 'id', 'virtual')}")
             print(f"Search filters: {search_filters}")
+            print(f"Override criteria: {override_criteria}")
             print(f"Min similarity: {min_similarity}")
             print(f"{'=' * 60}\n")
 
         try:
-            source_data, single_player_info = self._prepare_source_data(source_game)
+            source_data, single_player_info = self._prepare_source_data(
+                source_game,
+                override_criteria=override_criteria,
+            )
+
+            # Основные критерии, которые могут дать вклад >= порога.
+            main_criteria = (
+                    source_data['genre_count'] +
+                    source_data['keyword_count'] +
+                    source_data['theme_count'] +
+                    source_data['perspective_count']
+            )
+            effective_min_similarity = min_similarity if main_criteria > 0 else 0.0
+
+            print(
+                f"[find_similar_games] source={getattr(source_game, 'id', 'virtual')}, "
+                f"main_criteria={main_criteria}, effective_min_similarity={effective_min_similarity}, "
+                f"override_criteria={override_criteria}"
+            )
 
             if self.stop_flag:
                 if self.verbose:
@@ -1545,8 +1615,7 @@ class GameSimilarity:
 
             candidate_ids = self._get_candidate_ids_new(source_data, single_player_info, min_similarity, search_filters)
 
-            if self.verbose:
-                print(f"Candidate IDs found: {len(candidate_ids)}")
+            print(f"[find_similar_games] candidate_ids={len(candidate_ids)}")
 
             if self.stop_flag:
                 if self.verbose:
@@ -1554,11 +1623,12 @@ class GameSimilarity:
                 return []
 
             if not candidate_ids:
-                if self.verbose:
-                    print("Нет подходящих кандидатов")
+                print("[find_similar_games] Нет кандидатов, возвращаем []")
                 return []
 
             games_data = self._prepare_candidate_data(candidate_ids)
+
+            print(f"[find_similar_games] games_data after prepare={len(games_data)}")
 
             if self.stop_flag:
                 if self.verbose:
@@ -1566,6 +1636,8 @@ class GameSimilarity:
                 return []
 
             games_data = self._calculate_common_elements_new(games_data, source_data, candidate_ids)
+
+            print(f"[find_similar_games] games_data after common_elements={len(games_data)}")
 
             if self.stop_flag:
                 if self.verbose:
@@ -1693,8 +1765,11 @@ class GameSimilarity:
                 games_data = filtered_games_data
 
             similar_games = self._calculate_similarity_for_candidates(
-                games_data, source_data, source_game, single_player_info
+                games_data, source_data, source_game, single_player_info,
+                min_similarity=effective_min_similarity,
             )
+
+            print(f"[find_similar_games] similar_games before limit={len(similar_games)}")
 
             if self.stop_flag:
                 if self.verbose:
@@ -1724,6 +1799,8 @@ class GameSimilarity:
 
             final_results = self._load_full_objects(similar_games)
 
+            print(f"[find_similar_games] final_results={len(final_results)}")
+
             total_elapsed = time.time() - total_start_time
 
             if self.verbose:
@@ -1742,15 +1819,22 @@ class GameSimilarity:
                 print("\n\n⚠️ Поиск прерван пользователем (Ctrl+C)")
             return []
         except Exception as e:
-            if self.verbose:
-                print(f"Ошибка при поиске похожих игр: {e}")
-                import traceback
-                traceback.print_exc()
+            # Логируем ВСЕГДА (не только verbose): причина "0 игр" должна быть видна.
+            print(f"[find_similar_games] ОШИБКА при поиске похожих игр: {e}")
+            import traceback
+            traceback.print_exc()
             return []
 
     # Обновляем _prepare_source_data:
-    def _prepare_source_data(self, source_game):
-        """Подготовка данных исходной игры - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
+    def _prepare_source_data(self, source_game, override_criteria=None):
+        """Подготовка данных исходной игры - с поддержкой override критериев.
+
+        override_criteria — dict, где ключи: 'genres', 'keywords', 'themes',
+        'perspectives', 'game_modes', 'engines', 'developers'.
+        Если ключ присутствует — соответствующее поле source-игры заменяется
+        на переданный список (даже если он пустой). Отсутствующий ключ означает
+        "взять из source-игры".
+        """
         from .models import GameMode
 
         # Получаем базовые данные из кэша (множества)
@@ -1761,27 +1845,58 @@ class GameSimilarity:
         if isinstance(source_game, Game):
             source_game_id = source_game.id
 
-        # Преобразуем множества в списки для всех полей
+        # Преобразуем множества в списки для всех полей (копии, чтобы не мутировать кэш)
         source_genre_ids = list(source_data.get('genres', set()))
-        source_genre_count = len(source_genre_ids)
-
         source_keyword_ids = list(source_data.get('keywords', set()))
-        source_keyword_count = len(source_keyword_ids)
-
         source_theme_ids = list(source_data.get('themes', set()))
-        source_theme_count = len(source_theme_ids)
-
         source_perspective_ids = list(source_data.get('perspectives', set()))
-        source_perspective_count = len(source_perspective_ids)
-
         source_game_mode_ids = list(source_data.get('game_modes', set()))
-        source_game_mode_count = len(source_game_mode_ids)
-
-        source_developer_ids = list(source_data.get('developers', set()))
-        source_developer_count = len(source_developer_ids)
-
         source_engine_ids = list(source_data.get('engines', set()))
+        source_developer_ids = list(source_data.get('developers', set()))
+
+        # Применяем override критериев (замена критериев source-игры).
+        # Важно: заменяем на НОВЫЕ списки, не мутируя кэш _game_data_cache.
+        if override_criteria:
+            if 'genres' in override_criteria:
+                source_genre_ids = list(override_criteria.get('genres') or [])
+            if 'keywords' in override_criteria:
+                source_keyword_ids = list(override_criteria.get('keywords') or [])
+            if 'themes' in override_criteria:
+                source_theme_ids = list(override_criteria.get('themes') or [])
+            if 'perspectives' in override_criteria:
+                source_perspective_ids = list(override_criteria.get('perspectives') or [])
+            if 'game_modes' in override_criteria:
+                source_game_mode_ids = list(override_criteria.get('game_modes') or [])
+            if 'engines' in override_criteria:
+                source_engine_ids = list(override_criteria.get('engines') or [])
+            if 'developers' in override_criteria:
+                source_developer_ids = list(override_criteria.get('developers') or [])
+
+        source_genre_count = len(source_genre_ids)
+        source_keyword_count = len(source_keyword_ids)
+        source_theme_count = len(source_theme_ids)
+        source_perspective_count = len(source_perspective_ids)
+        source_game_mode_count = len(source_game_mode_ids)
+        source_developer_count = len(source_developer_ids)
         source_engine_count = len(source_engine_ids)
+
+        # Определяем, является ли source MMO (по режиму игры).
+        # Для Game game_mode_ids содержит igdb_id, для VirtualGame — локальные id.
+        mmo_mode_igdb_id = self._get_mmo_game_mode_igdb_id()
+        is_mmo = False
+
+        if mmo_mode_igdb_id is not None:
+            if isinstance(source_game, VirtualGame):
+                # VirtualGame.game_mode_ids — локальные id GameMode
+                if source_game_mode_ids:
+                    is_mmo = GameMode.objects.filter(
+                        id__in=source_game_mode_ids,
+                        igdb_id=mmo_mode_igdb_id,
+                    ).exists()
+            else:
+                # Game.game_mode_ids — материализованный массив igdb_id
+                game_mode_ids_igdb = getattr(source_game, 'game_mode_ids', None) or []
+                is_mmo = mmo_mode_igdb_id in game_mode_ids_igdb
 
         # Проверяем, есть ли у исходной игры режим Single player
         has_single_player_in_source = False
@@ -1831,14 +1946,17 @@ class GameSimilarity:
             'developer_ids': source_developer_ids,
             'developer_count': source_developer_count,
             'single_player_mode_id': single_player_mode_id,
-            # Сохраняем оригинальные множества для обратной совместимости
-            'genres': source_data.get('genres', set()),
-            'keywords': source_data.get('keywords', set()),
-            'themes': source_data.get('themes', set()),
-            'perspectives': source_data.get('perspectives', set()),
-            'game_modes': source_data.get('game_modes', set()),
-            'developers': source_data.get('developers', set()),
-            'engines': source_data.get('engines', set()),
+            'is_mmo': is_mmo,
+            # Сохраняем оригинальные множества для обратной совместимости.
+            # При наличии override — строим множества из override-списков,
+            # чтобы common_* считались относительно них.
+            'genres': set(source_genre_ids),
+            'keywords': set(source_keyword_ids),
+            'themes': set(source_theme_ids),
+            'perspectives': set(source_perspective_ids),
+            'game_modes': set(source_game_mode_ids),
+            'developers': set(source_developer_ids),
+            'engines': set(source_engine_ids),
         }
 
         single_player_info = {
@@ -1847,7 +1965,9 @@ class GameSimilarity:
             'dynamic_min_common_genres': dynamic_min_common_genres,
             'has_genres': source_genre_count > 0,
             'has_themes': source_theme_count > 0,
-            'has_keywords': source_keyword_count > 0
+            'has_keywords': source_keyword_count > 0,
+            'is_mmo': is_mmo,
+            'mmo_mode_igdb_id': mmo_mode_igdb_id,
         }
 
         return enhanced_source_data, single_player_info

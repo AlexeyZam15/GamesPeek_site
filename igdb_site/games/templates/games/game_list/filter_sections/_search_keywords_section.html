@@ -20,12 +20,41 @@
     <div id="search-visible-keywords-badges">
         {% for keyword in search_selected_keywords_objects|slice:":27" %}
             <span class="badge bg-success me-1 mb-1 search-active-keyword-tag"
+                  data-param="k"
+                  data-value="{{ keyword.id }}"
                   data-keyword-id="{{ keyword.id }}"
                   style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
                 {{ keyword.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
             </span>
         {% endfor %}
     </div>
+
+    {% if search_selected_keywords_objects|length > 27 %}
+        <div id="search-hidden-keywords-badges" style="display: none;">
+            {% for keyword in search_selected_keywords_objects|slice:"27:" %}
+                <span class="badge bg-success me-1 mb-1 search-active-keyword-tag"
+                      data-param="k"
+                      data-value="{{ keyword.id }}"
+                      data-keyword-id="{{ keyword.id }}"
+                      style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
+                    {{ keyword.name }} <i class="bi bi-x ms-1" style="font-size: 0.9rem;"></i>
+                </span>
+            {% endfor %}
+        </div>
+        <div class="text-center mt-2">
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary search-show-more-keywords"
+                    onclick="toggleSearchMoreKeywords(this)">
+                <i class="bi bi-chevron-down"></i> Show all ({{ search_selected_keywords_objects|length }})
+            </button>
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary search-show-less-keywords"
+                    style="display: none;"
+                    onclick="toggleSearchLessKeywords(this)">
+                <i class="bi bi-chevron-up"></i> Show less
+            </button>
+        </div>
+    {% endif %}
 </div>
 
 <input type="text" class="form-control mb-2" id="search-keyword-search-main"

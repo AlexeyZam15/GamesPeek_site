@@ -1,3 +1,5 @@
+# games/management/commands/delete_low_usage_keywords.py
+
 """
 Django command to delete keywords with low usage count.
 Exports keywords to file first, then asks for confirmation before deletion.
@@ -57,6 +59,83 @@ class Command(BaseCommand):
             help='Только показать результат и создать файл со списком, без удаления'
         )
 
+    def _refresh_cached_usage_counts(self, batch_size: int = 1000) -> int:
+        """
+        Пересчитывает cached_usage_count для всех ключевых слов по реальным
+        связям Game.keyword_ids (ArrayField), не используя сломанный
+        Keyword.bulk_update_cache_counts() с Count('game').
+
+        Возвращает количество обновлённых записей Keyword.
+        """
+        from collections import Counter
+
+        start = timezone.now()
+
+        # --- 1. Собираем фактическое число использований по keyword_ids ---
+        usage: Dict[int, int] = {}
+
+        if connection.vendor == 'postgresql':
+            # Один запрос: разворачиваем массивы и считаем вхождения.
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                               SELECT unnest(keyword_ids) AS kw_id, COUNT(*) AS cnt
+                               FROM games_game
+                               WHERE keyword_ids IS NOT NULL
+                                 AND cardinality(keyword_ids) > 0
+                               GROUP BY kw_id
+                               """)
+                for kw_id, cnt in cursor.fetchall():
+                    if kw_id is not None:
+                        usage[int(kw_id)] = int(cnt)
+        else:
+            # Fallback: Python-чанки по всем играм.
+            from games.models import Game
+            counter: Counter = Counter()
+            qs = Game.objects.values_list('keyword_ids', flat=True).iterator(chunk_size=10000)
+            for keyword_ids in qs:
+                if not keyword_ids:
+                    continue
+                for kw_id in keyword_ids:
+                    if kw_id is not None:
+                        counter[int(kw_id)] += 1
+            usage = dict(counter)
+
+        load_time = (timezone.now() - start).total_seconds()
+        self.stdout.write(
+            f"   📊 Посчитано использований для {len(usage)} ключевых слов за {load_time:.2f} сек"
+        )
+
+        # --- 2. Сравниваем с текущими cached_usage_count и собираем изменения ---
+        now = timezone.now()
+        to_update: List[Keyword] = []
+        checked = 0
+
+        qs = Keyword.objects.only('id', 'cached_usage_count').iterator(chunk_size=batch_size)
+        for keyword in qs:
+            checked += 1
+            actual = usage.get(keyword.id, 0)
+            if keyword.cached_usage_count != actual:
+                keyword.cached_usage_count = actual
+                keyword.last_count_update = now
+                to_update.append(keyword)
+
+        # --- 3. Батчевое обновление ---
+        updated = 0
+        if to_update:
+            for i in range(0, len(to_update), batch_size):
+                batch = to_update[i:i + batch_size]
+                Keyword.objects.bulk_update(
+                    batch,
+                    ['cached_usage_count', 'last_count_update'],
+                    batch_size=batch_size,
+                )
+                updated += len(batch)
+
+        self.stdout.write(
+            f"   ✅ Проверено {checked} ключевых слов, обновлено {updated}"
+        )
+        return updated
+
     def handle(self, *args, **options):
         """Основной обработчик команды."""
         threshold = options['usage']
@@ -81,7 +160,7 @@ class Command(BaseCommand):
             self.stdout.write("Обновляю кэшированные счетчики для всех ключевых слов...")
             update_start = timezone.now()
 
-            updated_count = Keyword.bulk_update_cache_counts()
+            updated_count = self._refresh_cached_usage_counts()
 
             update_time = (timezone.now() - update_start).total_seconds()
             self.stdout.write(
@@ -232,3 +311,61 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.SUCCESS("✅ Остаточные блокировки очищены"))
             else:
                 self.stdout.write(self.style.SUCCESS("✅ Остаточных блокировок не обнаружено"))
+
+    # ------------------------------------------------------------------ #
+    #  Вспомогательные методы (используются в handle)
+    # ------------------------------------------------------------------ #
+
+    def _create_empty_output_file(self, outpath: str, threshold: int) -> None:
+        """Создаёт пустой файл-отчёт, если ключевых слов для удаления нет."""
+        try:
+            with open(outpath, 'w', encoding='utf-8') as f:
+                f.write("=" * 80 + "\n")
+                f.write(f"КЛЮЧЕВЫЕ СЛОВА С ИСПОЛЬЗОВАНИЕМ <= {threshold}\n")
+                f.write(f"Дата: {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("=" * 80 + "\n\n")
+                f.write("Ключевые слова по заданному условию не найдены.\n")
+            self.stdout.write(self.style.SUCCESS(f"📄 Создан пустой файл: {outpath}"))
+        except Exception as e:
+            self.stdout.write(self.style.ERROR(f"❌ Ошибка создания файла {outpath}: {e}"))
+
+    def _create_delete_list_file(self, outpath: str, low_usage_keywords, total_count: int,
+                                 threshold: int, dry_run: bool) -> None:
+        """Создаёт файл со списком ключевых слов для удаления."""
+        try:
+            with open(outpath, 'w', encoding='utf-8') as f:
+                f.write("=" * 80 + "\n")
+                f.write(f"СПИСОК КЛЮЧЕВЫХ СЛОВ ДЛЯ УДАЛЕНИЯ (использований <= {threshold})\n")
+                f.write(f"Дата: {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"Режим: {'DRY-RUN (без удаления)' if dry_run else 'УДАЛЕНИЕ'}\n")
+                f.write(f"Всего: {total_count}\n")
+                f.write("=" * 80 + "\n\n")
+                f.write(f"{'ID':<10} {'IGDB ID':<12} {'Исп.':<6} {'Категория':<25} Название\n")
+                f.write("-" * 80 + "\n")
+                for kw in low_usage_keywords:
+                    cat = kw.category.name if kw.category else "Без категории"
+                    f.write(f"{kw.id:<10} {kw.igdb_id:<12} {kw.cached_usage_count:<6} {cat:<25} {kw.name}\n")
+            self.stdout.write(self.style.SUCCESS(f"📄 Создан файл со списком: {outpath} ({total_count} записей)"))
+        except Exception as e:
+            self.stdout.write(self.style.ERROR(f"❌ Ошибка создания файла {outpath}: {e}"))
+
+    def _mark_file_as_cancelled(self, outpath: str) -> None:
+        """Дописывает в файл отметку об отмене удаления."""
+        try:
+            with open(outpath, 'a', encoding='utf-8') as f:
+                f.write("\n" + "=" * 80 + "\n")
+                f.write(f"УДАЛЕНИЕ ОТМЕНЕНО пользователем: {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("=" * 80 + "\n")
+        except Exception:
+            pass
+
+    def _mark_file_as_deleted(self, outpath: str, deleted_count: int) -> None:
+        """Дописывает в файл отметку об успешном удалении."""
+        try:
+            with open(outpath, 'a', encoding='utf-8') as f:
+                f.write("\n" + "=" * 80 + "\n")
+                f.write(f"УДАЛЕНО: {deleted_count} ключевых слов\n")
+                f.write(f"Дата удаления: {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("=" * 80 + "\n")
+        except Exception:
+            pass

@@ -22,6 +22,8 @@
             {% for type_id, type_name in game_type_choices %}
                 {% if type_id|stringformat:"s" == game_type_id|stringformat:"s" %}
                     <span class="badge bg-secondary me-1 mb-1 search-active-game-type-tag"
+                          data-param="search_gt"
+                          data-value="{{ game_type_id }}"
                           data-game-type-id="{{ game_type_id }}"
                           style="font-size: 0.85rem; padding: 0.5rem 0.75rem; border-radius: 15px; cursor: pointer;">
                         {{ type_name }}

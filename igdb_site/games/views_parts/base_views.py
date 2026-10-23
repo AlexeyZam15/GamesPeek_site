@@ -27,10 +27,13 @@ from ..models import Game, Genre, Keyword, KeywordCategory, Platform, Theme, Pla
 
 from ..helpers import generate_compact_url_params
 
-import redis
 import pickle
+from django.conf import settings
 
-redis_client = redis.Redis(host='127.0.0.1', port=6379, db=1)
+# redis_client безопасно инициализирован в settings.py:
+# в desktop-режиме или при недоступном Redis он равен None,
+# и весь код ниже обязан работать без кэша.
+redis_client = getattr(settings, 'redis_client', None)
 
 # ===== CACHE CONFIGURATION =====
 CACHE_TIMES = {
@@ -279,9 +282,12 @@ def extract_request_params(request: HttpRequest) -> Dict[str, str]:
 
     params = {}
     for key in ['find_similar', 'g', 'k', 'p', 't', 'pp', 'd', 'gm', 'gt', 'yr', 'ys', 'ye', 'source_game', 'sort',
-                'page', 'e', 'search_k', 'q']:
+                'page', 'e', 'search_k', 'q', 'seed']:
         value = get_params.get(key, '')
         params[key] = value
+
+    # Служебное поле: набор реально присутствующих ключей (даже с пустым значением).
+    params['_present'] = set(get_params.keys())
 
     return params
 
@@ -686,8 +692,28 @@ def _format_similar_games_data(similar_games_data: List) -> List[Dict[str, Any]]
     return formatted
 
 
-def _sort_similar_games(games_with_similarity: List[Dict[str, Any]], current_sort: str) -> None:
-    """Sort similar games."""
+def _sort_similar_games(games_with_similarity: List[Dict[str, Any]], current_sort: str,
+                        seed: Optional[str] = None) -> None:
+    """Sort similar games.
+
+    Для current_sort == 'random' выполняется детерминированное перемешивание
+    на основе seed (random.Random(seed).shuffle), чтобы при переходах по
+    пагинации (страницы 1..N) порядок оставался стабильным. Если seed пуст —
+    используется системное время (нестабильный shuffle), но это допустимо
+    только как fallback: view всегда передаёт seed из URL.
+    """
+    if current_sort == 'random':
+        import random as _random
+        import time as _time
+
+        if seed:
+            rng = _random.Random(str(seed))
+        else:
+            rng = _random.Random(_time.time_ns())
+
+        rng.shuffle(games_with_similarity)
+        return
+
     if current_sort == '-rating_count':
         games_with_similarity.sort(key=lambda x: x['game'].rating_count or 0, reverse=True)
     elif current_sort == '-rating':
@@ -1081,93 +1107,114 @@ def _get_cached_years_range() -> Dict:
     )
 
 
+def _fetch_optimized_filter_data(selected_keyword_ids: List[int] = None) -> Dict[str, List]:
+    """
+    Загружает данные для фильтров из БД (без кэша).
+
+    Вынесено из _get_optimized_filter_data, чтобы можно было использовать
+    напрямую, когда redis_client is None (desktop-режим, Redis недоступен)
+    или когда операция с Redis завершилась ошибкой.
+    """
+    from django.db.models import Count
+    from ..models import GameEngine, Keyword, Theme, PlayerPerspective, GameMode, Company, Platform, Genre
+
+    print("[FETCH] Loading filter data from database...")
+    platforms = list(Platform.objects.annotate(
+        game_count=Count('game', distinct=True)
+    ).filter(game_count__gt=0).only('id', 'name', 'slug')
+                     .order_by('-game_count', 'name'))
+
+    top_keywords = list(Keyword.objects.filter(
+        cached_usage_count__gt=0
+    ).select_related('category').only(
+        'id', 'name', 'category__id', 'category__name', 'cached_usage_count'
+    ).order_by('-cached_usage_count', 'name')[:200])
+
+    top_keyword_ids = {k.id for k in top_keywords}
+
+    if selected_keyword_ids:
+        selected_keywords = list(Keyword.objects.filter(
+            id__in=selected_keyword_ids
+        ).select_related('category').only(
+            'id', 'name', 'category__id', 'category__name', 'cached_usage_count'
+        ))
+        for kw in selected_keywords:
+            if kw.id not in top_keyword_ids:
+                top_keywords.append(kw)
+
+    keywords = top_keywords
+    popular_keywords = list(Keyword.objects.filter(
+        cached_usage_count__gt=0
+    ).select_related('category').only(
+        'id', 'name', 'category__id', 'category__name', 'cached_usage_count'
+    ).order_by('-cached_usage_count')[:100])
+
+    themes = list(Theme.objects.annotate(
+        game_count=Count('game', distinct=True)
+    ).filter(game_count__gt=0).only('id', 'name').order_by('name'))
+
+    perspectives = list(PlayerPerspective.objects.annotate(
+        game_count=Count('game', distinct=True)
+    ).filter(game_count__gt=0).only('id', 'name').order_by('name'))
+
+    game_modes = list(GameMode.objects.annotate(
+        game_count=Count('game', distinct=True)
+    ).filter(game_count__gt=0).only('id', 'name').order_by('name'))
+
+    developers = list(Company.objects.annotate(
+        developed_game_count=Count('developed_games', distinct=True)
+    ).filter(developed_game_count__gt=0).only('id', 'name').order_by('name'))
+
+    engines = list(GameEngine.objects.annotate(
+        game_count=Count('games', distinct=True)
+    ).filter(game_count__gt=0).only('id', 'name').order_by('-game_count', 'name'))
+
+    return {
+        'platforms': platforms,
+        'keywords': keywords,
+        'popular_keywords': popular_keywords,
+        'themes': themes,
+        'perspectives': perspectives,
+        'game_modes': game_modes,
+        'developers': developers,
+        'engines': engines,
+    }
+
+
 def _get_optimized_filter_data(selected_keyword_ids: List[int] = None) -> Dict[str, List]:
     import hashlib
     import json
     import pickle
-    from django.db.models import Count
-    from ..models import GameEngine, Keyword, Theme, PlayerPerspective, GameMode, Company, Platform, Genre
 
     cache_data = {
         'version': 'v13',
-        'selected_keywords': sorted(selected_keyword_ids or [])
+        'selected_keywords': sorted(selected_keyword_ids or []),
     }
     cache_key_str = json.dumps(cache_data, sort_keys=True)
     cache_key_hash = hashlib.md5(cache_key_str.encode()).hexdigest()
     cache_key = f'optimized_filter_data_{cache_key_hash}'
 
-    cached_data = redis_client.get(cache_key)
-    if cached_data:
-        print(f"[CACHE HIT] optimized_filter_data for key {cache_key_hash[:8]}")
-        return pickle.loads(cached_data)
+    # Без Redis (desktop-режим / Redis недоступен) — работаем без кэша.
+    if redis_client is None:
+        return _fetch_optimized_filter_data(selected_keyword_ids)
+
+    try:
+        cached_data = redis_client.get(cache_key)
+        if cached_data:
+            print(f"[CACHE HIT] optimized_filter_data for key {cache_key_hash[:8]}")
+            return pickle.loads(cached_data)
+    except Exception as e:
+        print(f"[CACHE ERROR] redis get failed: {e}; falling back to DB")
+        return _fetch_optimized_filter_data(selected_keyword_ids)
 
     print(f"[CACHE MISS] optimized_filter_data for key {cache_key_hash[:8]}")
+    result = _fetch_optimized_filter_data(selected_keyword_ids)
 
-    def fetch_filter_data():
-        print("[FETCH] Loading filter data from database...")
-        platforms = list(Platform.objects.annotate(
-            game_count=Count('game', distinct=True)
-        ).filter(game_count__gt=0).only('id', 'name', 'slug')
-                         .order_by('-game_count', 'name'))
+    try:
+        redis_client.setex(cache_key, 3600, pickle.dumps(result))
+    except Exception as e:
+        print(f"[CACHE ERROR] redis setex failed: {e}")
 
-        top_keywords = list(Keyword.objects.filter(
-            cached_usage_count__gt=0
-        ).select_related('category').only(
-            'id', 'name', 'category__id', 'category__name', 'cached_usage_count'
-        ).order_by('-cached_usage_count', 'name')[:200])
-
-        top_keyword_ids = {k.id for k in top_keywords}
-
-        if selected_keyword_ids:
-            selected_keywords = list(Keyword.objects.filter(
-                id__in=selected_keyword_ids
-            ).select_related('category').only(
-                'id', 'name', 'category__id', 'category__name', 'cached_usage_count'
-            ))
-            for kw in selected_keywords:
-                if kw.id not in top_keyword_ids:
-                    top_keywords.append(kw)
-
-        keywords = top_keywords
-        popular_keywords = list(Keyword.objects.filter(
-            cached_usage_count__gt=0
-        ).select_related('category').only(
-            'id', 'name', 'category__id', 'category__name', 'cached_usage_count'
-        ).order_by('-cached_usage_count')[:100])
-
-        themes = list(Theme.objects.annotate(
-            game_count=Count('game', distinct=True)
-        ).filter(game_count__gt=0).only('id', 'name').order_by('name'))
-
-        perspectives = list(PlayerPerspective.objects.annotate(
-            game_count=Count('game', distinct=True)
-        ).filter(game_count__gt=0).only('id', 'name').order_by('name'))
-
-        game_modes = list(GameMode.objects.annotate(
-            game_count=Count('game', distinct=True)
-        ).filter(game_count__gt=0).only('id', 'name').order_by('name'))
-
-        developers = list(Company.objects.annotate(
-            developed_game_count=Count('developed_games', distinct=True)
-        ).filter(developed_game_count__gt=0).only('id', 'name').order_by('name'))
-
-        engines = list(GameEngine.objects.annotate(
-            game_count=Count('games', distinct=True)
-        ).filter(game_count__gt=0).only('id', 'name').order_by('-game_count', 'name'))
-
-        return {
-            'platforms': platforms,
-            'keywords': keywords,
-            'popular_keywords': popular_keywords,
-            'themes': themes,
-            'perspectives': perspectives,
-            'game_modes': game_modes,
-            'developers': developers,
-            'engines': engines,
-        }
-
-    result = fetch_filter_data()
-    redis_client.setex(cache_key, 3600, pickle.dumps(result))
     return result
 
 
