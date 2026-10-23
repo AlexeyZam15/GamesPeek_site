@@ -96,7 +96,7 @@ class GameSimilarity:
     """
     # ВЕРСИЯ АЛГОРИТМА - УВЕЛИЧИВАТЬ ПРИ ЛЮБЫХ ИЗМЕНЕНИЯХ В ЛОГИКЕ РАСЧЕТА
     # Это гарантирует, что старый кэш не будет использоваться после обновления
-    ALGORITHM_VERSION = 8
+    ALGORITHM_VERSION = 9
 
     DEFAULT_SIMILAR_GAMES_LIMIT = 500
 
@@ -121,8 +121,33 @@ class GameSimilarity:
     def __init__(self, verbose=False):
         self._similarity_cache = {}
         self._game_data_cache = {}
+        self._mmo_mode_igdb_id = None  # ленивый кэш igdb_id MMO-режима
         self.stop_flag = False
         self.verbose = verbose
+
+    def _get_mmo_game_mode_igdb_id(self):
+        """
+        Возвращает igdb_id режима игры 'Massively Multiplayer Online (MMO)'.
+
+        Ищет режим по имени в БД (без жёстко зашитой константы) и кэширует
+        результат в экземпляре. Если режим не найден — возвращает None,
+        и фильтрация по MMO не применяется.
+        """
+        if self._mmo_mode_igdb_id is not None:
+            return self._mmo_mode_igdb_id
+
+        from .models import GameMode
+
+        mmo_id = GameMode.objects.filter(
+            name__iexact='Massively Multiplayer Online (MMO)'
+        ).values_list('igdb_id', flat=True).first()
+
+        self._mmo_mode_igdb_id = mmo_id
+
+        if self.verbose:
+            print(f"[_get_mmo_game_mode_igdb_id] MMO game mode igdb_id = {self._mmo_mode_igdb_id}")
+
+        return self._mmo_mode_igdb_id
 
     def set_verbose(self, verbose):
         """Устанавливает режим вывода отладочной информации"""
@@ -629,6 +654,11 @@ class GameSimilarity:
         single_player_mode_id = single_player_info['single_player_mode_id']
         dynamic_min_common_genres = single_player_info['dynamic_min_common_genres']
 
+        # MMO-фильтрация: если source не MMO и MMO-режим найден —
+        # исключаем игры с этим режимом.
+        is_source_mmo = single_player_info.get('is_mmo', False)
+        mmo_mode_igdb_id = single_player_info.get('mmo_mode_igdb_id')
+
         sql_parts = []
         params = [current_time]
 
@@ -801,6 +831,12 @@ class GameSimilarity:
                     WHERE gggm.game_id = g.id AND gggm.gamemode_id = {single_player_mode_id}
                 )
             """)
+
+        # MMO-фильтр: исключаем игры с MMO-режимом, если source не MMO.
+        # game_mode_ids — материализованный массив igdb_id (GIN-индекс).
+        if (not is_source_mmo) and (mmo_mode_igdb_id is not None):
+            sql_parts.append(" AND NOT (g.game_mode_ids && ARRAY[%s]::integer[])")
+            params.append(mmo_mode_igdb_id)
 
         if self.stop_flag:
             if self.verbose:
@@ -1844,6 +1880,24 @@ class GameSimilarity:
         source_developer_count = len(source_developer_ids)
         source_engine_count = len(source_engine_ids)
 
+        # Определяем, является ли source MMO (по режиму игры).
+        # Для Game game_mode_ids содержит igdb_id, для VirtualGame — локальные id.
+        mmo_mode_igdb_id = self._get_mmo_game_mode_igdb_id()
+        is_mmo = False
+
+        if mmo_mode_igdb_id is not None:
+            if isinstance(source_game, VirtualGame):
+                # VirtualGame.game_mode_ids — локальные id GameMode
+                if source_game_mode_ids:
+                    is_mmo = GameMode.objects.filter(
+                        id__in=source_game_mode_ids,
+                        igdb_id=mmo_mode_igdb_id,
+                    ).exists()
+            else:
+                # Game.game_mode_ids — материализованный массив igdb_id
+                game_mode_ids_igdb = getattr(source_game, 'game_mode_ids', None) or []
+                is_mmo = mmo_mode_igdb_id in game_mode_ids_igdb
+
         # Проверяем, есть ли у исходной игры режим Single player
         has_single_player_in_source = False
         single_player_mode_id = None
@@ -1892,6 +1946,7 @@ class GameSimilarity:
             'developer_ids': source_developer_ids,
             'developer_count': source_developer_count,
             'single_player_mode_id': single_player_mode_id,
+            'is_mmo': is_mmo,
             # Сохраняем оригинальные множества для обратной совместимости.
             # При наличии override — строим множества из override-списков,
             # чтобы common_* считались относительно них.
@@ -1910,7 +1965,9 @@ class GameSimilarity:
             'dynamic_min_common_genres': dynamic_min_common_genres,
             'has_genres': source_genre_count > 0,
             'has_themes': source_theme_count > 0,
-            'has_keywords': source_keyword_count > 0
+            'has_keywords': source_keyword_count > 0,
+            'is_mmo': is_mmo,
+            'mmo_mode_igdb_id': mmo_mode_igdb_id,
         }
 
         return enhanced_source_data, single_player_info
