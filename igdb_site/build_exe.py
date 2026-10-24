@@ -4,8 +4,10 @@
 Build script for gamespeek.exe - маленький загрузчик, который запускает Python из venv.
 
 Обновлено: конфигурация через env/argparse, проверки предусловий,
-fallback без tqdm, копирование .env, опциональная генерация database.dump,
-безопасные фильтры копирования PostgreSQL и venv.
+fallback без tqdm, копирование .env, безопасные фильтры копирования
+PostgreSQL и venv (исключаем data, pgAdmin, installer, symbols, include,
+тесты, .dist-info, PyInstaller, pip, playwright, selenium, googleapiclient,
+pandas/numpy (опционально) и т.п., чтобы сборка была меньше и быстрее).
 """
 
 import argparse
@@ -135,15 +137,46 @@ def check_prerequisites(args, pg_source, venv, dump):
             print(f"❌ database.dump not found at {dump} (--require-dump).")
             ok = False
         else:
-            print(f"⚠️ database.dump not found at {dump}. Will be skipped (or generated with --generate-dump).")
+            print(f"⚠️ database.dump not found at {dump}. Will be skipped.")
 
-    # robots_txt нужен для collectstatic (STATICFILES_DIRS)
     robots_dir = PROJECT_ROOT / 'robots_txt'
     if not robots_dir.exists():
         robots_dir.mkdir(parents=True, exist_ok=True)
         print(f"✅ Created empty {robots_dir} (needed for collectstatic)")
 
     return ok
+
+
+def list_big_dirs(root, top_n=30, subdir=None):
+    """Печатает топ-N самых больших каталогов внутри root (рекурсивно).
+
+    Если subdir задан — сканирует root/subdir (например, venv/Lib/site-packages).
+    Группирует по первому уровню внутри scan_root.
+    """
+    scan_root = root / subdir if subdir else root
+    if not scan_root.exists():
+        print(f"  ⚠️ {scan_root} not found")
+        return
+
+    sizes = {}
+    try:
+        for item in scan_root.rglob('*'):
+            if not item.is_file():
+                continue
+            try:
+                rel = item.relative_to(scan_root)
+                first = rel.parts[0] if rel.parts else '.'
+                sizes[first] = sizes.get(first, 0) + item.stat().st_size
+            except Exception:
+                continue
+    except Exception as e:
+        print(f"  ⚠️ Error scanning {scan_root}: {e}")
+        return
+
+    top = sorted(sizes.items(), key=lambda x: -x[1])[:top_n]
+    print(f"\n  Top-{top_n} biggest entries in {scan_root}:")
+    for name, size in top:
+        print(f"    {name:45s} {size / (1024 * 1024):10.1f} MB")
 
 
 def clean_build_files():
@@ -235,42 +268,17 @@ def collect_static_files():
     return True
 
 
-def generate_database_dump(pg_source, dump_path):
-    """Генерирует database.dump через pg_dump из pg_source/bin."""
-    pg_dump = pg_source / 'bin' / ('pg_dump.exe' if sys.platform == 'win32' else 'pg_dump')
-    if not pg_dump.exists():
-        print(f"❌ pg_dump not found at {pg_dump}")
-        return False
-
-    db_name = os.environ.get('DB_NAME')
-    db_user = os.environ.get('DB_USER')
-    db_password = os.environ.get('DB_PASSWORD')
-    db_host = os.environ.get('DB_HOST', 'localhost')
-    db_port = os.environ.get('DB_PORT', '5432')
-
-    if not all([db_name, db_user, db_password]):
-        print("❌ DB_NAME/DB_USER/DB_PASSWORD env required for --generate-dump")
-        return False
-
-    env = os.environ.copy()
-    env['PGPASSWORD'] = db_password
-
-    cmd = [
-        str(pg_dump),
-        '-h', db_host, '-p', db_port,
-        '-U', db_user, '-Fc', '-f', str(dump_path), db_name,
-    ]
-    print(f"📦 Generating database.dump: {dump_path}")
-    result = subprocess.run(cmd, env=env, capture_output=True, text=True)
-    if result.returncode != 0:
-        print(f"❌ pg_dump failed: {result.stderr}")
-        return False
-    print(f"✅ database.dump generated ({dump_path.stat().st_size // (1024 * 1024)} MB)")
-    return True
-
-
 def copy_postgresql_binaries(pg_source):
-    """Copy PostgreSQL binaries to build, using path-based filters."""
+    """Copy PostgreSQL binaries to build, using path-based filters.
+
+    Исключаем тяжёлые и ненужные для runtime каталоги и файлы:
+    - data (сама БД; run.py создаёт свою в AppData)
+    - pgAdmin / pgAdmin 4 / docs / doc / symbols / include / stackbuilder
+    - installer
+    - share/doc, share/man, share/locale
+    - *.pdb, *.lib, uninstall-*, *_license.txt, *_3rd_party_licenses.txt,
+      installation_summary.log, pg_env.bat
+    """
     exe_dir = DIST_DIR / 'gamespeek'
     dest_pg_dir = exe_dir / 'PostgreSQL' / pg_source.name
 
@@ -283,8 +291,23 @@ def copy_postgresql_binaries(pg_source):
     if dest_pg_dir.exists():
         shutil.rmtree(dest_pg_dir, onerror=remove_readonly, ignore_errors=True)
 
-    exclude_dirs = {'pgadmin', 'pgadmin4', 'docs', 'doc', 'symbols', 'include', 'share/doc'}
-    exclude_patterns = ['*.pdb']
+    exclude_dirs = {
+        'data',
+        'pgadmin', 'pgadmin4', 'pgadmin 4',
+        'docs', 'doc',
+        'symbols', 'include',
+        'stackbuilder', 'stack builder',
+        'installer',
+    }
+    exclude_share_dirs = {'doc', 'man', 'locale'}
+
+    exclude_patterns = [
+        '*.pdb', '*.lib',
+        'uninstall-postgresql.exe', 'uninstall-postgresql.dat',
+        'uninstall-*',
+        '*_license.txt', '*_3rd_party_licenses.txt',
+        'installation_summary.log', 'pg_env.bat',
+    ]
 
     files_to_copy = []
     for item in pg_source.rglob('*'):
@@ -292,10 +315,16 @@ def copy_postgresql_binaries(pg_source):
             continue
         rel = item.relative_to(pg_source)
         rel_parts = [p.lower() for p in rel.parts]
+
         if any(part in exclude_dirs for part in rel_parts):
             continue
+
+        if len(rel_parts) >= 2 and rel_parts[0] == 'share' and rel_parts[1] in exclude_share_dirs:
+            continue
+
         if any(fnmatch.fnmatch(item.name.lower(), pat) for pat in exclude_patterns):
             continue
+
         files_to_copy.append((item, dest_pg_dir / rel))
 
     total_files = len(files_to_copy)
@@ -460,8 +489,59 @@ def build_loader():
     return False
 
 
+def _venv_exclude(rel_parts, item, strip_data_libs=False):
+    """Возвращает True, если файл venv надо исключить."""
+    # Кэши Python
+    if '__pycache__' in rel_parts:
+        return True
+    if item.suffix.lower() in ('.pyc', '.pyo'):
+        return True
+
+    # Тесты пакетов
+    if any(part in ('tests', 'test', 'testing') for part in rel_parts):
+        return True
+
+    # Метаданные пакетов
+    if item.suffix.lower() in ('.dist-info', '.egg-info'):
+        return True
+
+    # Документация пакетов
+    if any(part in ('docs', 'doc') for part in rel_parts):
+        return True
+
+    # Инструменты сборки и лишние пакеты (не нужны в runtime)
+    always_exclude = {
+        'pyinstaller', '_pyinstaller_hooks_contrib', 'pyinstaller_hooks_contrib',
+        'altgraph', 'pefile', 'pywin32_ctypes',
+        'pip', 'wheel',
+        'debug_toolbar',
+        'playwright', 'selenium', 'googleapiclient', 'google',
+        'winpty', 'wcwidth', 'trio', '_pytest', 'aiohttp',
+        'openpyxl', 'joblib', 'pgembed',
+    }
+    if any(part in always_exclude for part in rel_parts):
+        return True
+
+    # Опционально: тяжёлые data-библиотеки (pandas/numpy).
+    # Могут использоваться страницами analyze в админке.
+    if strip_data_libs:
+        data_libs = {
+            'pandas', 'numpy', '~umpy',
+            'numpy.libs', '~umpy.libs',
+        }
+        if any(part in data_libs for part in rel_parts):
+            return True
+
+    return False
+
+
 def copy_venv_and_files(venv, dump, args):
-    """Копирует venv и все необходимые файлы в dist."""
+    """Копирует venv и все необходимые файлы в dist.
+
+    Фильтр venv: исключаем __pycache__, *.pyc/*.pyo, tests/test/testing,
+    *.dist-info, *.egg-info, docs/doc, PyInstaller/pip/wheel/debug_toolbar,
+    playwright/selenium/googleapiclient/pandas/numpy (опционально) и т.п.
+    """
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import threading
 
@@ -483,10 +563,10 @@ def copy_venv_and_files(venv, dump, args):
                 continue
             rel = item.relative_to(venv)
             rel_parts = [p.lower() for p in rel.parts]
-            if '__pycache__' in rel_parts:
+
+            if _venv_exclude(rel_parts, item, strip_data_libs=args.strip_data_libs):
                 continue
-            if item.suffix.lower() in ('.pyc', '.pyo'):
-                continue
+
             files_to_copy.append((item, dest_venv / rel))
 
         total_files = len(files_to_copy)
@@ -554,7 +634,6 @@ def copy_venv_and_files(venv, dump, args):
     else:
         print(f"⚠️ database.dump not found at {dump}, skipped")
 
-    # .env
     env_file = PROJECT_ROOT / '.env'
     if env_file.exists():
         copy_item(env_file, exe_dir / '.env', '.env')
@@ -582,11 +661,14 @@ def parse_args():
     parser.add_argument('--skip-static', action='store_true', help='Do not run collectstatic')
     parser.add_argument('--skip-postgres', action='store_true', help='Do not copy PostgreSQL binaries')
     parser.add_argument('--require-dump', action='store_true', help='Fail if database.dump missing')
-    parser.add_argument('--generate-dump', action='store_true', help='Generate database.dump via pg_dump')
     parser.add_argument('--pg-source', default=None, help='Path to PostgreSQL install dir')
     parser.add_argument('--venv', default=None, help='Path to venv dir')
     parser.add_argument('--database-dump', default=None, help='Path to database.dump')
     parser.add_argument('--no-sound', action='store_true', help='Disable build sound')
+    parser.add_argument('--list-big-dirs', action='store_true',
+                        help='Print top-30 biggest dirs in venv/Lib/site-packages and PostgreSQL')
+    parser.add_argument('--strip-data-libs', action='store_true',
+                        help='Also exclude pandas/numpy from venv (may break admin analyze pages)')
     return parser.parse_args()
 
 
@@ -606,10 +688,23 @@ def main():
     print(f"  DATABASE_DUMP : {dump}")
     print()
 
+    if args.list_big_dirs:
+        print("Diagnostics: biggest dirs")
+        list_big_dirs(venv, subdir='Lib/site-packages')
+        if not args.skip_postgres:
+            list_big_dirs(pg_source)
+        print()
+        sys.exit(0)
+
     if not check_prerequisites(args, pg_source, venv, dump):
         print("❌ Prerequisites failed. Aborting.")
         play_sound(success=False, enabled=not args.no_sound)
         sys.exit(1)
+
+    if args.strip_data_libs:
+        print("⚠️ --strip-data-libs: pandas/numpy будут исключены из venv.")
+        print("   Страницы analyze в админке могут упасть с ImportError.")
+        print()
 
     if not args.skip_db_clean:
         print("Step 0: Cleaning database...")
@@ -617,13 +712,6 @@ def main():
 
     print("\nStep 1: Cleaning build files...")
     clean_build_files()
-
-    if args.generate_dump and not dump.exists():
-        print("\nStep 2a: Generating database.dump...")
-        if not generate_database_dump(pg_source, dump):
-            print("❌ Dump generation failed")
-            play_sound(success=False, enabled=not args.no_sound)
-            sys.exit(1)
 
     build_success = True
 
@@ -648,9 +736,10 @@ def main():
         print("=" * 60)
         print(f"\n📁 All files are in: {DIST_DIR}/gamespeek/")
         print("   - gamespeek.exe (маленький загрузчик)")
-        print("   - venv/ (виртуальное окружение)")
-        print("   - database.dump (если был найден/сгенерирован)")
-        print("   - PostgreSQL binaries (если не --skip-postgres)")
+        print("   - venv/ (без тестов, .dist-info, PyInstaller, pip, playwright, selenium,")
+        print("            googleapiclient, pandas/numpy (если --strip-data-libs))")
+        print("   - database.dump (если был найден)")
+        print("   - PostgreSQL binaries (без data, pgAdmin, installer, symbols)")
         print("   - run.py и все файлы проекта")
         print("   - .env (если был в корне проекта)")
         print("\nTo run: double-click gamespeek.exe")
