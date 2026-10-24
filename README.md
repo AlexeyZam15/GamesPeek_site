@@ -9,7 +9,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Desktop App](https://img.shields.io/badge/Download-Windows%20.exe-blue)](https://github.com/AlexeyZam15/GamesPeek_site/releases/latest)
-[![Discord](https://img.shields.io/badge/Discord-Join-7289da)](https://discord.gg/YcxwAuSv)
+[![Discord](https://img.shields.io/badge/Discord-Join-7289da)](https://discord.gg/PMZsfrCnre)
 
 </div>
 
@@ -32,7 +32,7 @@
 
 Join our Discord for support, feedback, and updates:
 
-➡️ **[Join Discord](https://discord.gg/YcxwAuSv)**
+➡️ **[Join Discord](https://discord.gg/PMZsfrCnre)**
 
 ---
 
@@ -180,7 +180,7 @@ This project is licensed under the MIT License. Free to use, modify, and distrib
 ## 📬 Contact
 
 - **Email:** gamespeek@mail.ru
-- **Discord:** [Join our server](https://discord.gg/YcxwAuSv)
+- **Discord:** [Join our server](https://discord.gg/PMZsfrCnre)
 - **GitHub:** [AlexeyZam15/GamesPeek_site](https://github.com/AlexeyZam15/GamesPeek_site)
 
 ---

@@ -9,7 +9,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Desktop App](https://img.shields.io/badge/Скачать-Windows%20.exe-blue)](https://github.com/AlexeyZam15/GamesPeek_site/releases/latest)
-[![Discord](https://img.shields.io/badge/Discord-Присоединиться-7289da)](https://discord.gg/YcxwAuSv)
+[![Discord](https://img.shields.io/badge/Discord-Присоединиться-7289da)](https://discord.gg/PMZsfrCnre)
 
 </div>
 
@@ -32,7 +32,7 @@
 
 Обсуждайте проект, задавайте вопросы и делитесь опытом в нашем Discord:
 
-➡️ **[Присоединиться к Discord](https://discord.gg/YcxwAuSv)**
+➡️ **[Присоединиться к Discord](https://discord.gg/PMZsfrCnre)**
 
 ---
 
@@ -181,7 +181,7 @@ GamesPeek решает простую проблему: **вы знаете, к�
 ## 📬 Контакты
 
 - **Email:** gamespeek@mail.ru
-- **Discord:** [Присоединиться к серверу](https://discord.gg/YcxwAuSv)
+- **Discord:** [Присоединиться к серверу](https://discord.gg/PMZsfrCnre)
 - **GitHub:** [AlexeyZam15/GamesPeek_site](https://github.com/AlexeyZam15/GamesPeek_site)
 
 ---
