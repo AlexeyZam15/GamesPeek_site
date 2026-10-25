@@ -18,6 +18,7 @@ import random
 import csv
 import datetime as dt
 import statistics
+import threading
 from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -32,6 +33,19 @@ from games.models_parts.simple_models import Platform
 import json
 
 logger = logging.getLogger(__name__)
+
+# Потокобезопасное хранилище последней ошибки HTTP-запроса (для классификации в rate_limiter)
+_request_local = threading.local()
+
+
+def _set_last_request_error(error_type: str) -> None:
+    """Сохраняет тип последней ошибки запроса для текущего потока."""
+    _request_local.last_error = error_type
+
+
+def _get_last_request_error() -> str:
+    """Возвращает тип последней ошибки запроса для текущего потока."""
+    return getattr(_request_local, 'last_error', 'unknown')
 
 
 class SteamRateLimiter:
@@ -226,10 +240,15 @@ def get_request(url: str, parameters: Dict = None, timeout: float = 10, retries:
     Универсальная функция для выполнения GET запросов с обработкой ошибок.
     При ошибке SSL или отсутствии ответа выполняет повторные попытки.
     Использует глобальную сессию для пула соединений.
+
+    Тип последней ошибки сохраняется в thread-local хранилище и доступен
+    через _get_last_request_error() (значения: 'ok', 'ssl', 'timeout',
+    'connection', 'http_403', 'http_429', 'http_other', 'json', 'no_response',
+    'exception').
     """
     global _session
     if '_session' not in globals():
-        import requests
+        # requests импортирован на уровне модуля — локальный импорт НЕ нужен
         _session = requests.Session()
         adapter = requests.adapters.HTTPAdapter(
             pool_connections=50,
@@ -246,6 +265,8 @@ def get_request(url: str, parameters: Dict = None, timeout: float = 10, retries:
             'Connection': 'keep-alive'
         })
 
+    last_error_type = 'unknown'
+
     for attempt in range(retries):
         try:
             response = _session.get(url=url, params=parameters, timeout=timeout)
@@ -253,33 +274,41 @@ def get_request(url: str, parameters: Dict = None, timeout: float = 10, retries:
             if response:
                 if response.status_code == 200:
                     try:
-                        return response.json()
+                        data = response.json()
+                        _set_last_request_error('ok')
+                        return data
                     except Exception as e:
+                        last_error_type = 'json'
                         print(f'\n⚠️ Ошибка парсинга JSON: {e}')
                         if attempt < retries - 1:
                             time.sleep(2 ** attempt)
                         continue
                 elif response.status_code == 429:
+                    last_error_type = 'http_429'
                     wait_time = 30 * (attempt + 1) + random.uniform(0, 5)
                     print(f'\n🚫 Rate limit (429), ждем {wait_time:.1f}с...')
                     time.sleep(wait_time)
                     continue
                 elif response.status_code == 403:
+                    last_error_type = 'http_403'
                     wait_time = 60 * (attempt + 1)
                     print(f'\n🚫 Forbidden (403), ждем {wait_time:.1f}с...')
                     time.sleep(wait_time)
                     continue
                 else:
+                    last_error_type = 'http_other'
                     print(f'\n⚠️ HTTP {response.status_code} для {url}')
                     if attempt < retries - 1:
                         wait_time = 2 ** attempt + random.uniform(0, 1)
                         time.sleep(wait_time)
                     continue
             else:
+                last_error_type = 'no_response'
                 print(f'\n⚠️ Нет ответа от {url}, попытка {attempt + 1}/{retries}')
                 time.sleep(5)
 
         except requests.exceptions.SSLError as e:
+            last_error_type = 'ssl'
             print(f'\n🔒 SSL ошибка: {e}')
             for i in range(5, 0, -1):
                 print(f'\r   Ожидание... ({i})', end='')
@@ -287,20 +316,25 @@ def get_request(url: str, parameters: Dict = None, timeout: float = 10, retries:
             print('\r   Повторная попытка.      ')
 
         except requests.exceptions.Timeout:
+            last_error_type = 'timeout'
             print(f'\n⏰ Таймаут для {url}, попытка {attempt + 1}/{retries}')
             time.sleep(2 ** attempt + random.uniform(0, 1))
 
         except requests.exceptions.ConnectionError:
+            last_error_type = 'connection'
             print(f'\n🔌 Ошибка соединения, попытка {attempt + 1}/{retries}')
             time.sleep(2 ** attempt)
 
         except Exception as e:
+            last_error_type = 'exception'
             print(f'\n💥 Ошибка запроса: {e}')
             if attempt < retries - 1:
                 time.sleep(2 ** attempt)
             else:
+                _set_last_request_error(last_error_type)
                 return None
 
+    _set_last_request_error(last_error_type)
     return None
 
 
@@ -2284,9 +2318,37 @@ class Command(BaseCommand):
             response_data = get_request(url, params, timeout, retries=2)
 
             if response_data is None:
-                error_type = 'no_response'
-                self.rate_limiter.record_failure(error_type)
-                return None, error_type
+                # Точная классификация ошибки из get_request (thread-local)
+                error_type = _get_last_request_error()
+
+                # Маппинг типов ошибок get_request -> типы для rate_limiter
+                if error_type == 'http_403':
+                    self.rate_limiter.record_failure("403")
+                    return None, '403'
+                elif error_type == 'http_429':
+                    self.rate_limiter.record_failure("429")
+                    return None, '429'
+                elif error_type == 'timeout':
+                    self.rate_limiter.record_failure("timeout")
+                    return None, 'timeout'
+                elif error_type == 'connection':
+                    self.rate_limiter.record_failure("connection")
+                    return None, 'connection'
+                elif error_type == 'ssl':
+                    self.rate_limiter.record_failure("ssl")
+                    return None, 'ssl'
+                elif error_type == 'no_response':
+                    self.rate_limiter.record_failure("no_response")
+                    return None, 'no_response'
+                elif error_type == 'http_other':
+                    self.rate_limiter.record_failure("http_other")
+                    return None, 'http_error'
+                elif error_type == 'json':
+                    self.rate_limiter.record_failure("json")
+                    return None, 'json_error'
+                else:
+                    self.rate_limiter.record_failure("exception")
+                    return None, 'exception'
 
             if response_data.get('total', 0) > 0:
                 items = response_data.get('items', [])
@@ -2362,9 +2424,36 @@ class Command(BaseCommand):
             response_data = get_request(url, params, timeout, retries=2)
 
             if response_data is None:
-                error_type = 'no_response'
-                self.rate_limiter.record_failure(error_type)
-                return None, error_type
+                # Точная классификация ошибки из get_request (thread-local)
+                error_type = _get_last_request_error()
+
+                if error_type == 'http_403':
+                    self.rate_limiter.record_failure("403")
+                    return None, '403'
+                elif error_type == 'http_429':
+                    self.rate_limiter.record_failure("429")
+                    return None, '429'
+                elif error_type == 'timeout':
+                    self.rate_limiter.record_failure("timeout")
+                    return None, 'timeout'
+                elif error_type == 'connection':
+                    self.rate_limiter.record_failure("connection")
+                    return None, 'connection'
+                elif error_type == 'ssl':
+                    self.rate_limiter.record_failure("ssl")
+                    return None, 'ssl'
+                elif error_type == 'no_response':
+                    self.rate_limiter.record_failure("no_response")
+                    return None, 'no_response'
+                elif error_type == 'http_other':
+                    self.rate_limiter.record_failure("http_other")
+                    return None, 'http_error'
+                elif error_type == 'json':
+                    self.rate_limiter.record_failure("json")
+                    return None, 'json_error'
+                else:
+                    self.rate_limiter.record_failure("exception")
+                    return None, 'exception'
 
             str_app_id = str(app_id)
             if str_app_id not in response_data:

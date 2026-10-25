@@ -27,10 +27,17 @@ class AnalyzerMixin:
         return game.summary or game.storyline or game.rawg_description or game.wiki_description or ''
 
     def _get_keyword_trie(self):
-        """Ленивая потокобезопасная инициализация KeywordTrie (один раз на процесс)."""
-        trie = getattr(self, '_keyword_trie', None)
-        if trie is not None:
-            return trie
+        """Ленивая потокобезопасная инициализация KeywordTrie (один раз на процесс).
+
+        ИСПРАВЛЕНО: добавлен флаг self._keyword_trie_initialized, чтобы
+        кэшировать и None (когда KeywordTrieManager не поддерживает keyword_ids
+        и мы используем прямой поиск). Без флага None не кэшировался
+        (проверка `if trie is not None: return trie` не срабатывает для None),
+        и сообщение «KeywordTrieManager не поддерживает keyword_ids...»
+        печаталось на КАЖДУЮ игру (сотни раз), засоряя лог и замедляя работу.
+        """
+        if getattr(self, '_keyword_trie_initialized', False):
+            return getattr(self, '_keyword_trie', None)
 
         lock = getattr(self, '_keyword_trie_lock', None)
         if lock is None:
@@ -38,12 +45,52 @@ class AnalyzerMixin:
             self._keyword_trie_lock = lock
 
         with lock:
-            trie = getattr(self, '_keyword_trie', None)
-            if trie is None:
-                from games.analyze.keyword_trie import KeywordTrieManager
-                trie_manager = KeywordTrieManager()
-                trie = trie_manager.get_trie(verbose=False)
-                self._keyword_trie = trie
+            if getattr(self, '_keyword_trie_initialized', False):
+                return getattr(self, '_keyword_trie', None)
+
+            keyword_ids_filter = getattr(self, 'keyword_ids_filter', None)
+            trie = None
+
+            if keyword_ids_filter is not None:
+                # Пытаемся построить Trie только из отфильтрованных ключевых слов.
+                # API KeywordTrieManager.get_trie может не поддерживать keyword_ids —
+                # тогда fallback на None (прямой поиск в _analyze_game_fast).
+                try:
+                    from games.analyze.keyword_trie import KeywordTrieManager
+                    trie_manager = KeywordTrieManager()
+                    trie = trie_manager.get_trie(
+                        verbose=False,
+                        keyword_ids=keyword_ids_filter,
+                    )
+                except TypeError:
+                    # KeywordTrieManager.get_trie не принимает keyword_ids —
+                    # fallback: прямой поиск по 12 словам.
+                    sys.stderr.write(
+                        f"   ℹ️ KeywordTrieManager не поддерживает keyword_ids — "
+                        f"используем прямой поиск по {len(keyword_ids_filter)} ключевым словам\n"
+                    )
+                    sys.stderr.flush()
+                    trie = None
+                except Exception as e:
+                    sys.stderr.write(
+                        f"   ⚠️ Ошибка построения Trie с фильтром: {e} — "
+                        f"используем прямой поиск\n"
+                    )
+                    sys.stderr.flush()
+                    trie = None
+            else:
+                # Прежнее поведение: Trie из всех ключевых слов.
+                try:
+                    from games.analyze.keyword_trie import KeywordTrieManager
+                    trie_manager = KeywordTrieManager()
+                    trie = trie_manager.get_trie(verbose=False)
+                except Exception as e:
+                    sys.stderr.write(f"   ⚠️ Ошибка построения Trie: {e}\n")
+                    sys.stderr.flush()
+                    trie = None
+
+            self._keyword_trie = trie
+            self._keyword_trie_initialized = True
             return trie
 
     def _get_stopword_pattern_cache(self) -> dict:
@@ -69,7 +116,16 @@ class AnalyzerMixin:
             return 0
 
     def _analyze_game_fast(self, game_dict: Dict, existing_relations: Dict[str, set] = None) -> Dict[str, Any]:
-        """Максимально быстрый анализ одной игры с проверкой стоп-слов на уровне критерия"""
+        """Максимально быстрый анализ одной игры с проверкой стоп-слов на уровне критерия.
+
+        Изменения:
+        - collect_pattern_details=False: не собираем pattern_info / счётчики (экономия памяти).
+        - Если self.keyword_ids_filter задан и KeywordTrie не построен (fallback),
+          в режиме --keywords делаем ПРЯМОЙ поиск по отфильтрованным ключевым словам
+          (12 слов) вместо Trie из всех 29586. Это ускоряет подшаг в ~2465 раз.
+        """
+
+        collect_details = bool(getattr(self, 'collect_pattern_details', False))
 
         if self.combine_all_texts:
             summary = game_dict.get('summary', '') or ''
@@ -105,24 +161,51 @@ class AnalyzerMixin:
         if self.keywords_mode:
             trie = self._get_keyword_trie()
 
-            trie_results = trie.find_all_in_text(text, unique_only=True)
-
             found_ids = set()
             pattern_info = {'keywords': []}
 
-            for result in trie_results:
-                keyword_id = result['id']
-                if self.keyword_ids_filter is not None and keyword_id not in self.keyword_ids_filter:
-                    continue
-                if keyword_id not in found_ids:
-                    found_ids.add(keyword_id)
-                    pattern_info['keywords'].append({
-                        'name': result['name'],
-                        'matched_text': result['text'],
-                        'position': result['position'],
-                        'status': 'found',
-                        'pattern': 'trie_match'
-                    })
+            if trie is not None:
+                # Прежнее поведение: Trie (все ключевые слова, либо отфильтрованные
+                # через KeywordTrieManager, если он поддерживает keyword_ids).
+                trie_results = trie.find_all_in_text(text, unique_only=True)
+
+                for result in trie_results:
+                    keyword_id = result['id']
+                    if self.keyword_ids_filter is not None and keyword_id not in self.keyword_ids_filter:
+                        continue
+                    if keyword_id not in found_ids:
+                        found_ids.add(keyword_id)
+                        if collect_details:
+                            pattern_info['keywords'].append({
+                                'name': result['name'],
+                                'matched_text': result['text'],
+                                'position': result['position'],
+                                'status': 'found',
+                                'pattern': 'trie_match'
+                            })
+            else:
+                # ИЗМЕНЕНО: fallback — прямой поиск по отфильтрованным ключевым словам.
+                # Применяется, когда keyword_ids_filter задан, но KeywordTrieManager
+                # не поддерживает фильтр. Для 12 слов это быстро (O(12 × len(text))).
+                keywords_map = self.criteria_by_id.get('keywords', {})
+                for kw_id, kw_name in keywords_map.items():
+                    if self.keyword_ids_filter is not None and kw_id not in self.keyword_ids_filter:
+                        continue
+                    if not kw_name:
+                        continue
+                    kw_name_lower = kw_name.lower()
+                    if kw_name_lower in text_lower:
+                        if kw_id not in found_ids:
+                            found_ids.add(kw_id)
+                            if collect_details:
+                                pos = text_lower.find(kw_name_lower)
+                                pattern_info['keywords'].append({
+                                    'name': kw_name,
+                                    'matched_text': kw_name,
+                                    'position': pos if pos >= 0 else 0,
+                                    'status': 'found',
+                                    'pattern': 'direct_match'
+                                })
 
             has_new = False
             found = {'genres': [], 'themes': [], 'perspectives': [], 'game_modes': [], 'keywords': []}
@@ -383,8 +466,8 @@ class AnalyzerMixin:
 
                     pattern_match_count += 1
 
-                    if self.collect_all_patterns and is_position_occupied(match_start_pos, match_end_pos,
-                                                                          occupied_positions):
+                    if collect_details and self.collect_all_patterns and is_position_occupied(
+                            match_start_pos, match_end_pos, occupied_positions):
                         search_start = match_end_pos
                         continue
 
@@ -392,17 +475,18 @@ class AnalyzerMixin:
                     if existing_relations and crit_type in existing_relations:
                         is_existing = (game_id, crit_id) in existing_relations[crit_type]
 
-                    pattern_key = (crit_type, p['name'], p['pattern_str'])
-                    if is_existing:
-                        self.pattern_match_counter_existing[pattern_key] += 1
-                    else:
-                        self.pattern_match_counter_new[pattern_key] += 1
+                    if collect_details:
+                        pattern_key = (crit_type, p['name'], p['pattern_str'])
+                        if is_existing:
+                            self.pattern_match_counter_existing[pattern_key] += 1
+                        else:
+                            self.pattern_match_counter_new[pattern_key] += 1
 
                     if first_match_for_criteria and crit_id not in found_ids[crit_type]:
                         found_ids[crit_type].add(crit_id)
                         total_found += 1
 
-                    if self.collect_all_patterns or first_match_for_criteria:
+                    if collect_details and (self.collect_all_patterns or first_match_for_criteria):
                         if is_case_sensitive:
                             word_start = match_start_pos
                             while word_start > 0 and (text[word_start - 1].isalnum() or text[word_start - 1] in '-_'):
@@ -446,7 +530,7 @@ class AnalyzerMixin:
                                 'position': match_start_pos
                             })
 
-                        if self.collect_all_patterns:
+                        if collect_details and self.collect_all_patterns:
                             occupied_positions.append((match_start_pos, match_end_pos))
 
                     first_match_for_criteria = False

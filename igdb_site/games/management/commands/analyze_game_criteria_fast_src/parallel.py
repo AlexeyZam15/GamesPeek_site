@@ -151,7 +151,13 @@ class ParallelMixin:
     # ------------------------------------------------------------------ #
 
     def _parallel_analysis(self, games: List[Dict], existing_relations: Dict[str, set] = None) -> Dict[str, Any]:
-        """Максимально быстрый многопоточный анализ - с полной статистикой и прерыванием"""
+        """Максимально быстрый многопоточный анализ - с полной статистикой и прерыванием.
+
+        ИЗМЕНЕНО: если self.collect_pattern_details == False (нет --output и --group-by-pattern),
+        НЕ накапливаем stats['all_results'] — это экономит память на 88882 результатах.
+        """
+
+        collect_details = bool(getattr(self, 'collect_pattern_details', False))
 
         total_games = len(games)
         stats = {
@@ -259,9 +265,9 @@ class ParallelMixin:
 
         def build_progress_line(processed_now: int, speed: float, eta_str: str) -> str:
             """
-            Формирует красивую строку прогресса в стиле остальных команд:
-            📊 [████░░░░] 42.1% | 37234/88256 | ⚡ 1234 игр/с | ⏳ 1.2мин |
-            🔑 269529 | 🆕 252437 | 📦 86351/20
+            Формирует строку прогресса.
+            ИЗМЕНЕНО: '📦 {q_task}/{q_res}' -> '⏳ очередь: {q_task} | 📦 рез: {q_res}'
+            (понятнее, что q_task — это очередь задач, а не «зависло»).
             """
             percent = (processed_now / total_games) * 100 if total_games > 0 else 100.0
             bar = make_bar(percent)
@@ -274,7 +280,7 @@ class ParallelMixin:
                 f"⏳ {eta_str} | "
                 f"🔑 {stats['total_found']} | "
                 f"🆕 {stats['total_new_found']} | "
-                f"📦 {q_task}/{q_res}"
+                f"📥 очередь: {q_task} | 📤 рез: {q_res}"
             )
 
         try:
@@ -294,7 +300,6 @@ class ParallelMixin:
                         workers_alive = active_workers > 0
                     if not workers_alive and task_queue.empty():
                         break
-                    # всё равно обновим прогресс, чтобы показать, что живы
                     now = time.time()
                     if now - last_report >= 1.0:
                         time_delta = now - last_speed_time
@@ -311,7 +316,6 @@ class ParallelMixin:
                     time.sleep(0.01)
                     continue
 
-                # Обновляем счётчики под локом, но append в списки — вне лока
                 local_with_results = 0
                 local_with_new_results = 0
                 local_total_found = 0
@@ -321,7 +325,9 @@ class ParallelMixin:
 
                 for result in batch_results:
                     processed += 1
-                    stats['all_results'].append(result)
+                    # ИЗМЕНЕНО: all_results накапливаем только если нужны детали (--output)
+                    if collect_details:
+                        stats['all_results'].append(result)
 
                     if result.get('skipped'):
                         local_skipped += 1
@@ -392,7 +398,9 @@ class ParallelMixin:
                 while True:
                     result = result_queue.get_nowait()
                     stats['processed'] += 1
-                    stats['all_results'].append(result)
+                    # ИЗМЕНЕНО: all_results накапливаем только если нужны детали
+                    if collect_details:
+                        stats['all_results'].append(result)
                     if result.get('skipped'):
                         stats['skipped'] += 1
                     elif result.get('has_results'):
@@ -430,7 +438,6 @@ class ParallelMixin:
                 else:
                     eta = "—"
 
-            # Финальная строка прогресса (без \r — с новой строки)
             final_line = (
                 f"\n📊 [{bar}] {percent:5.1f}% | "
                 f"{stats['processed']}/{total_games} | "
@@ -441,7 +448,6 @@ class ParallelMixin:
             )
             self._emit_line(final_line)
 
-            # Итоговая сводка — в стиле остальных команд проекта
             summary_lines = [
                 '',
                 '=' * 70,
