@@ -39,13 +39,21 @@ analyze_game_criteria_fast.
 
 Флаги --dry-run / --verbose передаются только тем дочерним командам, которые
 их реально объявляют в add_arguments. Для команд без этих флагов
-(load_games, import_wiki_gameplay, check_steam_games, criteries_reassign,
+(load_games, import_wiki_gameplay, criteries_reassign,
 update_vectors, delete_low_usage_keywords, analyze_game_criteria_fast*)
 соответствующие флаги не передаются, а в режиме --dry-run такие шаги
 пропускаются целиком или логируются без выполнения.
 
 * analyze_game_criteria_fast не объявляет --dry-run — в dry-run шаг
   логируется (три вызова), но не выполняется.
+
+ШАГ FETCH_STEAM:
+  Вызывается только fetch_steam_descriptions. check_steam_games больше НЕ
+  вызывается — fetch_steam_descriptions сама делает поиск в Steam (search_steam)
+  и сама классифицирует «найдено / не найдено / нет описания». Дублирование
+  поиска (check_steam_games + search_steam) устранено. temp_game_ids.txt
+  по-прежнему создаётся и передаётся в fetch_steam_descriptions через
+  --game-ids-file, чтобы обрабатывались только игры, загруженные в этом прогоне.
 
 Чистка стоп-слов выполняется ВСЕГДА на шаге ADD_KEYWORDS:
   отдельный вызов add_new_keywords_from_descriptions --delete-stopwords
@@ -801,11 +809,20 @@ class Command(BaseCommand):
         self._call_command('import_wiki_gameplay', args)
 
     def _run_fetch_steam(self):
-        """Выполняет check_steam_games и fetch_steam_descriptions для загруженных игр."""
+        """Выполняет fetch_steam_descriptions для загруженных игр.
+
+        check_steam_games больше НЕ вызывается: fetch_steam_descriptions
+        сама делает поиск в Steam (search_steam) и сама классифицирует
+        «найдено / не найдено / нет описания». Дублирование поиска
+        (check_steam_games + search_steam) устранено.
+
+        temp_game_ids.txt по-прежнему создаётся и передаётся в
+        fetch_steam_descriptions через --game-ids-file, чтобы обрабатывались
+        только игры, загруженные в этом прогоне (а не вся БД).
+        """
         if self.dry_run:
             self._log('   ⏭️ [DRY-RUN] fetch_steam_descriptions пропущен')
-            self._log('      (check_steam_games не поддерживает --dry-run; '
-                      'fetch_steam_descriptions не выполняется в dry-run)')
+            self._log('      (fetch_steam_descriptions не выполняется в dry-run)')
             return
 
         temp_ids_path = 'temp_game_ids.txt'
@@ -823,13 +840,6 @@ class Command(BaseCommand):
             return
 
         self._create_game_ids_file()
-
-        self._log(f'\n   🔍 Проверка наличия {len(self.loaded_game_ids)} игр в Steam...')
-        args_check = [
-            '--game-ids-file', temp_ids_path,
-        ]
-        # check_steam_games не объявляет --dry-run/--verbose — не передаём.
-        self._call_command('check_steam_games', args_check)
 
         self._log('\n   📥 Загрузка описаний из Steam...')
         args_fetch = [
@@ -998,9 +1008,11 @@ class Command(BaseCommand):
         """
         Выполняет analyze_game_criteria_fast.
 
-        Основной анализ:
-          - критерии (жанры/темы/перспективы/режимы) по всем играм (в пределах --limit);
-          - ключевые слова по всем играм (в пределах --limit).
+        ИЗМЕНЕНО: и критерии, и ключевые слова идут ТОЛЬКО по НОВЫМ играм
+        (temp_game_ids.txt, загруженные в этом прогоне). Старые игры уже
+        имеют все связи из прошлых прогонов; criteries_reassign только
+        переносит/удаляет их (что уже сделано). Пересчитывать критерии
+        для старых игр избыточно (21 мин впустую).
 
         Дополнительный подшаг (если есть новые ключевые слова):
           - только НОВЫЕ ключевые слова по СТАРЫМ играм (все игры БД, кроме loaded_game_ids).
@@ -1014,11 +1026,13 @@ class Command(BaseCommand):
             self._log('      (команда не объявляет --dry-run; ниже — какие вызовы были бы выполнены)')
 
             self._log('\n   🔧 [DRY-RUN] manage.py analyze_game_criteria_fast '
-                      f'--threads={self.analyze_threads} --auto-save --collect-all-patterns'
+                      f'--threads={self.analyze_threads} --auto-save --collect-all-patterns '
+                      '--game-ids-file temp_game_ids.txt (только по новым играм)'
                       + (f' --limit {self.analyze_limit}' if self.analyze_limit is not None
                          else (f' --limit {self.limit}' if self.limit is not None else '')))
             self._log('   🔧 [DRY-RUN] manage.py analyze_game_criteria_fast '
-                      f'--threads={self.analyze_threads} --keywords --auto-save --collect-all-patterns'
+                      f'--threads={self.analyze_threads} --keywords --auto-save --collect-all-patterns '
+                      '--game-ids-file temp_game_ids.txt (только по новым играм)'
                       + (f' --limit {self.analyze_limit}' if self.analyze_limit is not None
                          else (f' --limit {self.limit}' if self.limit is not None else '')))
             self._log('   🔧 [DRY-RUN] подшаг: analyze_game_criteria_fast --keywords '
@@ -1026,7 +1040,34 @@ class Command(BaseCommand):
                       '--auto-save --collect-all-patterns (если есть new_keyword_ids)')
             return
 
-        # === 1. Основной анализ критериев ===
+        # Проверяем temp_game_ids.txt (создан в _run_fetch_steam)
+        temp_ids_path = 'temp_game_ids.txt'
+        game_ids_file_added = False
+        if os.path.exists(temp_ids_path) and self.loaded_game_ids:
+            try:
+                with open(temp_ids_path, 'r', encoding='utf-8') as f:
+                    has_ids = any(line.strip().isdigit() for line in f)
+            except Exception:
+                has_ids = False
+
+            if has_ids:
+                game_ids_file_added = True
+                self._log(
+                    f'   🎯 Критерии и ключевые слова: только по новым играм '
+                    f'({len(self.loaded_game_ids)} ID из {temp_ids_path})'
+                )
+            else:
+                self._log(
+                    f'   ⚠️ {temp_ids_path} пуст — критерии и ключевые слова по всем играм '
+                    f'(это медленно)'
+                )
+        else:
+            self._log(
+                f'   ⚠️ {temp_ids_path} не найден или loaded_game_ids пуст — '
+                f'критерии и ключевые слова по всем играм (это медленно)'
+            )
+
+        # === 1. Основной анализ критериев ТОЛЬКО по НОВЫМ играм ===
         args = [
             f'--threads={self.analyze_threads}',
         ]
@@ -1035,6 +1076,10 @@ class Command(BaseCommand):
             args.append('--auto-save')
 
         args.append('--collect-all-patterns')
+
+        # ИЗМЕНЕНО: критерии — только по новым играм (temp_game_ids.txt)
+        if game_ids_file_added:
+            args.extend(['--game-ids-file', temp_ids_path])
 
         if self.analyze_limit is not None:
             args.extend(['--limit', str(self.analyze_limit)])
@@ -1046,8 +1091,8 @@ class Command(BaseCommand):
 
         self._call_command('analyze_game_criteria_fast', args)
 
-        # === 2. Основной анализ ключевых слов ===
-        self._log('\n   🔑 Запускаем анализ КЛЮЧЕВЫХ СЛОВ...')
+        # === 2. Основной анализ ключевых слов ТОЛЬКО по НОВЫМ играм ===
+        self._log('\n   🔑 Запускаем анализ КЛЮЧЕВЫХ СЛОВ (только по новым играм)...')
 
         args_keywords = [
             f'--threads={self.analyze_threads}',
@@ -1058,6 +1103,10 @@ class Command(BaseCommand):
             args_keywords.append('--auto-save')
 
         args_keywords.append('--collect-all-patterns')
+
+        # Ключевые слова — только по новым играм (temp_game_ids.txt)
+        if game_ids_file_added:
+            args_keywords.extend(['--game-ids-file', temp_ids_path])
 
         if self.analyze_limit is not None:
             args_keywords.extend(['--limit', str(self.analyze_limit)])

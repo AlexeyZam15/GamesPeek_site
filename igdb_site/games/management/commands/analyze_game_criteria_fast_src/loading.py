@@ -61,7 +61,13 @@ class LoadingMixin:
             return games
 
     def _load_existing_relations(self) -> Dict[str, set]:
-        """Загружает все существующие связи из БД для быстрой проверки"""
+        """Загружает все существующие связи из БД для быстрой проверки.
+
+        ВАЖНО: flat set `keywords` (game_id, kw_id) НЕ строится —
+        он занимает ~360 МБ на 6 млн связей. Для проверки «новизны»
+        ключевых слов достаточно `keywords_by_game` (dict game_id -> set(kw_id)),
+        который используется в analyzer.py.
+        """
         from games.models import Game
 
         games_genres_table = Game.genres.through._meta.db_table
@@ -74,7 +80,7 @@ class LoadingMixin:
             'themes': set(),
             'perspectives': set(),
             'game_modes': set(),
-            'keywords': set(),
+            'keywords': set(),  # оставлено для совместимости, но НЕ заполняется
             'keywords_by_game': {},
         }
 
@@ -95,16 +101,14 @@ class LoadingMixin:
             for row in cursor.fetchall():
                 existing_relations['game_modes'].add((row[0], row[1]))
 
+            # ИЗМЕНЕНО: заполняем ТОЛЬКО keywords_by_game (dict game_id -> set(kw_id)).
+            # flat set `keywords` (6 млн tuple) НЕ строим — экономия ~360 МБ.
             cursor.execute("SELECT id, keyword_ids FROM games_game")
             kw_by_game = existing_relations['keywords_by_game']
-            kw_flat = existing_relations['keywords']
             for game_id, keyword_ids in cursor.fetchall():
                 if not keyword_ids:
                     continue
-                s = set(keyword_ids)
-                kw_by_game[game_id] = s
-                for kw_id in s:
-                    kw_flat.add((game_id, kw_id))
+                kw_by_game[game_id] = set(keyword_ids)
 
         return existing_relations
 

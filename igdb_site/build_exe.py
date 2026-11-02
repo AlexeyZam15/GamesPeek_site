@@ -8,6 +8,12 @@ fallback без tqdm, копирование .env, безопасные филь
 PostgreSQL и venv (исключаем data, pgAdmin, installer, symbols, include,
 тесты, .dist-info, PyInstaller, pip, playwright, selenium, googleapiclient,
 pandas/numpy (опционально) и т.п., чтобы сборка была меньше и быстрее).
+
+Безопасность .env: значения из .env больше НЕ копируются в dist в открытом
+виде. При сборке они вшиваются в loader.py (который компилируется в
+gamespeek.exe) и выставляются загрузчиком как переменные окружения перед
+запуском run.py. Файл .env в dist/gamespeek/ по умолчанию отсутствует.
+Для отладки можно явно передать --copy-env, чтобы вернуть старое поведение.
 """
 
 import argparse
@@ -202,6 +208,14 @@ def clean_build_files():
             subprocess.run(f'rmdir /s /q "{DIST_DIR}"', shell=True, check=False)
             print("  ✅ Force removed dist folder (rmdir)")
 
+    stale_env = DIST_DIR / 'gamespeek' / '.env'
+    if stale_env.exists():
+        try:
+            stale_env.unlink()
+            print("  ✅ Removed stale .env from dist")
+        except Exception as e:
+            print(f"  ⚠️ Could not remove stale .env: {e}")
+
     if BUILD_DIR.exists():
         shutil.rmtree(BUILD_DIR, onerror=remove_readonly, ignore_errors=True)
         print("  ✅ Removed build folder")
@@ -373,8 +387,51 @@ def copy_postgresql_binaries(pg_source):
     return True
 
 
-def create_loader_script():
+def parse_env_file(env_path):
+    """Читает .env и возвращает dict ключ->значение.
+
+    Пропускает пустые строки и комментарии (#). Поддерживает KEY=VALUE,
+    снимает обрамляющие кавычки (одинарные/двойные). Не делает подстановок.
+    """
+    env_vars = {}
+    if not env_path.exists():
+        return env_vars
+
+    try:
+        with open(env_path, 'r', encoding='utf-8') as fh:
+            for raw_line in fh:
+                line = raw_line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                if line.startswith('export '):
+                    line = line[len('export '):].strip()
+                if '=' not in line:
+                    continue
+                key, value = line.split('=', 1)
+                key = key.strip()
+                value = value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                    value = value[1:-1]
+                if key:
+                    env_vars[key] = value
+    except Exception as e:
+        print(f"  ⚠️ Could not parse {env_path}: {e}")
+
+    return env_vars
+
+
+def create_loader_script(env_vars=None):
     """Создает загрузчик loader.py."""
+    env_vars = env_vars or {}
+
+    if env_vars:
+        env_lines = []
+        for key, value in env_vars.items():
+            env_lines.append(f"    {key!r}: {value!r},")
+        env_block = "ENV_DEFAULTS = {\n" + "\n".join(env_lines) + "\n}\n"
+    else:
+        env_block = "ENV_DEFAULTS = {}\n"
+
     loader_content = '''#!/usr/bin/env python
 
 """Загрузчик gamespeek - запускает run.py через python из venv"""
@@ -384,12 +441,16 @@ import os
 import sys
 from pathlib import Path
 
+''' + env_block + '''
 
 def main():
     if getattr(sys, 'frozen', False):
         base_path = Path(sys.executable).parent
     else:
         base_path = Path(__file__).parent
+
+    for key, value in ENV_DEFAULTS.items():
+        os.environ.setdefault(key, value)
 
     venv_python = base_path / 'venv' / 'Scripts' / 'python.exe'
     run_script = base_path / 'run.py'
@@ -425,11 +486,17 @@ def main():
         startupinfo.dwFlags = subprocess.STARTF_USESHOWWINDOW
         startupinfo.wShowWindow = 0
 
+    child_env = os.environ.copy()
+    child_env['PYTHONIOENCODING'] = 'utf-8'
+    child_env['PYTHONUTF8'] = '1'
+    child_env['PYTHONLEGACYWINDOWSSTDIO'] = '0'
+
     try:
         process = subprocess.Popen(
             [str(venv_python), str(run_script)],
             creationflags=creationflags,
             startupinfo=startupinfo,
+            env=child_env,
         )
         process.wait()
     except Exception as e:
@@ -450,13 +517,20 @@ if __name__ == '__main__':
     return loader_path
 
 
-def build_loader():
+def build_loader(args):
     """Собирает загрузчик в exe."""
     print("\n" + "=" * 50)
     print("Building loader.exe")
     print("=" * 50)
 
-    loader_path = create_loader_script()
+    env_path = Path(args.env_file) if args.env_file else (PROJECT_ROOT / '.env')
+    env_vars = parse_env_file(env_path)
+    if env_vars:
+        print(f"🔐 Embedding {len(env_vars)} variable(s) from {env_path.name} into loader")
+    else:
+        print(f"⚠️ No variables embedded (env file: {env_path})")
+
+    loader_path = create_loader_script(env_vars)
 
     output_dir = DIST_DIR / 'gamespeek'
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -481,12 +555,18 @@ def build_loader():
         return False
 
     final_exe = output_dir / 'gamespeek.exe'
-    if final_exe.exists():
-        print(f"✅ Loader built: {final_exe}")
-        return True
+    if not final_exe.exists():
+        print(f"❌ Loader not found at {final_exe}")
+        return False
 
-    print(f"❌ Loader not found at {final_exe}")
-    return False
+    try:
+        loader_path.unlink()
+        print("  ✅ Removed temporary loader.py (secrets not left on disk)")
+    except Exception as e:
+        print(f"  ⚠️ Could not remove loader.py: {e}")
+
+    print(f"✅ Loader built: {final_exe}")
+    return True
 
 
 def _venv_exclude(rel_parts, item, strip_data_libs=False):
@@ -634,15 +714,25 @@ def copy_venv_and_files(venv, dump, args):
     else:
         print(f"⚠️ database.dump not found at {dump}, skipped")
 
-    env_file = PROJECT_ROOT / '.env'
-    if env_file.exists():
-        copy_item(env_file, exe_dir / '.env', '.env')
+    if getattr(args, 'copy_env', False):
+        env_file = Path(args.env_file) if args.env_file else (PROJECT_ROOT / '.env')
+        if env_file.exists():
+            copy_item(env_file, exe_dir / '.env', '.env (--copy-env, NOT SECURE)')
+            print("  ⚠️ .env copied in plain text because --copy-env was given")
+        else:
+            print(f"⚠️ .env not found at {env_file}, skipped (--copy-env)")
     else:
-        print(f"⚠️ .env not found at {env_file}, skipped (run.py must create it)")
+        print("🔐 .env NOT copied to dist (values embedded in gamespeek.exe)")
 
     logs_dir = exe_dir / 'logs'
     logs_dir.mkdir(exist_ok=True)
     print("✅ Created logs folder")
+
+    for empty_dir_name in ('robots_txt', 'static'):
+        empty_dir = exe_dir / empty_dir_name
+        if not empty_dir.exists():
+            empty_dir.mkdir(parents=True, exist_ok=True)
+            print(f"✅ Created empty {empty_dir_name}/ (avoids W004)")
 
     total_size = 0
     file_count = 0
@@ -669,6 +759,10 @@ def parse_args():
                         help='Print top-30 biggest dirs in venv/Lib/site-packages and PostgreSQL')
     parser.add_argument('--strip-data-libs', action='store_true',
                         help='Also exclude pandas/numpy from venv (may break admin analyze pages)')
+    parser.add_argument('--env-file', default=None,
+                        help='Path to .env file to embed (default: PROJECT_ROOT/.env)')
+    parser.add_argument('--copy-env', action='store_true',
+                        help='ALSO copy .env into dist in plain text (NOT SECURE; debug only)')
     return parser.parse_args()
 
 
@@ -685,7 +779,11 @@ def main():
 
     print(f"  PG_SOURCE_DIR : {pg_source}")
     print(f"  VENV_DIR      : {venv}")
+    env_path = Path(args.env_file) if args.env_file else (PROJECT_ROOT / '.env')
+
     print(f"  DATABASE_DUMP : {dump}")
+    print(f"  ENV_FILE      : {env_path}")
+    print(f"  COPY_ENV      : {getattr(args, 'copy_env', False)}")
     print()
 
     if args.list_big_dirs:
@@ -706,6 +804,11 @@ def main():
         print("   Страницы analyze в админке могут упасть с ImportError.")
         print()
 
+    if getattr(args, 'copy_env', False):
+        print("⚠️ --copy-env: .env будет скопирован в dist в открытом виде.")
+        print("   Это НЕ безопасно. Используйте только для отладки.")
+        print()
+
     if not args.skip_db_clean:
         print("Step 0: Cleaning database...")
         clean_database()
@@ -722,7 +825,7 @@ def main():
 
     if build_success:
         print("\nStep 3: Building loader...")
-        if not build_loader():
+        if not build_loader(args):
             build_success = False
 
     if build_success:
@@ -741,7 +844,10 @@ def main():
         print("   - database.dump (если был найден)")
         print("   - PostgreSQL binaries (без data, pgAdmin, installer, symbols)")
         print("   - run.py и все файлы проекта")
-        print("   - .env (если был в корне проекта)")
+        if getattr(args, 'copy_env', False):
+            print("   - .env (--copy-env: открытый текст, НЕ безопасно)")
+        else:
+            print("   - .env отсутствует: значения вшиты в gamespeek.exe")
         print("\nTo run: double-click gamespeek.exe")
         play_sound(success=True, enabled=not args.no_sound)
     else:

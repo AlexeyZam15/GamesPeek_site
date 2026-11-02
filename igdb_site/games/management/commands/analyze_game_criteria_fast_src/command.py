@@ -212,6 +212,11 @@ class Command(
             self.update_game = True
             self.combine_all_texts = not options.get('no_combine_texts', False)
 
+            # ИЗМЕНЕНО: флаг — собирать ли pattern_info / счётчики / all_results.
+            # Нужно только если есть --output (файл с паттернами) или --group-by-pattern.
+            # Без этого экономим память (~1 ГБ на 88882 играх) и ускоряем --keywords.
+            self.collect_pattern_details = bool(self.output_path) or bool(self.group_by_pattern)
+
             self.output_file = None
             self.original_stdout = None
             if self.output_path:
@@ -261,7 +266,7 @@ class Command(
                              f"темы={len(existing_relations['themes'])}, "
                              f"перспективы={len(existing_relations['perspectives'])}, "
                              f"режимы={len(existing_relations['game_modes'])}, "
-                             f"ключевые слова={len(existing_relations.get('keywords', set()))}\n")
+                             f"ключевые слова (игр)={len(existing_relations.get('keywords_by_game', {}))}\n")
             sys.stderr.flush()
 
             self.progress_bar = None
@@ -292,8 +297,6 @@ class Command(
             sys.stderr.write("\n✨ Завершено\n")
             sys.stderr.flush()
 
-        # Код возврата: 0 при успехе, 1 при ошибке, 130 при Ctrl+C.
-        # Не вызываем sys.exit(0) в finally — иначе ошибки маскируются.
         if exit_code:
             sys.exit(exit_code)
 
