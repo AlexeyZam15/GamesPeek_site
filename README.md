@@ -1,5 +1,3 @@
-<div align="center">
-
 # 🎮 GamesPeek – Intelligent Game Discovery Engine
 
 **Find similar games across a database of 80,000+ titles**
@@ -116,6 +114,21 @@ Instead of endless scrolling through stores or reading reviews:
 - **Detailed game information** including descriptions, screenshots, and ratings
 - **Mobile-responsive design** for gaming on any device
 - **Portable Windows desktop app** — run locally with no installation
+
+---
+
+## 📸 Screenshots
+
+<table>
+  <tr>
+    <td align="center"><img src="https://raw.githubusercontent.com/AlexeyZam15/GamesPeek_site/refs/heads/main/screenshots/home.png" width="400" alt="Home page"><br>Home page</td>
+    <td align="center"><img src="https://raw.githubusercontent.com/AlexeyZam15/GamesPeek_site/refs/heads/main/screenshots/all_games.png" width="400" alt="All games"><br>All games</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="https://raw.githubusercontent.com/AlexeyZam15/GamesPeek_site/refs/heads/main/screenshots/detail.png" width="400" alt="Game detail"><br>Game detail</td>
+    <td align="center"><img src="https://raw.githubusercontent.com/AlexeyZam15/GamesPeek_site/refs/heads/main/screenshots/similar_games.png" width="400" alt="Similar games"><br>Similar games</td>
+  </tr>
+</table>
 
 ---
 

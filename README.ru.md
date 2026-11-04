@@ -119,6 +119,21 @@ GamesPeek решает простую проблему: **вы знаете, к�
 
 ---
 
+## 📸 Скриншоты
+
+<table>
+  <tr>
+    <td align="center"><img src="https://raw.githubusercontent.com/AlexeyZam15/GamesPeek_site/refs/heads/main/screenshots/home.png" width="400" alt="Главная страница"><br>Главная страница</td>
+    <td align="center"><img src="https://raw.githubusercontent.com/AlexeyZam15/GamesPeek_site/refs/heads/main/screenshots/all_games.png" width="400" alt="Все игры"><br>Все игры</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="https://raw.githubusercontent.com/AlexeyZam15/GamesPeek_site/refs/heads/main/screenshots/detail.png" width="400" alt="Страница игры"><br>Страница игры</td>
+    <td align="center"><img src="https://raw.githubusercontent.com/AlexeyZam15/GamesPeek_site/refs/heads/main/screenshots/similar_games.png" width="400" alt="Похожие игры"><br>Похожие игры</td>
+  </tr>
+</table>
+
+---
+
 ## 🛠️ Технологии
 
 - **Backend:** Django 5.x, PostgreSQL
